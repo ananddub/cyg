@@ -1,0 +1,7 @@
+[package]
+name = "engine-core"
+version = "0.1.0"
+edition = "2024"
+description = "Core game loop, room lifecycle, sessions, and state management traits"
+
+[dependencies]

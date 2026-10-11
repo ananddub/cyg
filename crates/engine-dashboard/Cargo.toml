@@ -1,0 +1,8 @@
+[package]
+name = "engine-dashboard"
+version = "0.1.0"
+edition = "2024"
+description = "Embedded web control plane and real-time telemetry dashboard"
+
+[dependencies]
+engine-core = { path = "../engine-core" }

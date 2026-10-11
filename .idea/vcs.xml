@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/target/debug/build/boring-sys-0f3d0f43f466e44c/out/boringssl" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/target/debug/build/boring-sys-1d9d121ca201205a/out/boringssl" vcs="Git" />
+  </component>
+</project>

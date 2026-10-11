@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    ".",
+    "crates/*",
+]
+
+[package]
+name = "openoxide-gaming"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+mio = {version = "1.2.4",features = ["net","os-poll"]}
+quiche = "0.30.0"
+
+[[bin]]
+name = "test"
+path = "src/test.rs"
+
+[[bin]]
+name = "client"
+path = "src/client.rs"

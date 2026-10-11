@@ -1,0 +1,13 @@
+[package]
+name = "engine-wasm"
+version = "0.1.0"
+edition = "2024"
+description = "WebAssembly sandbox runtime powered by Wasmtime for guest game room logic"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+thiserror = "2.0.21"
+wasmtime = "25.0.0"
+
+[dev-dependencies]
+wat = "1.261.0"

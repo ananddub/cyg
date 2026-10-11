@@ -1,0 +1,10 @@
+[package]
+name = "engine-net"
+version = "0.1.0"
+edition = "2024"
+description = "QUIC / UDP transport layer powered by quiche and mio"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+quiche = "0.30.0"
+mio = { version = "1.2.4", features = ["net", "os-poll"] }

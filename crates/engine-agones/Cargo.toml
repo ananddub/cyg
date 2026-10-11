@@ -1,0 +1,8 @@
+[package]
+name = "engine-agones"
+version = "0.1.0"
+edition = "2024"
+description = "Agones Kubernetes lifecycle integration (Ready, Health ping, Shutdown)"
+
+[dependencies]
+engine-core = { path = "../engine-core" }
