@@ -44,6 +44,7 @@ wasm_module! {
 struct GameRoom {
     wasm: RoomLogic<Arc<PhysicsWorld3D>>,
     sessions: HashMap<String, i64>,
+    spectators: std::collections::HashSet<String>,
     next_player_id: i64,
     empty_since: Option<Instant>,
 }
@@ -207,6 +208,7 @@ impl GameRoom {
         Self {
             wasm,
             sessions: HashMap::new(),
+            spectators: std::collections::HashSet::new(),
             next_player_id: 1,
             empty_since: Some(Instant::now()),
         }
@@ -257,7 +259,8 @@ fn strip_type_header(payload: &[u8]) -> Option<&[u8]> {
         let type_len = *payload.get(1)? as usize;
         payload.get(2 + type_len..)
     } else {
-        None
+        // Direct raw binary input from OpenOxide SDK without msgpack overhead
+        Some(payload)
     }
 }
 
@@ -277,14 +280,18 @@ pub fn run(
         include_bytes!("../crates/engine-net/examples/e2e/website.html").to_vec()
     };
     let sdk_js = std::fs::read(cfg.sdk_dir.join("packages/sdk/dist/colyseus.js"))
-        .expect("sdk bundle (packages/sdk/dist/colyseus.js) not found — check sdk_dir");
+        .unwrap_or_default();
     let schema_mjs = std::fs::read(
         cfg.sdk_dir
             .join("node_modules/@colyseus/schema/build/index.mjs"),
     )
-    .expect(
-        "schema bundle (node_modules/@colyseus/schema/build/index.mjs) not found — check sdk_dir",
-    );
+    .unwrap_or_default();
+    let openoxide_js_path = project_dir.join("openoxide.js");
+    let openoxide_js = if openoxide_js_path.exists() {
+        std::fs::read(&openoxide_js_path).unwrap_or_default()
+    } else {
+        include_bytes!("../examples/tank-3d/openoxide.js").to_vec()
+    };
 
 
 
@@ -336,6 +343,7 @@ pub fn run(
 
     let website_path_clone = website_path.clone();
     let default_website_clone = website.clone();
+    let openoxide_js_clone = openoxide_js.clone();
     let sdk_js_clone = sdk_js.clone();
     let schema_mjs_clone = schema_mjs.clone();
     let map_path_clone = map_path.clone();
@@ -347,6 +355,9 @@ pub fn run(
                 let body = std::fs::read(&website_path_clone)
                     .unwrap_or_else(|_| default_website_clone.clone());
                 Some(("text/html; charset=utf-8".to_string(), body))
+            }
+            "/openoxide.js" => {
+                Some(("text/javascript; charset=utf-8".to_string(), openoxide_js_clone.clone()))
             }
             "/arena_map.json" => {
                 let body = std::fs::read(&map_path_clone).unwrap_or_default();
@@ -393,50 +404,54 @@ pub fn run(
         for event in events {
             match event {
                 TransportEvent::Connected { client_id, .. } => {
-                    let room_name = transport
+                    let raw_room = transport
                         .room_of(&client_id)
                         .unwrap_or(&cfg.name)
                         .to_string();
-
-                    let (x, y) = {
-                        let s = server.lock().unwrap();
-                        let n = s
-                            .rooms
-                            .get(&room_name)
-                            .map(|r| r.sessions.len())
-                            .unwrap_or(0);
-                        (
-                            60.0 + ((n as f64) * 97.0) % (cfg.width - 120.0),
-                            60.0 + ((n as f64) * 61.0) % (cfg.height - 120.0),
-                        )
-                    };
+                    let is_spectator = raw_room.contains("spectator");
+                    let room_name = raw_room.split('?').next().unwrap_or(&raw_room).to_string();
 
                     let mut server = server.lock().unwrap();
                     let room = server.get_or_create(&room_name);
-                    let id = room.next_player_id;
-                    room.next_player_id += 1;
-                    room.wasm.on_join(id, x, y).expect("wasm on_join");
-                    room.sessions.insert(client_id.clone(), id);
                     room.empty_since = None;
+
+                    if is_spectator {
+                        room.spectators.insert(client_id.clone());
+                        eprintln!("[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'");
+                    } else {
+                        let (x, y) = {
+                            let n = room.sessions.len();
+                            (
+                                60.0 + ((n as f64) * 97.0) % (cfg.width - 120.0),
+                                60.0 + ((n as f64) * 61.0) % (cfg.height - 120.0),
+                            )
+                        };
+                        let id = room.next_player_id;
+                        room.next_player_id += 1;
+                        room.wasm.on_join(id, x, y).expect("wasm on_join");
+                        room.sessions.insert(client_id.clone(), id);
+                        eprintln!("[server] {client_id} joined room '{room_name}' (player id {id})");
+                    }
                     let _ = transport.flush();
-                    eprintln!("[server] {client_id} joined room '{room_name}' (player id {id})");
                 }
                 TransportEvent::Disconnected { client_id } => {
                     eprintln!("[server] disconnected: {client_id}");
-                    let room_name = transport
+                    let raw_room = transport
                         .room_of(&client_id)
                         .unwrap_or(&cfg.name)
                         .to_string();
+                    let room_name = raw_room.split('?').next().unwrap_or(&raw_room).to_string();
                     let mut server = server.lock().unwrap();
                     let Some(room) = server.rooms.get_mut(&room_name) else {
                         continue;
                     };
-                    let Some(&id) = room.sessions.get(&client_id) else {
-                        continue;
-                    };
-                    let _ = room.wasm.on_leave(id);
-                    room.sessions.remove(&client_id);
-                    room.empty_since = Some(Instant::now());
+                    room.spectators.remove(&client_id);
+                    if let Some(id) = room.sessions.remove(&client_id) {
+                        let _ = room.wasm.on_leave(id);
+                    }
+                    if room.sessions.is_empty() && room.spectators.is_empty() {
+                        room.empty_since = Some(Instant::now());
+                    }
                 }
                 TransportEvent::Packet {
                     client_id, payload, ..
@@ -446,14 +461,28 @@ pub fn run(
                     let Some(data) = strip_type_header(&payload) else {
                         continue;
                     };
-                    let room_name = transport
+                    let raw_room = transport
                         .room_of(&client_id)
                         .unwrap_or(&cfg.name)
                         .to_string();
+                    let room_name = raw_room.split('?').next().unwrap_or(&raw_room).to_string();
                     let mut server = server.lock().unwrap();
                     let Some(room) = server.rooms.get_mut(&room_name) else {
                         continue;
                     };
+
+                    // Spectator Upgrade Handshake: [0xFF, 'S', 'P', 'E', 'C']
+                    if data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC" {
+                        if let Some(id) = room.sessions.remove(&client_id) {
+                            let _ = room.wasm.on_leave(id);
+                        }
+                        room.spectators.insert(client_id.clone());
+                        eprintln!("[server] 👁️  {client_id} upgraded to SPECTATOR in room '{room_name}'");
+                        let confirm = wrap_delta(0, &[]);
+                        let _ = transport.send_to(&client_id, OpCode::RoomDataBytes, &confirm);
+                        continue;
+                    }
+
                     let Some(&id) = room.sessions.get(&client_id) else {
                         continue;
                     };
@@ -487,13 +516,23 @@ pub fn run(
                         .wasm
                         .read_memory(ptr as u32, len as u32)
                         .expect("read delta");
+
+                    // 1. Broadcast to active players with their player ID
                     for (session, id) in &room.sessions {
                         let frame = wrap_delta(*id, &delta);
                         let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
                     }
+
+                    // 2. Broadcast to spectators with ID 0 (Observer mode)
+                    if !room.spectators.is_empty() {
+                        let spec_frame = wrap_delta(0, &delta);
+                        for spec_session in &room.spectators {
+                            let _ = transport.send_to(spec_session, OpCode::RoomDataBytes, &spec_frame);
+                        }
+                    }
                 }
 
-                if room.sessions.is_empty() {
+                if room.sessions.is_empty() && room.spectators.is_empty() {
                     match room.empty_since {
                         Some(t) if t.elapsed() > Duration::from_secs(30) => {
                             dead_rooms.push(name.clone());
