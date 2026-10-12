@@ -35,7 +35,9 @@ use super::{GameTransport, TransportEvent};
 use crate::colyseus_state::{mp_number, mp_str};
 use crate::framing::OpCode;
 
+#[allow(dead_code)]
 const LISTENER_TOKEN: Token = Token(0);
+#[allow(dead_code)]
 const CLIENT_TOKEN_START: usize = 1;
 
 // Colyseus Protocol Wire Constants (packages/shared-types/src/Protocol.ts)
@@ -154,6 +156,9 @@ impl Default for HeartbeatConfig {
 /// JSON, or a typed rejection (sent as a `MatchMakeError` to the SDK).
 type MatchmakeHook = Box<dyn Fn(&str, &str, &str) -> Result<String, MatchMakeError> + Send>;
 
+/// Static HTTP hook: (path) -> Option<(content_type, body)>
+pub type HttpHook = Box<dyn Fn(&str) -> Option<(String, Vec<u8>)> + Send>;
+
 /// State of a connected Colyseus SDK client.
 #[derive(PartialEq)]
 enum WsState {
@@ -182,6 +187,7 @@ struct ColyseusClient {
 /// borrow never overlaps the shared transport state it needs.
 struct ServerCtx<'a> {
     matchmake_hook: Option<&'a MatchmakeHook>,
+    http_hook: Option<&'a HttpHook>,
     retained: &'a HashMap<String, String>,
     seat_tokens: &'a mut HashMap<String, String>,
     client_rooms: &'a mut HashMap<String, String>,
@@ -190,7 +196,7 @@ struct ServerCtx<'a> {
 pub struct ColyseusWsTransport {
     poll: Poll,
     events: Events,
-    listener: TcpListener,
+    listeners: Vec<TcpListener>,
     clients: HashMap<Token, ColyseusClient>,
     client_tokens: HashMap<String, Token>,
     /// session id -> room id (from the upgrade URL path).
@@ -207,37 +213,54 @@ pub struct ColyseusWsTransport {
     next_token: usize,
     /// Actual kernel-assigned bound address (resolves port 0).
     bound_addr: SocketAddr,
+    pub bound_addrs: Vec<SocketAddr>,
     matchmake_hook: Option<MatchmakeHook>,
+    http_hook: Option<HttpHook>,
 }
 
 impl ColyseusWsTransport {
+    pub fn bound_addrs(&self) -> &[SocketAddr] {
+        &self.bound_addrs
+    }
+
     pub fn new(bind_addr: SocketAddr) -> io::Result<Self> {
+        Self::new_multi(&[bind_addr])
+    }
+
+    pub fn new_multi(bind_addrs: &[SocketAddr]) -> io::Result<Self> {
         let poll = Poll::new()?;
         let events = Events::with_capacity(1024);
+        let mut listeners = Vec::new();
+        let mut resolved_addrs = Vec::new();
 
-        let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
-        socket.set_reuse_address(true)?;
-        #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
-        socket.set_reuse_port(true)?;
-        socket.set_nonblocking(true)?;
-        socket.set_tcp_nodelay(true)?;
+        for (idx, &addr) in bind_addrs.iter().enumerate() {
+            let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+            socket.set_reuse_address(true)?;
+            #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+            socket.set_reuse_port(true)?;
+            socket.set_nonblocking(true)?;
+            socket.set_tcp_nodelay(true)?;
 
-        let sock_addr = bind_addr.into();
-        socket.bind(&sock_addr)?;
-        socket.listen(1024)?;
+            let sock_addr = addr.into();
+            socket.bind(&sock_addr)?;
+            socket.listen(1024)?;
 
-        let std_listener: std::net::TcpListener = socket.into();
-        let mut listener = TcpListener::from_std(std_listener);
+            let std_listener: std::net::TcpListener = socket.into();
+            let mut listener = TcpListener::from_std(std_listener);
+            poll.registry()
+                .register(&mut listener, Token(idx), Interest::READABLE)?;
 
-        poll.registry()
-            .register(&mut listener, LISTENER_TOKEN, Interest::READABLE)?;
+            resolved_addrs.push(listener.local_addr()?);
+            listeners.push(listener);
+        }
 
-        let bound_addr = listener.local_addr()?;
+        let bound_addr = resolved_addrs.first().copied().unwrap_or_else(|| "0.0.0.0:0".parse().unwrap());
+        let next_token = listeners.len() + 10;
 
         Ok(Self {
             poll,
             events,
-            listener,
+            listeners,
             clients: HashMap::new(),
             client_tokens: HashMap::new(),
             client_rooms: HashMap::new(),
@@ -245,15 +268,22 @@ impl ColyseusWsTransport {
             seat_tokens: HashMap::new(),
             pending_events: Vec::new(),
             heartbeat: HeartbeatConfig::default(),
-            next_token: CLIENT_TOKEN_START,
+            next_token,
             bound_addr,
+            bound_addrs: resolved_addrs,
             matchmake_hook: None,
+            http_hook: None,
         })
     }
 
     /// Override the unresponsive-client heartbeat (see [`HeartbeatConfig`]).
     pub fn set_heartbeat(&mut self, config: HeartbeatConfig) {
         self.heartbeat = config;
+    }
+
+    /// Register static HTTP request handler: (path) -> Option<(content_type, body)>
+    pub fn on_http(&mut self, f: impl Fn(&str) -> Option<(String, Vec<u8>)> + Send + 'static) {
+        self.http_hook = Some(Box::new(f));
     }
 
     /// Register the game's matchmake handler: receives (method, room, body)
@@ -391,9 +421,11 @@ impl GameTransport for ColyseusWsTransport {
         }
 
         for event in self.events.iter() {
-            match event.token() {
-                LISTENER_TOKEN => loop {
-                    match self.listener.accept() {
+            let tok = event.token();
+            if tok.0 < self.listeners.len() {
+                let listener_idx = tok.0;
+                loop {
+                    match self.listeners[listener_idx].accept() {
                         Ok((mut stream, peer)) => {
                             let token = Token(self.next_token);
                             self.next_token += 1;
@@ -439,6 +471,7 @@ impl GameTransport for ColyseusWsTransport {
                                 let close = {
                                     let mut ctx = ServerCtx {
                                         matchmake_hook: self.matchmake_hook.as_ref(),
+                                        http_hook: self.http_hook.as_ref(),
                                         retained: &self.retained,
                                         seat_tokens: &mut self.seat_tokens,
                                         client_rooms: &mut self.client_rooms,
@@ -473,9 +506,10 @@ impl GameTransport for ColyseusWsTransport {
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                         Err(e) => return Err(e),
                     }
-                },
-                token => {
-                    let mut conn_dead = false;
+                }
+            } else {
+                let token = tok;
+                let mut conn_dead = false;
                     let mut client_session_id = String::new();
 
                     if let Some(client) = self.clients.get_mut(&token) {
@@ -510,6 +544,7 @@ impl GameTransport for ColyseusWsTransport {
                                     let closed = {
                                         let mut ctx = ServerCtx {
                                             matchmake_hook: self.matchmake_hook.as_ref(),
+                                            http_hook: self.http_hook.as_ref(),
                                             retained: &self.retained,
                                             seat_tokens: &mut self.seat_tokens,
                                             client_rooms: &mut self.client_rooms,
@@ -563,7 +598,6 @@ impl GameTransport for ColyseusWsTransport {
                     }
                 }
             }
-        }
 
         for (token, cid) in disconnected {
             if let Some(mut client) = self.clients.remove(&token) {
@@ -837,6 +871,18 @@ fn handle_client_greeting(
             .to_string()
     };
     let url_body = req.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+    let is_plain_get = req.starts_with("GET ") && !req.contains("Sec-WebSocket-Key");
+    let get_path = if is_plain_get {
+        req.split_whitespace()
+            .nth(1)
+            .unwrap_or("/")
+            .split('?')
+            .next()
+            .unwrap_or("/")
+            .to_string()
+    } else {
+        String::new()
+    };
     drop(req);
 
     // CORS: the SDK sends requests with credentials mode 'include', so the
@@ -908,6 +954,23 @@ fn handle_client_greeting(
         let _ = client.stream.write_all(response.as_bytes());
         client.recv_buf.clear();
         return true; // close after HTTP reply
+    }
+
+    // --- Static HTTP requests (if hook registered and not a WS upgrade) ---
+    if is_plain_get {
+        if let Some(hook) = ctx.http_hook {
+            if let Some((content_type, body)) = hook(&get_path) {
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, OPTIONS\r\nConnection: close\r\n\r\n",
+                    content_type,
+                    body.len()
+                );
+                let _ = client.stream.write_all(response.as_bytes());
+                let _ = client.stream.write_all(&body);
+                client.recv_buf.clear();
+                return true;
+            }
+        }
     }
 
     // --- RFC 6455 WebSocket upgrade ---

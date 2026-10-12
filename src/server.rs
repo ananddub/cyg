@@ -19,7 +19,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use engine_http::{Api, Response};
+
 use engine_net::framing::OpCode;
 use engine_net::transport::{ColyseusWsTransport, GameTransport, TransportEvent};
 use engine_wasm::{WasmRuntime, wasm_module};
@@ -140,58 +140,7 @@ pub fn run(
         "schema bundle (node_modules/@colyseus/schema/build/index.mjs) not found — check sdk_dir",
     );
 
-    let api = Api::new()
-        .get("/health", |_| Response::text("ok"))
-        .get("/", {
-            let website_path = website_path.clone();
-            let default_website = website.clone();
-            move |_| {
-                let body = std::fs::read(&website_path).unwrap_or_else(|_| default_website.clone());
-                Response::new(200)
-                    .with_body(body)
-                    .with_header("Content-Type", "text/html; charset=utf-8")
-            }
-        })
-        .get("/website.html", {
-            let website_path = website_path.clone();
-            let default_website = website.clone();
-            move |_| {
-                let body = std::fs::read(&website_path).unwrap_or_else(|_| default_website.clone());
-                Response::new(200)
-                    .with_body(body)
-                    .with_header("Content-Type", "text/html; charset=utf-8")
-            }
-        })
-        .get("/packages/sdk/dist/colyseus.js", {
-            let sdk_js = sdk_js.clone();
-            move |_| {
-                Response::new(200)
-                    .with_body(sdk_js.clone())
-                    .with_header("Content-Type", "text/javascript")
-            }
-        })
-        .get("/node_modules/@colyseus/schema/build/index.mjs", {
-            let schema_mjs = schema_mjs.clone();
-            move |_| {
-                Response::new(200)
-                    .with_body(schema_mjs.clone())
-                    .with_header("Content-Type", "text/javascript")
-            }
-        });
 
-    let _http_handle = Api::serve(
-        api,
-        engine_http::HttpVersion::Http1,
-        format!("0.0.0.0:{}", cfg.web_port)
-            .parse::<SocketAddr>()
-            .unwrap(),
-    )
-    .expect("http serve");
-    eprintln!(
-        "[server] website on http://localhost:{}/{}",
-        cfg.web_port,
-        cfg.website.display()
-    );
 
     // ------------------------------------------------------------------
     // WASM runtime — the room logic module (hot-swappable).
@@ -207,13 +156,46 @@ pub fn run(
         wasm_bytes.len()
     );
 
-    let mut transport = ColyseusWsTransport::new(
-        format!("0.0.0.0:{}", cfg.port)
-            .parse::<SocketAddr>()
-            .unwrap(),
-    )
-    .expect("bind game port");
-    eprintln!("[server] game on ws://localhost:{}", cfg.port);
+    let mut addrs = vec![
+        format!("0.0.0.0:{}", cfg.port).parse::<SocketAddr>().unwrap()
+    ];
+    if cfg.web_port != cfg.port {
+        addrs.push(format!("0.0.0.0:{}", cfg.web_port).parse::<SocketAddr>().unwrap());
+    }
+
+    let mut transport = ColyseusWsTransport::new_multi(&addrs)
+        .expect("bind transport ports");
+
+    let website_path_clone = website_path.clone();
+    let default_website_clone = website.clone();
+    let sdk_js_clone = sdk_js.clone();
+    let schema_mjs_clone = schema_mjs.clone();
+
+    transport.on_http(move |path| {
+        match path {
+            "/health" => Some(("text/plain; charset=utf-8".to_string(), b"ok".to_vec())),
+            "/" | "/website.html" => {
+                let body = std::fs::read(&website_path_clone)
+                    .unwrap_or_else(|_| default_website_clone.clone());
+                Some(("text/html; charset=utf-8".to_string(), body))
+            }
+            "/packages/sdk/dist/colyseus.js" => {
+                Some(("text/javascript".to_string(), sdk_js_clone.clone()))
+            }
+            "/node_modules/@colyseus/schema/build/index.mjs" => {
+                Some(("text/javascript".to_string(), schema_mjs_clone.clone()))
+            }
+            _ => None,
+        }
+    });
+
+    for addr in transport.bound_addrs() {
+        eprintln!(
+            "[server] listening on http://0.0.0.0:{} (website) & ws://0.0.0.0:{} (game)",
+            addr.port(),
+            addr.port()
+        );
+    }
 
     let wasm_module = runtime.compile(&wasm_bytes).expect("compile room");
     let server = Arc::new(Mutex::new(GameServer {

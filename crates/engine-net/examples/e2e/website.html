@@ -144,7 +144,28 @@
     setInterval(sendInput, 25);
 
     async function join() {
-        const client = new Colyseus.Client(`ws://${gameHost}:${gamePort}`);
+        const isHttps = location.protocol === 'https:';
+        const wsProto = isHttps ? 'wss:' : 'ws:';
+
+        let endpoint;
+        if (params.has('endpoint')) {
+            endpoint = params.get('endpoint');
+        } else if (params.has('host')) {
+            const h = params.get('host');
+            const p = params.get('port') || (isHttps ? '443' : '7777');
+            endpoint = `${wsProto}//${h}${p && p !== '80' && p !== '443' ? ':' + p : ''}`;
+        } else if (isHttps) {
+            // Tunnel / HTTPS (Dev Tunnels, ngrok, cloudflare) — connect directly to current host over WSS!
+            endpoint = `${wsProto}//${location.host}`;
+        } else {
+            // Local HTTP:
+            const host = (location.hostname === '0.0.0.0' || !location.hostname) ? '127.0.0.1' : location.hostname;
+            const port = location.port || '8090';
+            endpoint = `${wsProto}//${host}:${port}`;
+        }
+
+        statusEl.textContent = `connecting to ${endpoint}…`;
+        const client = new Colyseus.Client(endpoint);
         room = await client.joinOrCreate('game_room');
 
         room.onMessage("delta", (bytes) => {
