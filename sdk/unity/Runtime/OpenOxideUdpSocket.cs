@@ -79,6 +79,11 @@ namespace OpenOxide
             }
         }
 
+        public void Poll()
+        {
+            // UDP socket processes datagrams via async background loop
+        }
+
         public void Send(byte[] data)
         {
             if (!_isRunning || _udpClient == null || data == null) return;

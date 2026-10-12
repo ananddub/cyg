@@ -352,7 +352,8 @@ pub fn run(
         .map(|p| p.join("OpenOxideArena/Build/WebGL"))
         .unwrap_or_else(|| project_dir.join("unity"));
 
-    transport.on_http(move |path| {
+    transport.on_http(move |raw_path| {
+        let path = raw_path.split('?').next().unwrap_or(raw_path);
         if path == "/unity" || path == "/unity/" {
             let index_path = webgl_dir_clone.join("index.html");
             if let Ok(body) = std::fs::read(&index_path) {

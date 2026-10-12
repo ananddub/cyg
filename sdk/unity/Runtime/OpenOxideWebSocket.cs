@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 #if UNITY_WEBGL && !UNITY_EDITOR
 using System.Runtime.InteropServices;
@@ -13,7 +12,8 @@ namespace OpenOxide
 {
     /// <summary>
     /// Binary WebSocket transport for OpenOxide client.
-    /// Uses native browser WebSocket API in WebGL via .jslib, and ClientWebSocket in Editor / Standalone.
+    /// Uses native browser WebSocket API in WebGL with thread-safe main thread polling,
+    /// and ClientWebSocket in Editor / Standalone.
     /// </summary>
     public class OpenOxideWebSocket : IOpenOxideSocket
     {
@@ -22,13 +22,17 @@ namespace OpenOxide
         public event Action<Exception> OnError;
 
 #if UNITY_WEBGL && !UNITY_EDITOR
-        private delegate void OnOpenDelegate(int socketId);
-        private delegate void OnMessageDelegate(int socketId, IntPtr ptr, int length);
-        private delegate void OnErrorDelegate(int socketId);
-        private delegate void OnCloseDelegate(int socketId);
+        [DllImport("__Internal")]
+        private static extern int OpenOxide_WS_Connect(string url);
 
         [DllImport("__Internal")]
-        private static extern int OpenOxide_WS_Connect(string url, OnOpenDelegate onOpen, OnMessageDelegate onMsg, OnErrorDelegate onErr, OnCloseDelegate onClose);
+        private static extern int OpenOxide_WS_GetState(int socketId);
+
+        [DllImport("__Internal")]
+        private static extern int OpenOxide_WS_PollPacketSize(int socketId);
+
+        [DllImport("__Internal")]
+        private static extern int OpenOxide_WS_PollPacket(int socketId, [In, Out] byte[] dstPtr, int maxLen);
 
         [DllImport("__Internal")]
         private static extern void OpenOxide_WS_Send(int socketId, byte[] ptr, int length);
@@ -36,59 +40,60 @@ namespace OpenOxide
         [DllImport("__Internal")]
         private static extern void OpenOxide_WS_Close(int socketId);
 
-        private static readonly Dictionary<int, OpenOxideWebSocket> _instances = new Dictionary<int, OpenOxideWebSocket>();
         private int _socketId = -1;
-
-        [AOT.MonoPInvokeCallback(typeof(OnOpenDelegate))]
-        private static void StaticOnOpen(int id)
-        {
-            if (_instances.TryGetValue(id, out var ws))
-            {
-                ws.IsConnected = true;
-            }
-        }
-
-        [AOT.MonoPInvokeCallback(typeof(OnMessageDelegate))]
-        private static void StaticOnMessage(int id, IntPtr ptr, int len)
-        {
-            if (_instances.TryGetValue(id, out var ws))
-            {
-                byte[] buffer = new byte[len];
-                Marshal.Copy(ptr, buffer, 0, len);
-                ws.OnPacketReceived?.Invoke(buffer);
-            }
-        }
-
-        [AOT.MonoPInvokeCallback(typeof(OnErrorDelegate))]
-        private static void StaticOnError(int id)
-        {
-            if (_instances.TryGetValue(id, out var ws))
-            {
-                ws.OnError?.Invoke(new Exception("WebSocket error reported by browser"));
-            }
-        }
-
-        [AOT.MonoPInvokeCallback(typeof(OnCloseDelegate))]
-        private static void StaticOnClose(int id)
-        {
-            if (_instances.TryGetValue(id, out var ws))
-            {
-                ws.IsConnected = false;
-                _instances.Remove(id);
-            }
-        }
+        private byte[] _pollBuffer = new byte[65536];
 
         public void Connect(string url)
         {
             Disconnect();
-            _socketId = OpenOxide_WS_Connect(url, StaticOnOpen, StaticOnMessage, StaticOnError, StaticOnClose);
-            if (_socketId >= 0)
-            {
-                _instances[_socketId] = this;
-            }
-            else
+            _socketId = OpenOxide_WS_Connect(url);
+            if (_socketId < 0)
             {
                 OnError?.Invoke(new Exception("Failed to initialize browser WebSocket"));
+            }
+        }
+
+        public void Poll()
+        {
+            if (_socketId < 0) return;
+
+            int state = OpenOxide_WS_GetState(_socketId);
+            if (state == 1 && !IsConnected)
+            {
+                IsConnected = true;
+            }
+            else if (state == 3 && IsConnected)
+            {
+                IsConnected = false;
+            }
+            else if (state == 4)
+            {
+                IsConnected = false;
+                OnError?.Invoke(new Exception("WebSocket reported error"));
+                return;
+            }
+
+            while (_socketId >= 0)
+            {
+                int size = OpenOxide_WS_PollPacketSize(_socketId);
+                if (size <= 0) break;
+
+                if (_pollBuffer.Length < size)
+                {
+                    _pollBuffer = new byte[size * 2];
+                }
+
+                int read = OpenOxide_WS_PollPacket(_socketId, _pollBuffer, _pollBuffer.Length);
+                if (read > 0)
+                {
+                    byte[] packet = new byte[read];
+                    Buffer.BlockCopy(_pollBuffer, 0, packet, 0, read);
+                    OnPacketReceived?.Invoke(packet);
+                }
+                else
+                {
+                    break;
+                }
             }
         }
 
@@ -103,7 +108,6 @@ namespace OpenOxide
             if (_socketId >= 0)
             {
                 OpenOxide_WS_Close(_socketId);
-                _instances.Remove(_socketId);
                 _socketId = -1;
             }
             IsConnected = false;
@@ -111,6 +115,11 @@ namespace OpenOxide
 #else
         private ClientWebSocket _client;
         private CancellationTokenSource _cts;
+
+        public void Poll()
+        {
+            // Background Task loop handles packet reception on Standalone / Editor
+        }
 
         public void Connect(string url)
         {

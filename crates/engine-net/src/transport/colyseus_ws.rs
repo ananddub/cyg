@@ -871,7 +871,8 @@ fn handle_client_greeting(
             .to_string()
     };
     let url_body = req.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
-    let is_plain_get = req.starts_with("GET ") && !req.contains("Sec-WebSocket-Key");
+    let is_head = req.starts_with("HEAD ");
+    let is_plain_get = (req.starts_with("GET ") || is_head) && !req.contains("Sec-WebSocket-Key");
     let get_path = if is_plain_get {
         req.split_whitespace()
             .nth(1)
@@ -968,7 +969,9 @@ fn handle_client_greeting(
                 let sock = socket2::SockRef::from(&client.stream);
                 let _ = sock.set_nonblocking(false);
                 let _ = (&client.stream).write_all(response.as_bytes());
-                let _ = (&client.stream).write_all(&body);
+                if !is_head {
+                    let _ = (&client.stream).write_all(&body);
+                }
                 let _ = client.stream.flush();
                 client.recv_buf.clear();
                 return true;

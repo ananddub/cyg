@@ -76,6 +76,8 @@ namespace OpenOxide
         /// </summary>
         public void Update()
         {
+            _socket?.Poll();
+
             while (_inboundQueue.TryDequeue(out byte[] raw))
             {
                 // Strip 7-byte WebSocket framing (0x11 0xA5 "delta") or 6-byte UDP framing (0xA5 "delta")
@@ -89,6 +91,10 @@ namespace OpenOxide
                     raw[1] == (byte)'d' && raw[2] == (byte)'e' && raw[3] == (byte)'l' && raw[4] == (byte)'t' && raw[5] == (byte)'a')
                 {
                     startOffset = 6;
+                }
+                else
+                {
+                    continue;
                 }
 
                 // If match recording is active, capture frame
