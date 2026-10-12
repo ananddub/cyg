@@ -137,6 +137,70 @@ impl GameRoom {
             )
             .expect("link env.sys_physics_raycast");
 
+        // Host Physics ABI 4: Lag Compensation Entity Hitbox Recording
+        linker
+            .func_wrap(
+                "env",
+                "sys_physics_lag_record",
+                |caller: wasmtime::Caller<'_, Arc<PhysicsWorld3D>>,
+                 tick: i64,
+                 entity_id: i32,
+                 kind: i32,
+                 min_x: f64, min_y: f64, min_z: f64,
+                 max_x: f64, max_y: f64, max_z: f64| {
+                    let world = caller.data().clone();
+                    let bounds = crate::physics::Aabb {
+                        min: crate::physics::Vec3::new(min_x, min_y, min_z),
+                        max: crate::physics::Vec3::new(max_x, max_y, max_z),
+                    };
+                    world.record_entity_hitbox(
+                        tick as u64,
+                        0,
+                        entity_id as u32,
+                        kind as u32,
+                        bounds,
+                    );
+                },
+            )
+            .expect("link env.sys_physics_lag_record");
+
+        // Host Physics ABI 5: Lag-Compensated Rewind Raycast (reference Fusion Server Rewind)
+        linker
+            .func_wrap(
+                "env",
+                "sys_physics_lag_raycast",
+                |mut caller: wasmtime::Caller<'_, Arc<PhysicsWorld3D>>,
+                 shoot_tick: i64,
+                 ox: f64, oy: f64, oz: f64,
+                 dx: f64, dy: f64, dz: f64,
+                 max_dist: f64,
+                 out_ptr: i32| -> i32 {
+                    let world = caller.data().clone();
+                    let origin = crate::physics::Vec3::new(ox, oy, oz);
+                    let dir = crate::physics::Vec3::new(dx, dy, dz);
+
+                    if let Some(hit) = world.lag_compensated_raycast(shoot_tick as u64, origin, dir, max_dist) {
+                        if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
+                            let data = mem.data_mut(&mut caller);
+                            let offset = out_ptr as usize;
+                            if offset + 44 <= data.len() {
+                                data[offset..offset + 8].copy_from_slice(&hit.point.x.to_le_bytes());
+                                data[offset + 8..offset + 16].copy_from_slice(&hit.point.y.to_le_bytes());
+                                data[offset + 16..offset + 24].copy_from_slice(&hit.point.z.to_le_bytes());
+                                data[offset + 24..offset + 32].copy_from_slice(&hit.distance.to_le_bytes());
+                                data[offset + 32..offset + 36].copy_from_slice(&hit.entity_id.to_le_bytes());
+                                data[offset + 36..offset + 40].copy_from_slice(&hit.kind.to_le_bytes());
+                                data[offset + 40..offset + 44].copy_from_slice(&hit.collider_id.to_le_bytes());
+                            }
+                        }
+                        hit.hit_type as i32
+                    } else {
+                        0
+                    }
+                },
+            )
+            .expect("link env.sys_physics_lag_raycast");
+
         let mut wasm = RoomLogic::from_module_with_linker(runtime, &linker, wasm_module, physics)
             .expect("instantiate room");
         wasm.on_create(max_clients).expect("wasm on_create");

@@ -8,7 +8,9 @@
 
 mod compile;
 mod config;
+pub mod net_sync;
 pub mod physics;
+pub mod rapier_integration;
 mod server;
 
 use config::GameConfig;

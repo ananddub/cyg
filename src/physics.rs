@@ -262,12 +262,106 @@ fn default_walkable() -> bool {
     true
 }
 
-/// The 3D Physics & Kinematics World
+/// Historical Entity Hitbox for Lag Compensation / Server Rewind
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoricalEntity {
+    pub entity_id: u32,
+    pub kind: u32, // 1 = Body, 2 = Head/Critical, 3 = Shield/Vehicle
+    pub bounds: Aabb,
+}
+
+/// Snapshot of all active dynamic entity hitboxes at a specific simulation tick
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TickSnapshot {
+    pub tick: u64,
+    pub timestamp_ms: u64,
+    pub entities: Vec<HistoricalEntity>,
+}
+
+/// Authoritative Historical Ring-Buffer for Server-Side Lag Compensation (reference Fusion Killer)
 #[derive(Debug, Clone)]
+pub struct LagCompensator {
+    pub history: std::collections::VecDeque<TickSnapshot>,
+    pub max_ticks: usize,
+}
+
+impl Default for LagCompensator {
+    fn default() -> Self {
+        Self::new(128) // 128 ticks = ~2.13 seconds of history at 60Hz
+    }
+}
+
+impl LagCompensator {
+    pub fn new(max_ticks: usize) -> Self {
+        Self {
+            history: std::collections::VecDeque::with_capacity(max_ticks),
+            max_ticks: max_ticks.max(16),
+        }
+    }
+
+    /// Record an active entity hitbox for the specified server tick
+    pub fn record_entity(&mut self, tick: u64, timestamp_ms: u64, entity: HistoricalEntity) {
+        if let Some(last) = self.history.back_mut() {
+            if last.tick == tick {
+                last.entities.push(entity);
+                return;
+            }
+        }
+
+        // New tick started: ensure bounded memory (ring buffer behavior)
+        if self.history.len() >= self.max_ticks {
+            self.history.pop_front();
+        }
+        self.history.push_back(TickSnapshot {
+            tick,
+            timestamp_ms,
+            entities: vec![entity],
+        });
+    }
+
+    /// Retrieve the historical snapshot corresponding to client shoot tick (with bounds clamping)
+    pub fn find_snapshot(&self, shoot_tick: u64) -> Option<&TickSnapshot> {
+        if self.history.is_empty() {
+            return None;
+        }
+
+        // 1. Direct tick match
+        if let Some(snap) = self.history.iter().find(|s| s.tick == shoot_tick) {
+            return Some(snap);
+        }
+
+        // 2. Nearest tick within bounded historical window
+        let oldest = self.history.front().unwrap().tick;
+        let _newest = self.history.back().unwrap().tick;
+        if shoot_tick < oldest.saturating_sub(60) {
+            // Far too old (reject ancient packets / anti-cheat)
+            return None;
+        }
+
+        self.history.iter().min_by_key(|s| {
+            (s.tick as i64 - shoot_tick as i64).abs()
+        })
+    }
+}
+
+/// Result of a lag-compensated rewind hitscan query
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LagCompensatedHit {
+    pub point: Vec3,
+    pub distance: f64,
+    pub entity_id: u32,
+    pub kind: u32,
+    pub collider_id: u32,
+    pub hit_type: u32, // 1 = dynamic entity hit, 2 = static obstacle hit, 0 = miss
+}
+
+/// The 3D Physics & Kinematics World
+#[derive(Debug)]
 pub struct PhysicsWorld3D {
     pub arena_half_width: f64,
     pub arena_half_depth: f64,
     pub obstacles: Vec<ObstacleCollider>,
+    pub lag_comp: std::sync::RwLock<LagCompensator>,
 }
 
 impl Default for PhysicsWorld3D {
@@ -282,6 +376,7 @@ impl PhysicsWorld3D {
             arena_half_width: half_width,
             arena_half_depth: half_depth,
             obstacles: Vec::new(),
+            lag_comp: std::sync::RwLock::new(LagCompensator::default()),
         }
     }
 
@@ -442,6 +537,87 @@ impl PhysicsWorld3D {
 
         closest_hit
     }
+
+    /// Record an active dynamic entity hitbox into the authoritative lag compensation history
+    pub fn record_entity_hitbox(&self, tick: u64, timestamp_ms: u64, entity_id: u32, kind: u32, bounds: Aabb) {
+        if let Ok(mut lc) = self.lag_comp.write() {
+            lc.record_entity(
+                tick,
+                timestamp_ms,
+                HistoricalEntity {
+                    entity_id,
+                    kind,
+                    bounds,
+                },
+            );
+        }
+    }
+
+    /// Fast authoritative lag-compensated hitscan raycast (reference Fusion Server Rewind)
+    ///
+    /// 1. Rewinds time to `shoot_tick`
+    /// 2. Tests ray intersection against historical entity hitboxes
+    /// 3. Tests ray intersection against static map obstacles (anti-wallhack verification)
+    /// 4. If an obstacle is closer than the entity, shot was blocked by wall (hit_type = 2)
+    /// 5. If entity is hit with clear line of sight, hit is confirmed (hit_type = 1)
+    pub fn lag_compensated_raycast(
+        &self,
+        shoot_tick: u64,
+        origin: Vec3,
+        dir: Vec3,
+        max_dist: f64,
+    ) -> Option<LagCompensatedHit> {
+        let norm_dir = dir.normalize();
+
+        // 1. Raycast static world obstacles first (line-of-sight & wall occluder)
+        let static_hit = self.raycast(origin, norm_dir, max_dist);
+        let max_range = match &static_hit {
+            Some(h) => h.distance,
+            None => max_dist,
+        };
+
+        // 2. Query historical snapshot at `shoot_tick`
+        let lc = self.lag_comp.read().ok()?;
+        let snapshot = lc.find_snapshot(shoot_tick)?;
+
+        let mut closest_entity: Option<LagCompensatedHit> = None;
+        let mut nearest_dist = max_range;
+
+        for ent in &snapshot.entities {
+            if let Some(hit) = ent.bounds.ray_intersect(origin, norm_dir, nearest_dist) {
+                if hit.distance < nearest_dist {
+                    nearest_dist = hit.distance;
+                    closest_entity = Some(LagCompensatedHit {
+                        point: hit.point,
+                        distance: hit.distance,
+                        entity_id: ent.entity_id,
+                        kind: ent.kind,
+                        collider_id: 0,
+                        hit_type: 1, // Entity hit
+                    });
+                }
+            }
+        }
+
+        // If entity was hit in front of any walls: return entity hit!
+        if let Some(ent_hit) = closest_entity {
+            return Some(ent_hit);
+        }
+
+        // Otherwise, if a static wall was hit within range: return wall hit
+        if let Some(wall) = static_hit {
+            return Some(LagCompensatedHit {
+                point: wall.point,
+                distance: wall.distance,
+                entity_id: 0,
+                kind: 0,
+                collider_id: wall.collider_id,
+                hit_type: 2, // Static wall hit
+            });
+        }
+
+        None
+    }
 }
 
 #[cfg(test)]
@@ -469,5 +645,57 @@ mod tests {
         let res = world.move_and_slide(0.0, 0.0, -15.0, 0.0, 0.0, 10.0, 3.6, 1.0);
         assert!(res.is_walled);
         assert!(res.new_z <= -10.0 - 3.6 + 1e-4);
+    }
+
+    #[test]
+    fn test_lag_compensation_rewind_success() {
+        let world = PhysicsWorld3D::new(400.0, 400.0);
+
+        // Target player (ID 42) is at (0, 5, 40) at Tick 100
+        let box_tick_100 = Aabb::from_center_size(Vec3::new(0.0, 5.0, 40.0), Vec3::new(4.0, 4.0, 4.0));
+        world.record_entity_hitbox(100, 1000, 42, 1, box_tick_100);
+
+        // Target player moves to (0, 5, 80) at Tick 105
+        let box_tick_105 = Aabb::from_center_size(Vec3::new(0.0, 5.0, 80.0), Vec3::new(4.0, 4.0, 4.0));
+        world.record_entity_hitbox(105, 1083, 42, 1, box_tick_105);
+
+        // Shooter fires at Tick 100 aiming towards (0, 5, 40)
+        let ray_origin = Vec3::new(0.0, 5.0, 0.0);
+        let ray_dir = Vec3::new(0.0, 0.0, 1.0);
+
+        // 1. Rewind to Tick 100: Hits target at z ~ 38!
+        let hit_100 = world.lag_compensated_raycast(100, ray_origin, ray_dir, 100.0);
+        assert!(hit_100.is_some(), "Rewind to tick 100 must hit target");
+        let h100 = hit_100.unwrap();
+        assert_eq!(h100.entity_id, 42);
+        assert_eq!(h100.hit_type, 1);
+        assert!((h100.distance - 38.0).abs() < 1e-4);
+
+        // 2. Query at Tick 105 aiming with max_dist = 50: Target moved to 80, so should miss!
+        let hit_105 = world.lag_compensated_raycast(105, ray_origin, ray_dir, 50.0);
+        assert!(hit_105.is_none(), "Target moved out of range at tick 105");
+    }
+
+    #[test]
+    fn test_lag_compensation_wall_occlusion() {
+        let mut world = PhysicsWorld3D::new(400.0, 400.0);
+        // Concrete wall at z = 20
+        world.add_box_obstacle(99, "concrete_wall", Vec3::new(0.0, 5.0, 20.0), Vec3::new(20.0, 10.0, 2.0), false);
+
+        // Target player is behind the wall at z = 40
+        let target_box = Aabb::from_center_size(Vec3::new(0.0, 5.0, 40.0), Vec3::new(4.0, 4.0, 4.0));
+        world.record_entity_hitbox(50, 500, 77, 1, target_box);
+
+        // Shooter fires from z = 0 towards target at z = 40
+        let ray_origin = Vec3::new(0.0, 5.0, 0.0);
+        let ray_dir = Vec3::new(0.0, 0.0, 1.0);
+
+        let hit = world.lag_compensated_raycast(50, ray_origin, ray_dir, 100.0);
+        assert!(hit.is_some());
+        let h = hit.unwrap();
+        // Must hit the wall (hit_type 2, collider 99), NOT the player behind it!
+        assert_eq!(h.hit_type, 2, "Wall must occlude line of sight");
+        assert_eq!(h.collider_id, 99);
+        assert_eq!(h.entity_id, 0);
     }
 }
