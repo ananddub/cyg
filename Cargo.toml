@@ -9,6 +9,8 @@ members = [
     "crates/engine-http",
     "crates/engine-net",
     "crates/engine-wasm",
+    "crates/engine-websocket",
+    "crates/engine-webtransport",
 ]
 
 [package]

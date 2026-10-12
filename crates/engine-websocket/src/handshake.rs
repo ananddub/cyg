@@ -47,6 +47,7 @@ impl std::fmt::Display for HandshakeError {
 }
 
 /// A parsed handshake request: `path`, `query`, and the negotiated key.
+#[derive(Debug)]
 pub struct HandshakeRequest {
     pub path: String,
     pub query: Vec<(String, String)>,
@@ -133,6 +134,7 @@ fn reason_phrase(status: u16) -> &'static str {
 }
 
 /// Result of feeding handshake bytes into a connecting socket.
+#[derive(Debug)]
 pub enum HandshakeOutcome {
     /// Still buffering the request head.
     NeedMore,
@@ -146,6 +148,7 @@ pub enum HandshakeOutcome {
 /// only accepts the header-only GET of a WS opening handshake.
 pub struct HandshakeReader {
     decoder: RequestDecoder,
+    fed_bytes: usize,
 }
 
 impl Default for HandshakeReader {
@@ -158,10 +161,17 @@ impl HandshakeReader {
     pub fn new() -> Self {
         Self {
             decoder: RequestDecoder::new(),
+            fed_bytes: 0,
         }
     }
 
+    /// Total bytes fed — used to enforce the handshake size limit.
+    pub fn fed_bytes(&self) -> usize {
+        self.fed_bytes
+    }
+
     pub fn feed(&mut self, bytes: &[u8]) -> HandshakeOutcome {
+        self.fed_bytes += bytes.len();
         self.decoder.feed(bytes);
         match self.decoder.next_request() {
             ParseOutcome::NeedMore => HandshakeOutcome::NeedMore,

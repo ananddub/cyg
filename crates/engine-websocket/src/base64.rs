@@ -43,7 +43,7 @@ mod tests {
         // 20-byte SHA-1 digest length exercises padding path
         assert_eq!(
             base64_encode(&[0xab; 20]),
-            "q6uru6uru6uru6uru6uruw=="
+            "q6urq6urq6urq6urq6urq6urq6s="
         );
     }
 }

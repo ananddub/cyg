@@ -9,8 +9,8 @@
 //! Ping is auto-answered with Pong; Close echoes the close frame once.
 
 use std::collections::{HashMap, VecDeque};
-use std::io;
-use std::net::{SocketAddr, TcpStream as StdTcpStream};
+use std::io::{self, Read, Write};
+use std::net::{SocketAddr, TcpListener as StdTcpListener};
 use std::time::Duration;
 
 use mio::net::TcpStream;
@@ -18,7 +18,7 @@ use mio::{Events, Interest, Poll, Token, Waker};
 use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::frame::{
-    self, Frame, FrameDecoder, FrameError, close_code, close_payload, encode_frame, opcode,
+    Frame, FrameDecoder, FrameError, close_code, close_payload, encode_frame, opcode,
     parse_close,
 };
 use crate::handshake::{HandshakeOutcome, HandshakeReader, accept_response, reject_response};
@@ -135,11 +135,10 @@ impl WsServer {
         sock.bind(&bind_addr.into())
             .map_err(|e| io::Error::new(e.kind(), format!("bind {bind_addr}: {e}")))?;
         sock.listen(1024)?;
-        let std: StdTcpStream = sock.into();
+        let std: StdTcpListener = sock.into();
         let mut listener = mio::net::TcpListener::from_std(std);
-        let local_addr = listener.local_addr()?;
 
-        let mut poll = Poll::new()?;
+        let poll = Poll::new()?;
         let waker = Waker::new(poll.registry(), WAKER)?;
         poll.registry()
             .register(&mut listener, LISTENER, Interest::READABLE)?;
@@ -241,19 +240,12 @@ impl WsServer {
     }
 
     fn broadcast(&mut self, frame: Vec<u8>) {
-        let tokens: Vec<Token> = self
-            .conns
-            .values()
-            .filter(|c| c.state == ConnState::Open)
-            .map(|_| Token(0))
-            .collect();
         let ids: Vec<String> = self
             .conns
             .values()
             .filter(|c| c.state == ConnState::Open)
             .map(|c| c.client_id.clone())
             .collect();
-        let _ = tokens;
         for id in ids {
             let _ = self.send_frame(&id, frame.clone());
         }
@@ -261,23 +253,23 @@ impl WsServer {
 
     fn send_frame(&mut self, client_id: &str, frame: Vec<u8>) -> io::Result<()> {
         let token = self.token_of(client_id).ok_or_else(not_connected)?;
-        {
-            let conn = self.conns.get_mut(&token.0).ok_or_else(not_connected)?;
+        let overflow = {
+            let Some(conn) = self.conns.get_mut(&token.0) else {
+                return Err(not_connected());
+            };
             if conn.state != ConnState::Open {
                 return Err(io::Error::new(io::ErrorKind::NotConnected, "ws not open"));
             }
             conn.queue(&frame);
-            if conn.write_queue.len() > self.config.max_write_queue_bytes {
-                let id = conn.client_id.clone();
-                drop(conn);
-                let mut out = Vec::new();
-                self.drop_conn(token, close_code::POLICY_VIOLATION, &mut out);
-                eprintln!("ws {id} dropped: write buffer overflow");
-                return Err(io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "client write buffer overflow",
-                ));
-            }
+            conn.write_queue.len() > self.config.max_write_queue_bytes
+        };
+        if overflow {
+            let mut out = Vec::new();
+            self.drop_conn(token, close_code::POLICY_VIOLATION, &mut out);
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "client write buffer overflow",
+            ));
         }
         self.flush(token);
         Ok(())
@@ -339,7 +331,7 @@ impl WsServer {
                 let Some(conn) = self.conns.get_mut(&token.0) else {
                     return;
                 };
-                match conn.socket.try_read(&mut buf) {
+                match conn.socket.read(&mut buf) {
                     Ok(0) => Step::ProtocolViolation(close_code::GOING_AWAY),
                     Ok(n) => match conn.state {
                         ConnState::Handshaking => {
@@ -441,10 +433,16 @@ impl WsServer {
                         if conn.state == ConnState::Open {
                             conn.queue(&frame_close(code, ""));
                             conn.state = ConnState::CloseSent;
+                            // RFC 6455 §7.1.1: after replying to a CLOSE,
+                            // tear the transport down once the echo drains.
+                            conn.drop_after_flush = true;
                             continue;
                         }
+                        // Close handshake complete (we already echoed): TCP
+                        // teardown after the queued bytes drain.
+                        conn.drop_after_flush = true;
+                        continue;
                     }
-                    self.drop_conn(token, code, out);
                     return false;
                 },
                 FrameAction::InvalidUtf8 => {
@@ -462,7 +460,7 @@ impl WsServer {
     }
 
     fn drop_conn(&mut self, token: Token, code: u16, out: &mut Vec<WsEvent>) {
-        if let Some(mut conn) = self.conns.remove(&token.0) {
+        if let Some(conn) = self.conns.remove(&token.0) {
             self.by_client.remove(&conn.client_id);
             if conn.state != ConnState::Handshaking {
                 out.push(WsEvent::Disconnected {
@@ -470,7 +468,7 @@ impl WsServer {
                     code,
                 });
             }
-            let _ = self.poll.registry().deregister(&mut conn.socket);
+            // Dropping `conn.socket` deregisters it from epoll (mio semantics).
         }
     }
 
@@ -487,7 +485,7 @@ impl WsServer {
             if chunk.is_empty() {
                 break;
             }
-            match conn.socket.try_write(&chunk) {
+            match conn.socket.write(&chunk) {
                 Ok(0) => break,
                 Ok(n) => {
                     conn.write_queue.drain(..n);
@@ -495,7 +493,7 @@ impl WsServer {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if !conn.write_wanted {
                         let _ = self.poll.registry().reregister(
-                            conn,
+                            &mut conn.socket,
                             token,
                             Interest::READABLE | Interest::WRITABLE,
                         );
@@ -510,7 +508,7 @@ impl WsServer {
             let _ = self
                 .poll
                 .registry()
-                .reregister(conn, token, Interest::READABLE);
+                .reregister(&mut conn.socket, token, Interest::READABLE);
             conn.write_wanted = false;
         }
         if conn.drop_after_flush && conn.write_queue.is_empty() {

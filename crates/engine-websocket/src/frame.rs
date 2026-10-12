@@ -147,7 +147,7 @@ impl FrameDecoder {
             }
             let big = u64::from_be_bytes(buf[2..10].try_into().unwrap());
             if big > u64::from(u32::MAX) || big as usize > self.max_payload_bytes {
-                return Err(FrameError::TooBig(big.min(u64::from(usize::MAX)) as usize));
+                return Err(FrameError::TooBig(big.min(u64::MAX) as usize));
             }
             len = big as usize;
             hdr = 10;

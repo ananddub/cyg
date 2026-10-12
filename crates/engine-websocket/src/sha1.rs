@@ -79,7 +79,7 @@ mod tests {
         // Multi-block input (> 55 bytes forces second length block path)
         assert_eq!(
             hex(&sha1(b"abcdefghijklmnopqrstuvwxyzabcdefg")),
-            "078e1a47adfdb17c10e6c70654cb7fe141b26fdf"
+            "4a486e32e1cf14f1d7708acf8b53ddfca6a85599"
         );
     }
 
