@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 use engine_net::framing::OpCode;
 use engine_net::transport::{ColyseusWsTransport, GameTransport, TransportEvent};
 use engine_wasm::{WasmRuntime, wasm_module};
+use crate::physics::PhysicsWorld3D;
 
 // Type-safe wrapper over the compiled room WASM. The host never opens the
 // game's bytes — it only passes pointers and reads back the delta buffer.
@@ -41,23 +42,102 @@ wasm_module! {
 
 /// One named room: an isolated WASM simulation + its members.
 struct GameRoom {
-    wasm: RoomLogic,
+    wasm: RoomLogic<Arc<PhysicsWorld3D>>,
     sessions: HashMap<String, i64>,
     next_player_id: i64,
     empty_since: Option<Instant>,
 }
 
 impl GameRoom {
-    fn new(runtime: &WasmRuntime, wasm_module: &wasmtime::Module, max_clients: i32) -> Self {
-        let mut linker = runtime.create_linker::<()>();
+    fn new(
+        runtime: &WasmRuntime,
+        wasm_module: &wasmtime::Module,
+        max_clients: i32,
+        physics: Arc<PhysicsWorld3D>,
+    ) -> Self {
+        let mut linker = runtime.create_linker::<Arc<PhysicsWorld3D>>();
         linker
             .func_wrap(
                 "env",
                 "abort",
-                |_caller: wasmtime::Caller<'_, ()>, _m: u32, _f: u32, _l: u32, _c: u32| {},
+                |_caller: wasmtime::Caller<'_, Arc<PhysicsWorld3D>>, _m: u32, _f: u32, _l: u32, _c: u32| {},
             )
             .expect("link env.abort");
-        let mut wasm = RoomLogic::from_module_with_linker(runtime, &linker, wasm_module, ())
+
+        // Host Physics ABI 1: Surface height query (for solid standing & rooftops)
+        linker
+            .func_wrap(
+                "env",
+                "sys_physics_surface_y",
+                |caller: wasmtime::Caller<'_, Arc<PhysicsWorld3D>>, px: f64, py: f64, pz: f64, radius: f64| -> f64 {
+                    caller.data().get_surface_height(px, py, pz, radius)
+                },
+            )
+            .expect("link env.sys_physics_surface_y");
+
+        // Host Physics ABI 2: Kinematic move_and_slide (smooth wall sliding along obstacle normals)
+        linker
+            .func_wrap(
+                "env",
+                "sys_physics_move",
+                |mut caller: wasmtime::Caller<'_, Arc<PhysicsWorld3D>>,
+                 px: f64, py: f64, pz: f64,
+                 vx: f64, vy: f64, vz: f64,
+                 radius: f64, dt: f64,
+                 out_ptr: i32| -> i32 {
+                    let world = caller.data().clone();
+                    let res = world.move_and_slide(px, py, pz, vx, vy, vz, radius, dt);
+
+                    if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
+                        let data = mem.data_mut(&mut caller);
+                        let offset = out_ptr as usize;
+                        if offset + 24 <= data.len() {
+                            data[offset..offset + 8].copy_from_slice(&res.new_x.to_le_bytes());
+                            data[offset + 8..offset + 16].copy_from_slice(&res.new_y.to_le_bytes());
+                            data[offset + 16..offset + 24].copy_from_slice(&res.new_z.to_le_bytes());
+                        }
+                    }
+
+                    if res.is_grounded { 1 } else { 0 }
+                },
+            )
+            .expect("link env.sys_physics_move");
+
+        // Host Physics ABI 3: Continuous Collision Detection Raycasting (bullets & hitscan)
+        linker
+            .func_wrap(
+                "env",
+                "sys_physics_raycast",
+                |mut caller: wasmtime::Caller<'_, Arc<PhysicsWorld3D>>,
+                 ox: f64, oy: f64, oz: f64,
+                 dx: f64, dy: f64, dz: f64,
+                 max_dist: f64,
+                 out_ptr: i32| -> i32 {
+                    let world = caller.data().clone();
+                    let origin = crate::physics::Vec3::new(ox, oy, oz);
+                    let dir = crate::physics::Vec3::new(dx, dy, dz);
+
+                    if let Some(hit) = world.raycast(origin, dir, max_dist) {
+                        if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
+                            let data = mem.data_mut(&mut caller);
+                            let offset = out_ptr as usize;
+                            if offset + 36 <= data.len() {
+                                data[offset..offset + 8].copy_from_slice(&hit.point.x.to_le_bytes());
+                                data[offset + 8..offset + 16].copy_from_slice(&hit.point.y.to_le_bytes());
+                                data[offset + 16..offset + 24].copy_from_slice(&hit.point.z.to_le_bytes());
+                                data[offset + 24..offset + 32].copy_from_slice(&hit.distance.to_le_bytes());
+                                data[offset + 32..offset + 36].copy_from_slice(&hit.collider_id.to_le_bytes());
+                            }
+                        }
+                        1
+                    } else {
+                        0
+                    }
+                },
+            )
+            .expect("link env.sys_physics_raycast");
+
+        let mut wasm = RoomLogic::from_module_with_linker(runtime, &linker, wasm_module, physics)
             .expect("instantiate room");
         wasm.on_create(max_clients).expect("wasm on_create");
         Self {
@@ -74,14 +154,16 @@ struct GameServer {
     runtime: WasmRuntime,
     wasm_module: wasmtime::Module,
     max_clients: i32,
+    physics: Arc<PhysicsWorld3D>,
     rooms: HashMap<String, GameRoom>,
 }
 
 impl GameServer {
     fn get_or_create(&mut self, name: &str) -> &mut GameRoom {
+        let physics = self.physics.clone();
         self.rooms.entry(name.to_string()).or_insert_with(|| {
-            eprintln!("[server] room '{name}' created");
-            GameRoom::new(&self.runtime, &self.wasm_module, self.max_clients)
+            eprintln!("[server] room '{name}' created with 3D physics world");
+            GameRoom::new(&self.runtime, &self.wasm_module, self.max_clients, physics)
         })
     }
 }
@@ -163,6 +245,28 @@ pub fn run(
         addrs.push(format!("0.0.0.0:{}", cfg.web_port).parse::<SocketAddr>().unwrap());
     }
 
+    let map_path = project_dir.join("arena_map.json");
+    let physics = if map_path.exists() {
+        match std::fs::read_to_string(&map_path) {
+            Ok(json_str) => match PhysicsWorld3D::from_json(&json_str) {
+                Ok(w) => {
+                    eprintln!(
+                        "[server] 🗺️  loaded arena_map.json with {} static colliders",
+                        w.obstacles.len()
+                    );
+                    Arc::new(w)
+                }
+                Err(e) => {
+                    eprintln!("[server] failed to parse arena_map.json: {e}, using default world");
+                    Arc::new(PhysicsWorld3D::default())
+                }
+            },
+            Err(_) => Arc::new(PhysicsWorld3D::default()),
+        }
+    } else {
+        Arc::new(PhysicsWorld3D::default())
+    };
+
     let mut transport = ColyseusWsTransport::new_multi(&addrs)
         .expect("bind transport ports");
 
@@ -170,6 +274,7 @@ pub fn run(
     let default_website_clone = website.clone();
     let sdk_js_clone = sdk_js.clone();
     let schema_mjs_clone = schema_mjs.clone();
+    let map_path_clone = map_path.clone();
 
     transport.on_http(move |path| {
         match path {
@@ -178,6 +283,10 @@ pub fn run(
                 let body = std::fs::read(&website_path_clone)
                     .unwrap_or_else(|_| default_website_clone.clone());
                 Some(("text/html; charset=utf-8".to_string(), body))
+            }
+            "/arena_map.json" => {
+                let body = std::fs::read(&map_path_clone).unwrap_or_default();
+                Some(("application/json".to_string(), body))
             }
             "/packages/sdk/dist/colyseus.js" => {
                 Some(("text/javascript".to_string(), sdk_js_clone.clone()))
@@ -202,6 +311,7 @@ pub fn run(
         runtime: runtime.clone(),
         wasm_module,
         max_clients: cfg.max_clients,
+        physics: physics.clone(),
         rooms: HashMap::new(),
     }));
 

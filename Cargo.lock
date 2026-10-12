@@ -1368,6 +1368,8 @@ dependencies = [
  "engine-net",
  "engine-wasm",
  "mio",
+ "serde",
+ "serde_json",
  "wasmtime",
 ]
 

@@ -8,6 +8,7 @@
 
 mod compile;
 mod config;
+pub mod physics;
 mod server;
 
 use config::GameConfig;
