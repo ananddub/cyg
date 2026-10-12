@@ -124,6 +124,6 @@ fn run(dir: &Path) -> std::io::Result<()> {
     };
 
     println!("🧩 room runtime: {:?}", cfg.runtime);
-    compile::build(&project_dir, &cfg)?;
-    server::run(&project_dir, &cfg)
+    let wasm_path = compile::build(&project_dir, &cfg)?;
+    server::run(&project_dir, &wasm_path, &cfg)
 }

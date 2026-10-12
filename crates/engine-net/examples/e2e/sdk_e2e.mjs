@@ -2,10 +2,6 @@
 // Join -> own player spawns -> send input D -> verify server moves us ->
 // verify patch stream keeps flowing. Run: node sdk_e2e.mjs <port>
 import { Client } from '/mnt/SSD/Devloper/pannel/colyseus/packages/sdk/build/index.mjs';
-import { t, schema } from '/mnt/SSD/Devloper/pannel/colyseus/node_modules/@colyseus/schema/build/index.mjs';
-
-const Player = schema({ x: t.number(), y: t.number() }, 'Player');
-const GameState = schema({ players: t.map(Player), tick: t.number() }, 'GameState');
 
 const port = process.argv[2] ?? '7777';
 const client = new Client(`ws://127.0.0.1:${port}`);
@@ -16,7 +12,7 @@ const timeout = setTimeout(() => {
 }, 10000);
 
 try {
-    const room = await client.joinOrCreate('game_room', {}, GameState);
+    const room = await client.joinOrCreate('game_room');
     console.log('[sdk] JOINED sessionId =', room.sessionId);
 
     let sawSelf = false;
@@ -24,21 +20,40 @@ try {
     let moved = false;
     let updates = 0;
 
-    room.onStateChange((state) => {
+    room.onMessage("delta", (bytes) => {
         updates++;
-        const me = state.players.get(room.sessionId);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const myId = view.getBigInt64(0, true);
+        let offset = 8;
+        const count = view.getUint32(offset, true);
+        offset += 4;
+
+        let me = null;
+        for (let i = 0; i < count; i++) {
+            const id = view.getBigInt64(offset, true);
+            offset += 8;
+            const x = view.getFloat64(offset, true);
+            offset += 8;
+            const y = view.getFloat64(offset, true);
+            offset += 8;
+            const score = view.getFloat64(offset, true);
+            offset += 8;
+            if (id === myId) {
+                me = { id, x, y, score };
+            }
+        }
+
         if (me && !sawSelf) {
             sawSelf = true;
             xStart = me.x;
-            console.log(`[sdk] own player spawned at (${me.x.toFixed(1)}, ${me.y.toFixed(1)})`);
+            console.log(`[sdk] own player id=${myId} spawned at (${me.x.toFixed(1)}, ${me.y.toFixed(1)})`);
             console.log('[sdk] holding D (right)…');
         }
         if (sawSelf && me && xStart !== null) {
             if (me.x > xStart + 20) moved = true;
         }
         if (sawSelf && moved && updates > 10) {
-            const me = state.players.get(room.sessionId);
-            console.log(`[sdk] MOVED! x ${xStart.toFixed(1)} -> ${me.x.toFixed(1)}, players=${state.players.size}, tick=${state.tick}`);
+            console.log(`[sdk] MOVED! x ${xStart.toFixed(1)} -> ${me.x.toFixed(1)}, players=${count}, updates=${updates}`);
             clearTimeout(timeout);
             console.log('RESULT: SUCCESS');
             process.exit(0);

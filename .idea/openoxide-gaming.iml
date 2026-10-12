@@ -16,6 +16,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-http/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-net/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-net/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

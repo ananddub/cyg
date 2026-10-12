@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>OpenOxide × Colyseus — Random Walkers</title>
+<title>OpenOxide × Colyseus — Coin Rush (Generic Byte Pipeline)</title>
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -30,8 +30,6 @@
 <!-- Official @colyseus/sdk (self-contained UMD build of this monorepo). -->
 <script type="module" src="./packages/sdk/dist/colyseus.js"></script>
 <script>
-    // Kill any stale service worker registered on this origin by a previous
-    // app — it would otherwise intercept our fetches and poll /sw.js (404).
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(rs => {
             for (const r of rs) r.unregister();
@@ -40,7 +38,7 @@
 </script>
 </head>
 <body>
-    <h1>OpenOxide <span>×</span> Colyseus — Random Walkers</h1>
+    <h1>OpenOxide <span>×</span> Colyseus — Coin Rush</h1>
     <div id="status">connecting…</div>
     <canvas id="game" width="800" height="500"></canvas>
     <div id="hud">
@@ -50,12 +48,6 @@
     </div>
 
 <script type="module">
-    import { t, schema } from './node_modules/@colyseus/schema/build/index.mjs';
-
-    // Field order must match the Rust encoder: players=0, tick=1; x=0, y=1.
-    const Player = schema({ x: t.number(), y: t.number() }, 'Player');
-    const GameState = schema({ players: t.map(Player), tick: t.number() }, 'GameState');
-
     const statusEl = document.getElementById('status');
     const tickEl = document.getElementById('tick');
     const playersEl = document.getElementById('players');
@@ -66,16 +58,17 @@
     const COLORS = ['#4ade80', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#f87171'];
 
     let room = null;
-    let mySessionId = null;
+    let myPlayerId = null;
+    let players = [];
+    let coinX = 400;
+    let coinY = 250;
+    let tickCount = 0;
     const keys = {};
 
-    // "0.0.0.0" hostname (from python's bind message) is blocked by Chrome's
-    // Private Network Access — normalize to localhost.
     const gameHost = (location.hostname === '0.0.0.0' || location.hostname === '')
         ? 'localhost'
         : location.hostname;
 
-    // WASD input: send held-key flags at ~30 Hz.
     function sendInput() {
         if (!room) return;
         let flags = 0;
@@ -97,13 +90,40 @@
 
     async function join() {
         const client = new Colyseus.Client(`ws://${gameHost}:7777`);
-        room = await client.joinOrCreate('game_room', {}, GameState);
-        mySessionId = room.sessionId;
-        statusEl.textContent = `connected — you are ${mySessionId} — move with WASD`;
-        statusEl.classList.add('ok');
+        room = await client.joinOrCreate('game_room');
 
-        room.onStateChange(() => {
+        room.onMessage("delta", (bytes) => {
             updatesEl.textContent = Number(updatesEl.textContent) + 1;
+            tickCount++;
+            tickEl.textContent = tickCount;
+
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            myPlayerId = view.getBigInt64(0, true);
+            statusEl.textContent = `connected — you are player #${myPlayerId} — move with WASD`;
+            statusEl.classList.add('ok');
+
+            let offset = 8;
+            const count = view.getUint32(offset, true);
+            offset += 4;
+
+            const list = [];
+            for (let i = 0; i < count; i++) {
+                const id = view.getBigInt64(offset, true);
+                offset += 8;
+                const x = view.getFloat64(offset, true);
+                offset += 8;
+                const y = view.getFloat64(offset, true);
+                offset += 8;
+                const score = view.getFloat64(offset, true);
+                offset += 8;
+                list.push({ id, x, y, score });
+            }
+            players = list;
+            playersEl.textContent = count;
+
+            coinX = view.getFloat64(offset, true);
+            offset += 8;
+            coinY = view.getFloat64(offset, true);
         });
 
         room.onLeave(() => {
@@ -130,45 +150,54 @@
             ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
         }
 
-        if (room?.state) {
-            tickEl.textContent = room.state.tick;
-            let i = 0;
-            for (const [key, p] of room.state.players) {
-                const color = COLORS[i % COLORS.length];
-                const px = Math.max(14, Math.min(canvas.width - 14, p.x));
-                const py = Math.max(14, Math.min(canvas.height - 14, p.y));
-                const isMe = key === mySessionId;
+        // Draw golden coin
+        if (coinX > 0 && coinY > 0) {
+            ctx.beginPath();
+            ctx.arc(coinX, coinY, 14, 0, Math.PI * 2);
+            ctx.fillStyle = '#fbbf2444';
+            ctx.fill();
 
-                // glow
+            ctx.beginPath();
+            ctx.arc(coinX, coinY, 8, 0, Math.PI * 2);
+            ctx.fillStyle = '#fbbf24';
+            ctx.fill();
+        }
+
+        // Draw players
+        for (let i = 0; i < players.length; i++) {
+            const p = players[i];
+            const color = COLORS[i % COLORS.length];
+            const px = Math.max(14, Math.min(canvas.width - 14, p.x));
+            const py = Math.max(14, Math.min(canvas.height - 14, p.y));
+            const isMe = myPlayerId !== null && p.id === myPlayerId;
+
+            // glow
+            ctx.beginPath();
+            ctx.arc(px, py, 16, 0, Math.PI * 2);
+            ctx.fillStyle = color + '22';
+            ctx.fill();
+
+            // body
+            ctx.beginPath();
+            ctx.arc(px, py, 10, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            // white ring on own player
+            if (isMe) {
                 ctx.beginPath();
-                ctx.arc(px, py, 16, 0, Math.PI * 2);
-                ctx.fillStyle = color + '22';
-                ctx.fill();
-
-                // body
-                ctx.beginPath();
-                ctx.arc(px, py, 10, 0, Math.PI * 2);
-                ctx.fillStyle = color;
-                ctx.fill();
-
-                // white ring on own player
-                if (isMe) {
-                    ctx.beginPath();
-                    ctx.arc(px, py, 14, 0, Math.PI * 2);
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 2.5;
-                    ctx.stroke();
-                }
-
-                // label
-                ctx.fillStyle = isMe ? '#ffffff' : '#94a3b8';
-                ctx.font = 'bold 12px monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText(isMe ? 'YOU' : key.split('_').slice(-1)[0], px, py - 20);
-
-                i++;
+                ctx.arc(px, py, 14, 0, Math.PI * 2);
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
             }
-            playersEl.textContent = i;
+
+            // label with score
+            ctx.fillStyle = isMe ? '#ffffff' : '#94a3b8';
+            ctx.font = 'bold 12px monospace';
+            ctx.textAlign = 'center';
+            const label = (isMe ? 'YOU' : `P${p.id}`) + (p.score > 0 ? ` (${p.score})` : '');
+            ctx.fillText(label, px, py - 20);
         }
 
         requestAnimationFrame(render);

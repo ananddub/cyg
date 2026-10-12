@@ -1,80 +1,46 @@
-//! # ox-game server loop
+//! # ox-game server — Generic Byte Pipeline
 //!
-//! Reads the compiled WASM room, serves the website + SDK bundles over
-//! engine-http, runs the Colyseus-compatible transport, and broadcasts
-//! schema state at the configured tick rate.
+//! PS5 vs Game CD architecture: the Rust engine knows NOTHING about the
+//! game. The WASM room owns all state and its own wire encoding. The host
+//! is a dumb-but-fast pipe:
+//!
+//!   browser input  →  wasm.on_input(id, ptr, len)   (raw bytes pass-through)
+//!   20-128 Hz      →  wasm.tick(dt) -> packed(ptr, len)
+//!                     host reads delta bytes from wasm memory
+//!                  →  broadcast [ROOM_DATA_BYTES]["delta" + bytes] to clients
+//!
+//! Hot-reload (Level 1): when `room_logic.wasm` changes on disk, new rooms
+//! are served by the new module. Existing rooms finish on the old one —
+//! no client disconnects.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use engine_http::{Api, Response};
-use engine_net::colyseus_state::ColyseusRoomState;
 use engine_net::framing::OpCode;
 use engine_net::transport::{ColyseusWsTransport, GameTransport, TransportEvent};
 use engine_wasm::{WasmRuntime, wasm_module};
 
-use crate::config::GameConfig;
-
-const WIDTH: f64 = 800.0;
-const HEIGHT: f64 = 500.0;
-const RECONNECT_WINDOW: Duration = Duration::from_secs(60);
-
-// WASD input flag bits (mirrored in website.html and room.ts).
-#[allow(dead_code)]
-const FLAG_W: u8 = 1;
-#[allow(dead_code)]
-const FLAG_S: u8 = 2;
-#[allow(dead_code)]
-const FLAG_A: u8 = 4;
-#[allow(dead_code)]
-const FLAG_D: u8 = 8;
-
-// Type-safe wrapper over the compiled room WASM — functions are pre-cached
-// as TypedFunc pointers at instantiation (~20ns per call, zero lookups).
+// Type-safe wrapper over the compiled room WASM. The host never opens the
+// game's bytes — it only passes pointers and reads back the delta buffer.
 wasm_module! {
     pub struct RoomLogic {
         fn on_create(max: i32);
         fn on_join(id: i64, x: f64, y: f64);
         fn on_leave(id: i64);
-        fn on_input(id: i64, flags: i32);
-        fn update(dt: f64, w: f64, h: f64, speed: f64);
-        fn get_count() -> i32;
-        fn get_id(i: i32) -> i64;
-        fn get_x(i: i32) -> f64;
-        fn get_y(i: i32) -> f64;
-        fn get_score(i: i32) -> f64;
-        fn get_coin_x() -> f64;
-        fn get_coin_y() -> f64;
-        fn is_full(count: i32) -> i32;
+        fn alloc(len: i32) -> i32;
+        fn on_input(id: i64, ptr: i32, len: i32);
+        fn tick(dt: f64) -> i64;
+        fn save() -> i64;
+        fn load(ptr: i32, len: i32);
     }
 }
 
-/// Parse a `ROOM_DATA_BYTES` input frame.
-/// The Custom-op arm delivers the full frame: [17][msgpack str "input"][flags u8].
-fn parse_input_flags(payload: &[u8]) -> Option<u8> {
-    let rest = if payload.first() == Some(&17) {
-        payload.get(1..)?
-    } else {
-        payload
-    };
-    let first = *rest.first()?;
-    let type_len = if (0xA0..=0xBF).contains(&first) {
-        (first & 0x1F) as usize
-    } else {
-        return None;
-    };
-    if rest.len() < 1 + type_len + 1 {
-        return None;
-    }
-    Some(rest[1 + type_len])
-}
-
-/// One named room: isolated WASM simulation + schema state + members.
+/// One named room: an isolated WASM simulation + its members.
 struct GameRoom {
-    state: ColyseusRoomState,
     wasm: RoomLogic,
     sessions: HashMap<String, i64>,
     next_player_id: i64,
@@ -95,7 +61,6 @@ impl GameRoom {
             .expect("instantiate room");
         wasm.on_create(max_clients).expect("wasm on_create");
         Self {
-            state: ColyseusRoomState::new(),
             wasm,
             sessions: HashMap::new(),
             next_player_id: 1,
@@ -104,43 +69,65 @@ impl GameRoom {
     }
 }
 
-/// All rooms + reconnect bookkeeping.
+/// All rooms + the currently loaded wasm module (hot-swappable).
 struct GameServer {
     runtime: WasmRuntime,
     wasm_module: wasmtime::Module,
+    max_clients: i32,
     rooms: HashMap<String, GameRoom>,
-    recently_left: HashMap<String, (String, f64, f64, Instant)>,
 }
 
 impl GameServer {
-    fn new(runtime: &WasmRuntime, wasm_bytes: &[u8]) -> Self {
-        let wasm_module = runtime.compile(wasm_bytes).expect("compile room_logic");
-        Self {
-            runtime: runtime.clone(),
-            wasm_module,
-            rooms: HashMap::new(),
-            recently_left: HashMap::new(),
-        }
-    }
-
-    fn get_or_create(&mut self, name: &str, max_clients: i32) -> &mut GameRoom {
+    fn get_or_create(&mut self, name: &str) -> &mut GameRoom {
         self.rooms.entry(name.to_string()).or_insert_with(|| {
             eprintln!("[server] room '{name}' created");
-            GameRoom::new(&self.runtime, &self.wasm_module, max_clients)
+            GameRoom::new(&self.runtime, &self.wasm_module, self.max_clients)
         })
     }
 }
 
-/// Serve the website + SDK bundles (files read once at startup).
-fn serve_website(
-    cfg: &GameConfig,
+/// Wrap a raw delta buffer into a Colyseus ROOM_DATA_BYTES frame payload:
+/// [msgpack fixstr "delta"][raw bytes...]. The SDK surfaces it as
+/// `room.onMessage("delta", bytes)`.
+/// Wrap a raw delta buffer into a Colyseus ROOM_DATA_BYTES frame payload:
+/// [msgpack fixstr "delta"][i64 recipient_player_id][raw bytes...].
+fn wrap_delta(your_id: i64, delta: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(delta.len() + 14);
+    out.push(0xA5);
+    out.extend_from_slice(b"delta");
+    out.extend_from_slice(&your_id.to_le_bytes());
+    out.extend_from_slice(delta);
+    out
+}
+
+/// Strip the msgpack type header from an inbound ROOM_DATA_BYTES payload:
+/// payload = [msgpack str][data...] -> returns the data part.
+fn strip_type_header(payload: &[u8]) -> Option<&[u8]> {
+    let first = *payload.first()?;
+    if (0xA0..=0xBF).contains(&first) {
+        let type_len = (first & 0x1F) as usize;
+        payload.get(1 + type_len..)
+    } else if first == 0xD9 {
+        let type_len = *payload.get(1)? as usize;
+        payload.get(2 + type_len..)
+    } else {
+        None
+    }
+}
+
+/// Run the server until killed.
+pub fn run(
     project_dir: &Path,
-) -> std::io::Result<engine_http::server::ServerHandle> {
+    wasm_path: &Path,
+    cfg: &crate::config::GameConfig,
+) -> std::io::Result<()> {
+    // ------------------------------------------------------------------
+    // Website over engine-http.
+    // ------------------------------------------------------------------
     let website_path = project_dir.join(&cfg.website);
     let website = if website_path.exists() {
         std::fs::read(&website_path)?
     } else {
-        // Fall back to the built-in demo page.
         include_bytes!("../crates/engine-net/examples/e2e/website.html").to_vec()
     };
     let sdk_js = std::fs::read(cfg.sdk_dir.join("packages/sdk/dist/colyseus.js"))
@@ -154,6 +141,7 @@ fn serve_website(
     );
 
     let api = Api::new()
+        .get("/health", |_| Response::text("ok"))
         .get("/", {
             let website = website.clone();
             move |_| {
@@ -187,16 +175,14 @@ fn serve_website(
             }
         });
 
-    let addr: SocketAddr = format!("0.0.0.0:{}", cfg.web_port).parse().unwrap();
-    api.serve(engine_http::HttpVersion::Http1, addr)
-}
-
-/// Run the server until killed.
-pub fn run(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<()> {
-    // ------------------------------------------------------------------
-    // Website over engine-http.
-    // ------------------------------------------------------------------
-    let _http_handle = serve_website(cfg, project_dir)?;
+    let _http_handle = Api::serve(
+        api,
+        engine_http::HttpVersion::Http1,
+        format!("0.0.0.0:{}", cfg.web_port)
+            .parse::<SocketAddr>()
+            .unwrap(),
+    )
+    .expect("http serve");
     eprintln!(
         "[server] website on http://localhost:{}/{}",
         cfg.web_port,
@@ -204,16 +190,16 @@ pub fn run(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<()> {
     );
 
     // ------------------------------------------------------------------
-    // WASM runtime — load the compiled room.
+    // WASM runtime — the room logic module (hot-swappable).
     // ------------------------------------------------------------------
     let runtime = WasmRuntime::new_with_config(engine_wasm::WasmConfig {
         optimize_for_speed: true,
         ..engine_wasm::WasmConfig::default()
     })
     .expect("wasm runtime");
-    let wasm_bytes = std::fs::read(project_dir.join(&cfg.out))?;
+    let wasm_bytes = std::fs::read(wasm_path)?;
     eprintln!(
-        "[server] room_logic loaded ({} bytes) — room rules + movement run in WebAssembly",
+        "[server] room logic loaded ({} bytes) — generic byte pipeline active",
         wasm_bytes.len()
     );
 
@@ -225,75 +211,19 @@ pub fn run(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<()> {
     .expect("bind game port");
     eprintln!("[server] game on ws://localhost:{}", cfg.port);
 
-    let server = Arc::new(Mutex::new(GameServer::new(&runtime, &wasm_bytes)));
+    let wasm_module = runtime.compile(&wasm_bytes).expect("compile room");
+    let server = Arc::new(Mutex::new(GameServer {
+        runtime: runtime.clone(),
+        wasm_module,
+        max_clients: cfg.max_clients,
+        rooms: HashMap::new(),
+    }));
 
-    // ------------------------------------------------------------------
-    // Matchmake hook: joinOrCreate + reconnect, decided by the game.
-    // ------------------------------------------------------------------
-    {
-        let server = server.clone();
-        let max_clients = cfg.max_clients;
-        transport.on_matchmake(move |method, room_name, body| {
-            let mut server = server.lock().unwrap();
-
-            if method == "reconnect" {
-                let token = body
-                    .split("\"reconnectionToken\"")
-                    .nth(1)
-                    .and_then(|rest| rest.split(':').nth(1))
-                    .map(|v| {
-                        v.trim()
-                            .trim_matches(|c| c == '"' || c == '}' || c == ' ')
-                    })
-                    .unwrap_or("");
-                let session = token.split(':').nth(1).unwrap_or("");
-                match server.recently_left.get(session) {
-                    Some((rm, _, _, at)) if *rm == room_name && at.elapsed() < RECONNECT_WINDOW => {
-                        eprintln!("[matchmake] reconnect seat for {session}");
-                        Ok(format!(
-                            "{{\"name\":\"{room}\",\"sessionId\":\"{session}\",\"roomId\":\"{room}\",\"processId\":\"openoxide_1\",\"reconnectionToken\":\"{token}\"}}",
-                            room = room_name,
-                            session = session,
-                            token = token
-                        ))
-                    }
-                    _ => Err(engine_net::MatchMakeError::expired(
-                        "reconnection window expired",
-                    )),
-                }
-            } else {
-                if let Some(room) = server.rooms.get_mut(room_name) {
-                    let count = room.wasm.get_count().unwrap_or(0);
-                    let full = room.wasm.is_full(count).unwrap_or(0);
-                    if full != 0 {
-                        return Err(engine_net::MatchMakeError::invalid_criteria(format!(
-                            "room '{room_name}' is full ({count}/{max_clients})"
-                        )));
-                    }
-                }
-                let session = format!(
-                    "colyseus_{room_name}_{}",
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis()
-                );
-                eprintln!("[matchmake] {method} '{room_name}' -> seat {session}");
-                Ok(format!(
-                    "{{\"name\":\"{room}\",\"sessionId\":\"{session}\",\"roomId\":\"{room}\",\"processId\":\"openoxide_1\"}}",
-                    room = room_name,
-                    session = session
-                ))
-            }
-        });
-    }
-
-    // ------------------------------------------------------------------
-    // Game loop: fixed-tick wasm simulation + schema patch broadcast.
-    // ------------------------------------------------------------------
     let mut last_tick = Instant::now();
     let tick_interval = Duration::from_millis(1000 / cfg.tick_rate.max(1) as u64);
-    let mut _tick: u64 = 0;
+    let mut last_wasm_check = Instant::now();
+    let mut loaded_wasm_time: Option<std::time::SystemTime> =
+        std::fs::metadata(wasm_path).ok().and_then(|m| m.modified().ok());
 
     loop {
         let events = transport
@@ -309,44 +239,27 @@ pub fn run(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<()> {
                         .to_string();
 
                     let (x, y) = {
-                        let mut server = server.lock().unwrap();
-                        match server.recently_left.remove(&client_id) {
-                            Some((rm, x, y, _)) if rm == room_name => {
-                                eprintln!(
-                                    "[server] {client_id} RECONNECTED to '{room_name}' (seat kept)"
-                                );
-                                (x, y)
-                            }
-                            _ => {
-                                let n = server
-                                    .rooms
-                                    .get(&room_name)
-                                    .map(|r| r.sessions.len())
-                                    .unwrap_or(0);
-                                (
-                                    60.0 + ((n as f64) * 97.0) % (WIDTH - 120.0),
-                                    60.0 + ((n as f64) * 61.0) % (HEIGHT - 120.0),
-                                )
-                            }
-                        }
+                        let s = server.lock().unwrap();
+                        let n = s
+                            .rooms
+                            .get(&room_name)
+                            .map(|r| r.sessions.len())
+                            .unwrap_or(0);
+                        (
+                            60.0 + ((n as f64) * 97.0) % (cfg.width - 120.0),
+                            60.0 + ((n as f64) * 61.0) % (cfg.height - 120.0),
+                        )
                     };
 
                     let mut server = server.lock().unwrap();
-                    let room = server.get_or_create(&room_name, cfg.max_clients);
+                    let room = server.get_or_create(&room_name);
                     let id = room.next_player_id;
                     room.next_player_id += 1;
                     room.wasm.on_join(id, x, y).expect("wasm on_join");
-                    room.state.add_player(&client_id, x, y, 0.0);
                     room.sessions.insert(client_id.clone(), id);
                     room.empty_since = None;
-
-                    let snapshot = room.state.snapshot();
-                    drop(server);
-                    transport
-                        .send_to(&client_id, OpCode::StateSnapshot, &snapshot)
-                        .expect("snapshot");
                     let _ = transport.flush();
-                    eprintln!("[server] {client_id} joined room '{room_name}'");
+                    eprintln!("[server] {client_id} joined room '{room_name}' (player id {id})");
                 }
                 TransportEvent::Disconnected { client_id } => {
                     eprintln!("[server] disconnected: {client_id}");
@@ -355,94 +268,68 @@ pub fn run(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<()> {
                         .unwrap_or(&cfg.name)
                         .to_string();
                     let mut server = server.lock().unwrap();
-                    let (player_id, x, y) = {
-                        let Some(room) = server.rooms.get_mut(&room_name) else {
-                            continue;
-                        };
-                        let Some(&id) = room.sessions.get(&client_id) else {
-                            continue;
-                        };
-                        let mut pos = (0.0, 0.0);
-                        let count = room.wasm.get_count().unwrap_or(0);
-                        for i in 0..count {
-                            if room.wasm.get_id(i).unwrap_or(-1) == id {
-                                pos = (
-                                    room.wasm.get_x(i).unwrap_or(0.0),
-                                    room.wasm.get_y(i).unwrap_or(0.0),
-                                );
-                                break;
-                            }
-                        }
-                        (id, pos.0, pos.1)
+                    let Some(room) = server.rooms.get_mut(&room_name) else {
+                        continue;
                     };
-                    let room = server.rooms.get_mut(&room_name).unwrap();
-                    let _ = room.wasm.on_leave(player_id);
-                    room.state.remove_player(&client_id);
+                    let Some(&id) = room.sessions.get(&client_id) else {
+                        continue;
+                    };
+                    let _ = room.wasm.on_leave(id);
                     room.sessions.remove(&client_id);
                     room.empty_since = Some(Instant::now());
-                    server
-                        .recently_left
-                        .insert(client_id.clone(), (room_name.clone(), x, y, Instant::now()));
-                    transport.retain_session(&room_name, &client_id);
                 }
                 TransportEvent::Packet {
                     client_id, payload, ..
                 } => {
-                    if let Some(flags) = parse_input_flags(&payload) {
-                        let room_name = transport
-                            .room_of(&client_id)
-                            .unwrap_or(&cfg.name)
-                            .to_string();
-                        let mut server = server.lock().unwrap();
-                        if let Some(room) = server.rooms.get_mut(&room_name) {
-                            if let Some(&id) = room.sessions.get(&client_id) {
-                                let _ = room.wasm.on_input(id, flags as i32);
-                            }
-                        }
-                    }
+                    // Raw bytes pass-through: strip the msgpack type header,
+                    // copy into wasm memory, hand over the pointer.
+                    let Some(data) = strip_type_header(&payload) else {
+                        continue;
+                    };
+                    let room_name = transport
+                        .room_of(&client_id)
+                        .unwrap_or(&cfg.name)
+                        .to_string();
+                    let mut server = server.lock().unwrap();
+                    let Some(room) = server.rooms.get_mut(&room_name) else {
+                        continue;
+                    };
+                    let Some(&id) = room.sessions.get(&client_id) else {
+                        continue;
+                    };
+
+                    let ptr =
+                        room.wasm.alloc(data.len() as i32).expect("wasm alloc") as u32 as usize;
+                    room.wasm
+                        .write_memory(ptr as u32, data)
+                        .expect("write input");
+                    room.wasm
+                        .on_input(id, ptr as i32, data.len() as i32)
+                        .expect("wasm on_input");
                 }
             }
         }
 
-        // ---- fixed-tick simulation + patch broadcast ----
+        // ---- fixed-tick: wasm simulates, host broadcasts the delta buffer ----
         if last_tick.elapsed() >= tick_interval {
             last_tick = Instant::now();
             let dt = tick_interval.as_secs_f64();
-            _tick += 1;
             let mut server = server.lock().unwrap();
             let mut dead_rooms: Vec<String> = Vec::new();
 
-            server
-                .recently_left
-                .retain(|_, (_, _, _, at)| at.elapsed() < RECONNECT_WINDOW);
-
             for (name, room) in server.rooms.iter_mut() {
-                room.wasm
-                    .update(dt, cfg.width, cfg.height, cfg.speed)
-                    .expect("update");
+                let packed = room.wasm.tick(dt).expect("wasm tick");
+                let ptr = ((packed >> 32) as u32) as usize;
+                let len = (packed as u32) as usize;
 
-                let count = room.wasm.get_count().unwrap_or(0);
-                for i in 0..count {
-                    let id = room.wasm.get_id(i).unwrap_or(0);
-                    let x = room.wasm.get_x(i).unwrap_or(0.0);
-                    let y = room.wasm.get_y(i).unwrap_or(0.0);
-                    let score = room.wasm.get_score(i).unwrap_or(0.0);
-                    if let Some((session, _)) = room.sessions.iter().find(|(_, pid)| **pid == id) {
-                        let session = session.clone();
-                        room.state.update_player(&session, x, y, score);
-                    }
-                }
-                room.state.advance_tick();
-                room.state.set_coin(
-                    room.wasm.get_coin_x().unwrap_or(0.0),
-                    room.wasm.get_coin_y().unwrap_or(0.0),
-                );
-
-                let patch = room.state.patch();
-                if !patch.is_empty() {
-                    eprintln!("[dbg tick] patch {}B -> {} sessions", patch.len(), room.sessions.len());
-                    for session in room.sessions.keys() {
-                        let _ = transport.send_to(session, OpCode::StateDelta, &patch);
+                if len > 0 {
+                    let delta = room
+                        .wasm
+                        .read_memory(ptr as u32, len as u32)
+                        .expect("read delta");
+                    for (session, id) in &room.sessions {
+                        let frame = wrap_delta(*id, &delta);
+                        let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
                     }
                 }
 
@@ -462,6 +349,23 @@ pub fn run(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<()> {
                 eprintln!("[server] room '{name}' disposed (empty 30s)");
             }
             transport.flush().expect("flush");
+        }
+
+        // ---- hot-reload check (every 2s): swap module for NEW rooms ----
+        if last_wasm_check.elapsed() >= Duration::from_secs(2) {
+            last_wasm_check = Instant::now();
+            if let Ok(current) = std::fs::metadata(wasm_path).and_then(|m| m.modified()) {
+                if loaded_wasm_time != Some(current) {
+                    let bytes = std::fs::read(wasm_path)?;
+                    let module = runtime.compile(&bytes).expect("hot-reload compile");
+                    server.lock().unwrap().wasm_module = module;
+                    loaded_wasm_time = Some(current);
+                    eprintln!(
+                        "[server] 🔥 room logic hot-reloaded ({} bytes) — new rooms use the new module",
+                        bytes.len()
+                    );
+                }
+            }
         }
 
         transport.flush().expect("flush");
