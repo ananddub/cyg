@@ -359,7 +359,13 @@ pub fn run(
                 return Some(("text/html; charset=utf-8".to_string(), body));
             }
         }
-        if let Some(subpath) = path.strip_prefix("/unity/") {
+        if let Some(subpath) = path.strip_prefix("/unity/").or_else(|| {
+            if path.starts_with("/Build/") || path.starts_with("/TemplateData/") {
+                path.strip_prefix("/")
+            } else {
+                None
+            }
+        }) {
             let file_path = webgl_dir_clone.join(subpath);
             if file_path.is_file() {
                 if let Ok(body) = std::fs::read(&file_path) {

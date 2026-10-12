@@ -965,8 +965,11 @@ fn handle_client_greeting(
                     content_type,
                     body.len()
                 );
-                let _ = client.stream.write_all(response.as_bytes());
-                let _ = client.stream.write_all(&body);
+                let sock = socket2::SockRef::from(&client.stream);
+                let _ = sock.set_nonblocking(false);
+                let _ = (&client.stream).write_all(response.as_bytes());
+                let _ = (&client.stream).write_all(&body);
+                let _ = client.stream.flush();
                 client.recv_buf.clear();
                 return true;
             }
