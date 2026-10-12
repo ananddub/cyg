@@ -78,10 +78,15 @@ namespace OpenOxide
         {
             while (_inboundQueue.TryDequeue(out byte[] raw))
             {
-                // Strip 7-byte framing if received via engine-net WebSocket framing (0xA5 "delta" + id)
+                // Strip 7-byte WebSocket framing (0x11 0xA5 "delta") or 6-byte UDP framing (0xA5 "delta")
                 int startOffset = 0;
-                if (raw.Length >= 6 && raw[0] == 0xA5 && raw[1] == (byte)'d' && raw[2] == (byte)'e' &&
-                    raw[3] == (byte)'l' && raw[4] == (byte)'t' && raw[5] == (byte)'a')
+                if (raw.Length >= 7 && raw[0] == 0x11 && raw[1] == 0xA5 &&
+                    raw[2] == (byte)'d' && raw[3] == (byte)'e' && raw[4] == (byte)'l' && raw[5] == (byte)'t' && raw[6] == (byte)'a')
+                {
+                    startOffset = 7;
+                }
+                else if (raw.Length >= 6 && raw[0] == 0xA5 &&
+                    raw[1] == (byte)'d' && raw[2] == (byte)'e' && raw[3] == (byte)'l' && raw[4] == (byte)'t' && raw[5] == (byte)'a')
                 {
                     startOffset = 6;
                 }

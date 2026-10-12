@@ -87,11 +87,12 @@ namespace OpenOxide
             uint playerCount = BitConverter.ToUInt32(bytes, offset);
             offset += 4;
 
+            // Bounds check to protect memory allocator
+            if (playerCount > 256 || offset + (playerCount * 72) > bytes.Length) return null;
+
             EntityState[] entities = new EntityState[playerCount];
             for (int i = 0; i < playerCount; i++)
             {
-                if (offset + 72 > bytes.Length) break;
-
                 entities[i].Id = BitConverter.ToInt64(bytes, offset); offset += 8;
                 double x = BitConverter.ToDouble(bytes, offset); offset += 8;
                 double y = BitConverter.ToDouble(bytes, offset); offset += 8;
@@ -111,16 +112,18 @@ namespace OpenOxide
             {
                 uint bulletCount = BitConverter.ToUInt32(bytes, offset);
                 offset += 4;
-                bullets = new BulletState[bulletCount];
 
-                for (int i = 0; i < bulletCount; i++)
+                if (bulletCount <= 1024 && offset + (bulletCount * 32) <= bytes.Length)
                 {
-                    if (offset + 32 > bytes.Length) break;
-                    double bx = BitConverter.ToDouble(bytes, offset); offset += 8;
-                    double by = BitConverter.ToDouble(bytes, offset); offset += 8;
-                    double bz = BitConverter.ToDouble(bytes, offset); offset += 8;
-                    bullets[i].Position = new Vector3((float)bx, (float)by, (float)bz);
-                    bullets[i].OwnerId = BitConverter.ToInt64(bytes, offset); offset += 8;
+                    bullets = new BulletState[bulletCount];
+                    for (int i = 0; i < bulletCount; i++)
+                    {
+                        double bx = BitConverter.ToDouble(bytes, offset); offset += 8;
+                        double by = BitConverter.ToDouble(bytes, offset); offset += 8;
+                        double bz = BitConverter.ToDouble(bytes, offset); offset += 8;
+                        bullets[i].Position = new Vector3((float)bx, (float)by, (float)bz);
+                        bullets[i].OwnerId = BitConverter.ToInt64(bytes, offset); offset += 8;
+                    }
                 }
             }
 
