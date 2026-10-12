@@ -1,10 +1,14 @@
-use wasmtime::{Config, Engine, Linker, Module, OptLevel, Store, Strategy};
+use std::path::Path;
+use wasmtime::{
+    Config, Engine, InstanceAllocationStrategy, Linker, Module, OptLevel, Store, Strategy,
+};
 
 use crate::config::WasmConfig;
 use crate::error::WasmError;
-use crate::instance::WasmInstance;
+use crate::instance::{WasmInstance, WasmPreInstance};
 
 /// Pure, decoupled WebAssembly runtime engine.
+#[derive(Clone)]
 pub struct WasmRuntime {
     engine: Engine,
     config: WasmConfig,
@@ -27,6 +31,10 @@ impl WasmRuntime {
 
         if cfg.enable_epoch_interruption {
             config.epoch_interruption(true);
+        }
+
+        if cfg.use_pooling_allocator {
+            config.allocation_strategy(InstanceAllocationStrategy::pooling());
         }
 
         let engine = Engine::new(&config)?;
@@ -79,6 +87,50 @@ impl WasmRuntime {
     ) -> Result<WasmInstance<T>, WasmError> {
         let linker: Linker<T> = Linker::new(&self.engine);
         self.instantiate(&linker, module, host_data)
+    }
+
+    /// Pre-instantiate a module with a Linker: validation, linking and type
+    /// checks happen once; every subsequent [`WasmPreInstance::instantiate`]
+    /// is much cheaper — the fast path for high room-spawn rates.
+    pub fn prepare<T>(
+        &self,
+        linker: &Linker<T>,
+        module: &Module,
+    ) -> Result<WasmPreInstance<T>, WasmError> {
+        let pre = linker
+            .instantiate_pre(module)
+            .map_err(|e| WasmError::Instantiation(e.to_string()))?;
+        Ok(WasmPreInstance::new(self.engine.clone(), pre))
+    }
+
+    /// [`prepare`](Self::prepare) without any imports (standalone module).
+    pub fn prepare_standalone<T>(&self, module: &Module) -> Result<WasmPreInstance<T>, WasmError> {
+        let linker: Linker<T> = Linker::new(&self.engine);
+        self.prepare(&linker, module)
+    }
+
+    /// Serialize a compiled module to a file so the ~ms Cranelift compilation
+    /// can be skipped on future boots via [`Self::deserialize_module`].
+    pub fn serialize_module(
+        &self,
+        module: &Module,
+        path: impl AsRef<Path>,
+    ) -> Result<(), WasmError> {
+        let bytes = module
+            .serialize()
+            .map_err(|e| WasmError::Serialization(e.to_string()))?;
+        std::fs::write(path, bytes).map_err(|e| WasmError::Serialization(e.to_string()))
+    }
+
+    /// Load a module previously written by [`Self::serialize_module`].
+    ///
+    /// # Safety
+    /// The file must originate from a trusted source: deserialized modules are
+    /// not re-validated and a tampered file can cause arbitrary behavior.
+    pub unsafe fn deserialize_module(&self, path: impl AsRef<Path>) -> Result<Module, WasmError> {
+        // SAFETY: caller guarantees the file comes from a trusted source.
+        unsafe { Module::deserialize_file(&self.engine, path) }
+            .map_err(|e| WasmError::Serialization(e.to_string()))
     }
 
     /// Increment the engine epoch if epoch interruption is enabled.

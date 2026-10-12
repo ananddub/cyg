@@ -10,4 +10,11 @@ pub struct WasmConfig {
     /// (or a background thread calling [`crate::WasmRuntime::increment_epoch`]
     /// periodically) for the watchdog to actually trigger.
     pub enable_epoch_interruption: bool,
+    /// Use Wasmtime's pooling allocator (default: false).
+    ///
+    /// Pre-allocates linear memory and table slots up-front so instantiation
+    /// reuses pooled resources instead of mmap-ing fresh ones per room.
+    /// Big win when spawning thousands of short-lived rooms per second.
+    /// Trades a larger fixed memory footprint for lower per-room latency.
+    pub use_pooling_allocator: bool,
 }

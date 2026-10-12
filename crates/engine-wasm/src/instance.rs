@@ -1,6 +1,37 @@
-use wasmtime::{Instance, Memory, Store, WasmParams, WasmResults};
+use wasmtime::{Engine, Instance, InstancePre, Memory, Store, WasmParams, WasmResults};
 
 use crate::error::WasmError;
+
+/// A pre-instantiated module: all instantiation-time validation, linking and
+/// startup work is done once up-front. Each call to [`instantiate`](Self::instantiate)
+/// then spawns a room with only the cheap remaining steps — ideal when
+/// creating thousands of rooms per second.
+pub struct WasmPreInstance<T> {
+    engine: Engine,
+    pre: InstancePre<T>,
+}
+
+impl<T> WasmPreInstance<T> {
+    pub fn new(engine: Engine, pre: InstancePre<T>) -> Self {
+        Self { engine, pre }
+    }
+
+    /// Spawn a new running instance (room) from the pre-built template.
+    pub fn instantiate(&self, host_data: T) -> Result<WasmInstance<T>, WasmError> {
+        let mut store = Store::new(&self.engine, host_data);
+        let instance = self
+            .pre
+            .instantiate(&mut store)
+            .map_err(|e| WasmError::Instantiation(e.to_string()))?;
+
+        Ok(WasmInstance::new(store, instance))
+    }
+
+    /// The underlying raw `wasmtime::InstancePre` handle.
+    pub fn raw_pre(&self) -> &InstancePre<T> {
+        &self.pre
+    }
+}
 
 /// A running WebAssembly instance with its own isolated memory and state.
 /// Completely decoupled and generic over any host data `T`.

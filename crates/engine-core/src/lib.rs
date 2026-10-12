@@ -1,9 +1,18 @@
 //! # Engine Core
 //!
-//! Core types, room lifecycle management, fixed timestep simulation loops,
-//! and session abstractions for OpenOxide Gaming.
+//! High-performance core multiplayer game server architecture:
+//! - Fixed 60Hz/30Hz deterministic timestep clock
+//! - Lag compensation & Rewind historical ringbuffers (hit-registration)
+//! - Client input sequencing & reconciliation acknowledgments
+//! - Room lifecycle interfaces and state management
+
+pub mod input;
+pub mod rewind;
 
 use std::time::Duration;
+
+pub use input::{PlayerInput, PlayerInputBuffer};
+pub use rewind::{EntityHistory, Interpolation, RewindManager, TransformSnapshot};
 
 /// Unique session identifier for a connected client.
 pub type SessionId = String;
@@ -28,7 +37,7 @@ pub trait Room {
     fn on_tick(&mut self, ctx: StepContext);
 
     /// Called when an input packet is received from a client.
-    fn on_input(&mut self, session_id: &SessionId, data: &[u8]);
+    fn on_input(&mut self, session_id: &SessionId, input: PlayerInput);
 
     /// Called when a player leaves the room.
     fn on_leave(&mut self, session_id: &SessionId);

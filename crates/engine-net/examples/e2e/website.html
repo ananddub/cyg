@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OpenOxide × Colyseus — Random Walkers</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        background: #0b0e14; color: #e6e6e6;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        display: flex; flex-direction: column; align-items: center;
+        min-height: 100vh; padding: 24px;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 4px; }
+    h1 span { color: #4ade80; }
+    #status { font-size: 0.85rem; color: #888; margin-bottom: 12px; }
+    #status.ok { color: #4ade80; }
+    canvas {
+        background: #11151f;
+        border: 1px solid #2a2f3d;
+        border-radius: 12px;
+    }
+    #hud { margin-top: 10px; font-size: 0.85rem; color: #9ca3af; display: flex; gap: 24px; }
+    #hud b { color: #e6e6e6; }
+</style>
+<!-- The SDK bundle imports "@colyseus/schema" — resolve it to the local build. -->
+<script type="importmap">
+    { "imports": { "@colyseus/schema": "./node_modules/@colyseus/schema/build/index.mjs" } }
+</script>
+<!-- Official @colyseus/sdk (self-contained UMD build of this monorepo). -->
+<script type="module" src="./packages/sdk/dist/colyseus.js"></script>
+<script>
+    // Kill any stale service worker registered on this origin by a previous
+    // app — it would otherwise intercept our fetches and poll /sw.js (404).
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(rs => {
+            for (const r of rs) r.unregister();
+        });
+    }
+</script>
+</head>
+<body>
+    <h1>OpenOxide <span>×</span> Colyseus — Random Walkers</h1>
+    <div id="status">connecting…</div>
+    <canvas id="game" width="800" height="500"></canvas>
+    <div id="hud">
+        <div>tick: <b id="tick">–</b></div>
+        <div>players: <b id="players">–</b></div>
+        <div>state updates: <b id="updates">0</b></div>
+    </div>
+
+<script type="module">
+    import { t, schema } from './node_modules/@colyseus/schema/build/index.mjs';
+
+    // Field order must match the Rust encoder: players=0, tick=1; x=0, y=1.
+    const Player = schema({ x: t.number(), y: t.number() }, 'Player');
+    const GameState = schema({ players: t.map(Player), tick: t.number() }, 'GameState');
+
+    const statusEl = document.getElementById('status');
+    const tickEl = document.getElementById('tick');
+    const playersEl = document.getElementById('players');
+    const updatesEl = document.getElementById('updates');
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const COLORS = ['#4ade80', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#f87171'];
+
+    let room = null;
+    let mySessionId = null;
+    const keys = {};
+
+    // "0.0.0.0" hostname (from python's bind message) is blocked by Chrome's
+    // Private Network Access — normalize to localhost.
+    const gameHost = (location.hostname === '0.0.0.0' || location.hostname === '')
+        ? 'localhost'
+        : location.hostname;
+
+    // WASD input: send held-key flags at ~30 Hz.
+    function sendInput() {
+        if (!room) return;
+        let flags = 0;
+        if (keys['KeyW'] || keys['ArrowUp']) flags |= 1;
+        if (keys['KeyS'] || keys['ArrowDown']) flags |= 2;
+        if (keys['KeyA'] || keys['ArrowLeft']) flags |= 4;
+        if (keys['KeyD'] || keys['ArrowRight']) flags |= 8;
+        room.sendBytes('input', new Uint8Array([flags]));
+    }
+    setInterval(sendInput, 33);
+
+    window.addEventListener('keydown', e => {
+        if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) {
+            keys[e.code] = true;
+            e.preventDefault();
+        }
+    });
+    window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+    async function join() {
+        const client = new Colyseus.Client(`ws://${gameHost}:7777`);
+        room = await client.joinOrCreate('game_room', {}, GameState);
+        mySessionId = room.sessionId;
+        statusEl.textContent = `connected — you are ${mySessionId} — move with WASD`;
+        statusEl.classList.add('ok');
+
+        room.onStateChange(() => {
+            updatesEl.textContent = Number(updatesEl.textContent) + 1;
+        });
+
+        room.onLeave(() => {
+            statusEl.textContent = 'disconnected — reloading…';
+            statusEl.classList.remove('ok');
+            setTimeout(() => location.reload(), 1500);
+        });
+    }
+
+    join().catch(err => {
+        statusEl.textContent = 'failed: ' + (err?.message ?? err);
+    });
+
+    function render() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // subtle grid
+        ctx.strokeStyle = '#1b2230';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < canvas.width; x += 40) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for (let y = 0; y < canvas.height; y += 40) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+
+        if (room?.state) {
+            tickEl.textContent = room.state.tick;
+            let i = 0;
+            for (const [key, p] of room.state.players) {
+                const color = COLORS[i % COLORS.length];
+                const px = Math.max(14, Math.min(canvas.width - 14, p.x));
+                const py = Math.max(14, Math.min(canvas.height - 14, p.y));
+                const isMe = key === mySessionId;
+
+                // glow
+                ctx.beginPath();
+                ctx.arc(px, py, 16, 0, Math.PI * 2);
+                ctx.fillStyle = color + '22';
+                ctx.fill();
+
+                // body
+                ctx.beginPath();
+                ctx.arc(px, py, 10, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+
+                // white ring on own player
+                if (isMe) {
+                    ctx.beginPath();
+                    ctx.arc(px, py, 14, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2.5;
+                    ctx.stroke();
+                }
+
+                // label
+                ctx.fillStyle = isMe ? '#ffffff' : '#94a3b8';
+                ctx.font = 'bold 12px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(isMe ? 'YOU' : key.split('_').slice(-1)[0], px, py - 20);
+
+                i++;
+            }
+            playersEl.textContent = i;
+        }
+
+        requestAnimationFrame(render);
+    }
+
+    render();
+</script>
+</body>
+</html>

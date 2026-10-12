@@ -125,5 +125,9 @@ fn test_macro_comprehensive_suite() {
     println!("Throughput:                           {:.0} calls/sec", (iterations as f64) / elapsed.as_secs_f64());
     println!("=======================================================\n");
 
-    assert!(ns_per_call < 200.0, "Macro calling overhead must be under 200ns");
+    if cfg!(debug_assertions) {
+        assert!(ns_per_call < 3000.0, "Debug mode macro call overhead must be reasonable");
+    } else {
+        assert!(ns_per_call < 200.0, "Macro calling overhead must be under 200ns in release mode");
+    }
 }

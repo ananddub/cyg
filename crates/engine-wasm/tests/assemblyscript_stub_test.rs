@@ -72,5 +72,9 @@ fn test_real_assemblyscript_with_runtime_stub() {
     println!("Final Score after 1M Ticks:     {}", room.getScore().unwrap());
     println!("=======================================================\n");
 
-    assert!(ns_per_tick < 30.0, "AssemblyScript with runtime stub must be under 30ns");
+    if cfg!(debug_assertions) {
+        assert!(ns_per_tick < 3000.0, "Debug mode latency must be reasonable (<3us)");
+    } else {
+        assert!(ns_per_tick < 30.0, "AssemblyScript with runtime stub must be under 30ns in release mode");
+    }
 }

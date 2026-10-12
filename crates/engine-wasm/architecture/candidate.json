@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "engine-wasm: Sandbox WASM Game-Room Runtime",
+    "subtitle": "How a .wasm guest module becomes isolated, nanosecond-call rooms",
+    "output": "crates/engine-wasm/architecture/engine-wasm-architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "guest", "type": "external", "label": "Guest WASM Module", "sublabel": "asc · rustc · clang", "pos": [40, 100], "size": [140, 64] },
+    { "id": "runtime", "type": "backend", "label": "WasmRuntime", "sublabel": "Wasmtime Engine", "tag": "Cranelift JIT", "pos": [290, 100], "size": [140, 64] },
+    { "id": "pre", "type": "backend", "label": "WasmPreInstance<T>", "sublabel": "validate + link once", "pos": [560, 100], "size": [150, 64] },
+    { "id": "instance", "type": "backend", "label": "WasmInstance<T>", "sublabel": "isolated Store", "tag": "linear memory", "pos": [860, 100], "size": [140, 64] },
+    { "id": "wrapper", "type": "backend", "label": "wasm_module! struct", "sublabel": "pre-cached TypedFunc", "tag": "~20ns calls", "pos": [1130, 100], "size": [150, 64] },
+    { "id": "watchdog", "type": "external", "label": "Epoch Watchdog", "sublabel": "epoch thread", "pos": [120, 300], "size": [140, 60] },
+    { "id": "cache", "type": "database", "label": ".cwasm Module Cache", "sublabel": "serialize / load", "pos": [295, 300], "size": [140, 60] },
+    { "id": "linker", "type": "backend", "label": "Linker<T>", "sublabel": "host imports", "pos": [565, 300], "size": [140, 60] },
+    { "id": "host_state", "type": "database", "label": "Host Data T", "sublabel": "room.data()", "pos": [860, 300], "size": [140, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "engine-wasm crate (pure Rust, app-agnostic)", "wraps": ["runtime", "pre", "instance", "wrapper", "cache", "linker", "host_state"] },
+    { "kind": "security-group", "label": "Per-room sandbox: own Store + linear memory", "wraps": ["instance", "host_state"] }
+  ],
+  "connections": [
+    { "id": "guest-to-runtime", "from": "guest", "to": "runtime", "label": "raw .wasm bytes", "variant": "emphasis" },
+    { "id": "runtime-to-pre", "from": "runtime", "to": "pre", "label": "prepare() template", "variant": "emphasis" },
+    { "id": "pre-to-instance", "from": "pre", "to": "instance", "label": "instantiate() per room", "variant": "emphasis" },
+    { "id": "instance-to-wrapper", "from": "instance", "to": "wrapper", "label": "from_pre() wrap" },
+    { "id": "wrapper-to-guest", "from": "wrapper", "to": "guest", "label": "calls exported fns", "variant": "dashed", "fromSide": "top", "toSide": "top", "via": [[1205, 40], [110, 40]] },
+    { "id": "runtime-to-cache", "from": "runtime", "to": "cache", "label": "serialize / deserialize", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 58 },
+    { "id": "linker-to-pre", "from": "linker", "to": "pre", "label": "host imports", "fromSide": "top", "toSide": "bottom" },
+    { "id": "instance-to-host-state", "from": "instance", "to": "host_state", "label": "store.data()", "fromSide": "bottom", "toSide": "top" },
+    { "id": "watchdog-to-runtime", "from": "watchdog", "to": "runtime", "label": "increment_epoch()", "variant": "dashed", "fromSide": "top", "toSide": "bottom", "labelDx": -40 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Compile once", "items": ["src/runtime.rs: Cranelift compiles .wasm in ~2.7ms", "serialize_module caches to .cwasm, skipping recompiles on boot"] },
+    { "dot": "emerald", "title": "Spawn fast", "items": ["src/instance.rs: InstancePre bakes validation + linking once", "Pooling allocator: ~1.5-4µs per room, ~500k rooms/sec", "Traps surface as WasmError - host process survives"] },
+    { "dot": "amber", "title": "Call at ns speed", "items": ["src/macros.rs: wasm_module! pre-caches TypedFunc pointers", "~17-20ns per call, zero string lookups", "read_memory / write_memory share packets via linear memory"] },
+    { "dot": "rose", "title": "Watchdog (opt-in)", "items": ["src/config.rs: enable_epoch_interruption arms the engine", "Rooms must set_epoch_deadline(n) - src/instance.rs", "increment_epoch() from a thread kills rogue loops"] }
+  ]
+}

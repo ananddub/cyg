@@ -83,6 +83,15 @@ macro_rules! wasm_module {
                 Self::from_instance(instance)
             }
 
+            /// Fast path: spawn from a pre-instantiated template
+            /// (see `$crate::WasmRuntime::prepare_standalone`).
+            pub fn from_pre(
+                pre: &$crate::WasmPreInstance<T>,
+                host_data: T,
+            ) -> Result<Self, $crate::WasmError> {
+                Self::from_instance(pre.instantiate(host_data)?)
+            }
+
             /// Access the host data state.
             pub fn data(&self) -> &T {
                 self.instance.data()

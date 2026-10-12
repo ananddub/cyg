@@ -11,5 +11,5 @@ pub mod runtime;
 
 pub use config::WasmConfig;
 pub use error::WasmError;
-pub use instance::WasmInstance;
+pub use instance::{WasmInstance, WasmPreInstance};
 pub use runtime::WasmRuntime;

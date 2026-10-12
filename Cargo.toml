@@ -12,13 +12,11 @@ edition = "2024"
 
 
 [dependencies]
-mio = {version = "1.2.4",features = ["net","os-poll"]}
-quiche = "0.30.0"
+engine-core = { path = "crates/engine-core" }
+engine-http = { path = "crates/engine-http" }
+engine-net = { path = "crates/engine-net" }
+engine-wasm = { path = "crates/engine-wasm" }
+mio = { version = "1.2.4", features = ["net", "os-poll"] }
+wasmtime = "25.0.0"
 
-[[bin]]
-name = "test"
-path = "src/test.rs"
 
-[[bin]]
-name = "client"
-path = "src/client.rs"

@@ -1,1 +1,15 @@
 /target
+
+# AI agent configs
+.agents/
+.claude/
+.qoder/
+skills-lock.json
+
+# IDE
+.idea/
+
+# C# / .NET build artifacts (engine-wasm csharp test)
+crates/engine-wasm/tests/csharp/bin/
+crates/engine-wasm/tests/csharp/obj/
+crates/engine-wasm/tests/csharp/runtimeconfig.template.json

@@ -26,4 +26,7 @@ pub enum WasmError {
 
     #[error("Execution trap in function '{0}': {1}")]
     Trap(String, String),
+
+    #[error("Module serialization/deserialization failed: {0}")]
+    Serialization(String),
 }

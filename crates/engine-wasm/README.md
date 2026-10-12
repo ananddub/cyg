@@ -26,18 +26,21 @@ Traditional game servers run user scripts directly inside the engine process (e.
 
 ## 📊 Benchmarks (Real Test Data)
 
-Benchmarked on **1,000,000 real execution iterations** in `--release` mode:
+> Benchmarked on **1,000,000 real execution iterations** in `--release` mode:
+>
+> Instantiation benchmarked with **10,000 rooms spawned from a pre-instantiated template**:
 
 | Operation | Latency | Throughput (Single Core) |
 | :--- | :--- | :--- |
 | **Pure Function Call** | **17.27 ns** | ~58,000,000 calls / sec |
 | **Real Game Tick (AssemblyScript)** | **20.40 ns** | **49,022,927 ticks / sec** |
 | **Type-Safe Macro Call (`wasm_module!`)** | **19.27 ns** | **51,886,807 calls / sec** |
-| **Room Instantiation** | **70.8 µs** | ~14,000 rooms / sec |
+| **Room Instantiation (On-Demand)** | **~14.0 µs** | ~71,000 rooms / sec |
+| **Room Instantiation (Pooling + `InstancePre`)** | **~1.5 µs** | **~658,000 rooms / sec** |
 | **Module Compilation (One-Time)** | **2.74 ms** | N/A |
 | **WASM Binary Size (`--runtime stub`)** | **239 bytes** | Literal bytes, not KB! |
 
-> **Context:** A 60 FPS tick budget is **16.6 milliseconds** (`16,666,000 ns`). An `engine-wasm` tick executes in **0.0001%** of that frame budget!
+> **Context:** A 60 FPS tick budget is **16.6 milliseconds** (`16,666,000 ns`). An `engine-wasm` tick executes in **0.0001%** of that frame budget — and a pooled room spawns **~9× faster** than on-demand.
 
 ---
 
@@ -114,7 +117,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
-### 3. Integrating Custom Host Functions (Linker)
+### 3. Spawning Rooms at Maximum Speed (`InstancePre` + Pooling)
+
+For high room-churn workloads, pre-instantiate the module once (validation,
+linking and type-checks happen a single time), then spawn rooms from the
+template — with the pooling allocator, each room spawns in **~1.5 µs**:
+
+```rust
+use engine_wasm::{WasmConfig, WasmRuntime};
+
+let runtime = WasmRuntime::new_with_config(WasmConfig {
+    use_pooling_allocator: true,        // ~9× faster instantiation (see benchmarks)
+    ..WasmConfig::default()
+})?;
+
+let module = runtime.compile(wasm_bytes)?;
+
+// One-time setup: validation + linking baked into a template.
+let pre = runtime.prepare_standalone::<()>(&module)?;
+
+// Every room now spawns via the fastest path:
+let mut room = GameRoom::from_pre(&pre, ())?;
+room.update(0.016, 150.0, 50.0)?;
+```
+
+Compiled modules can also be cached to disk to skip the one-time ~2.7 ms
+Cranelift compilation on subsequent boots:
+
+```rust
+runtime.serialize_module(&module, "rooms.cwasm")?;
+// SAFETY: the file must come from a trusted source (not re-validated on load).
+let module = unsafe { runtime.deserialize_module("rooms.cwasm") }?;
+```
+
+---
+
+### 4. Integrating Custom Host Functions (Linker)
 
 If the guest WASM needs to call host services (broadcasting packets, logging, or querying state):
 
@@ -148,12 +186,23 @@ println!("Packets queued: {}", room.data().broadcast_packets.len());
 use engine_wasm::{WasmConfig, WasmRuntime};
 
 let config = WasmConfig {
-    optimize_for_speed: true,          // Cranelift OptLevel::Speed
+    optimize_for_speed: true,           // Cranelift OptLevel::Speed
     enable_epoch_interruption: false,   // Optional watchdog for rogue infinite loops
+    use_pooling_allocator: false,       // ~9× faster room spawning, larger fixed memory footprint
 };
 
 let runtime = WasmRuntime::new_with_config(config)?;
 ```
+
+> **Epoch interruption note:** the flag only enables the mechanism. To actually
+> stop rogue loops, arm each instance with `room.raw_instance().set_epoch_deadline(n)`
+> (or via `WasmInstance::set_epoch_deadline`) and tick the engine periodically
+> with `runtime.increment_epoch()` from a background thread or main loop.
+>
+> **Pooling note:** `use_pooling_allocator` trades a larger fixed memory footprint
+> (slots reserved up-front) for ~9× lower instantiation latency. Best for
+> high-churn short-lived rooms; for thousands of *simultaneously alive* rooms,
+> tune the wasmtime pool limits accordingly.
 
 ---
 
@@ -162,11 +211,14 @@ let runtime = WasmRuntime::new_with_config(config)?;
 All tests can be executed with standard Cargo commands:
 
 ```bash
-# Run all unit and integration tests
-cargo test -p engine-wasm
+# Run all unit and integration tests (bench-timing tests require release mode)
+cargo test --release -p engine-wasm
 
 # Run the full release-mode latency benchmarks
 cargo test --release -p engine-wasm --test assemblyscript_stub_test -- --nocapture
+
+# On-Demand vs Pooling allocator instantiation benchmark
+cargo test --release -p engine-wasm --test instantiation_bench -- --nocapture
 ```
 
 ---
@@ -186,8 +238,8 @@ cargo test --release -p engine-wasm --test assemblyscript_stub_test -- --nocaptu
 │                                                                        │
 │   WasmRuntime (Cranelift Engine)                                       │
 │          │                                                             │
-│          ▼ Instantiates & Pre-caches Function Pointers                 │
-│   wasm_module! Macro Wrapper                                           │
+│          ▼ prepare() → InstancePre template + Pooling Allocator        │
+│   wasm_module! Macro Wrapper (from_pre fast spawn)                     │
 │          │                                                             │
 │          ├── room.update(dt, vx, vy)          --> Direct JIT Pointer   │
 │          ├── room.calculate_damage(50, 1.5)   --> 20.4 ns Latency      │

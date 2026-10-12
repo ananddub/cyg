@@ -1,0 +1,9 @@
+[package]
+name = "engine-http"
+version = "0.1.0"
+edition = "2024"
+description = "Protocol-pluggable HTTP endpoint framework on raw mio (thread-per-core, SO_REUSEPORT, no async runtime)"
+
+[dependencies]
+mio = { version = "1.2.4", features = ["net", "os-poll"] }
+socket2 = { version = "0.6.5", features = ["all"] }
