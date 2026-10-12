@@ -4,9 +4,16 @@ using UnityEngine;
 
 namespace OpenOxide
 {
+    public enum TransportType
+    {
+        Auto,       // UDP on Native/Editor, WebSocket on WebGL
+        Udp,
+        WebSocket
+    }
+
     /// <summary>
     /// Main entry point for connecting to OpenOxide Gaming Servers from Unity.
-    /// Supports low-latency UDP datagram transport and WebSocket failover.
+    /// Supports low-latency UDP datagram transport and WebSocket failover/WebGL.
     /// </summary>
     public class OpenOxideClient
     {
@@ -19,14 +26,47 @@ namespace OpenOxide
             Port = port;
         }
 
+        public IOpenOxideSocket CreateSocket(TransportType transport, string roomName, bool isSpectator)
+        {
+            bool useWs = false;
+            if (transport == TransportType.WebSocket)
+            {
+                useWs = true;
+            }
+            else if (transport == TransportType.Auto)
+            {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                useWs = true;
+#else
+                useWs = (Port == 8090 || Port == 7777);
+#endif
+            }
+
+            if (useWs)
+            {
+                var ws = new OpenOxideWebSocket();
+                string protocol = "ws";
+                int wsPort = (Port == 7778) ? 8090 : Port;
+                string url = $"{protocol}://{Host}:{wsPort}/{roomName}";
+                if (isSpectator) url += "?spectator=1";
+                ws.Connect(url);
+                return ws;
+            }
+            else
+            {
+                var udp = new OpenOxideUdpSocket();
+                udp.Connect(Host, Port);
+                return udp;
+            }
+        }
+
         /// <summary>
         /// Join or create a match room as an active combatant.
         /// </summary>
-        public OpenOxideRoom JoinOrCreate(string roomName)
+        public OpenOxideRoom JoinOrCreate(string roomName, TransportType transport = TransportType.Auto)
         {
             OpenOxideRoom room = new OpenOxideRoom(roomName, isSpectator: false);
-            OpenOxideUdpSocket socket = new OpenOxideUdpSocket();
-            socket.Connect(Host, Port);
+            var socket = CreateSocket(transport, roomName, isSpectator: false);
             room.AttachSocket(socket);
             return room;
         }
@@ -34,11 +74,10 @@ namespace OpenOxide
         /// <summary>
         /// Join a match room in read-only Spectator / Observer mode.
         /// </summary>
-        public OpenOxideRoom Spectate(string roomName)
+        public OpenOxideRoom Spectate(string roomName, TransportType transport = TransportType.Auto)
         {
             OpenOxideRoom room = new OpenOxideRoom(roomName, isSpectator: true);
-            OpenOxideUdpSocket socket = new OpenOxideUdpSocket();
-            socket.Connect(Host, Port);
+            var socket = CreateSocket(transport, roomName, isSpectator: true);
             room.AttachSocket(socket);
             return room;
         }

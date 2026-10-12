@@ -347,8 +347,38 @@ pub fn run(
     let sdk_js_clone = sdk_js.clone();
     let schema_mjs_clone = schema_mjs.clone();
     let map_path_clone = map_path.clone();
+    let webgl_dir_clone = project_dir
+        .parent()
+        .map(|p| p.join("OpenOxideArena/Build/WebGL"))
+        .unwrap_or_else(|| project_dir.join("unity"));
 
     transport.on_http(move |path| {
+        if path == "/unity" || path == "/unity/" {
+            let index_path = webgl_dir_clone.join("index.html");
+            if let Ok(body) = std::fs::read(&index_path) {
+                return Some(("text/html; charset=utf-8".to_string(), body));
+            }
+        }
+        if let Some(subpath) = path.strip_prefix("/unity/") {
+            let file_path = webgl_dir_clone.join(subpath);
+            if file_path.is_file() {
+                if let Ok(body) = std::fs::read(&file_path) {
+                    let content_type = match file_path.extension().and_then(|s| s.to_str()).unwrap_or("") {
+                        "html" => "text/html; charset=utf-8",
+                        "js" => "application/javascript",
+                        "wasm" => "application/wasm",
+                        "data" => "application/octet-stream",
+                        "css" => "text/css",
+                        "png" => "image/png",
+                        "jpg" | "jpeg" => "image/jpeg",
+                        "json" => "application/json",
+                        _ => "application/octet-stream",
+                    };
+                    return Some((content_type.to_string(), body));
+                }
+            }
+        }
+
         match path {
             "/health" => Some(("text/plain; charset=utf-8".to_string(), b"ok".to_vec())),
             "/" | "/website.html" => {

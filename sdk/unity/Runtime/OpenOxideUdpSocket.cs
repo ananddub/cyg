@@ -11,7 +11,7 @@ namespace OpenOxide
     /// High-throughput UDP datagram socket for OpenOxide game client.
     /// Handles asynchronous non-blocking packet reception and transmission.
     /// </summary>
-    public class OpenOxideUdpSocket : IDisposable
+    public class OpenOxideUdpSocket : IOpenOxideSocket
     {
         private UdpClient _udpClient;
         private IPEndPoint _serverEndPoint;

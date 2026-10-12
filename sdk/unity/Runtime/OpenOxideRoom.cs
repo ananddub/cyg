@@ -34,7 +34,8 @@ namespace OpenOxide
         public bool IsSpectator { get; private set; }
         public long LocalPlayerId { get; private set; }
 
-        private OpenOxideUdpSocket _socket;
+        public IOpenOxideSocket Socket => _socket;
+        private IOpenOxideSocket _socket;
         private readonly ConcurrentQueue<byte[]> _inboundQueue = new ConcurrentQueue<byte[]>();
 
         // Replay Recording
@@ -51,7 +52,7 @@ namespace OpenOxide
             IsSpectator = isSpectator;
         }
 
-        public void AttachSocket(OpenOxideUdpSocket socket)
+        public void AttachSocket(IOpenOxideSocket socket)
         {
             _socket = socket;
             _socket.OnPacketReceived += HandleInboundPacket;
