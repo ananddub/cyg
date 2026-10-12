@@ -32,7 +32,7 @@ fn main() {
     );
 
     let mut state = ColyseusRoomState::new();
-    state.add_player("p1", 10.5, -3.25);
+    state.add_player("p1", 10.5, -3.25, 0.0);
     let mut known_clients: HashMap<String, ()> = HashMap::new();
 
     let mut last_broadcast = Instant::now();
@@ -78,7 +78,7 @@ fn main() {
             last_broadcast = Instant::now();
             state.advance_tick();
             let t = state.tick() as f64;
-            state.update_player("p1", 10.5 + t * 0.5, -3.25 + (t * 0.1).sin() * 5.0);
+            state.update_player("p1", 10.5 + t * 0.5, -3.25 + (t * 0.1).sin() * 5.0, t * 10.0);
 
             let patch = state.patch();
             if !patch.is_empty() {

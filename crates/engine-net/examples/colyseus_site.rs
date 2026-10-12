@@ -316,7 +316,7 @@ fn main() {
                     eprintln!("[dbg] calling wasm on_join");
                     room.wasm.on_join(id, x, y).expect("wasm on_join");
                     eprintln!("[dbg] on_join ok");
-                    room.state.add_player(&client_id, x, y);
+                    room.state.add_player(&client_id, x, y, 0.0);
                     room.sessions.insert(client_id.clone(), id);
                     room.empty_since = None;
 
@@ -418,7 +418,7 @@ fn main() {
                     let y = room.wasm.get_y(i).unwrap_or(0.0);
                     if let Some((session, _)) = room.sessions.iter().find(|(_, pid)| **pid == id) {
                         let session = session.clone();
-                        room.state.update_player(&session, x, y);
+                        room.state.update_player(&session, x, y, 0.0);
                     }
                 }
                 room.state.advance_tick();

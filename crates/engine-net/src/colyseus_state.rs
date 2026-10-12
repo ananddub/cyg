@@ -32,6 +32,10 @@ const SWITCH: u8 = 255;
 const FIELD_PLAYERS: u8 = 0;
 /// Field index of `tick` on the client's root schema class.
 const FIELD_TICK: u8 = 1;
+/// Field index of `coin_x` on the client's root schema class.
+const FIELD_COIN_X: u8 = 2;
+/// Field index of `coin_y` on the client's root schema class.
+const FIELD_COIN_Y: u8 = 3;
 
 #[derive(Debug, Clone, Copy)]
 struct PlayerEntry {
@@ -41,6 +45,7 @@ struct PlayerEntry {
     ref_id: u32,
     x: f64,
     y: f64,
+    score: f64,
 }
 
 /// A removed player pending a DELETE op in the next patch.
@@ -59,8 +64,11 @@ pub struct ColyseusRoomState {
     next_ref_id: u32,
     players_map_ref_id: u32,
     tick: u64,
+    coin_x: f64,
+    coin_y: f64,
     players_dirty: bool,
     tick_dirty: bool,
+    coin_dirty: bool,
     changed_players: HashSet<String>,
     new_players: HashSet<String>,
     removed_players: HashMap<String, RemovedEntry>,
@@ -82,8 +90,11 @@ impl ColyseusRoomState {
             next_ref_id: 2,
             players_map_ref_id: 1,
             tick: 0,
+            coin_x: 0.0,
+            coin_y: 0.0,
             players_dirty: false,
             tick_dirty: false,
+            coin_dirty: false,
             changed_players: HashSet::new(),
             new_players: HashSet::new(),
             removed_players: HashMap::new(),
@@ -101,12 +112,13 @@ impl ColyseusRoomState {
     }
 
     /// Add a new player; emits an ADD on the next patch.
-    pub fn add_player(&mut self, key: &str, x: f64, y: f64) {
+    pub fn add_player(&mut self, key: &str, x: f64, y: f64, score: f64) {
         let entry = PlayerEntry {
             map_index: self.next_map_index,
             ref_id: self.next_ref_id,
             x,
             y,
+            score,
         };
         self.next_map_index += 1;
         self.next_ref_id += 1;
@@ -116,14 +128,22 @@ impl ColyseusRoomState {
         self.new_players.insert(key.to_string());
     }
 
-    /// Update a player's position; emits REPLACEs on the next patch.
-    pub fn update_player(&mut self, key: &str, x: f64, y: f64) {
+    /// Update a player's position and score; emits REPLACEs on the next patch.
+    pub fn update_player(&mut self, key: &str, x: f64, y: f64, score: f64) {
         if let Some(e) = self.players.get_mut(key) {
             e.x = x;
             e.y = y;
+            e.score = score;
             self.players_dirty = true;
             self.changed_players.insert(key.to_string());
         }
+    }
+
+    /// Move the shared pickup (coin); emits REPLACEs on the next patch.
+    pub fn set_coin(&mut self, x: f64, y: f64) {
+        self.coin_x = x;
+        self.coin_y = y;
+        self.coin_dirty = true;
     }
 
     pub fn player_count(&self) -> usize {
@@ -191,11 +211,17 @@ impl ColyseusRoomState {
             mp_number(&mut out, entry.x);
             out.push(OP_ADD | 1); // y (field index 1)
             mp_number(&mut out, entry.y);
+            out.push(OP_ADD | 2); // score (field index 2)
+            mp_number(&mut out, entry.score);
         }
 
-        // Back to root, then tick (index 1, ADD).
+        // Back to root: coin fields (ADD), then tick (index 1, ADD).
         out.push(SWITCH);
         mp_number(&mut out, 0.0);
+        out.push(OP_ADD | FIELD_COIN_X);
+        mp_number(&mut out, self.coin_x);
+        out.push(OP_ADD | FIELD_COIN_Y);
+        mp_number(&mut out, self.coin_y);
         out.push(OP_ADD | FIELD_TICK);
         mp_number(&mut out, self.tick as f64);
 
@@ -248,10 +274,19 @@ impl ColyseusRoomState {
                 mp_number(&mut out, entry.x);
                 out.push(OP_REPLACE | 1); // y
                 mp_number(&mut out, entry.y);
+                out.push(OP_REPLACE | 2); // score
+                mp_number(&mut out, entry.score);
             }
-            // Back to root for the tick field.
+            // Back to root for coin + tick fields.
             out.push(SWITCH);
             mp_number(&mut out, 0.0);
+        }
+
+        if self.coin_dirty {
+            out.push(OP_REPLACE | FIELD_COIN_X);
+            mp_number(&mut out, self.coin_x);
+            out.push(OP_REPLACE | FIELD_COIN_Y);
+            mp_number(&mut out, self.coin_y);
         }
 
         if self.tick_dirty {
@@ -261,6 +296,7 @@ impl ColyseusRoomState {
 
         self.players_dirty = false;
         self.tick_dirty = false;
+        self.coin_dirty = false;
         self.changed_players.clear();
         self.new_players.clear();
         out

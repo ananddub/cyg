@@ -45,6 +45,9 @@ wasm_module! {
         fn get_id(i: i32) -> i64;
         fn get_x(i: i32) -> f64;
         fn get_y(i: i32) -> f64;
+        fn get_score(i: i32) -> f64;
+        fn get_coin_x() -> f64;
+        fn get_coin_y() -> f64;
         fn is_full(count: i32) -> i32;
     }
 }
@@ -333,7 +336,7 @@ pub fn run(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<()> {
                     let id = room.next_player_id;
                     room.next_player_id += 1;
                     room.wasm.on_join(id, x, y).expect("wasm on_join");
-                    room.state.add_player(&client_id, x, y);
+                    room.state.add_player(&client_id, x, y, 0.0);
                     room.sessions.insert(client_id.clone(), id);
                     room.empty_since = None;
 
@@ -423,15 +426,21 @@ pub fn run(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<()> {
                     let id = room.wasm.get_id(i).unwrap_or(0);
                     let x = room.wasm.get_x(i).unwrap_or(0.0);
                     let y = room.wasm.get_y(i).unwrap_or(0.0);
+                    let score = room.wasm.get_score(i).unwrap_or(0.0);
                     if let Some((session, _)) = room.sessions.iter().find(|(_, pid)| **pid == id) {
                         let session = session.clone();
-                        room.state.update_player(&session, x, y);
+                        room.state.update_player(&session, x, y, score);
                     }
                 }
                 room.state.advance_tick();
+                room.state.set_coin(
+                    room.wasm.get_coin_x().unwrap_or(0.0),
+                    room.wasm.get_coin_y().unwrap_or(0.0),
+                );
 
                 let patch = room.state.patch();
                 if !patch.is_empty() {
+                    eprintln!("[dbg tick] patch {}B -> {} sessions", patch.len(), room.sessions.len());
                     for session in room.sessions.keys() {
                         let _ = transport.send_to(session, OpCode::StateDelta, &patch);
                     }

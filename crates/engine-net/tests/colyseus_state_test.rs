@@ -5,7 +5,7 @@ use engine_net::colyseus_state::ColyseusRoomState;
 #[test]
 fn test_snapshot_wire_format() {
     let mut state = ColyseusRoomState::new();
-    state.add_player("p1", 1.5, -2.0);
+    state.add_player("p1", 1.5, -2.0, 0.0);
 
     let snap = state.snapshot_consuming();
 
@@ -39,11 +39,11 @@ fn test_snapshot_wire_format() {
 #[test]
 fn test_patch_replace_and_new_player() {
     let mut state = ColyseusRoomState::new();
-    state.add_player("p1", 1.0, 2.0);
+    state.add_player("p1", 1.0, 2.0, 0.0);
     let _snapshot = state.snapshot_consuming(); // clear initial dirty flags
 
     state.advance_tick();
-    state.update_player("p1", 3.5, 4.5);
+    state.update_player("p1", 3.5, 4.5, 0.0);
 
     let patch = state.patch();
 
@@ -64,11 +64,11 @@ fn test_patch_replace_and_new_player() {
 #[test]
 fn test_patch_includes_new_player_add() {
     let mut state = ColyseusRoomState::new();
-    state.add_player("p1", 0.0, 0.0);
+    state.add_player("p1", 0.0, 0.0, 0.0);
     let _ = state.snapshot_consuming();
 
     // Use fractional values so fields encode as float64 (stable byte layout).
-    state.add_player("p2", 5.5, 6.25);
+    state.add_player("p2", 5.5, 6.25, 0.0);
     let patch = state.patch();
 
     // Switch to map (ref 1), ADD entry for p2 (index 2, refId 3)
@@ -91,7 +91,7 @@ fn test_patch_includes_new_player_add() {
 #[test]
 fn test_empty_patch_when_nothing_changed() {
     let mut state = ColyseusRoomState::new();
-    state.add_player("p1", 0.0, 0.0);
+    state.add_player("p1", 0.0, 0.0, 0.0);
     let _ = state.snapshot_consuming();
     let patch = state.patch();
     assert!(patch.is_empty(), "no changes -> empty patch");
@@ -102,7 +102,7 @@ fn test_msgpack_number_encodings() {
     // Verify via public API: snapshot tick values exercise fixint paths.
     let mut state = ColyseusRoomState::new();
     state.advance_tick(); // tick = 1
-    state.add_player("a", 1000000.0, -0.25);
+    state.add_player("a", 1000000.0, -0.25, 0.0);
     let snap = state.snapshot();
 
     // tick: uint16 encoding (0xcd) little-endian for 1000000.0? No — x is float.
