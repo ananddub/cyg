@@ -24,8 +24,10 @@ room.onMessage("delta", (bytes) => {
         offset += 8;
         const score = view.getFloat64(offset, true);
         offset += 8;
+        const hp = view.getFloat64(offset, true);
+        offset += 8;
         if (id === myId) {
-            me = { id, x, y, score };
+            me = { id, x, y, score, hp };
         }
     }
     const coinX = view.getFloat64(offset, true);

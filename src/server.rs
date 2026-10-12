@@ -143,18 +143,22 @@ pub fn run(
     let api = Api::new()
         .get("/health", |_| Response::text("ok"))
         .get("/", {
-            let website = website.clone();
+            let website_path = website_path.clone();
+            let default_website = website.clone();
             move |_| {
+                let body = std::fs::read(&website_path).unwrap_or_else(|_| default_website.clone());
                 Response::new(200)
-                    .with_body(website.clone())
+                    .with_body(body)
                     .with_header("Content-Type", "text/html; charset=utf-8")
             }
         })
         .get("/website.html", {
-            let website = website.clone();
+            let website_path = website_path.clone();
+            let default_website = website.clone();
             move |_| {
+                let body = std::fs::read(&website_path).unwrap_or_else(|_| default_website.clone());
                 Response::new(200)
-                    .with_body(website.clone())
+                    .with_body(body)
                     .with_header("Content-Type", "text/html; charset=utf-8")
             }
         })

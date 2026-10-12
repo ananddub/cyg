@@ -2,26 +2,37 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>OpenOxide × Colyseus — Coin Rush (Generic Byte Pipeline)</title>
+<title>OpenOxide × Colyseus — PvP Shooter (Generic Byte Pipeline)</title>
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
         background: #0b0e14; color: #e6e6e6;
         font-family: "Segoe UI", system-ui, sans-serif;
         display: flex; flex-direction: column; align-items: center;
-        min-height: 100vh; padding: 24px;
+        min-height: 100vh; padding: 20px;
     }
     h1 { font-size: 1.4rem; margin-bottom: 4px; }
-    h1 span { color: #4ade80; }
+    h1 span { color: #f87171; }
     #status { font-size: 0.85rem; color: #888; margin-bottom: 12px; }
     #status.ok { color: #4ade80; }
     canvas {
         background: #11151f;
         border: 1px solid #2a2f3d;
         border-radius: 12px;
+        cursor: crosshair;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
     }
-    #hud { margin-top: 10px; font-size: 0.85rem; color: #9ca3af; display: flex; gap: 24px; }
+    #hud { 
+        margin-top: 12px; font-size: 0.9rem; color: #9ca3af; 
+        display: flex; gap: 24px; align-items: center;
+        background: #161b26; padding: 8px 18px; border-radius: 8px;
+        border: 1px solid #2a2f3d;
+    }
     #hud b { color: #e6e6e6; }
+    .badge {
+        font-size: 0.8rem; background: #222b3d; padding: 4px 10px;
+        border-radius: 6px; border: 1px solid #374151; color: #cbd5e1;
+    }
 </style>
 <!-- The SDK bundle imports "@colyseus/schema" — resolve it to the local build. -->
 <script type="importmap">
@@ -38,36 +49,74 @@
 </script>
 </head>
 <body>
-    <h1>OpenOxide <span>×</span> Colyseus — Coin Rush</h1>
+    <h1>OpenOxide <span>×</span> Colyseus — PvP Shooter 🔫</h1>
     <div id="status">connecting…</div>
     <canvas id="game" width="800" height="500"></canvas>
     <div id="hud">
-        <div>tick: <b id="tick">–</b></div>
-        <div>players: <b id="players">–</b></div>
-        <div>state updates: <b id="updates">0</b></div>
+        <div>HP: <b id="hp" style="color:#4ade80">100</b></div>
+        <div>Score: <b id="score">0</b></div>
+        <div>Players: <b id="players">–</b></div>
+        <div>Bullets: <b id="bullets">0</b></div>
+        <div>Tick: <b id="tick">–</b></div>
+        <div class="badge">WASD to Move • Click or Space to Shoot 💥</div>
     </div>
 
 <script type="module">
     const statusEl = document.getElementById('status');
     const tickEl = document.getElementById('tick');
     const playersEl = document.getElementById('players');
-    const updatesEl = document.getElementById('updates');
+    const hpEl = document.getElementById('hp');
+    const scoreEl = document.getElementById('score');
+    const bulletsEl = document.getElementById('bullets');
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
 
-    const COLORS = ['#4ade80', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#f87171'];
+    const COLORS = ['#4ade80', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#f87171', '#38bdf8', '#fb923c'];
 
     let room = null;
     let myPlayerId = null;
     let players = [];
+    let bullets = [];
     let coinX = 400;
     let coinY = 250;
     let tickCount = 0;
     const keys = {};
+    let mouseX = 400;
+    let mouseY = 250;
+    let isMouseDown = false;
 
     const gameHost = (location.hostname === '0.0.0.0' || location.hostname === '')
         ? 'localhost'
         : location.hostname;
+
+    canvas.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        mouseX = e.clientX - rect.left;
+        mouseY = e.clientY - rect.top;
+    });
+
+    canvas.addEventListener('mousedown', e => {
+        if (e.button === 0) {
+            isMouseDown = true;
+            sendInput();
+        }
+    });
+
+    window.addEventListener('mouseup', e => {
+        if (e.button === 0) isMouseDown = false;
+    });
+
+    window.addEventListener('keydown', e => {
+        if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) {
+            keys[e.code] = true;
+            e.preventDefault();
+            sendInput();
+        }
+    });
+
+    window.addEventListener('keyup', e => {
+        keys[e.code] = false;
+    });
 
     function sendInput() {
         if (!room) return;
@@ -76,30 +125,33 @@
         if (keys['KeyS'] || keys['ArrowDown']) flags |= 2;
         if (keys['KeyA'] || keys['ArrowLeft']) flags |= 4;
         if (keys['KeyD'] || keys['ArrowRight']) flags |= 8;
-        room.sendBytes('input', new Uint8Array([flags]));
-    }
-    setInterval(sendInput, 33);
+        if (isMouseDown || keys['Space']) flags |= 16;
 
-    window.addEventListener('keydown', e => {
-        if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) {
-            keys[e.code] = true;
-            e.preventDefault();
+        let angle = 0;
+        const me = players.find(p => p.id === myPlayerId);
+        if (me) {
+            angle = Math.atan2(mouseY - me.y, mouseX - me.x);
         }
-    });
-    window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+        const buf = new ArrayBuffer(8);
+        const view = new DataView(buf);
+        view.setUint32(0, flags, true);
+        view.setFloat32(4, angle, true);
+        room.sendBytes('input', new Uint8Array(buf));
+    }
+    setInterval(sendInput, 25);
 
     async function join() {
         const client = new Colyseus.Client(`ws://${gameHost}:7777`);
         room = await client.joinOrCreate('game_room');
 
         room.onMessage("delta", (bytes) => {
-            updatesEl.textContent = Number(updatesEl.textContent) + 1;
             tickCount++;
             tickEl.textContent = tickCount;
 
             const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
             myPlayerId = view.getBigInt64(0, true);
-            statusEl.textContent = `connected — you are player #${myPlayerId} — move with WASD`;
+            statusEl.textContent = `connected — you are player #${myPlayerId} — WASD move, CLICK to shoot!`;
             statusEl.classList.add('ok');
 
             let offset = 8;
@@ -116,7 +168,9 @@
                 offset += 8;
                 const score = view.getFloat64(offset, true);
                 offset += 8;
-                list.push({ id, x, y, score });
+                const hp = view.getFloat64(offset, true);
+                offset += 8;
+                list.push({ id, x, y, score, hp });
             }
             players = list;
             playersEl.textContent = count;
@@ -124,6 +178,33 @@
             coinX = view.getFloat64(offset, true);
             offset += 8;
             coinY = view.getFloat64(offset, true);
+            offset += 8;
+
+            const bCount = view.getUint32(offset, true);
+            offset += 4;
+
+            const bList = [];
+            for (let i = 0; i < bCount; i++) {
+                const bx = view.getFloat64(offset, true);
+                offset += 8;
+                const by = view.getFloat64(offset, true);
+                offset += 8;
+                const ownerId = view.getBigInt64(offset, true);
+                offset += 8;
+                bList.push({ x: bx, y: by, ownerId });
+            }
+            bullets = bList;
+            bulletsEl.textContent = bCount;
+
+            const me = players.find(p => p.id === myPlayerId);
+            if (me) {
+                const roundedHp = Math.max(0, Math.round(me.hp));
+                hpEl.textContent = roundedHp;
+                scoreEl.textContent = Math.round(me.score);
+                if (roundedHp <= 30) hpEl.style.color = '#ef4444';
+                else if (roundedHp <= 60) hpEl.style.color = '#eab308';
+                else hpEl.style.color = '#4ade80';
+            }
         });
 
         room.onLeave(() => {
@@ -140,7 +221,7 @@
     function render() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // subtle grid
+        // grid
         ctx.strokeStyle = '#1b2230';
         ctx.lineWidth = 1;
         for (let x = 0; x < canvas.width; x += 40) {
@@ -150,11 +231,11 @@
             ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
         }
 
-        // Draw golden coin
+        // Golden coin
         if (coinX > 0 && coinY > 0) {
             ctx.beginPath();
             ctx.arc(coinX, coinY, 14, 0, Math.PI * 2);
-            ctx.fillStyle = '#fbbf2444';
+            ctx.fillStyle = '#fbbf2433';
             ctx.fill();
 
             ctx.beginPath();
@@ -163,41 +244,90 @@
             ctx.fill();
         }
 
-        // Draw players
+        // Bullets
+        for (let i = 0; i < bullets.length; i++) {
+            const b = bullets[i];
+            const isMine = myPlayerId !== null && b.ownerId === myPlayerId;
+
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, 6, 0, Math.PI * 2);
+            ctx.fillStyle = isMine ? 'rgba(56, 189, 248, 0.35)' : 'rgba(248, 113, 113, 0.35)';
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, 3, 0, Math.PI * 2);
+            ctx.fillStyle = isMine ? '#38bdf8' : '#f87171';
+            ctx.fill();
+        }
+
+        // Players
         for (let i = 0; i < players.length; i++) {
             const p = players[i];
-            const color = COLORS[i % COLORS.length];
+            const color = COLORS[Number(p.id % BigInt(COLORS.length))];
             const px = Math.max(14, Math.min(canvas.width - 14, p.x));
             const py = Math.max(14, Math.min(canvas.height - 14, p.y));
             const isMe = myPlayerId !== null && p.id === myPlayerId;
 
-            // glow
+            // Gun Barrel
+            const angle = isMe ? Math.atan2(mouseY - py, mouseX - px) : 0;
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(angle);
+            ctx.fillStyle = '#64748b';
+            ctx.fillRect(6, -2.5, 12, 5);
+            ctx.restore();
+
+            // Glow
             ctx.beginPath();
             ctx.arc(px, py, 16, 0, Math.PI * 2);
             ctx.fillStyle = color + '22';
             ctx.fill();
 
-            // body
+            // Body
             ctx.beginPath();
-            ctx.arc(px, py, 10, 0, Math.PI * 2);
+            ctx.arc(px, py, 11, 0, Math.PI * 2);
             ctx.fillStyle = color;
             ctx.fill();
 
-            // white ring on own player
+            // White ring for local player
             if (isMe) {
                 ctx.beginPath();
                 ctx.arc(px, py, 14, 0, Math.PI * 2);
                 ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2.5;
+                ctx.lineWidth = 2;
                 ctx.stroke();
+
+                // Aim laser sight
+                ctx.beginPath();
+                ctx.moveTo(px, py);
+                ctx.lineTo(mouseX, mouseY);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.stroke();
+                ctx.setLineDash([]);
             }
 
-            // label with score
+            // Health bar
+            const barW = 34;
+            const barH = 5;
+            const barX = px - barW / 2;
+            const barY = py - 24;
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(barX, barY, barW, barH);
+            const hpRatio = Math.max(0, Math.min(1, p.hp / 100));
+            ctx.fillStyle = hpRatio > 0.6 ? '#22c55e' : hpRatio > 0.3 ? '#eab308' : '#ef4444';
+            ctx.fillRect(barX, barY, barW * hpRatio, barH);
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(barX, barY, barW, barH);
+
+            // Label with score
             ctx.fillStyle = isMe ? '#ffffff' : '#94a3b8';
-            ctx.font = 'bold 12px monospace';
+            ctx.font = 'bold 11px monospace';
             ctx.textAlign = 'center';
-            const label = (isMe ? 'YOU' : `P${p.id}`) + (p.score > 0 ? ` (${p.score})` : '');
-            ctx.fillText(label, px, py - 20);
+            const label = (isMe ? 'YOU' : `P${p.id}`) + (p.score > 0 ? ` [${Math.round(p.score)}]` : '');
+            ctx.fillText(label, px, py - 30);
         }
 
         requestAnimationFrame(render);
