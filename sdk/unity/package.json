@@ -1,0 +1,19 @@
+{
+  "name": "com.openoxide.sdk",
+  "version": "1.0.0",
+  "displayName": "OpenOxide Gaming SDK",
+  "description": "High-performance UDP/WebSocket multiplayer client SDK for OpenOxide Gaming Server. Features sub-millisecond binary delta streaming, authoritative rewind alignment, native spectator mode, and .oxr match replay playback.",
+  "unity": "2021.3",
+  "author": {
+    "name": "OpenOxide Team",
+    "url": "https://github.com/openoxide"
+  },
+  "keywords": [
+    "multiplayer",
+    "netcode",
+    "udp",
+    "openoxide",
+    "rapier",
+    "lag-compensation"
+  ]
+}

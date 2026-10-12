@@ -381,6 +381,14 @@ pub fn run(
         );
     }
 
+    // Direct UDP Listener for Unity / Unreal / Godot (Port 7778)
+    let udp_socket = std::net::UdpSocket::bind("0.0.0.0:7778").ok();
+    if let Some(ref s) = udp_socket {
+        let _ = s.set_nonblocking(true);
+        eprintln!("[server] listening on udp://0.0.0.0:7778 (Unity / Unreal / Godot Native Engine)");
+    }
+    let mut udp_peers: HashMap<SocketAddr, (i64, Instant)> = HashMap::new();
+
     let wasm_module = runtime.compile(&wasm_bytes).expect("compile room");
     let server = Arc::new(Mutex::new(GameServer {
         runtime: runtime.clone(),
@@ -499,6 +507,58 @@ pub fn run(
             }
         }
 
+        // Poll UDP socket for Unity / Unreal / Godot incoming datagrams
+        if let Some(ref udp_sock) = udp_socket {
+            let mut udp_buf = [0u8; 4096];
+            while let Ok((amt, peer_addr)) = udp_sock.recv_from(&mut udp_buf) {
+                let data = &udp_buf[..amt];
+                let mut server_guard = server.lock().unwrap();
+                let room = server_guard.get_or_create(&cfg.name);
+                room.empty_since = None;
+
+                let is_spec_handshake = data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC";
+
+                if !udp_peers.contains_key(&peer_addr) {
+                    if is_spec_handshake {
+                        udp_peers.insert(peer_addr, (0, Instant::now())); // 0 = spectator
+                        eprintln!("[server-udp] 👁️  {peer_addr} connected as SPECTATOR via UDP");
+                        let confirm = wrap_delta(0, &[]);
+                        let _ = udp_sock.send_to(&confirm, peer_addr);
+                    } else {
+                        let id = room.next_player_id;
+                        room.next_player_id += 1;
+                        let n = room.sessions.len() + udp_peers.len();
+                        let (x, y) = (
+                            60.0 + ((n as f64) * 97.0) % (cfg.width - 120.0),
+                            60.0 + ((n as f64) * 61.0) % (cfg.height - 120.0),
+                        );
+                        let _ = room.wasm.on_join(id, x, y);
+                        udp_peers.insert(peer_addr, (id, Instant::now()));
+                        eprintln!("[server-udp] {peer_addr} joined room via UDP (player id {id})");
+
+                        if data.len() == 20 {
+                            if let Ok(ptr) = room.wasm.alloc(data.len() as i32) {
+                                let _ = room.wasm.write_memory(ptr as u32, data);
+                                let _ = room.wasm.on_input(id, ptr, data.len() as i32);
+                            }
+                        }
+                    }
+                } else if let Some((id, last_seen)) = udp_peers.get_mut(&peer_addr) {
+                    *last_seen = Instant::now();
+                    if is_spec_handshake && *id != 0 {
+                        let _ = room.wasm.on_leave(*id);
+                        *id = 0;
+                        eprintln!("[server-udp] 👁️  {peer_addr} upgraded to SPECTATOR via UDP");
+                    } else if *id > 0 && !data.is_empty() {
+                        if let Ok(ptr) = room.wasm.alloc(data.len() as i32) {
+                            let _ = room.wasm.write_memory(ptr as u32, data);
+                            let _ = room.wasm.on_input(*id, ptr, data.len() as i32);
+                        }
+                    }
+                }
+            }
+        }
+
         // ---- fixed-tick: wasm simulates, host broadcasts the delta buffer ----
         if last_tick.elapsed() >= tick_interval {
             last_tick = Instant::now();
@@ -530,15 +590,43 @@ pub fn run(
                             let _ = transport.send_to(spec_session, OpCode::RoomDataBytes, &spec_frame);
                         }
                     }
+
+                    // 3. Broadcast to UDP Unity / Unreal / Godot peers
+                    if let Some(ref udp_sock) = udp_socket {
+                        for (&peer_addr, &(id, _)) in &udp_peers {
+                            let frame = wrap_delta(id, &delta);
+                            let _ = udp_sock.send_to(&frame, peer_addr);
+                        }
+                    }
                 }
 
-                if room.sessions.is_empty() && room.spectators.is_empty() {
+                if room.sessions.is_empty() && room.spectators.is_empty() && udp_peers.is_empty() {
                     match room.empty_since {
                         Some(t) if t.elapsed() > Duration::from_secs(30) => {
                             dead_rooms.push(name.clone());
                         }
                         Some(_) => {}
                         None => room.empty_since = Some(Instant::now()),
+                    }
+                }
+            }
+
+            // Cleanup inactive UDP peers
+            let now = Instant::now();
+            let mut timed_out_udp = Vec::new();
+            udp_peers.retain(|&addr, (id, last_seen)| {
+                if now.duration_since(*last_seen) > Duration::from_secs(10) {
+                    timed_out_udp.push((addr, *id));
+                    false
+                } else {
+                    true
+                }
+            });
+            for (addr, id) in timed_out_udp {
+                eprintln!("[server-udp] disconnected (timeout): {addr}");
+                if id > 0 {
+                    if let Some(room) = server.rooms.get_mut(&cfg.name) {
+                        let _ = room.wasm.on_leave(id);
                     }
                 }
             }

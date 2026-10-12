@@ -13,3 +13,15 @@ skills-lock.json
 crates/engine-wasm/tests/csharp/bin/
 crates/engine-wasm/tests/csharp/obj/
 crates/engine-wasm/tests/csharp/runtimeconfig.template.json
+
+# Unity build & cache artifacts
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Bb]uild/
+**/[Bb]uilds/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
+*.sln
+*.csproj
+*.slnx
