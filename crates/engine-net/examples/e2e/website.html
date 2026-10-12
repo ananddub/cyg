@@ -85,9 +85,11 @@
     let mouseY = 250;
     let isMouseDown = false;
 
-    const gameHost = (location.hostname === '0.0.0.0' || location.hostname === '')
-        ? 'localhost'
-        : location.hostname;
+    const params = new URLSearchParams(window.location.search);
+    const gameHost = params.get('host') || ((location.hostname === '0.0.0.0' || !location.hostname)
+        ? (window.location.hostname || '127.0.0.1')
+        : location.hostname);
+    const gamePort = params.get('port') || '7777';
 
     canvas.addEventListener('mousemove', e => {
         const rect = canvas.getBoundingClientRect();
@@ -142,7 +144,7 @@
     setInterval(sendInput, 25);
 
     async function join() {
-        const client = new Colyseus.Client(`ws://${gameHost}:7777`);
+        const client = new Colyseus.Client(`ws://${gameHost}:${gamePort}`);
         room = await client.joinOrCreate('game_room');
 
         room.onMessage("delta", (bytes) => {
