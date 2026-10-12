@@ -2,7 +2,13 @@
 resolver = "2"
 members = [
     ".",
-    "crates/*",
+    "crates/engine-agones",
+    "crates/engine-core",
+    "crates/engine-dashboard",
+    "crates/engine-guest",
+    "crates/engine-http",
+    "crates/engine-net",
+    "crates/engine-wasm",
 ]
 
 [package]
