@@ -1,4 +1,5 @@
-//! Unit tests for the @colyseus/schema-compatible state encoder.
+//! Wire-format regression tests for the schema state encoder.
+//! Byte layout verified against @colyseus/schema (0.18 monorepo fork).
 
 use engine_net::colyseus_state::ColyseusRoomState;
 
@@ -7,33 +8,42 @@ fn test_snapshot_wire_format() {
     let mut state = ColyseusRoomState::new();
     state.add_player("p1", 1.5, -2.0, 0.0);
 
-    let snap = state.snapshot_consuming();
+    let snap = state.snapshot();
 
-    // Root: players field ADD (0x80|0) + msgpack refId 1
+    // Layout:
+    // [80 01]                       root players ADD, map refId 1
+    // [FF 01]                       switch to map
+    // [80 01 A2 70 31 02]           map entry ADD: idx 1, key "p1", refId 2
+    // [FF 02]                       switch to player
+    // [80 CB <f64 1.5>]             x ADD (field 0)
+    // [81 FE]                       y ADD (field 1, -2.0 fixint)
+    // [82 00]                       score ADD (field 2, fixint 0)
+    // [FF 00]                       switch to root
+    // [82 00 83 00 81 00]           coin_x / coin_y / tick ADD (all 0)
     assert_eq!(snap[0], 0x80, "root players field ADD");
     assert_eq!(snap[1], 0x01, "players map refId = 1");
-    // Switch to map
     assert_eq!(&snap[2..4], &[0xFF, 0x01]);
-    // Map entry ADD: op, index, fixstr "p1", player refId 2
     assert_eq!(snap[4], 0x80, "map entry ADD op");
     assert_eq!(snap[5], 0x01, "map index 1");
     assert_eq!(snap[6], 0xA2, "fixstr len 2");
     assert_eq!(&snap[7..9], b"p1");
     assert_eq!(snap[9], 0x02, "player refId = 2");
-    // Switch to player
     assert_eq!(&snap[10..12], &[0xFF, 0x02]);
-    // x (field 0, ADD) = msgpack float64 1.5 (0xCB + LE bytes)
     assert_eq!(snap[12], 0x80);
     assert_eq!(snap[13], 0xCB);
     assert_eq!(&snap[14..22], &1.5f64.to_le_bytes());
-    // y (field 1, ADD) = -2.0 integral -> msgpack negative fixint (0xe0 | (v+32))
     assert_eq!(snap[22], 0x81);
     assert_eq!(snap[23], 0xFE, "-2.0 as negative fixint");
-    // Back to root, tick (field 1, ADD) = 0
-    assert_eq!(&snap[24..26], &[0xFF, 0x00]);
-    assert_eq!(snap[26], 0x81);
-    assert_eq!(snap[27], 0x00, "tick 0 = msgpack fixint 0");
-    assert_eq!(snap.len(), 28);
+    assert_eq!(snap[24], 0x82, "score ADD (field 2)");
+    assert_eq!(snap[25], 0x00, "score = 0");
+    assert_eq!(&snap[26..28], &[0xFF, 0x00], "switch to root");
+    assert_eq!(snap[28], 0x82, "coin_x ADD (field 2)");
+    assert_eq!(snap[29], 0x00, "coin at origin");
+    assert_eq!(snap[30], 0x83, "coin_y ADD (field 3)");
+    assert_eq!(snap[31], 0x00);
+    assert_eq!(snap[32], 0x81, "tick ADD (field 1)");
+    assert_eq!(snap[33], 0x00, "tick = 0");
+    assert_eq!(snap.len(), 34);
 }
 
 #[test]
@@ -42,23 +52,36 @@ fn test_patch_replace_and_new_player() {
     state.add_player("p1", 1.0, 2.0, 0.0);
     let _snapshot = state.snapshot_consuming(); // clear initial dirty flags
 
+    state.set_coin(100.0, 200.0);
     state.advance_tick();
     state.update_player("p1", 3.5, 4.5, 0.0);
 
     let patch = state.patch();
 
-    // Switch to player ref 2, REPLACE x/y (op byte = bare field index)
+    // Layout:
+    // [FF 02]                       switch to player
+    // [00 CB <f64 3.5>]             x REPLACE
+    // [01 CB <f64 4.5>]             y REPLACE
+    // [02 00]                       score REPLACE
+    // [FF 00]                       switch to root
+    // [02 CD 90 01]                 coin_x REPLACE (uint16 LE 100)
+    // [03 CC C8]                    coin_y REPLACE (uint8 200)
+    // [01 01]                       tick REPLACE
     assert_eq!(&patch[0..2], &[0xFF, 0x02]);
-    assert_eq!(patch[2], 0x00, "x REPLACE (field index 0, op REPLACE=0)");
+    assert_eq!(patch[2], 0x00, "x REPLACE (field 0, op REPLACE=0)");
     assert_eq!(patch[3], 0xCB);
     assert_eq!(&patch[4..12], &3.5f64.to_le_bytes());
     assert_eq!(patch[12], 0x01, "y REPLACE");
-    assert_eq!(patch[13], 0xCB);
     assert_eq!(&patch[14..22], &4.5f64.to_le_bytes());
-    // Back to root, tick REPLACE = 1
-    assert_eq!(&patch[22..24], &[0xFF, 0x00]);
-    assert_eq!(patch[24], 0x01);
-    assert_eq!(patch[25], 0x01, "tick 1 = msgpack fixint 1");
+    assert_eq!(patch[22], 0x02, "score REPLACE");
+    assert_eq!(patch[23], 0x00, "score = 0");
+    assert_eq!(&patch[24..26], &[0xFF, 0x00]);
+    assert_eq!(patch[26], 0x02, "coin_x REPLACE (fixint 100)");
+    assert_eq!(patch[27], 0x64);
+    assert_eq!(patch[28], 0x03, "coin_y REPLACE");
+    assert_eq!(&patch[29..31], &[0xcc, 0xc8], "uint16 200");
+    assert_eq!(patch[31], 0x01);
+    assert_eq!(patch[32], 0x01, "tick 1 = msgpack fixint 1");
 }
 
 #[test]
@@ -99,14 +122,12 @@ fn test_empty_patch_when_nothing_changed() {
 
 #[test]
 fn test_msgpack_number_encodings() {
-    // Verify via public API: snapshot tick values exercise fixint paths.
     let mut state = ColyseusRoomState::new();
     state.advance_tick(); // tick = 1
     state.add_player("a", 1000000.0, -0.25, 0.0);
     let snap = state.snapshot();
 
-    // tick: uint16 encoding (0xcd) little-endian for 1000000.0? No — x is float.
-    // x = 1000000.0 is integral -> msgpack uint32 (0xce) LE.
+    // x = 1000000.0 is integral -> msgpack uint32 (0xce) little-endian.
     let x_pos = snap
         .windows(5)
         .position(|w| w == [0x80, 0xce, 0x40, 0x42, 0x0f]);
@@ -115,4 +136,40 @@ fn test_msgpack_number_encodings() {
     // y = -0.25 is fractional -> float64 (0xcb) LE.
     let y_pos = snap.windows(9).position(|w| w[0] == 0x81 && w[1] == 0xcb);
     assert!(y_pos.is_some(), "-0.25 as float64");
+}
+
+#[test]
+fn test_remove_player_emits_delete() {
+    let mut state = ColyseusRoomState::new();
+    state.add_player("p1", 1.0, 2.0, 0.0);
+    let _ = state.snapshot_consuming();
+
+    state.remove_player("p1");
+    let patch = state.patch();
+
+    // [FF 01][40 01] switch to map + DELETE map index 1
+    assert_eq!(&patch[0..4], &[0xFF, 0x01, 0x40, 0x01]);
+}
+
+#[test]
+fn test_reconnection_seat_reuses_player_key() {
+    // Disconnect then re-join with the same session: the schema state must
+    // treat it as a brand-new player (fresh ADD), not a resurrect.
+    let mut state = ColyseusRoomState::new();
+    state.add_player("sess_A", 10.0, 20.0, 0.0);
+    let _ = state.snapshot_consuming();
+    state.remove_player("sess_A");
+    let _ = state.patch();
+    state.add_player("sess_A", 30.0, 40.0, 5.0);
+    let patch = state.patch();
+    // DELETE of the old seat comes first, then the fresh ADD:
+    // [FF 01][40 01]  switch to map + DELETE map index 1
+    // [80 02 A6 ...]  ADD idx 2, key "sess_A", refId 3
+    assert_eq!(&patch[0..2], &[0xFF, 0x01]);
+    assert_eq!(patch[2], 0x40, "DELETE op");
+    assert_eq!(patch[3], 0x01, "old map index");
+    assert_eq!(&patch[4..6], &[0xFF, 0x01], "switch back to map");
+    assert_eq!(patch[6], 0x80, "map entry ADD");
+    assert_eq!(patch[7], 0x02, "fresh map index 2");
+    assert_eq!(patch[15], 0x03, "fresh refId 3");
 }
