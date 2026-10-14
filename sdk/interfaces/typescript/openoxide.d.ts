@@ -131,6 +131,14 @@ export declare class Physics {
     static isPointInSphere(px: number, py: number, pz: number, cx: number, cy: number, cz: number, radius: number): boolean;
     /** 3D Point-in-AABB Box check */
     static isPointInBox(px: number, py: number, pz: number, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): boolean;
+    /** Oriented Bounding Box (OBB) check for rotated obstacles */
+    static isPointInRotatedBox(px: number, pz: number, cx: number, cz: number, halfWidth: number, halfDepth: number, yawRad: number): boolean;
+    /** Point in Capsule check */
+    static isPointInCapsule(px: number, py: number, pz: number, capX: number, capY: number, capZ: number, radius: number, height: number): boolean;
+    /** Record entity hitbox for server rewind */
+    static recordHitbox(tick: bigint, entityId: number, kind: number, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): void;
+    /** Rewind lag-compensated continuous raycast */
+    static lagRaycast(shootTick: bigint, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): LagRaycastHit;
 }
 
 export declare class Log {
@@ -161,4 +169,91 @@ export declare class InputReader {
     readF64(): number;
     readI64(): bigint;
 }
+
+export declare class Random {
+    static seed(s: bigint): void;
+    static nextU32(): number;
+    static nextFloat(): number;
+    static range(min: number, max: number): number;
+    static rangeFloat(min: number, max: number): number;
+    static chance(percentage: number): boolean;
+}
+
+export declare class CooldownTracker {
+    update(dt: number): void;
+    isReady(actionKey: string): boolean;
+    trigger(actionKey: string, durationSeconds: number): void;
+    getRemaining(actionKey: string): number;
+    reset(): void;
+}
+
+export declare enum ZoneType {
+    NONE = 0,
+    DAMAGE = 1,
+    SPEED_BUFF = 2,
+    SPEED_SLOW = 3,
+    JUMP_PAD = 4,
+    CAPTURE_ZONE = 5,
+    TELEPORT = 6
+}
+
+export declare class TriggerZone {
+    id: number;
+    type: ZoneType;
+    minX: number; minY: number; minZ: number;
+    maxX: number; maxY: number; maxZ: number;
+    value: number;
+    constructor(id: number, type: ZoneType, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number, value?: number);
+    contains(px: number, py: number, pz: number): boolean;
+}
+
+export declare enum HitZone {
+    BODY = 0,
+    HEAD = 1,
+    LIMB = 2
+}
+
+export declare class DamageResult {
+    damageDealt: number;
+    shieldAbsorbed: number;
+    healthRemaining: number;
+    isKilled: boolean;
+    isCritical: boolean;
+}
+
+export declare class Combat {
+    static applyDamage(baseDamage: number, hitZone: HitZone, armor: number, currentShield: number, currentHealth: number): DamageResult;
+}
+
+export declare enum MatchPhase {
+    WAITING_FOR_PLAYERS = 0,
+    COUNTDOWN = 1,
+    ROUND_ACTIVE = 2,
+    OVERTIME = 3,
+    ROUND_OVER = 4,
+    RESETTING = 5
+}
+
+export declare class MatchStateMachine {
+    phase: MatchPhase;
+    timer: number;
+    roundNumber: number;
+    startCountdown(durationSeconds?: number): void;
+    startRound(roundDurationSeconds?: number): void;
+    endRound(postRoundSeconds?: number): void;
+    update(dt: number): boolean;
+}
+
+export declare class SpatialGrid2D {
+    update(id: bigint, x: number, z: number): void;
+    remove(id: bigint): void;
+    queryRadius(cx: number, cz: number, radius: number): bigint[];
+}
+
+export declare class Steering {
+    static seek(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number): Vec3;
+    static flee(fromX: number, fromZ: number, threatX: number, threatZ: number, maxSpeed: number): Vec3;
+    static arrive(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number, slowingDistance: number): Vec3;
+}
+
 

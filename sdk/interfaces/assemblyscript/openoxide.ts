@@ -266,6 +266,42 @@ export class Physics {
     }
 
     /**
+     * Oriented Bounding Box (OBB): checks if a point lies inside a rotated 3D/2D box.
+     * Essential for Blender buildings, shipping containers, and vehicles rotated at arbitrary angles!
+     * @param yawRad Yaw rotation of the box in radians.
+     */
+    static isPointInRotatedBox(
+        px: f64, pz: f64,
+        cx: f64, cz: f64,
+        halfWidth: f64, halfDepth: f64,
+        yawRad: f64
+    ): bool {
+        let dx = px - cx;
+        let dz = pz - cz;
+        let cosA = Math.cos(-yawRad);
+        let sinA = Math.sin(-yawRad);
+        let localX = dx * cosA - dz * sinA;
+        let localZ = dx * sinA + dz * cosA;
+        return Math.abs(localX) <= halfWidth && Math.abs(localZ) <= halfDepth;
+    }
+
+    /**
+     * Point in Vertical Capsule: standard character hitbox shape.
+     * Prevents players from snagging on stairs and uneven terrain edges.
+     */
+    static isPointInCapsule(
+        px: f64, py: f64, pz: f64,
+        capX: f64, capY: f64, capZ: f64,
+        radius: f64, height: f64
+    ): bool {
+        let clampedY = Math.max(capY, Math.min(capY + height, py));
+        let dx = px - capX;
+        let dy = py - clampedY;
+        let dz = pz - capZ;
+        return (dx * dx + dy * dy + dz * dz) <= (radius * radius);
+    }
+
+    /**
      * Records an entity's 3D hitbox into host history for rewind lag compensation.
      * Call this in onTick for every active player or bot.
      */
@@ -483,7 +519,321 @@ export class InputReader {
 }
 
 // =============================================================================
-// --- 7. ABSTRACT ROOM BASE CLASS ---
+// --- 7. DETERMINISTIC PRNG (REPRODUCIBLE RANDOM GENERATOR) ---
+// =============================================================================
+
+/**
+ * Fast Deterministic 64-bit XorShift PRNG.
+ * Ensures identical random sequences across client prediction, server rewinds, and match replays!
+ */
+export class Random {
+    private static _state: u64 = 88172645463325252;
+
+    static seed(s: u64): void {
+        this._state = (s == 0) ? 88172645463325252 : s;
+    }
+
+    static nextU32(): u32 {
+        let x = this._state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        this._state = x;
+        return (x & 0xFFFFFFFF) as u32;
+    }
+
+    static nextFloat(): f64 {
+        return (this.nextU32() as f64) / 4294967296.0;
+    }
+
+    static range(min: i32, max: i32): i32 {
+        if (min >= max) return min;
+        let span = (max - min) as f64;
+        return min + ((this.nextFloat() * span) as i32);
+    }
+
+    static rangeFloat(min: f64, max: f64): f64 {
+        return min + this.nextFloat() * (max - min);
+    }
+
+    /**
+     * Chance check: Returns true if roll <= percentage (0.0 to 100.0).
+     * Example: Random.chance(25.0) -> 25% crit chance.
+     */
+    static chance(percentage: f64): bool {
+        return (this.nextFloat() * 100.0) <= percentage;
+    }
+}
+
+// =============================================================================
+// --- 8. COOLDOWN & TIMER MANAGER ---
+// =============================================================================
+
+/**
+ * Cooldown tracker for weapons, abilities, dashes, and respawns.
+ * Zero-GC: updates with tick delta time!
+ */
+export class CooldownTracker {
+    private _cooldowns: Map<string, f64> = new Map<string, f64>();
+
+    update(dt: f64): void {
+        let keys = this._cooldowns.keys();
+        for (let i = 0; i < keys.length; i++) {
+            let k = keys[i];
+            let rem = this._cooldowns.get(k) - dt;
+            if (rem <= 0.0) {
+                this._cooldowns.delete(k);
+            } else {
+                this._cooldowns.set(k, rem);
+            }
+        }
+    }
+
+    isReady(actionKey: string): bool {
+        return !this._cooldowns.has(actionKey);
+    }
+
+    trigger(actionKey: string, durationSeconds: f64): void {
+        this._cooldowns.set(actionKey, durationSeconds);
+    }
+
+    getRemaining(actionKey: string): f64 {
+        if (!this._cooldowns.has(actionKey)) return 0.0;
+        return this._cooldowns.get(actionKey);
+    }
+
+    reset(): void {
+        this._cooldowns.clear();
+    }
+}
+
+// =============================================================================
+// --- 9. TRIGGER VOLUMES & INTERACTIVE ZONES ---
+// =============================================================================
+
+export enum ZoneType {
+    NONE = 0,
+    DAMAGE = 1,       // Lava, poison gas, storm circle
+    SPEED_BUFF = 2,   // Speed track, booster pads
+    SPEED_SLOW = 3,   // Water, mud, web
+    JUMP_PAD = 4,     // Launches player vertically
+    CAPTURE_ZONE = 5, // King of the Hill / Domination flag
+    TELEPORT = 6      // Instant portal
+}
+
+export class TriggerZone {
+    id: u32;
+    type: ZoneType;
+    minX: f64; minY: f64; minZ: f64;
+    maxX: f64; maxY: f64; maxZ: f64;
+    value: f64; // Damage per second, speed multiplier, or jump impulse force
+
+    constructor(id: u32, type: ZoneType, minX: f64, minY: f64, minZ: f64, maxX: f64, maxY: f64, maxZ: f64, value: f64 = 0.0) {
+        this.id = id;
+        this.type = type;
+        this.minX = minX; this.minY = minY; this.minZ = minZ;
+        this.maxX = maxX; this.maxY = maxY; this.maxZ = maxZ;
+        this.value = value;
+    }
+
+    contains(px: f64, py: f64, pz: f64): bool {
+        return px >= this.minX && px <= this.maxX &&
+               py >= this.minY && py <= this.maxY &&
+               pz >= this.minZ && pz <= this.maxZ;
+    }
+}
+
+// =============================================================================
+// --- 10. COMBAT & DAMAGE RESOLUTION ---
+// =============================================================================
+
+export enum HitZone {
+    BODY = 0,
+    HEAD = 1,
+    LIMB = 2
+}
+
+export class DamageResult {
+    damageDealt: f64 = 0.0;
+    shieldAbsorbed: f64 = 0.0;
+    healthRemaining: f64 = 0.0;
+    isKilled: bool = false;
+    isCritical: bool = false;
+}
+
+export class Combat {
+    private static _res: DamageResult = new DamageResult();
+
+    /**
+     * Calculates combat damage with headshot multipliers, armor mitigation, and shield absorption.
+     * Zero-GC pre-allocated return!
+     */
+    static applyDamage(
+        baseDamage: f64,
+        hitZone: HitZone,
+        armor: f64,
+        currentShield: f64,
+        currentHealth: f64
+    ): DamageResult {
+        let res = Combat._res;
+        let mult: f64 = 1.0;
+        let isCrit = false;
+
+        if (hitZone == HitZone.HEAD) {
+            mult = 2.0; // 2x Headshot critical multiplier
+            isCrit = true;
+        } else if (hitZone == HitZone.LIMB) {
+            mult = 0.75;
+        }
+
+        let raw = baseDamage * mult;
+        let effective = raw * (100.0 / (100.0 + Math.max(0.0, armor)));
+        let shieldAbsorb = Math.min(currentShield, effective);
+        let healthDamage = effective - shieldAbsorb;
+        let remHealth = Math.max(0.0, currentHealth - healthDamage);
+
+        res.damageDealt = effective;
+        res.shieldAbsorbed = shieldAbsorb;
+        res.healthRemaining = remHealth;
+        res.isKilled = remHealth <= 0.001;
+        res.isCritical = isCrit;
+        return res;
+    }
+}
+
+// =============================================================================
+// --- 11. MATCH LIFECYCLE & STATE MACHINE ---
+// =============================================================================
+
+export enum MatchPhase {
+    WAITING_FOR_PLAYERS = 0,
+    COUNTDOWN = 1,
+    ROUND_ACTIVE = 2,
+    OVERTIME = 3,
+    ROUND_OVER = 4,
+    RESETTING = 5
+}
+
+export class MatchStateMachine {
+    phase: MatchPhase = MatchPhase.WAITING_FOR_PLAYERS;
+    timer: f64 = 0.0;
+    roundNumber: i32 = 1;
+
+    startCountdown(durationSeconds: f64 = 5.0): void {
+        this.phase = MatchPhase.COUNTDOWN;
+        this.timer = durationSeconds;
+    }
+
+    startRound(roundDurationSeconds: f64 = 300.0): void {
+        this.phase = MatchPhase.ROUND_ACTIVE;
+        this.timer = roundDurationSeconds;
+    }
+
+    endRound(postRoundSeconds: f64 = 10.0): void {
+        this.phase = MatchPhase.ROUND_OVER;
+        this.timer = postRoundSeconds;
+    }
+
+    update(dt: f64): bool {
+        if (this.timer > 0.0) {
+            this.timer -= dt;
+            if (this.timer <= 0.0) {
+                this.timer = 0.0;
+                return true; // Phase timer just expired!
+            }
+        }
+        return false;
+    }
+}
+
+// =============================================================================
+// --- 12. FAST PROXIMITY SPATIAL GRID (AOI) ---
+// =============================================================================
+
+export class SpatialGrid2D {
+    private entityX: Map<i64, f64> = new Map<i64, f64>();
+    private entityZ: Map<i64, f64> = new Map<i64, f64>();
+
+    update(id: i64, x: f64, z: f64): void {
+        this.entityX.set(id, x);
+        this.entityZ.set(id, z);
+    }
+
+    remove(id: i64): void {
+        this.entityX.delete(id);
+        this.entityZ.delete(id);
+    }
+
+    queryRadius(cx: f64, cz: f64, radius: f64): StaticArray<i64> {
+        let rSq = radius * radius;
+        let ids = this.entityX.keys();
+        let count = 0;
+
+        for (let i = 0; i < ids.length; i++) {
+            let id = ids[i];
+            let dx = this.entityX.get(id) - cx;
+            let dz = this.entityZ.get(id) - cz;
+            if (dx * dx + dz * dz <= rSq) {
+                count++;
+            }
+        }
+
+        let res = new StaticArray<i64>(count);
+        let idx = 0;
+        for (let i = 0; i < ids.length; i++) {
+            let id = ids[i];
+            let dx = this.entityX.get(id) - cx;
+            let dz = this.entityZ.get(id) - cz;
+            if (dx * dx + dz * dz <= rSq) {
+                res[idx++] = id;
+            }
+        }
+        return res;
+    }
+}
+
+// =============================================================================
+// --- 13. BOT & NPC STEERING BEHAVIORS ---
+// =============================================================================
+
+export class Steering {
+    static seek(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64): Vec3 {
+        let dx = targetX - fromX;
+        let dz = targetZ - fromZ;
+        let dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist > 0.001) {
+            return new Vec3((dx / dist) * maxSpeed, 0.0, (dz / dist) * maxSpeed);
+        }
+        return new Vec3(0, 0, 0);
+    }
+
+    static flee(fromX: f64, fromZ: f64, threatX: f64, threatZ: f64, maxSpeed: f64): Vec3 {
+        let dx = fromX - threatX;
+        let dz = fromZ - threatZ;
+        let dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist > 0.001) {
+            return new Vec3((dx / dist) * maxSpeed, 0.0, (dz / dist) * maxSpeed);
+        }
+        return new Vec3(0, 0, 0);
+    }
+
+    static arrive(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64, slowingDistance: f64): Vec3 {
+        let dx = targetX - fromX;
+        let dz = targetZ - fromZ;
+        let dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist > 0.001) {
+            let speed = maxSpeed;
+            if (dist < slowingDistance) {
+                speed = maxSpeed * (dist / slowingDistance);
+            }
+            return new Vec3((dx / dist) * speed, 0.0, (dz / dist) * speed);
+        }
+        return new Vec3(0, 0, 0);
+    }
+}
+
+// =============================================================================
+// --- 14. ABSTRACT ROOM BASE CLASS ---
 // =============================================================================
 
 /**
