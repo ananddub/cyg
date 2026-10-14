@@ -237,6 +237,34 @@ export class Vec3 {
 }
 
 // =============================================================================
+// --- 2.5 BASE ENTITY / ACTOR CLASS ---
+// =============================================================================
+
+/**
+ * Standard Authoritative Entity representation.
+ * Pre-packages pos, vel, rot, health, and standard distance/facing methods.
+ */
+export class Entity {
+    id: i64 = 0;
+    pos: Vec3 = new Vec3();
+    vel: Vec3 = new Vec3();
+    rot: Vec3 = new Vec3();
+    radius: f64 = 0.5;
+    health: f64 = 100.0;
+    shield: f64 = 0.0;
+    armor: f64 = 0.0;
+    isAlive: bool = true;
+
+    distanceTo(other: Entity): f64 {
+        return this.pos.distanceTo(other.pos);
+    }
+
+    lookAt(target: Vec3): void {
+        this.rot.y = this.pos.yawTo(target);
+    }
+}
+
+// =============================================================================
 // --- 3. HIGH-LEVEL ZERO-GC PHYSICS & COLLISION SYSTEM ---
 // =============================================================================
 
@@ -271,6 +299,20 @@ export class LagRaycastHit {
     colliderId: u32 = 0;
 }
 
+export class CharacterStepResult {
+    onGround: bool = true;
+    isMoving: bool = false;
+    bodyRot: f64 = 0.0;
+}
+
+export class SweptHitResult {
+    hasHit: bool = false;
+    hitEntityId: i64 = 0;
+    t: f64 = 1.0;
+    isHeadshot: bool = false;
+    point: Vec3 = new Vec3();
+}
+
 /**
  * Universal High-Level Physics Engine for OpenOxide Game Rooms.
  * Handles continuous collision detection, circles, spheres, ramps, and obstacles seamlessly.
@@ -284,6 +326,8 @@ export class Physics {
     private static _moveRes: MoveResult = new MoveResult();
     private static _rayHit: RaycastHit = new RaycastHit();
     private static _lagRayHit: LagRaycastHit = new LagRaycastHit();
+    private static _charStepRes: CharacterStepResult = new CharacterStepResult();
+    private static _sweptHitRes: SweptHitResult = new SweptHitResult();
 
     /**
      * Kinematic Move & Slide (Friendly Vec3):
@@ -545,6 +589,211 @@ export class Physics {
         }
         return res;
     }
+
+    /**
+     * Complete Authoritative 3D Kinematics Step for Humanoid/Player Entities.
+     * Automatically handles:
+     * 1. Ground detection & solid surface snapping (getSurfaceHeight)
+     * 2. Jump impulses & vertical gravity integration
+     * 3. Normalized planar horizontal movement & speed scaling
+     * 4. Kinematic move_and_slide along solid obstacle walls
+     * 5. Smooth body facing rotation tracking
+     * 6. Re-snapping to ground after horizontal sliding
+     */
+    static stepHumanoid(
+        pos: Vec3,
+        vel: Vec3,
+        moveDir: Vec2,
+        aimYaw: f64,
+        bodyRot: f64,
+        radius: f64,
+        speed: f64,
+        jumpForce: f64,
+        gravity: f64,
+        wantJump: bool,
+        dt: f64
+    ): CharacterStepResult {
+        let res = Physics._charStepRes;
+
+        // 1. Surface height & initial ground check
+        let surfaceY = Physics.getSurfaceHeight(pos, radius);
+        let onGround = (pos.y <= surfaceY + 0.1 && vel.y <= 0.0);
+        if (onGround) {
+            pos.y = surfaceY;
+            vel.y = 0.0;
+        }
+
+        // 2. Jump impulse
+        if (wantJump && onGround) {
+            vel.y = jumpForce;
+            onGround = false;
+        }
+
+        // 3. Gravity integration
+        if (!onGround || vel.y > 0.0) {
+            pos.y += vel.y * dt - 0.5 * gravity * dt * dt;
+            vel.y -= gravity * dt;
+            let currentSurface = Physics.getSurfaceHeight(pos, radius);
+            if (pos.y <= currentSurface) {
+                pos.y = currentSurface;
+                vel.y = 0.0;
+                onGround = true;
+            }
+        }
+
+        // 4. Planar movement & smooth body facing rotation
+        let mx = moveDir.x;
+        let mz = moveDir.y;
+        let isMoving = false;
+        let vx: f64 = 0.0;
+        let vz: f64 = 0.0;
+        let newBodyRot = bodyRot;
+
+        if (mx != 0.0 || mz != 0.0) {
+            let len = Math.sqrt(mx * mx + mz * mz);
+            if (len > 0.01) {
+                isMoving = true;
+                let nx = mx / len;
+                let nz = mz / len;
+                vx = nx * speed;
+                vz = nz * speed;
+
+                let targetRot = Math.atan2(-nx, -nz);
+                let diff = targetRot - newBodyRot;
+                while (diff < -3.14159265) diff += 6.2831853;
+                while (diff > 3.14159265) diff -= 6.2831853;
+                newBodyRot += diff * Math.min(1.0, 16.0 * dt);
+            }
+        } else {
+            let diff = aimYaw - newBodyRot;
+            while (diff < -3.14159265) diff += 6.2831853;
+            while (diff > 3.14159265) diff -= 6.2831853;
+            newBodyRot += diff * Math.min(1.0, 10.0 * dt);
+        }
+
+        // 5. Kinematic move along obstacles & walls
+        vel.x = vx;
+        vel.z = vz;
+        let moveRes = Physics.move(pos, vel, radius, dt);
+        pos.x = moveRes.pos.x;
+        pos.z = moveRes.pos.z;
+
+        // 6. Surface re-check after sliding
+        let afterSurface = Physics.getSurfaceHeight(pos, radius);
+        if (pos.y > afterSurface + 0.1) {
+            onGround = false;
+        } else if (pos.y < afterSurface) {
+            pos.y = afterSurface;
+            vel.y = 0.0;
+            onGround = true;
+        }
+
+        res.onGround = onGround;
+        res.isMoving = isMoving;
+        res.bodyRot = newBodyRot;
+        return res;
+    }
+
+    /**
+     * Continuous Collision Detection (CCD) Swept Segment against Entity Cylinders.
+     * Checks if a moving projectile trajectory (from -> to) intersects any entity's vertical cylinder.
+     * Includes headshot detection and wall occluder distance checks!
+     */
+    static sweepSegmentAgainstEntities<T extends Entity>(
+        from: Vec3,
+        to: Vec3,
+        entities: Array<T>,
+        ignoreId: i64,
+        hitRadius: f64,
+        maxWallDist: f64 = 999999.0
+    ): SweptHitResult {
+        let res = Physics._sweptHitRes;
+        res.hasHit = false;
+        res.hitEntityId = 0;
+        res.t = 2.0;
+        res.isHeadshot = false;
+
+        let segX = to.x - from.x;
+        let segY = to.y - from.y;
+        let segZ = to.z - from.z;
+        let segLenSq = segX * segX + segZ * segZ;
+        let segLen = Math.sqrt(segLenSq);
+        let radiusSq = hitRadius * hitRadius;
+
+        for (let i = 0; i < entities.length; i++) {
+            let ent = entities[i];
+            if (ent.id == ignoreId) continue;
+
+            let entHeight: f64 = 19.5;
+            let headThreshold: f64 = ent.pos.y + 14.5;
+
+            let t: f64 = 0.0;
+            if (segLenSq > 0.0001) {
+                let toPx = ent.pos.x - from.x;
+                let toPz = ent.pos.z - from.z;
+                t = (toPx * segX + toPz * segZ) / segLenSq;
+                if (t < 0.0) t = 0.0;
+                if (t > 1.0) t = 1.0;
+            }
+
+            let closeX = from.x + segX * t;
+            let closeY = from.y + segY * t;
+            let closeZ = from.z + segZ * t;
+
+            let dx = ent.pos.x - closeX;
+            let dz = ent.pos.z - closeZ;
+            let distSq = dx * dx + dz * dz;
+
+            if (distSq <= radiusSq) {
+                if (closeY >= ent.pos.y - 0.5 && closeY <= ent.pos.y + entHeight + 0.5) {
+                    let travelDist = t * segLen;
+                    if (travelDist <= maxWallDist + 0.5) {
+                        if (t < res.t) {
+                            res.hasHit = true;
+                            res.hitEntityId = ent.id;
+                            res.t = t;
+                            res.point.set(closeX, closeY, closeZ);
+                            res.isHeadshot = (closeY >= headThreshold);
+                        }
+                    }
+                }
+            }
+        }
+
+        return res;
+    }
+
+    /**
+     * Resolves 2D planar cylinder crowd separation between entities so they don't clip into each other.
+     * Zero-GC: modifies entity positions directly in-place.
+     */
+    static separateEntities<T extends Entity>(entities: Array<T>, radius: f64, maxVerticalDiff: f64 = 14.0): void {
+        let count = entities.length;
+        let minDist = radius * 2.0;
+        let minDistSq = minDist * minDist;
+
+        for (let i = 0; i < count; i++) {
+            let a = entities[i];
+            for (let j = i + 1; j < count; j++) {
+                let b = entities[j];
+                if (Math.abs(a.pos.y - b.pos.y) < maxVerticalDiff) {
+                    let dx = b.pos.x - a.pos.x;
+                    let dz = b.pos.z - a.pos.z;
+                    let distSq = dx * dx + dz * dz;
+                    if (distSq < minDistSq && distSq > 0.0001) {
+                        let dist = Math.sqrt(distSq);
+                        let overlap = (minDist - dist) * 0.5;
+                        let nx = dx / dist;
+                        let nz = dz / dist;
+                        a.pos.x -= nx * overlap;
+                        a.pos.z -= nz * overlap;
+                        b.pos.x += nx * overlap;
+                        b.pos.z += nz * overlap;
+                    }
+                }
+            }
+        }
+    }
 }
 
 // =============================================================================
@@ -679,10 +928,35 @@ export class DeltaWriter {
 // --- 6. TYPE-SAFE CLIENT INPUT READER (NO RAW POINTERS IN ROOM) ---
 // =============================================================================
 
+export enum Action {
+    FORWARD = 1,
+    BACKWARD = 2,
+    LEFT = 4,
+    RIGHT = 8,
+    FIRE = 16,
+    JUMP = 32,
+    CROUCH = 64,
+    RELOAD = 128,
+    INTERACT = 256,
+    SPRINT = 512
+}
+
+export class PlayerInput {
+    flags: u32 = 0;
+    aimYaw: f64 = 0.0;
+    aimPitch: f64 = 0.0;
+    move: Vec2 = new Vec2();
+
+    isAction(action: Action): bool {
+        return (this.flags & (action as u32)) != 0;
+    }
+}
+
 export class InputReader {
     private _ptr: usize;
     private _len: i32;
     private _offset: i32 = 0;
+    private static _reusableInput: PlayerInput = new PlayerInput();
 
     constructor(ptr: usize, len: i32) {
         this._ptr = ptr;
@@ -742,6 +1016,35 @@ export class InputReader {
         let y = this.readF32() as f64;
         let z = this.readF32() as f64;
         return new Vec3(x, y, z);
+    }
+
+    /**
+     * Reads a standard multiplayer input packet (flags, aim angles, WASD/joystick vector).
+     * Zero-GC: returns reusable pre-allocated PlayerInput instance!
+     */
+    readPlayerInput(): PlayerInput {
+        let res = InputReader._reusableInput;
+        res.flags = 0;
+        res.aimYaw = 0.0;
+        res.aimPitch = 0.0;
+        res.move.set(0.0, 0.0);
+
+        let rem = this.remaining;
+        if (rem >= 20) {
+            res.flags = this.readU32();
+            res.aimYaw = this.readF32() as f64;
+            res.aimPitch = this.readF32() as f64;
+            let mx = this.readF32() as f64;
+            let mz = this.readF32() as f64;
+            res.move.set(mx, mz);
+        } else if (rem >= 12) {
+            res.flags = this.readU32();
+            res.aimYaw = this.readF32() as f64;
+            res.aimPitch = this.readF32() as f64;
+        } else if (rem >= 4) {
+            res.flags = this.readU32();
+        }
+        return res;
     }
 }
 
@@ -1083,33 +1386,7 @@ export class Steering {
     }
 }
 
-// =============================================================================
-// --- 14. BASE ENTITY / ACTOR CLASS ---
-// =============================================================================
 
-/**
- * Standard Authoritative Entity representation.
- * Pre-packages pos, vel, rot, health, and standard distance/facing methods.
- */
-export class Entity {
-    id: i64 = 0;
-    pos: Vec3 = new Vec3();
-    vel: Vec3 = new Vec3();
-    rot: Vec3 = new Vec3();
-    radius: f64 = 0.5;
-    health: f64 = 100.0;
-    shield: f64 = 0.0;
-    armor: f64 = 0.0;
-    isAlive: bool = true;
-
-    distanceTo(other: Entity): f64 {
-        return this.pos.distanceTo(other.pos);
-    }
-
-    lookAt(target: Vec3): void {
-        this.rot.y = this.pos.yawTo(target);
-    }
-}
 
 // =============================================================================
 // --- 15. ABSTRACT ROOM BASE CLASS ---

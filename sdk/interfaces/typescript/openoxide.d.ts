@@ -127,6 +127,20 @@ export declare class Vec3 {
     toString(): string;
 }
 
+export declare class Entity {
+    id: bigint;
+    pos: Vec3;
+    vel: Vec3;
+    rot: Vec3;
+    radius: number;
+    health: number;
+    shield: number;
+    armor: number;
+    isAlive: boolean;
+    distanceTo(other: Entity): number;
+    lookAt(target: Vec3): void;
+}
+
 export declare class MoveResult {
     pos: Vec3;
     x: number;
@@ -158,11 +172,50 @@ export declare class LagRaycastHit {
     colliderId: number;
 }
 
+export declare class CharacterStepResult {
+    onGround: boolean;
+    isMoving: boolean;
+    bodyRot: number;
+}
+
+export declare class SweptHitResult {
+    hasHit: boolean;
+    hitEntityId: bigint;
+    t: number;
+    isHeadshot: boolean;
+    point: Vec3;
+}
+
 export declare class Physics {
     /** Kinematic Move & Slide (Friendly Vec3) */
     static move(pos: Vec3, vel: Vec3, radius: number, dt: number): MoveResult;
     /** Kinematic Move & Slide (Raw Coordinates) */
     static moveRaw(px: number, py: number, pz: number, vx: number, vy: number, vz: number, radius: number, dt: number): MoveResult;
+    /** Complete Authoritative 3D Kinematics Step for Humanoid/Player Entities */
+    static stepHumanoid(
+        pos: Vec3,
+        vel: Vec3,
+        moveDir: Vec2,
+        aimYaw: number,
+        bodyRot: number,
+        radius: number,
+        speed: number,
+        jumpForce: number,
+        gravity: number,
+        wantJump: boolean,
+        dt: number
+    ): CharacterStepResult;
+    /** Continuous Collision Detection (CCD) Swept Segment against Entity Cylinders */
+    static sweepSegmentAgainstEntities<T extends Entity>(
+        from: Vec3,
+        to: Vec3,
+        entities: Array<T>,
+        ignoreId: bigint,
+        hitRadius: number,
+        maxWallDist?: number
+    ): SweptHitResult;
+    /** Resolves 2D planar cylinder crowd separation between entities */
+    static separateEntities<T extends Entity>(entities: Array<T>, radius: number, maxVerticalDiff?: number): void;
     /** Continuous Collision Detection (CCD) 3D Raycast (Friendly Vec3) */
     static raycast(origin: Vec3, direction: Vec3, maxDist: number): RaycastHit;
     static raycastRaw(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RaycastHit;
@@ -221,6 +274,27 @@ export declare class DeltaWriter {
     seal(): bigint;
 }
 
+export declare enum Action {
+    FORWARD = 1,
+    BACKWARD = 2,
+    LEFT = 4,
+    RIGHT = 8,
+    FIRE = 16,
+    JUMP = 32,
+    CROUCH = 64,
+    RELOAD = 128,
+    INTERACT = 256,
+    SPRINT = 512
+}
+
+export declare class PlayerInput {
+    flags: number;
+    aimYaw: number;
+    aimPitch: number;
+    move: Vec2;
+    isAction(action: Action): boolean;
+}
+
 export declare class InputReader {
     constructor(ptr: number, len: number);
     get remaining(): number;
@@ -231,6 +305,7 @@ export declare class InputReader {
     readI64(): bigint;
     readVec2(): Vec2;
     readVec3(): Vec3;
+    readPlayerInput(): PlayerInput;
 }
 
 export declare class Random {
@@ -325,16 +400,3 @@ export declare class Steering {
     static arriveRaw(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number, slowingDistance: number): Vec3;
 }
 
-export declare class Entity {
-    id: bigint;
-    pos: Vec3;
-    vel: Vec3;
-    rot: Vec3;
-    radius: number;
-    health: number;
-    shield: number;
-    armor: number;
-    isAlive: boolean;
-    distanceTo(other: Entity): number;
-    lookAt(target: Vec3): void;
-}
