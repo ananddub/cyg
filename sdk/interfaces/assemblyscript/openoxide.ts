@@ -52,8 +52,84 @@ declare function _sys_physics_lag_raycast(
 declare function _host_log(ptr: usize, len: i32): i32;
 
 // =============================================================================
-// --- 2. VECTOR 3D MATH HELPER ---
+// --- 2. VECTOR 2D & 3D MATH HELPERS ---
 // =============================================================================
+
+export class Vec2 {
+    x: f64;
+    y: f64;
+
+    constructor(x: f64 = 0.0, y: f64 = 0.0) {
+        this.x = x;
+        this.y = y;
+    }
+
+    set(x: f64, y: f64): this {
+        this.x = x;
+        this.y = y;
+        return this;
+    }
+
+    copy(other: Vec2): this {
+        this.x = other.x;
+        this.y = other.y;
+        return this;
+    }
+
+    clone(): Vec2 {
+        return new Vec2(this.x, this.y);
+    }
+
+    add(other: Vec2): Vec2 {
+        return new Vec2(this.x + other.x, this.y + other.y);
+    }
+
+    sub(other: Vec2): Vec2 {
+        return new Vec2(this.x - other.x, this.y - other.y);
+    }
+
+    scale(s: f64): Vec2 {
+        return new Vec2(this.x * s, this.y * s);
+    }
+
+    length(): f64 {
+        return Math.sqrt(this.x * this.x + this.y * this.y);
+    }
+
+    lengthSq(): f64 {
+        return this.x * this.x + this.y * this.y;
+    }
+
+    distanceTo(other: Vec2): f64 {
+        let dx = this.x - other.x;
+        let dy = this.y - other.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    normalize(): Vec2 {
+        let len = this.length();
+        if (len > 0.00001) {
+            return new Vec2(this.x / len, this.y / len);
+        }
+        return new Vec2(0.0, 0.0);
+    }
+
+    dot(other: Vec2): f64 {
+        return this.x * other.x + this.y * other.y;
+    }
+
+    angleTo(other: Vec2): f64 {
+        return Math.atan2(other.y - this.y, other.x - this.x);
+    }
+
+    static fromAngle(rad: f64, length: f64 = 1.0): Vec2 {
+        return new Vec2(Math.cos(rad) * length, Math.sin(rad) * length);
+    }
+
+    toString(): string {
+        return "(" + this.x.toString() + ", " + this.y.toString() + ")";
+    }
+}
 
 export class Vec3 {
     x: f64;
@@ -71,6 +147,17 @@ export class Vec3 {
         this.y = y;
         this.z = z;
         return this;
+    }
+
+    copy(other: Vec3): this {
+        this.x = other.x;
+        this.y = other.y;
+        this.z = other.z;
+        return this;
+    }
+
+    clone(): Vec3 {
+        return new Vec3(this.x, this.y, this.z);
     }
 
     add(other: Vec3): Vec3 {
@@ -100,12 +187,52 @@ export class Vec3 {
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
+    distance2D(other: Vec3): f64 {
+        let dx = this.x - other.x;
+        let dz = this.z - other.z;
+        return Math.sqrt(dx * dx + dz * dz);
+    }
+
     normalize(): Vec3 {
         let len = this.length();
         if (len > 0.00001) {
             return new Vec3(this.x / len, this.y / len, this.z / len);
         }
         return new Vec3(0.0, 0.0, 0.0);
+    }
+
+    dot(other: Vec3): f64 {
+        return this.x * other.x + this.y * other.y + this.z * other.z;
+    }
+
+    cross(other: Vec3): Vec3 {
+        return new Vec3(
+            this.y * other.z - this.z * other.y,
+            this.z * other.x - this.x * other.z,
+            this.x * other.y - this.y * other.x
+        );
+    }
+
+    /**
+     * Calculates the horizontal facing yaw angle (in radians) towards target.
+     */
+    yawTo(target: Vec3): f64 {
+        return Math.atan2(target.z - this.z, target.x - this.x);
+    }
+
+    /**
+     * Creates a horizontal forward direction vector from yaw angle.
+     */
+    static fromYaw(yawRad: f64, speed: f64 = 1.0): Vec3 {
+        return new Vec3(Math.cos(yawRad) * speed, 0.0, Math.sin(yawRad) * speed);
+    }
+
+    toVec2XZ(): Vec2 {
+        return new Vec2(this.x, this.z);
+    }
+
+    toString(): string {
+        return "(" + this.x.toString() + ", " + this.y.toString() + ", " + this.z.toString() + ")";
     }
 }
 
@@ -114,6 +241,7 @@ export class Vec3 {
 // =============================================================================
 
 export class MoveResult {
+    pos: Vec3 = new Vec3();
     x: f64 = 0;
     y: f64 = 0;
     z: f64 = 0;
@@ -122,6 +250,7 @@ export class MoveResult {
 
 export class RaycastHit {
     hasHit: bool = false;
+    point: Vec3 = new Vec3();
     x: f64 = 0;
     y: f64 = 0;
     z: f64 = 0;
@@ -131,6 +260,7 @@ export class RaycastHit {
 
 export class LagRaycastHit {
     hasHit: bool = false;
+    point: Vec3 = new Vec3();
     hitType: i32 = 0; // 0 = None, 1 = Static Wall, 2 = Entity Hitbox
     x: f64 = 0;
     y: f64 = 0;
@@ -144,6 +274,7 @@ export class LagRaycastHit {
 /**
  * Universal High-Level Physics Engine for OpenOxide Game Rooms.
  * Handles continuous collision detection, circles, spheres, ramps, and obstacles seamlessly.
+ * Supports both friendly Vector objects (Vec2 / Vec3) and raw coordinates.
  */
 export class Physics {
     private static _buf: ArrayBuffer = new ArrayBuffer(64);
@@ -155,57 +286,85 @@ export class Physics {
     private static _lagRayHit: LagRaycastHit = new LagRaycastHit();
 
     /**
-     * Kinematic Move & Slide:
+     * Kinematic Move & Slide (Friendly Vec3):
      * Moves a cylinder/capsule entity (player/bot) along walls, ramps, and Blender obstacles.
-     * @returns Pre-allocated MoveResult containing resolved (x, y, z) and isGrounded status.
+     * @returns Pre-allocated MoveResult containing updated pos (Vec3) and isGrounded status.
      */
-    static move(px: f64, py: f64, pz: f64, vx: f64, vy: f64, vz: f64, radius: f64, dt: f64): MoveResult {
+    static move(pos: Vec3, vel: Vec3, radius: f64, dt: f64): MoveResult {
+        return Physics.moveRaw(pos.x, pos.y, pos.z, vel.x, vel.y, vel.z, radius, dt);
+    }
+
+    /**
+     * Kinematic Move & Slide (Raw Coordinates):
+     */
+    static moveRaw(px: f64, py: f64, pz: f64, vx: f64, vy: f64, vz: f64, radius: f64, dt: f64): MoveResult {
         let grounded = _sys_physics_move(px, py, pz, vx, vy, vz, radius, dt, Physics._ptr);
         let res = Physics._moveRes;
-        res.x = Physics._view.getFloat64(0, true);
-        res.y = Physics._view.getFloat64(8, true);
-        res.z = Physics._view.getFloat64(16, true);
+        let nx = Physics._view.getFloat64(0, true);
+        let ny = Physics._view.getFloat64(8, true);
+        let nz = Physics._view.getFloat64(16, true);
+        res.x = nx;
+        res.y = ny;
+        res.z = nz;
+        res.pos.set(nx, ny, nz);
         res.isGrounded = (grounded == 1);
         return res;
     }
 
     /**
-     * Continuous Collision Detection (CCD) 3D Raycast:
+     * Continuous Collision Detection (CCD) 3D Raycast (Friendly Vec3):
      * Casts a ray through the 3D world against walls, bunkers, pillars, and Blender geometry.
-     * @returns Pre-allocated RaycastHit with exact impact coordinates and distance.
+     * @returns Pre-allocated RaycastHit with exact impact point (Vec3) and distance.
      */
-    static raycast(ox: f64, oy: f64, oz: f64, dx: f64, dy: f64, dz: f64, maxDist: f64): RaycastHit {
+    static raycast(origin: Vec3, direction: Vec3, maxDist: f64): RaycastHit {
+        return Physics.raycastRaw(origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, maxDist);
+    }
+
+    static raycastRaw(ox: f64, oy: f64, oz: f64, dx: f64, dy: f64, dz: f64, maxDist: f64): RaycastHit {
         let hit = _sys_physics_raycast(ox, oy, oz, dx, dy, dz, maxDist, Physics._ptr);
         let res = Physics._rayHit;
         if (hit != 0) {
+            let hx = Physics._view.getFloat64(0, true);
+            let hy = Physics._view.getFloat64(8, true);
+            let hz = Physics._view.getFloat64(16, true);
             res.hasHit = true;
-            res.x = Physics._view.getFloat64(0, true);
-            res.y = Physics._view.getFloat64(8, true);
-            res.z = Physics._view.getFloat64(16, true);
+            res.x = hx;
+            res.y = hy;
+            res.z = hz;
+            res.point.set(hx, hy, hz);
             res.distance = Physics._view.getFloat64(24, true);
             res.colliderId = Physics._view.getUint32(32, true);
         } else {
             res.hasHit = false;
             res.distance = maxDist;
             res.colliderId = 0;
+            res.point.set(0, 0, 0);
         }
         return res;
     }
 
     /**
-     * Floor, Ramp & Stair Surface Height:
+     * Floor, Ramp & Stair Surface Height (Friendly Vec3):
      * Returns the exact solid ground Y coordinate beneath an entity.
      */
-    static getSurfaceHeight(px: f64, py: f64, pz: f64, radius: f64 = 0.0): f64 {
+    static getSurfaceHeight(pos: Vec3, radius: f64 = 0.0): f64 {
+        return _sys_physics_surface_y(pos.x, pos.y, pos.z, radius);
+    }
+
+    static getSurfaceHeightRaw(px: f64, py: f64, pz: f64, radius: f64 = 0.0): f64 {
         return _sys_physics_surface_y(px, py, pz, radius);
     }
 
     // --- SHAPE & TRIGGER UTILITIES (CIRCLES, SPHERES, DISTANCES) ---
 
     /**
-     * 3D Euclidean distance between two positions.
+     * 3D Euclidean distance between two positions (Friendly Vec3).
      */
-    static distance(x1: f64, y1: f64, z1: f64, x2: f64, y2: f64, z2: f64): f64 {
+    static distance(a: Vec3, b: Vec3): f64 {
+        return a.distanceTo(b);
+    }
+
+    static distanceRaw(x1: f64, y1: f64, z1: f64, x2: f64, y2: f64, z2: f64): f64 {
         let dx = x1 - x2;
         let dy = y1 - y2;
         let dz = z1 - z2;
@@ -213,18 +372,29 @@ export class Physics {
     }
 
     /**
-     * 2D Planar distance (XZ plane for top-down or ground gameplay).
+     * 2D Planar distance (Friendly Vec2).
      */
-    static distance2D(x1: f64, z1: f64, x2: f64, z2: f64): f64 {
+    static distance2D(a: Vec2, b: Vec2): f64 {
+        return a.distanceTo(b);
+    }
+
+    static distance2DRaw(x1: f64, z1: f64, x2: f64, z2: f64): f64 {
         let dx = x1 - x2;
         let dz = z1 - z2;
         return Math.sqrt(dx * dx + dz * dz);
     }
 
     /**
-     * 2D Circle Overlap: returns true if two circles intersect on the ground.
+     * 2D Circle Overlap: returns true if two circles intersect on the ground (Friendly Vec2).
      */
-    static checkCircleOverlap(x1: f64, z1: f64, r1: f64, x2: f64, z2: f64, r2: f64): bool {
+    static checkCircleOverlap(posA: Vec2, rA: f64, posB: Vec2, rB: f64): bool {
+        let dx = posA.x - posB.x;
+        let dy = posA.y - posB.y;
+        let minDist = rA + rB;
+        return (dx * dx + dy * dy) <= (minDist * minDist);
+    }
+
+    static checkCircleOverlapRaw(x1: f64, z1: f64, r1: f64, x2: f64, z2: f64, r2: f64): bool {
         let dx = x1 - x2;
         let dz = z1 - z2;
         let minDist = r1 + r2;
@@ -232,20 +402,20 @@ export class Physics {
     }
 
     /**
-     * 3D Sphere Overlap: returns true if two spheres intersect in 3D space (blast / hitbox).
+     * 3D Sphere Overlap: returns true if two spheres intersect in 3D space (Friendly Vec3).
      */
-    static checkSphereOverlap(x1: f64, y1: f64, z1: f64, r1: f64, x2: f64, y2: f64, z2: f64, r2: f64): bool {
-        let dx = x1 - x2;
-        let dy = y1 - y2;
-        let dz = z1 - z2;
-        let minDist = r1 + r2;
-        return (dx * dx + dy * dy + dz * dz) <= (minDist * minDist);
+    static checkSphereOverlap(posA: Vec3, rA: f64, posB: Vec3, rB: f64): bool {
+        return posA.distanceTo(posB) <= (rA + rB);
     }
 
     /**
-     * Point in Sphere: checks if a point lies within a spherical blast radius.
+     * Point in Sphere: checks if a point lies within a spherical blast radius (Friendly Vec3).
      */
-    static isPointInSphere(px: f64, py: f64, pz: f64, cx: f64, cy: f64, cz: f64, radius: f64): bool {
+    static isPointInSphere(point: Vec3, center: Vec3, radius: f64): bool {
+        return point.distanceTo(center) <= radius;
+    }
+
+    static isPointInSphereRaw(px: f64, py: f64, pz: f64, cx: f64, cy: f64, cz: f64, radius: f64): bool {
         let dx = px - cx;
         let dy = py - cy;
         let dz = pz - cz;
@@ -253,9 +423,15 @@ export class Physics {
     }
 
     /**
-     * Point in AABB Box: checks if a point lies inside an axis-aligned bounding box.
+     * Point in AABB Box: checks if a point lies inside an axis-aligned bounding box (Friendly Vec3).
      */
-    static isPointInBox(
+    static isPointInBox(point: Vec3, min: Vec3, max: Vec3): bool {
+        return point.x >= min.x && point.x <= max.x &&
+               point.y >= min.y && point.y <= max.y &&
+               point.z >= min.z && point.z <= max.z;
+    }
+
+    static isPointInBoxRaw(
         px: f64, py: f64, pz: f64,
         minX: f64, minY: f64, minZ: f64,
         maxX: f64, maxY: f64, maxZ: f64
@@ -266,11 +442,15 @@ export class Physics {
     }
 
     /**
-     * Oriented Bounding Box (OBB): checks if a point lies inside a rotated 3D/2D box.
+     * Oriented Bounding Box (OBB): checks if a point lies inside a rotated 3D/2D box (Friendly Vec3).
      * Essential for Blender buildings, shipping containers, and vehicles rotated at arbitrary angles!
      * @param yawRad Yaw rotation of the box in radians.
      */
-    static isPointInRotatedBox(
+    static isPointInRotatedBox(pos: Vec3, center: Vec3, halfWidth: f64, halfDepth: f64, yawRad: f64): bool {
+        return Physics.isPointInRotatedBoxRaw(pos.x, pos.z, center.x, center.z, halfWidth, halfDepth, yawRad);
+    }
+
+    static isPointInRotatedBoxRaw(
         px: f64, pz: f64,
         cx: f64, cz: f64,
         halfWidth: f64, halfDepth: f64,
@@ -286,10 +466,14 @@ export class Physics {
     }
 
     /**
-     * Point in Vertical Capsule: standard character hitbox shape.
+     * Point in Vertical Capsule: standard character hitbox shape (Friendly Vec3).
      * Prevents players from snagging on stairs and uneven terrain edges.
      */
-    static isPointInCapsule(
+    static isPointInCapsule(point: Vec3, capPos: Vec3, radius: f64, height: f64): bool {
+        return Physics.isPointInCapsuleRaw(point.x, point.y, point.z, capPos.x, capPos.y, capPos.z, radius, height);
+    }
+
+    static isPointInCapsuleRaw(
         px: f64, py: f64, pz: f64,
         capX: f64, capY: f64, capZ: f64,
         radius: f64, height: f64
@@ -302,10 +486,14 @@ export class Physics {
     }
 
     /**
-     * Records an entity's 3D hitbox into host history for rewind lag compensation.
+     * Records an entity's 3D hitbox into host history for rewind lag compensation (Friendly Vec3).
      * Call this in onTick for every active player or bot.
      */
-    static recordHitbox(
+    static recordHitbox(tick: i64, entityId: i32, kind: i32, min: Vec3, max: Vec3): void {
+        _sys_physics_lag_record(tick, entityId, kind, min.x, min.y, min.z, max.x, max.y, max.z);
+    }
+
+    static recordHitboxRaw(
         tick: i64,
         entityId: i32,
         kind: i32,
@@ -316,11 +504,15 @@ export class Physics {
     }
 
     /**
-     * Rewind Lag-Compensated Raycast:
+     * Rewind Lag-Compensated Raycast (Friendly Vec3):
      * Rewinds entity hitboxes to client's shoot_tick and performs a continuous raycast.
      * Guarantees "what you see is what you hit" without client-side trust exploits!
      */
-    static lagRaycast(
+    static lagRaycast(shootTick: i64, origin: Vec3, direction: Vec3, maxDist: f64): LagRaycastHit {
+        return Physics.lagRaycastRaw(shootTick, origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, maxDist);
+    }
+
+    static lagRaycastRaw(
         shootTick: i64,
         ox: f64, oy: f64, oz: f64,
         dx: f64, dy: f64, dz: f64,
@@ -329,11 +521,15 @@ export class Physics {
         let hitType = _sys_physics_lag_raycast(shootTick, ox, oy, oz, dx, dy, dz, maxDist, Physics._ptr);
         let res = Physics._lagRayHit;
         if (hitType != 0) {
+            let hx = Physics._view.getFloat64(0, true);
+            let hy = Physics._view.getFloat64(8, true);
+            let hz = Physics._view.getFloat64(16, true);
             res.hasHit = true;
             res.hitType = hitType;
-            res.x = Physics._view.getFloat64(0, true);
-            res.y = Physics._view.getFloat64(8, true);
-            res.z = Physics._view.getFloat64(16, true);
+            res.x = hx;
+            res.y = hy;
+            res.z = hz;
+            res.point.set(hx, hy, hz);
             res.distance = Physics._view.getFloat64(24, true);
             res.entityId = Physics._view.getUint32(32, true);
             res.kind = Physics._view.getUint32(36, true);
@@ -345,6 +541,7 @@ export class Physics {
             res.entityId = 0;
             res.kind = 0;
             res.colliderId = 0;
+            res.point.set(0, 0, 0);
         }
         return res;
     }
@@ -453,6 +650,21 @@ export class DeltaWriter {
         return this;
     }
 
+    /** Writes a 2D vector as two 32-bit floats (8 bytes total) */
+    writeVec2(v: Vec2): this {
+        this.writeF32(v.x as f32);
+        this.writeF32(v.y as f32);
+        return this;
+    }
+
+    /** Writes a 3D vector as three 32-bit floats (12 bytes total) */
+    writeVec3(v: Vec3): this {
+        this.writeF32(v.x as f32);
+        this.writeF32(v.y as f32);
+        this.writeF32(v.z as f32);
+        return this;
+    }
+
     /**
      * Finishes serialization and returns the packed 64-bit ABI integer for onTick / onSave!
      */
@@ -515,6 +727,21 @@ export class InputReader {
         let val = load<i64>(this._ptr + this._offset);
         this._offset += 8;
         return val;
+    }
+
+    /** Reads a 2D vector (joystick / WASD movement) */
+    readVec2(): Vec2 {
+        let x = this.readF32() as f64;
+        let y = this.readF32() as f64;
+        return new Vec2(x, y);
+    }
+
+    /** Reads a 3D vector (camera aim / direction) */
+    readVec3(): Vec3 {
+        let x = this.readF32() as f64;
+        let y = this.readF32() as f64;
+        let z = this.readF32() as f64;
+        return new Vec3(x, y, z);
     }
 }
 
@@ -636,7 +863,11 @@ export class TriggerZone {
         this.value = value;
     }
 
-    contains(px: f64, py: f64, pz: f64): bool {
+    contains(pos: Vec3): bool {
+        return this.containsRaw(pos.x, pos.y, pos.z);
+    }
+
+    containsRaw(px: f64, py: f64, pz: f64): bool {
         return px >= this.minX && px <= this.maxX &&
                py >= this.minY && py <= this.maxY &&
                pz >= this.minZ && pz <= this.maxZ;
@@ -754,7 +985,11 @@ export class SpatialGrid2D {
     private entityX: Map<i64, f64> = new Map<i64, f64>();
     private entityZ: Map<i64, f64> = new Map<i64, f64>();
 
-    update(id: i64, x: f64, z: f64): void {
+    update(id: i64, pos: Vec3): void {
+        this.updateRaw(id, pos.x, pos.z);
+    }
+
+    updateRaw(id: i64, x: f64, z: f64): void {
         this.entityX.set(id, x);
         this.entityZ.set(id, z);
     }
@@ -764,7 +999,11 @@ export class SpatialGrid2D {
         this.entityZ.delete(id);
     }
 
-    queryRadius(cx: f64, cz: f64, radius: f64): StaticArray<i64> {
+    queryRadius(center: Vec3, radius: f64): StaticArray<i64> {
+        return this.queryRadiusRaw(center.x, center.z, radius);
+    }
+
+    queryRadiusRaw(cx: f64, cz: f64, radius: f64): StaticArray<i64> {
         let rSq = radius * radius;
         let ids = this.entityX.keys();
         let count = 0;
@@ -797,7 +1036,11 @@ export class SpatialGrid2D {
 // =============================================================================
 
 export class Steering {
-    static seek(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64): Vec3 {
+    static seek(from: Vec3, target: Vec3, maxSpeed: f64): Vec3 {
+        return Steering.seekRaw(from.x, from.z, target.x, target.z, maxSpeed);
+    }
+
+    static seekRaw(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64): Vec3 {
         let dx = targetX - fromX;
         let dz = targetZ - fromZ;
         let dist = Math.sqrt(dx * dx + dz * dz);
@@ -807,7 +1050,11 @@ export class Steering {
         return new Vec3(0, 0, 0);
     }
 
-    static flee(fromX: f64, fromZ: f64, threatX: f64, threatZ: f64, maxSpeed: f64): Vec3 {
+    static flee(from: Vec3, threat: Vec3, maxSpeed: f64): Vec3 {
+        return Steering.fleeRaw(from.x, from.z, threat.x, threat.z, maxSpeed);
+    }
+
+    static fleeRaw(fromX: f64, fromZ: f64, threatX: f64, threatZ: f64, maxSpeed: f64): Vec3 {
         let dx = fromX - threatX;
         let dz = fromZ - threatZ;
         let dist = Math.sqrt(dx * dx + dz * dz);
@@ -817,7 +1064,11 @@ export class Steering {
         return new Vec3(0, 0, 0);
     }
 
-    static arrive(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64, slowingDistance: f64): Vec3 {
+    static arrive(from: Vec3, target: Vec3, maxSpeed: f64, slowingDistance: f64): Vec3 {
+        return Steering.arriveRaw(from.x, from.z, target.x, target.z, maxSpeed, slowingDistance);
+    }
+
+    static arriveRaw(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64, slowingDistance: f64): Vec3 {
         let dx = targetX - fromX;
         let dz = targetZ - fromZ;
         let dist = Math.sqrt(dx * dx + dz * dz);
@@ -833,7 +1084,35 @@ export class Steering {
 }
 
 // =============================================================================
-// --- 14. ABSTRACT ROOM BASE CLASS ---
+// --- 14. BASE ENTITY / ACTOR CLASS ---
+// =============================================================================
+
+/**
+ * Standard Authoritative Entity representation.
+ * Pre-packages pos, vel, rot, health, and standard distance/facing methods.
+ */
+export class Entity {
+    id: i64 = 0;
+    pos: Vec3 = new Vec3();
+    vel: Vec3 = new Vec3();
+    rot: Vec3 = new Vec3();
+    radius: f64 = 0.5;
+    health: f64 = 100.0;
+    shield: f64 = 0.0;
+    armor: f64 = 0.0;
+    isAlive: bool = true;
+
+    distanceTo(other: Entity): f64 {
+        return this.pos.distanceTo(other.pos);
+    }
+
+    lookAt(target: Vec3): void {
+        this.rot.y = this.pos.yawTo(target);
+    }
+}
+
+// =============================================================================
+// --- 15. ABSTRACT ROOM BASE CLASS ---
 // =============================================================================
 
 /**

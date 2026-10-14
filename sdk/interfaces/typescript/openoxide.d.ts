@@ -83,22 +83,52 @@ export interface OpenOxideConfig {
 // High-Level Developer SDK (AssemblyScript / TypeScript DX Suite)
 // =============================================================================
 
+export declare class Vec2 {
+    x: number;
+    y: number;
+    constructor(x?: number, y?: number);
+    set(x: number, y: number): this;
+    copy(other: Vec2): this;
+    clone(): Vec2;
+    add(other: Vec2): Vec2;
+    sub(other: Vec2): Vec2;
+    scale(s: number): Vec2;
+    length(): number;
+    lengthSq(): number;
+    distanceTo(other: Vec2): number;
+    normalize(): Vec2;
+    dot(other: Vec2): number;
+    angleTo(other: Vec2): number;
+    static fromAngle(rad: number, length?: number): Vec2;
+    toString(): string;
+}
+
 export declare class Vec3 {
     x: number;
     y: number;
     z: number;
     constructor(x?: number, y?: number, z?: number);
     set(x: number, y: number, z: number): this;
+    copy(other: Vec3): this;
+    clone(): Vec3;
     add(other: Vec3): Vec3;
     sub(other: Vec3): Vec3;
     scale(s: number): Vec3;
     length(): number;
     lengthSq(): number;
     distanceTo(other: Vec3): number;
+    distance2D(other: Vec3): number;
     normalize(): Vec3;
+    dot(other: Vec3): number;
+    cross(other: Vec3): Vec3;
+    yawTo(target: Vec3): number;
+    static fromYaw(yawRad: number, speed?: number): Vec3;
+    toVec2XZ(): Vec2;
+    toString(): string;
 }
 
 export declare class MoveResult {
+    pos: Vec3;
     x: number;
     y: number;
     z: number;
@@ -107,6 +137,7 @@ export declare class MoveResult {
 
 export declare class RaycastHit {
     hasHit: boolean;
+    point: Vec3;
     x: number;
     y: number;
     z: number;
@@ -114,31 +145,59 @@ export declare class RaycastHit {
     colliderId: number;
 }
 
+export declare class LagRaycastHit {
+    hasHit: boolean;
+    point: Vec3;
+    hitType: number;
+    x: number;
+    y: number;
+    z: number;
+    distance: number;
+    entityId: number;
+    kind: number;
+    colliderId: number;
+}
+
 export declare class Physics {
-    /** Kinematic Move & Slide against host 3D obstacles and ramps */
-    static move(px: number, py: number, pz: number, vx: number, vy: number, vz: number, radius: number, dt: number): MoveResult;
-    /** Continuous Collision Detection (CCD) 3D Raycast */
-    static raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RaycastHit;
+    /** Kinematic Move & Slide (Friendly Vec3) */
+    static move(pos: Vec3, vel: Vec3, radius: number, dt: number): MoveResult;
+    /** Kinematic Move & Slide (Raw Coordinates) */
+    static moveRaw(px: number, py: number, pz: number, vx: number, vy: number, vz: number, radius: number, dt: number): MoveResult;
+    /** Continuous Collision Detection (CCD) 3D Raycast (Friendly Vec3) */
+    static raycast(origin: Vec3, direction: Vec3, maxDist: number): RaycastHit;
+    static raycastRaw(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RaycastHit;
     /** Exact ground/ramp height beneath an entity */
-    static getSurfaceHeight(px: number, py: number, pz: number, radius?: number): number;
+    static getSurfaceHeight(pos: Vec3, radius?: number): number;
+    static getSurfaceHeightRaw(px: number, py: number, pz: number, radius?: number): number;
     /** 3D Euclidean distance */
-    static distance(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number): number;
-    /** 2D Planar distance (XZ) */
-    static distance2D(x1: number, z1: number, x2: number, z2: number): number;
+    static distance(a: Vec3, b: Vec3): number;
+    static distanceRaw(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number): number;
+    /** 2D Planar distance */
+    static distance2D(a: Vec2, b: Vec2): number;
+    static distance2DRaw(x1: number, z1: number, x2: number, z2: number): number;
     /** 2D Circle-Circle overlap check */
-    static checkCircleOverlap(x1: number, z1: number, r1: number, x2: number, z2: number, r2: number): boolean;
+    static checkCircleOverlap(posA: Vec2, rA: number, posB: Vec2, rB: number): boolean;
+    static checkCircleOverlapRaw(x1: number, z1: number, r1: number, x2: number, z2: number, r2: number): boolean;
+    /** 3D Sphere Overlap check */
+    static checkSphereOverlap(posA: Vec3, rA: number, posB: Vec3, rB: number): boolean;
     /** 3D Point-in-Sphere check */
-    static isPointInSphere(px: number, py: number, pz: number, cx: number, cy: number, cz: number, radius: number): boolean;
+    static isPointInSphere(point: Vec3, center: Vec3, radius: number): boolean;
+    static isPointInSphereRaw(px: number, py: number, pz: number, cx: number, cy: number, cz: number, radius: number): boolean;
     /** 3D Point-in-AABB Box check */
-    static isPointInBox(px: number, py: number, pz: number, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): boolean;
+    static isPointInBox(point: Vec3, min: Vec3, max: Vec3): boolean;
+    static isPointInBoxRaw(px: number, py: number, pz: number, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): boolean;
     /** Oriented Bounding Box (OBB) check for rotated obstacles */
-    static isPointInRotatedBox(px: number, pz: number, cx: number, cz: number, halfWidth: number, halfDepth: number, yawRad: number): boolean;
+    static isPointInRotatedBox(pos: Vec3, center: Vec3, halfWidth: number, halfDepth: number, yawRad: number): boolean;
+    static isPointInRotatedBoxRaw(px: number, pz: number, cx: number, cz: number, halfWidth: number, halfDepth: number, yawRad: number): boolean;
     /** Point in Capsule check */
-    static isPointInCapsule(px: number, py: number, pz: number, capX: number, capY: number, capZ: number, radius: number, height: number): boolean;
+    static isPointInCapsule(point: Vec3, capPos: Vec3, radius: number, height: number): boolean;
+    static isPointInCapsuleRaw(px: number, py: number, pz: number, capX: number, capY: number, capZ: number, radius: number, height: number): boolean;
     /** Record entity hitbox for server rewind */
-    static recordHitbox(tick: bigint, entityId: number, kind: number, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): void;
+    static recordHitbox(tick: bigint, entityId: number, kind: number, min: Vec3, max: Vec3): void;
+    static recordHitboxRaw(tick: bigint, entityId: number, kind: number, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): void;
     /** Rewind lag-compensated continuous raycast */
-    static lagRaycast(shootTick: bigint, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): LagRaycastHit;
+    static lagRaycast(shootTick: bigint, origin: Vec3, direction: Vec3, maxDist: number): LagRaycastHit;
+    static lagRaycastRaw(shootTick: bigint, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): LagRaycastHit;
 }
 
 export declare class Log {
@@ -157,6 +216,8 @@ export declare class DeltaWriter {
     writeI64(val: bigint): this;
     writeF32(val: number): this;
     writeF64(val: number): this;
+    writeVec2(v: Vec2): this;
+    writeVec3(v: Vec3): this;
     seal(): bigint;
 }
 
@@ -168,6 +229,8 @@ export declare class InputReader {
     readF32(): number;
     readF64(): number;
     readI64(): bigint;
+    readVec2(): Vec2;
+    readVec3(): Vec3;
 }
 
 export declare class Random {
@@ -204,7 +267,8 @@ export declare class TriggerZone {
     maxX: number; maxY: number; maxZ: number;
     value: number;
     constructor(id: number, type: ZoneType, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number, value?: number);
-    contains(px: number, py: number, pz: number): boolean;
+    contains(pos: Vec3): boolean;
+    containsRaw(px: number, py: number, pz: number): boolean;
 }
 
 export declare enum HitZone {
@@ -245,15 +309,32 @@ export declare class MatchStateMachine {
 }
 
 export declare class SpatialGrid2D {
-    update(id: bigint, x: number, z: number): void;
+    update(id: bigint, pos: Vec3): void;
+    updateRaw(id: bigint, x: number, z: number): void;
     remove(id: bigint): void;
-    queryRadius(cx: number, cz: number, radius: number): bigint[];
+    queryRadius(center: Vec3, radius: number): bigint[];
+    queryRadiusRaw(cx: number, cz: number, radius: number): bigint[];
 }
 
 export declare class Steering {
-    static seek(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number): Vec3;
-    static flee(fromX: number, fromZ: number, threatX: number, threatZ: number, maxSpeed: number): Vec3;
-    static arrive(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number, slowingDistance: number): Vec3;
+    static seek(from: Vec3, target: Vec3, maxSpeed: number): Vec3;
+    static seekRaw(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number): Vec3;
+    static flee(from: Vec3, threat: Vec3, maxSpeed: number): Vec3;
+    static fleeRaw(fromX: number, fromZ: number, threatX: number, threatZ: number, maxSpeed: number): Vec3;
+    static arrive(from: Vec3, target: Vec3, maxSpeed: number, slowingDistance: number): Vec3;
+    static arriveRaw(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number, slowingDistance: number): Vec3;
 }
 
-
+export declare class Entity {
+    id: bigint;
+    pos: Vec3;
+    vel: Vec3;
+    rot: Vec3;
+    radius: number;
+    health: number;
+    shield: number;
+    armor: number;
+    isAlive: boolean;
+    distanceTo(other: Entity): number;
+    lookAt(target: Vec3): void;
+}
