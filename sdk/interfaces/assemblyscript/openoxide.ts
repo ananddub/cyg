@@ -622,7 +622,7 @@ export class Physics {
             pos.y = surfaceY;
             vel.y = 0.0;
         }
-
+be 
         // 2. Jump impulse
         if (wantJump && onGround) {
             vel.y = jumpForce;
@@ -925,6 +925,233 @@ export class DeltaWriter {
 }
 
 // =============================================================================
+// --- 5.5 UNIVERSAL HARDWARE KEYCODES (A-Z, 0-9, ARROWS, F1-F12, MOUSE) ---
+// =============================================================================
+
+export enum KeyCode {
+    None            = 0,
+
+    // Mouse Buttons
+    MouseLeft       = 1,
+    MouseMiddle     = 2,
+    MouseRight      = 3,
+    MouseBack       = 4,
+    MouseForward    = 5,
+
+    // Control & Whitespace
+    Backspace       = 8,
+    Tab             = 9,
+    Enter           = 13,
+    Shift           = 16,
+    Control         = 17,
+    Alt             = 18,
+    Pause           = 19,
+    CapsLock        = 20,
+    Escape          = 27,
+    Space           = 32,
+
+    // Navigation & Page Keys
+    PageUp          = 33,
+    PageDown        = 34,
+    End             = 35,
+    Home            = 36,
+    Insert          = 45,
+    Delete          = 46,
+    PrintScreen     = 44,
+
+    // Arrow Navigation Keys
+    ArrowLeft       = 37,
+    ArrowUp         = 38,
+    ArrowRight      = 39,
+    ArrowDown       = 40,
+    Left            = 37,
+    Up              = 38,
+    Right           = 39,
+    Down            = 40,
+
+    // Number Keys (0 - 9) Top Row
+    Digit0          = 48,
+    Digit1          = 49,
+    Digit2          = 50,
+    Digit3          = 51,
+    Digit4          = 52,
+    Digit5          = 53,
+    Digit6          = 54,
+    Digit7          = 55,
+    Digit8          = 56,
+    Digit9          = 57,
+
+    // Digit Aliases
+    Num0            = 48,
+    Num1            = 49,
+    Num2            = 50,
+    Num3            = 51,
+    Num4            = 52,
+    Num5            = 53,
+    Num6            = 54,
+    Num7            = 55,
+    Num8            = 56,
+    Num9            = 57,
+
+    // Alphabet Keys (A - Z)
+    KeyA            = 65,
+    KeyB            = 66,
+    KeyC            = 67,
+    KeyD            = 68,
+    KeyE            = 69,
+    KeyF            = 70,
+    KeyG            = 71,
+    KeyH            = 72,
+    KeyI            = 73,
+    KeyJ            = 74,
+    KeyK            = 75,
+    KeyL            = 76,
+    KeyM            = 77,
+    KeyN            = 78,
+    KeyO            = 79,
+    KeyP            = 80,
+    KeyQ            = 81,
+    KeyR            = 82,
+    KeyS            = 83,
+    KeyT            = 84,
+    KeyU            = 85,
+    KeyV            = 86,
+    KeyW            = 87,
+    KeyX            = 88,
+    KeyY            = 89,
+    KeyZ            = 90,
+
+    // Single-Letter Aliases
+    A               = 65,
+    B               = 66,
+    C               = 67,
+    D               = 68,
+    E               = 69,
+    F               = 70,
+    G               = 71,
+    H               = 72,
+    I               = 73,
+    J               = 74,
+    K               = 75,
+    L               = 76,
+    M               = 77,
+    N               = 78,
+    O               = 79,
+    P               = 80,
+    Q               = 81,
+    R               = 82,
+    S               = 83,
+    T               = 84,
+    U               = 85,
+    V               = 86,
+    W               = 87,
+    X               = 88,
+    Y               = 89,
+    Z               = 90,
+
+    // System & Meta Keys
+    MetaLeft        = 91,
+    MetaRight       = 92,
+    ContextMenu     = 93,
+
+    // Numpad Keys (0 - 9 and Math Operators)
+    Numpad0         = 96,
+    Numpad1         = 97,
+    Numpad2         = 98,
+    Numpad3         = 99,
+    Numpad4         = 100,
+    Numpad5         = 101,
+    Numpad6         = 102,
+    Numpad7         = 103,
+    Numpad8         = 104,
+    Numpad9         = 105,
+    NumpadMultiply  = 106,
+    NumpadAdd       = 107,
+    NumpadSeparator = 108,
+    NumpadSubtract  = 109,
+    NumpadDecimal   = 110,
+    NumpadDivide    = 111,
+
+    // Function Keys (F1 - F12)
+    F1              = 112,
+    F2              = 113,
+    F3              = 114,
+    F4              = 115,
+    F5              = 116,
+    F6              = 117,
+    F7              = 118,
+    F8              = 119,
+    F9              = 120,
+    F10             = 121,
+    F11             = 122,
+    F12             = 123,
+
+    // Extended Function Keys (F13 - F24)
+    F13             = 124,
+    F14             = 125,
+    F15             = 126,
+    F16             = 127,
+    F17             = 128,
+    F18             = 129,
+    F19             = 130,
+    F20             = 131,
+    F21             = 132,
+    F22             = 133,
+    F23             = 134,
+    F24             = 135,
+
+    // Lock Keys
+    NumLock         = 144,
+    ScrollLock      = 145,
+
+    // Modifiers Specific
+    ShiftLeft       = 160,
+    ShiftRight      = 161,
+    ControlLeft     = 162,
+    ControlRight    = 163,
+    AltLeft         = 164,
+    AltRight        = 165,
+
+    // Punctuation & Symbols
+    Semicolon       = 186,
+    Equal           = 187,
+    Comma           = 188,
+    Minus           = 189,
+    Period          = 190,
+    Slash           = 191,
+    Backquote       = 192,
+    BracketLeft     = 219,
+    Backslash       = 220,
+    BracketRight    = 221,
+    Quote           = 222
+}
+
+export class KeyCodeHelper {
+    static isLetter(key: KeyCode): bool {
+        return key >= KeyCode.KeyA && key <= KeyCode.KeyZ;
+    }
+    static isDigit(key: KeyCode): bool {
+        return (key >= KeyCode.Digit0 && key <= KeyCode.Digit9) ||
+               (key >= KeyCode.Numpad0 && key <= KeyCode.Numpad9);
+    }
+    static isArrow(key: KeyCode): bool {
+        return key >= KeyCode.ArrowLeft && key <= KeyCode.ArrowDown;
+    }
+    static isFunctionKey(key: KeyCode): bool {
+        return key >= KeyCode.F1 && key <= KeyCode.F12;
+    }
+    static isModifier(key: KeyCode): bool {
+        return key == KeyCode.Shift || key == KeyCode.Control || key == KeyCode.Alt ||
+               key == KeyCode.ShiftLeft || key == KeyCode.ShiftRight ||
+               key == KeyCode.ControlLeft || key == KeyCode.ControlRight ||
+               key == KeyCode.AltLeft || key == KeyCode.AltRight;
+    }
+    static isMouseButton(key: KeyCode): bool {
+        return key >= KeyCode.MouseLeft && key <= KeyCode.MouseForward;
+    }
+}
+
+// =============================================================================
 // --- 6. TYPE-SAFE CLIENT INPUT READER (NO RAW POINTERS IN ROOM) ---
 // =============================================================================
 
@@ -932,6 +1159,7 @@ export class InputReader {
     private _ptr: usize;
     private _len: i32;
     private _offset: i32 = 0;
+
 
 
     constructor(ptr: usize, len: i32) {
