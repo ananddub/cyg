@@ -968,6 +968,10 @@ export class InputReader {
         return this._len - this._offset;
     }
 
+    hasRemaining(bytes: i32): bool {
+        return (this._len - this._offset) >= bytes;
+    }
+
     readU8(): u8 {
         if (this._offset + 1 > this._len) return 0;
         let val = load<u8>(this._ptr + this._offset);

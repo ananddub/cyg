@@ -302,11 +302,14 @@ export declare class InputReader {
     readU32(): number;
     readF32(): number;
     readF64(): number;
+    readonly remaining: number;
+    hasRemaining(bytes: number): boolean;
     readI64(): bigint;
     readVec2(): Vec2;
     readVec3(): Vec3;
     readPlayerInput(): PlayerInput;
 }
+
 
 export declare class Random {
     static seed(s: bigint): void;
@@ -399,4 +402,21 @@ export declare class Steering {
     static arrive(from: Vec3, target: Vec3, maxSpeed: number, slowingDistance: number): Vec3;
     static arriveRaw(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number, slowingDistance: number): Vec3;
 }
+
+export declare abstract class Room {
+    maxPlayers: number;
+    abstract onCreate(max: number): void;
+    abstract onJoin(id: bigint, spawnX: number, spawnZ: number): void;
+    abstract onLeave(id: bigint): void;
+    onInput(id: bigint, ptr: number, len: number): void;
+    onInputPacket(id: bigint, input: InputReader): void;
+    abstract onTick(dt: number): bigint;
+    onSave(): bigint;
+    onLoad(ptr: number, len: number): void;
+    onLoadSnapshot(reader: InputReader): void;
+    onAlloc(len: number): number;
+    onIsFull(count: number): boolean;
+    static packDelta(ptr: number, len: number): bigint;
+}
+
 
