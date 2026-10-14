@@ -96,7 +96,10 @@ pub struct MatchMakeError {
 
 impl MatchMakeError {
     pub fn new(code: u16, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self {
+            code,
+            message: message.into(),
+        }
     }
     pub fn no_handler(message: impl Into<String>) -> Self {
         Self::new(520, message)
@@ -270,7 +273,10 @@ impl ColyseusWsTransport {
             listeners.push(listener);
         }
 
-        let bound_addr = resolved_addrs.first().copied().unwrap_or_else(|| "0.0.0.0:0".parse().unwrap());
+        let bound_addr = resolved_addrs
+            .first()
+            .copied()
+            .unwrap_or_else(|| "0.0.0.0:0".parse().unwrap());
         let next_token = listeners.len() + 10;
 
         Ok(Self {
@@ -312,7 +318,10 @@ impl ColyseusWsTransport {
     /// Register the game's matchmake handler: receives (method, room, body)
     /// and returns the seat-reservation JSON, or a typed rejection that the
     /// SDK surfaces as a `MatchMakeError`.
-    pub fn on_matchmake(&mut self, f: impl Fn(&str, &str, &str) -> Result<String, MatchMakeError> + Send + 'static) {
+    pub fn on_matchmake(
+        &mut self,
+        f: impl Fn(&str, &str, &str) -> Result<String, MatchMakeError> + Send + 'static,
+    ) {
         self.matchmake_hook = Some(Box::new(f));
     }
 
@@ -385,8 +394,9 @@ impl ColyseusWsTransport {
             self.client_tokens.remove(client_id);
             self.client_rooms.remove(client_id);
             self.seat_tokens.remove(client_id);
-            self.pending_events
-                .push(TransportEvent::Disconnected { client_id: Arc::from(client_id) });
+            self.pending_events.push(TransportEvent::Disconnected {
+                client_id: Arc::from(client_id),
+            });
         }
         Ok(())
     }
@@ -480,8 +490,7 @@ impl GameTransport for ColyseusWsTransport {
                             // straight into the BytesMut — no stack copy.
                             let mut first_bytes: BytesMut = BytesMut::new();
                             loop {
-                                match crate::bufio::read_tcp(&mut stream, &mut first_bytes, 4096)
-                                {
+                                match crate::bufio::read_tcp(&mut stream, &mut first_bytes, 4096) {
                                     Ok(0) => break,
                                     Ok(_) => continue,
                                     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -496,8 +505,7 @@ impl GameTransport for ColyseusWsTransport {
                             let mut client = ColyseusClient {
                                 stream,
                                 state: WsState::Handshaking,
-                                session_id: format!("colyseus_{}_{}", token.0, peer.port())
-                                    .into(),
+                                session_id: format!("colyseus_{}_{}", token.0, peer.port()).into(),
                                 room_id: String::new(), // filled by greeting
                                 recv_buf: first_bytes,
                                 send_queue: BytesMut::with_capacity(4096),
@@ -587,12 +595,7 @@ impl GameTransport for ColyseusWsTransport {
                                         seat_tokens: &mut self.seat_tokens,
                                         client_rooms: &mut self.client_rooms,
                                     };
-                                    handle_client_greeting(
-                                        client,
-                                        &peer,
-                                        &mut buf,
-                                        &mut ctx,
-                                    )
+                                    handle_client_greeting(client, &peer, &mut buf, &mut ctx)
                                 };
                                 if closed {
                                     conn_dead = true;
@@ -822,8 +825,9 @@ fn dispatch_colyseus_message(
             });
         }
         COLYSEUS_PING => {
-            // App-level ping (room.ping() / client.getLatency()): echo it.
-            queue_colyseus_message(client, COLYSEUS_PING, &[]);
+            // App-level ping: echo the payload back so the client can
+            // measure RTT (payload carries the client's sequence number).
+            queue_colyseus_message(client, COLYSEUS_PING, &msg[1..]);
         }
         COLYSEUS_ROOM_REQUEST => {
             events_out.push(TransportEvent::Packet {
@@ -912,7 +916,10 @@ fn handle_client_greeting(
         .unwrap_or_default();
     let url_room = {
         let path = req.split_whitespace().nth(1).unwrap_or("");
-        let query = path.split_once('?').map(|(_, q)| format!("?{}", q)).unwrap_or_default();
+        let query = path
+            .split_once('?')
+            .map(|(_, q)| format!("?{}", q))
+            .unwrap_or_default();
         let clean = path.split('?').next().unwrap_or("").trim_matches('/');
         let segments: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
         let base_room = if segments.is_empty() {
@@ -1058,11 +1065,7 @@ fn handle_client_greeting(
 
         // In this protocol the SERVER initiates the join: the SDK client
         // connects, then waits for the JOIN_ROOM handshake before `onJoin`.
-        let reply = build_join_reply(
-            &client.session_id,
-            &client.room_id,
-            ctx.seat_tokens,
-        );
+        let reply = build_join_reply(&client.session_id, &client.room_id, ctx.seat_tokens);
         encode_ws_frame(&reply, &mut client.send_queue);
 
         if let Ok(peer_addr) = client.stream.peer_addr() {
@@ -1291,7 +1294,9 @@ fn encode_colyseus_frame(code: u8, payload: &[u8], out: &mut impl BufMut) {
 fn queue_ws_control(client: &mut ColyseusClient, opcode: u8, payload: &[u8]) {
     client.send_queue.put_u8(0x80 | opcode);
     client.send_queue.put_u8(payload.len().min(125) as u8);
-    client.send_queue.put_slice(&payload[..payload.len().min(125)]);
+    client
+        .send_queue
+        .put_slice(&payload[..payload.len().min(125)]);
 }
 
 /// Queue a WS ping (heartbeat).

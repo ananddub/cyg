@@ -1,11 +1,11 @@
 {
   "name": "@openoxide/client",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "description": "Ultra-fast, zero-dependency game client SDK for OpenOxide Gaming Engine",
   "main": "openoxide.js",
   "types": "openoxide.d.ts",
   "scripts": {
-    "test": "node -e 'console.log(\"OpenOxide SDK v1.2.0\")'"
+    "test": "node -e 'console.log(\"OpenOxide SDK v1.4.0\")'"
   },
   "keywords": [
     "openoxide",

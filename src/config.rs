@@ -61,6 +61,64 @@ pub struct GameConfig {
     /// verbatim inside a `Config` signal frame, so a malformed value is the
     /// browser's problem, not a startup failure. Empty means P2P over LAN only.
     pub voice_ice_servers: String,
+    /// Network interest management (Phase E): per-client AOI culling and
+    /// tick-skip priority for distant entities.
+    pub aoi: AoiConfig,
+    /// Server-side rollback of late inputs (Phase F): rewind the guest to the
+    /// snapshot before the input's position in its stream, replay the journaled
+    /// inputs, and resimulate to the live tick.
+    pub rollback: RollbackConfig,
+}
+
+/// `[rollback]` block: GGPO-style late-input rewind on the authoritative host.
+#[derive(Debug, Clone, Copy)]
+pub struct RollbackConfig {
+    /// Master switch. Off keeps the legacy newest-wins drop for stale seqs.
+    pub enabled: bool,
+    /// How far back (in ticks) a late input may rewind the simulation. Inputs
+    /// older than this are dropped — replay cost grows linearly with the gap.
+    pub max_replay_ticks: u64,
+    /// Recent applied inputs kept per room for replay ordering.
+    pub journal_size: usize,
+}
+
+impl Default for RollbackConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_replay_ticks: 32,
+            journal_size: 256,
+        }
+    }
+}
+
+/// `[aoi]` block: cull and prioritize the per-tick delta per viewer instead of
+/// multicasting one identical buffer to the whole room.
+#[derive(Debug, Clone, Copy)]
+pub struct AoiConfig {
+    /// Master switch. Off keeps the legacy whole-room broadcast.
+    pub enabled: bool,
+    /// Entities within this 3D distance of a viewer are sent **every tick**.
+    pub near_radius: f64,
+    /// Entities inside `far_radius` but outside `near_radius` are sent every
+    /// `skip_ticks`-th tick (clients dead-reckon between them).
+    pub far_radius: f64,
+    /// Priority cadence for far entities: 4 = every fourth tick.
+    pub skip_ticks: u64,
+    /// Bullet/ projectile cull radius around each viewer.
+    pub bullet_radius: f64,
+}
+
+impl Default for AoiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            near_radius: 180.0,
+            far_radius: 420.0,
+            skip_ticks: 4,
+            bullet_radius: 260.0,
+        }
+    }
 }
 
 impl Default for GameConfig {
@@ -82,6 +140,8 @@ impl Default for GameConfig {
             abi_version: engine_wasm::CURRENT_ABI_VERSION,
             permissions: engine_wasm::AbiPermissions::default(),
             voice_ice_servers: "[]".into(),
+            aoi: AoiConfig::default(),
+            rollback: RollbackConfig::default(),
         }
     }
 }
@@ -151,6 +211,30 @@ pub fn parse_config(text: &str) -> GameConfig {
             }
             if let Some(v) = table.get("voice_ice_servers") {
                 cfg.voice_ice_servers = v.to_string();
+            }
+            if let Some(a) = table.get("aoi").and_then(|v| v.as_table()) {
+                cfg.aoi.enabled = a.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                if let Some(v) = a.get("near_radius").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))) {
+                    cfg.aoi.near_radius = v;
+                }
+                if let Some(v) = a.get("far_radius").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))) {
+                    cfg.aoi.far_radius = v;
+                }
+                if let Some(v) = a.get("skip_ticks").and_then(|v| v.as_integer()) {
+                    cfg.aoi.skip_ticks = (v.max(1)) as u64;
+                }
+                if let Some(v) = a.get("bullet_radius").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))) {
+                    cfg.aoi.bullet_radius = v;
+                }
+            }
+            if let Some(r) = table.get("rollback").and_then(|v| v.as_table()) {
+                cfg.rollback.enabled = r.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                if let Some(v) = r.get("max_replay_ticks").and_then(|v| v.as_integer()) {
+                    cfg.rollback.max_replay_ticks = v.max(1) as u64;
+                }
+                if let Some(v) = r.get("journal_size").and_then(|v| v.as_integer()) {
+                    cfg.rollback.journal_size = (v.max(8)) as usize;
+                }
             }
             return cfg;
         }

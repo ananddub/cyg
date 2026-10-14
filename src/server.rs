@@ -56,8 +56,34 @@ struct GameRoom {
     /// one is carried on. Separate from `voice_room` because a peer opts into the
     /// P2P mesh with a `Join` signal, while `voice_room` tracks everyone.
     voice_mesh: engine_voice::VoiceMesh,
-    last_input_seq: HashMap<i64, u16>,
+    /// Highest client input seq applied per session — echoed back as `acked_seq`
+    /// in the delta tail so clients can reconcile local prediction (Phase D).
+    last_input_seq: HashMap<String, u16>,
     event_seq: u16,
+    /// Room-wide stamp on the unreliable delta channel: one per delta the room
+    /// emits, shared by every recipient of that tick. It orders the *world*, not
+    /// the socket, which is what lets a client discard a frame that arrived after
+    /// the one that superseded it.
+    delta_seq: u16,
+    /// Highest event seq each client confirmed holding. `game-reliable` already
+    /// retransmits at SCTP level, so this is a delivery record — and the resume
+    /// point a checkpoint resync will need — not a resend trigger.
+    acked_event_seq: HashMap<String, u16>,
+    /// Recently applied guest inputs, oldest first, tagged with the tick they
+    /// arrived in. The replay script for a Phase F late-input rollback.
+    input_journal: std::collections::VecDeque<JournalInput>,
+}
+
+/// One journaled input: everything needed to re-deliver it to the guest after a
+/// rewind. `tick` is the live tick when it arrived, so replay places it between
+/// the same two `on_tick` calls as the original stream did.
+#[derive(Clone)]
+struct JournalInput {
+    tick: u64,
+    session: String,
+    id: i64,
+    seq: u16,
+    payload: [u8; 20],
 }
 
 /// Build the host-import linker once at startup. The ~12 `func_wrap` closures
@@ -311,6 +337,9 @@ impl GameRoom {
             voice_mesh: engine_voice::VoiceMesh::default(),
             last_input_seq: HashMap::new(),
             event_seq: 0,
+            delta_seq: 0,
+            acked_event_seq: HashMap::new(),
+            input_journal: std::collections::VecDeque::new(),
         }
     }
 }
@@ -344,18 +373,321 @@ impl GameServer {
 /// Wrap a raw delta buffer into a Colyseus ROOM_DATA_BYTES frame payload:
 /// [msgpack fixstr "delta"][i64 recipient_player_id][raw bytes...].
 /// Frames into a caller-owned buffer so a 128 Hz broadcast allocates nothing.
-fn wrap_delta_into(out: &mut Vec<u8>, your_id: i64, delta: &[u8]) {
+fn wrap_delta_into(out: &mut Vec<u8>, your_id: i64, delta: &[u8], acked_seq: u16, server_tick: u32) {
     out.clear();
-    out.reserve(delta.len() + 14);
+    out.reserve(delta.len() + 22);
     out.push(0xA5);
     out.extend_from_slice(b"delta");
     out.extend_from_slice(&your_id.to_le_bytes());
     out.extend_from_slice(delta);
+    // Tail: last input seq the server applied from this session + authoritative tick.
+    // Count-driven parsers (Unity/Godot/mesh) ignore it; the web SDK reads it for
+    // prediction reconciliation.
+    out.extend_from_slice(&acked_seq.to_le_bytes());
+    out.extend_from_slice(&server_tick.to_le_bytes());
+}
+
+/// Hand one 20-byte movement input to the guest and journal it.
+fn deliver_input(room: &mut GameRoom, id: i64, payload: &[u8; 20]) {
+    if let Ok(ptr_i32) = room.wasm.on_alloc(20) {
+        let _ = room.wasm.write_memory(ptr_i32 as u32, payload);
+        let _ = room.wasm.on_input(id, ptr_i32, 20);
+    }
+}
+
+/// Apply a movement input from one session (Phase D + F).
+///
+/// Newest seqs flow straight through, exactly like the legacy newest-wins rule.
+/// A seq *behind* the newest is either a Phase D redundant resend (already
+/// journaled — dropped) or a genuinely late delivery: instead of dropping it,
+/// rewind the guest to the snapshot the input's predecessor arrived after,
+/// re-deliver every journaled input from that point, and resimulate the missed
+/// ticks. The guest must be deterministic for the replay to land cleanly;
+/// a trap mid-replay stops at the last good tick and the log says so.
+fn apply_input(
+    room: &mut GameRoom,
+    cfg: &crate::config::GameConfig,
+    dt: f64,
+    session: &str,
+    id: i64,
+    seq: u16,
+    payload: &[u8; 20],
+) {
+    let last = room.last_input_seq.entry(session.to_string()).or_insert(0);
+
+    if *last == 0 || engine_webrtc_protocol::is_newer(*last, seq) {
+        *last = seq;
+        deliver_input(room, id, payload);
+        let tick = room.current_tick;
+        room.input_journal.push_back(JournalInput {
+            tick,
+            session: session.to_string(),
+            id,
+            seq,
+            payload: *payload,
+        });
+        while room.input_journal.len() > cfg.rollback.journal_size {
+            room.input_journal.pop_front();
+        }
+        return;
+    }
+
+    if !cfg.rollback.enabled || seq == *last {
+        return; // legacy newest-wins drop
+    }
+    // Duplicate Phase D resend — it is already in the journal.
+    if room.input_journal.iter().any(|j| j.session == session && j.seq == seq) {
+        return;
+    }
+    // The input slots in right after its predecessor. No predecessor inside the
+    // journal window means we cannot place it; drop it like the old behavior did.
+    let Some(pred_idx) = room
+        .input_journal
+        .iter()
+        .rposition(|j| j.session == session && j.seq == seq.wrapping_sub(1))
+    else {
+        eprintln!("[dbg] late seq {seq}: no predecessor in journal ({} entries)", room.input_journal.len());
+        return;
+    };
+    let pred_tick = room.input_journal[pred_idx].tick;
+    let gap = room.current_tick.saturating_sub(pred_tick);
+    if gap == 0 || gap > cfg.rollback.max_replay_ticks {
+        return;
+    }
+
+    if room.rollback_buffer.rollback_to(pred_tick, room.wasm.raw_instance()).is_err() {
+        return; // snapshot aged out of the ring window
+    }
+
+    // Insert the late input right behind its predecessor, keeping the journal
+    // ordered by arrival tick.
+    let mut items: Vec<JournalInput> = room.input_journal.drain(..).collect();
+    items.insert(pred_idx + 1, JournalInput {
+        tick: pred_tick,
+        session: session.to_string(),
+        id,
+        seq,
+        payload: *payload,
+    });
+    room.input_journal.extend(items);
+
+    // Resimulate pred_tick..current_tick, re-delivering each tick's inputs
+    // before the tick that consumed them.
+    let target = room.current_tick;
+    let mut cur = pred_tick;
+    let mut redelivered = 0usize;
+    while cur < target {
+        let batch: Vec<(i64, [u8; 20])> = room
+            .input_journal
+            .iter()
+            .filter(|j| j.tick == cur)
+            .map(|j| (j.id, j.payload))
+            .collect();
+        redelivered += batch.len();
+        for (jid, jpayload) in batch {
+            deliver_input(room, jid, &jpayload);
+        }
+        if let Ok(_packed) = room.wasm.on_tick(dt) {
+            cur += 1;
+            let _ = room.rollback_buffer.save_snapshot(cur, room.wasm.raw_instance_ref());
+        } else {
+            break; // guest trapped: stop replay, state is pred_tick-rewound
+        }
+    }
+
+    eprintln!(
+        "[server] ⏪ late input seq {seq} (player {id}): rewound {} ticks, re-delivered {redelivered} inputs, resimulated to tick {cur}",
+        target - pred_tick
+    );
+}
+
+/// One 72-byte player record from the tank-3d delta layout:
+/// `[id i64][x y z yaw pitch hp score f64×7][state u32][pad u32]`.
+struct DeltaEntity {
+    id: i64,
+    pos: [f64; 3],
+}
+
+/// Parse the delta body into typed sections. The wire layout is versioned by
+/// the guest (FORMAT_VERSION=1): `[u8 ver][u32 count][72B × count]` then
+/// `[u32 bullet_count][32B × bullet_count]`. A malformed or foreign layout
+/// yields `None`, and the caller falls back to the unfiltered multicast.
+fn parse_delta_sections(delta: &[u8]) -> Option<(u32, Vec<DeltaEntity>, u32, usize, usize)> {
+    if delta.len() < 5 || delta[0] != 1 {
+        return None;
+    }
+    let count = u32::from_le_bytes(delta[1..5].try_into().ok()?) as usize;
+    if delta.len() < 5 + count * 72 + 4 {
+        return None;
+    }
+    let mut entities = Vec::with_capacity(count);
+    for i in 0..count {
+        let b = 5 + i * 72;
+        entities.push(DeltaEntity {
+            id: i64::from_le_bytes(delta[b..b + 8].try_into().ok()?),
+            pos: [
+                f64::from_le_bytes(delta[b + 8..b + 16].try_into().ok()?),
+                f64::from_le_bytes(delta[b + 16..b + 24].try_into().ok()?),
+                f64::from_le_bytes(delta[b + 24..b + 32].try_into().ok()?),
+            ],
+        });
+    }
+    let bc_off = 5 + count * 72;
+    let bullets = u32::from_le_bytes(delta[bc_off..bc_off + 4].try_into().ok()?) as usize;
+    let bullet_end = bc_off + 4 + bullets * 32;
+    if delta.len() < bullet_end {
+        return None;
+    }
+    Some((
+        delta[0] as u32,
+        entities,
+        bullets as u32,
+        bc_off,
+        bullet_end,
+    ))
+}
+
+/// Interest management for one viewer (Phase E): entities inside
+/// `near_radius` are always visible; those inside `far_radius` ride every
+/// `skip_ticks`-th tick; everything beyond `far_radius` is culled. The viewer
+/// and its own projectiles are never culled. The KD-tree is keyed by entity
+/// slot index, not player id, so negative (bot) ids cannot collide.
+fn filter_delta_for_viewer(
+    entities: &[DeltaEntity],
+    bullet_count: u32,
+    bullets_range: (usize, usize),
+    delta: &[u8],
+    viewer_id: i64,
+    viewer_pos: Option<[f64; 3]>,
+    tick: u64,
+    aoi: &crate::config::AoiConfig,
+    out: &mut Vec<u8>,
+) {
+    let mut visible: Vec<bool> = vec![false; entities.len()];
+    match viewer_pos {
+        None => visible.iter_mut().for_each(|v| *v = true),
+        Some(vp) => {
+            let mut index = engine_spatial::SpatialIndex3D::new();
+            for (i, e) in entities.iter().enumerate() {
+                index.insert(i as u32, e.pos);
+            }
+            for r in index.query_radius(vp, aoi.near_radius) {
+                let idx = r.entity_id as usize;
+                if idx < entities.len() {
+                    visible[idx] = true;
+                }
+            }
+            if aoi.skip_ticks <= 1 || tick % aoi.skip_ticks == 0 {
+                for r in index.query_radius(vp, aoi.far_radius.max(aoi.near_radius)) {
+                    let idx = r.entity_id as usize;
+                    if idx < entities.len() {
+                        visible[idx] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // The viewer always sees itself, even before its first position lands.
+    for (i, e) in entities.iter().enumerate() {
+        if e.id == viewer_id {
+            visible[i] = true;
+        }
+    }
+
+    let vis_count = visible.iter().filter(|v| **v).count() as u32;
+    let (bo, be) = bullets_range;
+    out.clear();
+    out.reserve(5 + vis_count as usize * 72 + 4 + (be - bo));
+    out.push(1); // FORMAT_VERSION stays 1 — the client only knows this layout
+    out.extend_from_slice(&vis_count.to_le_bytes());
+    for i in 0..entities.len() {
+        if visible[i] {
+            let b = 5 + i * 72;
+            out.extend_from_slice(&delta[b..b + 72]);
+        }
+    }
+
+    let mut vis_bullets: Vec<usize> = Vec::new();
+    for idx in 0..bullet_count as usize {
+        let b = bo + idx * 32;
+        if b + 32 > be {
+            break;
+        }
+        let owner = i64::from_le_bytes(delta[b + 24..b + 32].try_into().unwrap_or([0; 8]));
+        let keep = owner == viewer_id
+            || viewer_pos.map_or(true, |vp| {
+                let bx = f64::from_le_bytes(delta[b..b + 8].try_into().unwrap_or([0; 8]));
+                let by = f64::from_le_bytes(delta[b + 8..b + 16].try_into().unwrap_or([0; 8]));
+                let bz = f64::from_le_bytes(delta[b + 16..b + 24].try_into().unwrap_or([0; 8]));
+                (bx - vp[0]) * (bx - vp[0]) + (by - vp[1]) * (by - vp[1]) + (bz - vp[2]) * (bz - vp[2])
+                    <= aoi.bullet_radius * aoi.bullet_radius
+            });
+        if keep {
+            vis_bullets.push(b);
+        }
+    }
+    out.extend_from_slice(&(vis_bullets.len() as u32).to_le_bytes());
+    for b in vis_bullets {
+        out.extend_from_slice(&delta[b..b + 32]);
+    }
+}
+
+/// Stamp and fragment a delta body for the `game-unreliable` DataChannel: one
+/// UDP datagram per frame, each carrying the room-wide `seq` and the `tick` it
+/// belongs to.
+///
+/// Returns the number of frames written. Zero means "this client did not get
+/// this delta over WebRTC" — no open channel, or a body too large to carry — and
+/// the caller falls back to the WebSocket, which is already ordered and
+/// reliable and needs no stamping.
+///
+/// A partially sent delta is reported as zero. Retrying it is pointless: the
+/// next tick supersedes it, so an incomplete body is worthless, and the frames
+/// that did go out are cleaned up by the receiver's fragment expiry.
+fn send_delta_framed(
+    webrtc_server: &mut Option<WebRtcServer>,
+    session: &str,
+    seq: u16,
+    tick: u32,
+    body: &[u8],
+    scratch: &mut Vec<u8>,
+) -> usize {
+    let Some(srv) = webrtc_server.as_mut() else {
+        return 0;
+    };
+    let Some(total) = engine_webrtc_protocol::delta_fragment_count(body.len()) else {
+        eprintln!(
+            "[server] ⚠️ delta body {} B exceeds the channel max {} B — dropped",
+            body.len(),
+            engine_webrtc_protocol::MAX_DELTA_BODY
+        );
+        return 0;
+    };
+    let mut sent = 0usize;
+    for (idx, chunk) in body.chunks(engine_webrtc_protocol::MAX_DELTA_CHUNK).enumerate() {
+        engine_webrtc_protocol::write_delta_frame(scratch, seq, tick, idx as u8, total, chunk);
+        if srv.send_unreliable(session, scratch) {
+            sent += 1;
+        }
+    }
+    if sent == total as usize { sent } else { 0 }
+}
+
+/// Record that a client holds a reliable frame.
+///
+/// Forward-only: SCTP can re-deliver and a client that reconnects may replay an
+/// old ack, so the high-water mark is what a resync would resume from, not the
+/// last number that arrived.
+fn record_channel_ack(room: &mut GameRoom, client_id: &str, ack: engine_webrtc_protocol::Ack) {
+    let slot = room.acked_event_seq.entry(client_id.to_string()).or_insert(ack.seq);
+    if engine_webrtc_protocol::is_newer(*slot, ack.seq) {
+        *slot = ack.seq;
+    }
 }
 
 /// Pre-framed spectator "you are watching" confirm: `["delta"]` with id 0.
 const SPECTATOR_CONFIRM: &[u8] = &[0xA5, b'd', b'e', b'l', b't', b'a', 0, 0, 0, 0, 0, 0, 0, 0];
-
 /// Strip the msgpack type header from an inbound ROOM_DATA_BYTES payload:
 /// payload = [msgpack str][data...] -> returns the data part.
 fn strip_type_header(payload: &[u8]) -> Option<&[u8]> {
@@ -733,6 +1065,10 @@ pub fn run(
     // Tick scratch: the delta read and the framed broadcast reuse these.
     let mut delta_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
     let mut frame_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
+    // The WebRTC path writes one stamped frame per chunk, so the delta body needs
+    // a buffer of its own; `frame_buf` holds only the current chunk.
+    let mut delta_body: Vec<u8> = Vec::with_capacity(8 * 1024);
+    let mut filtered_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
     let mut dead_rooms: Vec<String> = Vec::new();
     let mut timed_out_udp: Vec<(SocketAddr, i64)> = Vec::new();
 
@@ -791,6 +1127,7 @@ pub fn run(
                         continue;
                     };
                     room.spectators.remove(&*client_id);
+                    room.acked_event_seq.remove(&*client_id);
                     // A WebRTC peer that vanishes with its socket has to be
                     // announced, otherwise the rest of the mesh keeps
                     // re-negotiating with an id nobody answers.
@@ -805,8 +1142,8 @@ pub fn run(
                     if let Some(id) = room.sessions.remove(&*client_id) {
                         let _ = room.wasm.on_leave(id);
                         room.voice_room.leave_participant(id as u32);
-                        room.last_input_seq.remove(&id);
-                    }
+                        room.last_input_seq.remove(&*client_id);
+                    room.input_journal.retain(|j| j.session != &*client_id);                    }
                     if let Some(ref mut srv) = webrtc_server {
                         srv.remove_session(&client_id);
                     }
@@ -1052,6 +1389,14 @@ pub fn run(
                         continue;
                     }
 
+                    // Delivery ack for a reliable frame: [0x06, seq_u16, kind_u8] (4 bytes).
+                    // Checked before the guest pass-through so a 4-byte ack never
+                    // reaches `on_input` as if it were game input.
+                    if let Some(ack) = engine_webrtc_protocol::parse_ack(data) {
+                        record_channel_ack(room, &client_id, ack);
+                        continue;
+                    }
+
                     // QUIC-Style Ordered Event Frame: [0x03, seq_u16, kind_u8, from_u16, target_u16, tick_u16, value_f32] (14 bytes)
                     if data.len() == engine_webrtc_protocol::EVENT_WIRE_LEN && data[0] == engine_webrtc_protocol::OP_EVENT {
                         if let Ok(mut event) = engine_webrtc_protocol::EventFrame::decode(data) {
@@ -1085,16 +1430,19 @@ pub fn run(
                                     eprintln!("[server] ℹ️ Player {id} sent input over WebSocket fallback (seq {})", input.seq);
                                 }
                             }
-                            let last_seq = room.last_input_seq.entry(id).or_insert(0);
                             // Newest-Wins auto-sync rule (QUIC datagram behavior: drop stale packets, zero HOL blocking)
-                            if engine_webrtc_protocol::is_newer(*last_seq, input.seq) || *last_seq == 0 {
-                                *last_seq = input.seq;
-                                let payload_20 = &data[3..23];
-                                if let Ok(ptr_i32) = room.wasm.on_alloc(20) {
-                                    let _ = room.wasm.write_memory(ptr_i32 as u32, payload_20);
-                                    let _ = room.wasm.on_input(id, ptr_i32, 20);
-                                }
-                            }
+                            // + Phase F: a genuinely late seq rewinds and replays instead of dropping.
+                            let mut payload_20 = [0u8; 20];
+                            payload_20.copy_from_slice(&data[3..23]);
+                            apply_input(
+                                room,
+                                cfg,
+                                tick_interval.as_secs_f64(),
+                                &client_id,
+                                id,
+                                input.seq,
+                                &payload_20,
+                            );
                         }
                         continue;
                     }
@@ -1209,17 +1557,17 @@ pub fn run(
                                 if input.seq % 120 == 1 {
                                     eprintln!("[server] ⚡ WebRTC UDP input stream active for player {id} (seq {})", input.seq);
                                 }
-                                let last_seq = room.last_input_seq.entry(id).or_insert(0);
-                                if (input.flags & 16) != 0 {
-                                }
-                                if engine_webrtc_protocol::is_newer(*last_seq, input.seq) || *last_seq == 0 {
-                                    *last_seq = input.seq;
-                                    let payload_20 = &data[3..23];
-                                    if let Ok(ptr_i32) = room.wasm.on_alloc(20) {
-                                        let _ = room.wasm.write_memory(ptr_i32 as u32, payload_20);
-                                        let _ = room.wasm.on_input(id, ptr_i32, 20);
-                                    }
-                                }
+                                let mut payload_20 = [0u8; 20];
+                                payload_20.copy_from_slice(&data[3..23]);
+                                apply_input(
+                                    room,
+                                    cfg,
+                                    tick_interval.as_secs_f64(),
+                                    &client_id,
+                                    id,
+                                    input.seq,
+                                    &payload_20,
+                                );
                             }
                         }
                         // 2. Reliable Ordered Event Frame: [0x03, ...]
@@ -1250,6 +1598,10 @@ pub fn run(
                                     }
                                 }
                             }
+                        }
+                        // 3. Delivery ack for a reliable frame: [0x06, seq_u16, kind_u8]
+                        else if let Some(ack) = engine_webrtc_protocol::parse_ack(&data) {
+                            record_channel_ack(room, &client_id, ack);
                         }
                     }
                     WebRtcServerEvent::Disconnected { client_id } => {
@@ -1332,8 +1684,25 @@ pub fn run(
                         }
                         let delta = &delta_buf[..];
 
+                    // Phase E interest management: parse the delta once per tick.
+                    // When the layout is recognized and AOI is on, every player
+                    // gets a per-viewer culled body; otherwise everyone shares the
+                    // raw multicast buffer.
+                    let server_tick_u32 = room.current_tick as u32;
+                    room.delta_seq = room.delta_seq.wrapping_add(1);
+                    let delta_seq = room.delta_seq;
+                    let aoi_sections = if cfg.aoi.enabled {
+                        parse_delta_sections(delta)
+                    } else {
+                        None
+                    };
+
                     // SFU Spatial Audio: Synchronize authoritative 3D positions into KD-Tree
-                    if delta.len() >= 4 {
+                    if let Some((_, ref entities, _, _, _)) = aoi_sections {
+                        for e in entities {
+                            room.voice_room.update_position(e.id as u32, e.pos);
+                        }
+                    } else if delta.len() >= 4 {
                         let count = u32::from_le_bytes(delta[0..4].try_into().unwrap_or([0; 4])) as usize;
 
                         for i in 0..count {
@@ -1350,14 +1719,35 @@ pub fn run(
 
                     // 1. Broadcast to active players with their player ID
                     for (session, id) in &room.sessions {
-                        wrap_delta_into(&mut frame_buf, *id, delta);
-                        let sent_webrtc = if let Some(ref mut srv) = webrtc_server {
-                            srv.send_unreliable(session, &frame_buf)
+                        if let Some((_, entities, bullet_count, bc_off, bullet_end)) = &aoi_sections {
+                            let viewer_pos = entities.iter().find(|e| e.id == *id).map(|e| e.pos);
+                            filter_delta_for_viewer(
+                                entities,
+                                *bullet_count,
+                                (*bc_off + 4, *bullet_end),
+                                delta,
+                                *id,
+                                viewer_pos,
+                                room.current_tick,
+                                &cfg.aoi,
+                                &mut filtered_buf,
+                            );
+                            let acked_seq = room.last_input_seq.get(session).copied().unwrap_or(0);
+                            wrap_delta_into(&mut delta_body, *id, &filtered_buf, acked_seq, server_tick_u32);
                         } else {
-                            false
-                        };
-                        if !sent_webrtc {
-                            let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame_buf);
+                            let acked_seq = room.last_input_seq.get(session).copied().unwrap_or(0);
+                            wrap_delta_into(&mut delta_body, *id, delta, acked_seq, server_tick_u32);
+                        }
+                        let framed = send_delta_framed(
+                            &mut webrtc_server,
+                            session,
+                            delta_seq,
+                            server_tick_u32,
+                            &delta_body,
+                            &mut frame_buf,
+                        );
+                        if framed == 0 {
+                            let _ = transport.send_to(session, OpCode::RoomDataBytes, &delta_body);
                         }
                     }
 
@@ -1370,18 +1760,33 @@ pub fn run(
                         }
                     }
 
-                    // 2. Broadcast to spectators with ID 0 (Observer mode)
+                    // 2. Broadcast to spectators with ID 0 (Observer mode). They
+                    // ride the same stamped channel as players, so a spectator
+                    // also drops superseded frames instead of drawing them.
                     if !room.spectators.is_empty() {
-                        wrap_delta_into(&mut frame_buf, 0, delta);
+                        wrap_delta_into(&mut delta_body, 0, delta, 0, server_tick_u32);
                         for spec_session in &room.spectators {
-                            let _ = transport.send_to(spec_session, OpCode::RoomDataBytes, &frame_buf);
+                            let framed = send_delta_framed(
+                                &mut webrtc_server,
+                                spec_session,
+                                delta_seq,
+                                server_tick_u32,
+                                &delta_body,
+                                &mut frame_buf,
+                            );
+                            if framed == 0 {
+                                let _ =
+                                    transport.send_to(spec_session, OpCode::RoomDataBytes, &delta_body);
+                            }
                         }
                     }
 
-                    // 3. Broadcast to UDP Unity / Unreal / Godot peers
+                    // 3. Broadcast to UDP Unity / Unreal / Godot peers. One
+                    // datagram, no stamp: those clients parse the delta body
+                    // directly and the channel layer is WebRTC-only for now.
                     if let Some(ref udp_sock) = udp_socket {
                         for (&peer_addr, &(id, _)) in &udp_peers {
-                            wrap_delta_into(&mut frame_buf, id, delta);
+                            wrap_delta_into(&mut frame_buf, id, delta, 0, server_tick_u32);
                             let _ = udp_sock.send_to(&frame_buf, peer_addr);
                         }
                     }

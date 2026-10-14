@@ -13,5 +13,6 @@ str0m = "0.24.1"
 
 [dev-dependencies]
 engine-http = { path = "../engine-http" }
+engine-webrtc-protocol = { path = "../engine-webrtc-protocol" }
 engine-wasm = { path = "../engine-wasm" }
 wasmtime = "25.0.0"

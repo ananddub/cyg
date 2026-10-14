@@ -26,6 +26,16 @@
 //! A state record is 19 bytes:
 //! `[id u16][x i16][y i16][z i16][yaw i16][pitch i16][vx i16][vy i16][vz i16][state u8]`
 //!
+//! ## The server half
+//!
+//! Two more opcodes belong to the star, not the mesh — see [`channel`]. They run
+//! over the *same* two DataChannels, this time with the server as the peer:
+//!
+//! | Opcode | Frame        | Direction     | Layout |
+//! |--------|--------------|---------------|--------|
+//! | `0x04` | Delta chunk  | server → client | `[op][seq u16][tick u32][frag_idx u8][frag_total u8][chunk]` (9 B header) |
+//! | `0x06` | Ack          | client → server | `[op][seq u16][kind u8]` (4 B) |
+//!
 //! ## Why voice is `0x56` and not a new opcode
 //!
 //! `0x56` is ASCII `'V'`, which is already the first byte of a `VoicePacket` on
@@ -59,6 +69,7 @@
 //! Both are saturating rather than fallible: a wild float costs precision on one
 //! frame, not a dropped connection.
 
+pub mod channel;
 pub mod frames;
 
 /// Positions and velocities are stored as `value * 16` in an `i16`.
@@ -111,6 +122,11 @@ pub fn dequantize_angle(raw: i16) -> f32 {
     raw as f32 * (std::f32::consts::TAU / (2.0 * ANGLE_SCALE))
 }
 
+pub use channel::{
+    ACK_WIRE_LEN, Ack, AckKind, AssembledDelta, DELTA_HEADER_LEN, FRAGMENT_TTL_MS,
+    MAX_DELTA_BODY, MAX_DELTA_CHUNK, MAX_FRAGMENTS, OP_ACK, OP_DELTA, DeltaHeader,
+    FragmentAssembler, delta_fragment_count, parse_ack, write_ack, write_delta_frame,
+};
 pub use frames::{
     EVENT_WIRE_LEN, Entities, EntitySnapshot, EventFrame, EventKind, FrameError, HEADER_LEN,
     INPUT_WIRE_LEN, InputFrame, MeshFrame, OP_EVENT, OP_INPUT, OP_STATE, OP_VOICE, Opcode,

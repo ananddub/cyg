@@ -1025,6 +1025,7 @@ dependencies = [
  "engine-core",
  "engine-http",
  "engine-wasm",
+ "engine-webrtc-protocol",
  "mio",
  "socket2",
  "str0m",
