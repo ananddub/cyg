@@ -5,12 +5,14 @@ OpenOxide is language-agnostic. Game rooms compile into WebAssembly and execute 
 Developers write authoritative multiplayer game logic using pure, high-level object-oriented or idiomatic room classes without needing to write low-level WebAssembly C-ABI functions.
 
 > [!TIP]
-> **Recommended for Game Development: Lua (LuaJIT 2.1)**
-> While C, C++, Rust, and AssemblyScript compile to WebAssembly, **Lua is strongly recommended** for game rooms:
-> - **Zero Compilation Overhead**: No compilers or toolchains required.
-> - **0 ms Instant Hot-Reload**: Save `room.lua` and logic updates in real time.
-> - **27.5 ns Call Latency**: Over 900,000 full authoritative room ticks per second per core.
-> - **~45 KB RAM per Room**: Host 10,000 active rooms under 500 MB RAM.
+> **🏆 Recommended for Maximum Performance: WebAssembly (Rust / Pure C / C++)**
+> For competitive 128 Hz authoritative multiplayer rooms, **WebAssembly (Rust / C / C++) is the strongly recommended #1 choice**:
+> - **17–20 ns Call Latency**: Cranelift JIT compiled native machine execution (>52M calls/s).
+> - **Zero Garbage Collection**: Mathematically flat frame times without GC pauses or jitter.
+> - **Hardware Sandbox**: Linear memory bounds protection isolating rooms and host server.
+> - **Deterministic 3D Physics**: Native vector math for lag compensation and raycasting.
+> 
+> *(AssemblyScript is recommended for TypeScript devs; Lua is provided for zero-compile rapid prototyping).*
 
 ---
 
@@ -18,11 +20,11 @@ Developers write authoritative multiplayer game logic using pure, high-level obj
 
 | Language | Interface File | Target Runtime | How Bridge is Handled |
 | :--- | :--- | :--- | :--- |
-| **Lua** *(Recommended)* | [`lua/openoxide.lua`](./lua/openoxide.lua) | Native LuaJIT (`engine-lua`) / WASM | `OpenOxide.Room:extend()` / Procedural |
-| **AssemblyScript** | [`assemblyscript/openoxide.ts`](./assemblyscript/openoxide.ts) | `asc` | **100% Automatic** by OpenOxide compiler! |
-| **Pure C** | [`c/openoxide.h`](./c/openoxide.h) | `clang` / `wasi-sdk` / `emscripten` | **Direct Normal C Functions** (`OX_EXPORT`) |
-| **C++** | [`cpp/openoxide.hpp`](./cpp/openoxide.hpp) | `clang` / `emscripten` / `wasi-sdk` | `OPENOXIDE_ROOM(MyRoom)` macro |
-| **Rust** | [`rust/openoxide_room.rs`](./rust/openoxide_room.rs) | `wasm32-unknown-unknown` | `export_room!(MyRoom)` macro |
+| 🥇 **Rust** *(Recommended)* | [`rust/openoxide_room.rs`](./rust/openoxide_room.rs) | `wasm32-unknown-unknown` | `export_room!(MyRoom)` macro |
+| 🥇 **Pure C** *(Recommended)* | [`c/openoxide.h`](./c/openoxide.h) | `clang` / `wasi-sdk` / `emscripten` | **Direct Normal C Functions** (`OX_EXPORT`) |
+| 🥇 **C++** *(Recommended)* | [`cpp/openoxide.hpp`](./cpp/openoxide.hpp) | `clang` / `emscripten` / `wasi-sdk` | `OPENOXIDE_ROOM(MyRoom)` macro |
+| 🥈 **AssemblyScript** | [`assemblyscript/openoxide.ts`](./assemblyscript/openoxide.ts) | `asc` | **100% Automatic** by OpenOxide compiler! |
+| 🥉 **Lua** | [`lua/openoxide.lua`](./lua/openoxide.lua) | Native LuaJIT (`engine-lua`) / WASM | `OpenOxide.Room:extend()` / Procedural |
 | **C#** | [`csharp/OpenOxide.cs`](./csharp/OpenOxide.cs) | `.NET 8 NativeAOT` / `wasi-wasm` | `[UnmanagedCallersOnly]` static bridge |
 | **TypeScript** | [`typescript/openoxide.d.ts`](./typescript/openoxide.d.ts) | Node / Browser SDK / IntelliSense | Shared typings & contracts |
 
