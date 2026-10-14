@@ -22,6 +22,15 @@ fn setup_linker<T: 'static>(runtime: &WasmRuntime) -> Linker<T> {
         )
         .expect("linker abort func_wrap ok");
 
+    // Standard OpenOxide Host Logging ABI
+    linker
+        .func_wrap(
+            "env",
+            "host_log",
+            |_caller: Caller<'_, T>, _ptr: i32, _len: i32| -> i32 { 0 },
+        )
+        .expect("linker host_log func_wrap ok");
+
     linker
 }
 

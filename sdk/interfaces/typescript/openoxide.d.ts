@@ -78,3 +78,87 @@ export interface OpenOxideConfig {
     allow_logging?: boolean;
     allow_storage?: boolean;
 }
+
+// =============================================================================
+// High-Level Developer SDK (AssemblyScript / TypeScript DX Suite)
+// =============================================================================
+
+export declare class Vec3 {
+    x: number;
+    y: number;
+    z: number;
+    constructor(x?: number, y?: number, z?: number);
+    set(x: number, y: number, z: number): this;
+    add(other: Vec3): Vec3;
+    sub(other: Vec3): Vec3;
+    scale(s: number): Vec3;
+    length(): number;
+    lengthSq(): number;
+    distanceTo(other: Vec3): number;
+    normalize(): Vec3;
+}
+
+export declare class MoveResult {
+    x: number;
+    y: number;
+    z: number;
+    isGrounded: boolean;
+}
+
+export declare class RaycastHit {
+    hasHit: boolean;
+    x: number;
+    y: number;
+    z: number;
+    distance: number;
+    colliderId: number;
+}
+
+export declare class Physics {
+    /** Kinematic Move & Slide against host 3D obstacles and ramps */
+    static move(px: number, py: number, pz: number, vx: number, vy: number, vz: number, radius: number, dt: number): MoveResult;
+    /** Continuous Collision Detection (CCD) 3D Raycast */
+    static raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RaycastHit;
+    /** Exact ground/ramp height beneath an entity */
+    static getSurfaceHeight(px: number, py: number, pz: number, radius?: number): number;
+    /** 3D Euclidean distance */
+    static distance(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number): number;
+    /** 2D Planar distance (XZ) */
+    static distance2D(x1: number, z1: number, x2: number, z2: number): number;
+    /** 2D Circle-Circle overlap check */
+    static checkCircleOverlap(x1: number, z1: number, r1: number, x2: number, z2: number, r2: number): boolean;
+    /** 3D Point-in-Sphere check */
+    static isPointInSphere(px: number, py: number, pz: number, cx: number, cy: number, cz: number, radius: number): boolean;
+    /** 3D Point-in-AABB Box check */
+    static isPointInBox(px: number, py: number, pz: number, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): boolean;
+}
+
+export declare class Log {
+    static info(message: string): void;
+    static warn(message: string): void;
+    static error(message: string): void;
+}
+
+export declare class DeltaWriter {
+    constructor(initialCapacity?: number);
+    reset(): this;
+    ensureCapacity(neededBytes: number): void;
+    writeU8(val: number): this;
+    writeU16(val: number): this;
+    writeU32(val: number): this;
+    writeI64(val: bigint): this;
+    writeF32(val: number): this;
+    writeF64(val: number): this;
+    seal(): bigint;
+}
+
+export declare class InputReader {
+    constructor(ptr: number, len: number);
+    get remaining(): number;
+    readU8(): number;
+    readU32(): number;
+    readF32(): number;
+    readF64(): number;
+    readI64(): bigint;
+}
+
