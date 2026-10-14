@@ -622,7 +622,7 @@ export class Physics {
             pos.y = surfaceY;
             vel.y = 0.0;
         }
-be 
+
         // 2. Jump impulse
         if (wantJump && onGround) {
             vel.y = jumpForce;
@@ -1665,11 +1665,13 @@ export abstract class Room {
     onInput(id: i64, ptr: usize, len: i32): void {
         if (len <= 0) return;
         let reader = new InputReader(ptr, len);
-        let opcode = load<u8>(ptr);
-        if (this._messageHandlers.has(opcode)) {
-            let handler = this._messageHandlers.get(opcode);
-            handler(id, reader);
-            return;
+        if (len != 20 && this._messageHandlers.size > 0) {
+            let opcode = load<u8>(ptr);
+            if (this._messageHandlers.has(opcode)) {
+                let handler = this._messageHandlers.get(opcode);
+                handler(id, reader);
+                return;
+            }
         }
         this.onInputPacket(id, reader);
     }
