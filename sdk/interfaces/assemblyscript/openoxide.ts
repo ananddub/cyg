@@ -1586,6 +1586,44 @@ export class Steering {
 // --- 15. ABSTRACT ROOM BASE CLASS ---
 // =============================================================================
 
+export type MessageHandlerCallback = (senderId: i64, reader: InputReader) => void;
+export type RoomEventCallback = (id: i64, val0: f64, val1: f64) => void;
+
+/**
+ * Universal Zero-Overhead Event Emitter for OpenOxide game rooms.
+ * Built into the SDK so developers do not need manual event plumbing.
+ */
+export class EventEmitter {
+    private _handlers: Map<string, Array<RoomEventCallback>> = new Map<string, Array<RoomEventCallback>>();
+
+    /** Subscribes a listener callback to a named event */
+    on(event: string, callback: RoomEventCallback): void {
+        let list: Array<RoomEventCallback>;
+        if (this._handlers.has(event)) {
+            list = this._handlers.get(event);
+        } else {
+            list = new Array<RoomEventCallback>();
+            this._handlers.set(event, list);
+        }
+        list.push(callback);
+    }
+
+    /** Emits a named event to all subscribed listeners */
+    emit(event: string, id: i64 = 0, val0: f64 = 0.0, val1: f64 = 0.0): void {
+        if (this._handlers.has(event)) {
+            let list = this._handlers.get(event);
+            for (let i = 0; i < list.length; i++) {
+                list[i](id, val0, val1);
+            }
+        }
+    }
+
+    /** Clears all listeners for an event or all events */
+    clear(): void {
+        this._handlers = new Map<string, Array<RoomEventCallback>>();
+    }
+}
+
 /**
  * Authoritative Game Room Base Class for AssemblyScript
  * Extend this class and implement the abstract lifecycle hooks.
@@ -1593,6 +1631,25 @@ export class Steering {
  */
 export abstract class Room {
     maxPlayers: i32 = 16;
+
+    /// Built-in SDK Event Emitter (Zero manual plumbing required by backend)
+    events: EventEmitter = new EventEmitter();
+    private _messageHandlers: Map<u8, MessageHandlerCallback> = new Map<u8, MessageHandlerCallback>();
+
+    /// Registers a custom network message handler by opcode (Colyseus style).
+    onMessage(opcode: u8, handler: MessageHandlerCallback): void {
+        this._messageHandlers.set(opcode, handler);
+    }
+
+    /// Subscribes a callback to a named room event.
+    on(event: string, callback: RoomEventCallback): void {
+        this.events.on(event, callback);
+    }
+
+    /// Emits a room event to all registered listeners.
+    emit(event: string, id: i64 = 0, val0: f64 = 0.0, val1: f64 = 0.0): void {
+        this.events.emit(event, id, val0, val1);
+    }
 
     /// Called once when the room instance is allocated on the host.
     abstract onCreate(max: i32): void;
@@ -1604,9 +1661,17 @@ export abstract class Room {
     abstract onLeave(id: i64): void;
 
     /// Called when an authoritative client input packet arrives.
-    /// By default, wraps the pointer in an InputReader and dispatches to onInputPacket.
+    /// By default, routes opcodes to registered onMessage handlers, or dispatches to onInputPacket.
     onInput(id: i64, ptr: usize, len: i32): void {
-        this.onInputPacket(id, new InputReader(ptr, len));
+        if (len <= 0) return;
+        let reader = new InputReader(ptr, len);
+        let opcode = load<u8>(ptr);
+        if (this._messageHandlers.has(opcode)) {
+            let handler = this._messageHandlers.get(opcode);
+            handler(id, reader);
+            return;
+        }
+        this.onInputPacket(id, reader);
     }
 
     /// High-level client input packet hook. Zero raw pointers or offsets!
@@ -1649,3 +1714,4 @@ export abstract class Room {
         return ((ptr as i64) << 32) | (len as i64);
     }
 }
+

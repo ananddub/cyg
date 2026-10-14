@@ -561,8 +561,21 @@ export declare class Steering {
     static arriveRaw(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number, slowingDistance: number): Vec3;
 }
 
+export type MessageHandlerCallback = (senderId: bigint, reader: InputReader) => void;
+export type RoomEventCallback = (id: bigint, val0: number, val1: number) => void;
+
+export declare class EventEmitter {
+    on(event: string, callback: RoomEventCallback): void;
+    emit(event: string, id?: bigint, val0?: number, val1?: number): void;
+    clear(): void;
+}
+
 export declare abstract class Room {
     maxPlayers: number;
+    events: EventEmitter;
+    onMessage(opcode: number, handler: MessageHandlerCallback): void;
+    on(event: string, callback: RoomEventCallback): void;
+    emit(event: string, id?: bigint, val0?: number, val1?: number): void;
     abstract onCreate(max: number): void;
     abstract onJoin(id: bigint, spawnX: number, spawnZ: number): void;
     abstract onLeave(id: bigint): void;
@@ -576,5 +589,6 @@ export declare abstract class Room {
     onIsFull(count: number): boolean;
     static packDelta(ptr: number, len: number): bigint;
 }
+
 
 
