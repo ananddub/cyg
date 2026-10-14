@@ -11,14 +11,17 @@ fn main() {
     let mut server = WsServer::new(addr, WsConfig::default()).expect("bind");
     println!("🔌 WebSocket echo server on ws://{addr}/");
 
+    let mut events = Vec::new();
     loop {
-        for ev in server.poll_events(Duration::from_millis(100)).unwrap() {
+        server.poll_events(Duration::from_millis(100), &mut events).unwrap();
+        for ev in events.drain(..) {
             match ev {
                 WsEvent::Connected { client_id, path, .. } => {
                     println!("+ {client_id} ({path}) — ccu {}", server.ccu());
                 },
                 WsEvent::Text { client_id, text } => {
-                    let _ = server.send_text(&client_id, &format!("echo:{text}"));
+                    let s = std::str::from_utf8(&text).unwrap_or_default();
+                    let _ = server.send_text(&client_id, &format!("echo:{s}"));
                 },
                 WsEvent::Binary { client_id, data } => {
                     let _ = server.send_binary(&client_id, &data);

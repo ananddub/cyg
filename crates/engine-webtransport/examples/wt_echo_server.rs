@@ -24,8 +24,10 @@ fn main() -> std::io::Result<()> {
     })?;
     println!("WebTransport (h3 draft) listening on https://{bind}");
 
+    let mut events: Vec<WtEvent> = Vec::new();
     loop {
-        for ev in srv.poll_events(Duration::from_millis(50))? {
+        srv.poll_events(Duration::from_millis(50), &mut events)?;
+        for ev in events.drain(..) {
             match ev {
                 WtEvent::SessionOpened { session, request } => {
                     println!(

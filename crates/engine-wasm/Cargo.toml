@@ -12,3 +12,4 @@ wasmtime = "25.0.0"
 [dev-dependencies]
 wat = "1.261.0"
 wasmtime-wasi = "25.0.0"
+engine-lua = { path = "../engine-lua" }

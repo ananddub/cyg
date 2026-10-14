@@ -1,0 +1,8 @@
+[package]
+name = "engine-webrtc-protocol"
+version = "0.1.0"
+edition = "2024"
+description = "WebRTC DataChannel game wire protocol: packed input, state, event and voice frames for peer-to-peer meshes"
+
+# Pure byte codec: no allocator, no runtime, no transport. The same bytes are
+# produced by the browser SDK and read by native clients and server-side bots.

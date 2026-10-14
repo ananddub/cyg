@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use mio::net::TcpListener;
@@ -25,6 +26,10 @@ pub struct RawTcpTransport {
     listener: TcpListener,
     clients: HashMap<Token, ClientConn>,
     client_tokens: HashMap<String, Token>,
+    /// Tokens queued for removal during a poll; persists across polls so the
+    /// hot loop never allocates. The id is moved out of the connection at
+    /// removal, so no id clones happen here.
+    disconnected: Vec<Token>,
     next_token: usize,
     bind_addr: SocketAddr,
 }
@@ -57,6 +62,7 @@ impl RawTcpTransport {
             listener,
             clients: HashMap::new(),
             client_tokens: HashMap::new(),
+            disconnected: Vec::new(),
             next_token: CLIENT_TOKEN_START,
             bind_addr,
         })
@@ -64,12 +70,14 @@ impl RawTcpTransport {
 }
 
 impl GameTransport for RawTcpTransport {
-    fn poll_events(&mut self, timeout: Duration) -> io::Result<Vec<TransportEvent>> {
+    fn poll_events(
+        &mut self,
+        timeout: Duration,
+        events_out: &mut Vec<TransportEvent>,
+    ) -> io::Result<()> {
         self.poll.poll(&mut self.events, Some(timeout))?;
 
-        let mut events_out = Vec::new();
-        let mut disconnected = Vec::new();
-
+        let (disconnected, clients) = (&mut self.disconnected, &mut self.clients);
         for event in self.events.iter() {
             match event.token() {
                 LISTENER_TOKEN => {
@@ -86,9 +94,10 @@ impl GameTransport for RawTcpTransport {
                                     Interest::READABLE | Interest::WRITABLE,
                                 )?;
 
-                                let client_id = format!("tcp_{}_{}", token.0, peer.port());
-                                self.client_tokens.insert(client_id.clone(), token);
-                                self.clients.insert(token, ClientConn::new(stream, client_id.clone()));
+                                let client_id: Arc<str> =
+                                    format!("tcp_{}_{}", token.0, peer.port()).into();
+                                self.client_tokens.insert(client_id.to_string(), token);
+                                clients.insert(token, ClientConn::new(stream, client_id.clone()));
 
                                 events_out.push(TransportEvent::Connected {
                                     client_id,
@@ -102,10 +111,8 @@ impl GameTransport for RawTcpTransport {
                 }
                 token => {
                     let mut conn_dead = false;
-                    let mut client_id_str = String::new();
 
-                    if let Some(conn) = self.clients.get_mut(&token) {
-                        client_id_str = conn.session_id.clone();
+                    if let Some(conn) = clients.get_mut(&token) {
                         if event.is_readable() {
                             match conn.do_read() {
                                 Ok(0) => conn_dead = true,
@@ -128,21 +135,23 @@ impl GameTransport for RawTcpTransport {
                     }
 
                     if conn_dead {
-                        disconnected.push((token, client_id_str));
+                        disconnected.push(token);
                     }
                 }
             }
         }
 
-        for (token, cid) in disconnected {
-            if let Some(mut conn) = self.clients.remove(&token) {
+        for token in disconnected.drain(..) {
+            if let Some(mut conn) = clients.remove(&token) {
                 let _ = self.poll.registry().deregister(&mut conn.stream);
-                self.client_tokens.remove(&cid);
-                events_out.push(TransportEvent::Disconnected { client_id: cid });
+                self.client_tokens.remove(&*conn.session_id);
+                events_out.push(TransportEvent::Disconnected {
+                    client_id: conn.session_id,
+                });
             }
         }
 
-        Ok(events_out)
+        Ok(())
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> io::Result<()> {

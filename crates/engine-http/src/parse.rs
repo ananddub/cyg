@@ -62,8 +62,7 @@ impl RequestDecoder {
                 return ParseOutcome::NeedMore;
             }
             let end = head.body_start + head.content_length;
-            let body = self.buf[head.body_start..end].to_vec();
-            self.buf.drain(0..end);
+            let body = self.take_body(head.body_start, end);
             return Self::finalize(head, body);
         }
 
@@ -87,7 +86,7 @@ impl RequestDecoder {
         let keep_alive = head.keep_alive;
 
         if content_length == 0 {
-            self.buf.drain(0..body_start);
+            self.consume_front(body_start);
             return Self::finalize(head, Vec::new());
         }
 
@@ -97,9 +96,24 @@ impl RequestDecoder {
         }
 
         let end = body_start + content_length;
-        let body = self.buf[body_start..end].to_vec();
-        self.buf.drain(0..end);
+        let body = self.take_body(body_start, end);
         Self::finalize_pending(head, body, keep_alive)
+    }
+
+    /// Copy the body out and drop the consumed head+body from the front.
+    /// The common case (one request per read) avoids the memmove entirely.
+    fn take_body(&mut self, body_start: usize, end: usize) -> Vec<u8> {
+        let body = self.buf[body_start..end].to_vec();
+        self.consume_front(end);
+        body
+    }
+
+    fn consume_front(&mut self, end: usize) {
+        if end >= self.buf.len() {
+            self.buf.clear();
+        } else {
+            self.buf.drain(0..end);
+        }
     }
 
     fn parse_head(
@@ -148,14 +162,11 @@ impl RequestDecoder {
             return Err((413, "body too large"));
         }
 
-        let connection = headers
-            .get("connection")
-            .map(|v| v.to_ascii_lowercase())
-            .unwrap_or_default();
+        let connection = headers.get("connection").unwrap_or("");
         let keep_alive = if version == "HTTP/1.1" {
-            !connection.contains("close")
+            !contains_ignore_ascii(connection, "close")
         } else {
-            connection.contains("keep-alive")
+            contains_ignore_ascii(connection, "keep-alive")
         };
 
         Ok(PendingHead {
@@ -175,11 +186,13 @@ impl RequestDecoder {
 
     fn finalize_pending(head: PendingHead, body: Vec<u8>, keep_alive: bool) -> ParseOutcome {
         let (path, raw_query) = split_target(&head.target);
+        let path = path.to_string();
+        let query = parse_query(raw_query);
         let request = Request {
             method: head.method,
             target: head.target,
             path,
-            query: parse_query(&raw_query),
+            query,
             headers: head.headers,
             body,
             params: HashMap::new(),
@@ -202,30 +215,54 @@ fn find_double_crlf(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|w| w == b"\r\n\r\n")
 }
 
-/// Split a request target into `/path` and the raw query string.
-pub fn split_target(target: &str) -> (String, String) {
+/// Case-insensitive substring test on ASCII data without allocating.
+fn contains_ignore_ascii(haystack: &str, needle: &str) -> bool {
+    let (h, n) = (haystack.as_bytes(), needle.as_bytes());
+    if n.is_empty() {
+        return true;
+    }
+    if h.len() < n.len() {
+        return false;
+    }
+    let lower = |b: u8| b.to_ascii_lowercase();
+    h.windows(n.len()).any(|w| {
+        w.iter()
+            .zip(n.iter())
+            .all(|(a, b)| lower(*a) == lower(*b))
+    })
+}
+
+/// Split a request target into `/path` and the raw query string, both borrowed.
+pub fn split_target(target: &str) -> (&str, &str) {
     match target.split_once('?') {
-        Some((p, q)) => (p.to_string(), q.to_string()),
-        None => (target.to_string(), String::new()),
+        Some((p, q)) => (p, q),
+        None => (target, ""),
     }
 }
 
 /// Decode an `application/x-www-form-urlencoded` query string into pairs.
 pub fn parse_query(raw: &str) -> HashMap<String, String> {
+    if raw.is_empty() {
+        return HashMap::new();
+    }
     let mut map = HashMap::new();
     for pair in raw.split('&') {
         if pair.is_empty() {
             continue;
         }
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-        map.insert(percent_decode(k), percent_decode(v));
+        map.insert(percent_decode(k).into_owned(), percent_decode(v).into_owned());
     }
     map
 }
 
-/// Minimal percent-decoding sufficient for query/path tokens.
-pub fn percent_decode(s: &str) -> String {
+/// Minimal percent-decoding sufficient for query/path tokens. Borrows the
+/// input when nothing needs decoding, which is the common case.
+pub fn percent_decode(s: &str) -> std::borrow::Cow<'_, str> {
     let bytes = s.as_bytes();
+    if !bytes.iter().any(|&b| b == b'%' || b == b'+') {
+        return std::borrow::Cow::Borrowed(s);
+    }
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
@@ -246,7 +283,7 @@ pub fn percent_decode(s: &str) -> String {
             }
         }
     }
-    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
+    std::borrow::Cow::Owned(String::from_utf8_lossy(&out).into_owned())
 }
 
 #[cfg(test)]

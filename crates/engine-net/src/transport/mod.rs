@@ -13,10 +13,14 @@ pub mod colyseus_ws;
 pub mod quic;
 pub mod tcp;
 pub mod udp;
+pub mod webrtc_server;
 
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
+
+use bytes::Bytes;
 
 use crate::framing::OpCode;
 
@@ -24,6 +28,7 @@ pub use colyseus_ws::ColyseusWsTransport;
 pub use quic::QuicTransport;
 pub use tcp::RawTcpTransport;
 pub use udp::UdpTransport;
+pub use webrtc_server::{WebRtcServer, WebRtcServerEvent};
 
 /// Supported transport implementations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,26 +58,31 @@ impl std::str::FromStr for TransportType {
 }
 
 /// Incoming transport events dispatched to the game simulation.
+///
+/// `client_id` is an [`Arc<str>`]: per-event/per-packet clones are refcount
+/// bumps instead of string allocations.
 #[derive(Debug, Clone)]
 pub enum TransportEvent {
     Connected {
-        client_id: String,
+        client_id: Arc<str>,
         peer_addr: SocketAddr,
     },
     Disconnected {
-        client_id: String,
+        client_id: Arc<str>,
     },
     Packet {
-        client_id: String,
+        client_id: Arc<str>,
         opcode: OpCode,
-        payload: Vec<u8>,
+        payload: Bytes,
     },
 }
 
 /// Pluggable transport trait implemented by all network layers.
 pub trait GameTransport: Send {
-    /// Poll for network events with a bounded microsecond timeout.
-    fn poll_events(&mut self, timeout: Duration) -> io::Result<Vec<TransportEvent>>;
+    /// Poll for network events with a bounded microsecond timeout, appending
+    /// them to a caller-owned buffer. Reusing one `Vec` across polls keeps the
+    /// hot loop allocation-free.
+    fn poll_events(&mut self, timeout: Duration, events: &mut Vec<TransportEvent>) -> io::Result<()>;
 
     /// Send a message to a specific client session.
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> io::Result<()>;

@@ -145,8 +145,9 @@ where
                     worker_id, config.bind_addr
                 );
 
+                let mut packets = Vec::new();
                 while thread_running.load(Ordering::Relaxed) {
-                    let res = worker.step(Duration::from_millis(2), |_ctx, _clients| {
+                    let res = worker.step(Duration::from_millis(2), &mut packets, |_ctx, _clients| {
                         factory(worker_id);
                     });
 

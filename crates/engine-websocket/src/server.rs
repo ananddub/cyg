@@ -1,25 +1,31 @@
 //! # Raw mio WebSocket Server
 //!
 //! Thread-per-core friendly, no async runtime — the same philosophy as
-//! engine-net's `GameTransport`: `poll_events(timeout)` drains the epoll
+//! engine-net's `GameTransport`: `poll_events(timeout, &mut buf)` drains the epoll
 //! batch, handlers get owned events, writes are queued per connection and
 //! flushed on `WRITABLE`.
+//!
+//! Hot paths avoid per-event allocation: session ids are `Arc<str>` (cloning
+//! is a refcount bump), payloads ride zero-copy `Bytes` views, the write queue
+//! is a `BytesMut` drained with O(1) `advance`, and every poll-scratch buffer
+//! lives on the server or connection across polls.
 //!
 //! State machine per socket: `Handshaking -> Open -> CloseSent -> (removed)`.
 //! Ping is auto-answered with Pong; Close echoes the close frame once.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
+use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use mio::net::TcpStream;
 use mio::{Events, Interest, Poll, Token, Waker};
 use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::frame::{
-    Frame, FrameDecoder, FrameError, close_code, close_payload, encode_frame, opcode,
-    parse_close,
+    Frame, FrameDecoder, FrameError, close_code, close_payload, encode_frame, opcode, parse_close,
 };
 use crate::handshake::{HandshakeOutcome, HandshakeReader, accept_response, reject_response};
 
@@ -27,28 +33,34 @@ const LISTENER: Token = Token(0);
 const WAKER: Token = Token(1);
 
 /// Events surfaced to the game/engine side of the wire.
+///
+/// `client_id` is an `Arc<str>`: handing it to handlers or storing it in maps
+/// clones a refcount, never the string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WsEvent {
     Connected {
-        client_id: String,
+        client_id: Arc<str>,
         peer_addr: SocketAddr,
         path: String,
     },
     Disconnected {
-        client_id: String,
+        client_id: Arc<str>,
         code: u16,
     },
+    /// TEXT payload, UTF-8 validated in place at decode time. The bytes are a
+    /// zero-copy `Bytes` view; consumers wanting `&str` call
+    /// `std::str::from_utf8(&text)`.
     Text {
-        client_id: String,
-        text: String,
+        client_id: Arc<str>,
+        text: Bytes,
     },
     Binary {
-        client_id: String,
-        data: Vec<u8>,
+        client_id: Arc<str>,
+        data: Bytes,
     },
     /// A Pong reply to a server-initiated Ping (RTT probe).
     Pong {
-        client_id: String,
+        client_id: Arc<str>,
     },
 }
 
@@ -64,21 +76,27 @@ enum Step {
     KeepReading,
     Upgraded,
     Rejected,
-    Frames(Vec<Frame>),
+    Drained,
+    /// Frames were decoded into the connection's persistent scratch buffer.
+    FramesReady,
     ProtocolViolation(u16),
 }
 
 struct WsConn {
     socket: TcpStream,
     peer_addr: SocketAddr,
-    client_id: String,
+    client_id: Arc<str>,
     state: ConnState,
     handshake: HandshakeReader,
     path: String,
     reader: FrameDecoder,
-    frag_buf: Vec<u8>,
+    /// Cross-read frame scratch; capacity persists on the connection.
+    frames: Vec<Frame>,
+    frag_buf: BytesMut,
     frag_opcode: u8,
-    write_queue: VecDeque<u8>,
+    /// Outgoing bytes as a contiguous `BytesMut`: enqueue is one memcpy and
+    /// the written prefix is detached in O(1) (`Buf::advance`).
+    write_queue: BytesMut,
     write_wanted: bool,
     /// After flushing a rejection/101 we may need to drop the socket.
     drop_after_flush: bool,
@@ -86,7 +104,8 @@ struct WsConn {
 
 impl WsConn {
     fn queue(&mut self, bytes: &[u8]) {
-        self.write_queue.extend(bytes.iter().copied());
+        self.write_queue.reserve(bytes.len());
+        self.write_queue.put_slice(bytes);
     }
 }
 
@@ -122,6 +141,14 @@ pub struct WsServer {
     next_token: usize,
     events: Events,
     config: WsConfig,
+    /// Cross-poll event buffer; adopted via `mem::take` so helpers taking
+    /// `&mut self` can append, then handed to the caller.
+    event_buf: Vec<WsEvent>,
+    /// Ready token list; adopted and restored each poll so its capacity
+    /// survives — `mem::take` + drop would re-malloc every poll.
+    ready_tokens: Vec<Token>,
+    /// Writable-only token list; adopted and restored each poll.
+    ready_writes: Vec<Token>,
 }
 
 impl WsServer {
@@ -153,6 +180,9 @@ impl WsServer {
             next_token: 2,
             events: Events::with_capacity(1024),
             config,
+            event_buf: Vec::new(),
+            ready_tokens: Vec::new(),
+            ready_writes: Vec::new(),
         })
     }
 
@@ -165,39 +195,58 @@ impl WsServer {
         self.conns.values().filter(|c| c.state == ConnState::Open).count()
     }
 
-    /// Drive the event loop once; returns all engine-visible events.
-    pub fn poll_events(&mut self, timeout: Duration) -> io::Result<Vec<WsEvent>> {
+    /// Drive the event loop once, appending all engine-visible events to the
+    /// caller-owned `out` buffer (reused across polls — no per-poll allocation).
+    pub fn poll_events(&mut self, timeout: Duration, out: &mut Vec<WsEvent>) -> io::Result<()> {
         self.poll.poll(&mut self.events, Some(timeout))?;
 
-        let mut readable = Vec::new();
-        let mut writable = Vec::new();
+        // Split borrows: `events` is read immutably while the persistent
+        // token buffers are written — no per-poll Vec allocations.
         let mut have_listener = false;
-        for ev in self.events.iter() {
-            match ev.token() {
-                LISTENER => have_listener = true,
-                WAKER => {},
-                t => {
-                    if ev.is_readable() {
-                        readable.push(t);
-                    }
-                    if ev.is_writable() {
-                        writable.push(t);
-                    }
-                },
+        {
+            let (ready, writes) = (&mut self.ready_tokens, &mut self.ready_writes);
+            ready.clear();
+            writes.clear();
+            for ev in self.events.iter() {
+                match ev.token() {
+                    LISTENER => have_listener = true,
+                    WAKER => {},
+                    t => {
+                        if ev.is_readable() {
+                            ready.push(t);
+                        }
+                        if ev.is_writable() {
+                            writes.push(t);
+                        }
+                    },
+                }
             }
         }
 
-        let mut out = Vec::new();
+        // Helpers below take `&mut self`, so the persistent buffers are
+        // adopted for the pass and restored afterwards (capacity survives).
+        let mut buf = std::mem::take(&mut self.event_buf);
+        let mut writes = std::mem::take(&mut self.ready_writes);
+        let mut reads = std::mem::take(&mut self.ready_tokens);
         if have_listener {
-            self.accept_all(&mut out);
+            self.accept_all(&mut buf);
         }
-        for token in writable {
+        for i in 0..writes.len() {
+            let token = writes[i];
             self.flush(token);
         }
-        for token in readable {
-            self.on_readable(token, &mut out);
+        writes.clear();
+        self.ready_writes = writes;
+        for i in 0..reads.len() {
+            let token = reads[i];
+            self.on_readable(token, &mut buf);
         }
-        Ok(out)
+        reads.clear();
+        self.ready_tokens = reads;
+        std::mem::swap(out, &mut buf);
+        buf.clear();
+        self.event_buf = buf;
+        Ok(())
     }
 
     /// Wake the blocking `poll` from another thread (shutdown/notify hook).
@@ -239,19 +288,33 @@ impl WsServer {
         self.broadcast(frame_binary(data));
     }
 
-    fn broadcast(&mut self, frame: Vec<u8>) {
-        let ids: Vec<String> = self
+    /// Queue one frame to every open connection. The frame is a `Bytes` (one
+    /// buffer shared by all, queued by memcpy into each write queue), and the
+    /// numeric token list avoids cloning any client ids.
+    fn broadcast(&mut self, frame: Bytes) {
+        let mut tokens: Vec<usize> = self
             .conns
-            .values()
-            .filter(|c| c.state == ConnState::Open)
-            .map(|c| c.client_id.clone())
+            .iter()
+            .filter(|(_, c)| c.state == ConnState::Open)
+            .map(|(k, _)| *k)
             .collect();
-        for id in ids {
-            let _ = self.send_frame(&id, frame.clone());
+        tokens.sort_unstable();
+        for t in tokens {
+            let overflow = {
+                let Some(conn) = self.conns.get_mut(&t) else { continue };
+                conn.queue(&frame);
+                conn.write_queue.len() > self.config.max_write_queue_bytes
+            };
+            if overflow {
+                let mut scratch = Vec::new();
+                self.drop_conn(Token(t), close_code::POLICY_VIOLATION, &mut scratch);
+                continue;
+            }
+            self.flush(Token(t));
         }
     }
 
-    fn send_frame(&mut self, client_id: &str, frame: Vec<u8>) -> io::Result<()> {
+    fn send_frame(&mut self, client_id: &str, frame: Bytes) -> io::Result<()> {
         let token = self.token_of(client_id).ok_or_else(not_connected)?;
         let overflow = {
             let Some(conn) = self.conns.get_mut(&token.0) else {
@@ -264,8 +327,8 @@ impl WsServer {
             conn.write_queue.len() > self.config.max_write_queue_bytes
         };
         if overflow {
-            let mut out = Vec::new();
-            self.drop_conn(token, close_code::POLICY_VIOLATION, &mut out);
+            let mut scratch = Vec::new();
+            self.drop_conn(token, close_code::POLICY_VIOLATION, &mut scratch);
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "client write buffer overflow",
@@ -295,7 +358,7 @@ impl WsServer {
                     {
                         continue;
                     }
-                    let client_id = format!("ws-{}", self.next_client_id);
+                    let client_id: Arc<str> = format!("ws-{}", self.next_client_id).into();
                     self.next_client_id += 1;
                     let conn = WsConn {
                         socket,
@@ -305,13 +368,14 @@ impl WsServer {
                         handshake: HandshakeReader::new(),
                         path: String::new(),
                         reader: FrameDecoder::new(self.config.max_frame_bytes),
-                        frag_buf: Vec::new(),
+                        frames: Vec::new(),
+                        frag_buf: BytesMut::new(),
                         frag_opcode: 0,
-                        write_queue: VecDeque::new(),
+                        write_queue: BytesMut::new(),
                         write_wanted: false,
                         drop_after_flush: false,
                     };
-                    self.by_client.insert(client_id, token.0);
+                    self.by_client.insert(client_id.to_string(), token.0);
                     self.conns.insert(token.0, conn);
                     let _ = out;
                 },
@@ -326,15 +390,34 @@ impl WsServer {
 
     fn on_readable(&mut self, token: Token, out: &mut Vec<WsEvent>) {
         loop {
-            let mut buf = [0u8; 16 * 1024];
             let step = {
                 let Some(conn) = self.conns.get_mut(&token.0) else {
                     return;
                 };
-                match conn.socket.read(&mut buf) {
-                    Ok(0) => Step::ProtocolViolation(close_code::GOING_AWAY),
-                    Ok(n) => match conn.state {
-                        ConnState::Handshaking => {
+                if conn.state != ConnState::Handshaking {
+                    // Open socket: read straight into the decoder's buffer —
+                    // frames are zero-copy views, no intermediate 16 KB copy —
+                    // and decode into the connection's persistent scratch.
+                    let (reader, frames, socket) =
+                        (&mut conn.reader, &mut conn.frames, &mut conn.socket);
+                    frames.clear();
+                    match reader.feed_socket(socket, 16 * 1024, frames) {
+                        Ok((0, _)) => Step::ProtocolViolation(close_code::GOING_AWAY),
+                        Ok((_, Ok(()))) => Step::FramesReady,
+                        Ok((_, Err(FrameError::Protocol(_)))) => {
+                            Step::ProtocolViolation(close_code::PROTOCOL_ERROR)
+                        },
+                        Ok((_, Err(FrameError::TooBig(_)))) => {
+                            Step::ProtocolViolation(close_code::TOO_BIG)
+                        },
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => Step::Drained,
+                        Err(_) => Step::ProtocolViolation(close_code::GOING_AWAY),
+                    }
+                } else {
+                    let mut buf = [0u8; 16 * 1024];
+                    match conn.socket.read(&mut buf) {
+                        Ok(0) => Step::ProtocolViolation(close_code::GOING_AWAY),
+                        Ok(n) => {
                             if conn.handshake.fed_bytes() + n > self.config.max_handshake_bytes {
                                 conn.queue(&reject_response(431, "handshake too large"));
                                 conn.drop_after_flush = true;
@@ -356,20 +439,9 @@ impl WsServer {
                                 }
                             }
                         },
-                        ConnState::Open | ConnState::CloseSent => {
-                            match conn.reader.feed(&buf[..n]) {
-                                Ok(frames) => Step::Frames(frames),
-                                Err(FrameError::Protocol(_)) => {
-                                    Step::ProtocolViolation(close_code::PROTOCOL_ERROR)
-                                },
-                                Err(FrameError::TooBig(_)) => {
-                                    Step::ProtocolViolation(close_code::TOO_BIG)
-                                },
-                            }
-                        },
-                    },
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return,
-                    Err(_) => Step::ProtocolViolation(close_code::GOING_AWAY),
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                        Err(_) => Step::ProtocolViolation(close_code::GOING_AWAY),
+                    }
                 }
             };
 
@@ -395,8 +467,9 @@ impl WsServer {
                         self.drop_conn(token, close_code::NORMAL, out);
                     }
                 },
-                Step::Frames(frames) => {
-                    if !self.handle_frames(token, frames, out) {
+                Step::Drained => return,
+                Step::FramesReady => {
+                    if !self.handle_frames(token, out) {
                         return;
                     }
                     self.flush(token);
@@ -409,13 +482,20 @@ impl WsServer {
         }
     }
 
-    /// Returns `false` when the connection was removed mid-processing.
-    fn handle_frames(&mut self, token: Token, frames: Vec<Frame>, out: &mut Vec<WsEvent>) -> bool {
-        for frame in frames {
+    /// Drain the connection's decoded frames, classifying and dispatching
+    /// each. Returns `false` when the connection was removed mid-processing.
+    fn handle_frames(&mut self, token: Token, out: &mut Vec<WsEvent>) -> bool {
+        loop {
+            // Frames live on the conn, so take them one at a time (the batch
+            // is tiny; `remove(0)` shifts a handful of 24-byte structs).
             let action = {
                 let Some(conn) = self.conns.get_mut(&token.0) else {
                     return false;
                 };
+                if conn.frames.is_empty() {
+                    break;
+                }
+                let frame = conn.frames.remove(0);
                 classify_frame(conn, frame)
             };
             match action {
@@ -424,8 +504,9 @@ impl WsServer {
                 FrameAction::Binary(id, data) => out.push(WsEvent::Binary { client_id: id, data }),
                 FrameAction::Pong(id) => out.push(WsEvent::Pong { client_id: id }),
                 FrameAction::SendPong(data) => {
+                    let frame = frame_pong(&data);
                     if let Some(conn) = self.conns.get_mut(&token.0) {
-                        conn.queue(&frame_pong(&data));
+                        conn.queue(&frame);
                     }
                 },
                 FrameAction::CloseEcho(code) => {
@@ -446,8 +527,9 @@ impl WsServer {
                     return false;
                 },
                 FrameAction::InvalidUtf8 => {
+                    let frame = frame_close(close_code::INVALID_PAYLOAD, "");
                     if let Some(conn) = self.conns.get_mut(&token.0) {
-                        conn.queue(&frame_close(close_code::INVALID_PAYLOAD, ""));
+                        conn.queue(&frame);
                         conn.state = ConnState::CloseSent;
                     }
                     self.flush(token);
@@ -461,8 +543,10 @@ impl WsServer {
 
     fn drop_conn(&mut self, token: Token, code: u16, out: &mut Vec<WsEvent>) {
         if let Some(conn) = self.conns.remove(&token.0) {
-            self.by_client.remove(&conn.client_id);
+            // `by_client` is keyed by String; borrow the Arc<str> in place.
+            self.by_client.remove(&*conn.client_id);
             if conn.state != ConnState::Handshaking {
+                // Move the id out — the event owns it, no clone.
                 out.push(WsEvent::Disconnected {
                     client_id: conn.client_id,
                     code,
@@ -477,18 +561,17 @@ impl WsServer {
         let Some(conn) = self.conns.get_mut(&token.0) else {
             return;
         };
-        let mut chunk = Vec::new();
         loop {
-            chunk.clear();
-            let take = conn.write_queue.len().min(64 * 1024);
-            chunk.extend(conn.write_queue.iter().copied().take(take));
-            if chunk.is_empty() {
+            if conn.write_queue.is_empty() {
                 break;
             }
-            match conn.socket.write(&chunk) {
+            let take = conn.write_queue.len().min(64 * 1024);
+            match conn.socket.write(&conn.write_queue[..take]) {
                 Ok(0) => break,
                 Ok(n) => {
-                    conn.write_queue.drain(..n);
+                    // O(1) pointer bump — the written prefix is detached
+                    // without memmoving the remaining bytes.
+                    conn.write_queue.advance(n);
                 },
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     if !conn.write_wanted {
@@ -512,8 +595,8 @@ impl WsServer {
             conn.write_wanted = false;
         }
         if conn.drop_after_flush && conn.write_queue.is_empty() {
-            let mut out = Vec::new();
-            self.drop_conn(token, close_code::NORMAL, &mut out);
+            let mut scratch = Vec::new();
+            self.drop_conn(token, close_code::NORMAL, &mut scratch);
         }
     }
 }
@@ -524,10 +607,10 @@ fn not_connected() -> io::Error {
 
 enum FrameAction {
     None,
-    Text(String, String),
-    Binary(String, Vec<u8>),
-    Pong(String),
-    SendPong(Vec<u8>),
+    Text(Arc<str>, Bytes),
+    Binary(Arc<str>, Bytes),
+    Pong(Arc<str>),
+    SendPong(Bytes),
     CloseEcho(u16),
     InvalidUtf8,
 }
@@ -555,7 +638,7 @@ fn classify_frame(conn: &mut WsConn, frame: Frame) -> FrameAction {
                 (op, payload)
             } else {
                 conn.frag_buf.extend_from_slice(&payload);
-                (conn.frag_opcode, std::mem::take(&mut conn.frag_buf))
+                (conn.frag_opcode, conn.frag_buf.split().freeze())
             };
             deliver(conn, final_op, data)
         },
@@ -565,7 +648,7 @@ fn classify_frame(conn: &mut WsConn, frame: Frame) -> FrameAction {
                 return FrameAction::None;
             }
             let op = conn.frag_opcode;
-            let data = std::mem::take(&mut conn.frag_buf);
+            let data = conn.frag_buf.split().freeze();
             deliver(conn, op, data)
         },
         opcode::PING => FrameAction::SendPong(payload),
@@ -578,36 +661,38 @@ fn classify_frame(conn: &mut WsConn, frame: Frame) -> FrameAction {
     }
 }
 
-fn deliver(conn: &WsConn, op: u8, data: Vec<u8>) -> FrameAction {
+fn deliver(conn: &WsConn, op: u8, data: Bytes) -> FrameAction {
     if op == opcode::TEXT {
-        match String::from_utf8(data) {
-            Ok(text) => FrameAction::Text(conn.client_id.clone(), text),
-            Err(_) => FrameAction::InvalidUtf8,
+        // Validate UTF-8 in place and hand the Bytes view up — no re-parse
+        // into a fresh String.
+        if std::str::from_utf8(&data).is_err() {
+            return FrameAction::InvalidUtf8;
         }
-    } else {
-        FrameAction::Binary(conn.client_id.clone(), data)
+        return FrameAction::Text(conn.client_id.clone(), data);
     }
+    FrameAction::Binary(conn.client_id.clone(), data)
 }
 
-// Server-to-client frames are never masked (RFC 6455 §5.1).
-fn encode(op: u8, payload: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(8 + payload.len());
-    encode_frame(true, op, payload, None, &mut out);
-    out
+// Server-to-client frames are never masked (RFC 6455 §5.1). A `Bytes` frame
+// buffers once and is then shared (refcount bump) across broadcast queues.
+fn encode(op: u8, payload: &[u8]) -> Bytes {
+    let mut buf = BytesMut::with_capacity(8 + payload.len());
+    encode_frame(true, op, payload, None, &mut buf);
+    buf.freeze()
 }
 
-fn frame_text(data: &[u8]) -> Vec<u8> {
+fn frame_text(data: &[u8]) -> Bytes {
     encode(opcode::TEXT, data)
 }
-fn frame_binary(data: &[u8]) -> Vec<u8> {
+fn frame_binary(data: &[u8]) -> Bytes {
     encode(opcode::BINARY, data)
 }
-fn frame_ping(data: &[u8]) -> Vec<u8> {
+fn frame_ping(data: &[u8]) -> Bytes {
     encode(opcode::PING, data)
 }
-fn frame_pong(data: &[u8]) -> Vec<u8> {
+fn frame_pong(data: &[u8]) -> Bytes {
     encode(opcode::PONG, data)
 }
-fn frame_close(code: u16, reason: &str) -> Vec<u8> {
+fn frame_close(code: u16, reason: &str) -> Bytes {
     encode(opcode::CLOSE, &close_payload(code, reason))
 }

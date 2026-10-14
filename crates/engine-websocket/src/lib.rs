@@ -8,7 +8,8 @@
 //! - Own SHA-1 + base64 (no external crypto deps; handshake-only, not secrets)
 //! - Incremental frame decoder: 7/16/64-bit lengths, masking, fragmentation,
 //!   ping/pong auto-answer, close handshake
-//! - `poll_events(timeout)` -> owned [`WsEvent`]s; `send_text`/`send_binary`/
+//! - `poll_events(timeout, &mut buf)` appends [`WsEvent`]s to a caller-owned
+//!   buffer (zero per-poll allocation); `send_text`/`send_binary`/
 //!   `broadcast`/`close` write API with per-connection backpressure limits
 
 pub mod base64;

@@ -39,12 +39,13 @@ fn main() {
     let broadcast_interval = Duration::from_millis(100);
     let deadline = Instant::now() + Duration::from_secs(60);
 
+    let mut events = Vec::new();
     while Instant::now() < deadline {
-        let events = transport
-            .poll_events(Duration::from_millis(5))
+        transport
+            .poll_events(Duration::from_millis(5), &mut events)
             .expect("poll");
 
-        for event in events {
+        for event in events.drain(..) {
             match event {
                 TransportEvent::Connected { client_id, .. } => {
                     eprintln!("[server] connected: {client_id}");
@@ -55,7 +56,7 @@ fn main() {
                     transport
                         .send_to(&client_id, OpCode::StateSnapshot, &snapshot)
                         .expect("snapshot");
-                    known_clients.insert(client_id, ());
+                    known_clients.insert(client_id.to_string(), ());
                     let _ = transport.flush();
                 }
                 TransportEvent::Disconnected { client_id } => {

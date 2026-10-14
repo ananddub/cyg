@@ -268,12 +268,13 @@ fn main() {
     let tick_interval = Duration::from_millis(50); // 20 Hz
     let deadline = Instant::now() + Duration::from_secs(3600);
 
+    let mut events = Vec::new();
     while Instant::now() < deadline {
-        let events = transport
-            .poll_events(Duration::from_millis(5))
+        transport
+            .poll_events(Duration::from_millis(5), &mut events)
             .expect("poll");
 
-        for event in events {
+        for event in events.drain(..) {
             match event {
                 TransportEvent::Connected { client_id, .. } => {
                     let room_name = transport
@@ -286,7 +287,7 @@ fn main() {
                     // live until the end of the match and deadlock the arm.)
                     let (x, y) = {
                         let mut server = server.lock().unwrap();
-                        match server.recently_left.remove(&client_id) {
+                        match server.recently_left.remove(&*client_id) {
                             Some((rm, x, y, _)) if rm == room_name => {
                                 eprintln!(
                                     "[server] {client_id} RECONNECTED to '{room_name}' (seat kept)"
@@ -317,7 +318,7 @@ fn main() {
                     room.wasm.on_join(id, x, y).expect("wasm on_join");
                     eprintln!("[dbg] on_join ok");
                     room.state.add_player(&client_id, x, y, 0.0);
-                    room.sessions.insert(client_id.clone(), id);
+                    room.sessions.insert(client_id.to_string(), id);
                     room.empty_since = None;
 
                     // Full snapshot for the fresh client (non-consuming: the
@@ -340,7 +341,7 @@ fn main() {
                         server
                             .rooms
                             .iter()
-                            .find(|(_, r)| r.sessions.contains_key(&client_id))
+                            .find(|(_, r)| r.sessions.contains_key(&*client_id))
                             .map(|(name, _)| name.clone())
                             .unwrap_or_else(|| "game_room".to_string())
                     };
@@ -349,7 +350,7 @@ fn main() {
                         let Some(room) = server.rooms.get_mut(&room_name) else {
                             continue;
                         };
-                        let Some(&id) = room.sessions.get(&client_id) else {
+                        let Some(&id) = room.sessions.get(&*client_id) else {
                             continue;
                         };
                         // read the player's last position from the wasm
@@ -369,11 +370,11 @@ fn main() {
                     let room = server.rooms.get_mut(&room_name).unwrap();
                     let _ = room.wasm.on_leave(player_id);
                     room.state.remove_player(&client_id);
-                    room.sessions.remove(&client_id);
+                    room.sessions.remove(&*client_id);
                     room.empty_since = Some(Instant::now());
                     server
                         .recently_left
-                        .insert(client_id.clone(), (room_name.clone(), x, y, Instant::now()));
+                        .insert(client_id.to_string(), (room_name.clone(), x, y, Instant::now()));
                     // Keep the transport-side reconnection token valid too.
                     transport.retain_session(&room_name, &client_id);
                 }
@@ -387,7 +388,7 @@ fn main() {
                             .to_string();
                         let mut server = server.lock().unwrap();
                         if let Some(room) = server.rooms.get_mut(&room_name) {
-                            if let Some(&id) = room.sessions.get(&client_id) {
+                            if let Some(&id) = room.sessions.get(&*client_id) {
                                 let _ = room.wasm.on_input(id, flags as i32);
                             }
                         }

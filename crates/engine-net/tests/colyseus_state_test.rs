@@ -159,17 +159,17 @@ fn test_reconnection_seat_reuses_player_key() {
     state.add_player("sess_A", 10.0, 20.0, 0.0);
     let _ = state.snapshot_consuming();
     state.remove_player("sess_A");
-    let _ = state.patch();
+    // The DELETE is emitted exactly once, in the patch right after removal.
+    let del_patch = state.patch();
+    assert_eq!(&del_patch[0..4], &[0xFF, 0x01, 0x40, 0x01], "switch + DELETE old map index 1");
     state.add_player("sess_A", 30.0, 40.0, 5.0);
     let patch = state.patch();
-    // DELETE of the old seat comes first, then the fresh ADD:
-    // [FF 01][40 01]  switch to map + DELETE map index 1
-    // [80 02 A6 ...]  ADD idx 2, key "sess_A", refId 3
+    // Fresh ADD only — the consumed DELETE must not resurrect in this patch:
+    // [FF 01] switch to map, [80 02] entry ADD idx 2, [A6 ...] key, [03] refId.
     assert_eq!(&patch[0..2], &[0xFF, 0x01]);
-    assert_eq!(patch[2], 0x40, "DELETE op");
-    assert_eq!(patch[3], 0x01, "old map index");
-    assert_eq!(&patch[4..6], &[0xFF, 0x01], "switch back to map");
-    assert_eq!(patch[6], 0x80, "map entry ADD");
-    assert_eq!(patch[7], 0x02, "fresh map index 2");
-    assert_eq!(patch[15], 0x03, "fresh refId 3");
+    assert_eq!(patch[2], 0x80, "map entry ADD");
+    assert_eq!(patch[3], 0x02, "fresh map index");
+    assert_eq!(patch[4], 0xa6, "fixstr key len 6");
+    assert_eq!(&patch[5..11], b"sess_A");
+    assert_eq!(patch[11], 0x03, "fresh refId 3");
 }

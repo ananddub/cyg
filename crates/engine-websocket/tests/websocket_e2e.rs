@@ -15,21 +15,25 @@ fn spawn_server() -> SocketAddr {
     let mut server = WsServer::new(addr, WsConfig::default()).unwrap();
     let bound = server.local_addr().unwrap();
 
-    thread::spawn(move || loop {
-        let events = server.poll_events(Duration::from_millis(50)).unwrap();
-        for ev in events {
+    thread::spawn(move || {
+        let mut events = Vec::new();
+        loop {
+            server.poll_events(Duration::from_millis(50), &mut events).unwrap();
+            for ev in events.drain(..) {
             match ev {
                 WsEvent::Text { client_id, text } => {
                     if text == "close" {
                         server.close(&client_id, 1000, "bye").unwrap();
                     } else {
-                        server.send_text(&client_id, &format!("echo:{text}")).unwrap();
+                        let s = std::str::from_utf8(&text).unwrap();
+                        server.send_text(&client_id, &format!("echo:{s}")).unwrap();
                     }
                 },
                 WsEvent::Binary { client_id, data } => {
                     server.send_binary(&client_id, &data).unwrap();
                 },
                 _ => {},
+            }
             }
         }
     });

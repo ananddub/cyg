@@ -19,7 +19,9 @@
 //! - Structures switch via `255` + msgpack refId (refId 0 = root).
 //! - msgpack: fixint/uint8..uint32/float64 for numbers, fixstr/str8 for keys.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use bytes::{BufMut, Bytes, BytesMut};
 
 /// OPERATION.ADD from @colyseus/schema spec.ts.
 const OP_ADD: u8 = 128;
@@ -27,6 +29,11 @@ const OP_ADD: u8 = 128;
 const OP_REPLACE: u8 = 0;
 /// SWITCH_TO_STRUCTURE from @colyseus/schema spec.ts.
 const SWITCH: u8 = 255;
+
+/// Player entry was added since the last patch (emit map ADD).
+const F_NEW: u8 = 1;
+/// Player entry fields changed since the last patch (emit REPLACEs).
+const F_CHANGED: u8 = 2;
 
 /// Field index of `players` on the client's root schema class.
 const FIELD_PLAYERS: u8 = 0;
@@ -46,12 +53,9 @@ struct PlayerEntry {
     x: f64,
     y: f64,
     score: f64,
-}
-
-/// A removed player pending a DELETE op in the next patch.
-#[derive(Debug, Clone, Copy)]
-struct RemovedEntry {
-    map_index: u32,
+    /// Dirty bits (`F_NEW`/`F_CHANGED`) — avoids side hashsets and per-tick
+    /// string hashing.
+    flags: u8,
 }
 
 /// Server-side room state that encodes into @colyseus/schema wire bytes.
@@ -69,9 +73,12 @@ pub struct ColyseusRoomState {
     players_dirty: bool,
     tick_dirty: bool,
     coin_dirty: bool,
-    changed_players: HashSet<String>,
-    new_players: HashSet<String>,
-    removed_players: HashMap<String, RemovedEntry>,
+    /// Map indices pending a DELETE op in the next patch.
+    removed_indices: Vec<u32>,
+    /// Patch encode scratch; its allocation is reused across patches.
+    pb: BytesMut,
+    /// Sort scratch for removed indices; reused across patches.
+    rm_scratch: Vec<u32>,
 }
 
 impl Default for ColyseusRoomState {
@@ -95,9 +102,9 @@ impl ColyseusRoomState {
             players_dirty: false,
             tick_dirty: false,
             coin_dirty: false,
-            changed_players: HashSet::new(),
-            new_players: HashSet::new(),
-            removed_players: HashMap::new(),
+            removed_indices: Vec::new(),
+            pb: BytesMut::with_capacity(256),
+            rm_scratch: Vec::new(),
         }
     }
 
@@ -119,23 +126,24 @@ impl ColyseusRoomState {
             x,
             y,
             score,
+            flags: F_NEW,
         };
         self.next_map_index += 1;
         self.next_ref_id += 1;
         self.players.insert(key.to_string(), entry);
         self.order.push(key.to_string());
         self.players_dirty = true;
-        self.new_players.insert(key.to_string());
     }
 
     /// Update a player's position and score; emits REPLACEs on the next patch.
+    /// Just sets a dirty bit on the entry — no hashing or allocation.
     pub fn update_player(&mut self, key: &str, x: f64, y: f64, score: f64) {
         if let Some(e) = self.players.get_mut(key) {
             e.x = x;
             e.y = y;
             e.score = score;
+            e.flags |= F_CHANGED;
             self.players_dirty = true;
-            self.changed_players.insert(key.to_string());
         }
     }
 
@@ -154,14 +162,7 @@ impl ColyseusRoomState {
     pub fn remove_player(&mut self, key: &str) {
         if let Some(entry) = self.players.remove(key) {
             self.order.retain(|k| k != key);
-            self.changed_players.remove(key);
-            self.new_players.remove(key);
-            self.removed_players.insert(
-                key.to_string(),
-                RemovedEntry {
-                    map_index: entry.map_index,
-                },
-            );
+            self.removed_indices.push(entry.map_index);
             self.players_dirty = true;
         }
     }
@@ -178,9 +179,10 @@ impl ColyseusRoomState {
         let out = self.build_snapshot();
         self.players_dirty = false;
         self.tick_dirty = false;
-        self.changed_players.clear();
-        self.new_players.clear();
-        self.removed_players.clear();
+        for e in self.players.values_mut() {
+            e.flags = 0;
+        }
+        self.removed_indices.clear();
         out
     }
 
@@ -232,74 +234,81 @@ impl ColyseusRoomState {
     /// `snapshot()` followed by consuming the pending patch).
     /// Delta patch: send as `ROOM_STATE_PATCH` (15) to live clients.
     /// Starts from the root ref (each patch decodes from the root).
-    pub fn patch(&mut self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(64);
+    /// Encoded into a persistent scratch and returned as a refcounted
+    /// [`Bytes`] — the scratch keeps its capacity for the next patch.
+    pub fn patch(&mut self) -> Bytes {
+        let out = &mut self.pb;
+        out.reserve(64);
 
         // DELETEs first: switch to the map, emit [OP_DELETE][index] per removal.
-        if !self.removed_players.is_empty() {
-            out.push(SWITCH);
-            mp_number(&mut out, self.players_map_ref_id as f64);
-            let mut indices: Vec<u32> =
-                self.removed_players.values().map(|r| r.map_index).collect();
+        if !self.removed_indices.is_empty() {
+            out.put_u8(SWITCH);
+            mp_number(out, self.players_map_ref_id as f64);
+            let mut indices = std::mem::take(&mut self.rm_scratch);
+            indices.clear();
+            indices.extend(self.removed_indices.drain(..));
             indices.sort_unstable();
-            for idx in indices {
-                out.push(64); // OPERATION.DELETE
-                mp_number(&mut out, idx as f64);
+            for &idx in &indices {
+                out.put_u8(64); // OPERATION.DELETE
+                mp_number(out, idx as f64);
             }
+            self.rm_scratch = indices;
         }
 
         if self.players_dirty {
             for key in &self.order {
                 let entry = &self.players[key];
-                let is_new = self.new_players.contains(key);
-                let changed = self.changed_players.contains(key);
+                let is_new = entry.flags & F_NEW != 0;
+                let changed = entry.flags & F_CHANGED != 0;
                 if !is_new && !changed {
                     continue;
                 }
 
                 if is_new {
                     // Switch to map, ADD entry.
-                    out.push(SWITCH);
-                    mp_number(&mut out, self.players_map_ref_id as f64);
-                    out.push(OP_ADD);
-                    mp_number(&mut out, entry.map_index as f64);
-                    mp_str(&mut out, key);
-                    mp_number(&mut out, entry.ref_id as f64);
+                    out.put_u8(SWITCH);
+                    mp_number(out, self.players_map_ref_id as f64);
+                    out.put_u8(OP_ADD);
+                    mp_number(out, entry.map_index as f64);
+                    mp_str(out, key);
+                    mp_number(out, entry.ref_id as f64);
                 }
 
                 // Switch to player, REPLACE fields.
-                out.push(SWITCH);
-                mp_number(&mut out, entry.ref_id as f64);
-                out.push(OP_REPLACE | 0); // x
-                mp_number(&mut out, entry.x);
-                out.push(OP_REPLACE | 1); // y
-                mp_number(&mut out, entry.y);
-                out.push(OP_REPLACE | 2); // score
-                mp_number(&mut out, entry.score);
+                out.put_u8(SWITCH);
+                mp_number(out, entry.ref_id as f64);
+                out.put_u8(OP_REPLACE | 0); // x
+                mp_number(out, entry.x);
+                out.put_u8(OP_REPLACE | 1); // y
+                mp_number(out, entry.y);
+                out.put_u8(OP_REPLACE | 2); // score
+                mp_number(out, entry.score);
             }
             // Back to root for coin + tick fields.
-            out.push(SWITCH);
-            mp_number(&mut out, 0.0);
+            out.put_u8(SWITCH);
+            mp_number(out, 0.0);
+
+            for e in self.players.values_mut() {
+                e.flags = 0;
+            }
         }
 
         if self.coin_dirty {
-            out.push(OP_REPLACE | FIELD_COIN_X);
-            mp_number(&mut out, self.coin_x);
-            out.push(OP_REPLACE | FIELD_COIN_Y);
-            mp_number(&mut out, self.coin_y);
+            out.put_u8(OP_REPLACE | FIELD_COIN_X);
+            mp_number(out, self.coin_x);
+            out.put_u8(OP_REPLACE | FIELD_COIN_Y);
+            mp_number(out, self.coin_y);
         }
 
         if self.tick_dirty {
-            out.push(OP_REPLACE | FIELD_TICK);
-            mp_number(&mut out, self.tick as f64);
+            out.put_u8(OP_REPLACE | FIELD_TICK);
+            mp_number(out, self.tick as f64);
         }
 
         self.players_dirty = false;
         self.tick_dirty = false;
         self.coin_dirty = false;
-        self.changed_players.clear();
-        self.new_players.clear();
-        out
+        out.split().freeze()
     }
 }
 
@@ -311,62 +320,62 @@ impl ColyseusRoomState {
 // ---------------------------------------------------------------------------
 
 /// msgpack number: integers via fixint/uint8..uint32/int8.., floats via f64.
-pub fn mp_number(out: &mut Vec<u8>, value: f64) {
+pub fn mp_number(out: &mut impl BufMut, value: f64) {
     if value.is_nan() {
-        out.push(0x00);
+        out.put_u8(0x00);
         return;
     }
     if value.fract() == 0.0 && value.abs() <= 9.007_199_254_740_992e15 {
         let v = value as i64;
         if v >= 0 {
             if v < 0x80 {
-                out.push(v as u8);
+                out.put_u8(v as u8);
             } else if v < 0x100 {
-                out.push(0xcc);
-                out.push(v as u8);
+                out.put_u8(0xcc);
+                out.put_u8(v as u8);
             } else if v < 0x10000 {
-                out.push(0xcd);
-                out.extend_from_slice(&(v as u16).to_le_bytes());
+                out.put_u8(0xcd);
+                out.put_slice(&(v as u16).to_le_bytes());
             } else if v < 0x1_0000_0000 {
-                out.push(0xce);
-                out.extend_from_slice(&(v as u32).to_le_bytes());
+                out.put_u8(0xce);
+                out.put_slice(&(v as u32).to_le_bytes());
             } else {
-                out.push(0xcf);
-                out.extend_from_slice(&(v as u64).to_le_bytes());
+                out.put_u8(0xcf);
+                out.put_slice(&(v as u64).to_le_bytes());
             }
         } else if v >= -0x20 {
-            out.push(0xe0 | ((v + 0x20) as u8));
+            out.put_u8(0xe0 | ((v + 0x20) as u8));
         } else if v >= -0x80 {
-            out.push(0xd0);
-            out.push(v as i8 as u8);
+            out.put_u8(0xd0);
+            out.put_u8(v as i8 as u8);
         } else if v >= -0x8000 {
-            out.push(0xd1);
-            out.extend_from_slice(&(v as i16).to_le_bytes());
+            out.put_u8(0xd1);
+            out.put_slice(&(v as i16).to_le_bytes());
         } else if v >= -0x8000_0000 {
-            out.push(0xd2);
-            out.extend_from_slice(&(v as i32).to_le_bytes());
+            out.put_u8(0xd2);
+            out.put_slice(&(v as i32).to_le_bytes());
         } else {
-            out.push(0xd3);
-            out.extend_from_slice(&(v as u64).to_le_bytes());
+            out.put_u8(0xd3);
+            out.put_slice(&(v as u64).to_le_bytes());
         }
     } else {
-        out.push(0xcb);
-        out.extend_from_slice(&value.to_le_bytes());
+        out.put_u8(0xcb);
+        out.put_slice(&value.to_le_bytes());
     }
 }
 
 /// msgpack string: fixstr / str8 / str16.
-pub fn mp_str(out: &mut Vec<u8>, s: &str) {
+pub fn mp_str(out: &mut impl BufMut, s: &str) {
     let bytes = s.as_bytes();
     let len = bytes.len();
     if len < 0x20 {
-        out.push(len as u8 | 0xa0);
+        out.put_u8(len as u8 | 0xa0);
     } else if len < 0x100 {
-        out.push(0xd9);
-        out.push(len as u8);
+        out.put_u8(0xd9);
+        out.put_u8(len as u8);
     } else {
-        out.push(0xda);
-        out.extend_from_slice(&(len as u16).to_be_bytes());
+        out.put_u8(0xda);
+        out.put_slice(&(len as u16).to_be_bytes());
     }
-    out.extend_from_slice(bytes);
+    out.put_slice(bytes);
 }

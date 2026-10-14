@@ -25,6 +25,6 @@ crates/engine-wasm/tests/csharp/runtimeconfig.template.json
 *.sln
 *.csproj
 *.slnx
-*.blob
-mono_crash.*
+# OpenOxide compiler temporary synthetic entry bridge files
+._*_entry.ts
 

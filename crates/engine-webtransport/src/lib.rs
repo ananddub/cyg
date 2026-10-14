@@ -24,12 +24,16 @@
 //! use engine_webtransport::{WebTransportServer, WtConfig, WtEvent};
 //!
 //! let mut srv = WebTransportServer::new(WtConfig::default()).unwrap();
+//! // Caller-owned event buffer: reused across polls, no per-tick allocation.
+//! let mut events: Vec<WtEvent> = Vec::new();
 //! loop {
-//!     for ev in srv.poll_events(Duration::from_millis(100)).unwrap() {
+//!     srv.poll_events(Duration::from_millis(100), &mut events).unwrap();
+//!     for ev in events.drain(..) {
 //!         match ev {
 //!             WtEvent::SessionOpened { session, .. } => srv.accept_session(session).unwrap(),
 //!             WtEvent::StreamData { session, stream, data, fin } => {
-//!                 srv.stream_send(session, stream, &data, fin).unwrap();
+//!                 srv.stream_send(session, stream, &data, false).unwrap();
+//!                 if fin { srv.stream_close(session, stream).unwrap(); }
 //!             }
 //!             WtEvent::Datagram { session, data } => { srv.send_datagram(session, &data).unwrap(); }
 //!             _ => {}

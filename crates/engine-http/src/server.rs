@@ -21,7 +21,7 @@ use crate::backend::HttpVersion;
 use crate::parse::{ParseOutcome, RequestDecoder};
 use crate::router::Router;
 use crate::types::Response;
-use crate::writer::serialize_http1;
+use crate::writer::serialize_http1_into;
 
 const LISTENER_TOKEN: Token = Token(0);
 
@@ -41,6 +41,10 @@ pub struct Http1Backend {
     conns: HashMap<usize, Conn>,
     next_token: usize,
     served: Arc<AtomicU64>,
+    /// Reused across polls so the ready-set scan allocates nothing per tick.
+    ready: Vec<usize>,
+    closing: Vec<usize>,
+    resp_buf: Vec<u8>,
 }
 
 impl Http1Backend {
@@ -72,6 +76,9 @@ impl Http1Backend {
             conns: HashMap::new(),
             next_token: 1,
             served: Arc::new(AtomicU64::new(0)),
+            ready: Vec::with_capacity(64),
+            closing: Vec::with_capacity(8),
+            resp_buf: Vec::with_capacity(4096),
         })
     }
 
@@ -128,8 +135,10 @@ impl Http1Backend {
                                 .insert("x-peer-addr", peer.to_string());
                             let head_only = request.method == crate::types::Method::Head;
                             let response = self.router.dispatch(request);
-                            let bytes = build_response(&response, keep_alive, head_only);
-                            write_all_best_effort(&mut conn.stream, &bytes);
+                            let body_len = response.body.len();
+                            let buf = &mut self.resp_buf;
+                            serialize_http1_into(buf, &response, keep_alive, body_len, head_only);
+                            write_all_best_effort(&mut conn.stream, buf);
                             self.served.fetch_add(1, Ordering::Relaxed);
                             if !keep_alive {
                                 return Ok(false);
@@ -139,10 +148,9 @@ impl Http1Backend {
                         ParseOutcome::NeedMore => break,
                         ParseOutcome::Failed(status, reason) => {
                             let resp = Response::error(status, reason);
-                            write_all_best_effort(
-                                &mut conn.stream,
-                                &serialize_http1(&resp, false, resp.body.len(), false),
-                            );
+                            let buf = &mut self.resp_buf;
+                            serialize_http1_into(buf, &resp, false, resp.body.len(), false);
+                            write_all_best_effort(&mut conn.stream, buf);
                             return Ok(false);
                         }
                     }
@@ -166,47 +174,44 @@ impl crate::backend::HttpBackend for Http1Backend {
         self.poll.poll(&mut self.events, Some(timeout))?;
         self.accept_pending()?;
 
-        let mut to_remove = Vec::new();
-        let readable_tokens: Vec<usize> = self
-            .events
-            .iter()
-            .filter(|e| e.token() != LISTENER_TOKEN && e.is_readable())
-            .map(|e| e.token().0)
-            .collect();
-        let writable_tokens: Vec<usize> = self
-            .events
-            .iter()
-            .filter(|e| e.token() != LISTENER_TOKEN && e.is_writable())
-            .map(|e| e.token().0)
-            .collect();
+        // Adopted scratch buffers: capacity survives between polls.
+        let mut ready = std::mem::take(&mut self.ready);
+        let mut closing = std::mem::take(&mut self.closing);
+        ready.clear();
+        closing.clear();
 
-        for id in readable_tokens {
+        for e in self.events.iter() {
+            if e.token() != LISTENER_TOKEN && e.is_readable() {
+                ready.push(e.token().0);
+            }
+        }
+
+        for k in 0..ready.len() {
+            let id = ready[k];
             if !self.drain_connection(id)? {
-                if let Some(mut conn) = self.conns.remove(&id) {
-                    let _ = self.poll.registry().deregister(&mut conn.stream);
-                    let _ = conn.stream.shutdown(std::net::Shutdown::Both);
+                close_conn(&mut self.poll, &mut self.conns, id);
+            }
+        }
+
+        for e in self.events.iter() {
+            if e.token() != LISTENER_TOKEN && e.is_writable() {
+                let id = e.token().0;
+                if let Some(conn) = self.conns.get_mut(&id) {
+                    let mut sink = [0u8; 1];
+                    // Reads on writable signal EOF too.
+                    if let Ok(0) = conn.stream.read(&mut sink) {
+                        closing.push(id);
+                    }
                 }
-                continue;
             }
         }
 
-        for id in writable_tokens {
-            if let Some(conn) = self.conns.get_mut(&id) {
-                let mut sink = [0u8; 1];
-                // Reads on writable signal EOF too.
-                if let Ok(0) = conn.stream.read(&mut sink) {
-                    to_remove.push(id);
-                }
-            }
+        for k in 0..closing.len() {
+            close_conn(&mut self.poll, &mut self.conns, closing[k]);
         }
 
-        for id in to_remove {
-            if let Some(mut conn) = self.conns.remove(&id) {
-                let _ = self.poll.registry().deregister(&mut conn.stream);
-                let _ = conn.stream.shutdown(std::net::Shutdown::Both);
-            }
-        }
-
+        self.ready = ready;
+        self.closing = closing;
         Ok((self.served.load(Ordering::Relaxed) - before) as usize)
     }
 
@@ -223,8 +228,11 @@ impl crate::backend::HttpBackend for Http1Backend {
     }
 }
 
-fn build_response(resp: &Response, keep_alive: bool, head_only: bool) -> Vec<u8> {
-    serialize_http1(resp, keep_alive, resp.body.len(), head_only)
+fn close_conn(poll: &mut Poll, conns: &mut HashMap<usize, Conn>, id: usize) {
+    if let Some(mut conn) = conns.remove(&id) {
+        let _ = poll.registry().deregister(&mut conn.stream);
+        let _ = conn.stream.shutdown(std::net::Shutdown::Both);
+    }
 }
 
 /// Best-effort write of the full buffer, tolerating WouldBlock (rare for

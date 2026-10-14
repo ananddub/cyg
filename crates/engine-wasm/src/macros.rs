@@ -107,6 +107,17 @@ macro_rules! wasm_module {
                 self.instance.read_memory(offset, len)
             }
 
+            /// [`read_memory`](Self::read_memory) into a caller-owned buffer, so a
+            /// per-tick delta read reuses one allocation.
+            pub fn read_memory_into(
+                &self,
+                offset: u32,
+                len: u32,
+                out: &mut Vec<u8>,
+            ) -> Result<(), $crate::WasmError> {
+                self.instance.read_memory_into(offset, len, out)
+            }
+
             /// Write raw bytes into linear memory.
             pub fn write_memory(&mut self, offset: u32, bytes: &[u8]) -> Result<(), $crate::WasmError> {
                 self.instance.write_memory(offset, bytes)
@@ -115,6 +126,27 @@ macro_rules! wasm_module {
             /// Mutably access the underlying raw WasmInstance.
             pub fn raw_instance(&mut self) -> &mut $crate::WasmInstance<T> {
                 &mut self.instance
+            }
+
+            /// Immutably access the underlying raw WasmInstance.
+            pub fn raw_instance_ref(&self) -> &$crate::WasmInstance<T> {
+                &self.instance
+            }
+
+            /// Snapshot the linear memory buffer for rollback or serialization.
+            pub fn snapshot_memory(&self) -> Result<Vec<u8>, $crate::WasmError> {
+                self.instance.snapshot_memory()
+            }
+
+            /// Restore linear memory directly from a previous snapshot.
+            pub fn restore_memory(&mut self, snapshot: &[u8]) -> Result<(), $crate::WasmError> {
+                self.instance.restore_memory(snapshot)
+            }
+
+            /// Compute a 64-bit FNV-1a checksum of the linear memory.
+            pub fn compute_memory_checksum(&self) -> Result<u64, $crate::WasmError> {
+                let slice = self.instance.raw_memory_slice()?;
+                Ok($crate::rollback::compute_checksum_64(slice))
             }
 
             $(

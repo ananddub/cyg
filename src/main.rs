@@ -8,9 +8,10 @@
 
 mod compile;
 mod config;
-pub mod net_sync;
-pub mod physics;
-pub mod rapier_integration;
+pub use engine_protocol as net_sync;
+pub use engine_physics as physics;
+pub use engine_physics::rapier as rapier_integration;
+pub use engine_spatial as spatial;
 mod server;
 
 use config::GameConfig;
@@ -37,6 +38,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        "gen-interface" | "interfaces" | "sdk" => {
+            if let Err(e) = generate_interfaces(&dir) {
+                eprintln!("✗ gen-interface failed: {e}");
+                std::process::exit(1);
+            }
+        }
         "--help" | "-h" | "help" => print_help(),
         other => {
             eprintln!("unknown command: {other}");
@@ -51,19 +58,20 @@ fn print_help() {
         "ox-game — OpenOxide game server
 
 USAGE:
-  ox-game init [dir]    create a game project (config.yml + room.ts + website.html)
-  ox-game run  [dir]    compile the room (if needed) and start the server
-  ox-game               same as `run` in the current directory
+  ox-game init          [dir]    create a game project (config.yml + room.ts + website.html)
+  ox-game run           [dir]    compile the room (if needed) and start the server
+  ox-game gen-interface [dir]    auto-generate C++, Rust, C#, AssemblyScript & TypeScript interfaces
+  ox-game                        same as `run` in the current directory
 
 CONFIG:
-  Everything lives in config.yml — runtime, source file, ports, tick rate.
+  Everything lives in config.toml — runtime, source file, ports, tick rate.
   See the template `ox-game init` writes."
     );
 }
 
 /// `ox-game init [dir]` — scaffold a project.
 fn init(dir: &Path) -> std::io::Result<()> {
-    let config_path = dir.join("config.yml");
+    let config_path = dir.join("config.toml");
     if config_path.exists() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
@@ -81,7 +89,7 @@ fn init(dir: &Path) -> std::io::Result<()> {
     println!("✓ game project created in {}", dir.display());
     println!();
     println!(
-        "  {}/config.yml     — runtime, ports, tick rate",
+        "  {}/config.toml     — runtime, ports, tick rate",
         dir.display()
     );
     println!(
@@ -96,11 +104,11 @@ fn init(dir: &Path) -> std::io::Result<()> {
 
 /// `ox-game run [dir]` — compile (if needed) and serve.
 fn run(dir: &Path) -> std::io::Result<()> {
-    let cfg = if dir.join("config.yml").exists() || dir.join("config.yml").is_file() {
+    let cfg = if dir.join("config.toml").exists() || dir.join("config.yml").exists() || dir.is_file() {
         config::load_config(dir)?
-    } else if dir == Path::new(".") && !Path::new("config.yml").exists() {
+    } else if dir == Path::new(".") && !Path::new("config.toml").exists() && !Path::new("config.yml").exists() {
         // No project here: run the built-in demo (example room + website).
-        eprintln!("[run] no config.yml found — running the built-in demo");
+        eprintln!("[run] no config.toml found — running the built-in demo");
         GameConfig {
             name: "game_room".into(),
             source: PathBuf::from("crates/engine-net/examples/e2e/room.ts"),
@@ -110,7 +118,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
     } else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!("config.yml not found in {}", dir.display()),
+            format!("config.toml not found in {}", dir.display()),
         ));
     };
 
@@ -129,4 +137,38 @@ fn run(dir: &Path) -> std::io::Result<()> {
     println!("🧩 room runtime: {:?}", cfg.runtime);
     let wasm_path = compile::build(&project_dir, &cfg)?;
     server::run(&project_dir, &wasm_path, &cfg)
+}
+
+/// `ox-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.
+fn generate_interfaces(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+
+    let lua_path = dir.join("openoxide.lua");
+    let c_path = dir.join("openoxide.h");
+    let cpp_path = dir.join("openoxide.hpp");
+    let rust_path = dir.join("openoxide_room.rs");
+    let csharp_path = dir.join("OpenOxide.cs");
+    let as_path = dir.join("openoxide.ts");
+    let ts_path = dir.join("openoxide.d.ts");
+    let readme_path = dir.join("README.md");
+
+    std::fs::write(&lua_path, include_str!("../sdk/interfaces/lua/openoxide.lua"))?;
+    std::fs::write(&c_path, include_str!("../sdk/interfaces/c/openoxide.h"))?;
+    std::fs::write(&cpp_path, include_str!("../sdk/interfaces/cpp/openoxide.hpp"))?;
+    std::fs::write(&rust_path, include_str!("../sdk/interfaces/rust/openoxide_room.rs"))?;
+    std::fs::write(&csharp_path, include_str!("../sdk/interfaces/csharp/OpenOxide.cs"))?;
+    std::fs::write(&as_path, include_str!("../sdk/interfaces/assemblyscript/openoxide.ts"))?;
+    std::fs::write(&ts_path, include_str!("../sdk/interfaces/typescript/openoxide.d.ts"))?;
+    std::fs::write(&readme_path, include_str!("../sdk/interfaces/README.md"))?;
+
+    println!("✓ Successfully auto-generated OpenOxide Room Interfaces in {}:", dir.display());
+    println!("  • {} (Lua Room SDK & Class)", lua_path.display());
+    println!("  • {} (Pure C Procedural Header)", c_path.display());
+    println!("  • {} (C++ Class & Macro Header)", cpp_path.display());
+    println!("  • {} (Rust Guest Trait)", rust_path.display());
+    println!("  • {} (C# .NET 8 Room Class)", csharp_path.display());
+    println!("  • {} (AssemblyScript Room Base Class)", as_path.display());
+    println!("  • {} (TypeScript Lifecycle Contract)", ts_path.display());
+    println!("  • {} (Quick Start Guide)", readme_path.display());
+    Ok(())
 }

@@ -3,6 +3,8 @@
 //! Incremental, allocation-light framing:
 //! [1 byte FIN/opcode][1 byte MASK+len7][0/2/8 byte extended len][0/4 byte mask key][payload]
 
+use bytes::{BufMut, Bytes, BytesMut};
+
 /// Frame opcodes (RFC 6455 §5.2).
 pub mod opcode {
     pub const CONTINUATION: u8 = 0x0;
@@ -29,7 +31,9 @@ pub mod close_code {
 pub struct Frame {
     pub fin: bool,
     pub opcode: u8,
-    pub payload: Vec<u8>,
+    /// Zero-copy view of the decoder's receive buffer — cloning is a
+    /// refcount bump, not a byte copy.
+    pub payload: Bytes,
 }
 
 /// Protocol violation while decoding — carry close code 1002.
@@ -48,31 +52,38 @@ pub fn encode_frame(
     opcode: u8,
     payload: &[u8],
     mask_key: Option<[u8; 4]>,
-    out: &mut Vec<u8>,
+    out: &mut impl BufMut,
 ) {
     let len = payload.len();
-    out.push(if fin { 0x80 | opcode } else { opcode });
+    out.put_u8(if fin { 0x80 | opcode } else { opcode });
     let mask_bit = if mask_key.is_some() { 0x80 } else { 0 };
     match len {
-        0..=125 => out.push(mask_bit | len as u8),
+        0..=125 => out.put_u8(mask_bit | len as u8),
         126..=0xFFFF => {
-            out.push(mask_bit | 126);
-            out.extend_from_slice(&(len as u16).to_be_bytes());
+            out.put_u8(mask_bit | 126);
+            out.put_slice(&(len as u16).to_be_bytes());
         },
         _ => {
-            out.push(mask_bit | 127);
-            out.extend_from_slice(&(len as u64).to_be_bytes());
+            out.put_u8(mask_bit | 127);
+            out.put_slice(&(len as u64).to_be_bytes());
         },
     }
     if let Some(key) = mask_key {
-        out.extend_from_slice(&key);
-        let start = out.len();
-        out.extend_from_slice(payload);
-        for (i, byte) in out[start..].iter_mut().enumerate() {
-            *byte ^= key[i % 4];
+        out.put_slice(&key);
+        // Mask while writing: `BufMut` gives no mutable access to bytes
+        // already in the buffer, so XOR goes straight into the sink.
+        let mut chunk = [0u8; 1024];
+        let mut offset = 0usize;
+        while offset < payload.len() {
+            let n = (payload.len() - offset).min(chunk.len());
+            for i in 0..n {
+                chunk[i] = payload[offset + i] ^ key[(offset + i) & 3];
+            }
+            out.put_slice(&chunk[..n]);
+            offset += n;
         }
     } else {
-        out.extend_from_slice(payload);
+        out.put_slice(payload);
     }
 }
 
@@ -80,44 +91,69 @@ pub fn encode_frame(
 ///
 /// Feed socket bytes with [`feed`](Self::feed); a `Ok(None)` means "need more
 /// bytes". Frames larger than `max_payload_bytes` are rejected before their
-/// payload is buffered.
+/// payload is buffered. Decoded payloads are zero-copy [`Bytes`] views of the
+/// internal buffer — consumed prefixes are detached in O(1), no compaction.
 pub struct FrameDecoder {
-    buf: Vec<u8>,
-    read: usize,
+    buf: BytesMut,
     max_payload_bytes: usize,
 }
 
 impl FrameDecoder {
     pub fn new(max_payload_bytes: usize) -> Self {
         Self {
-            buf: Vec::with_capacity(4096),
-            read: 0,
+            buf: BytesMut::with_capacity(4096),
             max_payload_bytes,
         }
     }
 
-    pub fn feed(&mut self, bytes: &[u8]) -> Result<Vec<Frame>, FrameError> {
-        let mut frames = Vec::new();
+    /// Append every frame completed by these bytes to `out` (caller-owned —
+    /// reuse one `Vec` across feeds; it is not cleared here).
+    pub fn feed(&mut self, bytes: &[u8], out: &mut Vec<Frame>) -> Result<(), FrameError> {
         self.buf.extend_from_slice(bytes);
+        self.decode_ready(out)
+    }
+
+    /// Read straight from a socket into the buffer's spare capacity — the
+    /// bytes never touch an intermediate stack buffer — and append every
+    /// frame the read completed to `out`. `Ok((0, _))` is EOF; `WouldBlock`
+    /// comes back as an `io::Error`. Frame-level protocol errors are
+    /// returned in the inner `Result` so the server can map them to close
+    /// codes.
+    pub fn feed_socket<R: std::io::Read>(
+        &mut self,
+        socket: &mut R,
+        want: usize,
+        out: &mut Vec<Frame>,
+    ) -> std::io::Result<(usize, Result<(), FrameError>)> {
+        self.buf.reserve(want);
+        let spare = self.buf.spare_capacity_mut();
+        let len = spare.len().min(want);
+        // SAFETY: `MaybeUninit<u8>` and `u8` share the same layout and
+        // alignment; the kernel only writes into the slice it is handed.
+        let raw = unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr() as *mut u8, len) };
+        match socket.read(raw) {
+            Ok(0) => Ok((0, Ok(()))),
+            Ok(n) => {
+                // SAFETY: the read initialized exactly `raw[..n]`, and
+                // `old_len + n` stays within the reserved capacity.
+                unsafe { self.buf.set_len(self.buf.len() + n) };
+                Ok((n, self.decode_ready(out)))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn decode_ready(&mut self, out: &mut Vec<Frame>) -> Result<(), FrameError> {
         loop {
             match self.try_decode()? {
-                Some(frame) => frames.push(frame),
-                None => break,
+                Some(frame) => out.push(frame),
+                None => return Ok(()),
             }
         }
-        // Compaction: drop fully consumed prefix when it outpaces live data.
-        if self.read > 0 && self.read == self.buf.len() {
-            self.buf.clear();
-            self.read = 0;
-        } else if self.read >= 16 * 1024 {
-            self.buf.drain(..self.read);
-            self.read = 0;
-        }
-        Ok(frames)
     }
 
     fn try_decode(&mut self) -> Result<Option<Frame>, FrameError> {
-        let buf = &self.buf[self.read..];
+        let buf = &self.buf[..];
         if buf.len() < 2 {
             return Ok(None);
         }
@@ -172,16 +208,17 @@ impl FrameDecoder {
             None
         };
 
-        let payload_start = self.read + hdr + key_len;
-        let payload_end = payload_start + len;
-        let mut payload = self.buf[payload_start..payload_end].to_vec();
+        // Detach the whole frame, unmask the payload in place, and hand out a
+        // zero-copy view of it.
+        let payload_start = hdr + key_len;
+        let mut frame = self.buf.split_to(payload_start + len);
         if let Some(k) = key {
-            for (i, byte) in payload.iter_mut().enumerate() {
-                *byte ^= k[i % 4];
+            for (i, byte) in frame[payload_start..].iter_mut().enumerate() {
+                *byte ^= k[i & 3];
             }
         }
+        let payload = frame.split_off(payload_start).freeze();
 
-        self.read = payload_end;
         Ok(Some(Frame { fin, opcode, payload }))
     }
 }
@@ -212,7 +249,8 @@ mod tests {
         let mut out = Vec::new();
         encode_frame(true, opcode, payload, key, &mut out);
         let mut dec = FrameDecoder::new(128 * 1024);
-        let frames = dec.feed(&out).unwrap();
+        let mut frames = Vec::new();
+        dec.feed(&out, &mut frames).unwrap();
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].payload, payload);
         assert!(frames[0].fin);
@@ -234,15 +272,14 @@ mod tests {
         let mut dec = FrameDecoder::new(8 * 1024);
         let mut got = Vec::new();
         for (i, byte) in out.iter().enumerate() {
-            let frames = dec.feed(&[(*byte)]).unwrap();
-            got.extend(frames);
+            dec.feed(&[(*byte)], &mut got).unwrap();
             assert!(got.len() <= 1);
             if i < out.len() - 1 {
                 assert!(got.is_empty() || i == out.len() - 1);
             }
         }
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].payload, b"hello world");
+        assert_eq!(&got[0].payload[..], b"hello world");
     }
 
     #[test]
@@ -251,7 +288,8 @@ mod tests {
         encode_frame(true, opcode::TEXT, b"aa", Some([0; 4]), &mut out);
         encode_frame(true, opcode::PING, b"p", Some([0; 4]), &mut out);
         let mut dec = FrameDecoder::new(8 * 1024);
-        let frames = dec.feed(&out).unwrap();
+        let mut frames = Vec::new();
+        dec.feed(&out, &mut frames).unwrap();
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0].opcode, opcode::TEXT);
         assert_eq!(frames[1].opcode, opcode::PING);
@@ -271,8 +309,9 @@ mod tests {
         let mut out = Vec::new();
         encode_frame(true, opcode::BINARY, &vec![0u8; 5000], None, &mut out);
         let mut dec = FrameDecoder::new(1024);
+        let mut frames = Vec::new();
         assert!(matches!(
-            dec.feed(&out),
+            dec.feed(&out, &mut frames),
             Err(FrameError::TooBig(5000))
         ));
     }
@@ -280,7 +319,8 @@ mod tests {
     #[test]
     fn reserved_bit_rejected() {
         let mut dec = FrameDecoder::new(1024);
-        let err = dec.feed(&[0xF0, 0x00]).unwrap_err();
+        let mut frames = Vec::new();
+        let err = dec.feed(&[0xF0, 0x00], &mut frames).unwrap_err();
         assert!(matches!(err, FrameError::Protocol("reserved bits set")));
     }
 

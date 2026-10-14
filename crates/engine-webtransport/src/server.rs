@@ -16,7 +16,7 @@ use std::io;
 use std::net::{SocketAddr, UdpSocket as StdUdpSocket};
 use std::time::{Duration, Instant};
 
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use mio::net::UdpSocket as MioUdpSocket;
 use mio::{Events, Interest, Poll, Token, Waker};
 use qpack::{decode_stateless, encode_stateless};
@@ -82,11 +82,11 @@ pub enum WtEvent {
     StreamData {
         session: u64,
         stream: u64,
-        data: Vec<u8>,
+        data: Bytes,
         fin: bool,
     },
     /// Decoded WT datagram payload for the session.
-    Datagram { session: u64, data: Vec<u8> },
+    Datagram { session: u64, data: Bytes },
     /// The whole QUIC connection ended.
     ConnectionClosed { reason: String },
 }
@@ -95,11 +95,11 @@ pub enum WtEvent {
 enum StreamIn {
     /// First varint(s) not yet complete: accumulating. `bidi` tells which
     /// classification table to apply once we can decode.
-    Classify { buf: Vec<u8>, bidi: bool },
-    Control { buf: Vec<u8> },
+    Classify { buf: BytesMut, bidi: bool },
+    Control { buf: BytesMut },
     Qpack,
     Request {
-        buf: Vec<u8>,
+        buf: BytesMut,
         request: Option<WtRequest>,
         terminal: bool,
     },
@@ -108,7 +108,7 @@ enum StreamIn {
 }
 
 struct WriteChunk {
-    data: Vec<u8>,
+    data: Bytes,
     pos: usize,
     fin: bool,
 }
@@ -139,12 +139,34 @@ pub struct WebTransportServer {
     local: SocketAddr,
     qconfig: quiche::Config,
     conns: HashMap<u64, EngineConn>,
-    conn_by_dcid: HashMap<Vec<u8>, u64>,
+    /// Connection-id index. Keys are zero-padded fixed arrays (QUIC CIDs are
+    /// ≤ 20 bytes), so no per-lookup heap key.
+    conn_by_dcid: HashMap<[u8; quiche::MAX_CONN_ID_LEN], u64>,
     next_cidx: u64,
     sessions: HashMap<u64, SessionRec>,
     handle_by_stream: HashMap<(u64, u64), u64>,
     next_handle: u64,
     events: Events,
+    // ---- persistent scratch (allocated once, reused every poll) ----
+    /// UDP receive / version-negotiation buffer.
+    udp_buf: Vec<u8>,
+    /// QUIC packet send buffer.
+    send_buf: Vec<u8>,
+    /// `stream_recv` chunk buffer.
+    chunk_buf: Vec<u8>,
+    /// `dgram_recv` buffer.
+    dgram_buf: Vec<u8>,
+    /// Single-copy handoff of received bytes into `Bytes` events.
+    ev_scratch: BytesMut,
+    /// Cross-poll `WtEvent` buffer; adopted so helpers take `&mut self`.
+    event_buf: Vec<WtEvent>,
+    /// Scratch for enumerate-then-remove passes.
+    doomed: Vec<u64>,
+    /// Scratch for the pending-write sweep (separate from `doomed`, which the
+    /// poll loop holds while flushing).
+    flush_sids: Vec<u64>,
+    /// Scratch for server-initiated uni stream prefixes.
+    uni_prefix: Vec<u8>,
 }
 
 impl WebTransportServer {
@@ -198,6 +220,15 @@ impl WebTransportServer {
             handle_by_stream: HashMap::new(),
             next_handle: 0,
             events: Events::with_capacity(128),
+            udp_buf: vec![0u8; READ_BUF_LEN],
+            send_buf: vec![0u8; READ_BUF_LEN],
+            chunk_buf: vec![0u8; STREAM_CHUNK],
+            dgram_buf: vec![0u8; READ_BUF_LEN],
+            ev_scratch: BytesMut::new(),
+            event_buf: Vec::new(),
+            doomed: Vec::new(),
+            flush_sids: Vec::new(),
+            uni_prefix: Vec::with_capacity(16),
         })
     }
 
@@ -213,9 +244,11 @@ impl WebTransportServer {
         self.sessions.values().filter(|s| !s.closed).count()
     }
 
-    /// Drive the QUIC/h3/WT machinery for up to `wait`, draining app events.
-    pub fn poll_events(&mut self, wait: Duration) -> io::Result<Vec<WtEvent>> {
-        let mut out = Vec::new();
+    /// Drive the QUIC/h3/WT machinery for up to `wait`, appending app events
+    /// to the caller-owned `out` buffer (reused across polls).
+    pub fn poll_events(&mut self, wait: Duration, out: &mut Vec<WtEvent>) -> io::Result<()> {
+        let mut ev = std::mem::take(&mut self.event_buf);
+        ev.clear();
         let now = Instant::now();
 
         let mut timeout = wait;
@@ -232,22 +265,23 @@ impl WebTransportServer {
         let udp_fired = self.events.iter().any(|e| e.token() == UDP);
 
         if udp_fired {
-            loop {
-                let mut buf = vec![0u8; READ_BUF_LEN];
-                match self.socket.recv_from(&mut buf) {
-                    Ok((len, from)) => {
-                        buf.truncate(len);
-                        self.route_packet(buf, from, now, &mut out);
-                    }
+            // The receive buffer is held locally while routing so `route_packet`
+            // can take `&mut self` without aliasing a field borrow.
+            let mut udp = std::mem::take(&mut self.udp_buf);
+            let result = loop {
+                match self.socket.recv_from(&mut udp) {
+                    Ok((len, from)) => self.route_packet(&mut udp[..len], from, now, &mut ev),
                     Err(ref e)
                         if e.kind() == io::ErrorKind::WouldBlock
                             || e.kind() == io::ErrorKind::Interrupted =>
                     {
-                        break
+                        break Ok(())
                     }
-                    Err(e) => return Err(e),
+                    Err(e) => break Err(e),
                 }
-            }
+            };
+            self.udp_buf = udp;
+            result?;
         }
 
         if !fired {
@@ -258,25 +292,52 @@ impl WebTransportServer {
 
         // Drain application writes that were flow/blocked earlier, then push
         // every connection's packets out.
-        let cids: Vec<u64> = self.conns.keys().copied().collect();
-        for cidx in cids {
+        let mut cids = std::mem::take(&mut self.doomed);
+        cids.clear();
+        cids.extend(self.conns.keys().copied());
+        for i in 0..cids.len() {
+            let cidx = cids[i];
             self.flush_pending(cidx);
-            self.flush_send(cidx, &mut out);
+            self.flush_send(cidx, &mut ev);
         }
+        self.doomed = cids;
 
-        self.reap_closed(&mut out);
-        Ok(out)
+        self.reap_closed(&mut ev);
+        std::mem::swap(out, &mut ev);
+        ev.clear();
+        self.event_buf = ev;
+        Ok(())
     }
 
-    fn route_packet(&mut self, mut packet: Vec<u8>, from: SocketAddr, now: Instant, out: &mut Vec<WtEvent>) {
-        let (dcid, scid, ty, version) = match quiche::Header::from_slice(&mut packet, quiche::MAX_CONN_ID_LEN) {
-            Ok(h) => (
-                h.dcid.as_ref().to_vec(),
-                h.scid.as_ref().to_vec(),
+    /// Copy a variable-length QUIC connection id into the fixed inline key.
+    fn cid_key(cid: &[u8]) -> [u8; quiche::MAX_CONN_ID_LEN] {
+        let mut k = [0u8; quiche::MAX_CONN_ID_LEN];
+        let n = cid.len().min(quiche::MAX_CONN_ID_LEN);
+        k[..n].copy_from_slice(&cid[..n]);
+        k
+    }
+
+    fn route_packet(
+        &mut self,
+        mut packet: &mut [u8],
+        from: SocketAddr,
+        now: Instant,
+        out: &mut Vec<WtEvent>,
+    ) {
+        // quiche parses the header in place, so the buffer is handed out
+        // mutably; everything we need is copied into inline keys first.
+        let (dcid, scid, odcid_len, ty, version) = {
+            let h = match quiche::Header::from_slice(&mut packet, quiche::MAX_CONN_ID_LEN) {
+                Ok(h) => h,
+                Err(_) => return,
+            };
+            (
+                Self::cid_key(h.dcid.as_ref()),
+                Self::cid_key(h.scid.as_ref()),
+                h.dcid.len(),
                 h.ty,
                 h.version,
-            ),
-            Err(_) => return,
+            )
         };
 
         let known = self.conn_by_dcid.get(&dcid).copied();
@@ -289,7 +350,7 @@ impl WebTransportServer {
                 let Some(c) = self.conns.get_mut(&cidx) else {
                     return;
                 };
-                let _ = c.conn.recv(&mut packet, info);
+                let _ = c.conn.recv(&mut packet[..], info);
                 c.peer = from;
             }
             self.process_conn(cidx, now, out);
@@ -298,41 +359,49 @@ impl WebTransportServer {
 
         // Retry-token-free path: unknown CID.
         if ty == quiche::Type::Initial && quiche::version_is_supported(version) {
-            self.new_conn(&dcid, &scid, packet, from, now, out);
+            self.new_conn(&dcid, &dcid[..odcid_len], &mut packet[..], from, now, out);
         } else if version != quiche::PROTOCOL_VERSION && ty != quiche::Type::Short {
-            let mut outb = vec![0u8; READ_BUF_LEN];
-            let scid_cid = quiche::ConnectionId::from_ref(&scid);
-            let dcid_cid = quiche::ConnectionId::from_ref(&dcid);
-            if let Ok(len) = quiche::negotiate_version(&scid_cid, &dcid_cid, &mut outb) {
-                let _ = self.socket.send_to(&outb[..len], from);
+            let scid_cid = quiche::ConnectionId::from_ref(&scid[..]);
+            let dcid_cid = quiche::ConnectionId::from_ref(&dcid[..]);
+            if let Ok(len) = quiche::negotiate_version(&scid_cid, &dcid_cid, &mut self.send_buf) {
+                let _ = self.socket.send_to(&self.send_buf[..len], from);
             }
         } else {
             // Mid-connection packets with a CID we lost: try every conn and
             // let quiche accept whichever decrypts it.
-            for cidx in self.conns.keys().copied().collect::<Vec<_>>() {
+            let mut candidates = std::mem::take(&mut self.doomed);
+            candidates.clear();
+            candidates.extend(self.conns.keys().copied());
+            let mut matched: Option<u64> = None;
+            for i in 0..candidates.len() {
+                let cidx = candidates[i];
                 let info = quiche::RecvInfo {
                     from,
                     to: self.local,
                 };
                 let ok = if let Some(c) = self.conns.get_mut(&cidx) {
-                    c.conn.recv(&mut packet, info).is_ok()
+                    c.conn.recv(&mut packet[..], info).is_ok()
                 } else {
                     false
                 };
                 if ok {
-                    self.conn_by_dcid.insert(dcid, cidx);
-                    self.process_conn(cidx, now, out);
-                    return;
+                    matched = Some(cidx);
+                    break;
                 }
+            }
+            self.doomed = candidates;
+            if let Some(cidx) = matched {
+                self.conn_by_dcid.insert(dcid, cidx);
+                self.process_conn(cidx, now, out);
             }
         }
     }
 
     fn new_conn(
         &mut self,
-        dcid: &[u8],
-        _scid: &[u8],
-        mut packet: Vec<u8>,
+        dcid: &[u8; quiche::MAX_CONN_ID_LEN],
+        odcid: &[u8],
+        packet: &mut [u8],
         from: SocketAddr,
         now: Instant,
         out: &mut Vec<WtEvent>,
@@ -345,11 +414,11 @@ impl WebTransportServer {
             *b = seed.rotate_left(i as u32 * 7).to_be_bytes()[i % 8] ^ (i as u64).to_le_bytes()[0] as u8;
         }
         let scid_cid = quiche::ConnectionId::from_ref(&scid);
-        let odcid = quiche::ConnectionId::from_ref(dcid);
+        let odcid_cid = quiche::ConnectionId::from_ref(odcid);
 
         let Ok(conn) = quiche::accept(
             &scid_cid,
-            Some(&odcid),
+            Some(&odcid_cid),
             self.local,
             from,
             &mut self.qconfig,
@@ -359,8 +428,8 @@ impl WebTransportServer {
 
         let cidx = self.next_cidx;
         self.next_cidx += 1;
-        self.conn_by_dcid.insert(dcid.to_vec(), cidx);
-        self.conn_by_dcid.insert(scid.to_vec(), cidx);
+        self.conn_by_dcid.insert(*dcid, cidx);
+        self.conn_by_dcid.insert(Self::cid_key(&scid), cidx);
         self.conns.insert(
             cidx,
             EngineConn {
@@ -379,7 +448,7 @@ impl WebTransportServer {
             to: self.local,
         };
         if let Some(c) = self.conns.get_mut(&cidx) {
-            let _ = c.conn.recv(&mut packet, info);
+            let _ = c.conn.recv(packet, info);
         }
         self.process_conn(cidx, now, out);
     }
@@ -397,65 +466,95 @@ impl WebTransportServer {
             let c = &mut self.conns.get_mut(&cidx).unwrap();
             if !c.control_written {
                 c.control_written = true;
-                let mut ctl = Vec::new();
+                // Control-stream intro: type varint + SETTINGS frame.
+                // One-shot per connection; allocation here is negligible.
+                let mut ctl = Vec::with_capacity(16 + 32);
                 encode_into(stream_type::CONTROL, &mut ctl);
-                let settings = h3::build_frame(frame_type::SETTINGS, &h3::server_settings_payload());
-                ctl.extend_from_slice(&settings);
+                let mut settings_body = Vec::with_capacity(48);
+                h3::server_settings_payload(&mut settings_body);
+                ctl.extend_from_slice(&h3::build_frame(frame_type::SETTINGS, &settings_body));
                 let sid = c.next_server_uni;
                 c.next_server_uni += 4;
                 let _ = c.conn.stream_send(sid, &ctl, false);
             }
         }
 
-        // Collect readable stream ids (readable() borrows immutably).
-        let readable: Vec<u64> = match self.conns.get(&cidx) {
-            Some(c) => c.conn.readable().collect(),
-            None => return,
-        };
-
-        let mut chunk = vec![0u8; STREAM_CHUNK];
-        for sid in readable {
+        // Collect readable stream ids into the persistent scratch
+        // (`readable()` borrows immutably).
+        let mut readable = std::mem::take(&mut self.doomed);
+        readable.clear();
+        if let Some(c) = self.conns.get(&cidx) {
+            readable.extend(c.conn.readable());
+        }
+        let mut i = 0usize;
+        while i < readable.len() {
+            let sid = readable[i];
+            i += 1;
             loop {
-                let res = match self.conns.get_mut(&cidx) {
-                    Some(c) => c.conn.stream_recv(sid, &mut chunk),
-                    None => break,
-                };
-                match res {
-                    Ok((0, true)) => {
-                        self.feed_stream(cidx, sid, &[], true, out);
+                let (data, fin) = {
+                    let Some(c) = self.conns.get_mut(&cidx) else {
                         break;
+                    };
+                    match c.conn.stream_recv(sid, &mut self.chunk_buf) {
+                        Ok((0, true)) => (None, true),
+                        Ok((0, false)) => break,
+                        Ok((n, fin)) => (Some(n), fin),
+                        Err(quiche::Error::Done) => break,
+                        Err(_) => break,
                     }
-                    Ok((0, false)) => break,
-                    Ok((n, fin)) => {
-                        let data = chunk[..n].to_vec();
-                        self.feed_stream(cidx, sid, &data, fin, out);
+                };
+                match data {
+                    Some(n) => {
+                        // Single copy into the BytesMut slab; the event then
+                        // shares it zero-copy (`split().freeze()`).
+                        self.ev_scratch.clear();
+                        self.ev_scratch.reserve(n);
+                        self.ev_scratch.put_slice(&self.chunk_buf[..n]);
+                        let bytes = self.ev_scratch.split().freeze();
+                        self.feed_stream(cidx, sid, bytes, fin, out);
                         if fin {
                             break;
                         }
-                    }
-                    Err(quiche::Error::Done) => break,
-                    Err(_) => break,
+                    },
+                    None => {
+                        self.feed_stream(cidx, sid, Bytes::new(), true, out);
+                        break;
+                    },
                 }
             }
         }
+        readable.clear();
+        self.doomed = readable;
 
         // Datagram frames carry WT datagrams (length-prefixed records).
         loop {
-            let mut dbuf = vec![0u8; READ_BUF_LEN];
-            let res = match self.conns.get_mut(&cidx) {
-                Some(c) => c.conn.dgram_recv(&mut dbuf),
+            let n = match self.conns.get_mut(&cidx) {
+                Some(c) => match c.conn.dgram_recv(&mut self.dgram_buf) {
+                    Ok(n) => n,
+                    Err(_) => break,
+                },
                 None => break,
             };
-            match res {
-                Ok(n) => self.feed_quic_dgram(cidx, &dbuf[..n], out),
-                Err(_) => break,
-            }
+            // One copy into the slab; `feed_quic_dgram` hands out `Bytes`
+            // views without re-copying.
+            self.ev_scratch.clear();
+            self.ev_scratch.reserve(n);
+            self.ev_scratch.put_slice(&self.dgram_buf[..n]);
+            let bytes = self.ev_scratch.split().freeze();
+            self.feed_quic_dgram(cidx, bytes, out);
         }
 
         self.flush_pending(cidx);
     }
 
-    fn feed_stream(&mut self, cidx: u64, sid: u64, data: &[u8], fin: bool, out: &mut Vec<WtEvent>) {
+    fn feed_stream(
+        &mut self,
+        cidx: u64,
+        sid: u64,
+        data: Bytes,
+        fin: bool,
+        out: &mut Vec<WtEvent>,
+    ) {
         let bidi = sid & 0x03 == 0;
         let entry_exists = self
             .conns
@@ -467,7 +566,7 @@ impl WebTransportServer {
             // New peer stream: start in Classify (uni and bidi prefixes).
             if let Some(c) = self.conns.get_mut(&cidx) {
                 c.streams
-                    .insert(sid, StreamIn::Classify { buf: Vec::new(), bidi });
+                    .insert(sid, StreamIn::Classify { buf: BytesMut::new(), bidi });
             }
         }
 
@@ -498,94 +597,84 @@ impl WebTransportServer {
         match tag {
             Tag::Gone => return,
             Tag::Classify => {
-                let buf = {
-                    let c = self.conns.get_mut(&cidx).unwrap();
-                    match c.streams.get_mut(&sid) {
-                        Some(StreamIn::Classify { buf, bidi }) => {
-                            buf.extend_from_slice(data);
-                            let bidi = *bidi;
-                            let snapshot = std::mem::take(buf);
-                            (snapshot, bidi)
-                        }
-                        _ => return,
-                    }
+                // Append, then decode the prefix against the buffer in place.
+                let conn = match self.conns.get_mut(&cidx) {
+                    Some(c) => c,
+                    None => return,
                 };
-                match classify_bytes(&buf.0, buf.1) {
+                let Some(StreamIn::Classify { buf, bidi }) = conn.streams.get_mut(&sid) else {
+                    return;
+                };
+                buf.put_slice(&data);
+                match classify_bytes(buf, *bidi) {
                     None => {
-                        // Prefix incomplete: restore buffer, await more.
-                        let c = self.conns.get_mut(&cidx).unwrap();
-                        if let Some(StreamIn::Classify { buf: slot, .. }) =
-                            c.streams.get_mut(&sid)
-                        {
-                            *slot = buf.0;
-                        }
+                        // Prefix incomplete: the buffer already holds every
+                        // byte; await more (or drop on fin).
                         if fin {
-                            let c = self.conns.get_mut(&cidx).unwrap();
-                            c.streams.remove(&sid);
+                            conn.streams.remove(&sid);
                         }
-                    }
-                    Some((what, rest)) => match what {
-                        Classified::Control => {
-                            let c = self.conns.get_mut(&cidx).unwrap();
-                            *c.streams.get_mut(&sid).unwrap() = StreamIn::Control { buf: Vec::new() };
-                            self.process_control(cidx, sid, &rest, out);
-                        }
-                        Classified::Qpack => {
-                            let c = self.conns.get_mut(&cidx).unwrap();
-                            *c.streams.get_mut(&sid).unwrap() = StreamIn::Qpack;
-                        }
-                        Classified::Request => {
-                            let c = self.conns.get_mut(&cidx).unwrap();
-                            *c.streams.get_mut(&sid).unwrap() = StreamIn::Request {
-                                buf: Vec::new(),
-                                request: None,
-                                terminal: false,
-                            };
-                            self.process_request(cidx, sid, &rest, out);
-                        }
-                        Classified::Wt { session, dir } => {
-                            // `session` is the local CONNECT stream id;
-                            // translate to the global handle.
-                            let handle = match self.handle_by_stream.get(&(cidx, session)) {
-                                Some(h) => *h,
-                                None => {
-                                    let c = self.conns.get_mut(&cidx).unwrap();
-                                    c.streams.remove(&sid);
-                                    let _ = c
-                                        .conn
-                                        .stream_shutdown(sid, quiche::Shutdown::Read, 0x100);
-                                    return;
-                                }
-                            };
-                            {
-                                let c = self.conns.get_mut(&cidx).unwrap();
-                                *c.streams.get_mut(&sid).unwrap() = StreamIn::Wt { session: handle };
-                            }
-                            self.handle_by_stream.insert((cidx, sid), handle);
-                            out.push(WtEvent::StreamOpened {
-                                session: handle,
-                                stream: sid,
-                                dir,
-                            });
-                            if !rest.is_empty() || fin {
-                                out.push(WtEvent::StreamData {
+                    },
+                    Some(classified) => {
+                        match classified.role {
+                            Role::Control => {
+                                conn.streams
+                                    .insert(sid, StreamIn::Control { buf: BytesMut::new() });
+                                let rest = classified.rest;
+                                self.process_control(cidx, sid, &rest, out);
+                            },
+                            Role::Qpack => {
+                                conn.streams.insert(sid, StreamIn::Qpack);
+                            },
+                            Role::Request => {
+                                conn.streams.insert(
+                                    sid,
+                                    StreamIn::Request {
+                                        buf: BytesMut::new(),
+                                        request: None,
+                                        terminal: false,
+                                    },
+                                );
+                                self.process_request(cidx, sid, &classified.rest, out);
+                            },
+                            Role::Wt { session, dir } => {
+                                // `session` is the local CONNECT stream id;
+                                // translate to the global handle.
+                                let handle = match self.handle_by_stream.get(&(cidx, session)) {
+                                    Some(h) => *h,
+                                    None => {
+                                        conn.streams.remove(&sid);
+                                        let _ = conn
+                                            .conn
+                                            .stream_shutdown(sid, quiche::Shutdown::Read, 0x100);
+                                        return;
+                                    }
+                                };
+                                *conn.streams.get_mut(&sid).unwrap() =
+                                    StreamIn::Wt { session: handle };
+                                self.handle_by_stream.insert((cidx, sid), handle);
+                                out.push(WtEvent::StreamOpened {
                                     session: handle,
                                     stream: sid,
-                                    data: rest,
-                                    fin,
+                                    dir,
                                 });
-                            }
-                            if fin {
-                                let c = self.conns.get_mut(&cidx).unwrap();
-                                c.streams.remove(&sid);
-                            }
-                        }
-                        Classified::Reject => {
-                            let c = self.conns.get_mut(&cidx).unwrap();
-                            c.streams.remove(&sid);
-                            let _ = c
-                                .conn
-                                .stream_shutdown(sid, quiche::Shutdown::Read, 0x100);
+                                if !classified.rest.is_empty() || fin {
+                                    out.push(WtEvent::StreamData {
+                                        session: handle,
+                                        stream: sid,
+                                        data: classified.rest,
+                                        fin,
+                                    });
+                                }
+                                if fin {
+                                    conn.streams.remove(&sid);
+                                }
+                            },
+                            Role::Reject => {
+                                conn.streams.remove(&sid);
+                                let _ = conn
+                                    .conn
+                                    .stream_shutdown(sid, quiche::Shutdown::Read, 0x100);
+                            },
                         }
                     },
                 }
@@ -598,7 +687,7 @@ impl WebTransportServer {
                     }
                     return;
                 }
-                self.process_control(cidx, sid, data, out);
+                self.process_control(cidx, sid, &data, out);
                 if fin {
                     let c = self.conns.get_mut(&cidx).unwrap();
                     c.streams.remove(&sid);
@@ -618,7 +707,7 @@ impl WebTransportServer {
                     }
                     return;
                 }
-                self.process_request(cidx, sid, data, out);
+                self.process_request(cidx, sid, &data, out);
                 if fin {
                     let c = self.conns.get_mut(&cidx).unwrap();
                     c.streams.remove(&sid);
@@ -628,7 +717,7 @@ impl WebTransportServer {
                 out.push(WtEvent::StreamData {
                     session,
                     stream: sid,
-                    data: data.to_vec(),
+                    data,
                     fin,
                 });
                 if fin {
@@ -640,59 +729,87 @@ impl WebTransportServer {
     }
 }
 
-/// Try to turn a `Classify` buffer into a concrete role.
-/// Returns `(role, post-prefix bytes)` or None when the prefix varint(s)
-/// are still incomplete.
-fn classify_bytes(buf: &[u8], bidi: bool) -> Option<(Classified, Vec<u8>)> {
+/// Outcome of decoding a `Classify` prefix: the stream's role plus the
+/// post-prefix bytes as a zero-copy tail of the decoded buffer.
+struct ClassOut {
+    role: Role,
+    rest: Bytes,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Role {
+    Control,
+    Qpack,
+    Request,
+    Wt { session: u64, dir: StreamDir },
+    Reject,
+}
+
+/// Try to turn a `Classify` buffer into a concrete role. `None` means the
+/// prefix varint(s) are still incomplete; `Role::Reject` is an unknown prefix
+/// (caller drops the stream). The consumed prefix is cut from `buf` in place
+/// and `rest` is a zero-copy tail of what follows.
+fn classify_bytes(buf: &mut BytesMut, bidi: bool) -> Option<ClassOut> {
     let (prefix, n) = varint::decode(buf)?;
     if bidi {
         if prefix == stream_type::WT_BIDI {
             let (qsid, n2) = varint::decode(&buf[n..])?;
-            Some((
-                Classified::Wt {
+            Some(ClassOut {
+                role: Role::Wt {
                     session: qsid,
                     dir: StreamDir::Bidi,
                 },
-                buf[n + n2..].to_vec(),
-            ))
+                rest: buf.split_off(n + n2).freeze(),
+            })
         } else if prefix == frame_type::HEADERS || prefix == frame_type::DATA {
             // h3 frame: the varint we peeked *is* the frame type, keep all.
-            Some((Classified::Request, buf.to_vec()))
+            Some(ClassOut {
+                role: Role::Request,
+                rest: buf.split_off(0).freeze(),
+            })
         } else {
-            Some((Classified::Reject, Vec::new()))
+            Some(ClassOut {
+                role: Role::Reject,
+                rest: Bytes::new(),
+            })
         }
     } else {
         match prefix {
-            stream_type::CONTROL => Some((Classified::Control, buf[n..].to_vec())),
+            stream_type::CONTROL => Some(ClassOut {
+                role: Role::Control,
+                rest: buf.split_off(n).freeze(),
+            }),
             stream_type::WT_UNI_CLIENT => {
                 let (qsid, n2) = varint::decode(&buf[n..])?;
-                Some((
-                    Classified::Wt {
+                Some(ClassOut {
+                    role: Role::Wt {
                         session: qsid,
                         dir: StreamDir::UniClient,
                     },
-                    buf[n + n2..].to_vec(),
-                ))
-            }
-            stream_type::QPACK_ENCODER | stream_type::QPACK_DECODER => {
-                Some((Classified::Qpack, Vec::new()))
-            }
-            _ => Some((Classified::Reject, Vec::new())),
+                    rest: buf.split_off(n + n2).freeze(),
+                })
+            },
+            stream_type::QPACK_ENCODER | stream_type::QPACK_DECODER => Some(ClassOut {
+                role: Role::Qpack,
+                rest: Bytes::new(),
+            }),
+            _ => Some(ClassOut {
+                role: Role::Reject,
+                rest: Bytes::new(),
+            }),
         }
     }
 }
 
 impl WebTransportServer {
     fn process_control(&mut self, cidx: u64, sid: u64, data: &[u8], _out: &mut Vec<WtEvent>) {
-        let mut acc = data.to_vec();
-        loop {
-            let (kind, payload, consumed) = match h3::try_parse_frame(&acc) {
-                Ok(v) => v,
-                Err(_) => break,
-            };
-            acc.drain(..consumed);
+        // Cursor over the caller's buffer: frames are read in place, only the
+        // ragged tail is retained in the stream buffer.
+        let mut cur = data;
+        while let Ok((kind, payload, used)) = h3::try_parse_frame(cur) {
+            cur = &cur[used..];
             if kind == frame_type::SETTINGS {
-                let ps = h3::parse_settings(&payload);
+                let ps = h3::parse_settings(payload);
                 if let Some(c) = self.conns.get_mut(&cidx) {
                     c.peer_settings = Some(ps);
                 }
@@ -700,7 +817,7 @@ impl WebTransportServer {
         }
         if let Some(c) = self.conns.get_mut(&cidx) {
             if let Some(StreamIn::Control { buf }) = c.streams.get_mut(&sid) {
-                buf.extend_from_slice(&acc);
+                buf.put_slice(cur);
                 if buf.len() > MAX_HEADER_BLOCK {
                     c.streams.insert(sid, StreamIn::Qpack);
                 }
@@ -709,13 +826,12 @@ impl WebTransportServer {
     }
 
     fn process_request(&mut self, cidx: u64, sid: u64, data: &[u8], out: &mut Vec<WtEvent>) {
-        let mut acc = data.to_vec();
+        let mut cur = data;
         loop {
-            let (kind, payload, consumed) = match h3::try_parse_frame(&acc) {
-                Ok(v) => v,
-                Err(_) => break,
+            let Ok((kind, payload, used)) = h3::try_parse_frame(cur) else {
+                break;
             };
-            acc.drain(..consumed);
+            cur = &cur[used..];
 
             let terminal = self
                 .conns
@@ -729,7 +845,7 @@ impl WebTransportServer {
 
             match kind {
                 frame_type::HEADERS => {
-                    let request = match Self::decode_headers(&payload) {
+                    let request = match Self::decode_headers(payload) {
                         Some(r) => r,
                         None => {
                             self.finish_request(cidx, sid, 400);
@@ -780,14 +896,14 @@ impl WebTransportServer {
                 }
                 frame_type::DATA => {
                     // Capsule space of an established session.
-                    let mut cur: &[u8] = &payload;
+                    let mut c = payload;
                     // DATA frames here are length-prefixed capsules; the
                     // frame payload may hold several.
-                    while let Some((ctype, value, used)) = h3::try_parse_capsule(cur) {
-                        cur = &cur[used..];
+                    while let Some((ctype, value, used)) = h3::try_parse_capsule(c) {
+                        c = &c[used..];
                         if ctype == h3::capsule_type::CLOSE_SESSION {
                             let (code, reason) =
-                                h3::parse_close_capsule_value(&value).unwrap_or((0, String::new()));
+                                h3::parse_close_capsule_value(value).unwrap_or((0, String::new()));
                             self.close_session_peer(cidx, sid, code, reason, out);
                         }
                     }
@@ -797,7 +913,7 @@ impl WebTransportServer {
         }
         if let Some(c) = self.conns.get_mut(&cidx) {
             if let Some(StreamIn::Request { buf, .. }) = c.streams.get_mut(&sid) {
-                buf.extend_from_slice(&acc);
+                buf.put_slice(cur);
                 if buf.len() > MAX_HEADER_BLOCK {
                     self.finish_request(cidx, sid, 431);
                 }
@@ -854,27 +970,25 @@ impl WebTransportServer {
 
     fn drop_session_maps(&mut self, handle: u64, cidx: u64, request_stream: u64) {
         self.handle_by_stream.remove(&(cidx, request_stream));
-        // Remove WT stream maps of this session too.
-        let doomed: Vec<_> = self
-            .handle_by_stream
-            .iter()
-            .filter(|(_, h)| **h == handle)
-            .map(|(k, _)| *k)
-            .collect();
-        for k in doomed {
-            self.handle_by_stream.remove(&k);
+        // Every other stream of this session lives in the same connection, so
+        // one u64 list identifies them all.
+        let mut doomed = std::mem::take(&mut self.doomed);
+        doomed.clear();
+        doomed.extend(
+            self.handle_by_stream
+                .iter()
+                .filter(|((c, _), h)| *c == cidx && **h == handle)
+                .map(|((_, s), _)| *s),
+        );
+        for i in 0..doomed.len() {
+            self.handle_by_stream.remove(&(cidx, doomed[i]));
         }
         if let Some(c) = self.conns.get_mut(&cidx) {
-            let doomed: Vec<u64> = c
-                .streams
-                .iter()
-                .filter(|(_, s)| matches!(s, StreamIn::Wt { session } if *session == handle))
-                .map(|(id, _)| *id)
-                .collect();
-            for id in doomed {
-                c.streams.remove(&id);
+            for i in 0..doomed.len() {
+                c.streams.remove(&doomed[i]);
             }
         }
+        self.doomed = doomed;
     }
 
     // ---------------- application API ----------------
@@ -927,7 +1041,7 @@ impl WebTransportServer {
             return;
         }
         let frame = h3::build_frame(frame_type::HEADERS, &block);
-        self.write_stream(cidx, sid, frame, fin);
+        self.write_stream(cidx, sid, &frame, fin);
     }
 
     /// Send bytes on a WT stream of the session (`stream` is the id from
@@ -942,7 +1056,7 @@ impl WebTransportServer {
         }
         let cidx = s.cidx;
         self.handle_by_stream.insert((cidx, stream), session);
-        self.write_stream(cidx, stream, data.to_vec(), fin);
+        self.write_stream(cidx, stream, data, fin);
         Ok(())
     }
 
@@ -950,7 +1064,7 @@ impl WebTransportServer {
     pub fn stream_close(&mut self, session: u64, stream: u64) -> io::Result<()> {
         let s = self.sessions.get(&session).ok_or_else(|| io::Error::other("no such session"))?;
         let cidx = s.cidx;
-        self.write_stream(cidx, stream, Vec::new(), true);
+        self.write_stream(cidx, stream, &[], true);
         Ok(())
     }
 
@@ -979,10 +1093,12 @@ impl WebTransportServer {
         let c = self.conns.get_mut(&cidx).ok_or_else(|| io::Error::other("conn gone"))?;
         let sid = c.next_server_uni;
         c.next_server_uni += 4;
-        let mut prefix = Vec::new();
+        let mut prefix = std::mem::take(&mut self.uni_prefix);
+        prefix.clear();
         encode_into(stream_type::WT_UNI_SERVER, &mut prefix);
         encode_into(local_session, &mut prefix);
         let _ = c.conn.stream_send(sid, &prefix, false);
+        self.uni_prefix = prefix;
         self.handle_by_stream.insert((cidx, sid), session);
         Ok(sid)
     }
@@ -993,18 +1109,22 @@ impl WebTransportServer {
             .sessions
             .get(&session)
             .ok_or_else(|| io::Error::other("no such session"))?;
-        let cidx = s.cidx;
-        let local_session = s.request_stream;
-        let mut content = Vec::with_capacity(8 + data.len());
-        encode_into(local_session, &mut content);
-        content.extend_from_slice(data);
-        let mut rec = Vec::with_capacity(8 + content.len());
-        encode_into(content.len() as u64, &mut rec);
-        rec.extend_from_slice(&content);
+        let (cidx, local_session) = (s.cidx, s.request_stream);
+        // One buffer, single pass: outer length is computed from encoded
+        // varint sizes instead of building an intermediate record.
+        let session_len = varint::encoded_len(local_session);
+        let inner = (session_len + data.len()) as u64;
+        let outer_len = varint::encoded_len(inner);
+        let mut rec = std::mem::take(&mut self.ev_scratch);
+        rec.clear();
+        rec.reserve(outer_len + inner as usize);
+        encode_into(inner, &mut rec);
+        encode_into(local_session, &mut rec);
+        rec.put_slice(data);
         let c = self.conns.get_mut(&cidx).ok_or_else(|| io::Error::other("conn gone"))?;
-        c.conn
-            .dgram_send(&rec)
-            .map_err(|e| io::Error::other(format!("dgram_send: {e}")))
+        let res = c.conn.dgram_send(&rec).map_err(|e| io::Error::other(format!("dgram_send: {e}")));
+        self.ev_scratch = rec;
+        res
     }
 
     /// Gracefully close a session: sends the CLOSE_WEBTRANSPORT_SESSION
@@ -1021,22 +1141,26 @@ impl WebTransportServer {
         let (cidx, sid) = (s.cidx, s.request_stream);
         let capsule = h3::build_close_capsule(code, reason);
         let frame = h3::frame_capsule(&capsule);
-        self.write_stream(cidx, sid, frame, false);
+        self.write_stream(cidx, sid, &frame, false);
         // Reset active WT streams of this session.
+        let mut doomed = std::mem::take(&mut self.doomed);
+        doomed.clear();
         if let Some(c) = self.conns.get_mut(&cidx) {
-            let ids: Vec<u64> = c
-                .streams
-                .iter()
-                .filter(|(_, st)| matches!(st, StreamIn::Wt { session: h } if *h == session))
-                .map(|(id, _)| *id)
-                .collect();
-            for id in ids {
+            doomed.extend(
+                c.streams
+                    .iter()
+                    .filter(|(_, st)| matches!(st, StreamIn::Wt { session: h } if *h == session))
+                    .map(|(id, _)| *id),
+            );
+            for i in 0..doomed.len() {
+                let id = doomed[i];
                 let _ = c
                     .conn
                     .stream_shutdown(id, quiche::Shutdown::Write, h3::WT_APPLICATION_ERROR);
                 c.streams.remove(&id);
             }
         }
+        self.doomed = doomed;
         if let Some(s) = self.sessions.get_mut(&session) {
             s.closed = true;
         }
@@ -1057,7 +1181,7 @@ impl WebTransportServer {
 
     // ---------------- write plumbing ----------------
 
-    fn write_stream(&mut self, cidx: u64, sid: u64, data: Vec<u8>, fin: bool) {
+    fn write_stream(&mut self, cidx: u64, sid: u64, data: &[u8], fin: bool) {
         let Some(c) = self.conns.get_mut(&cidx) else {
             return;
         };
@@ -1079,10 +1203,11 @@ impl WebTransportServer {
                         match c.conn.stream_send(sid, &[], true) {
                             Ok(_) => return,
                             Err(_) => {
-                                c.pending
-                                    .entry(sid)
-                                    .or_default()
-                                    .push_back(WriteChunk { data: Vec::new(), pos: 0, fin: true });
+                                c.pending.entry(sid).or_default().push_back(WriteChunk {
+                                    data: Bytes::new(),
+                                    pos: 0,
+                                    fin: true,
+                                });
                                 return;
                             }
                         }
@@ -1090,7 +1215,7 @@ impl WebTransportServer {
                 }
                 Err(_) => {
                     c.pending.entry(sid).or_default().push_back(WriteChunk {
-                        data: data[off..].to_vec(),
+                        data: Bytes::copy_from_slice(&data[off..]),
                         pos: 0,
                         fin,
                     });
@@ -1104,8 +1229,11 @@ impl WebTransportServer {
         let Some(c) = self.conns.get_mut(&cidx) else {
             return;
         };
-        let sids: Vec<u64> = c.pending.keys().copied().collect();
-        for sid in sids {
+        let mut sids = std::mem::take(&mut self.flush_sids);
+        sids.clear();
+        sids.extend(c.pending.keys().copied());
+        for i in 0..sids.len() {
+            let sid = sids[i];
             loop {
                 let head = match c.pending.get_mut(&sid).and_then(|q| q.front_mut()) {
                     Some(h) => h,
@@ -1127,17 +1255,18 @@ impl WebTransportServer {
                 c.pending.remove(&sid);
             }
         }
+        self.flush_sids = sids;
     }
 
-    fn flush_send(&mut self, cidx: u64, out: &mut Vec<WtEvent>) {        let mut buf = vec![0u8; READ_BUF_LEN];
+    fn flush_send(&mut self, cidx: u64, out: &mut Vec<WtEvent>) {
         loop {
             let res = match self.conns.get_mut(&cidx) {
-                Some(c) => c.conn.send(&mut buf),
+                Some(c) => c.conn.send(&mut self.send_buf),
                 None => return,
             };
             match res {
                 Ok((n, info)) => {
-                    let _ = self.socket.send_to(&buf[..n], info.to);
+                    let _ = self.socket.send_to(&self.send_buf[..n], info.to);
                 }
                 Err(quiche::Error::Done) => return,
                 Err(_) => {
@@ -1148,40 +1277,43 @@ impl WebTransportServer {
         }
     }
 
-    fn feed_quic_dgram(&mut self, cidx: u64, packet: &[u8], out: &mut Vec<WtEvent>) {
+    fn feed_quic_dgram(&mut self, cidx: u64, packet: Bytes, out: &mut Vec<WtEvent>) {
         // Length-prefixed records: varint(len) [ varint(session) payload ].
-        let mut cur = packet;
-        while !cur.is_empty() {
-            let (rlen, n1) = match varint::decode(cur) {
-                Some(v) => v,
-                None => return,
+        let mut off = 0usize;
+        while off < packet.len() {
+            let Some((rlen, n1)) = varint::decode(&packet[off..]) else {
+                return;
             };
-            let body = match cur.get(n1..n1 + rlen as usize) {
-                Some(b) => b,
-                None => return,
+            let Some(end) = (off + n1).checked_add(rlen as usize) else {
+                return;
             };
-            cur = &cur[n1 + rlen as usize..];
-            let (qsid, n2) = match varint::decode(body) {
-                Some(v) => v,
-                None => return,
+            if end > packet.len() {
+                return;
+            }
+            let Some((qsid, n2)) = varint::decode(&packet[off + n1..end]) else {
+                return;
             };
             if let Some(&handle) = self.handle_by_stream.get(&(cidx, qsid)) {
                 out.push(WtEvent::Datagram {
                     session: handle,
-                    data: body[n2..].to_vec(),
+                    data: packet.slice(off + n1 + n2..end),
                 });
             }
+            off = end;
         }
     }
 
     fn reap_closed(&mut self, out: &mut Vec<WtEvent>) {
-        let doomed: Vec<u64> = self
-            .conns
-            .iter()
-            .filter(|(_, c)| c.conn.is_closed())
-            .map(|(k, _)| *k)
-            .collect();
-        for cidx in doomed {
+        let mut doomed = std::mem::take(&mut self.doomed);
+        doomed.clear();
+        doomed.extend(
+            self.conns
+                .iter()
+                .filter(|(_, c)| c.conn.is_closed())
+                .map(|(k, _)| *k),
+        );
+        for i in 0..doomed.len() {
+            let cidx = doomed[i];
             let reason = self
                 .conns
                 .get(&cidx)
@@ -1190,16 +1322,20 @@ impl WebTransportServer {
                 .unwrap_or_else(|| "connection closed".into());
             self.remove_conn(cidx, &reason, out);
         }
+        self.doomed = doomed;
     }
 
     fn remove_conn(&mut self, cidx: u64, reason: &str, out: &mut Vec<WtEvent>) {
-        let handles: Vec<u64> = self
-            .sessions
-            .iter()
-            .filter(|(_, s)| s.cidx == cidx && !s.closed)
-            .map(|(h, _)| *h)
-            .collect();
-        for h in handles {
+        let mut doomed = std::mem::take(&mut self.doomed);
+        doomed.clear();
+        doomed.extend(
+            self.sessions
+                .iter()
+                .filter(|(_, s)| s.cidx == cidx && !s.closed)
+                .map(|(h, _)| *h),
+        );
+        for i in 0..doomed.len() {
+            let h = doomed[i];
             out.push(WtEvent::SessionClosed {
                 session: h,
                 code: h3::WT_APPLICATION_ERROR,
@@ -1207,6 +1343,7 @@ impl WebTransportServer {
             });
             self.sessions.remove(&h);
         }
+        self.doomed = doomed;
         self.conns.remove(&cidx);
         self.conn_by_dcid.retain(|_, v| *v != cidx);
         self.handle_by_stream.retain(|key, _| key.0 != cidx);
@@ -1214,14 +1351,6 @@ impl WebTransportServer {
             reason: reason.to_string(),
         });
     }
-}
-
-enum Classified {
-    Control,
-    Qpack,
-    Request,
-    Wt { session: u64, dir: StreamDir },
-    Reject,
 }
 
 impl Drop for WebTransportServer {

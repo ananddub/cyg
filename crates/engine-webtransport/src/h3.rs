@@ -4,6 +4,8 @@
 //! (control stream + request streams with HEADERS/DATA), no push, no
 //! priority, no dynamic QPACK table (we advertise capacity 0).
 
+use bytes::{BufMut, Bytes, BytesMut};
+
 use crate::varint::{self, encode_into};
 
 pub mod frame_type {
@@ -46,26 +48,26 @@ pub mod capsule_type {
 pub const WT_APPLICATION_ERROR: u64 = 0x5388e507;
 
 /// Encode an h3 frame: `type(varint) length(varint) payload`.
-pub fn build_frame(kind: u64, payload: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(2 + payload.len());
+pub fn build_frame(kind: u64, payload: &[u8]) -> Bytes {
+    let mut out = BytesMut::with_capacity(16 + payload.len());
     encode_into(kind, &mut out);
     encode_into(payload.len() as u64, &mut out);
-    out.extend_from_slice(payload);
-    out
+    out.put_slice(payload);
+    out.freeze()
 }
 
 /// Frame prefixed with its encoded length, for use inside stream data
 /// (capsule framing per RFC 9297 on request streams).
-pub fn build_length_prefixed(frame: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(8 + frame.len());
+pub fn build_length_prefixed(frame: &[u8]) -> Bytes {
+    let mut out = BytesMut::with_capacity(8 + frame.len());
     encode_into(frame.len() as u64, &mut out);
-    out.extend_from_slice(frame);
-    out
+    out.put_slice(frame);
+    out.freeze()
 }
 
 /// Wrap a capsule in the varint length prefix required when sending it as
 /// request-stream DATA payload.
-pub fn frame_capsule(capsule: &[u8]) -> Vec<u8> {
+pub fn frame_capsule(capsule: &[u8]) -> Bytes {
     build_frame(frame_type::DATA, &build_length_prefixed(capsule))
 }
 
@@ -75,8 +77,8 @@ pub enum FrameParse {
 }
 
 /// Try to parse one complete frame from the front of `buf`; `consumed` bytes
-/// on success.
-pub fn try_parse_frame(buf: &[u8]) -> Result<(u64, Vec<u8>, usize), FrameParse> {
+/// on success. The payload borrows `buf` — no copy.
+pub fn try_parse_frame(buf: &[u8]) -> Result<(u64, &[u8], usize), FrameParse> {
     let (kind, n1) = varint::decode(buf).ok_or(FrameParse::Incomplete)?;
     let rest = &buf[n1..];
     let (len, n2) = varint::decode(rest).ok_or(FrameParse::Incomplete)?;
@@ -87,33 +89,36 @@ pub fn try_parse_frame(buf: &[u8]) -> Result<(u64, Vec<u8>, usize), FrameParse> 
     if body.len() < len as usize {
         return Err(FrameParse::Incomplete);
     }
-    Ok((kind, body[..len as usize].to_vec(), n1 + n2 + len as usize))
+    Ok((kind, &body[..len as usize], n1 + n2 + len as usize))
 }
 
 /// Capsule: `type(varint) length(varint) value`, length-prefixed on streams.
 /// Parses one length-prefixed capsule; returns `(type, value, consumed)`.
-pub fn try_parse_capsule(buf: &[u8]) -> Option<(u64, Vec<u8>, usize)> {
+/// The value borrows `buf`.
+pub fn try_parse_capsule(buf: &[u8]) -> Option<(u64, &[u8], usize)> {
     let (outer_len, n1) = varint::decode(buf)?;
     let body = buf.get(n1..n1.checked_add(outer_len as usize)?)?;
     let (kind, n2) = varint::decode(body)?;
     let (vlen, n3) = varint::decode(body.get(n2..)?)?;
     let start = n2.checked_add(n3)?;
-    let value = body.get(start..start.checked_add(vlen as usize)?)?.to_vec();
+    let value = body.get(start..start.checked_add(vlen as usize)?)?;
     Some((kind, value, n1 + outer_len as usize))
 }
 
 /// Build a CLOSE_WEBTRANSPORT_SESSION capsule (unframed).
-pub fn build_close_capsule(error_code: u64, reason: &str) -> Vec<u8> {
-    let mut payload = Vec::new();
-    encode_into(error_code, &mut payload);
-    encode_into(reason.len() as u64, &mut payload);
-    payload.extend_from_slice(reason.as_bytes());
-
-    let mut capsule = Vec::new();
+pub fn build_close_capsule(error_code: u64, reason: &str) -> Bytes {
+    let mut capsule =
+        BytesMut::with_capacity(varint::MAX_VARINT_LEN * 2 + reason.len() + 2);
     encode_into(capsule_type::CLOSE_SESSION, &mut capsule);
-    encode_into(payload.len() as u64, &mut capsule);
-    capsule.extend_from_slice(&payload);
-    capsule
+    encode_into(
+        (varint::encoded_len(error_code) + varint::encoded_len(reason.len() as u64)
+            + reason.len()) as u64,
+        &mut capsule,
+    );
+    encode_into(error_code, &mut capsule);
+    encode_into(reason.len() as u64, &mut capsule);
+    capsule.put_slice(reason.as_bytes());
+    capsule.freeze()
 }
 
 /// Decode a CLOSE capsule value; errors when it is not one.
@@ -140,11 +145,10 @@ pub struct PeerSettings {
 
 /// Our SETTINGS payload: full WT support, zero QPACK dynamic table so the
 /// stateless codec is spec-legal for any compliant client.
-pub fn server_settings_payload() -> Vec<u8> {
-    let mut out = Vec::new();
+pub fn server_settings_payload(out: &mut impl BufMut) {
     let mut kv = |k: u64, v: u64| {
-        encode_into(k, &mut out);
-        encode_into(v, &mut out);
+        encode_into(k, out);
+        encode_into(v, out);
     };
     kv(setting::QPACK_MAX_TABLE_CAPACITY, 0);
     kv(setting::QPACK_BLOCKED_STREAMS, 0);
@@ -152,7 +156,6 @@ pub fn server_settings_payload() -> Vec<u8> {
     kv(setting::ENABLE_CONNECT_PROTOCOL, 1);
     kv(setting::ENABLE_WEBTRANSPORT, 1);
     kv(setting::H3_DATAGRAM, 1);
-    out
 }
 
 pub fn parse_settings(payload: &[u8]) -> PeerSettings {
@@ -200,7 +203,8 @@ mod tests {
 
     #[test]
     fn settings_roundtrip() {
-        let payload = server_settings_payload();
+        let mut payload = Vec::new();
+        server_settings_payload(&mut payload);
         let s = parse_settings(&payload);
         assert!(s.enable_connect_protocol);
         assert!(s.enable_webtransport);
@@ -215,7 +219,7 @@ mod tests {
         let (kind, value, consumed) = try_parse_capsule(&framed).unwrap();
         assert_eq!(kind, capsule_type::CLOSE_SESSION);
         assert_eq!(consumed, framed.len());
-        let (code, reason) = parse_close_capsule_value(&value).unwrap();
+        let (code, reason) = parse_close_capsule_value(value).unwrap();
         assert_eq!(code, WT_APPLICATION_ERROR);
         assert_eq!(reason, "server shutting down");
     }

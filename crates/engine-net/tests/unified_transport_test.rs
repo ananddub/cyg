@@ -24,8 +24,9 @@ fn test_unified_transport_auto_switch() {
     let mut tcp_client = TcpStream::connect(tcp_addr).expect("TCP connect ok");
     tcp_client.set_nodelay(true).unwrap();
 
-    let events = tcp_transport
-        .poll_events(Duration::from_millis(50))
+    let mut events = Vec::new();
+    tcp_transport
+        .poll_events(Duration::from_millis(50), &mut events)
         .unwrap();
     let connected_event = events
         .iter()
@@ -37,10 +38,11 @@ fn test_unified_transport_auto_switch() {
     encode_frame(OpCode::PlayerInput, b"move_forward", &mut send_buf);
     tcp_client.write_all(&send_buf).unwrap();
 
-    let events = tcp_transport
-        .poll_events(Duration::from_millis(50))
+    events.clear();
+    tcp_transport
+        .poll_events(Duration::from_millis(50), &mut events)
         .unwrap();
-    let packet_received = events.iter().any(|e| matches!(e, TransportEvent::Packet { opcode, payload, .. } if *opcode == OpCode::PlayerInput && payload == b"move_forward"));
+    let packet_received = events.iter().any(|e| matches!(e, TransportEvent::Packet { opcode, payload, .. } if *opcode == OpCode::PlayerInput && payload.as_ref() == b"move_forward"));
     assert!(packet_received, "TCP packet received through trait");
 
     // Server broadcasts StateDelta
@@ -71,10 +73,11 @@ fn test_unified_transport_auto_switch() {
     encode_frame(OpCode::PlayerInput, b"udp_shoot", &mut udp_send);
     client_udp.send_to(&udp_send, udp_addr).unwrap();
 
-    let events = udp_transport
-        .poll_events(Duration::from_millis(50))
+    let mut events = Vec::new();
+    udp_transport
+        .poll_events(Duration::from_millis(50), &mut events)
         .unwrap();
-    let udp_packet = events.iter().any(|e| matches!(e, TransportEvent::Packet { opcode, payload, .. } if *opcode == OpCode::PlayerInput && payload == b"udp_shoot"));
+    let udp_packet = events.iter().any(|e| matches!(e, TransportEvent::Packet { opcode, payload, .. } if *opcode == OpCode::PlayerInput && payload.as_ref() == b"udp_shoot"));
     assert!(udp_packet, "UDP packet received through trait");
 
     udp_transport
@@ -119,7 +122,7 @@ fn test_unified_transport_auto_switch() {
 
     // Poll transport to complete handshake
     for _ in 0..5 {
-        let _ = ws_transport.poll_events(Duration::from_millis(20));
+        let _ = ws_transport.poll_events(Duration::from_millis(20), &mut Vec::new());
         let _ = ws_transport.flush();
         if ws_transport.ccu() > 0 {
             break;

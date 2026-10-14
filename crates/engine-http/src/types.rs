@@ -19,17 +19,22 @@ pub enum Method {
 }
 
 impl Method {
+    /// Parse a request-line method token without allocating (HTTP tokens are
+    /// ASCII; the compare is case-insensitive only to stay lenient).
     pub fn from_str_token(token: &str) -> Option<Self> {
-        match token.to_ascii_uppercase().as_str() {
-            "GET" => Some(Self::Get),
-            "POST" => Some(Self::Post),
-            "PUT" => Some(Self::Put),
-            "PATCH" => Some(Self::Patch),
-            "DELETE" => Some(Self::Delete),
-            "HEAD" => Some(Self::Head),
-            "OPTIONS" => Some(Self::Options),
-            _ => None,
-        }
+        const TABLE: [(&str, Method); 7] = [
+            ("GET", Method::Get),
+            ("POST", Method::Post),
+            ("PUT", Method::Put),
+            ("PATCH", Method::Patch),
+            ("DELETE", Method::Delete),
+            ("HEAD", Method::Head),
+            ("OPTIONS", Method::Options),
+        ];
+        TABLE
+            .iter()
+            .find(|(name, _)| token.eq_ignore_ascii_case(name))
+            .map(|&(_, m)| m)
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -59,10 +64,9 @@ impl Headers {
     }
 
     pub fn get(&self, name: &str) -> Option<&str> {
-        let lower = name.to_ascii_lowercase();
         self.0
             .iter()
-            .find(|(k, _)| k.to_ascii_lowercase() == lower)
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
             .map(|(_, v)| v.as_str())
     }
 

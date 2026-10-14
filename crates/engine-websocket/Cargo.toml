@@ -5,6 +5,7 @@ edition = "2024"
 description = "Raw mio zero-runtime WebSocket server (RFC 6455): handshake, framing, ping/pong, close"
 
 [dependencies]
+bytes = "1.12.1"
 engine-http = { path = "../engine-http" }
 mio = { version = "1.2.4", features = ["net", "os-poll"] }
 socket2 = { version = "0.6.5", features = ["all"] }

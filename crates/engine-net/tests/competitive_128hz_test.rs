@@ -104,9 +104,10 @@ fn test_competitive_128hz_tick_loop_benchmark() {
 
     let test_start = Instant::now();
 
+    let mut packets = Vec::new();
     while ticks_executed < total_test_ticks {
-        let packets = worker
-            .step(Duration::from_micros(1000), |ctx, clients| {
+        worker
+            .step(Duration::from_micros(1000), &mut packets, |ctx, clients| {
                 let tick_start = Instant::now();
                 ticks_executed += 1;
 
@@ -149,7 +150,7 @@ fn test_competitive_128hz_tick_loop_benchmark() {
             .expect("Worker step ok");
 
         // Process incoming client packets
-        for pkt in packets {
+        for pkt in packets.drain(..) {
             if pkt.opcode == OpCode::PlayerInput && pkt.payload.len() >= 16 {
                 let seq = u64::from_be_bytes(pkt.payload[0..8].try_into().unwrap());
                 let data = pkt.payload[8..].to_vec();

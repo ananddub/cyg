@@ -5,6 +5,7 @@
 //! - Microsecond epoll wait bounded by 60Hz tick deadline
 //! - Batched reads, room updates, and batched write flushes
 
+use bytes::Bytes;
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
@@ -55,10 +56,13 @@ pub struct WorkerStats {
 /// Incoming client packet event dispatched to game rooms.
 #[derive(Debug)]
 pub struct ClientPacket {
-    pub session_id: String,
+    /// Refcounted id — cloning this per packet is a refcount bump, not a copy.
+    pub session_id: Arc<str>,
     pub token: Token,
     pub opcode: OpCode,
-    pub payload: Vec<u8>,
+    /// Zero-copy view into the connection's read buffer — cloning this
+    /// is a refcount bump, not a byte copy.
+    pub payload: Bytes,
 }
 
 /// High-performance Mio Worker event loop.
@@ -72,6 +76,8 @@ pub struct MioWorker {
     running: Arc<AtomicBool>,
     next_tick_deadline: Instant,
     stats: Arc<WorkerStats>,
+    /// Persistent scratch: tokens whose connections dropped this step.
+    disconnected_tokens: Vec<Token>,
 }
 
 impl MioWorker {
@@ -111,6 +117,7 @@ impl MioWorker {
             running: Arc::new(AtomicBool::new(true)),
             next_tick_deadline,
             stats: Arc::new(WorkerStats::default()),
+            disconnected_tokens: Vec::new(),
         })
     }
 
@@ -130,12 +137,18 @@ impl MioWorker {
     }
 
     /// Run a single step/iteration of the worker event loop.
-    /// Returns the packets received during this turn, and whether a 60Hz tick fired.
-    pub fn step<F>(&mut self, max_wait: Duration, mut on_tick: F) -> io::Result<Vec<ClientPacket>>
+    /// Received packets are appended into the caller-owned `packets` vec,
+    /// so the hot loop performs zero per-step Vec allocations.
+    pub fn step<F>(
+        &mut self,
+        max_wait: Duration,
+        packets: &mut Vec<ClientPacket>,
+        mut on_tick: F,
+    ) -> io::Result<()>
     where
         F: FnMut(StepContext, &mut HashMap<Token, ClientConn>),
     {
-        let mut received_packets = Vec::new();
+        packets.clear();
         let now = Instant::now();
         let timeout = if self.next_tick_deadline > now {
             (self.next_tick_deadline - now).min(max_wait)
@@ -146,7 +159,8 @@ impl MioWorker {
         // Poll for I/O events with timeout bounded by tick deadline
         self.poll.poll(&mut self.events, Some(timeout))?;
 
-        let mut disconnected_tokens = Vec::new();
+        let mut disconnected = std::mem::take(&mut self.disconnected_tokens);
+        disconnected.clear();
 
         // 1. Process all I/O events
         for event in self.events.iter() {
@@ -172,7 +186,10 @@ impl MioWorker {
                                     continue;
                                 }
 
-                                let session_id = format!("sess_{}_{}", token.0, peer_addr.port());
+                                // Allocated exactly once per connection; every
+                                // packet referencing it is a refcount bump.
+                                let session_id: Arc<str> =
+                                    format!("sess_{}_{}", token.0, peer_addr.port()).into();
                                 self.clients.insert(token, ClientConn::new(stream, session_id));
                             }
                             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -202,7 +219,7 @@ impl MioWorker {
                                 Ok(_) => {
                                     // Pull all available frames
                                     while let Some((opcode, payload)) = conn.next_frame() {
-                                        received_packets.push(ClientPacket {
+                                        packets.push(ClientPacket {
                                             session_id: conn.session_id.clone(),
                                             token: client_token,
                                             opcode,
@@ -227,18 +244,19 @@ impl MioWorker {
                     }
 
                     if conn_disconnected {
-                        disconnected_tokens.push(client_token);
+                        disconnected.push(client_token);
                     }
                 }
             }
         }
 
         // Clean up disconnected clients
-        for token in disconnected_tokens {
+        for token in disconnected.drain(..) {
             if let Some(mut conn) = self.clients.remove(&token) {
                 let _ = self.poll.registry().deregister(&mut conn.stream);
             }
         }
+        self.disconnected_tokens = disconnected;
 
         // 2. Fire Game Tick if deadline reached
         let now = Instant::now();
@@ -263,11 +281,11 @@ impl MioWorker {
         }
 
         self.stats.ccu.store(self.clients.len(), std::sync::atomic::Ordering::Relaxed);
-        if !received_packets.is_empty() {
-            self.stats.total_packets_in.fetch_add(received_packets.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        if !packets.is_empty() {
+            self.stats.total_packets_in.fetch_add(packets.len() as u64, std::sync::atomic::Ordering::Relaxed);
         }
 
-        Ok(received_packets)
+        Ok(())
     }
 
     /// Broadcast a message to all connected clients on this worker.

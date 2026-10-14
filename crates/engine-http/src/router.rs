@@ -9,9 +9,16 @@
 //!   handful — instead of every registered pattern.
 //! - `*` wildcard patterns (rare) live in a small overflow list checked last.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::types::{Method, Request, Response};
+
+/// Path depth handled without any allocation during dispatch.
+const MAX_INLINE_SEGMENTS: usize = 16;
+
+/// `:param` captures handled without any allocation during dispatch.
+const MAX_INLINE_PARAMS: usize = 8;
 
 /// A boxed endpoint handler.
 pub type Handler = Box<dyn Fn(&Request) -> Response + Send + Sync>;
@@ -27,6 +34,56 @@ pub(crate) struct Route {
     pub(crate) method: Method,
     pub(crate) segments: Vec<Segment>,
     pub(crate) handler: Handler,
+}
+
+/// Captures for one route match, held inline for the common handful of
+/// `:params` and only spilled to the heap for exotic patterns. Reused across
+/// every candidate route in a dispatch, so matching allocates nothing.
+pub(crate) enum Captures<'r, 'p> {
+    Inline {
+        buf: [(&'r str, &'p str); MAX_INLINE_PARAMS],
+        len: usize,
+    },
+    Heap(Vec<(&'r str, &'p str)>),
+}
+
+impl<'r, 'p> Captures<'r, 'p> {
+    pub(crate) fn inline() -> Self {
+        Self::Inline {
+            buf: [("", ""); MAX_INLINE_PARAMS],
+            len: 0,
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        match self {
+            Captures::Inline { len, .. } => *len = 0,
+            Captures::Heap(v) => v.clear(),
+        }
+    }
+
+    fn push(&mut self, name: &'r str, value: &'p str) {
+        if matches!(self, Captures::Inline { len, .. } if *len < MAX_INLINE_PARAMS) {
+            if let Captures::Inline { buf, len } = self {
+                buf[*len] = (name, value);
+                *len += 1;
+            }
+            return;
+        }
+        let mut vec = match self {
+            Captures::Heap(v) => std::mem::take(v),
+            Captures::Inline { buf, len } => buf[..*len].to_vec(),
+        };
+        vec.push((name, value));
+        *self = Captures::Heap(vec);
+    }
+
+    pub(crate) fn as_slice(&self) -> &[(&'r str, &'p str)] {
+        match self {
+            Captures::Inline { buf, len } => &buf[..*len],
+            Captures::Heap(v) => v,
+        }
+    }
 }
 
 impl Route {
@@ -69,7 +126,7 @@ impl Router {
         let handler: Handler = Box::new(handler);
         if !pattern.contains(':') && !pattern.contains('*') {
             self.exact
-                .entry(normalize_path(pattern))
+                .entry(normalize_path(pattern).into_owned())
                 .or_default()
                 .insert(method, handler);
             return self;
@@ -133,32 +190,54 @@ impl Router {
     /// Exact-map hit is O(1); dynamic routes hash to a single length bucket.
     /// 404 when the path matches nothing, 405 when the path matches but no
     /// method does.
+    ///
+    /// Hot path allocates nothing: the normalized path is borrowed from the
+    /// request whenever it is already canonical, and segments are slices of it.
     pub fn dispatch(&self, mut request: Request) -> Response {
-        let path = normalize_path(&request.path);
-
-        if let Some(handlers) = self.exact.get(&path) {
+        if let Some(handlers) = self.exact.get(&*normalize_path(&request.path)) {
             if let Some(handler) = handlers.get(&request.method) {
                 return handler(&request);
             }
             return Response::error(405, "method not allowed");
         }
 
-        let path_segments = split_path(&request.path);
+        // Segments are slices of the request path, held in a stack array for
+        // the common depth; only unusually deep paths allocate.
+        let trimmed = request.path.trim_matches('/');
+        let mut inline: [&str; MAX_INLINE_SEGMENTS] = [""; MAX_INLINE_SEGMENTS];
+        let mut count = 0usize;
+        let mut spilled = false;
+        for seg in trimmed.split('/').filter(|s| !s.is_empty()) {
+            if count < MAX_INLINE_SEGMENTS {
+                inline[count] = seg;
+            } else {
+                spilled = true;
+            }
+            count += 1;
+        }
+        let deep: Vec<&str>;
+        let path_segments: &[&str] = if spilled {
+            deep = request.path.split('/').filter(|s| !s.is_empty()).collect();
+            &deep[..]
+        } else {
+            &inline[..count]
+        };
         let path_len = path_segments.len();
         let mut path_matched = false;
+        let mut captures = Captures::inline();
 
         // Tier 2: one hash lookup narrows to routes of identical length.
         if let Some(bucket) = self.dynamic.get(&path_len) {
             for route in bucket {
-                let Some(captures) = match_segments(&route.segments, &path_segments) else {
+                if !match_segments(&route.segments, path_segments, &mut captures) {
                     continue;
-                };
+                }
                 if route.method != request.method {
                     path_matched = true;
                     continue;
                 }
-                for (name, value) in captures {
-                    request.params.insert(name, value);
+                for (name, value) in captures.as_slice() {
+                    request.params.insert(name.to_string(), value.to_string());
                 }
                 return (route.handler)(&request);
             }
@@ -169,15 +248,15 @@ impl Router {
             if route.min_segments() > path_len {
                 continue;
             }
-            let Some(captures) = match_segments(&route.segments, &path_segments) else {
+            if !match_segments(&route.segments, path_segments, &mut captures) {
                 continue;
-            };
+            }
             if route.method != request.method {
                 path_matched = true;
                 continue;
             }
-            for (name, value) in captures {
-                request.params.insert(name, value);
+            for (name, value) in captures.as_slice() {
+                request.params.insert(name.to_string(), value.to_string());
             }
             return (route.handler)(&request);
         }
@@ -191,78 +270,73 @@ impl Router {
 }
 
 /// Canonical key form for exact routes: strips redundant trailing slashes.
-fn normalize_path(path: &str) -> String {
+/// Borrowed when the path is already canonical, so the hot lookup is free.
+fn normalize_path(path: &str) -> Cow<'_, str> {
     if path == "/" {
-        return "/".to_string();
+        return Cow::Borrowed("/");
     }
-    format!("/{}", path.trim_matches('/'))
+    if path.starts_with('/') && !path.ends_with('/') && !path.contains("//") {
+        return Cow::Borrowed(path);
+    }
+    Cow::Owned(format!("/{}", path.trim_matches('/')))
 }
 
 fn compile_pattern(pattern: &str) -> Vec<Segment> {
     split_path(pattern)
-        .into_iter()
         .map(|seg| {
             if seg == "*" {
                 Segment::Wildcard
             } else if let Some(name) = seg.strip_prefix(':') {
                 Segment::Param(name.to_string())
             } else {
-                Segment::Literal(seg)
+                Segment::Literal(seg.to_string())
             }
         })
         .collect()
 }
 
-fn split_path(path: &str) -> Vec<String> {
-    path.trim_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect()
+fn split_path(path: &str) -> impl Iterator<Item = &str> {
+    path.trim_matches('/').split('/').filter(|s| !s.is_empty())
 }
 
 /// Match request path segments against a route pattern. Returns captured
-/// params on success.
-pub(crate) fn match_segments(
-    pattern: &[Segment],
-    path: &[String],
-) -> Option<Vec<(String, String)>> {
-    let mut captures = Vec::new();
+/// params as borrowed slices; only the matched route pays for owning them.
+pub(crate) fn match_segments<'r, 'p>(
+    pattern: &'r [Segment],
+    path: &[&'p str],
+    captures: &mut Captures<'r, 'p>,
+) -> bool {
+    captures.clear();
     let mut pi = 0;
 
     for seg in pattern {
         match seg {
             Segment::Wildcard => {
                 // Trailing `*` matches the rest of the path (possibly empty).
-                return Some(captures);
+                return true;
             }
             Segment::Literal(lit) => {
-                if pi >= path.len() || &path[pi] != lit {
-                    return None;
+                if pi >= path.len() || path[pi] != lit.as_str() {
+                    return false;
                 }
                 pi += 1;
             }
             Segment::Param(name) => {
                 if pi >= path.len() {
-                    return None;
+                    return false;
                 }
-                captures.push((name.clone(), path[pi].clone()));
+                captures.push(name.as_str(), path[pi]);
                 pi += 1;
             }
         }
     }
 
-    if pi == path.len() {
-        Some(captures)
-    } else {
-        None
-    }
+    pi == path.len()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     fn req(method: Method, path: &str) -> Request {
         Request {

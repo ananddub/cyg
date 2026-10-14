@@ -103,9 +103,10 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
     let entity_id = 1;
 
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let mut packets = Vec::new();
     while std::time::Instant::now() < deadline {
-        let packets = worker
-            .step(Duration::from_millis(5), |ctx, clients| {
+        worker
+            .step(Duration::from_millis(5), &mut packets, |ctx, clients| {
                 ticks_processed += 1;
 
                 // A. Consume pending inputs for this tick
@@ -144,7 +145,7 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
             .expect("Worker step ok");
 
         // Parse received inputs and push into PlayerInputBuffer
-        for pkt in packets {
+        for pkt in packets.drain(..) {
             if pkt.opcode == OpCode::PlayerInput && pkt.payload.len() >= 16 {
                 let seq = u64::from_be_bytes(pkt.payload[0..8].try_into().unwrap());
                 let input_data = pkt.payload[8..].to_vec();

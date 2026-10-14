@@ -16,6 +16,13 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-http/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-net/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-net/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-physics/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-protocol/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-spatial/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-voice/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-voice/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-webrtc-protocol/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-webrtc-protocol/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-websocket/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-websocket/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-websocket/tests" isTestSource="true" />
@@ -23,6 +30,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-webtransport/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-webtransport/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

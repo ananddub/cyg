@@ -9,17 +9,19 @@
 pub mod colyseus_state;
 pub mod connection;
 pub mod framing;
+mod bufio;
 pub mod pool;
 pub mod transport;
 pub mod worker;
 
 pub use colyseus_state::ColyseusRoomState;
 pub use connection::ClientConn;
-pub use framing::{OpCode, decode_frame, encode_frame};
+pub use bytes;
+pub use framing::{OpCode, decode_frame, encode_frame, iter_frames, take_frame};
 pub use pool::{AggregatedTelemetry, PoolConfig, WorkerPoolHandle, spawn_worker_pool};
 pub use transport::colyseus_ws::{MatchMakeError, MATCHMAKE_METHODS, close_code, response_status};
 pub use transport::{
     ColyseusWsTransport, GameTransport, QuicTransport, RawTcpTransport, TransportEvent,
-    TransportType, UdpTransport, create_transport,
+    TransportType, UdpTransport, WebRtcServer, WebRtcServerEvent, create_transport,
 };
 pub use worker::{ClientPacket, MioWorker, WorkerConfig, WorkerStats};

@@ -177,8 +177,10 @@ fn full_session_stream_and_datagram_echo() {
     let stop_c = stop.clone();
     std::thread::spawn(move || {
         let mut srv = srv;
+        let mut events: Vec<WtEvent> = Vec::new();
         while !stop_c.load(Ordering::Relaxed) {
-            for ev in srv.poll_events(Duration::from_millis(50)).unwrap() {
+            srv.poll_events(Duration::from_millis(50), &mut events).unwrap();
+            for ev in events.drain(..) {
                 match ev {
                     WtEvent::SessionOpened { session, .. } => {
                         srv.accept_session(session).unwrap();
@@ -222,7 +224,7 @@ fn full_session_stream_and_datagram_echo() {
         if kind != 1 {
             return None;
         }
-        let mut cur = bytes::Bytes::from(payload);
+        let mut cur = bytes::Bytes::copy_from_slice(payload);
         let d = engine_webtransport::qpack::decode_stateless(&mut cur, 65536).ok()?;
         let resp = WtResponse::from_fields(&d.fields).ok()?;
         Some(resp)
@@ -296,8 +298,10 @@ fn get_probe_advertises_draft02() {
     let stop_c = stop.clone();
     std::thread::spawn(move || {
         let mut srv = srv;
+        let mut events: Vec<WtEvent> = Vec::new();
         while !stop_c.load(Ordering::Relaxed) {
-            let _ = srv.poll_events(Duration::from_millis(50));
+            let _ = srv.poll_events(Duration::from_millis(50), &mut events);
+            events.clear();
         }
     });
 
@@ -318,7 +322,7 @@ fn get_probe_advertises_draft02() {
         if kind != 1 {
             return None;
         }
-        let mut cur = bytes::Bytes::from(payload);
+        let mut cur = bytes::Bytes::copy_from_slice(payload);
         let d = engine_webtransport::qpack::decode_stateless(&mut cur, 65536).ok()?;
         WtResponse::from_fields(&d.fields).ok()
     });

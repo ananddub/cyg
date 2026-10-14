@@ -9,12 +9,15 @@ use std::path::{Path, PathBuf};
 pub enum Runtime {
     /// AssemblyScript — source compiled with `asc` (npm assemblyscript).
     AssemblyScript,
+    /// Lua — source executed via Lua guest VM (Lua 5.4 / LuaJIT).
+    Lua,
 }
 
 impl Runtime {
     pub fn parse(s: &str) -> Option<Runtime> {
         match s.trim().to_ascii_lowercase().as_str() {
             "assemblyscript" | "as" => Some(Runtime::AssemblyScript),
+            "lua" => Some(Runtime::Lua),
             _ => None,
         }
     }
@@ -23,6 +26,7 @@ impl Runtime {
     pub fn as_str(&self) -> &'static str {
         match self {
             Runtime::AssemblyScript => "assemblyscript",
+            Runtime::Lua => "lua",
         }
     }
 }
@@ -48,6 +52,15 @@ pub struct GameConfig {
     pub width: f64,
     pub height: f64,
     pub speed: f64,
+    /// ABI version mandatory contract (default: 1)
+    pub abi_version: u32,
+    /// Capability-based permissions for host function access
+    pub permissions: engine_wasm::AbiPermissions,
+    /// ICE server list handed to browsers for WebRTC voice, as raw JSON text
+    /// (`[{ "urls": [...] }, ...]`). The server never parses it — it is relayed
+    /// verbatim inside a `Config` signal frame, so a malformed value is the
+    /// browser's problem, not a startup failure. Empty means P2P over LAN only.
+    pub voice_ice_servers: String,
 }
 
 impl Default for GameConfig {
@@ -66,17 +79,91 @@ impl Default for GameConfig {
             width: 800.0,
             height: 500.0,
             speed: 240.0,
+            abi_version: engine_wasm::CURRENT_ABI_VERSION,
+            permissions: engine_wasm::AbiPermissions::default(),
+            voice_ice_servers: "[]".into(),
         }
     }
 }
 
-/// Parse a flat `key: value` config. Unknown keys are ignored, missing keys
-/// keep their defaults. Supports `#` comments and blank lines.
+/// Parse a TOML or flat `key: value` config.
 pub fn parse_config(text: &str) -> GameConfig {
     let mut cfg = GameConfig::default();
+
+    // 1. Try parsing as standard TOML first
+    if let Ok(value) = text.parse::<toml::Value>() {
+        if let Some(table) = value.as_table() {
+            if let Some(v) = table.get("name").and_then(|v| v.as_str()) {
+                cfg.name = v.to_string();
+            }
+            if let Some(v) = table.get("runtime").and_then(|v| v.as_str()) {
+                if let Some(r) = Runtime::parse(v) {
+                    cfg.runtime = r;
+                }
+            }
+            if let Some(v) = table.get("source").and_then(|v| v.as_str()) {
+                cfg.source = v.into();
+            }
+            if let Some(v) = table.get("out").and_then(|v| v.as_str()) {
+                cfg.out = v.into();
+            }
+            if let Some(v) = table.get("sdk_dir").and_then(|v| v.as_str()) {
+                cfg.sdk_dir = v.into();
+            }
+            if let Some(v) = table.get("website").and_then(|v| v.as_str()) {
+                cfg.website = v.into();
+            }
+            if let Some(v) = table.get("port").and_then(|v| v.as_integer()) {
+                cfg.port = v as u16;
+            }
+            if let Some(v) = table.get("web_port").and_then(|v| v.as_integer()) {
+                cfg.web_port = v as u16;
+            }
+            if let Some(v) = table.get("tick_rate").and_then(|v| v.as_integer()) {
+                cfg.tick_rate = v as u32;
+            }
+            if let Some(v) = table.get("max_clients").and_then(|v| v.as_integer()) {
+                cfg.max_clients = v as i32;
+            }
+            if let Some(v) = table.get("width").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))) {
+                cfg.width = v;
+            }
+            if let Some(v) = table.get("height").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))) {
+                cfg.height = v;
+            }
+            if let Some(v) = table.get("speed").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))) {
+                cfg.speed = v;
+            }
+            if let Some(v) = table.get("abi_version").and_then(|v| v.as_integer()) {
+                cfg.abi_version = v as u32;
+            }
+            if let Some(v) = table.get("allow_physics").and_then(|v| v.as_bool()) {
+                cfg.permissions.physics = v;
+            }
+            if let Some(v) = table.get("allow_lag_compensation").and_then(|v| v.as_bool()) {
+                cfg.permissions.lag_compensation = v;
+            }
+            if let Some(v) = table.get("allow_logging").and_then(|v| v.as_bool()) {
+                cfg.permissions.logging = v;
+            }
+            if let Some(v) = table.get("allow_storage").and_then(|v| v.as_bool()) {
+                cfg.permissions.storage = v;
+            }
+            if let Some(v) = table.get("voice_ice_servers") {
+                cfg.voice_ice_servers = v.to_string();
+            }
+            return cfg;
+        }
+    }
+
+    // 2. Fallback parser for key = value or key: value
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
-        let Some((key, value)) = line.split_once(':') else {
+        let (key, value) = if let Some((k, v)) = line.split_once('=') {
+            (k, v)
+        } else if let Some((k, v)) = line.split_once(':') {
+            (k, v)
+        } else {
             continue;
         };
         let key = key.trim();
@@ -102,16 +189,26 @@ pub fn parse_config(text: &str) -> GameConfig {
             "width" => cfg.width = value.parse().unwrap_or(cfg.width),
             "height" => cfg.height = value.parse().unwrap_or(cfg.height),
             "speed" => cfg.speed = value.parse().unwrap_or(cfg.speed),
-            _ => {} // unknown keys ignored (forward compatible)
+            "abi_version" => cfg.abi_version = value.parse().unwrap_or(cfg.abi_version),
+            "allow_physics" => cfg.permissions.physics = value.parse().unwrap_or(cfg.permissions.physics),
+            "allow_lag_compensation" => cfg.permissions.lag_compensation = value.parse().unwrap_or(cfg.permissions.lag_compensation),
+            "allow_logging" => cfg.permissions.logging = value.parse().unwrap_or(cfg.permissions.logging),
+            "allow_storage" => cfg.permissions.storage = value.parse().unwrap_or(cfg.permissions.storage),
+            "voice_ice_servers" => cfg.voice_ice_servers = value.to_string(),
+            _ => {}
         }
     }
     cfg
 }
 
-/// Load config.yml from a directory (or the file itself).
+/// Load config.toml (or fallback config.yml) from a directory (or the file itself).
 pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     let file = if path.is_dir() {
-        path.join("config.yml")
+        if path.join("config.toml").exists() {
+            path.join("config.toml")
+        } else {
+            path.join("config.yml")
+        }
     } else {
         path.to_path_buf()
     };
@@ -119,34 +216,40 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     Ok(parse_config(&text))
 }
 
-/// The config.yml template `ox-game init` writes.
-pub const CONFIG_TEMPLATE: &str = r#"# ox-game configuration
-name: my-game
+/// The config.toml template `ox-game init` writes.
+pub const CONFIG_TEMPLATE: &str = r#"# ox-game configuration (TOML)
+name = "my-game"
 
 # Runtime used to compile your room source into WebAssembly.
-# Supported today: assemblyscript
-runtime: assemblyscript
+# Supported: assemblyscript, lua, cpp, rust, csharp
+runtime = "assemblyscript"
 
 # Your room logic source + compiled output (relative to this folder).
-source: room.ts
-out: room_logic.wasm
+source = "room.ts"
+out = "room_logic.wasm"
 
 # Where the @colyseus/sdk + @colyseus/schema bundles live.
-# The server serves these so browsers need no extra setup.
-sdk_dir: /mnt/SSD/Devloper/pannel/colyseus
+sdk_dir = "/mnt/SSD/Devloper/pannel/colyseus"
 
 # Your website (canvas page). Served at http://localhost:<web_port>/
-website: website.html
+website = "website.html"
 
-port: 7777
-web_port: 8090
-tick_rate: 20
-max_clients: 16
+port = 7777
+web_port = 8090
+tick_rate = 128
+max_clients = 16
 
-# Playfield (must match your website canvas)
-width: 800
-height: 500
-speed: 240
+# Playfield
+width = 800.0
+height = 500.0
+speed = 240.0
+
+# OpenOxide ABI Contract & Permissions
+abi_version = 1
+allow_physics = true
+allow_lag_compensation = true
+allow_logging = true
+allow_storage = true
 "#;
 
 /// Starter room source `ox-game init` writes — the same contract as the

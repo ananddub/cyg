@@ -3,6 +3,8 @@
 //! Used everywhere in HTTP/3, QPACK-free header framing, WebTransport
 //! stream prefixes, capsules and datagram records.
 
+use bytes::BufMut;
+
 /// Maximum encoded length of a varint.
 pub const MAX_VARINT_LEN: usize = 8;
 
@@ -10,18 +12,15 @@ pub const MAX_VARINT_LEN: usize = 8;
 pub const MAX_VALUE: u64 = (1 << 62) - 1;
 
 /// Append `v` in its shortest legal varint encoding.
-pub fn encode_into(v: u64, out: &mut Vec<u8>) {
+pub fn encode_into(v: u64, out: &mut impl BufMut) {
     if v <= 0x3f {
-        out.push(v as u8);
+        out.put_u8(v as u8);
     } else if v <= 0x3f_ff {
-        let b = ((v as u16) | 0x40_00).to_be_bytes();
-        out.extend_from_slice(&b);
+        out.put_slice(&((v as u16) | 0x40_00).to_be_bytes());
     } else if v <= 0x3f_ff_ff_ff {
-        let b = ((v as u32) | 0x8000_0000).to_be_bytes();
-        out.extend_from_slice(&b);
+        out.put_slice(&((v as u32) | 0x8000_0000).to_be_bytes());
     } else {
-        let b = (v | 0xC000_0000_0000_0000u64).to_be_bytes();
-        out.extend_from_slice(&b);
+        out.put_slice(&((v | 0xC000_0000_0000_0000u64) as u64).to_be_bytes());
     }
 }
 

@@ -36,9 +36,11 @@ fn spawn_transport() -> (ColyseusWsTransport, u16) {
 }
 
 fn poll(transport: &mut ColyseusWsTransport) -> Vec<TransportEvent> {
+    let mut events = Vec::new();
     transport
-        .poll_events(Duration::from_millis(30))
-        .expect("poll ok")
+        .poll_events(Duration::from_millis(30), &mut events)
+        .expect("poll ok");
+    events
 }
 
 /// Poll until `pred` matches an event, or panic after ~2s.
@@ -584,7 +586,7 @@ fn test_server_disconnect_close_code_4000() {
 
     // The Disconnected event surfaces on the next poll.
     poll_until(&mut transport, |e| {
-        matches!(e, TransportEvent::Disconnected { client_id } if client_id == &cid)
+        matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == &*cid)
     });
 }
 
@@ -601,7 +603,7 @@ fn test_leave_room_answers_close_code_4000() {
     });
     assert!(events
         .iter()
-        .any(|e| matches!(e, TransportEvent::Disconnected { client_id } if client_id == "sess_lv")));
+        .any(|e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_lv")));
 
     // Server must also answer with a close frame on the wire.
     let (ws_op, payload) = read_frame(&mut stream, &mut transport);
@@ -628,7 +630,7 @@ fn test_heartbeat_terminates_unresponsive_client() {
 
     let start = std::time::Instant::now();
     poll_until(&mut transport, |e| {
-        matches!(e, TransportEvent::Disconnected { client_id } if client_id == "sess_dead")
+        matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_dead")
     });
     assert!(
         start.elapsed() < Duration::from_secs(2),
@@ -654,7 +656,7 @@ fn test_heartbeat_spares_active_client() {
         send_ws_frame(&mut stream, &[18]);
         for event in poll(&mut transport) {
             assert!(
-                !matches!(&event, TransportEvent::Disconnected { client_id } if client_id == "sess_live"),
+                !matches!(&event, TransportEvent::Disconnected { client_id } if &**client_id == "sess_live"),
                 "active client must not be terminated by the heartbeat"
             );
         }

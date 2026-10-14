@@ -26,9 +26,11 @@ fn spawn_transport() -> (ColyseusWsTransport, u16) {
 }
 
 fn poll(transport: &mut ColyseusWsTransport) -> Vec<TransportEvent> {
+    let mut events = Vec::new();
     transport
-        .poll_events(Duration::from_millis(50))
-        .expect("poll ok")
+        .poll_events(Duration::from_millis(50), &mut events)
+        .expect("poll ok");
+    events
 }
 
 /// Send one masked RFC 6455 binary frame (client frames MUST be masked).
@@ -200,7 +202,7 @@ fn test_room_data_reaches_simulation_and_leave_disconnects() {
     }
     assert!(events.iter().any(
         |e| matches!(e, TransportEvent::Packet { opcode: engine_net::framing::OpCode::PlayerInput, payload, .. }
-            if payload == b"move")
+            if payload.as_ref() == b"move")
     ));
 
     // LEAVE_ROOM = 12 -> server must drop the client.

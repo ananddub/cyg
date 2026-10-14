@@ -15,7 +15,10 @@ pub use input::{PlayerInput, PlayerInputBuffer};
 pub use rewind::{EntityHistory, Interpolation, RewindManager, TransformSnapshot};
 
 /// Unique session identifier for a connected client.
-pub type SessionId = String;
+///
+/// `Arc<str>` because the same id is carried by every event a connection
+/// produces: cloning it is a refcount bump, not a string copy.
+pub type SessionId = std::sync::Arc<str>;
 
 /// Context passed to room simulation updates on every tick.
 #[derive(Debug, Clone, Copy)]

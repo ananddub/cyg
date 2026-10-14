@@ -22,11 +22,14 @@
 //! - Reconnection: disconnecting sessions keep their reconnection token valid
 //!   (`retain_session`) so `matchmake/reconnect` can re-issue the seat
 
+use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use mio::net::TcpListener;
 use mio::{Events, Interest, Poll, Token};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -157,7 +160,10 @@ impl Default for HeartbeatConfig {
 type MatchmakeHook = Box<dyn Fn(&str, &str, &str) -> Result<String, MatchMakeError> + Send>;
 
 /// Static HTTP hook: (path) -> Option<(content_type, body)>
-pub type HttpHook = Box<dyn Fn(&str) -> Option<(String, Vec<u8>)> + Send>;
+///
+/// Both halves are cheap-to-hand-off values: a borrowed content type and a
+/// refcounted body, so serving the same asset to 500 clients copies nothing.
+pub type HttpHook = Box<dyn Fn(&str) -> Option<(Cow<'static, str>, Bytes)> + Send>;
 
 /// State of a connected Colyseus SDK client.
 #[derive(PartialEq)]
@@ -169,14 +175,14 @@ enum WsState {
 struct ColyseusClient {
     stream: mio::net::TcpStream,
     state: WsState,
-    session_id: String,
+    session_id: Arc<str>,
     /// Room id from the upgrade URL path (/processId/roomId?...).
     room_id: String,
-    recv_buf: Vec<u8>,
-    send_queue: Vec<u8>,
+    recv_buf: BytesMut,
+    send_queue: BytesMut,
     /// Inbound fragmented message accumulation (RFC 6455 continuation frames).
     frag_opcode: Option<u8>,
-    frag_buf: Vec<u8>,
+    frag_buf: BytesMut,
     // --- heartbeat bookkeeping ---
     last_activity: Instant,
     ping_sent_at: Option<Instant>,
@@ -209,6 +215,16 @@ pub struct ColyseusWsTransport {
     seat_tokens: HashMap<String, String>,
     /// Events queued outside poll_events (e.g. `disconnect()`), drained first.
     pending_events: Vec<TransportEvent>,
+    /// Cross-poll event buffer; handed to `poll_events` via `mem::take` so
+    /// helper calls can still take `&mut self`.
+    ev: Vec<TransportEvent>,
+    /// Dead tokens collected during a poll; persists across polls. The id is
+    /// taken from the removed client, so no id clones happen here.
+    disconnected: Vec<Token>,
+    /// Heartbeat kill list; persists across polls.
+    hb_kills: Vec<Token>,
+    /// Broadcast encode scratch; reuses its allocation.
+    sb: bytes::BytesMut,
     heartbeat: HeartbeatConfig,
     next_token: usize,
     /// Actual kernel-assigned bound address (resolves port 0).
@@ -267,6 +283,10 @@ impl ColyseusWsTransport {
             retained: HashMap::new(),
             seat_tokens: HashMap::new(),
             pending_events: Vec::new(),
+            ev: Vec::new(),
+            disconnected: Vec::new(),
+            hb_kills: Vec::new(),
+            sb: bytes::BytesMut::with_capacity(1024),
             heartbeat: HeartbeatConfig::default(),
             next_token,
             bound_addr,
@@ -282,7 +302,10 @@ impl ColyseusWsTransport {
     }
 
     /// Register static HTTP request handler: (path) -> Option<(content_type, body)>
-    pub fn on_http(&mut self, f: impl Fn(&str) -> Option<(String, Vec<u8>)> + Send + 'static) {
+    pub fn on_http(
+        &mut self,
+        f: impl Fn(&str) -> Option<(Cow<'static, str>, Bytes)> + Send + 'static,
+    ) {
         self.http_hook = Some(Box::new(f));
     }
 
@@ -310,10 +333,13 @@ impl ColyseusWsTransport {
     /// Send a Colyseus `ERROR` (11) frame: surfaces to the SDK's
     /// `room.onError` handler. Wire: `[11][msgpack code][msgpack string]`.
     pub fn send_error(&mut self, client_id: &str, code: u16, message: &str) -> io::Result<()> {
-        let mut payload = Vec::with_capacity(8 + message.len());
+        let mut payload = std::mem::take(&mut self.sb);
+        payload.reserve(8 + message.len());
         mp_number(&mut payload, code as f64);
         mp_str(&mut payload, message);
         self.queue_to(client_id, COLYSEUS_ERROR, &payload);
+        payload.clear();
+        self.sb = payload;
         Ok(())
     }
 
@@ -326,11 +352,14 @@ impl ColyseusWsTransport {
         status: u8,
         payload_msgpack: &[u8],
     ) -> io::Result<()> {
-        let mut payload = Vec::with_capacity(8 + payload_msgpack.len());
+        let mut payload = std::mem::take(&mut self.sb);
+        payload.reserve(8 + payload_msgpack.len());
         mp_number(&mut payload, request_id as f64);
-        payload.push(status);
+        payload.put_u8(status);
         payload.extend_from_slice(payload_msgpack);
         self.queue_to(client_id, COLYSEUS_ROOM_RESPONSE, &payload);
+        payload.clear();
+        self.sb = payload;
         Ok(())
     }
 
@@ -339,10 +368,7 @@ impl ColyseusWsTransport {
     fn queue_to(&mut self, client_id: &str, colyseus_opcode: u8, payload: &[u8]) {
         if let Some(&token) = self.client_tokens.get(client_id) {
             if let Some(client) = self.clients.get_mut(&token) {
-                let mut data = Vec::with_capacity(1 + payload.len());
-                data.push(colyseus_opcode);
-                data.extend_from_slice(payload);
-                encode_ws_frame(&data, &mut client.send_queue);
+                encode_colyseus_frame(colyseus_opcode, payload, &mut client.send_queue);
             }
         }
     }
@@ -360,19 +386,21 @@ impl ColyseusWsTransport {
             self.client_rooms.remove(client_id);
             self.seat_tokens.remove(client_id);
             self.pending_events
-                .push(TransportEvent::Disconnected { client_id: client_id.to_string() });
+                .push(TransportEvent::Disconnected { client_id: Arc::from(client_id) });
         }
         Ok(())
     }
 
     /// Send WS ping frames to idle clients and terminate the unresponsive
-    /// ones. Returns tokens whose sockets must be dropped.
-    fn run_heartbeat(&mut self, now: Instant) -> Vec<Token> {
-        let mut kill = Vec::new();
+    /// ones. Killed tokens are collected in `self.hb_kills` (reused across
+    /// polls, no allocation).
+    fn run_heartbeat(&mut self, now: Instant) {
+        let (hb, clients) = (&mut self.hb_kills, &mut self.clients);
+        hb.clear();
         if !self.heartbeat.enabled {
-            return kill;
+            return;
         }
-        for (token, client) in self.clients.iter_mut() {
+        for (token, client) in clients.iter_mut() {
             if client.state != WsState::Connected {
                 continue;
             }
@@ -381,7 +409,7 @@ impl ColyseusWsTransport {
                     if now.duration_since(sent_at) >= self.heartbeat.ping_interval {
                         client.missed_pings += 1;
                         if client.missed_pings > self.heartbeat.max_retries {
-                            kill.push(*token);
+                            hb.push(*token);
                             continue;
                         }
                         send_ws_ping(client);
@@ -396,30 +424,41 @@ impl ColyseusWsTransport {
                 }
             }
         }
-        kill
     }
 }
 
 impl GameTransport for ColyseusWsTransport {
-    fn poll_events(&mut self, timeout: Duration) -> io::Result<Vec<TransportEvent>> {
+    fn poll_events(&mut self, timeout: Duration, ev: &mut Vec<TransportEvent>) -> io::Result<()> {
         self.poll.poll(&mut self.events, Some(timeout))?;
 
         let now = Instant::now();
-        let mut events_out = std::mem::take(&mut self.pending_events);
-        let mut disconnected: Vec<(Token, String)> = Vec::new();
+
+        // Adopt the persistent cross-poll buffer, seeded with events queued
+        // outside poll_events (e.g. `disconnect()`).
+        let mut buf = std::mem::take(&mut self.ev);
+        std::mem::swap(&mut buf, &mut self.pending_events);
+        self.pending_events.clear();
 
         // Heartbeat: terminate clients that stopped answering pings.
-        for token in self.run_heartbeat(now) {
-            if let Some(mut client) = self.clients.remove(&token) {
+        self.run_heartbeat(now);
+        let mut hb_kills = std::mem::take(&mut self.hb_kills);
+        for token in hb_kills.iter() {
+            if let Some(mut client) = self.clients.remove(token) {
                 let cid = client.session_id.clone();
                 let _ = self.poll.registry().deregister(&mut client.stream);
-                self.client_tokens.remove(&cid);
-                self.client_rooms.remove(&cid);
-                self.seat_tokens.remove(&cid);
-                events_out.push(TransportEvent::Disconnected { client_id: cid });
+                self.client_tokens.remove(&*cid);
+                self.client_rooms.remove(&*cid);
+                self.seat_tokens.remove(&*cid);
+                buf.push(TransportEvent::Disconnected { client_id: cid });
             }
         }
+        hb_kills.clear();
+        self.hb_kills = hb_kills;
 
+        // Helpers below take `&mut self`, so the maps are adopted for the
+        // duration of each pass and restored afterwards (no fresh Vecs).
+        let mut clients = std::mem::take(&mut self.clients);
+        let mut disconnected = std::mem::take(&mut self.disconnected);
         for event in self.events.iter() {
             let tok = event.token();
             if tok.0 < self.listeners.len() {
@@ -437,31 +476,33 @@ impl GameTransport for ColyseusWsTransport {
                                 Interest::READABLE | Interest::WRITABLE,
                             )?;
 
-                            // Read the client's first bytes (HTTP request).
-                            let mut init_buf = [0u8; 4096];
-                            let mut first_bytes: Vec<u8> = Vec::new();
-                            while let Ok(n) = stream.read(&mut init_buf) {
-                                if n == 0 {
-                                    break;
+                            // Read the client's first bytes (HTTP request)
+                            // straight into the BytesMut — no stack copy.
+                            let mut first_bytes: BytesMut = BytesMut::new();
+                            loop {
+                                match crate::bufio::read_tcp(&mut stream, &mut first_bytes, 4096)
+                                {
+                                    Ok(0) => break,
+                                    Ok(_) => continue,
+                                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                                    Err(_) => break,
                                 }
-                                first_bytes.extend_from_slice(&init_buf[..n]);
                             }
 
                             // Session id is finalized inside the greeting (the
                             // SDK appends its seat-reservation sessionId to the
                             // upgrade URL). Track token -> id for send_to().
-                            let mut session_id = format!("colyseus_{}_{}", token.0, peer.port());
-
                             let has_first_bytes = !first_bytes.is_empty();
                             let mut client = ColyseusClient {
                                 stream,
                                 state: WsState::Handshaking,
-                                session_id: session_id.clone(),
+                                session_id: format!("colyseus_{}_{}", token.0, peer.port())
+                                    .into(),
                                 room_id: String::new(), // filled by greeting
                                 recv_buf: first_bytes,
-                                send_queue: Vec::with_capacity(4096),
+                                send_queue: BytesMut::with_capacity(4096),
                                 frag_opcode: None,
-                                frag_buf: Vec::new(),
+                                frag_buf: BytesMut::new(),
                                 last_activity: now,
                                 ping_sent_at: None,
                                 missed_pings: 0,
@@ -479,7 +520,7 @@ impl GameTransport for ColyseusWsTransport {
                                     handle_client_greeting(
                                         &mut client,
                                         &peer.to_string(),
-                                        &mut events_out,
+                                        &mut buf,
                                         &mut ctx,
                                     )
                                 };
@@ -487,21 +528,19 @@ impl GameTransport for ColyseusWsTransport {
                                     // HTTP request served; nothing to track.
                                     continue;
                                 }
-                                if client.session_id != session_id {
-                                    session_id = client.session_id.clone();
-                                }
                                 // Frames may have arrived together with the
                                 // upgrade request (edge-triggered epoll).
                                 if client.state == WsState::Connected && !client.recv_buf.is_empty()
                                 {
-                                    process_ws_frames(&mut client, &mut events_out);
+                                    process_ws_frames(&mut client, &mut buf, now);
                                 }
                             }
                             // Real WebSocket client: keep it registered (data
                             // may not have arrived yet — greeting re-runs on
                             // the readable event).
-                            self.client_tokens.insert(client.session_id.clone(), token);
-                            self.clients.insert(token, client);
+                            self.client_tokens
+                                .insert(client.session_id.to_string(), token);
+                            clients.insert(token, client);
                         }
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                         Err(e) => return Err(e),
@@ -510,109 +549,113 @@ impl GameTransport for ColyseusWsTransport {
             } else {
                 let token = tok;
                 let mut conn_dead = false;
-                    let mut client_session_id = String::new();
 
-                    if let Some(client) = self.clients.get_mut(&token) {
-                        client_session_id = client.session_id.clone();
-
-                        if event.is_readable() {
-                            let mut buf = [0u8; 4096];
-                            loop {
-                                match client.stream.read(&mut buf) {
-                                    Ok(0) => {
-                                        conn_dead = true;
-                                        break;
-                                    }
-                                    Ok(n) => {
-                                        client.recv_buf.extend_from_slice(&buf[..n]);
-                                    }
-                                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                                    Err(_) => {
-                                        conn_dead = true;
-                                        break;
-                                    }
+                if let Some(client) = clients.get_mut(&token) {
+                    if event.is_readable() {
+                        loop {
+                            match crate::bufio::read_tcp(
+                                &mut client.stream,
+                                &mut client.recv_buf,
+                                4096,
+                            ) {
+                                Ok(0) => {
+                                    conn_dead = true;
+                                    break;
                                 }
-                            }
-
-                            match client.state {
-                                WsState::Handshaking => {
-                                    let peer = client
-                                        .stream
-                                        .peer_addr()
-                                        .map(|a| a.to_string())
-                                        .unwrap_or_default();
-                                    let closed = {
-                                        let mut ctx = ServerCtx {
-                                            matchmake_hook: self.matchmake_hook.as_ref(),
-                                            http_hook: self.http_hook.as_ref(),
-                                            retained: &self.retained,
-                                            seat_tokens: &mut self.seat_tokens,
-                                            client_rooms: &mut self.client_rooms,
-                                        };
-                                        handle_client_greeting(
-                                            client,
-                                            &peer,
-                                            &mut events_out,
-                                            &mut ctx,
-                                        )
-                                    };
-                                    if closed {
-                                        conn_dead = true;
-                                    } else {
-                                        // Greeting may have adopted the SDK's
-                                        // seat-reservation sessionId — re-key the
-                                        // token map so send_to() finds it.
-                                        if client.session_id != client_session_id {
-                                            self.client_tokens.remove(&client_session_id);
-                                            self.client_tokens
-                                                .insert(client.session_id.clone(), token);
-                                            client_session_id = client.session_id.clone();
-                                        }
-                                        if client.state == WsState::Connected {
-                                            // Frames may have arrived in the same TCP
-                                            // segment as the upgrade request; mio is
-                                            // edge-triggered, so drain them now.
-                                            conn_dead = process_ws_frames(client, &mut events_out);
-                                        }
-                                    }
-                                }
-                                WsState::Connected => {
-                                    conn_dead = process_ws_frames(client, &mut events_out);
+                                Ok(_) => {}
+                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                                Err(_) => {
+                                    conn_dead = true;
+                                    break;
                                 }
                             }
                         }
 
-                        if event.is_writable() && !client.send_queue.is_empty() {
-                            match client.stream.write(&client.send_queue) {
-                                Ok(n) => {
-                                    client.send_queue.drain(0..n);
+                        match client.state {
+                            WsState::Handshaking => {
+                                let prev_id = client.session_id.clone();
+                                let peer = client
+                                    .stream
+                                    .peer_addr()
+                                    .map(|a| a.to_string())
+                                    .unwrap_or_default();
+                                let closed = {
+                                    let mut ctx = ServerCtx {
+                                        matchmake_hook: self.matchmake_hook.as_ref(),
+                                        http_hook: self.http_hook.as_ref(),
+                                        retained: &self.retained,
+                                        seat_tokens: &mut self.seat_tokens,
+                                        client_rooms: &mut self.client_rooms,
+                                    };
+                                    handle_client_greeting(
+                                        client,
+                                        &peer,
+                                        &mut buf,
+                                        &mut ctx,
+                                    )
+                                };
+                                if closed {
+                                    conn_dead = true;
+                                } else {
+                                    // Greeting may have adopted the SDK's
+                                    // seat-reservation sessionId — re-key the
+                                    // token map so send_to() finds it.
+                                    if client.session_id != prev_id {
+                                        self.client_tokens.remove(&*prev_id);
+                                        self.client_tokens
+                                            .insert(client.session_id.to_string(), token);
+                                    }
+                                    if client.state == WsState::Connected {
+                                        // Frames may have arrived in the same TCP
+                                        // segment as the upgrade request; mio is
+                                        // edge-triggered, so drain them now.
+                                        conn_dead = process_ws_frames(client, &mut buf, now);
+                                    }
                                 }
-                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                                Err(_) => conn_dead = true,
+                            }
+                            WsState::Connected => {
+                                conn_dead = process_ws_frames(client, &mut buf, now);
                             }
                         }
                     }
 
-                    if conn_dead {
-                        disconnected.push((token, client_session_id));
+                    if event.is_writable() && !client.send_queue.is_empty() {
+                        match client.stream.write(&client.send_queue) {
+                            Ok(n) => {
+                                client.send_queue.advance(n);
+                            }
+                            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                            Err(_) => conn_dead = true,
+                        }
                     }
                 }
-            }
 
-        for (token, cid) in disconnected {
-            if let Some(mut client) = self.clients.remove(&token) {
-                let _ = self.poll.registry().deregister(&mut client.stream);
-                // Deliver any queued close frame (e.g. LEAVE_ROOM's
-                // `4000 CONSENTED`) before the socket dies.
-                finish_close(client);
-                self.client_tokens.remove(&cid);
-                self.client_rooms.remove(&cid);
-                self.seat_tokens.remove(&cid);
-                events_out.push(TransportEvent::Disconnected { client_id: cid });
+                if conn_dead {
+                    disconnected.push(token);
+                }
             }
         }
 
-        Ok(events_out)
+        for token in disconnected.drain(..) {
+            if let Some(mut client) = clients.remove(&token) {
+                let cid = client.session_id.clone();
+                // Deliver any queued close frame (e.g. LEAVE_ROOM's
+                // `4000 CONSENTED`) before the socket dies.
+                let _ = self.poll.registry().deregister(&mut client.stream);
+                finish_close(client);
+                self.client_tokens.remove(&*cid);
+                self.client_rooms.remove(&*cid);
+                self.seat_tokens.remove(&*cid);
+                buf.push(TransportEvent::Disconnected { client_id: cid });
+            }
+        }
+        self.clients = clients;
+        self.disconnected = disconnected;
+
+        std::mem::swap(ev, &mut buf);
+        buf.clear();
+        self.ev = buf;
+        Ok(())
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> io::Result<()> {
@@ -622,15 +665,18 @@ impl GameTransport for ColyseusWsTransport {
 
     fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> io::Result<()> {
         let colyseus_opcode = colyseus_opcode_for(opcode);
-        let mut ws_frame = Vec::with_capacity(10 + payload.len() + 1);
-        let mut data = Vec::with_capacity(1 + payload.len());
-        data.push(colyseus_opcode);
-        data.extend_from_slice(payload);
-        encode_ws_frame(&data, &mut ws_frame);
-
-        for client in self.clients.values_mut() {
+        let (sb, clients) = (&mut self.sb, &mut self.clients);
+        sb.reserve(11 + payload.len());
+        sb.put_u8(colyseus_opcode);
+        sb.put_slice(payload);
+        // Freeze first so the encoder can read the message and write the
+        // framed bytes into the same scratch in two disjoint steps.
+        let msg: bytes::Bytes = sb.split().freeze();
+        encode_ws_frame(&msg, sb);
+        let frame: bytes::Bytes = sb.split().freeze();
+        for client in clients.values_mut() {
             if matches!(client.state, WsState::Connected) {
-                client.send_queue.extend_from_slice(&ws_frame);
+                client.send_queue.extend_from_slice(&frame);
             }
         }
         Ok(())
@@ -641,7 +687,7 @@ impl GameTransport for ColyseusWsTransport {
             if !client.send_queue.is_empty() {
                 match client.stream.write(&client.send_queue) {
                     Ok(n) => {
-                        client.send_queue.drain(0..n);
+                        client.send_queue.advance(n);
                     }
                     Err(_) => {}
                 }
@@ -676,13 +722,17 @@ impl GameTransport for ColyseusWsTransport {
 
 /// Decode and dispatch all complete WebSocket frames in the client's receive
 /// buffer. Returns `true` when the client must be disconnected (LEAVE_ROOM or
-/// a client-initiated WS close).
-fn process_ws_frames(client: &mut ColyseusClient, events_out: &mut Vec<TransportEvent>) -> bool {
-    let conn_dead = false;
-    while let Some((ws_opcode, fin, payload)) = decode_ws_frame(&mut client.recv_buf) {
+/// a client-initiated WS close). Frames are taken one at a time straight off
+/// the buffer — no intermediate frame list.
+fn process_ws_frames(
+    client: &mut ColyseusClient,
+    events_out: &mut Vec<TransportEvent>,
+    now: Instant,
+) -> bool {
+    while let Some((ws_opcode, fin, payload)) = next_ws_frame(&mut client.recv_buf) {
         // Any inbound frame proves the client is alive: refresh the heartbeat
         // deadline (some WebSocket stacks answer app traffic but delay pongs).
-        client.last_activity = Instant::now();
+        client.last_activity = now;
         client.ping_sent_at = None;
         client.missed_pings = 0;
 
@@ -706,9 +756,9 @@ fn process_ws_frames(client: &mut ColyseusClient, events_out: &mut Vec<Transport
                 if client.frag_opcode.is_some() {
                     client.frag_buf.extend_from_slice(&payload);
                     if fin {
-                        let msg = std::mem::take(&mut client.frag_buf);
+                        let msg = client.frag_buf.split().freeze();
                         client.frag_opcode = None;
-                        if dispatch_colyseus_message(client, &msg, events_out) {
+                        if dispatch_colyseus_message(client, msg, events_out) {
                             return true;
                         }
                     }
@@ -717,34 +767,35 @@ fn process_ws_frames(client: &mut ColyseusClient, events_out: &mut Vec<Transport
             }
             0x1 | 0x2 => {
                 if fin {
-                    if dispatch_colyseus_message(client, &payload, events_out) {
+                    if dispatch_colyseus_message(client, payload, events_out) {
                         return true;
                     }
                 } else {
                     client.frag_opcode = Some(ws_opcode);
-                    client.frag_buf = payload;
+                    client.frag_buf.clear();
+                    client.frag_buf.extend_from_slice(&payload);
                 }
                 continue;
             }
             _ => continue, // unknown WS opcode — ignore
         }
     }
-    conn_dead
+    false
 }
 
 /// Dispatch one complete Colyseus protocol message. `msg[0]` is the protocol
 /// byte (modifier bits stripped via `PROTOCOL_CODE_MASK` before dispatch).
+/// `msg` is a zero-copy view of the socket receive buffer.
 /// Returns `true` when the client must be disconnected (LEAVE_ROOM).
 fn dispatch_colyseus_message(
     client: &mut ColyseusClient,
-    msg: &[u8],
+    msg: Bytes,
     events_out: &mut Vec<TransportEvent>,
 ) -> bool {
     if msg.is_empty() {
         return false;
     }
     let code = msg[0] & PROTOCOL_CODE_MASK;
-    let payload = msg[1..].to_vec();
 
     match code {
         COLYSEUS_JOIN_ROOM => {
@@ -760,14 +811,14 @@ fn dispatch_colyseus_message(
             events_out.push(TransportEvent::Packet {
                 client_id: client.session_id.clone(),
                 opcode: OpCode::PlayerInput,
-                payload,
+                payload: msg.slice(1..),
             });
         }
         COLYSEUS_ROOM_DATA_BYTES => {
             events_out.push(TransportEvent::Packet {
                 client_id: client.session_id.clone(),
                 opcode: OpCode::RoomDataBytes,
-                payload,
+                payload: msg.slice(1..),
             });
         }
         COLYSEUS_PING => {
@@ -778,7 +829,7 @@ fn dispatch_colyseus_message(
             events_out.push(TransportEvent::Packet {
                 client_id: client.session_id.clone(),
                 opcode: OpCode::RoomRequest,
-                payload,
+                payload: msg.slice(1..),
             });
         }
         _ => {
@@ -786,7 +837,7 @@ fn dispatch_colyseus_message(
             events_out.push(TransportEvent::Packet {
                 client_id: client.session_id.clone(),
                 opcode: OpCode::Custom,
-                payload: msg.to_vec(),
+                payload: msg,
             });
         }
     }
@@ -861,14 +912,21 @@ fn handle_client_greeting(
         .unwrap_or_default();
     let url_room = {
         let path = req.split_whitespace().nth(1).unwrap_or("");
-        path.split('?')
-            .next()
-            .unwrap_or("")
-            .trim_start_matches('/')
-            .split('/')
-            .nth(2)
-            .unwrap_or("")
-            .to_string()
+        let query = path.split_once('?').map(|(_, q)| format!("?{}", q)).unwrap_or_default();
+        let clean = path.split('?').next().unwrap_or("").trim_matches('/');
+        let segments: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
+        let base_room = if segments.is_empty() {
+            ""
+        } else if segments.len() == 1 {
+            segments[0]
+        } else {
+            segments.last().unwrap_or(&"")
+        };
+        if base_room.is_empty() {
+            String::new()
+        } else {
+            format!("{}{}", base_room, query)
+        }
     };
     let url_body = req.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
     let is_head = req.starts_with("HEAD ");
@@ -989,13 +1047,13 @@ fn handle_client_greeting(
         // Adopt the SDK's seat-reservation sessionId from the upgrade URL so
         // the server-side player key matches room.sessionId on the client.
         if let Some(sid) = &url_session_id {
-            client.session_id = sid.clone();
+            client.session_id = Arc::from(sid.as_str());
         }
         // Remember which room this socket belongs to (for the game layer).
         client.room_id = url_room.clone();
         if !url_room.is_empty() {
             ctx.client_rooms
-                .insert(client.session_id.clone(), url_room.clone());
+                .insert(client.session_id.to_string(), url_room.clone());
         }
 
         // In this protocol the SERVER initiates the join: the SDK client
@@ -1131,10 +1189,10 @@ fn handle_ws_handshake(buf: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-/// Decode one RFC 6455 frame. Returns `(opcode, fin, payload)` — the opcode is
-/// the raw WS opcode (0x0 continuation, 0x1 text, 0x2 binary, 0x8 close,
-/// 0x9 ping, 0xA pong). Handles 7/16/64-bit lengths and client unmasking.
-fn decode_ws_frame(buf: &mut Vec<u8>) -> Option<(u8, bool, Vec<u8>)> {
+/// Take one frame off the front of `buf`. `None` when the buffer holds an
+/// incomplete frame. Unmasks the payload in place and hands out a refcounted
+/// `Bytes` view — no per-frame copy.
+fn next_ws_frame(buf: &mut BytesMut) -> Option<(u8, bool, Bytes)> {
     if buf.len() < 2 {
         return None;
     }
@@ -1168,62 +1226,72 @@ fn decode_ws_frame(buf: &mut Vec<u8>) -> Option<(u8, bool, Vec<u8>)> {
         return None;
     }
 
-    let mask = if is_masked {
-        Some([
-            buf[header_len],
-            buf[header_len + 1],
-            buf[header_len + 2],
-            buf[header_len + 3],
-        ])
-    } else {
-        None
-    };
-
+    // Detach the whole frame, then unmask the payload region in place and
+    // hand out a zero-copy view of it.
+    let mut frame = buf.split_to(total_len);
     let payload_start = header_len + mask_len;
-    let mut payload = buf[payload_start..total_len].to_vec();
-
-    if let Some(m) = mask {
-        for (i, byte) in payload.iter_mut().enumerate() {
-            *byte ^= m[i % 4];
+    if is_masked {
+        let mask = [
+            frame[header_len],
+            frame[header_len + 1],
+            frame[header_len + 2],
+            frame[header_len + 3],
+        ];
+        for (i, byte) in frame[payload_start..total_len].iter_mut().enumerate() {
+            *byte ^= mask[i & 3];
         }
     }
-
-    buf.drain(0..total_len);
+    let payload = frame.split_off(payload_start).freeze();
     Some((ws_opcode, fin, payload))
 }
 
 /// Server frames are never masked (RFC 6455).
-fn encode_ws_frame(payload: &[u8], out: &mut Vec<u8>) {
+fn encode_ws_frame(payload: &[u8], out: &mut impl BufMut) {
     // Binary Frame: FIN bit (0x80) + Opcode Binary (0x02) = 0x82
-    out.push(0x82);
+    out.put_u8(0x82);
 
     let len = payload.len();
     if len <= 125 {
-        out.push(len as u8);
+        out.put_u8(len as u8);
     } else if len <= 65535 {
-        out.push(126);
-        out.extend_from_slice(&(len as u16).to_be_bytes());
+        out.put_u8(126);
+        out.put_slice(&(len as u16).to_be_bytes());
     } else {
-        out.push(127);
-        out.extend_from_slice(&(len as u64).to_be_bytes());
+        out.put_u8(127);
+        out.put_slice(&(len as u64).to_be_bytes());
     }
 
-    out.extend_from_slice(payload);
+    out.put_slice(payload);
 }
 
 /// Queue one Colyseus protocol message (opcode byte + payload) as a WS frame.
 fn queue_colyseus_message(client: &mut ColyseusClient, code: u8, payload: &[u8]) {
-    let mut data = Vec::with_capacity(1 + payload.len());
-    data.push(code);
-    data.extend_from_slice(payload);
-    encode_ws_frame(&data, &mut client.send_queue);
+    encode_colyseus_frame(code, payload, &mut client.send_queue);
+}
+
+/// Encode `[code][payload]` as an unmasked binary WS frame directly into
+/// `out`, with no scratch buffer.
+fn encode_colyseus_frame(code: u8, payload: &[u8], out: &mut impl BufMut) {
+    let len = payload.len() + 1;
+    out.put_u8(0x82);
+    if len <= 125 {
+        out.put_u8(len as u8);
+    } else if len <= 65535 {
+        out.put_u8(126);
+        out.put_slice(&(len as u16).to_be_bytes());
+    } else {
+        out.put_u8(127);
+        out.put_slice(&(len as u64).to_be_bytes());
+    }
+    out.put_u8(code);
+    out.put_slice(payload);
 }
 
 /// Queue a WS control frame (ping/pong/close — always FIN, payload <= 125).
 fn queue_ws_control(client: &mut ColyseusClient, opcode: u8, payload: &[u8]) {
-    client.send_queue.push(0x80 | opcode);
-    client.send_queue.push(payload.len().min(125) as u8);
-    client.send_queue.extend_from_slice(&payload[..payload.len().min(125)]);
+    client.send_queue.put_u8(0x80 | opcode);
+    client.send_queue.put_u8(payload.len().min(125) as u8);
+    client.send_queue.put_slice(&payload[..payload.len().min(125)]);
 }
 
 /// Queue a WS ping (heartbeat).
@@ -1247,7 +1315,7 @@ fn try_flush_client(client: &mut ColyseusClient) {
     }
     match client.stream.write(&client.send_queue) {
         Ok(n) => {
-            client.send_queue.drain(0..n);
+            client.send_queue.advance(n);
         }
         Err(_) => {}
     }

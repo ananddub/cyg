@@ -132,6 +132,28 @@ impl<T> WasmInstance<T> {
         Ok(data[start..end].to_vec())
     }
 
+    /// [`read_memory`](Self::read_memory) writing into a caller-owned buffer,
+    /// so a host reading a delta every tick reuses one allocation instead of
+    /// malloc'ing per frame. The buffer is truncated to the slice length.
+    pub fn read_memory_into(&self, offset: u32, len: u32, out: &mut Vec<u8>) -> Result<(), WasmError> {
+        let memory = self.memory.ok_or(WasmError::MissingMemory)?;
+        let data = memory.data(&self.store);
+        let start = offset as usize;
+        let end = start.saturating_add(len as usize);
+
+        if end > data.len() {
+            return Err(WasmError::OutOfBounds {
+                offset: start,
+                len: len as usize,
+                size: data.len(),
+            });
+        }
+
+        out.clear();
+        out.extend_from_slice(&data[start..end]);
+        Ok(())
+    }
+
     /// Write raw bytes into the instance's linear memory.
     pub fn write_memory(&mut self, offset: u32, bytes: &[u8]) -> Result<(), WasmError> {
         let memory = self.memory.ok_or(WasmError::MissingMemory)?;
@@ -148,6 +170,38 @@ impl<T> WasmInstance<T> {
         }
 
         data[start..end].copy_from_slice(bytes);
+        Ok(())
+    }
+
+    /// Access the full immutable raw linear memory slice of the instance.
+    pub fn raw_memory_slice(&self) -> Result<&[u8], WasmError> {
+        let memory = self.memory.ok_or(WasmError::MissingMemory)?;
+        Ok(memory.data(&self.store))
+    }
+
+    /// Access the full mutable raw linear memory slice of the instance.
+    pub fn raw_memory_mut(&mut self) -> Result<&mut [u8], WasmError> {
+        let memory = self.memory.ok_or(WasmError::MissingMemory)?;
+        Ok(memory.data_mut(&mut self.store))
+    }
+
+    /// Snapshot the entire linear memory buffer for rollback or serialization.
+    pub fn snapshot_memory(&self) -> Result<Vec<u8>, WasmError> {
+        self.raw_memory_slice().map(|s| s.to_vec())
+    }
+
+    /// Restore the linear memory directly from a previous snapshot.
+    pub fn restore_memory(&mut self, snapshot: &[u8]) -> Result<(), WasmError> {
+        let memory = self.memory.ok_or(WasmError::MissingMemory)?;
+        let data = memory.data_mut(&mut self.store);
+        if snapshot.len() > data.len() {
+            return Err(WasmError::OutOfBounds {
+                offset: 0,
+                len: snapshot.len(),
+                size: data.len(),
+            });
+        }
+        data[..snapshot.len()].copy_from_slice(snapshot);
         Ok(())
     }
 }

@@ -63,9 +63,10 @@ fn test_mio_worker_client_echo_and_ticks() {
     let mut packet_received = false;
 
     let test_deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let mut packets = Vec::new();
     while std::time::Instant::now() < test_deadline {
-        let packets = worker
-            .step(Duration::from_millis(5), |_ctx, clients| {
+        worker
+            .step(Duration::from_millis(5), &mut packets, |_ctx, clients| {
                 ticks_fired += 1;
                 // On tick, send a StateDelta back to all clients
                 for conn in clients.values_mut() {
@@ -74,7 +75,7 @@ fn test_mio_worker_client_echo_and_ticks() {
             })
             .expect("Step ok");
 
-        for pkt in packets {
+        for pkt in packets.drain(..) {
             if pkt.opcode == OpCode::PlayerInput && pkt.payload == vec![42, 100, 200] {
                 packet_received = true;
                 println!("✓ Worker received PlayerInput frame from {}: {:?}", pkt.session_id, pkt.payload);

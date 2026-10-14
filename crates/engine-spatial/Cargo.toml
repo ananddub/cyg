@@ -1,0 +1,12 @@
+[package]
+name = "engine-spatial"
+version = "0.1.0"
+edition = "2024"
+description = "High-performance 2D & 3D Spatial Partitioning, KD-Trees, and Network Area-of-Interest (AOI) indexing powered by kiddo"
+
+[dependencies]
+kiddo = "6.3.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0"
