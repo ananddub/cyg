@@ -4,6 +4,8 @@
 //! and instant rewinds for WebAssembly game rooms. Enables GGPO / reference reference-style
 //! client-side prediction, rollback, and frame checksum desync verification.
 
+use std::collections::HashMap;
+
 use crate::error::WasmError;
 use crate::instance::WasmInstance;
 
@@ -60,6 +62,11 @@ pub struct RollbackRingBuffer {
     capacity: usize,
     frames: Vec<Option<SnapshotFrame>>,
     latest_tick: Option<u64>,
+    /// Guest-serialized state blobs (from the room's save() export), keyed by
+    /// the same ring index as `frames`. Preferred over raw memory snapshots:
+    /// the guest serializes only its own state, so a checkpoint is kilobytes,
+    /// not megabytes.
+    blobs: HashMap<u64, Vec<u8>>,
 }
 
 impl Default for RollbackRingBuffer {
@@ -78,6 +85,7 @@ impl RollbackRingBuffer {
         }
         Self {
             capacity: cap,
+            blobs: HashMap::new(),
             frames,
             latest_tick: None,
         }
@@ -140,6 +148,25 @@ impl RollbackRingBuffer {
 
         instance.restore_memory(&frame.memory)?;
         Ok(frame.checksum)
+    }
+
+    /// Store the guest's serialized state blob for `tick`.
+    /// Keeps at most `capacity` blobs (oldest evicted first).
+    pub fn save_blob(&mut self, tick: u64, blob: Vec<u8>) {
+        self.blobs.insert(tick, blob);
+        if self.blobs.len() > self.capacity {
+            let mut ticks: Vec<u64> = self.blobs.keys().copied().collect();
+            ticks.sort_unstable();
+            let excess = self.blobs.len() - self.capacity;
+            for t in ticks.into_iter().take(excess) {
+                self.blobs.remove(&t);
+            }
+        }
+    }
+
+    /// The stored blob for `tick`, if it is still inside the window.
+    pub fn blob_for(&self, tick: u64) -> Option<&[u8]> {
+        self.blobs.get(&tick).map(Vec::as_slice)
     }
 
     /// Retrieve the checksum for a historical frame if still present in the buffer.

@@ -455,9 +455,14 @@ fn apply_input(
         return;
     }
 
-    if room.rollback_buffer.rollback_to(pred_tick, room.wasm.raw_instance()).is_err() {
-        return; // snapshot aged out of the ring window
-    }
+    // Restore the guest from the checkpoint blob via the guest's own
+    // save()/load() contract — no raw linear-memory copy in the host.
+    let Some(ckpt) = room.rollback_buffer.blob_for(pred_tick) else {
+        return; // checkpoint aged out of the ring window
+    };
+    let load_ptr = room.wasm.on_alloc(ckpt.len() as i32).expect("wasm alloc ckpt") as u32 as usize;
+    room.wasm.write_memory(load_ptr as u32, ckpt).expect("write ckpt");
+    room.wasm.on_load(load_ptr as i32, ckpt.len() as i32).expect("wasm on_load");
 
     // Insert the late input right behind its predecessor, keeping the journal
     // ordered by arrival tick.
@@ -487,9 +492,14 @@ fn apply_input(
         for (jid, jpayload) in batch {
             deliver_input(room, jid, &jpayload);
         }
-        if let Ok(_packed) = room.wasm.on_tick(dt) {
+        if let Ok(packed) = room.wasm.on_tick(dt) {
             cur += 1;
-            let _ = room.rollback_buffer.save_snapshot(cur, room.wasm.raw_instance_ref());
+            // Guest serializes its own state; host stores the blob.
+            let sptr = ((packed >> 32) as u32) as usize;
+            let slen = (packed as u32) as usize;
+            if let Ok(blob) = room.wasm.read_memory(sptr as u32, slen as u32) {
+                let _ = room.rollback_buffer.save_blob(cur, blob);
+            }
         } else {
             break; // guest trapped: stop replay, state is pred_tick-rewound
         }
@@ -1660,10 +1670,20 @@ pub fn run(
                         }
                     };
 
-                    // reference-grade: capture rolling linear memory snapshot & frame checksum in < 5μs
-                    let _ = room
-                        .rollback_buffer
-                        .save_snapshot(room.current_tick, room.wasm.raw_instance_ref());
+                    // Phase F checkpoint: the guest serializes its own state
+                    // (tiny blob) — no raw linear-memory copy in the host.
+                    if cfg.rollback.enabled {
+                        let packed_state = room.wasm.on_save().expect("wasm on_save");
+                        let sptr = ((packed_state >> 32) as u32) as usize;
+                        let slen = (packed_state as u32) as usize;
+                        let blob = room
+                            .wasm
+                            .read_memory(sptr as u32, slen as u32)
+                            .expect("read save blob");
+                        let _ = room
+                            .rollback_buffer
+                            .save_blob(u64::from(room.current_tick), blob);
+                    }
                     let ptr = ((packed >> 32) as u32) as usize;
                     let len = (packed as u32) as usize;
 
