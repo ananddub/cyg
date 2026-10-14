@@ -928,35 +928,11 @@ export class DeltaWriter {
 // --- 6. TYPE-SAFE CLIENT INPUT READER (NO RAW POINTERS IN ROOM) ---
 // =============================================================================
 
-export enum Action {
-    FORWARD = 1,
-    BACKWARD = 2,
-    LEFT = 4,
-    RIGHT = 8,
-    FIRE = 16,
-    JUMP = 32,
-    CROUCH = 64,
-    RELOAD = 128,
-    INTERACT = 256,
-    SPRINT = 512
-}
-
-export class PlayerInput {
-    flags: u32 = 0;
-    aimYaw: f64 = 0.0;
-    aimPitch: f64 = 0.0;
-    move: Vec2 = new Vec2();
-
-    isAction(action: Action): bool {
-        return (this.flags & (action as u32)) != 0;
-    }
-}
-
 export class InputReader {
     private _ptr: usize;
     private _len: i32;
     private _offset: i32 = 0;
-    private static _reusableInput: PlayerInput = new PlayerInput();
+
 
     constructor(ptr: usize, len: i32) {
         this._ptr = ptr;
@@ -1022,35 +998,21 @@ export class InputReader {
         return new Vec3(x, y, z);
     }
 
-    /**
-     * Reads a standard multiplayer input packet (flags, aim angles, WASD/joystick vector).
-     * Zero-GC: returns reusable pre-allocated PlayerInput instance!
-     */
-    readPlayerInput(): PlayerInput {
-        let res = InputReader._reusableInput;
-        res.flags = 0;
-        res.aimYaw = 0.0;
-        res.aimPitch = 0.0;
-        res.move.set(0.0, 0.0);
+    readU16(): u16 {
+        if (this._offset + 2 > this._len) return 0;
+        let val = load<u16>(this._ptr + this._offset);
+        this._offset += 2;
+        return val;
+    }
 
-        let rem = this.remaining;
-        if (rem >= 20) {
-            res.flags = this.readU32();
-            res.aimYaw = this.readF32() as f64;
-            res.aimPitch = this.readF32() as f64;
-            let mx = this.readF32() as f64;
-            let mz = this.readF32() as f64;
-            res.move.set(mx, mz);
-        } else if (rem >= 12) {
-            res.flags = this.readU32();
-            res.aimYaw = this.readF32() as f64;
-            res.aimPitch = this.readF32() as f64;
-        } else if (rem >= 4) {
-            res.flags = this.readU32();
-        }
-        return res;
+    readI32(): i32 {
+        if (this._offset + 4 > this._len) return 0;
+        let val = load<i32>(this._ptr + this._offset);
+        this._offset += 4;
+        return val;
     }
 }
+
 
 // =============================================================================
 // --- 7. DETERMINISTIC PRNG (REPRODUCIBLE RANDOM GENERATOR) ---

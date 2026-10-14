@@ -274,41 +274,21 @@ export declare class DeltaWriter {
     seal(): bigint;
 }
 
-export declare enum Action {
-    FORWARD = 1,
-    BACKWARD = 2,
-    LEFT = 4,
-    RIGHT = 8,
-    FIRE = 16,
-    JUMP = 32,
-    CROUCH = 64,
-    RELOAD = 128,
-    INTERACT = 256,
-    SPRINT = 512
-}
-
-export declare class PlayerInput {
-    flags: number;
-    aimYaw: number;
-    aimPitch: number;
-    move: Vec2;
-    isAction(action: Action): boolean;
-}
-
 export declare class InputReader {
     constructor(ptr: number, len: number);
-    get remaining(): number;
-    readU8(): number;
-    readU32(): number;
-    readF32(): number;
-    readF64(): number;
     readonly remaining: number;
     hasRemaining(bytes: number): boolean;
+    readU8(): number;
+    readU16(): number;
+    readU32(): number;
+    readI32(): number;
     readI64(): bigint;
+    readF32(): number;
+    readF64(): number;
     readVec2(): Vec2;
     readVec3(): Vec3;
-    readPlayerInput(): PlayerInput;
 }
+
 
 
 export declare class Random {
