@@ -16,8 +16,8 @@ function fmt(n: number | undefined | null): string {
   return typeof n === "number" ? n.toLocaleString() : "—"
 }
 
-/// `true` while the counter grew between two snapshots — the "is climbing"
-/// the panel needs, which a single snapshot cannot express on its own.
+// `true` while the counter grew between two snapshots — the "is climbing"
+// the panel needs, which a single snapshot cannot express on its own.
 function useClimbing(value: number | undefined): boolean {
   const [climbing, setClimbing] = useState(false)
   const prev = useRef<number | undefined>(undefined)
@@ -43,8 +43,8 @@ function Stat({ label, value, alarm }: { label: string; value: string; alarm?: b
   )
 }
 
-/// The sidecar's snapshot is Agones' own JSON; read each key defensively so a
-/// shape we have never seen renders dashes instead of throwing.
+// The sidecar's snapshot is Agones' own JSON; read each key defensively so a
+// shape we have never seen renders dashes instead of throwing.
 function digBoolean(a: Record<string, unknown> | undefined, key: string): boolean | undefined {
   if (!a) return undefined
   if (typeof a[key] === "boolean") return a[key] as boolean

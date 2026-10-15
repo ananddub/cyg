@@ -211,10 +211,8 @@ pub fn router(state: &ControlState) -> Router<ControlState> {
     let _ = state;
     Router::new()
         .route("/health", get(health))
-        // The page itself: a project opened at `/` must land on its website.
-        .route("/", get(serve_website))
+        .route("/", get(serve_root))
         .route("/openoxide.js", get(serve_sdk))
-        .route("/website.html", get(serve_website))
         .route("/arena_map.json", get(serve_map))
         .route("/packages/sdk/dist/colyseus.js", get(serve_colyseus))
         .route(
@@ -389,13 +387,9 @@ async fn serve_sdk(State(state): State<ControlState>) -> Response {
     }
 }
 
-/// `/` and `/website.html`: the configured page, else the embedded e2e page.
-async fn serve_website(State(state): State<ControlState>) -> Response {
-    let s = &state.statics;
-    match s.read(s.website_path()).or_else(|| s.default_for("/website.html")) {
-        Some(body) => file_response("index.html", body),
-        None => not_found(),
-    }
+/// `/`: redirect to the control dashboard. Engine does not render/inject game websites.
+async fn serve_root() -> Response {
+    axum::response::Redirect::temporary("/dashboard/").into_response()
 }
 
 async fn serve_map(State(state): State<ControlState>) -> Response {

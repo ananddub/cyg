@@ -134,9 +134,22 @@ export function TickChart({ series, nominalUs, loading }: TickChartProps) {
               cursor={false}
               content={
                 <ChartTooltipContent
-                  formatter={(value) =>
-                    typeof value === "number" ? formatDuration(value) : String(value)
-                  }
+                  // A formatter replaces the whole row in ChartTooltipContent,
+                  // so it must render label and value itself. `null` is a gap.
+                  formatter={(value, name) => (
+                    <div className="flex w-full items-center justify-between gap-3">
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                          style={{ backgroundColor: `var(--color-${String(name)})` }}
+                        />
+                        {String(name)}
+                      </span>
+                      <span className="font-mono font-medium tabular-nums">
+                        {typeof value === "number" ? formatDuration(value) : "—"}
+                      </span>
+                    </div>
+                  )}
                 />
               }
             />

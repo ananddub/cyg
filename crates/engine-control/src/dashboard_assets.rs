@@ -40,7 +40,22 @@ pub fn router(state: &ControlState) -> Router<ControlState> {
     Router::new()
         .route("/dashboard", get(index))
         .route("/dashboard/", get(index))
+        .route("/dashboard/favicon.svg", get(favicon))
+        .route("/dashboard/icons.svg", get(icons))
+        .route("/dashboard/logo.png", get(logo))
         .route("/dashboard/assets/{*rest}", get(asset))
+}
+
+async fn favicon() -> Response {
+    serve_asset(dist_root().as_deref(), "favicon.svg")
+}
+
+async fn icons() -> Response {
+    serve_asset(dist_root().as_deref(), "icons.svg")
+}
+
+async fn logo() -> Response {
+    serve_asset(dist_root().as_deref(), "logo.png")
 }
 
 async fn index() -> Response {
@@ -54,7 +69,7 @@ async fn asset(OriginalUri(uri): OriginalUri) -> Response {
     let Some(rest) = uri.path().strip_prefix(ASSET_PREFIX) else {
         return not_found();
     };
-    serve_asset(dist_root().as_deref(), rest)
+    serve_asset(dist_root().as_deref(), &format!("assets/{rest}"))
 }
 
 /// The dist root for this request, or `None` when the dashboard is not built.
@@ -119,7 +134,9 @@ fn serve_asset(root: Option<&Path>, rest: &str) -> Response {
         // how a browser ends up "parsing" HTML as a module.
         return not_built(StatusCode::NOT_FOUND);
     };
-    let Some(path) = child_under(dist, rest) else {
+    let path = child_under(dist, rest)
+        .or_else(|| child_under(dist, &format!("assets/{rest}")));
+    let Some(path) = path else {
         // A traversal probe and a typo get the same answer; explaining which one
         // it was tells an attacker which rule fired.
         return not_found();

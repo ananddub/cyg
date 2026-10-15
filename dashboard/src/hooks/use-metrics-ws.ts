@@ -18,20 +18,20 @@ export interface MetricsWs {
 
 const MIN_BACKOFF_MS = 500
 const MAX_BACKOFF_MS = 30_000
-/// An `open` socket quieter than this is half-open and gets replaced.
+// An `open` socket quieter than this is half-open and gets replaced.
 const WATCHDOG_MS = 5_000
-/// `engine_dashboard::WS_PROTOCOL`.
+// `engine_dashboard::WS_PROTOCOL`.
 const SUPPORTED_PROTOCOL = 1
-/// `engine_dashboard::HISTORY_LEN`.
+// `engine_dashboard::HISTORY_LEN`.
 const MAX_POINTS = 300
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-/// A frame is either something this hook can apply, a protocol it has never
-/// seen, or noise. Only the first is applied; the second stops the retry loop.
-type Parsed = { kind: 'frame'; frame: WsFrame } | { kind: 'noise' } | { kind: 'protocol'; seen: number }
+// A frame is either something this hook can apply, a protocol it has never
+// seen, or noise. Only the first is applied; the second stops the retry loop.
+type Parsed = { kind: 'frame'; frame: WsFrame } | { kind: 'noise' } | { kind: 'protocol' }
 
 function parseFrame(raw: string): Parsed {
   if (raw === '') return { kind: 'noise' }
@@ -47,7 +47,7 @@ function parseFrame(raw: string): Parsed {
   if (type !== 'hello' && type !== 'snapshot') return { kind: 'noise' }
   if (!isRecord(value['overview']) || !isRecord(value['ticks'])) return { kind: 'noise' }
   if (type === 'hello' && value['protocol'] !== SUPPORTED_PROTOCOL) {
-    return { kind: 'protocol', seen: Number(value['protocol'] ?? 0) }
+    return { kind: 'protocol' }
   }
   return { kind: 'frame', frame: value as unknown as WsFrame }
 }
@@ -56,8 +56,8 @@ function pointKey(p: TickPoint): string {
   return `${p.seq}:${p.atMs}`
 }
 
-/// A snapshot carries the plane's whole ring, so incoming points win where they
-/// overlap; appending is only for the run this page saw that the ring evicted.
+// A snapshot carries the plane's whole ring, so incoming points win where they
+// overlap; appending is only for the run this page saw that the ring evicted.
 function mergePoints(prev: TickPoint[] | undefined, incoming: TickPoint[]): TickPoint[] {
   if (prev === undefined || prev.length === 0) return incoming.slice(-MAX_POINTS)
   const byKey = new Map<string, TickPoint>()
@@ -76,8 +76,8 @@ const EMPTY: MetricsWs = {
   reconnects: 0,
 }
 
-/// Live `/ws/dashboard` state: `hello` is a full replacement, `snapshot` replaces
-/// and extends the rolling series. Survives a half-open socket without help.
+// Live `/ws/dashboard` state: `hello` is a full replacement, `snapshot` replaces
+// and extends the rolling series. Survives a half-open socket without help.
 export function useMetricsWs(): MetricsWs {
   const [view, setView] = useState<MetricsWs>(EMPTY)
 
@@ -202,7 +202,7 @@ export function useMetricsWs(): MetricsWs {
           dropped += 1
           clearWatchdog()
           abandon()
-          commit((prev) => ({ ...EMPTY, status: 'error', overview: null, ticks: null, dropped: prev.dropped }))
+          commit((prev) => ({ ...prev, status: 'error', overview: null, ticks: null }))
           return
         }
         apply(parsed.frame)

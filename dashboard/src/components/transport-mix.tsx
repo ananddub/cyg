@@ -57,7 +57,7 @@ export function TransportMixPanel({ transport, capacity, loading }: Props) {
         <CardTitle>Transport mix</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label={`Sessions: ${fmt(total)} of ${cap > 0 ? fmt(cap) : "unknown"}`}>
+        <div className="flex h-3 w-full overflow-hidden rounded-xs bg-muted" role="img" aria-label={`Sessions: ${transport ? fmt(total) : "—"} of ${cap > 0 ? fmt(cap) : "unknown"}`}>
           {transport &&
             scale > 0 &&
             SEGMENTS.map((s) => {

@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useEffect, useState } from "react"
+import { Play } from "lucide-react"
+
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -10,11 +12,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import type { RoomRow } from "@/lib/types"
+import type { RoomRow, ClientRow } from "@/lib/types"
 
 interface RoomsTableProps {
   rooms: RoomRow[] | undefined
+  clients?: ClientRow[] | undefined
   loading: boolean
+  onSelectRoom?: (room: RoomRow) => void
 }
 
 const DASH = "—"
@@ -24,7 +28,6 @@ function fillPercent(clients: number, max: number): number {
   return Math.min(100, Math.round((clients / max) * 100))
 }
 
-/** The API gives ms already here; only sub-second ages stay in ms. */
 function formatAgeMs(ms: number | null | undefined): string {
   if (ms == null || Number.isNaN(ms)) return DASH
   if (ms < 1000) return `${ms} ms`
@@ -44,7 +47,8 @@ function CopyCell({ value }: { value: string | null | undefined }) {
 
   if (!value) return <span className="text-muted-foreground">{DASH}</span>
 
-  const copy = () => {
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation()
     navigator.clipboard
       ?.writeText(value)
       .then(() => {
@@ -61,7 +65,7 @@ function CopyCell({ value }: { value: string | null | undefined }) {
       onClick={copy}
       title={value}
       className={cn(
-        "max-w-56 truncate rounded-md border border-border bg-muted/40 px-2 py-1 text-left font-mono text-xs",
+        "max-w-44 truncate rounded-xs border border-border bg-muted/40 px-2 py-0.5 text-left font-mono text-xs",
         "text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
       )}
     >
@@ -88,7 +92,7 @@ function SkeletonRows() {
   )
 }
 
-export function RoomsTable({ rooms, loading }: RoomsTableProps) {
+export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTableProps) {
   const rows = rooms ?? []
   const showSkeletons = loading && rows.length === 0
 
@@ -97,12 +101,13 @@ export function RoomsTable({ rooms, loading }: RoomsTableProps) {
       <TableHeader>
         <TableRow>
           <TableHead>Room</TableHead>
-          <TableHead>Players</TableHead>
-          <TableHead>Tick Hz</TableHead>
+          <TableHead>Players / CCU</TableHead>
+          <TableHead>Tick Rate</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>Empty for</TableHead>
-          <TableHead>Sample age</TableHead>
+          <TableHead>Empty For</TableHead>
+          <TableHead>Sample Age</TableHead>
           <TableHead>Signaling URL</TableHead>
+          <TableHead className="text-right">Action</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -112,40 +117,81 @@ export function RoomsTable({ rooms, loading }: RoomsTableProps) {
           rows.map((room) => {
             const live = room.status === "live"
             const pct = fillPercent(room.clients, room.maxClients)
+            const roomClientsCount = (clients ?? []).filter((c) => c.room === room.name || !c.room).length
+
             return (
-              <TableRow key={`${room.serverId}/${room.name}`}>
-                <TableCell className="font-medium">{room.name}</TableCell>
+              <TableRow
+                key={`${room.serverId}/${room.name}`}
+                onClick={() => onSelectRoom?.(room)}
+                className="group cursor-pointer transition-colors hover:bg-muted/50"
+              >
+                <TableCell className="font-semibold text-foreground">
+                  <div className="flex items-center gap-2">
+                    <span className="group-hover:text-emerald-400 transition-colors">
+                      {room.name}
+                    </span>
+                  </div>
+                </TableCell>
+
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                    <div className="h-1.5 w-20 overflow-hidden rounded-[2px] bg-muted">
                       <div
                         className={cn(
-                          "h-full rounded-full",
-                          live ? "bg-primary" : "bg-muted-foreground/40",
+                          "h-full rounded-[2px] transition-all",
+                          live ? "bg-emerald-500" : "bg-muted-foreground/40",
                         )}
                         style={{ width: `${pct}%` }}
                       />
                     </div>
-                    <span className="tabular-nums text-xs text-muted-foreground">
-                      {room.clients}/{room.maxClients}
+                    <span className="tabular-nums text-xs font-mono font-medium text-foreground">
+                      {roomClientsCount || room.clients}/{room.maxClients}
                     </span>
                   </div>
                 </TableCell>
-                <TableCell className="tabular-nums">
-                  <span>{room.hasSimSample ? formatHz(room.tickHz) : DASH}</span>
-                  <span className="text-muted-foreground"> / {room.tickRate}</span>
+
+                <TableCell className="tabular-nums font-mono">
+                  <span className="text-emerald-400 font-medium">
+                    {room.hasSimSample ? formatHz(room.tickHz) : DASH}
+                  </span>
+                  <span className="text-muted-foreground"> / {room.tickRate} Hz</span>
                 </TableCell>
+
                 <TableCell>
-                  <Badge variant={live ? "default" : "secondary"}>{room.status}</Badge>
+                  <Badge
+                    variant={live ? "default" : "secondary"}
+                    className={cn(
+                      live && "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30 border-0"
+                    )}
+                  >
+                    {room.status}
+                  </Badge>
                 </TableCell>
-                <TableCell className="tabular-nums">
+
+                <TableCell className="tabular-nums font-mono text-xs">
                   {!live && room.emptyForSec != null ? `${room.emptyForSec}s` : DASH}
                 </TableCell>
-                <TableCell className="tabular-nums">
+
+                <TableCell className="tabular-nums font-mono text-xs">
                   {formatAgeMs(room.sampleAgeMs)}
                 </TableCell>
+
                 <TableCell>
                   <CopyCell value={room.signalingUrl} />
+                </TableCell>
+
+                <TableCell className="text-right">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSelectRoom?.(room)
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-sm border border-border/80 bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground transition-all hover:bg-emerald-500/10 hover:text-emerald-400 hover:border-emerald-500/30 shadow-2xs"
+                  >
+                    <Play className="size-3 fill-current" />
+                    <span>Enter Room</span>
+                  </button>
                 </TableCell>
               </TableRow>
             )
@@ -153,8 +199,8 @@ export function RoomsTable({ rooms, loading }: RoomsTableProps) {
         )}
         {!showSkeletons && rows.length === 0 && (
           <TableRow>
-            <TableCell colSpan={7} className="text-center text-muted-foreground">
-              no rooms
+            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+              No rooms active
             </TableCell>
           </TableRow>
         )}

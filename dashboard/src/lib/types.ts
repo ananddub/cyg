@@ -196,6 +196,9 @@ export interface TickSeries {
   bucketEdgesUs: number[];
 }
 
+/** `/ws/dashboard` protocol this contract speaks; only `hello` negotiates it. */
+export const WS_PROTOCOL = 1;
+
 /** One `/ws/dashboard` message, tagged by `type` so a client can switch on it. */
 export type WsFrame = WsHelloFrame | WsSnapshotFrame | WsGoodbyeFrame;
 

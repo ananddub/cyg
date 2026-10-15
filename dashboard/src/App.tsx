@@ -1,17 +1,14 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Toaster } from "@/components/ui/sonner"
+import { DashboardPage } from "@/pages/dashboard"
 
 function App() {
   return (
-    <main className="mx-auto flex min-h-svh max-w-5xl items-center justify-center p-6">
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle>OpenOxide Control</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Dashboard scaffold ready.
-        </CardContent>
-      </Card>
-    </main>
+    <>
+      <DashboardPage />
+      {/* Dark-only app: pin sonner to the dark palette rather than `system`,
+          which would render light toasts on a light-mode OS. */}
+      <Toaster theme="dark" position="bottom-right" closeButton gap={8} />
+    </>
   )
 }
 
