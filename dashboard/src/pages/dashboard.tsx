@@ -106,7 +106,7 @@ export function DashboardPage() {
                 className={cn(
                   "group flex w-full items-center justify-between rounded-sm px-3 py-2 text-xs font-medium transition-all",
                   isActive
-                    ? "bg-foreground/10 text-foreground shadow-xs ring-1 ring-foreground/15"
+                    ? "bg-primary/10 text-primary shadow-xs ring-1 ring-primary/20"
                     : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                 )}
               >
@@ -114,7 +114,7 @@ export function DashboardPage() {
                   <Icon
                     className={cn(
                       "size-4 transition-colors",
-                      isActive ? "text-emerald-400" : "text-muted-foreground group-hover:text-foreground"
+                      isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
                     )}
                   />
                   <span>{item.label}</span>
@@ -124,7 +124,7 @@ export function DashboardPage() {
                     className={cn(
                       "font-mono text-xs tabular-nums transition-colors",
                       isActive
-                        ? "font-semibold text-emerald-400"
+                        ? "font-semibold text-primary"
                         : "text-muted-foreground/70 group-hover:text-muted-foreground"
                     )}
                   >
@@ -140,8 +140,8 @@ export function DashboardPage() {
         <div className="mx-3 mb-3 rounded-md border border-border/50 bg-background/50 p-3 shadow-xs">
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Authoritative Tick</span>
-            <span className="inline-flex items-center gap-1.5 font-mono text-emerald-400 font-medium">
-              <span className="size-1.5 rounded-full bg-emerald-500 animate-ping" />
+            <span className="inline-flex items-center gap-1.5 font-mono text-primary font-medium">
+              <span className="size-1.5 rounded-full bg-primary animate-ping" />
               128 Hz
             </span>
           </div>
@@ -164,7 +164,7 @@ export function DashboardPage() {
               <Server className="size-3.5 text-muted-foreground" />
               <span className="font-mono text-[11px]">v0.2.0-hotpath</span>
             </div>
-            <span className="text-[10px] text-emerald-400/80 font-medium">Ready</span>
+            <span className="text-[10px] text-primary/80 font-medium">Ready</span>
           </div>
         </div>
       </aside>

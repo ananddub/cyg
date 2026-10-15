@@ -127,7 +127,7 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTable
               >
                 <TableCell className="font-semibold text-foreground">
                   <div className="flex items-center gap-2">
-                    <span className="group-hover:text-emerald-400 transition-colors">
+                    <span className="group-hover:text-primary transition-colors">
                       {room.name}
                     </span>
                   </div>
@@ -139,7 +139,7 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTable
                       <div
                         className={cn(
                           "h-full rounded-[2px] transition-all",
-                          live ? "bg-emerald-500" : "bg-muted-foreground/40",
+                          live ? "bg-primary" : "bg-muted-foreground/40",
                         )}
                         style={{ width: `${pct}%` }}
                       />
@@ -151,7 +151,7 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTable
                 </TableCell>
 
                 <TableCell className="tabular-nums font-mono">
-                  <span className="text-emerald-400 font-medium">
+                  <span className="text-primary font-medium">
                     {room.hasSimSample ? formatHz(room.tickHz) : DASH}
                   </span>
                   <span className="text-muted-foreground"> / {room.tickRate} Hz</span>
@@ -161,7 +161,7 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTable
                   <Badge
                     variant={live ? "default" : "secondary"}
                     className={cn(
-                      live && "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30 border-0"
+                      live && "bg-primary/20 text-primary ring-1 ring-primary/30 border-0"
                     )}
                   >
                     {room.status}
@@ -187,7 +187,7 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTable
                       e.stopPropagation()
                       onSelectRoom?.(room)
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-sm border border-border/80 bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground transition-all hover:bg-emerald-500/10 hover:text-emerald-400 hover:border-emerald-500/30 shadow-2xs"
+                    className="inline-flex items-center gap-1.5 rounded-sm border border-border/80 bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground transition-all hover:bg-primary/10 hover:text-primary hover:border-primary/30 shadow-2xs"
                   >
                     <Play className="size-3 fill-current" />
                     <span>Enter Room</span>

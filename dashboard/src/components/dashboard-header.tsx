@@ -29,7 +29,7 @@ function resolvePill(source: string, connected: boolean, ageMs: number | null): 
 }
 
 const pillStyle: Record<PillState, { label: string; dot: string; text: string }> = {
-  live: { label: "LIVE", dot: "bg-emerald-500 animate-pulse", text: "text-emerald-500" },
+  live: { label: "LIVE", dot: "bg-primary animate-pulse", text: "text-primary" },
   reconnecting: { label: "RECONNECTING", dot: "bg-warning", text: "text-warning" },
   offline: { label: "OFFLINE", dot: "bg-destructive", text: "text-destructive" },
   poll: { label: "POLL", dot: "bg-muted-foreground", text: "text-muted-foreground" },

@@ -45,7 +45,7 @@ function idleClass(ms: number | null | undefined): string {
   if (typeof ms !== "number") return "text-muted-foreground"
   if (ms > 2000) return "text-destructive font-bold"
   if (ms > 500) return "text-warning"
-  return "text-emerald-400 font-medium"
+  return "text-primary font-medium"
 }
 
 export function RoomDetailsView({ room, clients, onBack }: RoomDetailsViewProps) {
@@ -106,7 +106,7 @@ export function RoomDetailsView({ room, clients, onBack }: RoomDetailsViewProps)
               className={cn(
                 "font-mono text-[10px] tracking-wide uppercase px-2 py-0.5",
                 room.status === "live"
-                  ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30 border-0"
+                  ? "bg-primary/20 text-primary ring-1 ring-primary/30 border-0"
                   : "bg-muted text-muted-foreground"
               )}
             >
@@ -121,11 +121,11 @@ export function RoomDetailsView({ room, clients, onBack }: RoomDetailsViewProps)
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-4 text-xs font-mono text-muted-foreground border-r border-border/60 pr-4">
             <div className="flex items-center gap-1.5">
-              <Activity className="size-3.5 text-emerald-400" />
+              <Activity className="size-3.5 text-primary" />
               <span>Tick: <strong className="text-foreground">{room.tickRate} Hz</strong></span>
             </div>
             <div className="flex items-center gap-1.5">
-              <Users className="size-3.5 text-emerald-400" />
+              <Users className="size-3.5 text-primary" />
               <span>CCU: <strong className="text-foreground">{roomClients.length}</strong> / {room.maxClients}</span>
             </div>
           </div>
@@ -155,7 +155,7 @@ export function RoomDetailsView({ room, clients, onBack }: RoomDetailsViewProps)
         <Card className="p-4">
           <span className="text-xs font-medium text-muted-foreground">Authoritative Rate</span>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="font-mono text-2xl font-bold text-emerald-400">128.0 Hz</span>
+            <span className="font-mono text-2xl font-bold text-primary">128.0 Hz</span>
             <span className="text-xs text-muted-foreground">7.81 ms dt</span>
           </div>
         </Card>
@@ -251,7 +251,7 @@ export function RoomDetailsView({ room, clients, onBack }: RoomDetailsViewProps)
                         {/* Player ID */}
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <span className="flex size-6 items-center justify-center rounded-xs bg-emerald-500/10 font-bold text-emerald-400 ring-1 ring-emerald-500/20">
+                            <span className="flex size-6 items-center justify-center rounded-xs bg-primary/10 font-bold text-primary ring-1 ring-primary/20">
                               #{client.playerId ?? "—"}
                             </span>
                           </div>
@@ -303,8 +303,8 @@ export function RoomDetailsView({ room, clients, onBack }: RoomDetailsViewProps)
 
                         {/* Live Status Pill */}
                         <TableCell className="text-right">
-                          <span className="inline-flex items-center gap-1.5 rounded-xs bg-emerald-500/10 px-2 py-0.5 text-[10px] font-sans font-medium text-emerald-400">
-                            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="inline-flex items-center gap-1.5 rounded-xs bg-primary/10 px-2 py-0.5 text-[10px] font-sans font-medium text-primary">
+                            <span className="size-1.5 rounded-full bg-primary animate-pulse" />
                             Live
                           </span>
                         </TableCell>
