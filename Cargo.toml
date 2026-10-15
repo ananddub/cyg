@@ -8,7 +8,6 @@ members = [
     "crates/engine-control",
     "crates/engine-core",
     "crates/engine-dashboard",
-    # "crates/engine-guest",  # UNUSED: not imported by the server binary (see docs/CRATE_STATUS.md)
     "crates/engine-http",
     "crates/engine-net",
     "crates/engine-physics",
@@ -16,11 +15,8 @@ members = [
     "crates/engine-server",
     "crates/engine-spatial",
     "crates/engine-wasm",
-    # "crates/engine-websocket",  # UNUSED: not imported by the server binary (see docs/CRATE_STATUS.md)
     "crates/engine-webrtc-protocol",
-    # "crates/engine-webtransport",  # UNUSED: not imported by the server binary (see docs/CRATE_STATUS.md)
     "crates/engine-voice",
-    # "crates/engine-lua",  # UNUSED: not imported by the server binary (see docs/CRATE_STATUS.md)
 ]
 
 [package]

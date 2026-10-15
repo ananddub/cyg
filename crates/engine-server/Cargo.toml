@@ -14,7 +14,6 @@ engine-spatial = { path = "../engine-spatial" }
 engine-voice = { path = "../engine-voice" }
 engine-webrtc-protocol = { path = "../engine-webrtc-protocol" }
 engine-protocol = { path = "../engine-protocol" }
-engine-lua = { path = "../engine-lua" }
 bytes = "1.10"
 mio = { version = "1.2.4", features = ["net", "os-poll"] }
 wasmtime = "25.0.0"

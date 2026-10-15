@@ -23,7 +23,7 @@ pub use rtc_plane::{
 };
 pub use transport::ws_transport::{MatchMakeError, MATCHMAKE_METHODS, close_code, response_status};
 pub use transport::{
-    WsTransport, GameTransport, QuicTransport, RawTcpTransport, TransportEvent,
+    WsTransport, GameTransport, TransportEvent,
     TransportType, UdpTransport, WebRtcServer, WebRtcServerEvent, create_transport,
 };
 pub use worker::{ClientPacket, MioWorker, WorkerConfig, WorkerStats};

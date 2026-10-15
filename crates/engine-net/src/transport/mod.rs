@@ -10,8 +10,6 @@
 //! decoupled from the network transport and works identically with any option.
 
 pub mod ws_transport;
-pub mod quic;
-pub mod tcp;
 pub mod udp;
 pub mod webrtc_frames;
 pub mod webrtc_server;
@@ -26,8 +24,6 @@ use bytes::Bytes;
 use crate::framing::OpCode;
 
 pub use ws_transport::WsTransport;
-pub use quic::QuicTransport;
-pub use tcp::RawTcpTransport;
 pub use udp::UdpTransport;
 pub use webrtc_server::{WebRtcServer, WebRtcServerEvent};
 
@@ -35,11 +31,9 @@ pub use webrtc_server::{WebRtcServer, WebRtcServerEvent};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportType {
     /// Non-blocking raw TCP with length-prefixed binary frames
-    Tcp,
     /// Raw high-frequency UDP datagram transport
     Udp,
     /// QUIC multiplexed reliable streams & unreliable datagrams
-    Quic,
     /// WebSocket with OpenOxide SDK wire-protocol compatibility (zero client migration)
     Ws,
 }
@@ -49,9 +43,7 @@ impl std::str::FromStr for TransportType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "tcp" => Ok(Self::Tcp),
             "udp" => Ok(Self::Udp),
-            "quic" => Ok(Self::Quic),
             "colyseus" | "colyseus-ws" | "ws" => Ok(Self::Ws),
             _ => Err(format!("Unknown transport type: {}", s)),
         }
@@ -115,9 +107,7 @@ pub fn create_transport(
     bind_addr: SocketAddr,
 ) -> io::Result<Box<dyn GameTransport>> {
     match transport_type {
-        TransportType::Tcp => Ok(Box::new(RawTcpTransport::new(bind_addr)?)),
         TransportType::Udp => Ok(Box::new(UdpTransport::new(bind_addr)?)),
-        TransportType::Quic => Ok(Box::new(QuicTransport::new(bind_addr)?)),
         TransportType::Ws => Ok(Box::new(WsTransport::new(bind_addr)?)),
     }
 }

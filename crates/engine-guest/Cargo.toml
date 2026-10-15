@@ -1,7 +1,0 @@
-[package]
-name = "engine-guest"
-version = "0.1.0"
-edition = "2024"
-description = "Guest SDK for developers writing game rooms in Rust to compile to WebAssembly"
-
-[dependencies]
