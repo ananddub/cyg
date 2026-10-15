@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Users,
   Activity,
-  ExternalLink,
   ArrowUpDown,
 } from "lucide-react"
 
@@ -119,7 +118,7 @@ export function RoomDetailsView({ room, clients, onBack }: RoomDetailsViewProps)
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-4 text-xs font-mono text-muted-foreground border-r border-border/60 pr-4">
+          <div className="hidden sm:flex items-center gap-4 text-xs font-mono text-muted-foreground">
             <div className="flex items-center gap-1.5">
               <Activity className="size-3.5 text-primary" />
               <span>Tick: <strong className="text-foreground">{room.tickRate} Hz</strong></span>
@@ -129,16 +128,6 @@ export function RoomDetailsView({ room, clients, onBack }: RoomDetailsViewProps)
               <span>CCU: <strong className="text-foreground">{roomClients.length}</strong> / {room.maxClients}</span>
             </div>
           </div>
-
-          <a
-            href="/website.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-sm border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-          >
-            <span>Play Client</span>
-            <ExternalLink className="size-3" />
-          </a>
         </div>
       </div>
 
