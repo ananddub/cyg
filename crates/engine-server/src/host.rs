@@ -31,7 +31,7 @@ use engine_control::status::{PublishReport, Recorder};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc_frames::Inbound;
 use engine_net::transport::{
-    ColyseusWsTransport, GameTransport, TransportEvent, WebRtcServer, WebRtcServerEvent,
+    WsTransport, GameTransport, TransportEvent, WebRtcServer, WebRtcServerEvent,
 };
 use engine_physics::PhysicsWorld3D;
 use engine_wasm::WasmRuntime;
@@ -243,7 +243,7 @@ pub fn run(
         PhysicsWorld3D::default()
     };
 
-    let mut transport = ColyseusWsTransport::new_multi(&addrs)
+    let mut transport = WsTransport::new_multi(&addrs)
         .expect("bind transport ports");
 
     let webgl_dir = project_dir

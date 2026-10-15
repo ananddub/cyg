@@ -8,7 +8,7 @@ use engine_net::transport::WebRtcServer;
 
 use crate::rooms::{GameRoom, JournalInput};
 
-/// Wrap a raw delta buffer into a Colyseus ROOM_DATA_BYTES frame payload:
+/// Wrap a raw delta buffer into a ROOM_DATA_BYTES frame payload:
 /// [msgpack fixstr "delta"][i64 recipient_player_id][raw bytes...].
 /// Frames into a caller-owned buffer so a 128 Hz broadcast allocates nothing.
 pub fn wrap_delta_into(

@@ -21,9 +21,9 @@ pub use pool::{AggregatedTelemetry, PoolConfig, WorkerPoolHandle, spawn_worker_p
 pub use rtc_plane::{
     Plane, PlaneConfig, PlaneHandle, RtcDownlink, RtcInput, RtcPlaneError, UplinkEvent,
 };
-pub use transport::colyseus_ws::{MatchMakeError, MATCHMAKE_METHODS, close_code, response_status};
+pub use transport::ws_transport::{MatchMakeError, MATCHMAKE_METHODS, close_code, response_status};
 pub use transport::{
-    ColyseusWsTransport, GameTransport, QuicTransport, RawTcpTransport, TransportEvent,
+    WsTransport, GameTransport, QuicTransport, RawTcpTransport, TransportEvent,
     TransportType, UdpTransport, WebRtcServer, WebRtcServerEvent, create_transport,
 };
 pub use worker::{ClientPacket, MioWorker, WorkerConfig, WorkerStats};

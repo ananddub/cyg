@@ -17,15 +17,15 @@ pub enum OpCode {
     StateDelta = 5,
     Custom = 6,
     RewindHitCheck = 7,
-    /// Colyseus `ROOM_STATE` (14): full state snapshot for (re)joins.
+    /// `ROOM_STATE` (14): full state snapshot for (re)joins.
     StateSnapshot = 8,
-    /// Colyseus `ROOM_DATA_BYTES` (17): binary message with a type prefix.
+    /// `ROOM_DATA_BYTES` (17): binary message with a type prefix.
     RoomDataBytes = 9,
-    /// Colyseus `ROOM_REQUEST` (21): client request awaiting a response.
+    /// `ROOM_REQUEST` (21): client request awaiting a response.
     RoomRequest = 10,
-    /// Colyseus `ROOM_RESPONSE` (22): server reply to a `ROOM_REQUEST`.
+    /// `ROOM_RESPONSE` (22): server reply to a `ROOM_REQUEST`.
     RoomResponse = 11,
-    /// Colyseus `ERROR` (11): server-initiated error surfaced to `room.onError`.
+    /// `ERROR` (11): server-initiated error surfaced to `room.onError`.
     Error = 12,
 }
 

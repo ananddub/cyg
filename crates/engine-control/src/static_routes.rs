@@ -1,7 +1,7 @@
 //! Static assets for the control plane.
 //!
 //! Replaces the in-transport `on_http` hook: the website page, the SDK bundle,
-//! the arena map, the Unity WebGL build and the Colyseus SDK files are served
+//! the arena map, the Unity WebGL build and the OpenOxide SDK files are served
 //! from here, on the control port, with an mtime-keyed cache so a reload during
 //! development picks up a new `openoxide.js` without a restart.
 //!
@@ -214,7 +214,7 @@ pub fn router(state: &ControlState) -> Router<ControlState> {
         .route("/", get(serve_root))
         .route("/openoxide.js", get(serve_sdk))
         .route("/arena_map.json", get(serve_map))
-        .route("/packages/sdk/dist/colyseus.js", get(serve_colyseus))
+        .route("/packages/sdk/dist/colyseus.js", get(serve_sdk_bundle))
         .route(
             "/node_modules/@colyseus/schema/build/index.mjs",
             get(serve_schema),
@@ -401,10 +401,10 @@ async fn serve_map(State(state): State<ControlState>) -> Response {
     }
 }
 
-async fn serve_colyseus(State(state): State<ControlState>) -> Response {
+async fn serve_sdk_bundle(State(state): State<ControlState>) -> Response {
     let s = &state.statics;
     match s.read(s.sdk_js_path()) {
-        Some(body) => file_response("colyseus.js", body),
+        Some(body) => file_response("sdk.js", body),
         None => not_found(),
     }
 }

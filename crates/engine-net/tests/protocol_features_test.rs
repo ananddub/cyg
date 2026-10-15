@@ -15,27 +15,27 @@
 //! - Unresponsive-client heartbeat termination
 //!
 //! Protocol values verified against `packages/shared-types/src/Protocol.ts`
-//! and `packages/sdk/src/Room.ts` of the Colyseus 0.18 monorepo.
+//! and `packages/sdk/src/Room.ts` of the OpenOxide wire (0.18-derived) monorepo.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
 use engine_net::framing::OpCode;
-use engine_net::transport::colyseus_ws::{HeartbeatConfig, MatchMakeError};
-use engine_net::transport::{ColyseusWsTransport, GameTransport, TransportEvent};
+use engine_net::transport::ws_transport::{HeartbeatConfig, MatchMakeError};
+use engine_net::transport::{WsTransport, GameTransport, TransportEvent};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn spawn_transport() -> (ColyseusWsTransport, u16) {
-    let transport = ColyseusWsTransport::new("127.0.0.1:0".parse().unwrap()).expect("bind ok");
+fn spawn_transport() -> (WsTransport, u16) {
+    let transport = WsTransport::new("127.0.0.1:0".parse().unwrap()).expect("bind ok");
     let port = transport.local_addr().unwrap().port();
     (transport, port)
 }
 
-fn poll(transport: &mut ColyseusWsTransport) -> Vec<TransportEvent> {
+fn poll(transport: &mut WsTransport) -> Vec<TransportEvent> {
     let mut events = Vec::new();
     transport
         .poll_events(Duration::from_millis(30), &mut events)
@@ -45,7 +45,7 @@ fn poll(transport: &mut ColyseusWsTransport) -> Vec<TransportEvent> {
 
 /// Poll until `pred` matches an event, or panic after ~2s.
 fn poll_until(
-    transport: &mut ColyseusWsTransport,
+    transport: &mut WsTransport,
     pred: impl Fn(&TransportEvent) -> bool,
 ) -> Vec<TransportEvent> {
     for _ in 0..60 {
@@ -82,7 +82,7 @@ fn send_ws_frame(stream: &mut TcpStream, payload: &[u8]) {
 /// transport while waiting: server replies are only written during
 /// poll/flush, so a plain blocking read would starve.
 /// Returns `(ws_opcode, payload)`.
-fn read_frame(stream: &mut TcpStream, transport: &mut ColyseusWsTransport) -> (u8, Vec<u8>) {
+fn read_frame(stream: &mut TcpStream, transport: &mut WsTransport) -> (u8, Vec<u8>) {
     stream
         .set_read_timeout(Some(Duration::from_millis(20)))
         .unwrap();
@@ -142,7 +142,7 @@ fn try_parse_ws_frame(buf: &[u8]) -> Option<(u8, Vec<u8>)> {
 
 /// Complete the RFC 6455 upgrade and return the stream (handshake reply +
 /// JOIN_ROOM frame are drained).
-fn ws_upgrade(port: u16, transport: &mut ColyseusWsTransport, path: &str) -> TcpStream {
+fn ws_upgrade(port: u16, transport: &mut WsTransport, path: &str) -> TcpStream {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ok");
     let request = format!(
         "GET {} HTTP/1.1\r\n\
@@ -183,7 +183,7 @@ fn ws_upgrade(port: u16, transport: &mut ColyseusWsTransport, path: &str) -> Tcp
 }
 
 /// POST a matchmake request; returns the full HTTP response string.
-fn post_matchmake(transport: &mut ColyseusWsTransport, port: u16, path: &str, body: &str) -> String {
+fn post_matchmake(transport: &mut WsTransport, port: u16, path: &str, body: &str) -> String {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ok");
     let request = format!(
         "POST {} HTTP/1.1\r\n\

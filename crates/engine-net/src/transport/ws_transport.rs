@@ -1,13 +1,13 @@
-//! # Colyseus WebSocket Wire-Protocol Transport
+//! # OpenOxide WebSocket Wire-Protocol Transport
 //!
-//! Drop-in transport supporting `@colyseus/sdk` clients without client-side migration:
+//! Binary game protocol over WebSocket — the browser fallback plane:
 //! - Standard RFC 6455 WebSocket Upgrade handshake (`101 Switching Protocols`)
 //! - RFC 6455 binary frame decoding with client unmasking, fragmentation,
 //!   control frames (`ping`/`pong`/`close`) and server heartbeat
 //! - Matchmake seat-reservation endpoint (`POST /matchmake/<method>/<room>`)
-//!   with the full Colyseus method whitelist (`joinOrCreate`, `create`, `join`,
+//!   with the full method whitelist (`joinOrCreate`, `create`, `join`,
 //!   `joinById`, `reconnect`) and typed `MatchMakeError` rejections
-//! - Colyseus protocol opcodes (packages/shared-types/src/Protocol.ts), with
+//! - wire protocol opcodes (packages/shared-types/src/Protocol.ts), with
 //!   modifier bits (`PROTOCOL_CODE_MASK`) stripped before dispatch:
 //!   - `10` -> `JOIN_ROOM` handshake (server-initiated right after upgrade)
 //!   - `11` -> `ERROR` (server-initiated, surfaces to `room.onError`)
@@ -42,25 +42,25 @@ const LISTENER_TOKEN: Token = Token(0);
 #[allow(dead_code)]
 const CLIENT_TOKEN_START: usize = 1;
 
-// Colyseus Protocol Wire Constants (packages/shared-types/src/Protocol.ts)
+// Wire protocol constants (shared-types/src/Protocol.ts)
 // NOTE: this protocol version has NO separate JOIN_REQUEST — the client sends
 // JOIN_ROOM (10) directly. 11 is ERROR, not JOIN_ROOM.
-const COLYSEUS_JOIN_ROOM: u8 = 10;
-const COLYSEUS_ERROR: u8 = 11;
-const COLYSEUS_LEAVE_ROOM: u8 = 12;
-const COLYSEUS_ROOM_DATA: u8 = 13;
-const COLYSEUS_ROOM_STATE: u8 = 14;
-const COLYSEUS_ROOM_STATE_PATCH: u8 = 15;
-const COLYSEUS_ROOM_DATA_BYTES: u8 = 17;
-const COLYSEUS_PING: u8 = 18;
-const COLYSEUS_ROOM_REQUEST: u8 = 21;
-const COLYSEUS_ROOM_RESPONSE: u8 = 22;
+const PROTO_JOIN_ROOM: u8 = 10;
+const PROTO_ERROR: u8 = 11;
+const PROTO_LEAVE_ROOM: u8 = 12;
+const PROTO_ROOM_DATA: u8 = 13;
+const PROTO_ROOM_STATE: u8 = 14;
+const PROTO_ROOM_STATE_PATCH: u8 = 15;
+const PROTO_ROOM_DATA_BYTES: u8 = 17;
+const PROTO_PING: u8 = 18;
+const PROTO_ROOM_REQUEST: u8 = 21;
+const PROTO_ROOM_RESPONSE: u8 = 22;
 
 /// Modifier bits share the leading protocol byte (bits 5..7). Decoders strip
 /// them before dispatching: `code = buffer[0] & PROTOCOL_CODE_MASK`.
 const PROTOCOL_CODE_MASK: u8 = 0x1F;
 
-/// Colyseus WebSocket close codes (shared-types CloseCode).
+/// WebSocket close codes (shared-types CloseCode).
 pub mod close_code {
     pub const CONSENTED: u16 = 4000;
     pub const SERVER_SHUTDOWN: u16 = 4001;
@@ -167,14 +167,14 @@ type MatchmakeHook = Box<dyn Fn(&str, &str, &str) -> Result<String, MatchMakeErr
 /// refcounted body, so serving the same asset to 500 clients copies nothing.
 pub type HttpHook = Box<dyn Fn(&str) -> Option<(Cow<'static, str>, Bytes)> + Send>;
 
-/// State of a connected Colyseus SDK client.
+/// State of a connected OpenOxide SDK client.
 #[derive(PartialEq)]
 enum WsState {
     Handshaking,
     Connected,
 }
 
-struct ColyseusClient {
+struct WsClient {
     stream: mio::net::TcpStream,
     state: WsState,
     session_id: Arc<str>,
@@ -201,11 +201,11 @@ struct ServerCtx<'a> {
     client_rooms: &'a mut HashMap<String, String>,
 }
 
-pub struct ColyseusWsTransport {
+pub struct WsTransport {
     poll: Poll,
     events: Events,
     listeners: Vec<TcpListener>,
-    clients: HashMap<Token, ColyseusClient>,
+    clients: HashMap<Token, WsClient>,
     client_tokens: HashMap<String, Token>,
     /// session id -> room id (from the upgrade URL path).
     client_rooms: HashMap<String, String>,
@@ -236,7 +236,7 @@ pub struct ColyseusWsTransport {
     http_hook: Option<HttpHook>,
 }
 
-impl ColyseusWsTransport {
+impl WsTransport {
     pub fn bound_addrs(&self) -> &[SocketAddr] {
         &self.bound_addrs
     }
@@ -345,7 +345,7 @@ impl ColyseusWsTransport {
         payload.reserve(8 + message.len());
         mp_number(&mut payload, code as f64);
         mp_str(&mut payload, message);
-        self.queue_to(client_id, COLYSEUS_ERROR, &payload);
+        self.queue_to(client_id, PROTO_ERROR, &payload);
         payload.clear();
         self.sb = payload;
         Ok(())
@@ -365,7 +365,7 @@ impl ColyseusWsTransport {
         mp_number(&mut payload, request_id as f64);
         payload.put_u8(status);
         payload.extend_from_slice(payload_msgpack);
-        self.queue_to(client_id, COLYSEUS_ROOM_RESPONSE, &payload);
+        self.queue_to(client_id, PROTO_ROOM_RESPONSE, &payload);
         payload.clear();
         self.sb = payload;
         Ok(())
@@ -376,7 +376,7 @@ impl ColyseusWsTransport {
     fn queue_to(&mut self, client_id: &str, colyseus_opcode: u8, payload: &[u8]) {
         if let Some(&token) = self.client_tokens.get(client_id) {
             if let Some(client) = self.clients.get_mut(&token) {
-                encode_colyseus_frame(colyseus_opcode, payload, &mut client.send_queue);
+                encode_wire_frame(colyseus_opcode, payload, &mut client.send_queue);
             }
         }
     }
@@ -436,7 +436,7 @@ impl ColyseusWsTransport {
     }
 }
 
-impl GameTransport for ColyseusWsTransport {
+impl GameTransport for WsTransport {
     fn poll_events(&mut self, timeout: Duration, ev: &mut Vec<TransportEvent>) -> io::Result<()> {
         self.poll.poll(&mut self.events, Some(timeout))?;
 
@@ -501,7 +501,7 @@ impl GameTransport for ColyseusWsTransport {
                             // SDK appends its seat-reservation sessionId to the
                             // upgrade URL). Track token -> id for send_to().
                             let has_first_bytes = !first_bytes.is_empty();
-                            let mut client = ColyseusClient {
+                            let mut client = WsClient {
                                 stream,
                                 state: WsState::Handshaking,
                                 session_id: format!("colyseus_{}_{}", token.0, peer.port()).into(),
@@ -661,12 +661,12 @@ impl GameTransport for ColyseusWsTransport {
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> io::Result<()> {
-        self.queue_to(client_id, colyseus_opcode_for(opcode), payload);
+        self.queue_to(client_id, wire_opcode_for(opcode), payload);
         Ok(())
     }
 
     fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> io::Result<()> {
-        let colyseus_opcode = colyseus_opcode_for(opcode);
+        let colyseus_opcode = wire_opcode_for(opcode);
         let (sb, clients) = (&mut self.sb, &mut self.clients);
         sb.reserve(11 + payload.len());
         sb.put_u8(colyseus_opcode);
@@ -710,11 +710,11 @@ impl GameTransport for ColyseusWsTransport {
     }
 
     fn transport_name(&self) -> &'static str {
-        "Colyseus WebSocket (SDK Compatible)"
+        "WireSocket (SDK Compatible)"
     }
 
     fn disconnect(&mut self, client_id: &str) -> io::Result<()> {
-        ColyseusWsTransport::disconnect(self, client_id)
+        WsTransport::disconnect(self, client_id)
     }
 }
 
@@ -727,7 +727,7 @@ impl GameTransport for ColyseusWsTransport {
 /// a client-initiated WS close). Frames are taken one at a time straight off
 /// the buffer — no intermediate frame list.
 fn process_ws_frames(
-    client: &mut ColyseusClient,
+    client: &mut WsClient,
     events_out: &mut Vec<TransportEvent>,
     now: Instant,
 ) -> bool {
@@ -760,7 +760,7 @@ fn process_ws_frames(
                     if fin {
                         let msg = client.frag_buf.split().freeze();
                         client.frag_opcode = None;
-                        if dispatch_colyseus_message(client, msg, events_out) {
+                        if dispatch_message(client, msg, events_out) {
                             return true;
                         }
                     }
@@ -769,7 +769,7 @@ fn process_ws_frames(
             }
             0x1 | 0x2 => {
                 if fin {
-                    if dispatch_colyseus_message(client, payload, events_out) {
+                    if dispatch_message(client, payload, events_out) {
                         return true;
                     }
                 } else {
@@ -785,12 +785,12 @@ fn process_ws_frames(
     false
 }
 
-/// Dispatch one complete Colyseus protocol message. `msg[0]` is the protocol
+/// Dispatch one complete wire protocol message. `msg[0]` is the protocol
 /// byte (modifier bits stripped via `PROTOCOL_CODE_MASK` before dispatch).
 /// `msg` is a zero-copy view of the socket receive buffer.
 /// Returns `true` when the client must be disconnected (LEAVE_ROOM).
-fn dispatch_colyseus_message(
-    client: &mut ColyseusClient,
+fn dispatch_message(
+    client: &mut WsClient,
     msg: Bytes,
     events_out: &mut Vec<TransportEvent>,
 ) -> bool {
@@ -800,35 +800,35 @@ fn dispatch_colyseus_message(
     let code = msg[0] & PROTOCOL_CODE_MASK;
 
     match code {
-        COLYSEUS_JOIN_ROOM => {
+        PROTO_JOIN_ROOM => {
             // Client ack of the server-initiated join — nothing to do;
             // the handshake was already sent proactively on upgrade.
         }
-        COLYSEUS_LEAVE_ROOM => {
+        PROTO_LEAVE_ROOM => {
             // Client leave: answer close 4000 CONSENTED, then drop.
             queue_close_frame(client, close_code::CONSENTED, "leave");
             return true;
         }
-        COLYSEUS_ROOM_DATA => {
+        PROTO_ROOM_DATA => {
             events_out.push(TransportEvent::Packet {
                 client_id: client.session_id.clone(),
                 opcode: OpCode::PlayerInput,
                 payload: msg.slice(1..),
             });
         }
-        COLYSEUS_ROOM_DATA_BYTES => {
+        PROTO_ROOM_DATA_BYTES => {
             events_out.push(TransportEvent::Packet {
                 client_id: client.session_id.clone(),
                 opcode: OpCode::RoomDataBytes,
                 payload: msg.slice(1..),
             });
         }
-        COLYSEUS_PING => {
+        PROTO_PING => {
             // App-level ping: echo the payload back so the client can
             // measure RTT (payload carries the client's sequence number).
-            queue_colyseus_message(client, COLYSEUS_PING, &msg[1..]);
+            queue_message(client, PROTO_PING, &msg[1..]);
         }
-        COLYSEUS_ROOM_REQUEST => {
+        PROTO_ROOM_REQUEST => {
             events_out.push(TransportEvent::Packet {
                 client_id: client.session_id.clone(),
                 opcode: OpCode::RoomRequest,
@@ -847,29 +847,29 @@ fn dispatch_colyseus_message(
     false
 }
 
-/// Map engine-level opcodes onto Colyseus protocol codes.
-fn colyseus_opcode_for(opcode: OpCode) -> u8 {
+/// Map engine-level opcodes onto wire protocol codes.
+fn wire_opcode_for(opcode: OpCode) -> u8 {
     match opcode {
-        OpCode::StateDelta => COLYSEUS_ROOM_STATE_PATCH,
-        OpCode::StateSnapshot => COLYSEUS_ROOM_STATE,
-        OpCode::RoomDataBytes => COLYSEUS_ROOM_DATA_BYTES,
-        OpCode::RoomResponse => COLYSEUS_ROOM_RESPONSE,
-        OpCode::Error => COLYSEUS_ERROR,
-        OpCode::Ping => COLYSEUS_PING,
-        _ => COLYSEUS_ROOM_DATA,
+        OpCode::StateDelta => PROTO_ROOM_STATE_PATCH,
+        OpCode::StateSnapshot => PROTO_ROOM_STATE,
+        OpCode::RoomDataBytes => PROTO_ROOM_DATA_BYTES,
+        OpCode::RoomResponse => PROTO_ROOM_RESPONSE,
+        OpCode::Error => PROTO_ERROR,
+        OpCode::Ping => PROTO_PING,
+        _ => PROTO_ROOM_DATA,
     }
 }
 
 // -----------------------------------------------------------------------------
-// Colyseus SDK greeting: WS upgrade OR matchmake HTTP seat reservation
+// OpenOxide SDK greeting: WS upgrade OR matchmake HTTP seat reservation
 // -----------------------------------------------------------------------------
 
-/// Handle a freshly connected client's first bytes. The Colyseus SDK always
+/// Handle a freshly connected client's first bytes. The OpenOxide SDK always
 /// POSTs `/matchmake/<method>/<room>` first (plain HTTP); only after the
 /// seat-reservation JSON does it open the WebSocket connection.
 /// Returns `true` when the connection must be closed (HTTP path).
 fn handle_client_greeting(
-    client: &mut ColyseusClient,
+    client: &mut WsClient,
     peer: &str,
     events_out: &mut Vec<TransportEvent>,
     ctx: &mut ServerCtx<'_>,
@@ -1155,7 +1155,7 @@ fn build_join_reply(
         .cloned()
         .unwrap_or_else(|| format!("{}:{}", room_id, session_id));
     let mut reply = Vec::with_capacity(1 + 1 + rt.len() + 1 + SERIALIZER_ID.len() + 1);
-    reply.push(COLYSEUS_JOIN_ROOM);
+    reply.push(PROTO_JOIN_ROOM);
     reply.push(rt.len() as u8);
     reply.extend_from_slice(rt.as_bytes());
     reply.push(SERIALIZER_ID.len() as u8);
@@ -1266,14 +1266,14 @@ fn encode_ws_frame(payload: &[u8], out: &mut impl BufMut) {
     out.put_slice(payload);
 }
 
-/// Queue one Colyseus protocol message (opcode byte + payload) as a WS frame.
-fn queue_colyseus_message(client: &mut ColyseusClient, code: u8, payload: &[u8]) {
-    encode_colyseus_frame(code, payload, &mut client.send_queue);
+/// Queue one wire protocol message (opcode byte + payload) as a WS frame.
+fn queue_message(client: &mut WsClient, code: u8, payload: &[u8]) {
+    encode_wire_frame(code, payload, &mut client.send_queue);
 }
 
 /// Encode `[code][payload]` as an unmasked binary WS frame directly into
 /// `out`, with no scratch buffer.
-fn encode_colyseus_frame(code: u8, payload: &[u8], out: &mut impl BufMut) {
+fn encode_wire_frame(code: u8, payload: &[u8], out: &mut impl BufMut) {
     let len = payload.len() + 1;
     out.put_u8(0x82);
     if len <= 125 {
@@ -1290,7 +1290,7 @@ fn encode_colyseus_frame(code: u8, payload: &[u8], out: &mut impl BufMut) {
 }
 
 /// Queue a WS control frame (ping/pong/close — always FIN, payload <= 125).
-fn queue_ws_control(client: &mut ColyseusClient, opcode: u8, payload: &[u8]) {
+fn queue_ws_control(client: &mut WsClient, opcode: u8, payload: &[u8]) {
     client.send_queue.put_u8(0x80 | opcode);
     client.send_queue.put_u8(payload.len().min(125) as u8);
     client
@@ -1299,13 +1299,13 @@ fn queue_ws_control(client: &mut ColyseusClient, opcode: u8, payload: &[u8]) {
 }
 
 /// Queue a WS ping (heartbeat).
-fn send_ws_ping(client: &mut ColyseusClient) {
+fn send_ws_ping(client: &mut WsClient) {
     queue_ws_control(client, 0x89, &[]);
     try_flush_client(client);
 }
 
 /// Queue a WS close frame with a Colyseus close code + reason.
-fn queue_close_frame(client: &mut ColyseusClient, code: u16, reason: &str) {
+fn queue_close_frame(client: &mut WsClient, code: u16, reason: &str) {
     let mut payload = Vec::with_capacity(2 + reason.len());
     payload.extend_from_slice(&code.to_be_bytes());
     payload.extend_from_slice(&reason.as_bytes()[..reason.len().min(123)]);
@@ -1313,7 +1313,7 @@ fn queue_close_frame(client: &mut ColyseusClient, code: u16, reason: &str) {
 }
 
 /// Best-effort immediate write of queued bytes (non-blocking).
-fn try_flush_client(client: &mut ColyseusClient) {
+fn try_flush_client(client: &mut WsClient) {
     if client.send_queue.is_empty() {
         return;
     }
@@ -1327,7 +1327,7 @@ fn try_flush_client(client: &mut ColyseusClient) {
 
 /// Final write for a dying client: switch the socket to blocking so any queued
 /// close frame is guaranteed on the wire, then drop (which closes the fd).
-fn finish_close(client: ColyseusClient) {
+fn finish_close(client: WsClient) {
     let client = client;
     if !client.send_queue.is_empty() {
         let std_stream: std::net::TcpStream = client.stream.into();

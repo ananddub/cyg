@@ -94,14 +94,14 @@ fn test_unified_transport_auto_switch() {
     println!("✓ 4. Raw UDP Transport roundtrip verified via GameTransport trait!");
 
     // -------------------------------------------------------------------------
-    // TEST 3: Colyseus WebSocket SDK Transport via GameTransport Trait
+    // TEST 3: WireSocket SDK Transport via GameTransport Trait
     // -------------------------------------------------------------------------
     let ws_addr = "127.0.0.1:19430".parse().unwrap();
-    let mut ws_transport = create_transport(TransportType::ColyseusWs, ws_addr)
+    let mut ws_transport = create_transport(TransportType::Ws, ws_addr)
         .expect("Create Colyseus WS transport ok");
     assert_eq!(
         ws_transport.transport_name(),
-        "Colyseus WebSocket (SDK Compatible)"
+        "WireSocket (SDK Compatible)"
     );
     println!("✓ 5. Transport created: {}", ws_transport.transport_name());
 
@@ -111,7 +111,7 @@ fn test_unified_transport_auto_switch() {
         .set_read_timeout(Some(Duration::from_millis(500)))
         .unwrap();
 
-    // Send RFC 6455 HTTP WebSocket Upgrade Request from simulated Colyseus SDK client
+    // Send RFC 6455 HTTP WebSocket Upgrade Request from simulated OpenOxide SDK client
     let upgrade_req = "GET /game_room HTTP/1.1\r\n\
                        Host: localhost:19430\r\n\
                        Upgrade: websocket\r\n\
@@ -135,7 +135,7 @@ fn test_unified_transport_auto_switch() {
     let resp_str = String::from_utf8_lossy(&hs_resp[..n]);
     assert!(resp_str.contains("HTTP/1.1 101 Switching Protocols"));
     assert!(resp_str.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
-    println!("✓ 6. Colyseus SDK WebSocket Upgrade handshake confirmed (101 Switching Protocols)!");
+    println!("✓ 6. OpenOxide SDK WebSocket Upgrade handshake confirmed (101 Switching Protocols)!");
 
     // The server proactively initiates the JOIN_ROOM handshake (opcode 10)
     // right after the upgrade (SDK clients wait for it before onJoin). It may

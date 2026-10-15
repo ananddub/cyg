@@ -222,7 +222,7 @@ async fn rooms(State(state): State<ControlState>, headers: axum::http::HeaderMap
     let players = snapshot.as_ref().map(|s| s.players).unwrap_or(0);
     let tick_hz = snapshot.as_ref().map(|s| s.tick_hz_est).unwrap_or(0.0);
 
-    // `serverId` is what the Colyseus SDK echoes back into `joinById`; a seat
+    // `serverId` is what the OpenOxide SDK echoes back into `joinById`; a seat
     // token is not a room instance id, so this is an address, not a handle.
     let host = client_host(&headers);
     // `updated_ms` is monotonic, so an absent sample also means the *age* is

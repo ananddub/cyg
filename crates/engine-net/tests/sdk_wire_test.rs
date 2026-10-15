@@ -7,25 +7,25 @@
 //! 4. Masked `[ROOM_DATA=13]` -> `TransportEvent::Packet`
 //!
 //! Protocol values verified against `packages/shared-types/src/Protocol.ts`
-//! of the Colyseus 0.18 monorepo.
+//! of the OpenOxide wire (0.18-derived) monorepo.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
-use engine_net::transport::{ColyseusWsTransport, GameTransport, TransportEvent};
+use engine_net::transport::{WsTransport, GameTransport, TransportEvent};
 
 /// The serializer id advertised by the transport (must match server constant).
 const SERIALIZER_ID: &[u8] = b"schema";
 
 /// Bind a transport on an ephemeral port.
-fn spawn_transport() -> (ColyseusWsTransport, u16) {
-    let transport = ColyseusWsTransport::new("127.0.0.1:0".parse().unwrap()).expect("bind ok");
+fn spawn_transport() -> (WsTransport, u16) {
+    let transport = WsTransport::new("127.0.0.1:0".parse().unwrap()).expect("bind ok");
     let port = transport.local_addr().unwrap().port();
     (transport, port)
 }
 
-fn poll(transport: &mut ColyseusWsTransport) -> Vec<TransportEvent> {
+fn poll(transport: &mut WsTransport) -> Vec<TransportEvent> {
     let mut events = Vec::new();
     transport
         .poll_events(Duration::from_millis(50), &mut events)
@@ -62,7 +62,7 @@ fn read_ws_frame(stream: &mut TcpStream) -> Vec<u8> {
     payload
 }
 
-fn ws_upgrade(port: u16, transport: &mut ColyseusWsTransport) -> TcpStream {
+fn ws_upgrade(port: u16, transport: &mut WsTransport) -> TcpStream {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ok");
     // RFC 6455 section 1.3 example key -> known accept value.
     let request = "GET /openoxide_1/game_room?sessionId=sess_1 HTTP/1.1\r\n\

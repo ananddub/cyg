@@ -4,12 +4,12 @@
 //! - `TransportType::Tcp`: Raw ultra-low-overhead length-prefixed TCP
 //! - `TransportType::Udp`: Raw high-frequency non-blocking UDP datagrams
 //! - `TransportType::Quic`: QUIC multiplexed datagrams and streams
-//! - `TransportType::ColyseusWs`: WebSocket with Colyseus SDK wire-protocol compatibility
+//! - `TransportType::Ws`: WebSocket wire-protocol transport (browser plane)
 //!
 //! The game engine core (128Hz Tick Loop, WASM Room, Rewind, Reconciliation) is 100%
 //! decoupled from the network transport and works identically with any option.
 
-pub mod colyseus_ws;
+pub mod ws_transport;
 pub mod quic;
 pub mod tcp;
 pub mod udp;
@@ -25,7 +25,7 @@ use bytes::Bytes;
 
 use crate::framing::OpCode;
 
-pub use colyseus_ws::ColyseusWsTransport;
+pub use ws_transport::WsTransport;
 pub use quic::QuicTransport;
 pub use tcp::RawTcpTransport;
 pub use udp::UdpTransport;
@@ -40,8 +40,8 @@ pub enum TransportType {
     Udp,
     /// QUIC multiplexed reliable streams & unreliable datagrams
     Quic,
-    /// WebSocket with Colyseus SDK wire-protocol compatibility (zero client migration)
-    ColyseusWs,
+    /// WebSocket with OpenOxide SDK wire-protocol compatibility (zero client migration)
+    Ws,
 }
 
 impl std::str::FromStr for TransportType {
@@ -52,7 +52,7 @@ impl std::str::FromStr for TransportType {
             "tcp" => Ok(Self::Tcp),
             "udp" => Ok(Self::Udp),
             "quic" => Ok(Self::Quic),
-            "colyseus" | "colyseus-ws" | "ws" => Ok(Self::ColyseusWs),
+            "colyseus" | "colyseus-ws" | "ws" => Ok(Self::Ws),
             _ => Err(format!("Unknown transport type: {}", s)),
         }
     }
@@ -118,6 +118,6 @@ pub fn create_transport(
         TransportType::Tcp => Ok(Box::new(RawTcpTransport::new(bind_addr)?)),
         TransportType::Udp => Ok(Box::new(UdpTransport::new(bind_addr)?)),
         TransportType::Quic => Ok(Box::new(QuicTransport::new(bind_addr)?)),
-        TransportType::ColyseusWs => Ok(Box::new(ColyseusWsTransport::new(bind_addr)?)),
+        TransportType::Ws => Ok(Box::new(WsTransport::new(bind_addr)?)),
     }
 }
