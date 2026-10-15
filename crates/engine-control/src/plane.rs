@@ -1,0 +1,24 @@
+//! The plane handle and the signal its tasks shut down on.
+
+use std::time::Duration;
+
+/// A running control plane. Keep this alive: dropping it shuts the Tokio
+/// runtime down, and with it every HTTP and signaling connection.
+pub struct ControlPlane {
+    pub(crate) runtime: tokio::runtime::Runtime,
+    /// The bind port the kernel actually handed us, so a caller asking for
+    /// port `0` in a test can find out where it landed.
+    pub port: u16,
+}
+
+impl ControlPlane {
+    /// Stop the plane and shut connections down cleanly. Bounded because a
+    /// hung client must not turn Ctrl-C into a hang.
+    pub fn shutdown(self) {
+        self.runtime.shutdown_timeout(Duration::from_secs(2));
+    }
+}
+
+pub(crate) async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
+}

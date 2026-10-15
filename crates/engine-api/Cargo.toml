@@ -1,0 +1,24 @@
+[package]
+name = "engine-api"
+version = "0.1.0"
+edition = "2024"
+description = "Browser-facing HTTP and WebSocket surface: matchmake, signaling, telemetry routes, dashboard, static website"
+
+[dependencies]
+engine-agones = { path = "../engine-agones" }
+engine-bus = { path = "../engine-bus" }
+engine-config = { path = "../engine-config" }
+engine-dashboard = { path = "../engine-dashboard" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hmac = "0.12"
+sha2 = "0.10"
+axum = { version = "0.8", features = ["ws"] }
+futures = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros", "signal"] }
+crossbeam-channel = "0.5"
+rust-embed = "8.5"
+
+[dev-dependencies]
+# Same version axum's `ws` feature already pins, for the live-socket test.
+tokio-tungstenite = "0.29"

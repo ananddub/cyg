@@ -981,11 +981,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-api"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "crossbeam-channel",
+ "engine-agones",
+ "engine-bus",
+ "engine-config",
+ "engine-dashboard",
+ "futures",
+ "hmac",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-tungstenite",
+]
+
+[[package]]
 name = "engine-bus"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1000,25 +1021,12 @@ dependencies = [
 name = "engine-control"
 version = "0.1.0"
 dependencies = [
- "axum",
- "bytes",
- "crossbeam-channel",
  "engine-agones",
+ "engine-api",
  "engine-bus",
  "engine-config",
- "engine-dashboard",
- "engine-net",
- "engine-voice",
- "engine-webrtc-protocol",
- "futures",
- "hmac",
- "rust-embed",
- "serde",
  "serde_json",
- "sha2 0.10.9",
- "str0m",
  "tokio",
- "tokio-tungstenite",
 ]
 
 [[package]]
@@ -1063,12 +1071,11 @@ dependencies = [
 name = "engine-server"
 version = "0.1.0"
 dependencies = [
- "axum",
  "bytes",
  "crossbeam-channel",
  "engine-bus",
  "engine-config",
- "engine-control",
+ "engine-dashboard",
  "engine-net",
  "engine-physics",
  "engine-spatial",
@@ -2214,6 +2221,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "openoxide-gaming"
 version = "0.1.0"
 dependencies = [
+ "engine-api",
  "engine-bus",
  "engine-config",
  "engine-control",

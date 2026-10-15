@@ -109,6 +109,51 @@ impl WasmRuntime {
         self.prepare(&linker, module)
     }
 
+    /// Ahead-of-Time (AOT) compile raw WebAssembly bytecode directly into a `.cwasm` file.
+    pub fn precompile_to_file(
+        &self,
+        wasm_bytes: &[u8],
+        out_cwasm_path: impl AsRef<Path>,
+    ) -> Result<(), WasmError> {
+        let module = self.compile(wasm_bytes)?;
+        self.serialize_module(&module, out_cwasm_path)
+    }
+
+    /// Smart AOT loader: loads precompiled `.cwasm` if valid and fresh, otherwise
+    /// compiles `.wasm` with Cranelift and automatically caches the `.cwasm` for future boots.
+    pub fn load_or_compile_cached(&self, wasm_path: impl AsRef<Path>) -> Result<Module, WasmError> {
+        let wasm_path = wasm_path.as_ref();
+
+        // If caller passed a .cwasm directly, deserialize it immediately.
+        if wasm_path.extension().and_then(|s| s.to_str()) == Some("cwasm") {
+            return unsafe { self.deserialize_module(wasm_path) };
+        }
+
+        let cwasm_path = wasm_path.with_extension("cwasm");
+
+        // 1. Check if cached .cwasm exists and is at least as fresh as the .wasm source
+        if let (Ok(wasm_meta), Ok(cwasm_meta)) = (wasm_path.metadata(), cwasm_path.metadata()) {
+            if let (Ok(wasm_mtime), Ok(cwasm_mtime)) = (wasm_meta.modified(), cwasm_meta.modified()) {
+                if cwasm_mtime >= wasm_mtime {
+                    // Fast path: < 1ms mmap/deserialization
+                    if let Ok(module) = unsafe { self.deserialize_module(&cwasm_path) } {
+                        return Ok(module);
+                    }
+                }
+            }
+        }
+
+        // 2. Slow path: read wasm bytecode and compile with Cranelift
+        let wasm_bytes = std::fs::read(wasm_path)
+            .map_err(|e| WasmError::Compile(format!("Failed to read {}: {e}", wasm_path.display())))?;
+        let module = self.compile(&wasm_bytes)?;
+
+        // 3. Opportunistically write the .cwasm cache for subsequent instant boots
+        let _ = self.serialize_module(&module, &cwasm_path);
+
+        Ok(module)
+    }
+
     /// Serialize a compiled module to a file so the ~ms Cranelift compilation
     /// can be skipped on future boots via [`Self::deserialize_module`].
     pub fn serialize_module(

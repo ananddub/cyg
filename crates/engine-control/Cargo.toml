@@ -2,27 +2,14 @@
 name = "engine-control"
 version = "0.1.0"
 edition = "2024"
+description = "Control plane runtime: the Tokio runtime, the bound listener, background tasks and the Agones lifecycle"
 
 [dependencies]
-engine-bus = { path = "../engine-bus" }
-engine-dashboard = { path = "../engine-dashboard" }
-engine-config = { path = "../engine-config" }
 engine-agones = { path = "../engine-agones" }
-engine-net = { path = "../engine-net" }
-engine-voice = { path = "../engine-voice" }
-engine-webrtc-protocol = { path = "../engine-webrtc-protocol" }
-bytes = "1.10"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-hmac = "0.12"
-sha2 = "0.10"
-axum = { version = "0.8", features = ["ws"] }
-futures = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros", "signal"] }
-crossbeam-channel = "0.5"
-str0m = "0.24.1"
-rust-embed = "8.5"
+engine-api = { path = "../engine-api" }
+engine-bus = { path = "../engine-bus" }
+engine-config = { path = "../engine-config" }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "macros", "signal"] }
 
 [dev-dependencies]
-# Same version axum's `ws` feature already pins, for the live-socket test.
-tokio-tungstenite = "0.29"
+serde_json = "1.0"

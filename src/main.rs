@@ -7,8 +7,9 @@
 //! Everything is driven by config.yml — runtime, source, ports, tick rate.
 //!
 //! The engine itself lives in library crates: `engine-bus` (plane wiring),
-//! `engine-config` (config.toml), `engine-control` (Tokio/Axum control plane)
-//! and `engine-server` (rooms, netcode, sim plane, host loop, wasm build).
+//! `engine-config` (config.toml), `engine-api` (the browser-facing HTTP/WS
+//! surface), `engine-control` (the Tokio runtime that hosts it) and
+//! `engine-server` (rooms, netcode, sim plane, host loop, wasm build).
 
 pub use engine_physics as physics;
 pub use engine_physics::rapier as rapier_integration;
@@ -38,6 +39,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        "aot" | "build" => {
+            if let Err(e) = aot(&dir) {
+                eprintln!("✗ aot build failed: {e}");
+                std::process::exit(1);
+            }
+        }
         "gen-interface" | "interfaces" | "sdk" => {
             if let Err(e) = generate_interfaces(&dir) {
                 eprintln!("✗ gen-interface failed: {e}");
@@ -58,8 +65,9 @@ fn print_help() {
         "ox-game — OpenOxide game server
 
 USAGE:
-  ox-game init          [dir]    create a game project (config.yml + room.ts + website.html)
+  ox-game init          [dir]    create a game project (config.toml + room.ts)
   ox-game run           [dir]    compile the room (if needed) and start the server
+  ox-game aot           [dir]    AOT precompile room to native .cwasm for <1ms cold starts
   ox-game gen-interface [dir]    auto-generate C++, Rust, C#, AssemblyScript & TypeScript interfaces
   ox-game                        same as `run` in the current directory
 
@@ -67,6 +75,25 @@ CONFIG:
   Everything lives in config.toml — runtime, source file, ports, tick rate.
   See the template `ox-game init` writes."
     );
+}
+
+/// `ox-game aot [dir]` — compile room source to WASM and AOT precompile to native `.cwasm`.
+fn aot(dir: &Path) -> std::io::Result<()> {
+    let cfg = if dir.join("config.toml").exists() || dir.join("config.yml").exists() || dir.is_file() {
+        engine_config::load_config(dir)?
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("config.toml not found in {}", dir.display()),
+        ));
+    };
+
+    let wasm_path = engine_server::compile::build(dir, &cfg)?;
+    let cwasm_path = engine_server::compile::aot_precompile(&wasm_path)?;
+    println!("✓ Successfully AOT precompiled room to native machine code:");
+    println!("  • WASM bytecode:       {}", wasm_path.display());
+    println!("  • Native AOT (.cwasm): {}", cwasm_path.display());
+    Ok(())
 }
 
 /// `ox-game init [dir]` — scaffold a project.

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     ".",
     "crates/engine-agones",
+    "crates/engine-api",
     "crates/engine-bus",
     "crates/engine-config",
     "crates/engine-control",
@@ -33,5 +34,10 @@ engine-wasm = { path = "crates/engine-wasm" }
 wasmtime = "25.0.0"
 hmac = "0.12"
 sha2 = "0.10"
+
+[dev-dependencies]
+# `tests/seat_wire_compat.rs` mints control-side tokens and verifies them
+# against the sim plane's registry, so it needs both crates.
+engine-api = { path = "crates/engine-api" }
 
 

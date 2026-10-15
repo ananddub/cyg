@@ -27,7 +27,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use engine_bus::{Bus, SessionTelemetry};
-use engine_control::status::{PublishReport, Recorder};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc_frames::Inbound;
 use engine_net::transport::{
@@ -38,6 +37,7 @@ use engine_wasm::WasmRuntime;
 
 use crate::netcode;
 use crate::rooms::{self, GameServer};
+use crate::telemetry::{PublishReport, Recorder};
 
 /// Pre-framed spectator "you are watching" confirm: `["delta"]` with id 0.
 const SPECTATOR_CONFIRM: &[u8] = &[0xA5, b'd', b'e', b'l', b't', b'a', 0, 0, 0, 0, 0, 0, 0, 0];
@@ -411,7 +411,15 @@ pub fn run(
         );
     }
 
-    let wasm_module = runtime.compile(&wasm_bytes).expect("compile room");
+    let wasm_load_start = Instant::now();
+    let wasm_module = runtime.load_or_compile_cached(wasm_path).expect("load room module");
+    let cwasm_path = wasm_path.with_extension("cwasm");
+    let is_aot = cwasm_path.exists();
+    eprintln!(
+        "[server] ⚡ room module loaded in {:.2?} (mode: {})",
+        wasm_load_start.elapsed(),
+        if is_aot { "AOT precompiled (.cwasm)" } else { "JIT compiled (.wasm)" }
+    );
     // Link + pre-instantiate once; every room spawn after this is one
     // `InstancePre::instantiate` instead of rebuilding 12 host imports.
     let linker = rooms::build_host_linker(&runtime, cfg.permissions);
@@ -1274,28 +1282,25 @@ pub fn run(
             // 2. Detect changes in compiled wasm (either from step 1 or external compiler)
             if let Ok(current) = std::fs::metadata(wasm_path).and_then(|m| m.modified()) {
                 if loaded_wasm_time != Some(current) || recompilation_triggered {
-                    if let Ok(bytes) = std::fs::read(wasm_path) {
-                        match runtime
-                            .compile(&bytes)
-                            .and_then(|module| {
-                                let linker = rooms::build_host_linker(&runtime, server.permissions);
-                                runtime.prepare(&linker, &module)
-                            }) {
-                            Ok(pre) => {
-                                loaded_wasm_time = Some(current);
-                                eprintln!(
-                                    "[server] 🔥 DEV HOT-RELOAD: room logic updated ({} bytes)!",
-                                    bytes.len()
-                                );
+                    match runtime
+                        .load_or_compile_cached(wasm_path)
+                        .and_then(|module| {
+                            let linker = rooms::build_host_linker(&runtime, server.permissions);
+                            runtime.prepare(&linker, &module)
+                        }) {
+                        Ok(pre) => {
+                            loaded_wasm_time = Some(current);
+                            eprintln!(
+                                "[server] 🔥 DEV HOT-RELOAD: room logic updated!"
+                            );
 
-                                // 🔥 Hot-swap all actively running rooms without
-                                // disconnecting players (`GameRoom::reload_wasm`
-                                // re-joins every active player per room).
-                                server.hot_reload(pre, cfg.width, cfg.height);
-                            }
-                            Err(e) => {
-                                eprintln!("[server] ⚠️ hot-reload compilation failed: {e}");
-                            }
+                            // 🔥 Hot-swap all actively running rooms without
+                            // disconnecting players (`GameRoom::reload_wasm`
+                            // re-joins every active player per room).
+                            server.hot_reload(pre, cfg.width, cfg.height);
+                        }
+                        Err(e) => {
+                            eprintln!("[server] ⚠️ hot-reload compilation failed: {e}");
                         }
                     }
                 }

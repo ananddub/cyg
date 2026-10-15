@@ -6,8 +6,7 @@
 //! helpers every plane file shares.
 //!
 //! NOTE: `threads/aoi.rs` was NOT moved here — agent A7 is folding it into
-//! `engine-spatial`. `threads/status.rs` likewise goes to `engine-control`
-//! (agent A3). Call sites in [`sim`] point at those destination crates and
+//! `engine-spatial`. Call sites in [`sim`] point at that destination crate and
 //! are re-pointed at integration.
 
 pub mod dispatch;
@@ -19,7 +18,6 @@ pub mod udp;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use engine_bus::Bus;
 
@@ -29,13 +27,9 @@ pub use crate::plane::pin::{current_core, pin_current_thread};
 pub use crate::plane::reliable::{QueueError, ReliableCounts, ReliableLane};
 pub use crate::plane::seats::{SeatGrant, SeatRegistry};
 pub use crate::plane::udp::UdpPlane;
-
-/// Monotonic nanoseconds since an arbitrary process-wide epoch. Used for
-/// kernel→sim latency: stamp at datagram read, compare at queue drain.
-pub fn mono_ns() -> u64 {
-    static EPOCH: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
-    EPOCH.elapsed().as_nanos() as u64
-}
+// One epoch for the whole process, so a latency stamp taken at datagram read
+// and the one taken at queue drain always compare.
+pub use engine_bus::clock::{mono_ns, tick_period};
 
 /// Runtime knobs for the sim plane, env-driven so the existing WS flow (and
 /// other agents' phases) is never disturbed by these files.
@@ -88,9 +82,4 @@ pub fn spawn_sim_plane(bus: Arc<Bus>, cfg: PlaneConfig) -> std::io::Result<std::
             }
             sim::run(bus, cfg);
         })
-}
-
-/// Nominal tick period for `tick_hz`.
-pub fn tick_period(tick_hz: f64) -> Duration {
-    Duration::from_nanos((1e9 / tick_hz.max(1.0)) as u64)
 }

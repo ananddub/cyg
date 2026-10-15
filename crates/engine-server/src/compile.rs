@@ -53,7 +53,30 @@ pub fn build(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<std::path:
         ));
     }
     eprintln!("[build] ✓ compiled {}", out.display());
+
+    // AOT precompilation: compile .wasm -> .cwasm ahead of time so server boots in < 1ms
+    let cwasm_path = out.with_extension("cwasm");
+    if let Ok(runtime) = engine_wasm::WasmRuntime::new() {
+        if let Ok(bytes) = std::fs::read(&out) {
+            if let Ok(()) = runtime.precompile_to_file(&bytes, &cwasm_path) {
+                eprintln!("[build] ⚡ AOT precompiled -> {}", cwasm_path.display());
+            }
+        }
+    }
+
     Ok(out)
+}
+
+/// Explicitly precompile a .wasm file into a .cwasm native AOT artifact.
+pub fn aot_precompile(wasm_path: &Path) -> std::io::Result<std::path::PathBuf> {
+    let cwasm_path = wasm_path.with_extension("cwasm");
+    let runtime = engine_wasm::WasmRuntime::new()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    let bytes = std::fs::read(wasm_path)?;
+    runtime.precompile_to_file(&bytes, &cwasm_path)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    eprintln!("[aot] ✓ AOT precompiled {} -> {}", wasm_path.display(), cwasm_path.display());
+    Ok(cwasm_path)
 }
 
 use engine_config::Runtime;

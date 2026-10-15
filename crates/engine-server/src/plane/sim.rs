@@ -29,12 +29,10 @@ use engine_physics::PhysicsWorld3D;
 use crate::plane::{self, PlaneConfig, mono_ns, tick_period};
 use crate::netcode;
 use crate::rooms::{self, GameRoom};
+use crate::telemetry::{PublishReport, Recorder};
 
 // Dangling until integration: A7 folds `src/threads/aoi.rs` into engine-spatial.
 use engine_spatial::aoi;
-// Dangling until integration: A3 folds `src/threads/status.rs` into engine-control
-// (engine-server's Cargo.toml also needs the `engine-control` dependency added).
-use engine_control::status::{PublishReport, Recorder};
 
 /// Spawn placement: mirrors `src/server.rs` (60 px margin, diagonal scatter).
 const SPAWN_W: f64 = 800.0;
@@ -172,17 +170,10 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             return;
         }
     };
-    let wasm_bytes = match std::fs::read(&cfg.wasm_path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("[sim] ✖️ cannot read {}: {e} — sim thread exiting", cfg.wasm_path.display());
-            return;
-        }
-    };
-    let module = match runtime.compile(&wasm_bytes) {
+    let module = match runtime.load_or_compile_cached(&cfg.wasm_path) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("[sim] ✖️ wasm compile failed: {e} — sim thread exiting");
+            eprintln!("[sim] ✖️ wasm module load failed: {e} — sim thread exiting");
             return;
         }
     };

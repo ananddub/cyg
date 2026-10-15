@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 engine-bus = { path = "../engine-bus" }
 engine-config = { path = "../engine-config" }
-engine-control = { path = "../engine-control" }
+engine-dashboard = { path = "../engine-dashboard" }
 engine-wasm = { path = "../engine-wasm" }
 engine-net = { path = "../engine-net" }
 engine-physics = { path = "../engine-physics" }
@@ -22,7 +22,6 @@ toml = "0.8"
 libc = "0.2"
 hmac = "0.12"
 sha2 = "0.10"
-axum = { version = "0.8", features = ["ws"] }
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros", "signal"] }
 crossbeam-channel = "0.5"

@@ -84,3 +84,39 @@ fn test_serialize_deserialize_module_roundtrip() {
 
     std::fs::remove_file(&path).ok();
 }
+
+#[test]
+fn test_load_or_compile_cached_roundtrip() {
+    let runtime = WasmRuntime::new().expect("Runtime should initialize");
+    let wasm_bytes = wat::parse_str(MODULE).expect("WAT parsing should succeed");
+
+    let temp_dir = std::env::temp_dir().join(format!("aot_test_{}", std::process::id()));
+    std::fs::create_dir_all(&temp_dir).expect("temp dir create");
+    let wasm_file = temp_dir.join("test_game.wasm");
+    let cwasm_file = temp_dir.join("test_game.cwasm");
+    std::fs::write(&wasm_file, &wasm_bytes).expect("write wasm file");
+
+    // 1. First run: .cwasm does not exist. It compiles and creates .cwasm
+    assert!(!cwasm_file.exists());
+    let _module1 = runtime
+        .load_or_compile_cached(&wasm_file)
+        .expect("First load compiles and caches");
+    assert!(cwasm_file.exists(), ".cwasm cache file should be generated");
+
+    // 2. Second run: .cwasm exists and is fresh. Should load via fast deserialization
+    let module2 = runtime
+        .load_or_compile_cached(&wasm_file)
+        .expect("Second load from .cwasm cache");
+
+    let mut room = runtime
+        .instantiate_standalone(&module2, ())
+        .expect("Instantiate cached module");
+    let damage: i32 = room
+        .call("calculate_damage", (3i32, 7.0f32))
+        .expect("Call ok");
+    assert_eq!(damage, 21);
+
+    // Clean up
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
