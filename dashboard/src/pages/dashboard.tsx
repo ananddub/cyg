@@ -21,9 +21,10 @@ import { TickChart } from "@/components/tick-chart"
 import { TickHistogram } from "@/components/tick-histogram"
 import { TransportMixPanel } from "@/components/transport-mix"
 import { WorkersStrip } from "@/components/workers-strip"
+import { CoreDetailsSidebar } from "@/components/core-details-sidebar"
 import { useDashboardData } from "@/hooks/use-dashboard-api"
 import { useDashboardToasts } from "@/hooks/use-dashboard-toasts"
-import type { RoomRow } from "@/lib/types"
+import type { RoomRow, WorkerRow } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type NavSection = "overview" | "rooms" | "clients" | "workers" | "limits"
@@ -41,10 +42,16 @@ export function DashboardPage() {
 
   const [activeSection, setActiveSection] = useState<NavSection>("overview")
   const [selectedRoom, setSelectedRoom] = useState<RoomRow | null>(null)
+  const [selectedWorker, setSelectedWorker] = useState<WorkerRow | null>(null)
 
   const { overview, ticks, ws } = data
   const loading = overview === null
   const offline = ws.status !== "open" && overview === null
+
+  // Ensure right sidebar receives live updated worker stats when polling
+  const activeWorker = selectedWorker
+    ? (data.workers?.find((w) => w.name === selectedWorker.name) ?? selectedWorker)
+    : null
 
   const navItems: NavItem[] = [
     {
@@ -137,7 +144,14 @@ export function DashboardPage() {
         </nav>
 
         {/* Live Engine Status Mini-Widget - Bottom Placed */}
-        <div className="mx-3 mb-3 rounded-lg border border-border/50 bg-background/50 p-3 shadow-xs">
+        <div
+          onClick={() => {
+            const sim = data.workers?.find((w) => w.name === "sim")
+            if (sim) setSelectedWorker(sim)
+          }}
+          className="mx-3 mb-3 cursor-pointer rounded-lg border border-border/50 bg-background/50 p-3 shadow-xs transition-all hover:border-primary/40 hover:bg-background/80"
+          title="Click to inspect Authoritative Simulation Core"
+        >
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Authoritative Tick</span>
             <span className="inline-flex items-center gap-1.5 font-mono text-primary font-medium">
@@ -291,7 +305,11 @@ export function DashboardPage() {
                 </p>
               </div>
 
-              <WorkersStrip workers={data.workers ?? undefined} loading={data.workers === null} />
+              <WorkersStrip
+                workers={data.workers ?? undefined}
+                loading={data.workers === null}
+                onSelectWorker={(worker) => setSelectedWorker(worker)}
+              />
             </div>
           )}
 
@@ -316,6 +334,13 @@ export function DashboardPage() {
           )}
         </main>
       </div>
+
+      {/* ── Right Sidebar Slide-Over: Simulation Core Telemetry ── */}
+      <CoreDetailsSidebar
+        worker={activeWorker}
+        overview={overview ?? undefined}
+        onClose={() => setSelectedWorker(null)}
+      />
     </div>
   )
 }
