@@ -207,7 +207,7 @@ export function DashboardPage() {
                   nominalUs={overview?.tick.nominalUs}
                   loading={loading}
                 />
-                <div className="rounded-md border border-border/60 bg-card/30 p-5 shadow-xs">
+                <div className="rounded-md border border-border bg-card p-5 shadow-xs">
                   <div className="mb-4">
                     <h3 className="font-heading text-base font-semibold text-foreground">Tick distribution</h3>
                     <p className="text-xs text-muted-foreground">Execution time per base-2 µs bucket</p>
@@ -251,7 +251,7 @@ export function DashboardPage() {
                   </p>
                 </div>
 
-                <div className="rounded-md border border-border/60 bg-card/30 overflow-hidden shadow-xs">
+                <div className="rounded-md border border-border bg-card overflow-hidden shadow-xs">
                   <RoomsTable
                     rooms={data.rooms ?? undefined}
                     clients={data.clients ?? undefined}
@@ -274,7 +274,7 @@ export function DashboardPage() {
                 </p>
               </div>
 
-              <div className="rounded-md border border-border/60 bg-card/30 overflow-hidden shadow-xs">
+              <div className="rounded-md border border-border bg-card overflow-hidden shadow-xs">
                 <ClientsTable clients={data.clients ?? undefined} loading={data.clients === null} />
               </div>
             </div>

@@ -66,7 +66,7 @@ function QueueTile({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1 rounded-md border bg-card p-3 ring-1 ring-foreground/10",
+        "flex flex-col gap-1 rounded-md border bg-card p-3 shadow-xs",
         full ? "border-destructive" : warn ? "border-warning" : "border-border"
       )}
     >
