@@ -104,7 +104,7 @@ export function DashboardPage() {
                 type="button"
                 onClick={() => setActiveSection(item.id)}
                 className={cn(
-                  "group flex w-full items-center justify-between rounded-sm px-3 py-2 text-xs font-medium transition-all",
+                  "group flex w-full items-center justify-between rounded-md px-3 py-2 text-xs font-medium transition-all",
                   isActive
                     ? "bg-primary/10 text-primary shadow-xs ring-1 ring-primary/20"
                     : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
@@ -137,7 +137,7 @@ export function DashboardPage() {
         </nav>
 
         {/* Live Engine Status Mini-Widget - Bottom Placed */}
-        <div className="mx-3 mb-3 rounded-md border border-border/50 bg-background/50 p-3 shadow-xs">
+        <div className="mx-3 mb-3 rounded-lg border border-border/50 bg-background/50 p-3 shadow-xs">
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Authoritative Tick</span>
             <span className="inline-flex items-center gap-1.5 font-mono text-primary font-medium">
@@ -159,7 +159,7 @@ export function DashboardPage() {
 
         {/* Sidebar Footer */}
         <div className="border-t border-border/50 p-3">
-          <div className="flex items-center justify-between rounded-sm bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between rounded-md bg-background/40 px-3 py-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <Server className="size-3.5 text-muted-foreground" />
               <span className="font-mono text-[11px]">v0.2.0-hotpath</span>
@@ -207,7 +207,7 @@ export function DashboardPage() {
                   nominalUs={overview?.tick.nominalUs}
                   loading={loading}
                 />
-                <div className="rounded-md border border-border bg-card p-5 shadow-xs">
+                <div className="rounded-lg border border-border bg-card p-5 shadow-xs">
                   <div className="mb-4">
                     <h3 className="font-heading text-base font-semibold text-foreground">Tick distribution</h3>
                     <p className="text-xs text-muted-foreground">Execution time per base-2 µs bucket</p>
@@ -251,7 +251,7 @@ export function DashboardPage() {
                   </p>
                 </div>
 
-                <div className="rounded-md border border-border bg-card overflow-hidden shadow-xs">
+                <div className="rounded-lg border border-border bg-card overflow-hidden shadow-xs">
                   <RoomsTable
                     rooms={data.rooms ?? undefined}
                     clients={data.clients ?? undefined}
@@ -274,7 +274,7 @@ export function DashboardPage() {
                 </p>
               </div>
 
-              <div className="rounded-md border border-border bg-card overflow-hidden shadow-xs">
+              <div className="rounded-lg border border-border bg-card overflow-hidden shadow-xs">
                 <ClientsTable clients={data.clients ?? undefined} loading={data.clients === null} />
               </div>
             </div>

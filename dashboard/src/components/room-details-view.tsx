@@ -193,7 +193,7 @@ export function RoomDetailsView({ room, clients, onBack }: RoomDetailsViewProps)
           </Badge>
         </div>
 
-        <div className="rounded-md border border-border bg-card overflow-hidden shadow-xs">
+        <div className="rounded-lg border border-border bg-card overflow-hidden shadow-xs">
           <TooltipProvider>
             <Table>
               <TableHeader>

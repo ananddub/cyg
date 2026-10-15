@@ -66,7 +66,7 @@ function QueueTile({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1 rounded-md border bg-card p-3 shadow-xs",
+        "flex flex-col gap-1 rounded-lg border bg-card p-3 shadow-xs",
         full ? "border-destructive" : warn ? "border-warning" : "border-border"
       )}
     >
@@ -135,7 +135,7 @@ export function BusHealthCard({
         <QueueTile label="deltas queued" value={bus?.deltasQueued} cap={CAPS.deltas} trend={trend?.deltas} />
       </div>
 
-      <div className="flex flex-col rounded-md border border-border bg-card p-3">
+      <div className="flex flex-col rounded-lg border border-border bg-card p-3">
         <DropCounter label="deltas sent" value={bus?.deltasSent} danger={false} />
         <DropCounter
           label="deltas dropped (full)"
