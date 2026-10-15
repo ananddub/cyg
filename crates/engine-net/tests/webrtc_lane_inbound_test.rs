@@ -1,4 +1,4 @@
-//! The lane contract as `src/server.rs` consumes it: `WebRtcServer::poll_inbound()`.
+//! The lane contract as `engine_server::host` consumes it: `WebRtcServer::poll_inbound()`.
 //!
 //! The game loop used to match inbound payloads against their opcode alone, which meant a
 //! 4-byte ack arriving on `game-unreliable` was believed even though that lane cannot
@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use engine_net::transport::webrtc_frames::{Inbound, Lane};
-use engine_net::transport::webrtc_server::{WebRtcServer, WebRtcServerEvent};
+use engine_net::transport::webrtc::contract::{Inbound, Lane};
+use engine_net::transport::webrtc::{WebRtcServer, WebRtcServerEvent};
 use engine_webrtc_protocol::{
     DeltaHeader, EVENT_WIRE_LEN, EventFrame, EventKind, FragmentAssembler, InputFrame,
     MAX_DELTA_BODY, MAX_DELTA_CHUNK, MAX_FRAME, AckKind, encode_event, encode_input, write_ack,
@@ -304,7 +304,7 @@ fn an_event_crosses_the_ordered_lane_byte_for_byte() {
     assert_eq!(EventFrame::decode(raw).expect("still decodable").kind, EventKind::Fire);
 }
 
-/// What `src/server.rs` now calls once per player per tick: the transport owns the
+/// What `engine_server::host` calls once per player per tick: the transport owns the
 /// stamp-and-split, and `delivered()` is the whole contract — anything else means this
 /// client did not get this tick and the WebSocket fallback has to carry it.
 #[test]
@@ -350,7 +350,7 @@ fn no_outbound_frame_exceeds_the_path_mtu() {
 }
 
 /// `poll_events` still reports the same bytes, so a host that reads both drains would
-/// apply every input twice. `src/server.rs` reads `poll_inbound` and ignores `Message`.
+/// apply every input twice. The host reads `poll_inbound` and ignores `Message`.
 #[test]
 fn poll_events_still_carries_bytes_for_hosts_that_parse_themselves() {
     let mut pair = Pair::connect();

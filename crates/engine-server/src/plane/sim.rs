@@ -2,19 +2,12 @@
 //! `bus.commands_rx`, drives `wasm.on_tick`, builds per-viewer deltas through
 //! `aoi` + `dispatch`, sends native frames over `UdpPlane` and browser frames
 //! to `bus.deltas_tx` (drop when full), and publishes `StatusSnapshot` once a
-//! second via `status`. See CONTRACT.md for the full loop shape.
+//! second via [`crate::telemetry`]. See CONTRACT.md for the full loop shape.
 //!
-//! Crate-split notes (A6):
-//! * the room type + host linker now come from [`crate::rooms`] (agent A4)
-//!   instead of a plane-local copy;
-//! * input apply/journal goes through [`crate::netcode::apply_input`] (agent
-//!   A5) instead of a plane-local copy — with the default `GameConfig` the
-//!   rollback branch stays disabled and the journal cap is 256, exactly the
-//!   behavior the plane-local variant had;
-//! * `threads/aoi.rs` is being folded into `engine-spatial` (agent A7) and
-//!   `threads/status.rs` into `engine-control` (agent A3). The call sites
-//!   below are written against those destination paths and must be
-//!   re-pointed/dep-added at integration.
+//! The room type, host linker and membership come from [`crate::rooms`];
+//! input apply/journal (including the rollback replay) from
+//! [`crate::netcode::apply_input`]; interest management from
+//! [`engine_spatial::aoi`].
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -26,15 +19,14 @@ use engine_wasm::WasmRuntime;
 use engine_bus::{Bus, FrameKind, OutFrame, PeerId, SessionTelemetry, SimCommand, Via};
 use engine_config::{AoiConfig, GameConfig};
 use engine_physics::PhysicsWorld3D;
+use engine_spatial::aoi;
+
 use crate::plane::{self, PlaneConfig, mono_ns, tick_period};
 use crate::netcode;
 use crate::rooms::{self, GameRoom};
 use crate::telemetry::{PublishReport, Recorder};
 
-// Dangling until integration: A7 folds `src/threads/aoi.rs` into engine-spatial.
-use engine_spatial::aoi;
-
-/// Spawn placement: mirrors `src/server.rs` (60 px margin, diagonal scatter).
+/// Spawn placement: 60 px margin inside an 800x500 field, diagonal scatter.
 const SPAWN_W: f64 = 800.0;
 const SPAWN_H: f64 = 500.0;
 
@@ -189,8 +181,6 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         .ok()
         .and_then(|json| PhysicsWorld3D::from_json(&json).ok())
         .unwrap_or_default();
-    // Plane-local view of `rooms::GameRoom::new` failure: the pinned A4
-    // constructor instantiates + `on_create`s, logging on guest trap.
     let mut room = GameRoom::new(&pre, cfg.max_players, physics);
 
     println!(

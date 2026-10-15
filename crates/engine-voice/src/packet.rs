@@ -1,7 +1,7 @@
 //! # Voice Wire Packet & Opus Framing
 //!
 //! Compact binary wire framing for gaming voice packets:
-//! [1 byte MAGIC 'V'][4 byte speaker_id][2 byte seq][4 byte timestamp][1 byte channel_mode][1 byte flags][2 byte len][payload]
+//! [1 byte MAGIC 'V'][4 byte speaker_id][2 byte seq][4 byte timestamp][1 byte channel_mode][1 byte flags][2 byte len]\[payload\]
 //! Total header overhead: exactly 15 bytes.
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};

@@ -1,23 +1,15 @@
 //! Host run loop: the fixed-rate tick + per-session delta broadcast (AOI
-//! dispatch), moved from the root binary's `src/server.rs`.
+//! dispatch).
 //!
 //! This loop is the default game path, so it is also the telemetry source: it
 //! owns the sessions and the tick, and publishes a `StatusSnapshot` onto
-//! `bus.status_tx` once a second for the control plane's `/status` and
-//! dashboard. Without that the dashboard would only ever see the pinned
-//! `OX_PLANES=1` sim thread, which most projects never run.
+//! `bus.status_tx` once a second for the API's `/status` and dashboard.
+//! Without that the dashboard would only ever see the pinned `OX_PLANES=1` sim
+//! thread, which most projects never run.
 //!
-//! Crate-split notes (A6): room type / host linker / lifecycle come from
-//! [`crate::rooms`] (agent A4); the byte pipeline helpers
-//! (`wrap_delta_into`, `parse_delta_sections`, `filter_delta_for_viewer`,
-//! `apply_input`, `deliver_input`, `send_delta_framed`, `record_channel_ack`)
-//! come from [`crate::netcode`] (agent A5). Behavior is otherwise a faithful
-//! move of the monolithic `run()`: env-gated plane boot stays in the root
-//! binary + [`crate::plane`], tick pacing, acked_seq echo, delta_seq
-//! stamping, the 6-byte envelope tail, voice mesh blocks, rollback
-//! `apply_input` at both the WS and WebRTC input call sites, spectators +
-//! UDP multicast, disconnect cleanup, and JOIN/join + 23-byte bare input
-//! frames.
+//! The room type, linker and membership live in [`crate::rooms`]; the byte
+//! pipeline (delta wrapping, AOI filtering, input journaling) in
+//! [`crate::netcode`].
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -28,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use engine_bus::{Bus, SessionTelemetry};
 use engine_net::framing::OpCode;
-use engine_net::transport::webrtc_frames::Inbound;
+use engine_net::transport::webrtc::contract::Inbound;
 use engine_net::transport::{
     WsTransport, GameTransport, TransportEvent, WebRtcServer, WebRtcServerEvent,
 };
@@ -155,10 +147,6 @@ fn safe_relative(sub: &str) -> Option<&Path> {
         Some(p)
     }
 }
-
-/// All rooms + the pre-instantiated room template (hot-swappable).
-/// Lives in [`crate::rooms`] (agent A4); `host.rs` drives it through its
-/// `get_or_create` / `hot_reload` lifecycle API.
 
 /// Run the server until killed.
 ///
@@ -800,8 +788,8 @@ pub fn run(
                                     eprintln!("[server] ℹ️ Player {id} sent input over WebSocket fallback (seq {})", input.seq);
                                 }
                             }
-                            // Newest-Wins auto-sync rule (QUIC datagram behavior: drop stale packets, zero HOL blocking)
-                            // + Phase F: a genuinely late seq rewinds and replays instead of dropping.
+                            // Newest-Wins auto-sync rule (QUIC datagram behavior: drop stale packets, zero HOL blocking).
+                            // With rollback on, a genuinely late seq rewinds and replays instead of dropping.
                             let mut payload_20 = [0u8; 20];
                             payload_20.copy_from_slice(&data[3..23]);
                             netcode::apply_input(
@@ -1015,8 +1003,9 @@ pub fn run(
                 dead_rooms.clear();
 
                 for (name, room) in server.rooms.iter_mut() {
-                    // Rule 5: Fault-isolated simulation tick (trap doesn't crash
-                    // server); the Phase F checkpoint rides inside `GameRoom::tick`.
+                    // Rule 5: Fault-isolated simulation tick (a guest trap does
+                    // not crash the server); the rollback checkpoint rides
+                    // inside `GameRoom::tick`.
                     let packed = match room.tick(dt, cfg.rollback.enabled) {
                         Ok(p) => p,
                         Err(e) => {
@@ -1044,7 +1033,7 @@ pub fn run(
                         }
                         let delta = &delta_buf[..];
 
-                    // Phase E interest management: parse the delta once per tick.
+                    // Interest management: parse the delta once per tick.
                     // When the layout is recognized and AOI is on, every player
                     // gets a per-viewer culled body; otherwise everyone shares the
                     // raw multicast buffer.
@@ -1261,10 +1250,6 @@ pub fn run(
                         "[server] 📝 Detected change in {} — recompiling room logic...",
                         cfg.source.display()
                     );
-                    // Dangling until integration: the TS→wasm room compiler
-                    // (`src/compile.rs`) has not been assigned a crate; this
-                    // call site must be re-pointed (or the whole hot-reload
-                    // block lifted into a `engine-compile`-backed helper).
                     match crate::compile::build(project_dir, cfg) {
                         Ok(_) => {
                             loaded_src_time = Some(src_current);

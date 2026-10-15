@@ -267,7 +267,7 @@ impl Lifecycle {
     }
 
     /// Ask the health loop to stop. Idempotent, and the only way to end
-    /// [`run_until_stopped`] from another thread.
+    /// [`Lifecycle::run_until_stopped`] from another thread.
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Release);
     }

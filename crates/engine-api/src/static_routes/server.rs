@@ -21,8 +21,8 @@ pub struct StaticServer {
 }
 
 impl StaticServer {
-    /// `project_dir` is the directory holding `config.toml`; asset paths in the
-    /// config are relative to it, exactly as `src/server.rs` treats them.
+    /// `project_dir` is the directory holding `config.toml`; asset paths in
+    /// the config are relative to it.
     pub fn new(project_dir: &Path, game: &engine_config::GameConfig) -> StaticServer {
         StaticServer {
             root: project_dir.to_path_buf(),
@@ -61,7 +61,7 @@ impl StaticServer {
     }
 
     /// Read `path` if it exists, refreshing the cache only when its stamp
-    /// changed — see [`super::cache`].
+    /// changed — that keeps the hit path to a single `stat`.
     pub fn read(&self, path: &Path) -> Option<Arc<Vec<u8>>> {
         super::cache::read(self, path)
     }
@@ -72,8 +72,9 @@ impl StaticServer {
         child_of(&self.root, url_path)
     }
 
-    /// Map a URL path to a plain child of `base`. See [`super::guard`] for why
-    /// the decode and the refusal live together.
+    /// Map a URL path to a plain child of `base`. The percent-decode and the
+    /// refusal happen in one pass, so no escape sequence can produce a path
+    /// that was not checked.
     pub fn resolve_under(&self, base: &Path, url_path: &str) -> Option<PathBuf> {
         child_of(base, url_path)
     }

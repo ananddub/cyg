@@ -16,14 +16,12 @@ pub(crate) fn read_tcp(stream: &mut TcpStream, dst: &mut BytesMut, want: usize) 
     dst.reserve(want);
     let spare = dst.spare_capacity_mut();
     let len = spare.len().min(want);
-    // SAFETY: `MaybeUninit<u8>` and `u8` have the same layout and alignment;
-    // `read` only writes into the slice it is handed.
+    // SAFETY: `MaybeUninit<u8>` and `u8` share layout and alignment, and `read` only writes into the slice it is handed.
     let buf = unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr() as *mut u8, len) };
     match stream.read(buf) {
         Ok(0) => Ok(0),
         Ok(n) => {
-            // SAFETY: the kernel initialized exactly `buf[..n]`, and
-            // `old_len + n <= old_len + spare.len() <= capacity`.
+            // SAFETY: the kernel initialized exactly `buf[..n]`, and `old_len + n <= old_len + spare.len() <= capacity`.
             unsafe { dst.set_len(dst.len() + n) };
             Ok(n)
         }

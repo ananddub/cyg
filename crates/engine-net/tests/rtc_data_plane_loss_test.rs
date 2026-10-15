@@ -52,7 +52,7 @@ fn body_len(t: u32) -> usize {
     }
 }
 
-/// Byte-for-byte parity with `src/server.rs::wrap_delta_into`:
+/// Byte-for-byte parity with `engine_server::netcode::wrap_delta_into`:
 /// `[0xA5 "delta"][your_id i64 LE][fill][acked_seq u16 LE][server_tick u32 LE]`.
 fn delta_body(t: u32) -> Vec<u8> {
     let len = body_len(t);
@@ -309,11 +309,11 @@ fn oversized_delta_is_dropped_not_truncated() {
 fn server_egress_backpressure_is_blocked() {
     // Intentionally a skip with a printed reason (no todo!()).
     println!(
-        "SKIP server-side egress backpressure: waiting for the WebRTC plane wiring \
-         (crates/engine-net/src/rtc_plane/ does not exist; src/threads/dispatch.rs::emit_delta \
-         is a `todo!()` stub owned by Agent 3C; engine-net/src/transport/webrtc_server.rs \
-         exposes no per-channel bufferedAmount surface on send_unreliable/broadcast_unreliable). \
-         When emit_delta lands, extend the pipe test to feed delta bodies through it and assert \
-         a per-peer bounded queue drops oldest frames instead of growing."
+        "SKIP server-side egress backpressure: send_unreliable/broadcast_unreliable \
+         report only success or a datagram count, so there is no per-channel queue \
+         depth to assert a bounded drop against. Once the transport exposes a buffered \
+         amount, extend the pipe test to feed delta bodies through \
+         engine_server::plane::emit_delta and assert that a per-peer bounded queue \
+         drops the oldest frames instead of growing."
     );
 }

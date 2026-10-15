@@ -90,9 +90,7 @@ impl GameTransport for UdpTransport {
         for event in self.events.iter() {
             if event.token() == UDP_SOCKET_TOKEN && event.is_readable() {
                 loop {
-                    // Receive straight into the BytesMut; the datagram then
-                    // becomes a refcounted `Bytes` and every frame inside it
-                    // is a zero-copy slice — no payload copy at all.
+                    // Receive straight into the BytesMut: the datagram becomes a refcounted `Bytes`, so every frame inside it is a zero-copy slice.
                     let (len, peer_addr) = match crate::bufio::recv_udp(
                         &mut self.socket,
                         &mut self.recv_buf,

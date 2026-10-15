@@ -1,9 +1,11 @@
 //! Static assets for the browser-facing API.
 //!
-//! Replaces the in-transport `on_http` hook: the website page, the SDK bundle,
-//! the arena map, the Unity WebGL build and the OpenOxide SDK files are served
-//! from here, on the control port, with an mtime-keyed cache so a reload during
-//! development picks up a new `openoxide.js` without a restart.
+//! The website page, the SDK bundle, the arena map, the Unity WebGL build and
+//! the OpenOxide SDK files are served from here, on the API port, with an
+//! mtime-keyed cache so a reload during development picks up a new
+//! `openoxide.js` without a restart. The game transport keeps a narrower
+//! in-transport hook for `web_port` only while the control plane does not own
+//! that port.
 //!
 //! Every path that reaches the filesystem goes through
 //! [`StaticServer::resolve_under`], which rejects anything that is not a plain

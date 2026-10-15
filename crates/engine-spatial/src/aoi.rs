@@ -1,11 +1,9 @@
 //! Interest management (AOI) over raw guest delta buffers.
 //!
-//! Moved verbatim from the root binary's `src/threads/aoi.rs` (originally a
-//! port of `src/server.rs`'s `parse_delta_sections` and
-//! `filter_delta_for_viewer`): near radius always visible, far radius every
-//! `skip_ticks`-th tick, beyond far culled; viewer and its own bullets never
-//! culled. KD-tree keyed by entity slot index (via [`crate::SpatialIndex3D`]),
-//! so negative (bot) ids cannot collide.
+//! Near radius always visible, far radius every `skip_ticks`-th tick, beyond
+//! far culled; viewer and its own bullets never culled. KD-tree keyed by
+//! entity slot index (via [`crate::SpatialIndex3D`]), so negative (bot) ids
+//! cannot collide.
 
 use engine_config::AoiConfig;
 

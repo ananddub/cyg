@@ -1,13 +1,9 @@
-//! # The two-plane thread topology (moved verbatim from `src/threads/`)
+//! # The two-plane thread topology
 //!
 //! `sim` is the pinned MIO OS thread: raw UDP :7778 + the 128 Hz wasm
 //! simulation. Everything crypto/async belongs to the Tokio plane and is out
-//! of scope here. This module owns spawning, core pinning, and the clock
-//! helpers every plane file shares.
-//!
-//! NOTE: `threads/aoi.rs` was NOT moved here — agent A7 is folding it into
-//! `engine-spatial`. Call sites in [`sim`] point at that destination crate and
-//! are re-pointed at integration.
+//! of scope here. This module owns spawning, core pinning, and the shared
+//! clock re-exports every plane file uses.
 
 pub mod dispatch;
 pub mod pin;
@@ -21,18 +17,17 @@ use std::sync::Arc;
 
 use engine_bus::Bus;
 
-// Re-exports: names the root binary referenced as `crate::threads::X`.
 pub use crate::plane::dispatch::{emit_delta, wrap_body};
 pub use crate::plane::pin::{current_core, pin_current_thread};
 pub use crate::plane::reliable::{QueueError, ReliableCounts, ReliableLane};
 pub use crate::plane::seats::{SeatGrant, SeatRegistry};
 pub use crate::plane::udp::UdpPlane;
-// One epoch for the whole process, so a latency stamp taken at datagram read
-// and the one taken at queue drain always compare.
+// One process-wide epoch, so a latency stamp taken at datagram read and the
+// one taken at queue drain always compare.
 pub use engine_bus::clock::{mono_ns, tick_period};
 
-/// Runtime knobs for the sim plane, env-driven so the existing WS flow (and
-/// other agents' phases) is never disturbed by these files.
+/// Runtime knobs for the sim plane. Env-driven, so the plane stays opt-in and
+/// the WebSocket flow is the default.
 ///
 /// * `OX_PLANES=1`          — enable the raw UDP + sim plane at all
 /// * `OX_SIM_CORE=2`        — core to pin the sim thread to
@@ -71,14 +66,14 @@ impl PlaneConfig {
 }
 
 /// Spawn the pinned sim thread (raw UDP + 128 Hz wasm sim). The browser-side
-/// consumer of `bus.deltas_rx` lives on the Tokio plane (Agent 2) and is not
-/// started here.
+/// consumer of `bus.deltas_rx` lives on the Tokio plane and is not started
+/// here.
 pub fn spawn_sim_plane(bus: Arc<Bus>, cfg: PlaneConfig) -> std::io::Result<std::thread::JoinHandle<()>> {
     std::thread::Builder::new()
         .name("ox-sim".into())
         .spawn(move || {
             if let Err(e) = pin::pin_current_thread(cfg.sim_core) {
-                eprintln!("[threads] ⚠️ core pinning to {} failed: {e} (contin unpinned)", cfg.sim_core);
+                eprintln!("[sim] ⚠️ core pinning to {} failed: {e} (continuing unpinned)", cfg.sim_core);
             }
             sim::run(bus, cfg);
         })

@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
-use engine_net::transport::webrtc_server::{WebRtcServer, WebRtcServerEvent};
+use engine_net::transport::webrtc::{WebRtcServer, WebRtcServerEvent};
 use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Input, Output, Rtc};
 

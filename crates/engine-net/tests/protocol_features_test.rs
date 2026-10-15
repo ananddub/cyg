@@ -22,7 +22,7 @@ use std::net::TcpStream;
 use std::time::Duration;
 
 use engine_net::framing::OpCode;
-use engine_net::transport::ws_transport::{HeartbeatConfig, MatchMakeError};
+use engine_net::transport::ws::{HeartbeatConfig, MatchMakeError};
 use engine_net::transport::{WsTransport, GameTransport, TransportEvent};
 
 // ---------------------------------------------------------------------------

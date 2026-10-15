@@ -1,7 +1,6 @@
 //! # engine-server — simulation core: rooms, netcode helpers, and the pinned plane
 //!
-//! Extracted from the root binary's `src/server.rs` (rooms + byte pipeline)
-//! and `src/threads/` (mio sim plane). Owns:
+//! Owns:
 //!
 //! * [`rooms`] — `GameRoom`, the WASM `RoomLogic` module wrapper, host linker
 //! * [`netcode`] — delta envelope wrapping, AOI delta filtering, input journaling + rollback replay

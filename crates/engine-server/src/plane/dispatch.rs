@@ -1,8 +1,8 @@
-//! Delta framing for both planes, owned by Agent 3C.
+//! Delta framing for both planes.
 //!
 //! One function builds the *whole* outbound shape of a tick delta:
-//! body tail (`acked_seq u16 + server_tick u32` after the guest bytes, same
-//! tail the WS plane appends in `src/server.rs::wrap_delta_into`, minus the
+//! body tail (`acked_seq u16 + server_tick u32` after the guest bytes, the same
+//! tail [`crate::netcode::wrap_delta_into`] appends for the WS plane, minus the
 //! msgpack `"delta"` header), then channel-layer fragmentation
 //! (`engine_webrtc_protocol::write_delta_frame`: `[0x04][seq u16][tick u32]
 //! [frag_idx u8][frag_total u8][chunk ≤ MAX_DELTA_CHUNK]`).
@@ -71,8 +71,8 @@ mod tests {
         let mut out = Vec::new();
         let body = [1u8, 2, 3, 4];
         wrap_body(-7, &body, 0x1122, 0x33445566, &mut out);
-        // Contract tail is [acked u16][tick u32] = 6 bytes (same as server.rs
-        // wrap_delta_into); the SDK's -8 read offset is a known Phase D defect.
+        // Contract tail is [acked u16][tick u32] = 6 bytes (same as
+        // netcode::wrap_delta_into); the SDK's -8 read offset is a known defect.
         assert_eq!(out.len(), 8 + body.len() + 6);
         assert_eq!(&out[..8], &(-7i64).to_le_bytes());
         assert_eq!(&out[8..12], &body[..]);

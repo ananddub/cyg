@@ -21,7 +21,7 @@ pub fn b64url(input: &[u8]) -> String {
     out
 }
 
-/// Strict unpadded b64url, matching `src/threads/seats.rs` byte for byte: any
+/// Strict unpadded b64url, matching the UDP plane's decoder byte for byte: any
 /// character outside the URL-safe alphabet, any `=`, or a `len % 4 == 1`
 /// remainder is not a token — it is a probe, and both planes must agree.
 pub fn b64url_decode(input: &str) -> Option<Vec<u8>> {

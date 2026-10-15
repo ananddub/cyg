@@ -9,6 +9,7 @@ pub fn history() -> Arc<engine_dashboard::DashboardHistory> {
 }
 
 pub fn record_sample(snapshot: StatusSnapshot) {
-    // process monotonic clock: TickPoint::at_ms and sampleAgeMs must agree
+    // Same monotonic clock as `sample_age_ms`, so a chart point and the age
+    // reported next to it cannot disagree.
     history().push(snapshot, engine_bus::clock::mono_ns() / 1_000_000);
 }

@@ -5,8 +5,8 @@
 //! - 2D & 3D Spatial Indexes (`SpatialIndex2D`, `SpatialIndex3D`)
 //! - Multiplayer Network Area of Interest Managers (`AoiManager2D`, `AoiManager3D`)
 //!   for visibility culling and packet bandwidth reduction.
-//! - Delta-buffer interest management ([`aoi`], moved from the root binary's
-//!   `src/threads/aoi.rs`): guest TLV parse + per-viewer near/far culling.
+//! - Delta-buffer interest management ([`aoi`]): guest TLV parse + per-viewer
+//!   near/far culling.
 
 pub mod aoi;
 

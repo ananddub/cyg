@@ -21,7 +21,7 @@
 //! needs before replicated state tells it who it is.
 //!
 //! Mesh pairing rule: the peer with the **lower** entity id owns the
-//! [`RTCPeerConnection`] that creates the offer, so a pair never produces two
+//! `RTCPeerConnection` that creates the offer, so a pair never produces two
 //! offers for the same connection.
 
 use std::collections::HashMap;

@@ -1,8 +1,7 @@
 //! Delta envelope, AOI delta filtering, and input journaling/rollback.
 //!
-//! Moved verbatim from the root binary's `src/server.rs`: the pure helpers of
-//! the room pipeline. The `run` loop (host plane) calls these; this module
-//! owns no state and no sockets — it only shapes bytes and rewinds rooms.
+//! The pure helpers of the room pipeline. The host run loop calls these; this
+//! module owns no state and no sockets — it only shapes bytes and rewinds rooms.
 
 use engine_net::transport::WebRtcServer;
 
@@ -39,11 +38,11 @@ pub fn deliver_input(room: &mut GameRoom, id: i64, payload: &[u8; 20]) {
     }
 }
 
-/// Apply a movement input from one session (Phase D + F).
+/// Apply a movement input from one session.
 ///
 /// Newest seqs flow straight through, exactly like the legacy newest-wins rule.
-/// A seq *behind* the newest is either a Phase D redundant resend (already
-/// journaled — dropped) or a genuinely late delivery: instead of dropping it,
+/// A seq *behind* the newest is either a redundant resend (already journaled —
+/// dropped) or a genuinely late delivery: instead of dropping it,
 /// rewind the guest to the snapshot the input's predecessor arrived after,
 /// re-deliver every journaled input from that point, and resimulate the missed
 /// ticks. The guest must be deterministic for the replay to land cleanly;
@@ -79,7 +78,7 @@ pub fn apply_input(
     if !cfg.rollback.enabled || seq == *last {
         return; // legacy newest-wins drop
     }
-    // Duplicate Phase D resend — it is already in the journal.
+    // Duplicate resend — it is already in the journal.
     if room.input_journal.iter().any(|j| j.session == session && j.seq == seq) {
         return;
     }
@@ -189,7 +188,7 @@ pub fn parse_delta_sections(
     Some((ver, entities, bullets, bc_off, bullet_end))
 }
 
-/// Interest management for one viewer (Phase E): entities inside
+/// Interest management for one viewer: entities inside
 /// `near_radius` are always visible; those inside `far_radius` ride every
 /// `skip_ticks`-th tick; everything beyond `far_radius` is culled. The viewer
 /// and its own projectiles are never culled. The KD-tree is keyed by entity

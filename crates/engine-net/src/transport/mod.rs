@@ -1,18 +1,20 @@
-//! # Unified Multi-Transport Abstraction
+//! # Wire transports
 //!
-//! Provides a single pluggable `GameTransport` trait supporting:
-//! - `TransportType::Tcp`: Raw ultra-low-overhead length-prefixed TCP
-//! - `TransportType::Udp`: Raw high-frequency non-blocking UDP datagrams
-//! - `TransportType::Quic`: QUIC multiplexed datagrams and streams
-//! - `TransportType::Ws`: WebSocket wire-protocol transport (browser plane)
+//! One folder per transport, plus the [`GameTransport`] trait that
+//! [`create_transport`] selects through [`TransportType`]:
 //!
-//! The game engine core (128Hz Tick Loop, WASM Room, Rewind, Reconciliation) is 100%
-//! decoupled from the network transport and works identically with any option.
+//! - `udp`: raw non-blocking length-prefixed datagrams
+//! - `ws`: the OpenOxide/Colyseus WebSocket wire protocol (the browser plane)
+//! - `webrtc`: sans-IO `str0m` DataChannels and their channel contract
+//!
+//! Only `udp` and `ws` implement [`GameTransport`]; the WebRTC server is driven
+//! directly by the game loop because what it moves is framed deltas, not packets.
+//! Either way the simulation above this module does not know which wire a client
+//! reached the room on.
 
-pub mod ws_transport;
 pub mod udp;
-pub mod webrtc_frames;
-pub mod webrtc_server;
+pub mod webrtc;
+pub mod ws;
 
 use std::io;
 use std::net::SocketAddr;
@@ -23,18 +25,16 @@ use bytes::Bytes;
 
 use crate::framing::OpCode;
 
-pub use ws_transport::WsTransport;
 pub use udp::UdpTransport;
-pub use webrtc_server::{WebRtcServer, WebRtcServerEvent};
+pub use webrtc::{WebRtcServer, WebRtcServerEvent};
+pub use ws::WsTransport;
 
-/// Supported transport implementations.
+/// Supported transport implementations that sit behind [`GameTransport`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportType {
-    /// Non-blocking raw TCP with length-prefixed binary frames
-    /// Raw high-frequency UDP datagram transport
+    /// Raw high-frequency non-blocking UDP datagrams.
     Udp,
-    /// QUIC multiplexed reliable streams & unreliable datagrams
-    /// WebSocket with OpenOxide SDK wire-protocol compatibility (zero client migration)
+    /// WebSocket with OpenOxide SDK wire-protocol compatibility (zero client migration).
     Ws,
 }
 

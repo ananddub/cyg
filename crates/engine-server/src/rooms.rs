@@ -2,10 +2,9 @@
 //!
 //! Owns `GameRoom` (one isolated WASM simulation + its members), the host
 //! linker for the game-host ABI, and the `GameServer` room registry with its
-//! hot-swappable pre-instantiated template. Moved from the root binary's
-//! `src/server.rs`; the per-tick broadcast loop lives in `crate::host` and
-//! the delta/input plumbing in `crate::netcode`, both of which compile
-//! against the pinned types below.
+//! hot-swappable pre-instantiated template. The per-tick broadcast loop lives
+//! in `crate::host` and the delta/input plumbing in `crate::netcode`, both of
+//! which compile against the pinned types below.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -13,8 +12,8 @@ use std::time::{Duration, Instant};
 use engine_physics::PhysicsWorld3D;
 use engine_wasm::wasm_module;
 
-/// Type-safe wrapper over the compiled room WASM. The host never opens the
-/// game's bytes — it only passes pointers and reads back the delta buffer.
+// Type-safe wrapper over the compiled room WASM. The host never opens the
+// game's bytes — it only passes pointers and reads back the delta buffer.
 wasm_module! {
     pub struct RoomLogic {
         fn on_create(max: i32);
@@ -436,7 +435,7 @@ impl GameRoom {
     }
 
     /// Advance the guest one tick (Rule 5: fault-isolated — a trap does not
-    /// crash the server) and, when rollback is on, take the Phase F
+    /// crash the server) and, when rollback is on, take the rollback
     /// checkpoint via the guest's own `on_save` contract.
     ///
     /// On success returns the packed delta pointer `(ptr << 32 | len)` from
@@ -450,8 +449,8 @@ impl GameRoom {
         self.current_tick += 1;
         let packed = self.wasm.on_tick(dt)?;
         if rollback_enabled {
-            // Phase F checkpoint: the guest serializes its own state
-            // (tiny blob) — no raw linear-memory copy in the host.
+            // The guest serializes its own state (tiny blob) — no raw
+            // linear-memory copy in the host.
             let packed_state = self.wasm.on_save()?;
             let sptr = ((packed_state >> 32) as u32) as usize;
             let slen = (packed_state as u32) as usize;

@@ -1,11 +1,9 @@
 use crate::seats::*;
 use engine_config::DEV_SEAT_SECRET;
 
-// The raw-UDP plane (`src/threads/seats.rs`, engine-server) is the verifier
-// that authenticates `JOIN [0x20][token_len u8][token]` on :7778. Its
-// bidirectional cross-plane tests cannot live here (engine-control must not
-// depend on engine-server); tracked as an integration TODO. The byte layout
-// itself is pinned on this side by the fixed vectors below.
+// The raw-UDP plane in engine-server is the verifier that authenticates
+// `JOIN [0x20][token_len u8][token]` on :7778. Neither crate may depend on the
+// other, so the token bytes are pinned here instead of by a shared test.
 
 #[test]
 fn a_fixed_vector_pins_the_token_bytes() {

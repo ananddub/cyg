@@ -8,9 +8,8 @@
 //! ## Port split
 //!
 //! The game WebSocket stays on `cfg.port` inside `engine-net`'s transport; this
-//! plane binds `cfg.control.api_port` (falling back to `web_port`). Two
-//! listeners, one port each, so a slow HTTP handler can stall neither the
-//! 128 Hz tick nor the WS accept loop.
+//! plane binds `cfg.control.api_port`. Two listeners, one port each, so a slow
+//! HTTP handler can stall neither the 128 Hz tick nor the WS accept loop.
 
 pub mod agones;
 

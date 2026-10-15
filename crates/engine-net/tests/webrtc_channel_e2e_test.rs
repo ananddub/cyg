@@ -1,11 +1,11 @@
-//! Phase A over a live SCTP association, not a byte array.
+//! The channel layer over a live SCTP association, not a byte array.
 //!
 //! The unit tests in `engine-webrtc-protocol` prove the codec agrees with the browser SDK
 //! on the wire. This proves the wire survives the transport it was designed for: a real
 //! `game-unreliable` DataChannel (`ordered: false, maxRetransmits: 0`) carrying a delta
 //! too big for one packet, and the `game-reliable` ack that confirms an event landed.
 //!
-//! The server side here calls the same primitives `src/server.rs` calls per tick —
+//! The server side here calls the same primitives `engine_server::host` calls per tick —
 //! `delta_fragment_count`, `write_delta_frame`, `send_unreliable` — so a layout that only
 //! works when the chunks happen to arrive in order fails loudly instead of in production.
 
@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use engine_net::transport::webrtc_server::{WebRtcServer, WebRtcServerEvent};
+use engine_net::transport::webrtc::{WebRtcServer, WebRtcServerEvent};
 use engine_webrtc_protocol::{
     Ack, AckKind, DeltaHeader, FragmentAssembler, MAX_DELTA_CHUNK, MAX_FRAME, delta_fragment_count,
     parse_ack, write_ack, write_delta_frame,
@@ -142,7 +142,7 @@ impl Pair {
             .collect()
     }
 
-    /// The exact split `src/server.rs` performs on every tick's delta.
+    /// The exact split `engine_server::host` performs on every tick's delta.
     fn send_delta(&mut self, seq: u16, tick: u32, body: &[u8]) -> usize {
         let total = delta_fragment_count(body.len()).expect("body fits the channel");
         let mut scratch = Vec::new();

@@ -1,14 +1,10 @@
-//! Seat tokens, owned by Agent 3C.
-//!
-//! NOTE (A6 / integration): this file is a verbatim move and needs the
-//! workspace deps `hmac = "0.12"` + `sha2 = "0.10"`, which are NOT yet in
-//! the (frozen) engine-server Cargo.toml. Add them at integration or the
-//! two `use` lines below will not resolve.
+//! Seat-token verification for the raw-UDP plane.
 //!
 //! Seat tokens: `b64url(payload) + "." + b64url(hmac_sha256(secret, payload))`
 //! with `payload = "<room>:<exp_unix_secs>"` (exact bytes, ASCII). Verification
-//! is constant-time MAC compare + expiry. `mint` exists for tests/tooling until
-//! the Phase 1 matchmake API issues real seats.
+//! is constant-time MAC compare + expiry. The minting half lives in
+//! `engine-api::seats`; the two are kept in sync by the fixed vectors there,
+//! because neither crate may depend on the other.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

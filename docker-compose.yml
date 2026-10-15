@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: orioledb/orioledb:latest-pg17
+    container_name: openoxide_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openoxide
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: openoxide_db
+    ports:
+      - "5432:5432"
+    # OrioleDB requires sufficient shared memory for its lock-free buffer pools
+    shm_size: 1gb
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./init-oriole.sql:/docker-entrypoint-initdb.d/init-oriole.sql:ro
+
+volumes:
+  pg_data:
+    driver: local

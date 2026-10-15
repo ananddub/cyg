@@ -1,10 +1,10 @@
 //! # ox-game — OpenOxide game server CLI
 //!
-//!   ox-game init [dir]    create a game project (config.yml + room.ts + website)
-//!   ox-game run  [dir]    compile (if needed) and run the server
-//!   ox-game run           (with no config.yml present) runs the built-in demo
+//!   ox-game init \[dir]    create a game project (config.toml + room.ts + website)
+//!   ox-game run  \[dir]    compile (if needed) and run the server
+//!   ox-game run            (with no config.toml present) runs the built-in demo
 //!
-//! Everything is driven by config.yml — runtime, source, ports, tick rate.
+//! Everything is driven by config.toml — runtime, source, ports, tick rate.
 //!
 //! The engine itself lives in library crates: `engine-bus` (plane wiring),
 //! `engine-config` (config.toml), `engine-api` (the browser-facing HTTP/WS
@@ -170,8 +170,8 @@ fn run(dir: &Path) -> std::io::Result<()> {
     // projects it is the only thing that ever publishes telemetry.
     let bus = engine_bus::Bus::new(4096, 8192);
 
-    // Optional raw-UDP + pinned 128 Hz sim plane (Agent 3). Gated by
-    // OX_PLANES=1 so the existing WS/WebRTC flow is untouched by default.
+    // Optional raw-UDP + pinned 128 Hz sim plane. Gated by OX_PLANES=1 so the
+    // WS/WebRTC flow is untouched by default.
     let mut plane_cfg = engine_server::plane::PlaneConfig::from_env(&project_dir);
     plane_cfg.wasm_path = wasm_path.clone();
     if plane_cfg.enabled {
@@ -182,8 +182,8 @@ fn run(dir: &Path) -> std::io::Result<()> {
         }
     }
 
-    // The Tokio/Axum control plane (Agent 1): matchmake, seat tokens, WS
-    // signaling, /status and statics. Bound before `host::run` starts so a
+    // The Tokio/Axum control plane: matchmake, seat tokens, WS signaling,
+    // /status and statics. Bound before `host::run` starts so a
     // port clash is reported here rather than swallowing the game loop.
     // Held for the whole run — dropping it closes every HTTP and socket.
     let _control = if cfg.control.enabled {

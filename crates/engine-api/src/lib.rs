@@ -1,7 +1,7 @@
 //! # engine-api — the browser-facing surface
 //!
 //! Everything an HTTP or WebSocket client touches, and nothing else: the route
-//! composition ([`api`]), the shared handler state ([`ApiState`]), seat tokens
+//! composition ([`router`]), the shared handler state ([`ApiState`]), seat tokens
 //! ([`seats`]), the matchmake rate limiter ([`rate_limit`]), WebRTC signaling
 //! ([`signaling`]), the telemetry routes ([`status`]), the operator dashboard
 //! ([`dashboard`]) and the project's static website ([`static_routes`]).

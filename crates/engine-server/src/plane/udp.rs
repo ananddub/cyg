@@ -1,4 +1,4 @@
-//! Raw UDP plane (Agent 3B). See CONTRACT.md §UDP wire.
+//! Raw UDP plane. See CONTRACT.md §UDP wire.
 //!
 //! Runs ON THE SIM THREAD: `sim::run` registers the socket under `UDP_TOKEN`
 //! and calls `on_readable` when readable, `sweep` once per loop pass.
