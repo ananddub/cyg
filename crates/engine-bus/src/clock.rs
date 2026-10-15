@@ -1,8 +1,5 @@
-//! Process-wide monotonic clock helpers shared by both planes.
-//!
-//! A snapshot's `updated_ms` and the reader's `age_ms` must come from the *same*
-//! epoch, and the sim's `arrival_ns` and the recorder's `now_ns` likewise — so
-//! this lives below both of them instead of being duplicated per crate.
+//! Process-wide monotonic clock. Both planes must stamp and read from the
+//! *same* epoch, or sample ages and latencies are meaningless.
 
 use std::time::{Duration, Instant};
 

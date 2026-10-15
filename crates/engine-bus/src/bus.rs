@@ -1,5 +1,3 @@
-//! The [`Bus`]: bounded inter-plane queues and their one policy helper.
-
 use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender, bounded};
@@ -10,22 +8,19 @@ use crate::telemetry::StatusSnapshot;
 const COMMAND_CAP: usize = 256;
 const STATUS_CAP: usize = 8;
 
-/// The whole inter-plane wiring, cheap to `Arc::clone`.
-///
-/// Fields are public because each plane consumes its own ends directly;
-/// cross-plane sends should go through a `push_*` helper so the drop policy
-/// applies.
+/// Inter-plane wiring. Each plane consumes its own ends directly; sends on
+/// `inputs` must go through [`Bus::push_input`] or the drop policy is lost.
 pub struct Bus {
-    /// planes → sim: client inputs, drop-oldest when full.
+    /// planes → sim
     pub inputs_tx: Sender<InputMsg>,
     pub inputs_rx: Receiver<InputMsg>,
-    /// planes/control → sim: bind/drop/event commands.
+    /// planes/control → sim
     pub commands_tx: Sender<SimCommand>,
     pub commands_rx: Receiver<SimCommand>,
-    /// sim → browser plane: pre-framed deltas, drop-whole-frame when full.
+    /// sim → browser plane
     pub deltas_tx: Sender<OutFrame>,
     pub deltas_rx: Receiver<OutFrame>,
-    /// sim → status sink: latest published snapshot wins.
+    /// sim → status sink, latest-wins
     pub status_tx: Sender<StatusSnapshot>,
     pub status_rx: Receiver<StatusSnapshot>,
 }
@@ -48,7 +43,8 @@ impl Bus {
         })
     }
 
-    /// Non-blocking input enqueue; on full, drops the oldest and retries once.
+    /// On full, drops the oldest queued input and retries once — never the
+    /// fresh one.
     pub fn push_input(&self, msg: InputMsg) {
         let msg = match self.inputs_tx.try_send(msg) {
             Ok(()) => return,

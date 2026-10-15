@@ -1,4 +1,4 @@
-//! Static assets for the control plane.
+//! Static assets for the browser-facing API.
 //!
 //! Replaces the in-transport `on_http` hook: the website page, the SDK bundle,
 //! the arena map, the Unity WebGL build and the OpenOxide SDK files are served
