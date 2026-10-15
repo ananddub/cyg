@@ -34,6 +34,10 @@ const DIST_SUBPATH: &str = "dashboard/dist";
 /// URL prefix whose remainder names a file under the dist root.
 const ASSET_PREFIX: &str = "/dashboard/assets/";
 
+#[derive(rust_embed::RustEmbed)]
+#[folder = "../../dashboard/dist"]
+pub struct EmbeddedDashboard;
+
 /// `pub fn router(&ControlState) -> Router<ControlState>` — frozen entry point.
 pub fn router(state: &ControlState) -> Router<ControlState> {
     let _ = state;
@@ -111,46 +115,42 @@ fn usable_dist(dir: &Path) -> Option<PathBuf> {
 
 /// `/dashboard` and `/dashboard/`: the app shell, always revalidated.
 fn serve_index(root: Option<&Path>) -> Response {
-    let Some(dist) = root else {
-        return not_built(StatusCode::OK);
-    };
-    match std::fs::read(dist.join("index.html")) {
-        Ok(body) => {
+    if let Some(dist) = root {
+        if let Ok(body) = std::fs::read(dist.join("index.html")) {
             // `no-store` because a rebuilt shell references a renamed bundle; a
             // cached copy of the old `index.html` is a blank screen pointing at
             // a hashed asset the new build no longer emits.
-            html_response(body, "no-store")
+            return html_response(body, "no-store");
         }
-        // The root was usable a moment ago and its shell vanished (a rebuild in
-        // progress, a deleted tree): the same page as an unbuilt dashboard.
-        Err(_) => not_built(StatusCode::OK),
     }
+    // Embedded binary fallback
+    if let Some(file) = EmbeddedDashboard::get("index.html") {
+        return html_response(file.data.into_owned(), "no-store");
+    }
+    not_built(StatusCode::OK)
 }
 
 /// `/dashboard/assets/{*rest}`, `rest` being the raw tail of the request URI.
 fn serve_asset(root: Option<&Path>, rest: &str) -> Response {
-    let Some(dist) = root else {
-        // Same page, but a 404: a `200 text/plain` answer to a `.js` request is
-        // how a browser ends up "parsing" HTML as a module.
-        return not_built(StatusCode::NOT_FOUND);
-    };
-    let path = child_under(dist, rest)
-        .or_else(|| child_under(dist, &format!("assets/{rest}")));
-    let Some(path) = path else {
-        // A traversal probe and a typo get the same answer; explaining which one
-        // it was tells an attacker which rule fired.
-        return not_found();
-    };
-    match std::fs::read(&path) {
-        Ok(body) => {
-            let mime = crate::static_routes::content_type_for(&path.to_string_lossy());
-            // Vite content-hashes every name under `assets/`, so a byte-identical
-            // URL is a byte-identical file forever and a year of freshness costs
-            // nothing. A rebuild changes the name, not the content of the URL.
-            file_response(body, mime, "public, max-age=31536000, immutable")
+    if let Some(dist) = root {
+        let path = child_under(dist, rest)
+            .or_else(|| child_under(dist, &format!("assets/{rest}")));
+        if let Some(path) = path {
+            if let Ok(body) = std::fs::read(&path) {
+                let mime = crate::static_routes::content_type_for(&path.to_string_lossy());
+                return file_response(body, mime, "public, max-age=31536000, immutable");
+            }
         }
-        Err(_) => not_found(),
     }
+    // Embedded binary fallback
+    let clean_rest = rest.trim_start_matches('/');
+    if let Some(file) = EmbeddedDashboard::get(clean_rest)
+        .or_else(|| EmbeddedDashboard::get(&format!("assets/{clean_rest}")))
+    {
+        let mime = crate::static_routes::content_type_for(clean_rest);
+        return file_response(file.data.into_owned(), mime, "public, max-age=31536000, immutable");
+    }
+    not_found()
 }
 
 /// Map a URL tail to a plain child of `dist`, or `None` when it asks for
@@ -337,19 +337,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unbuilt_dashboard_answers_instead_of_404ing_silently() {
+    async fn embedded_dashboard_serves_when_no_dist_dir_passed() {
         let (status, mime, _, body) = parts(serve_index(None)).await;
-        assert_eq!(status, StatusCode::OK, "an unbuilt dashboard is not an error page");
-        assert_eq!(mime.as_deref(), Some("text/plain; charset=utf-8"));
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(mime.as_deref(), Some("text/html; charset=utf-8"));
         let text = String::from_utf8_lossy(&body);
-        assert!(text.contains("not built"), "{text}");
-        assert!(text.contains("npm run build"), "{text} must name the fix");
+        assert!(text.contains("<!doctype html>") || text.contains("<html"), "{text}");
 
-        // The same page for an asset, but not as a success: a browser that gets
-        // `200` for a module request will try to run plain text as JavaScript.
-        let resp = serve_asset(None, "assets/app-9a7c.js");
+        // Non-existent asset returns 404
+        let resp = serve_asset(None, "assets/definitely-missing-nonexistent-9a7c.js");
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-        assert_eq!(header_of(&resp, header::CONTENT_TYPE).as_deref(), Some("text/plain; charset=utf-8"));
     }
 
     #[test]

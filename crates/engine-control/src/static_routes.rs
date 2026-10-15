@@ -56,17 +56,7 @@ impl StaticServer {
     /// `project_dir` is the directory holding `config.toml`; asset paths in the
     /// config are relative to it, exactly as `src/server.rs` treats them.
     pub fn new(project_dir: &Path, game: &engine_config::GameConfig) -> StaticServer {
-        let mut defaults = HashMap::new();
-        defaults.insert(
-            "/website.html".to_string(),
-            Arc::new(
-                include_bytes!("../../engine-net/examples/e2e/website.html").to_vec(),
-            ),
-        );
-        defaults.insert(
-            "/openoxide.js".to_string(),
-            Arc::new(include_bytes!("../../../examples/tank-3d/openoxide.js").to_vec()),
-        );
+        let defaults = HashMap::new();
         StaticServer {
             root: project_dir.to_path_buf(),
             website: project_dir.join(&game.website),
@@ -556,16 +546,11 @@ mod tests {
     }
 
     #[test]
-    fn embedded_defaults_are_present_and_utf8() {
+    fn game_web_is_not_embedded_in_server() {
         let dir = TempDir::new("defaults");
         let s = server(dir.path());
-        for key in ["/website.html", "/openoxide.js"] {
-            let body = s.default_for(key).unwrap_or_else(|| panic!("{key} is not embedded"));
-            assert!(!body.is_empty(), "{key} is empty");
-            let text =
-                std::str::from_utf8(&body).unwrap_or_else(|e| panic!("{key} is not UTF-8: {e}"));
-            assert!(text.chars().count() > 32, "{key} looks truncated");
-        }
+        assert!(s.default_for("/website.html").is_none());
+        assert!(s.default_for("/openoxide.js").is_none());
         assert!(s.default_for("/no-such-default").is_none());
     }
 

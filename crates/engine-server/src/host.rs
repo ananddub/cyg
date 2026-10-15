@@ -177,7 +177,7 @@ pub fn run(
     let website = if website_path.exists() {
         std::fs::read(&website_path)?
     } else {
-        include_bytes!("../../engine-net/examples/e2e/website.html").to_vec()
+        Vec::new()
     };
     let sdk_js = std::fs::read(cfg.sdk_dir.join("packages/sdk/dist/colyseus.js"))
         .unwrap_or_default();
@@ -190,7 +190,7 @@ pub fn run(
     let openoxide_js = if openoxide_js_path.exists() {
         std::fs::read(&openoxide_js_path).unwrap_or_default()
     } else {
-        include_bytes!("../../../examples/tank-3d/openoxide.js").to_vec()
+        Vec::new()
     };
 
 
