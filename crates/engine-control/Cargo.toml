@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 engine-bus = { path = "../engine-bus" }
+engine-dashboard = { path = "../engine-dashboard" }
 engine-config = { path = "../engine-config" }
 engine-http = { path = "../engine-http" }
 engine-agones = { path = "../engine-agones" }
@@ -21,3 +22,7 @@ futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros", "signal"] }
 crossbeam-channel = "0.5"
 str0m = "0.24.1"
+
+[dev-dependencies]
+# Same version axum's `ws` feature already pins, for the live-socket test.
+tokio-tungstenite = "0.29"

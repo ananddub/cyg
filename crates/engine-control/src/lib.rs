@@ -5,6 +5,9 @@
 //! rate limiting, Agones lifecycle, and status reporting.
 
 pub mod agones;
+pub mod dashboard;
+pub mod dashboard_assets;
+pub mod dashboard_ws;
 pub mod matchmake;
 pub mod rate_limit;
 pub mod seats;
@@ -129,6 +132,9 @@ impl ControlPlane {
             .merge(matchmake::router(&state))
             .merge(signaling::router(&state))
             .merge(status::router(&state))
+            .merge(dashboard::router(&state))
+            .merge(dashboard_ws::router(&state))
+            .merge(dashboard_assets::router(&state))
             // One fallback for the whole plane: anything unmatched is a static
             // file request, and `StaticServer` decides whether it exists.
             .fallback(static_routes::fallback)

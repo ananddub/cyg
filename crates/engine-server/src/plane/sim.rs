@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use mio::{Events, Poll};
 use engine_wasm::WasmRuntime;
 
-use engine_bus::{Bus, FrameKind, OutFrame, PeerId, SimCommand, Via};
+use engine_bus::{Bus, FrameKind, OutFrame, PeerId, SessionTelemetry, SimCommand, Via};
 use engine_config::{AoiConfig, GameConfig};
 use engine_physics::PhysicsWorld3D;
 use crate::plane::{self, PlaneConfig, mono_ns, tick_period};
@@ -34,7 +34,7 @@ use crate::rooms::{self, GameRoom};
 use engine_spatial::aoi;
 // Dangling until integration: A3 folds `src/threads/status.rs` into engine-control
 // (engine-server's Cargo.toml also needs the `engine-control` dependency added).
-use engine_control::status::Recorder;
+use engine_control::status::{PublishReport, Recorder};
 
 /// Spawn placement: mirrors `src/server.rs` (60 px margin, diagonal scatter).
 const SPAWN_W: f64 = 800.0;
@@ -95,6 +95,46 @@ fn drop_peer(
         browser_players.remove(&id);
         session_of.remove(&id);
         room.input_journal.retain(|j| j.id != id);
+    }
+}
+
+/// The plane's once-a-second report. What it can see is `room.sessions`: peer
+/// ids bound through a seat token. Their transport is whichever lane their
+/// inputs actually came in on — `Via::Browser` peers get their frames back over
+/// `bus.deltas_tx` to the browser plane, everyone else over the raw socket this
+/// thread owns. There is no WebSocket here, so this path never fills
+/// `ws_sessions`.
+fn publish_report(
+    room: &GameRoom,
+    browser_players: &HashSet<i64>,
+    last_input_at: &HashMap<PeerId, Instant>,
+    tick_hz: f64,
+    tick_hz_est: f64,
+    max_players: i32,
+) -> PublishReport {
+    let mut sessions = Vec::with_capacity(room.sessions.len());
+    let mut browser = 0u32;
+    for (peer_id, &player_id) in &room.sessions {
+        let via_browser = browser_players.contains(&player_id);
+        browser += via_browser as u32;
+        sessions.push(SessionTelemetry {
+            session: peer_id.clone(),
+            transport: if via_browser { "webrtc" } else { "native-udp" }.to_string(),
+            player_id: Some(player_id),
+            acked_seq: room.last_input_seq.get(peer_id.as_str()).map(|&seq| seq as u32),
+            idle_ms: last_input_at.get(peer_id).map(|t| t.elapsed().as_millis() as u64),
+        });
+    }
+    let players = room.sessions.len() as u32;
+    PublishReport {
+        tick_hz_est,
+        tick_rate_hz: tick_hz.max(0.0) as u32,
+        players,
+        ws_sessions: 0,
+        webrtc_sessions: browser,
+        udp_sessions: players.saturating_sub(browser),
+        sessions,
+        session_cap: max_players.max(0) as usize,
     }
 }
 
@@ -192,6 +232,10 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     // Reverse of `room.sessions`: `InputMsg` carries only the player id, but
     // `GameRoom`'s seq echo + journal are keyed by session string.
     let mut session_of: HashMap<i64, PeerId> = HashMap::new();
+    // Session → wall time of its last input, for the telemetry rows' `idle_ms`.
+    // Pruned once a second against `room.sessions`, so a churned peer id cannot
+    // grow it.
+    let mut last_input_at: HashMap<PeerId, Instant> = HashMap::new();
     // Each player's own record position from the PREVIOUS parsed delta —
     // the viewer anchor for AOI. One tick stale by design: parsing the body
     // once per tick and reusing the entity list for every viewer costs far
@@ -248,6 +292,10 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                         if browser_players.contains(&room.sessions[&t]) {
                             let _ = bus.deltas_tx.try_send(frame);
                         } else if !udp.send_frame(&frame) {
+                            // A reliable frame returns true once the peer's window
+                            // accepted it, so a failure here is the plane refusing
+                            // to queue (no peer, not bound, window full) — the
+                            // event genuinely never went out.
                             native_send_failed += 1;
                         }
                     }
@@ -259,6 +307,10 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         // waiting for the next packet/sweep would let up to 200 ms of deltas
         // precede the client's BIND.
         udp.drain_pending();
+        // Reliable events age on their own timers, not on traffic: this is what
+        // resends an event nobody answered. Every pass, because the poll
+        // deadline above is one tick, so a resend is never more than ~8 ms late.
+        udp.pump_reliable();
 
         // ---- inputs: bounded drain so a flood cannot stall the tick clock
         let mut drained = 0usize;
@@ -273,6 +325,7 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             if msg.via == Via::Browser {
                 browser_players.insert(msg.player_id);
             }
+            last_input_at.insert(session.clone(), Instant::now());
             netcode::apply_input(
                 &mut room,
                 &plane_game_cfg,
@@ -287,7 +340,13 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         // ---- fixed tick with catch-up cap
         let elapsed = last_tick.elapsed();
         if elapsed < period {
-            recorder.maybe_publish(&bus, measured_hz, room.sessions.len() as u32);
+            // A quiet loop still has to age its sample: `publish_due` gates the
+            // row build so this stays off the per-poll path.
+            if recorder.publish_due() {
+                let report =
+                    publish_report(&room, &browser_players, &last_input_at, cfg.tick_hz, measured_hz, cfg.max_players);
+                recorder.maybe_publish(&bus, report);
+            }
             if sweep_start.elapsed() >= Duration::from_millis(200) {
                 udp.sweep();
                 sweep_start = Instant::now();
@@ -415,7 +474,10 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             measured_hz = window_ticks as f64 / status_start.elapsed().as_secs_f64();
             window_ticks = 0;
             status_start = Instant::now();
-            recorder.maybe_publish(&bus, measured_hz, room.sessions.len() as u32);
+            last_input_at.retain(|peer, _| room.sessions.contains_key(peer));
+            let report =
+                publish_report(&room, &browser_players, &last_input_at, cfg.tick_hz, measured_hz, cfg.max_players);
+            recorder.maybe_publish(&bus, report);
         }
         let _ = native_send_failed; // unknown-peer sends: counted, no user to blame yet
     }

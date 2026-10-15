@@ -12,6 +12,7 @@
 
 pub mod dispatch;
 pub mod pin;
+pub mod reliable;
 pub mod seats;
 pub mod sim;
 pub mod udp;
@@ -25,6 +26,7 @@ use engine_bus::Bus;
 // Re-exports: names the root binary referenced as `crate::threads::X`.
 pub use crate::plane::dispatch::{emit_delta, wrap_body};
 pub use crate::plane::pin::{current_core, pin_current_thread};
+pub use crate::plane::reliable::{QueueError, ReliableCounts, ReliableLane};
 pub use crate::plane::seats::{SeatGrant, SeatRegistry};
 pub use crate::plane::udp::UdpPlane;
 

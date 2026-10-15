@@ -1,6 +1,12 @@
 //! Host run loop: the fixed-rate tick + per-session delta broadcast (AOI
 //! dispatch), moved from the root binary's `src/server.rs`.
 //!
+//! This loop is the default game path, so it is also the telemetry source: it
+//! owns the sessions and the tick, and publishes a `StatusSnapshot` onto
+//! `bus.status_tx` once a second for the control plane's `/status` and
+//! dashboard. Without that the dashboard would only ever see the pinned
+//! `OX_PLANES=1` sim thread, which most projects never run.
+//!
 //! Crate-split notes (A6): room type / host linker / lifecycle come from
 //! [`crate::rooms`] (agent A4); the byte pipeline helpers
 //! (`wrap_delta_into`, `parse_delta_sections`, `filter_delta_for_viewer`,
@@ -17,8 +23,11 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use engine_bus::{Bus, SessionTelemetry};
+use engine_control::status::{PublishReport, Recorder};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc_frames::Inbound;
 use engine_net::transport::{
@@ -152,10 +161,14 @@ fn safe_relative(sub: &str) -> Option<&Path> {
 /// `get_or_create` / `hot_reload` lifecycle API.
 
 /// Run the server until killed.
+///
+/// `bus` is the same `Arc<Bus>` the control plane was spawned with: this loop is
+/// its only `status_tx` producer on the default path.
 pub fn run(
     project_dir: &Path,
     wasm_path: &Path,
     cfg: &engine_config::GameConfig,
+    bus: Arc<Bus>,
 ) -> std::io::Result<()> {
     // ------------------------------------------------------------------
     // Website over engine-http.
@@ -428,6 +441,15 @@ pub fn run(
     let mut filtered_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
     let mut dead_rooms: Vec<String> = Vec::new();
     let mut timed_out_udp: Vec<(SocketAddr, i64)> = Vec::new();
+    // Telemetry: the recorder gates itself to one publish per second, and the
+    // rows are built only when that window actually rolls, never per packet.
+    let mut recorder = Recorder::new();
+    let mut publish_start = Instant::now();
+    let mut window_ticks: u64 = 0;
+    // Session → wall time its last inbound input was handed to the guest. This
+    // is the only place `idle_ms` can come from: the transport keeps no
+    // per-session arrival clock. Entries are dropped with the session itself.
+    let mut last_input_at: HashMap<String, Instant> = HashMap::new();
 
     loop {
         let time_to_next_tick = tick_interval.saturating_sub(last_tick.elapsed());
@@ -470,6 +492,7 @@ pub fn run(
                 }
                 TransportEvent::Disconnected { client_id } => {
                     eprintln!("[server] disconnected: {client_id}");
+                    last_input_at.remove(&*client_id);
                     let raw_room = transport
                         .room_of(&client_id)
                         .unwrap_or(&cfg.name);
@@ -763,6 +786,7 @@ pub fn run(
                     // QUIC-Style Unordered Movement Frame: [0x01, seq_u16, flags_u32, yaw_f32, pitch_f32, mx_f32, mz_f32] (23 bytes)
                     if data.len() == engine_webrtc_protocol::INPUT_WIRE_LEN && data[0] == engine_webrtc_protocol::OP_INPUT {
                         if let Ok(input) = engine_webrtc_protocol::InputFrame::decode(data) {
+                            last_input_at.insert(client_id.to_string(), Instant::now());
                             if let Some(ref srv) = webrtc_server {
                                 if srv.is_connected(&client_id) && input.seq % 120 == 1 {
                                     eprintln!("[server] ℹ️ Player {id} sent input over WebSocket fallback (seq {})", input.seq);
@@ -787,6 +811,7 @@ pub fn run(
 
                     // Rule 3 (Ownership) & Rule 5 (Fault isolation):
                     // Guest allocates memory; host writes and invokes on_input safely without panicking.
+                    last_input_at.insert(client_id.to_string(), Instant::now());
                     match room.wasm.on_alloc(data.len() as i32) {
                         Ok(ptr_i32) => {
                             let ptr = ptr_i32 as u32;
@@ -902,6 +927,7 @@ pub fn run(
                 let Some(&id) = room.sessions.get(&*client_id) else { continue; };
                 match msg {
                     Inbound::Input { seq, payload, resupplied } => {
+                        last_input_at.insert(client_id.clone(), Instant::now());
                         if !resupplied && seq % 120 == 1 {
                             eprintln!("[server] ⚡ WebRTC UDP input stream active for player {id} (seq {seq})");
                         }
@@ -976,6 +1002,7 @@ pub fn run(
                 tick_stat_start = Instant::now();
             }
 
+            let tick_start = Instant::now();
             for tick_idx in 0..ticks_to_run {
                 dead_rooms.clear();
 
@@ -1114,6 +1141,10 @@ pub fn run(
                     dead_rooms.push(name.clone());
                 }
             }
+            // One sample per batch, as the pinned sim plane does: this is the
+            // wall cost of keeping the room's ticks and broadcast current.
+            recorder.note_tick(tick_start.elapsed());
+            window_ticks += ticks_to_run as u64;
         }
 
             // Cleanup inactive UDP peers
@@ -1151,6 +1182,62 @@ pub fn run(
                 for (name, room) in &server.rooms {
                     meta.push((name.clone(), room.sessions.len(), room.spectators.len()));
                 }
+            }
+        }
+
+        // ---- telemetry: one second of ticks plus the sessions this loop owns
+        if publish_start.elapsed() >= Duration::from_secs(1) {
+            let window_sec = publish_start.elapsed().as_secs_f64().max(1e-9);
+            let mut sessions: Vec<SessionTelemetry> = Vec::new();
+            let mut players = 0u32;
+            let mut webrtc_live = 0u32;
+            for room in server.rooms.values() {
+                players += room.sessions.len() as u32;
+                let members = room.sessions.iter().map(|(s, &id)| (s, Some(id)));
+                let watching = room.spectators.iter().map(|s| (s, None));
+                for (session, player_id) in members.chain(watching) {
+                    // One session, one transport: the browser that negotiated a
+                    // data channel is counted on WebRTC, where its packets
+                    // actually arrive, not on the socket it joined through.
+                    let live = webrtc_server.as_ref().is_some_and(|srv| srv.is_connected(session));
+                    webrtc_live += live as u32;
+                    sessions.push(SessionTelemetry {
+                        session: session.clone(),
+                        transport: if live { "webrtc" } else { "websocket" }.to_string(),
+                        player_id,
+                        acked_seq: room.last_input_seq.get(session).map(|&seq| seq as u32),
+                        idle_ms: last_input_at.get(session).map(|t| t.elapsed().as_millis() as u64),
+                    });
+                }
+            }
+            for (&addr, &(id, last_seen)) in &udp_peers {
+                sessions.push(SessionTelemetry {
+                    session: addr.to_string(),
+                    transport: "native-udp".to_string(),
+                    player_id: (id > 0).then_some(id),
+                    // The native path hands the guest raw bytes and keeps no
+                    // per-address seq watermark, so it has nothing to echo.
+                    acked_seq: None,
+                    idle_ms: Some(last_seen.elapsed().as_millis() as u64),
+                });
+            }
+            // Reset only when a window really rolled: if the recorder declined
+            // this call, the next one covers both seconds and its Hz holds.
+            if recorder.maybe_publish(
+                &bus,
+                PublishReport {
+                    tick_hz_est: window_ticks as f64 / window_sec,
+                    tick_rate_hz: cfg.tick_rate,
+                    players,
+                    ws_sessions: (transport.ccu() as u32).saturating_sub(webrtc_live),
+                    webrtc_sessions: webrtc_live,
+                    udp_sessions: udp_peers.len() as u32,
+                    sessions,
+                    session_cap: cfg.max_clients.max(0) as usize,
+                },
+            ) {
+                publish_start = Instant::now();
+                window_ticks = 0;
             }
         }
 

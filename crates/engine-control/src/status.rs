@@ -86,6 +86,7 @@ pub async fn pump(state: ControlState) {
         if let Some(snap) = newest
             && let Ok(mut slot) = state.latest_status.lock()
         {
+            crate::dashboard::record_sample(snap.clone());
             *slot = Some(snap);
         }
     }
@@ -251,14 +252,50 @@ async fn rooms(State(state): State<ControlState>, headers: axum::http::HeaderMap
 
 // ---- the sim-side recorder (moved from src/threads/status.rs) --------------
 
+use engine_bus::{SessionTelemetry, TICK_HISTOGRAM_BUCKETS};
+use engine_dashboard::{MAX_CLIENT_ROWS, histogram_add};
+
 /// Samples kept per window: 1 s at ≤ 512 inputs/s or 128 ticks/s fits easily.
 const RING: usize = 1024;
+
+/// What the publishing loop contributes beyond its own timing windows: the
+/// session facts only the loop that owns the sockets can know. A struct rather
+/// than positional args because the host loop, the pinned sim plane and a test
+/// each fill a different subset, and five adjacent `u32`s cannot show which.
+#[derive(Clone, Debug, Default)]
+pub struct PublishReport {
+    /// Measured tick rate over the publish window.
+    pub tick_hz_est: f64,
+    /// The configured rate (`GameConfig::tick_rate`). 0 leaves
+    /// `nominal_tick_us` at 0 rather than inventing a period.
+    pub tick_rate_hz: u32,
+    /// Room members, spectators excluded.
+    pub players: u32,
+    /// Sessions counted on the transport their packets actually arrive on, so
+    /// the three sum to the connected clients rather than double-counting a
+    /// browser socket that upgraded to a data channel.
+    pub ws_sessions: u32,
+    pub webrtc_sessions: u32,
+    pub udp_sessions: u32,
+    /// One row per live session; the recorder truncates it to `session_cap`.
+    pub sessions: Vec<SessionTelemetry>,
+    /// Ceiling on `sessions`, normally the room's `max_clients`. 0 means the
+    /// contract ceiling [`MAX_CLIENT_ROWS`] alone.
+    pub session_cap: usize,
+}
 
 pub struct Recorder {
     input_lat_ns: [u64; RING],
     tick_us: [u64; RING],
     n_input: usize,
     n_tick: usize,
+    /// Tick durations of the current window, added by `note_tick` and rolled by
+    /// `maybe_publish` exactly like the rings, so it always describes the
+    /// second the reader is looking at.
+    tick_hist: [u32; TICK_HISTOGRAM_BUCKETS],
+    /// Armed when the session set empties, cleared the moment it is occupied
+    /// again; the source of `empty_for_sec`.
+    empty_since: Option<Instant>,
     pub deltas_sent: u64,
     pub deltas_dropped_full: u64,
     pub inputs_dropped: u64,
@@ -293,6 +330,16 @@ fn percentile(sorted: &[u64], num: usize, den: usize) -> u64 {
     sorted[(rank - 1).min(sorted.len() - 1)]
 }
 
+/// Nominal period of one tick at `tick_rate_hz`, microseconds. Unknown rates
+/// report 0 rather than a plausible 128 Hz period.
+fn nominal_tick_us(tick_rate_hz: u32) -> u64 {
+    if tick_rate_hz == 0 {
+        0
+    } else {
+        1_000_000 / tick_rate_hz as u64
+    }
+}
+
 impl Recorder {
     pub fn new() -> Recorder {
         Recorder {
@@ -300,6 +347,8 @@ impl Recorder {
             tick_us: [0; RING],
             n_input: 0,
             n_tick: 0,
+            tick_hist: [0; TICK_HISTOGRAM_BUCKETS],
+            empty_since: None,
             deltas_sent: 0,
             deltas_dropped_full: 0,
             inputs_dropped: 0,
@@ -320,6 +369,7 @@ impl Recorder {
     pub fn note_tick(&mut self, dur: Duration) {
         let us = dur.as_micros().min(u64::MAX as u128) as u64;
         ring_push(&mut self.tick_us, &mut self.n_tick, us);
+        histogram_add(&mut self.tick_hist, us);
         if dur > tick_period(self.tick_hz) {
             self.tick_overruns += 1;
         }
@@ -335,24 +385,67 @@ impl Recorder {
             tick_overruns: self.tick_overruns,
             kernel_to_sim_p50_us: percentile(&lat, 50, 100) / 1_000,
             kernel_to_sim_p99_us: percentile(&lat, 99, 100) / 1_000,
+            tick_samples: tick.len() as u32,
+            tick_histogram: self.tick_hist,
             players: 0,
             deltas_sent: self.deltas_sent,
             deltas_dropped_full: self.deltas_dropped_full,
             inputs_dropped: self.inputs_dropped,
             seq: self.publish_seq,
             updated_ms: mono_ns() / 1_000_000,
+            // The session breakdown, nominal period and idle age are stamped by
+            // `maybe_publish` from its [`PublishReport`], since only the loop
+            // that owns the sockets knows what sits on each transport.
+            ..Default::default()
         }
     }
 
-    /// Once per second: `snapshot()` → eprintln JSON on `stdout` (the DoD's
-    /// latency report) and `try_send` to `bus.status_tx` for the Tokio plane.
-    pub fn maybe_publish(&mut self, bus: &Arc<Bus>, tick_hz_est: f64, players: u32) {
+    /// `true` when the next `maybe_publish` will actually roll a window, so a
+    /// caller can skip building session rows in the middle of a tick.
+    pub fn publish_due(&self) -> bool {
+        self.last_publish.elapsed() >= Duration::from_secs(1)
+    }
+
+    /// Once per second: `snapshot()` plus the caller's session report →
+    /// eprintln JSON on `stdout` (the DoD's latency report) and `try_send` to
+    /// `bus.status_tx` for the Tokio plane. Returns `true` when a snapshot went
+    /// out, so the caller knows whether its own window rolled over.
+    pub fn maybe_publish(&mut self, bus: &Arc<Bus>, report: PublishReport) -> bool {
         if self.last_publish.elapsed() < Duration::from_secs(1) {
-            return;
+            return false;
         }
-        self.tick_hz = if tick_hz_est.is_finite() && tick_hz_est > 0.0 { tick_hz_est } else { 128.0 };
+        self.tick_hz = if report.tick_hz_est.is_finite() && report.tick_hz_est > 0.0 {
+            report.tick_hz_est
+        } else {
+            128.0
+        };
         let mut snap = self.snapshot();
-        snap.players = players;
+        snap.players = report.players;
+        snap.nominal_tick_us = nominal_tick_us(report.tick_rate_hz);
+        snap.ws_sessions = report.ws_sessions;
+        snap.webrtc_sessions = report.webrtc_sessions;
+        snap.udp_sessions = report.udp_sessions;
+        snap.empty_for_sec = if report.players > 0
+            || report.ws_sessions > 0
+            || report.webrtc_sessions > 0
+            || report.udp_sessions > 0
+        {
+            self.empty_since = None;
+            0
+        } else {
+            // Armed on the first empty window, so the count starts the second
+            // the room lost its last session rather than at process start.
+            let since = *self.empty_since.get_or_insert(Instant::now());
+            since.elapsed().as_secs()
+        };
+        let cap = if report.session_cap == 0 {
+            MAX_CLIENT_ROWS
+        } else {
+            report.session_cap.min(MAX_CLIENT_ROWS)
+        };
+        let mut sessions = report.sessions;
+        sessions.truncate(cap);
+        snap.sessions = sessions;
         self.publish_seq = self.publish_seq.saturating_add(1);
         snap.seq = self.publish_seq;
         eprintln!("[status] {}", serde_json::json!(&snap));
@@ -369,7 +462,9 @@ impl Recorder {
 
         self.n_input = 0;
         self.n_tick = 0;
+        self.tick_hist = [0; TICK_HISTOGRAM_BUCKETS];
         self.last_publish = Instant::now();
+        true
     }
 }
 
@@ -695,13 +790,17 @@ mod tests {
         assert_eq!(r.snapshot().tick_overruns, 1);
     }
 
+    fn publish_report() -> PublishReport {
+        PublishReport { tick_hz_est: 128.0, tick_rate_hz: 128, players: 3, session_cap: 8, ..Default::default() }
+    }
+
     #[test]
     fn publish_flows_to_bus_and_current() {
         let bus = Bus::new(16, 16);
         let mut r = Recorder::new();
         r.note_tick(Duration::from_micros(500));
         r.last_publish = Instant::now() - Duration::from_secs(2);
-        r.maybe_publish(&bus, 128.0, 3);
+        assert!(r.maybe_publish(&bus, publish_report()));
         let on_bus = bus.status_rx.try_recv().unwrap();
         assert_eq!(on_bus.players, 3);
         assert_eq!(on_bus.tick_budget_p50_us, 500);
@@ -709,8 +808,112 @@ mod tests {
         // Window rings reset after publishing.
         assert_eq!(r.n_input, 0);
         assert_eq!(r.n_tick, 0);
-        // Sub-second calls are no-ops.
-        r.maybe_publish(&bus, 128.0, 3);
+        // Sub-second calls are no-ops, and say so.
+        assert!(!r.publish_due());
+        assert!(!r.maybe_publish(&bus, publish_report()));
         assert!(bus.status_rx.try_recv().is_err());
+    }
+
+    /// The histogram is the bar chart's only source, so it must count every
+    /// tick of the window it describes and roll over with the rings.
+    #[test]
+    fn tick_histogram_accumulates_and_rolls_with_the_window() {
+        let bus = Bus::new(16, 16);
+        let mut r = Recorder::new();
+        // 1 µs and 3 µs land in buckets 0 and 1; 5 ms is past the top bucket.
+        r.note_tick(Duration::from_micros(1));
+        r.note_tick(Duration::from_micros(3));
+        r.note_tick(Duration::from_millis(5));
+        r.last_publish = Instant::now() - Duration::from_secs(2);
+        assert!(r.maybe_publish(&bus, publish_report()));
+        let on_bus = bus.status_rx.try_recv().unwrap();
+        assert_eq!(on_bus.tick_samples, 3);
+        assert_eq!(on_bus.tick_histogram[0], 1);
+        assert_eq!(on_bus.tick_histogram[1], 1);
+        assert_eq!(on_bus.tick_histogram[TICK_HISTOGRAM_BUCKETS - 1], 1);
+        assert_eq!(on_bus.tick_histogram.iter().sum::<u32>(), 3);
+        // The next window starts empty, even before anyone publishes again.
+        let fresh = r.snapshot();
+        assert_eq!(fresh.tick_histogram, [0; TICK_HISTOGRAM_BUCKETS]);
+        assert_eq!(fresh.tick_samples, 0);
+    }
+
+    /// `nominal_tick_us` is the "are we keeping up" ruler, and `empty_for_sec`
+    /// is the only proof an idle process is idle rather than unreachable.
+    #[test]
+    fn nominal_period_and_idle_age_come_from_the_report() {
+        let bus = Bus::new(16, 16);
+        let mut r = Recorder::new();
+        r.last_publish = Instant::now() - Duration::from_secs(2);
+        assert!(r.maybe_publish(&bus, PublishReport { tick_rate_hz: 128, players: 1, ..Default::default() }));
+        let on_bus = bus.status_rx.try_recv().unwrap();
+        assert_eq!(on_bus.nominal_tick_us, 7_812);
+        assert_eq!(on_bus.empty_for_sec, 0, "occupied rooms are never idle");
+
+        r.last_publish = Instant::now() - Duration::from_secs(2);
+        r.empty_since = Some(Instant::now() - Duration::from_secs(7));
+        assert!(r.maybe_publish(&bus, PublishReport { tick_rate_hz: 64, ..Default::default() }));
+        let idle = bus.status_rx.try_recv().unwrap();
+        assert_eq!(idle.nominal_tick_us, 15_625);
+        assert_eq!(idle.empty_for_sec, 7);
+
+        // A loop that does not know its configured rate reports 0 rather than
+        // the 128 Hz period it happens to default its overrun check to.
+        r.last_publish = Instant::now() - Duration::from_secs(2);
+        assert!(r.maybe_publish(&bus, PublishReport::default()));
+        assert_eq!(bus.status_rx.try_recv().unwrap().nominal_tick_us, 0);
+    }
+
+    #[test]
+    fn a_publish_carries_the_session_rows_and_the_transport_mix() {
+        let bus = Bus::new(16, 16);
+        let mut r = Recorder::new();
+        r.last_publish = Instant::now() - Duration::from_secs(2);
+        let row = |session: &str, transport: &str| SessionTelemetry {
+            session: session.into(),
+            transport: transport.into(),
+            player_id: Some(1),
+            acked_seq: Some(42),
+            idle_ms: Some(5),
+        };
+        assert!(r.maybe_publish(
+            &bus,
+            PublishReport {
+                players: 2,
+                ws_sessions: 1,
+                udp_sessions: 1,
+                sessions: vec![row("ws-1", "websocket"), row("[::1]:7778", "native-udp")],
+                ..Default::default()
+            }
+        ));
+        let on_bus = bus.status_rx.try_recv().unwrap();
+        assert_eq!(on_bus.sessions.len(), 2);
+        assert_eq!(on_bus.sessions[0].session, "ws-1");
+        assert_eq!(on_bus.sessions[1].transport, "native-udp");
+        assert_eq!(on_bus.sessions[0].acked_seq, Some(42));
+        assert_eq!(on_bus.webrtc_sessions, 0);
+
+        // The cap is a size guard on the payload, not a suggestion.
+        r.last_publish = Instant::now() - Duration::from_secs(2);
+        assert!(r.maybe_publish(
+            &bus,
+            PublishReport { sessions: vec![row("a", "websocket"), row("b", "websocket")], session_cap: 1, ..Default::default() }
+        ));
+        assert_eq!(bus.status_rx.try_recv().unwrap().sessions.len(), 1);
+    }
+
+    /// A room that never ticked must publish a zeroed window rather than
+    /// dividing by an empty ring.
+    #[test]
+    fn publishing_an_empty_window_is_safe() {
+        let bus = Bus::new(16, 16);
+        let mut r = Recorder::new();
+        r.last_publish = Instant::now() - Duration::from_secs(2);
+        assert!(r.maybe_publish(&bus, PublishReport::default()));
+        let on_bus = bus.status_rx.try_recv().unwrap();
+        assert_eq!(on_bus.tick_samples, 0);
+        assert_eq!(on_bus.tick_histogram, [0; TICK_HISTOGRAM_BUCKETS]);
+        assert_eq!((on_bus.tick_budget_p50_us, on_bus.tick_budget_p99_us), (0, 0));
+        assert!(on_bus.sessions.is_empty());
     }
 }

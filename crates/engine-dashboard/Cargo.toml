@@ -5,4 +5,6 @@ edition = "2024"
 description = "Embedded web control plane and real-time telemetry dashboard"
 
 [dependencies]
-engine-core = { path = "../engine-core" }
+engine-bus = { path = "../engine-bus" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

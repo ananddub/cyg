@@ -9,6 +9,17 @@
 //! handler returns; on the next `on_readable`/`sweep` pass the reply is
 //! drained, `player_id` is filled, `bound` flips true, and the BIND frame is
 //! sent. Frames never block the poll loop.
+//!
+//! Two lanes share the socket, distinguished by the frame's first byte:
+//!
+//! * the plane's own `0x2x` control opcodes (`JOIN` … `DENY`), and
+//! * the channel layer's `0x0x` frame opcodes, so a browser that already speaks
+//!   `engine-webrtc-protocol` over a DataChannel speaks the same bytes here.
+//!
+//! `FrameKind::Reliable` outbound frames are NOT sent once and forgotten: each
+//! bound peer owns a `ReliableLane` that retransmits until the peer answers with
+//! `0x06` (`OP_ACK`). See [`crate::plane::reliable`] for the window, the RTT
+//! estimate and why the resend is whole-window.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -21,8 +32,10 @@ use crossbeam_channel::{bounded, Receiver, TryRecvError};
 use mio::net::UdpSocket;
 use mio::{Interest, Token};
 
-use engine_bus::{Bus, InputMsg, OutFrame, PeerId, SimCommand, Via};
+use engine_bus::{Bus, FrameKind, InputMsg, OutFrame, PeerId, SimCommand, Via};
+use engine_webrtc_protocol::{EventFrame, OP_ACK, OP_EVENT, parse_ack};
 use crate::plane::mono_ns;
+use crate::plane::reliable::{ReliableCounts, ReliableLane};
 use crate::plane::seats::SeatRegistry;
 
 /// mio registration token for the UDP socket inside the sim poll loop.
@@ -79,6 +92,10 @@ struct Peer {
     /// `Some` while waiting for the sim to hand back the player id.
     pending_reply: Option<Receiver<i64>>,
     room: String,
+    /// This peer's unacked events. Lives exactly as long as the peer entry: an
+    /// idle-timeout drop discards the window with it, because a client that has
+    /// gone silent for ten seconds is not going to ack any of them.
+    reliable: ReliableLane,
 }
 
 pub struct UdpPlane {
@@ -100,6 +117,17 @@ pub struct UdpPlane {
     sends: u64,
     send_drops: u64,
     recv_errors: u64,
+    /// Reliable frames the lane never saw: unknown or unbound peer, a frame that
+    /// is not one event, or a full window. Each is a producer-side problem, not
+    /// a network loss, so it is counted separately from `send_drops`.
+    reliable_refused: u64,
+    /// Inbound acks from addresses with no bound peer (spoofed or stale).
+    acks_ignored: u64,
+    /// Inbound `0x03` event frames. The plane's fire path is the input payload's
+    /// fire flag, so these are recognised for telemetry and not applied.
+    events_in: u64,
+    /// Events a peer has actually acknowledged.
+    events_acked: u64,
 }
 
 impl UdpPlane {
@@ -132,7 +160,17 @@ impl UdpPlane {
             sends: 0,
             send_drops: 0,
             recv_errors: 0,
+            reliable_refused: 0,
+            acks_ignored: 0,
+            events_in: 0,
+            events_acked: 0,
         })
+    }
+
+    /// The bound address. Meaningful with port `0` ("let the kernel pick"), which
+    /// is how the plane is tested without colliding with a live `:7778`.
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.socket.borrow().local_addr()
     }
 
     /// Override the tick rate advertised in the BIND frame (call once at boot
@@ -224,6 +262,7 @@ impl UdpPlane {
                                         bucket: TokenBucket::new_at(now),
                                         pending_reply: Some(rx),
                                         room: grant.room,
+                                        reliable: ReliableLane::new(),
                                     },
                                 );
                             } else {
@@ -265,13 +304,43 @@ impl UdpPlane {
                         self.send_drops += 1;
                     }
                 }
-                _ => {} // other opcodes (incl. channel frames) dropped
+                // Channel-layer ack: `[0x06][seq u16][kind u8]`, cumulative for
+                // this peer's event window. Only a bound peer owns a window, so
+                // a spoofed ack from any other address releases nothing.
+                OP_ACK => {
+                    // `parse_ack` checks the exact 4-byte length itself, so a
+                    // longer guest payload that starts with 0x06 is not an ack.
+                    let Some(ack) = parse_ack(b) else { continue };
+                    let Some(peer) = self.peers.get_mut(&addr) else {
+                        self.acks_ignored += 1;
+                        continue;
+                    };
+                    if !peer.bound {
+                        self.acks_ignored += 1;
+                        continue;
+                    }
+                    let released = peer.reliable.ack(ack.seq, mono_ns() / 1_000_000) as u64;
+                    self.events_acked += released;
+                }
+                OP_EVENT => {
+                    self.events_in += 1;
+                }
+                _ => {} // other opcodes (incl. delta chunks) dropped
             }
         }
     }
 
-    /// One outbound framed message to a bound peer. False = unknown peer.
+    /// Queue or send one outbound frame to a bound peer.
+    ///
+    /// A `FrameKind::Unreliable` frame is exactly one datagram, newest-wins, and
+    /// false means the peer is unknown or the socket refused it. A
+    /// `FrameKind::Reliable` frame goes to that peer's [`ReliableLane`] instead:
+    /// true means the lane **accepted** the event and will keep resending it
+    /// until the peer acks — not that a datagram left the socket on this call.
     pub fn send_frame(&mut self, frame: &OutFrame) -> bool {
+        if frame.kind == FrameKind::Reliable {
+            return self.queue_reliable(&frame.peer_id, &frame.bytes);
+        }
         let Some(&addr) = self.peer_addrs.get(frame.peer_id.as_str()) else {
             return false;
         };
@@ -286,6 +355,132 @@ impl UdpPlane {
                 false
             }
         }
+    }
+
+    /// Hand one framed event to its peer's window and transmit it immediately,
+    /// so an event never waits for the next tick to leave the socket.
+    fn queue_reliable(&mut self, peer_id: &str, bytes: &[u8]) -> bool {        // The seq the lane tracks must be the seq the client reads out of the
+        // frame, so an ack names the same number. A reliable frame that is not
+        // one event is a producer bug: refuse it rather than resend blindly.
+        let Ok(event) = EventFrame::decode(bytes) else {
+            self.reliable_refused += 1;
+            return false;
+        };
+        let Some(&addr) = self.peer_addrs.get(peer_id) else {
+            self.reliable_refused += 1;
+            return false;
+        };
+        let now = mono_ns() / 1_000_000;
+        let refused = {
+            let Some(peer) = self.peers.get_mut(&addr) else {
+                self.reliable_refused += 1;
+                return false;
+            };
+            if !peer.bound {
+                self.reliable_refused += 1;
+                return false;
+            }
+            // The lane owns its resend buffer, so the frame is copied out of the
+            // caller's `OutFrame`. Events are fixed-size and rare; deltas, which
+            // are neither, never take this path.
+            peer.reliable.queue(event.seq, bytes.to_vec(), now).is_err()
+        };
+        if refused {
+            self.reliable_refused += 1;
+            return false;
+        }
+        self.pump_peer(addr, now);
+        true
+    }
+
+    /// Run one peer's retransmit timers. The socket is borrowed per datagram
+    /// inside the pump, never across the lane, so a full window of resends can
+    /// not hold the socket away from anything else in the loop pass.
+    fn pump_peer(&mut self, addr: SocketAddr, now_ms: u64) {
+        let socket = &self.socket;
+        let peers = &mut self.peers;
+        let Some(peer) = peers.get_mut(&addr) else { return };
+        let mut sent = 0u64;
+        let mut drops = 0u64;
+        peer.reliable.pump(now_ms, |wire| {
+            let mut sock = socket.borrow_mut();
+            match Self::send_raw(&mut sock, wire, addr) {
+                Ok(()) => {
+                    sent += 1;
+                    true
+                }
+                Err(_) => {
+                    drops += 1;
+                    false
+                }
+            }
+        });
+        self.sends += sent;
+        self.send_drops += drops;
+    }
+
+    /// Retransmit every peer's overdue events and retire the dead ones.
+    /// `sim::run` calls this once per loop pass, so the poll deadline (≤ one
+    /// tick, ~8 ms at 128 Hz) bounds how late a resend can run behind its timer.
+    pub fn pump_reliable(&mut self) {
+        let now = mono_ns() / 1_000_000;
+        let due: Vec<SocketAddr> = self
+            .peers
+            .iter()
+            .filter(|(_, p)| p.bound && p.reliable.inflight() > 0)
+            .map(|(addr, _)| *addr)
+            .collect();
+        for addr in due {
+            self.pump_peer(addr, now);
+        }
+    }
+
+    /// Aggregate reliable counters over every peer currently in the table.
+    pub fn reliable_counts(&self) -> ReliableCounts {
+        let mut total = ReliableCounts::default();
+        for peer in self.peers.values() {
+            let c = peer.reliable.counts();
+            total.queued += c.queued;
+            total.sent += c.sent;
+            total.resent += c.resent;
+            total.acked += c.acked;
+            total.expired += c.expired;
+            total.rejected += c.rejected;
+        }
+        total
+    }
+
+    /// Events still waiting for an ack.
+    pub fn reliable_inflight(&self) -> usize {
+        self.peers.values().map(|p| p.reliable.inflight()).sum()
+    }
+
+    /// Reliable frames the plane refused to queue (see [`UdpPlane::reliable_refused`]).
+    pub fn reliable_refused(&self) -> u64 {
+        self.reliable_refused
+    }
+
+    /// Inbound acks from an address that owns no bound peer.
+    pub fn acks_ignored(&self) -> u64 {
+        self.acks_ignored
+    }
+
+    /// Events acknowledged by a peer.
+    pub fn events_acked(&self) -> u64 {
+        self.events_acked
+    }
+
+    /// Inbound event frames (recognised, not applied; see `events_in`).
+    pub fn events_in(&self) -> u64 {
+        self.events_in
+    }
+
+    /// Smoothed round trip of one peer's lane in ms, or `None` if the peer is
+    /// unknown, unbound, or has never acked anything.
+    pub fn peer_rtt_ms(&self, peer_id: &str) -> Option<f64> {
+        let &addr = self.peer_addrs.get(peer_id)?;
+        let peer = self.peers.get(&addr)?;
+        peer.bound.then_some(peer.reliable.rtt_ms()).filter(|ms| *ms > 0.0)
     }
 
     /// Idle-timeout sweep (~10 s without a packet): unbinds the peer and

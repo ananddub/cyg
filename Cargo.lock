@@ -1089,6 +1089,7 @@ dependencies = [
  "engine-agones",
  "engine-bus",
  "engine-config",
+ "engine-dashboard",
  "engine-http",
  "engine-net",
  "engine-voice",
@@ -1100,6 +1101,7 @@ dependencies = [
  "sha2",
  "str0m",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]
@@ -1110,7 +1112,9 @@ version = "0.1.0"
 name = "engine-dashboard"
 version = "0.1.0"
 dependencies = [
- "engine-core",
+ "engine-bus",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

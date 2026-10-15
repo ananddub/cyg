@@ -139,7 +139,9 @@ fn run(dir: &Path) -> std::io::Result<()> {
     let wasm_path = engine_server::compile::build(&project_dir, &cfg)?;
 
     // One bus for both planes: the sim thread owns the consumer ends, the
-    // control plane only ever `try_send`s onto the producer ends.
+    // control plane only ever `try_send`s onto the producer ends, and the host
+    // loop is a `status_tx` producer — it is the default game path, so for most
+    // projects it is the only thing that ever publishes telemetry.
     let bus = engine_bus::Bus::new(4096, 8192);
 
     // Optional raw-UDP + pinned 128 Hz sim plane (Agent 3). Gated by
@@ -159,7 +161,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
     // port clash is reported here rather than swallowing the game loop.
     // Held for the whole run — dropping it closes every HTTP and socket.
     let _control = if cfg.control.enabled {
-        match engine_control::spawn(&project_dir, &cfg, &cfg.control, bus) {
+        match engine_control::spawn(&project_dir, &cfg, &cfg.control, bus.clone()) {
             Ok(plane) => {
                 eprintln!(
                     "[main] 🏛️  control plane on http://{}:{} (matchmake, /ws/signal, /status, statics)",
@@ -180,7 +182,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
         None
     };
 
-    engine_server::host::run(&project_dir, &wasm_path, &cfg)
+    engine_server::host::run(&project_dir, &wasm_path, &cfg, bus)
 }
 
 /// `ox-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.

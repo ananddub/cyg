@@ -93,6 +93,29 @@ pub enum SimCommand {
     },
 }
 
+/// Buckets in [`StatusSnapshot::tick_histogram`]: bucket `i` counts ticks that
+/// ran `[2^i, 2^(i+1))` microseconds, and the last bucket also soaks up anything
+/// longer. 12 buckets reach 4.096 ms, which is one tick's budget at 128 Hz.
+pub const TICK_HISTOGRAM_BUCKETS: usize = 12;
+
+/// One connected client, as the host loop saw it at publish time.
+///
+/// The host owns sessions; the control plane may not reach into a running room.
+/// So the host describes them here, once a second, and `/api/dashboard/clients`
+/// renders them. `transport` is `websocket` | `webrtc` | `native-udp`.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTelemetry {
+    pub session: String,
+    pub transport: String,
+    pub player_id: Option<i64>,
+    /// Highest input seq applied from this session — the same number the client
+    /// sees echoed in its delta tail.
+    pub acked_seq: Option<u32>,
+    /// Milliseconds since this session's last input; `None` if it never sent one.
+    pub idle_ms: Option<u64>,
+}
+
 /// Sim → status sink: latest-wins snapshot for `/status` and logs.
 /// Plain data (no atomics needed on the reader side); the sim publishes at a
 /// low rate (once per second), never on the hot path.
@@ -110,6 +133,30 @@ pub struct StatusSnapshot {
     pub inputs_dropped: u64,
     pub seq: u64,
     pub updated_ms: u64,
+    /// Sessions per transport at publish time. The three sum to [`players`]
+    /// only when every client is counted once; a session that upgraded WS →
+    /// WebRTC is counted where its packets actually arrive.
+    pub ws_sessions: u32,
+    pub webrtc_sessions: u32,
+    pub udp_sessions: u32,
+    /// Ticks whose duration landed in this publish window. Zero means the
+    /// window was empty, which is how a reader tells "no samples yet" from
+    /// "every tick was instant".
+    pub tick_samples: u32,
+    /// Base-2 histogram of tick durations over the window, oldest-window-wins:
+    /// the sim's recorder resets it every publish, so it always describes the
+    /// second the reader is looking at.
+    pub tick_histogram: [u32; TICK_HISTOGRAM_BUCKETS],
+    /// Nominal period of one tick at the configured rate, microseconds.
+    /// `tick_budget_p99_us` against this is the "are we keeping up" number.
+    pub nominal_tick_us: u64,
+    /// Seconds the room has been empty. An operator's "why is this server up"
+    /// field, and the only signal a idle process is not merely unvisited.
+    pub empty_for_sec: u64,
+    /// Per-session rows, capped by the producer at a room's `max_clients`.
+    /// Empty means the host published nothing, not that nobody is connected —
+    /// read it alongside [`StatusSnapshot::players`].
+    pub sessions: Vec<SessionTelemetry>,
 }
 
 /// The whole inter-plane wiring, cheap to `Arc::clone`.
