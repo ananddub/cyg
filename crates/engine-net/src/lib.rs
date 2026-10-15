@@ -6,7 +6,6 @@
 //! - Length-prefixed binary framing (OpCode + Payload)
 //! - Batched socket reads, tick updates, and batched write flushes
 
-pub mod colyseus_state;
 pub mod connection;
 pub mod framing;
 mod bufio;
@@ -15,7 +14,6 @@ pub mod rtc_plane;
 pub mod transport;
 pub mod worker;
 
-pub use colyseus_state::ColyseusRoomState;
 pub use connection::ClientConn;
 pub use bytes;
 pub use framing::{OpCode, decode_frame, encode_frame, iter_frames, take_frame};
