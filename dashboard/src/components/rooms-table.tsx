@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react"
-import { Play } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -22,11 +22,6 @@ interface RoomsTableProps {
 }
 
 const DASH = "—"
-
-function fillPercent(clients: number, max: number): number {
-  if (max <= 0) return 0
-  return Math.min(100, Math.round((clients / max) * 100))
-}
 
 function formatAgeMs(ms: number | null | undefined): string {
   if (ms == null || Number.isNaN(ms)) return DASH
@@ -116,7 +111,6 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTable
         ) : (
           rows.map((room) => {
             const live = room.status === "live"
-            const pct = fillPercent(room.clients, room.maxClients)
             const roomClientsCount = (clients ?? []).filter((c) => c.room === room.name || !c.room).length
 
             return (
@@ -133,21 +127,11 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTable
                   </div>
                 </TableCell>
 
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <div className="h-1.5 w-20 overflow-hidden rounded-[2px] bg-muted">
-                      <div
-                        className={cn(
-                          "h-full rounded-[2px] transition-all",
-                          live ? "bg-primary" : "bg-muted-foreground/40",
-                        )}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <span className="tabular-nums text-xs font-mono font-medium text-foreground">
-                      {roomClientsCount || room.clients}/{room.maxClients}
-                    </span>
-                  </div>
+                <TableCell className="tabular-nums font-mono text-xs">
+                  <span className="font-semibold text-foreground">
+                    {roomClientsCount || room.clients}
+                  </span>
+                  <span className="text-muted-foreground"> / {room.maxClients}</span>
                 </TableCell>
 
                 <TableCell className="tabular-nums font-mono">
@@ -181,17 +165,9 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTable
                 </TableCell>
 
                 <TableCell className="text-right">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onSelectRoom?.(room)
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-sm border border-border/80 bg-background/80 px-2.5 py-1 text-xs font-medium text-foreground transition-all hover:bg-primary/10 hover:text-primary hover:border-primary/30 shadow-2xs"
-                  >
-                    <Play className="size-3 fill-current" />
-                    <span>Enter Room</span>
-                  </button>
+                  <span className="inline-flex items-center justify-end text-muted-foreground transition-all duration-150 group-hover:text-primary group-hover:translate-x-0.5">
+                    <ArrowRight className="size-4" />
+                  </span>
                 </TableCell>
               </TableRow>
             )
