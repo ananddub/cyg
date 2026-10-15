@@ -10,7 +10,6 @@
 //! `engine-config` (config.toml), `engine-control` (Tokio/Axum control plane)
 //! and `engine-server` (rooms, netcode, sim plane, host loop, wasm build).
 
-pub use engine_protocol as net_sync;
 pub use engine_physics as physics;
 pub use engine_physics::rapier as rapier_integration;
 pub use engine_spatial as spatial;

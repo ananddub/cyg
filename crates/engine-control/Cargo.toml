@@ -7,7 +7,6 @@ edition = "2024"
 engine-bus = { path = "../engine-bus" }
 engine-dashboard = { path = "../engine-dashboard" }
 engine-config = { path = "../engine-config" }
-engine-http = { path = "../engine-http" }
 engine-agones = { path = "../engine-agones" }
 engine-net = { path = "../engine-net" }
 engine-voice = { path = "../engine-voice" }

@@ -8,10 +8,8 @@ members = [
     "crates/engine-control",
     "crates/engine-core",
     "crates/engine-dashboard",
-    "crates/engine-http",
     "crates/engine-net",
     "crates/engine-physics",
-    "crates/engine-protocol",
     "crates/engine-server",
     "crates/engine-spatial",
     "crates/engine-wasm",
@@ -30,7 +28,6 @@ engine-config = { path = "crates/engine-config" }
 engine-control = { path = "crates/engine-control" }
 engine-server = { path = "crates/engine-server" }
 engine-physics = { path = "crates/engine-physics" }
-engine-protocol = { path = "crates/engine-protocol" }
 engine-spatial = { path = "crates/engine-spatial" }
 engine-wasm = { path = "crates/engine-wasm" }
 wasmtime = "25.0.0"
