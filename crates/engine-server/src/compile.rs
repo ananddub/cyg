@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::SystemTime;
 
-use crate::config::GameConfig;
+use engine_config::GameConfig;
 
 fn mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).ok()?.modified().ok()
@@ -56,7 +56,7 @@ pub fn build(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<std::path:
     Ok(out)
 }
 
-use crate::config::Runtime;
+use engine_config::Runtime;
 
 fn compile_lua(src: &Path, out: &Path) -> std::io::Result<()> {
     eprintln!("[build] 🌙 validating Lua room script '{}' ...", src.display());
@@ -76,7 +76,7 @@ fn compile_lua(src: &Path, out: &Path) -> std::io::Result<()> {
 
     // 2. Ensure wasm output binary is available
     if !out.exists() {
-        let default_wasm = include_bytes!("../crates/engine-net/examples/e2e/room_logic.wasm");
+        let default_wasm = include_bytes!("../../engine-net/examples/e2e/room_logic.wasm");
         std::fs::write(out, default_wasm)?;
     }
 

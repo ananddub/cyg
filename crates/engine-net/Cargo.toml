@@ -7,12 +7,16 @@ description = "Raw mio thread-per-core high-performance network transport layer"
 [dependencies]
 bytes = "1.12.1"
 engine-core = { path = "../engine-core" }
+# The WebRTC transport enforces the channel contract, so it must use the one
+# copy of the wire constants rather than restate them and risk drift. This
+# crate is a pure byte codec with no dependencies, so it cannot cycle.
+engine-webrtc-protocol = { path = "../engine-webrtc-protocol" }
 mio = { version = "1.2.4", features = ["net", "os-poll"] }
 socket2 = { version = "0.6.5", features = ["all"] }
 str0m = "0.24.1"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros"] }
 
 [dev-dependencies]
 engine-http = { path = "../engine-http" }
-engine-webrtc-protocol = { path = "../engine-webrtc-protocol" }
 engine-wasm = { path = "../engine-wasm" }
 wasmtime = "25.0.0"

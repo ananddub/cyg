@@ -3,6 +3,9 @@ resolver = "2"
 members = [
     ".",
     "crates/engine-agones",
+    "crates/engine-bus",
+    "crates/engine-config",
+    "crates/engine-control",
     "crates/engine-core",
     "crates/engine-dashboard",
     "crates/engine-guest",
@@ -10,6 +13,7 @@ members = [
     "crates/engine-net",
     "crates/engine-physics",
     "crates/engine-protocol",
+    "crates/engine-server",
     "crates/engine-spatial",
     "crates/engine-wasm",
     "crates/engine-websocket",
@@ -25,21 +29,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-engine-core = { path = "crates/engine-core" }
-engine-http = { path = "crates/engine-http" }
-engine-net = { path = "crates/engine-net" }
+engine-bus = { path = "crates/engine-bus" }
+engine-config = { path = "crates/engine-config" }
+engine-control = { path = "crates/engine-control" }
+engine-server = { path = "crates/engine-server" }
 engine-physics = { path = "crates/engine-physics" }
 engine-protocol = { path = "crates/engine-protocol" }
 engine-spatial = { path = "crates/engine-spatial" }
-engine-voice = { path = "crates/engine-voice" }
 engine-wasm = { path = "crates/engine-wasm" }
-engine-lua = { path = "crates/engine-lua" }
-engine-webrtc-protocol = { path = "crates/engine-webrtc-protocol" }
-bytes = "1.10"
-mio = { version = "1.2.4", features = ["net", "os-poll"] }
 wasmtime = "25.0.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-toml = "0.8"
+hmac = "0.12"
+sha2 = "0.10"
 
 

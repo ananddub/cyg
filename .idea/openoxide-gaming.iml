@@ -10,6 +10,10 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-wasm/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-wasm/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-agones/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-bus/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-config/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-control/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-core/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-http/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-http/src" isTestSource="false" />
@@ -20,6 +24,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-net/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-physics/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-protocol/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-server/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-spatial/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-voice/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-voice/tests" isTestSource="true" />

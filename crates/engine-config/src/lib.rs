@@ -5,6 +5,14 @@
 
 use std::path::{Path, PathBuf};
 
+/// The HMAC key both planes fall back to when `OX_SEAT_SECRET` is unset.
+///
+/// Single source of truth on purpose: the control plane mints a seat and the sim
+/// plane verifies the same string over UDP, so two copies of this literal are
+/// two chances for a deployed server to reject every one of its own players.
+/// It is a *development* key and must be overridden for anything reachable.
+pub const DEV_SEAT_SECRET: &str = "ox-dev-seat-secret";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Runtime {
     /// AssemblyScript — source compiled with `asc` (npm assemblyscript).
@@ -68,6 +76,82 @@ pub struct GameConfig {
     /// snapshot before the input's position in its stream, replay the journaled
     /// inputs, and resimulate to the live tick.
     pub rollback: RollbackConfig,
+    /// Tokio control plane (Phase 1): Axum HTTP, matchmake, WS signaling,
+    /// Agones lifecycle.
+    pub control: ControlConfig,
+}
+
+/// `[control]` block: the Tokio/Axum control plane. Everything here is
+/// browser-facing HTTP; the simulation thread never reads it.
+#[derive(Debug, Clone)]
+pub struct ControlConfig {
+    /// Master switch. Off means this plane never binds a port and never mints a
+    /// seat token, so a project can opt out without losing the website.
+    pub enabled: bool,
+    /// Bind address for the control plane. Defaults to `0.0.0.0`.
+    pub bind_addr: String,
+    /// Control-plane HTTP port. The game WebSocket transport keeps `port` and
+    /// the website port `web_port`, so this is its own port by default; `0`
+    /// asks the kernel for one (tests). Setting it **equal to `web_port`** is
+    /// the cutover: `src/server.rs` then releases the website port to Axum and
+    /// stops installing the legacy in-transport static hook.
+    pub api_port: u16,
+    /// Tokio worker threads for the control plane. Crypto and HTTP do not
+    /// belong on the sim core, so this stays small by default.
+    pub workers: usize,
+    /// How long a minted seat token stays usable.
+    pub seat_ttl_secs: u64,
+    /// HMAC key for seat tokens. `OX_SEAT_SECRET` wins over this value so a
+    /// deployed server never needs its secret in a file.
+    pub seat_secret: String,
+    /// Sustained matchmake requests accepted per client IP, per second.
+    pub rate_limit_rps: u32,
+    /// Headroom above `rate_limit_rps` for a burst (a page reload fires several
+    /// matchmake calls at once).
+    pub rate_limit_burst: u32,
+    /// `[control.agones]` — Agones sidecar lifecycle.
+    pub agones: AgonesConfig,
+}
+
+/// `[control.agones]`: the Kubernetes Dedicated Game Server sidecar client.
+#[derive(Debug, Clone)]
+pub struct AgonesConfig {
+    /// Off by default: nothing happens unless the pod really has a sidecar.
+    pub enabled: bool,
+    /// Sidecar REST port (`AGONES_SDK_HTTP_PORT` when set by the pod).
+    pub http_port: u16,
+    /// Interval between `sdk.v1.SDK/Health` pings. Agones marks the pod
+    /// unhealthy after three misses, so this must stay well under 10s.
+    pub health_interval_ms: u64,
+    /// Address of the sidecar. Loopback inside the pod.
+    pub host: String,
+}
+
+impl Default for AgonesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            http_port: 9358,
+            health_interval_ms: 2000,
+            host: "127.0.0.1".into(),
+        }
+    }
+}
+
+impl Default for ControlConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            bind_addr: "0.0.0.0".into(),
+            api_port: 8124,
+            workers: 2,
+            seat_ttl_secs: 300,
+            seat_secret: DEV_SEAT_SECRET.into(),
+            rate_limit_rps: 20,
+            rate_limit_burst: 40,
+            agones: AgonesConfig::default(),
+        }
+    }
 }
 
 /// `[rollback]` block: GGPO-style late-input rewind on the authoritative host.
@@ -142,6 +226,7 @@ impl Default for GameConfig {
             voice_ice_servers: "[]".into(),
             aoi: AoiConfig::default(),
             rollback: RollbackConfig::default(),
+            control: ControlConfig::default(),
         }
     }
 }
@@ -236,6 +321,55 @@ pub fn parse_config(text: &str) -> GameConfig {
                     cfg.rollback.journal_size = (v.max(8)) as usize;
                 }
             }
+            if let Some(c) = table.get("control").and_then(|v| v.as_table()) {
+                let num = |k: &str| c.get(k).and_then(|v| v.as_integer()).map(|v| v.max(0) as u64);
+                if let Some(v) = c.get("enabled").and_then(|v| v.as_bool()) {
+                    cfg.control.enabled = v;
+                }
+                if let Some(v) = c.get("bind_addr").and_then(|v| v.as_str()) {
+                    cfg.control.bind_addr = v.to_string();
+                }
+                if let Some(v) = num("api_port") {
+                    cfg.control.api_port = v as u16;
+                }
+                if let Some(v) = num("workers").filter(|v| *v > 0) {
+                    cfg.control.workers = v as usize;
+                }
+                if let Some(v) = num("seat_ttl_secs").filter(|v| *v > 0) {
+                    cfg.control.seat_ttl_secs = v;
+                }
+                if let Some(v) = c.get("seat_secret").and_then(|v| v.as_str()) {
+                    cfg.control.seat_secret = v.to_string();
+                }
+                if let Some(v) = num("rate_limit_rps").filter(|v| *v > 0) {
+                    cfg.control.rate_limit_rps = v as u32;
+                }
+                if let Some(v) = num("rate_limit_burst").filter(|v| *v > 0) {
+                    cfg.control.rate_limit_burst = v as u32;
+                }
+                if let Some(a) = c.get("agones").and_then(|v| v.as_table()) {
+                    if let Some(v) = a.get("enabled").and_then(|v| v.as_bool()) {
+                        cfg.control.agones.enabled = v;
+                    }
+                    if let Some(v) = a
+                        .get("http_port")
+                        .and_then(|v| v.as_integer())
+                        .filter(|v| *v > 0)
+                    {
+                        cfg.control.agones.http_port = v as u16;
+                    }
+                    if let Some(v) = a
+                        .get("health_interval_ms")
+                        .and_then(|v| v.as_integer())
+                        .filter(|v| *v >= 200)
+                    {
+                        cfg.control.agones.health_interval_ms = v as u64;
+                    }
+                    if let Some(v) = a.get("host").and_then(|v| v.as_str()) {
+                        cfg.control.agones.host = v.to_string();
+                    }
+                }
+            }
             return cfg;
         }
     }
@@ -279,6 +413,15 @@ pub fn parse_config(text: &str) -> GameConfig {
             "allow_logging" => cfg.permissions.logging = value.parse().unwrap_or(cfg.permissions.logging),
             "allow_storage" => cfg.permissions.storage = value.parse().unwrap_or(cfg.permissions.storage),
             "voice_ice_servers" => cfg.voice_ice_servers = value.to_string(),
+            "control_enabled" => cfg.control.enabled = value.parse().unwrap_or(cfg.control.enabled),
+            "api_port" => cfg.control.api_port = value.parse().unwrap_or(cfg.control.api_port),
+            "control_bind_addr" => cfg.control.bind_addr = value.to_string(),
+            "control_workers" => cfg.control.workers = value.parse().unwrap_or(cfg.control.workers),
+            "seat_ttl_secs" => cfg.control.seat_ttl_secs = value.parse().unwrap_or(cfg.control.seat_ttl_secs),
+            "seat_secret" => cfg.control.seat_secret = value.to_string(),
+            "rate_limit_rps" => cfg.control.rate_limit_rps = value.parse().unwrap_or(cfg.control.rate_limit_rps),
+            "rate_limit_burst" => cfg.control.rate_limit_burst = value.parse().unwrap_or(cfg.control.rate_limit_burst),
+            "agones_enabled" => cfg.control.agones.enabled = value.parse().unwrap_or(cfg.control.agones.enabled),
             _ => {}
         }
     }
@@ -297,7 +440,19 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
         path.to_path_buf()
     };
     let text = std::fs::read_to_string(&file)?;
-    Ok(parse_config(&text))
+    let mut cfg = parse_config(&text);
+    // Deployment secrets never belong in a file that ships with the project.
+    // `OX_SEAT_SECRET` is also what the sim plane reads, so both planes are
+    // guaranteed to agree on the key without a config handshake.
+    if let Ok(secret) = std::env::var("OX_SEAT_SECRET") {
+        if !secret.is_empty() {
+            cfg.control.seat_secret = secret;
+        }
+    }
+    if std::env::var("OX_AGONES").is_ok_and(|v| v == "1") {
+        cfg.control.agones.enabled = true;
+    }
+    Ok(cfg)
 }
 
 /// The config.toml template `ox-game init` writes.
@@ -334,6 +489,27 @@ allow_physics = true
 allow_lag_compensation = true
 allow_logging = true
 allow_storage = true
+
+# Control plane (Tokio/Axum): matchmake, WS signaling, /status, statics.
+# `api_port` is its own port so the game WebSocket (`port`) and the website
+# (`web_port`) keep working unchanged. Set `api_port = web_port` to hand the
+# website port over to Axum entirely.
+[control]
+enabled = true
+bind_addr = "0.0.0.0"
+api_port = 8124
+workers = 2
+seat_ttl_secs = 300
+rate_limit_rps = 20
+rate_limit_burst = 40
+# seat_secret = "change-me"   # prefer the OX_SEAT_SECRET environment variable
+
+# Agones sidecar lifecycle: Ready, Allocated and the Health ping loop.
+[control.agones]
+enabled = false
+http_port = 9358
+health_interval_ms = 2000
+host = "127.0.0.1"
 "#;
 
 /// Starter room source `ox-game init` writes — the same contract as the

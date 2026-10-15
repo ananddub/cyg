@@ -1,17 +1,17 @@
-//! # ox-game server — Generic Byte Pipeline
+//! Host run loop: the fixed-rate tick + per-session delta broadcast (AOI
+//! dispatch), moved from the root binary's `src/server.rs`.
 //!
-//! PS5 vs Game CD architecture: the Rust engine knows NOTHING about the
-//! game. The WASM room owns all state and its own wire encoding. The host
-//! is a dumb-but-fast pipe:
-//!
-//!   browser input  →  wasm.on_input(id, ptr, len)   (raw bytes pass-through)
-//!   20-128 Hz      →  wasm.on_tick(dt) -> packed(ptr, len)
-//!                     host reads delta bytes from wasm memory
-//!                  →  broadcast [ROOM_DATA_BYTES]["delta" + bytes] to clients
-//!
-//! Hot-reload (Level 1): when `room_logic.wasm` changes on disk, new rooms
-//! are served by the new module. Existing rooms finish on the old one —
-//! no client disconnects.
+//! Crate-split notes (A6): room type / host linker / lifecycle come from
+//! [`crate::rooms`] (agent A4); the byte pipeline helpers
+//! (`wrap_delta_into`, `parse_delta_sections`, `filter_delta_for_viewer`,
+//! `apply_input`, `deliver_input`, `send_delta_framed`, `record_channel_ack`)
+//! come from [`crate::netcode`] (agent A5). Behavior is otherwise a faithful
+//! move of the monolithic `run()`: env-gated plane boot stays in the root
+//! binary + [`crate::plane`], tick pacing, acked_seq echo, delta_seq
+//! stamping, the 6-byte envelope tail, voice mesh blocks, rollback
+//! `apply_input` at both the WS and WebRTC input call sites, spectators +
+//! UDP multicast, disconnect cleanup, and JOIN/join + 23-byte bare input
+//! frames.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -19,685 +19,20 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-
 use engine_net::framing::OpCode;
+use engine_net::transport::webrtc_frames::Inbound;
 use engine_net::transport::{
     ColyseusWsTransport, GameTransport, TransportEvent, WebRtcServer, WebRtcServerEvent,
 };
-use engine_wasm::{WasmRuntime, wasm_module};
-use crate::physics::PhysicsWorld3D;
+use engine_physics::PhysicsWorld3D;
+use engine_wasm::WasmRuntime;
 
-// Type-safe wrapper over the compiled room WASM. The host never opens the
-// game's bytes — it only passes pointers and reads back the delta buffer.
-wasm_module! {
-    pub struct RoomLogic {
-        fn on_create(max: i32);
-        fn on_join(id: i64, x: f64, y: f64);
-        fn on_leave(id: i64);
-        fn on_alloc(len: i32) -> i32;
-        fn on_input(id: i64, ptr: i32, len: i32);
-        fn on_tick(dt: f64) -> i64;
-        fn on_save() -> i64;
-        fn on_load(ptr: i32, len: i32);
-    }
-}
-
-/// One named room: an isolated WASM simulation + its members.
-struct GameRoom {
-    wasm: RoomLogic<PhysicsWorld3D>,
-    sessions: HashMap<String, i64>,
-    spectators: std::collections::HashSet<String>,
-    next_player_id: i64,
-    empty_since: Option<Instant>,
-    current_tick: u64,
-    rollback_buffer: engine_wasm::RollbackRingBuffer,
-    voice_room: engine_voice::VoiceRoom,
-    /// WebRTC signaling membership: which voice peers exist and which socket each
-    /// one is carried on. Separate from `voice_room` because a peer opts into the
-    /// P2P mesh with a `Join` signal, while `voice_room` tracks everyone.
-    voice_mesh: engine_voice::VoiceMesh,
-    /// Highest client input seq applied per session — echoed back as `acked_seq`
-    /// in the delta tail so clients can reconcile local prediction (Phase D).
-    last_input_seq: HashMap<String, u16>,
-    event_seq: u16,
-    /// Room-wide stamp on the unreliable delta channel: one per delta the room
-    /// emits, shared by every recipient of that tick. It orders the *world*, not
-    /// the socket, which is what lets a client discard a frame that arrived after
-    /// the one that superseded it.
-    delta_seq: u16,
-    /// Highest event seq each client confirmed holding. `game-reliable` already
-    /// retransmits at SCTP level, so this is a delivery record — and the resume
-    /// point a checkpoint resync will need — not a resend trigger.
-    acked_event_seq: HashMap<String, u16>,
-    /// Recently applied guest inputs, oldest first, tagged with the tick they
-    /// arrived in. The replay script for a Phase F late-input rollback.
-    input_journal: std::collections::VecDeque<JournalInput>,
-}
-
-/// One journaled input: everything needed to re-deliver it to the guest after a
-/// rewind. `tick` is the live tick when it arrived, so replay places it between
-/// the same two `on_tick` calls as the original stream did.
-#[derive(Clone)]
-struct JournalInput {
-    tick: u64,
-    session: String,
-    id: i64,
-    seq: u16,
-    payload: [u8; 20],
-}
-
-/// Build the host-import linker once at startup. The ~12 `func_wrap` closures
-/// are identical for every room, so building them per spawn was pure waste;
-/// pre-instantiating against this linker makes each new room a single
-/// `InstancePre::instantiate`.
-fn build_host_linker(
-    runtime: &WasmRuntime,
-    permissions: engine_wasm::AbiPermissions,
-) -> wasmtime::Linker<PhysicsWorld3D> {
-    let mut linker = runtime.create_linker::<PhysicsWorld3D>();
-
-    // Register host functions under both canonical `game_host_v1` and legacy `env` namespaces (Rule 1 & Rule 8)
-    for ns in &[engine_wasm::HOST_NAMESPACE_V1, engine_wasm::HOST_NAMESPACE_LEGACY] {
-        // Abort callback
-        linker
-            .func_wrap(
-                ns,
-                "abort",
-                |_caller: wasmtime::Caller<'_, PhysicsWorld3D>, _m: u32, _f: u32, _l: u32, _c: u32| {},
-            )
-            .expect("link abort");
-
-        // Host Log ABI: UTF-8 validated, bounds-checked (Rule 2 & Rule 4)
-        // Host Log ABI: UTF-8 validated, bounds-checked (Rule 2 & Rule 4)
-        linker
-            .func_wrap(
-                ns,
-                "host_log",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>, ptr: i32, len: i32| -> i32 {
-                    if !permissions.logging {
-                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
-                    }
-                    if len <= 0 {
-                        return engine_wasm::ABI_OK;
-                    }
-                    let len = len as usize;
-                    if len > engine_wasm::MAX_LOG_LENGTH {
-                        return engine_wasm::ABI_ERR_BUFFER_OVERFLOW;
-                    }
-                    if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
-                        let data = mem.data(&caller);
-                        let offset = ptr as usize;
-                        if offset + len <= data.len() {
-                            if let Ok(msg) = std::str::from_utf8(&data[offset..offset + len]) {
-                                eprintln!("[wasm-log] {msg}");
-                                return engine_wasm::ABI_OK;
-                            } else {
-                                return engine_wasm::ABI_ERR_INVALID_UTF8;
-                            }
-                        }
-                    }
-                    engine_wasm::ABI_ERR_OUT_OF_BOUNDS
-                },
-            )
-            .expect("link host_log");
-
-        // Host Version ABI (Rule 1: Version query)
-        linker
-            .func_wrap(
-                ns,
-                "get_abi_version",
-                move |_caller: wasmtime::Caller<'_, PhysicsWorld3D>| -> i32 {
-                    engine_wasm::CURRENT_ABI_VERSION as i32
-                },
-            )
-            .expect("link get_abi_version");
-
-        // Host Physics ABI 1: Surface height query (for solid standing & rooftops)
-        linker
-            .func_wrap(
-                ns,
-                "sys_physics_surface_y",
-                move |caller: wasmtime::Caller<'_, PhysicsWorld3D>, px: f64, py: f64, pz: f64, radius: f64| -> f64 {
-                    if !permissions.physics {
-                        return 0.0;
-                    }
-                    caller.data().get_surface_height(px, py, pz, radius)
-                },
-            )
-            .expect("link sys_physics_surface_y");
-
-        // Host Physics ABI 2: Kinematic move_and_slide (smooth wall sliding along obstacle normals)
-        linker
-            .func_wrap(
-                ns,
-                "sys_physics_move",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>,
-                 px: f64, py: f64, pz: f64,
-                 vx: f64, vy: f64, vz: f64,
-                 radius: f64, dt: f64,
-                 out_ptr: i32| -> i32 {
-                    if !permissions.physics {
-                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
-                    }
-                    let res = caller.data().move_and_slide(px, py, pz, vx, vy, vz, radius, dt);
-
-                    if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
-                        let data = mem.data_mut(&mut caller);
-                        let offset = out_ptr as usize;
-                        if offset + 24 <= data.len() {
-                            data[offset..offset + 8].copy_from_slice(&res.new_x.to_le_bytes());
-                            data[offset + 8..offset + 16].copy_from_slice(&res.new_y.to_le_bytes());
-                            data[offset + 16..offset + 24].copy_from_slice(&res.new_z.to_le_bytes());
-                        } else {
-                            return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
-                        }
-                    }
-
-                    if res.is_grounded { 1 } else { 0 }
-                },
-            )
-            .expect("link sys_physics_move");
-
-        // Host Physics ABI 3: Continuous Collision Detection Raycasting (bullets & hitscan)
-        linker
-            .func_wrap(
-                ns,
-                "sys_physics_raycast",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>,
-                 ox: f64, oy: f64, oz: f64,
-                 dx: f64, dy: f64, dz: f64,
-                 max_dist: f64,
-                 out_ptr: i32| -> i32 {
-                    if !permissions.physics {
-                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
-                    }
-                    let origin = crate::physics::Vec3::new(ox, oy, oz);
-                    let dir = crate::physics::Vec3::new(dx, dy, dz);
-
-                    let res = if let Some(hit) = caller.data().raycast(origin, dir, max_dist) {
-                        if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
-                            let data = mem.data_mut(&mut caller);
-                            let offset = out_ptr as usize;
-                            if offset + 36 <= data.len() {
-                                data[offset..offset + 8].copy_from_slice(&hit.point.x.to_le_bytes());
-                                data[offset + 8..offset + 16].copy_from_slice(&hit.point.y.to_le_bytes());
-                                data[offset + 16..offset + 24].copy_from_slice(&hit.point.z.to_le_bytes());
-                                data[offset + 24..offset + 32].copy_from_slice(&hit.distance.to_le_bytes());
-                                data[offset + 32..offset + 36].copy_from_slice(&hit.collider_id.to_le_bytes());
-                            } else {
-                                return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
-                            }
-                        }
-                        1
-                    } else {
-                        0
-                    };
-                    res
-                },
-            )
-            .expect("link sys_physics_raycast");
-
-        // Host Physics ABI 4: Lag Compensation Entity Hitbox Recording
-        linker
-            .func_wrap(
-                ns,
-                "sys_physics_lag_record",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>,
-                 tick: i64,
-                 entity_id: i32,
-                 kind: i32,
-                 min_x: f64, min_y: f64, min_z: f64,
-                 max_x: f64, max_y: f64, max_z: f64| {
-                    if !permissions.lag_compensation {
-                        return;
-                    }
-                    let bounds = crate::physics::Aabb {
-                        min: crate::physics::Vec3::new(min_x, min_y, min_z),
-                        max: crate::physics::Vec3::new(max_x, max_y, max_z),
-                    };
-                    caller.data_mut().record_entity_hitbox(
-                        tick as u64,
-                        0,
-                        entity_id as u32,
-                        kind as u32,
-                        bounds,
-                    );
-                },
-            )
-            .expect("link sys_physics_lag_record");
-
-        // Host Physics ABI 5: Lag-Compensated Rewind Raycast (reference Fusion Server Rewind)
-        linker
-            .func_wrap(
-                ns,
-                "sys_physics_lag_raycast",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>,
-                 shoot_tick: i64,
-                 ox: f64, oy: f64, oz: f64,
-                 dx: f64, dy: f64, dz: f64,
-                 max_dist: f64,
-                 out_ptr: i32| -> i32 {
-                    if !permissions.lag_compensation {
-                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
-                    }
-                    let origin = crate::physics::Vec3::new(ox, oy, oz);
-                    let dir = crate::physics::Vec3::new(dx, dy, dz);
-
-                    if let Some(hit) = caller.data_mut().lag_compensated_raycast(shoot_tick as u64, origin, dir, max_dist) {
-                        if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
-                            let data = mem.data_mut(&mut caller);
-                            let offset = out_ptr as usize;
-                            if offset + 44 <= data.len() {
-                                data[offset..offset + 8].copy_from_slice(&hit.point.x.to_le_bytes());
-                                data[offset + 8..offset + 16].copy_from_slice(&hit.point.y.to_le_bytes());
-                                data[offset + 16..offset + 24].copy_from_slice(&hit.point.z.to_le_bytes());
-                                data[offset + 24..offset + 32].copy_from_slice(&hit.distance.to_le_bytes());
-                                data[offset + 32..offset + 36].copy_from_slice(&hit.entity_id.to_le_bytes());
-                                data[offset + 36..offset + 40].copy_from_slice(&hit.kind.to_le_bytes());
-                                data[offset + 40..offset + 44].copy_from_slice(&hit.collider_id.to_le_bytes());
-                            } else {
-                                return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
-                            }
-                        }
-                        hit.hit_type as i32
-                    } else {
-                        0
-                    }
-                },
-            )
-            .expect("link sys_physics_lag_raycast");
-    }
-
-    linker
-}
-
-impl GameRoom {
-    fn new(
-        pre: &engine_wasm::WasmPreInstance<PhysicsWorld3D>,
-        max_clients: i32,
-        physics: PhysicsWorld3D,
-    ) -> Self {
-        let mut wasm = RoomLogic::from_pre(pre, physics).expect("instantiate room");
-        if let Err(e) = wasm.on_create(max_clients) {
-            eprintln!("[server] ⚠️ guest on_create error: {e}");
-        }
-        Self {
-            wasm,
-            sessions: HashMap::new(),
-            spectators: std::collections::HashSet::new(),
-            next_player_id: 1,
-            empty_since: Some(Instant::now()),
-            current_tick: 0,
-            rollback_buffer: engine_wasm::RollbackRingBuffer::default(),
-            voice_room: engine_voice::VoiceRoom::new(engine_voice::DistanceModel::Inverse {
-                min_distance: 10.0,
-                max_distance: 250.0,
-                rolloff: 1.0,
-            }),
-            voice_mesh: engine_voice::VoiceMesh::default(),
-            last_input_seq: HashMap::new(),
-            event_seq: 0,
-            delta_seq: 0,
-            acked_event_seq: HashMap::new(),
-            input_journal: std::collections::VecDeque::new(),
-        }
-    }
-}
-
-/// All rooms + the pre-instantiated room template (hot-swappable).
-struct GameServer {
-    /// Linked, validated template: spawning a room costs one instantiate.
-    pre: engine_wasm::WasmPreInstance<PhysicsWorld3D>,
-    max_clients: i32,
-    physics: PhysicsWorld3D,
-    rooms: HashMap<String, GameRoom>,
-    permissions: engine_wasm::AbiPermissions,
-}
-
-impl GameServer {
-    fn get_or_create(&mut self, name: &str) -> &mut GameRoom {
-        // Hot path for an existing room borrows the key: no String per packet.
-        if !self.rooms.contains_key(name) {
-            let physics = self.physics.clone();
-            let room = GameRoom::new(&self.pre, self.max_clients, physics);
-            eprintln!(
-                "[server] room '{name}' created with 3D physics world (ABI v{})",
-                engine_wasm::CURRENT_ABI_VERSION
-            );
-            self.rooms.insert(name.to_string(), room);
-        }
-        self.rooms.get_mut(name).expect("room just inserted")
-    }
-}
-
-/// Wrap a raw delta buffer into a Colyseus ROOM_DATA_BYTES frame payload:
-/// [msgpack fixstr "delta"][i64 recipient_player_id][raw bytes...].
-/// Frames into a caller-owned buffer so a 128 Hz broadcast allocates nothing.
-fn wrap_delta_into(out: &mut Vec<u8>, your_id: i64, delta: &[u8], acked_seq: u16, server_tick: u32) {
-    out.clear();
-    out.reserve(delta.len() + 22);
-    out.push(0xA5);
-    out.extend_from_slice(b"delta");
-    out.extend_from_slice(&your_id.to_le_bytes());
-    out.extend_from_slice(delta);
-    // Tail: last input seq the server applied from this session + authoritative tick.
-    // Count-driven parsers (Unity/Godot/mesh) ignore it; the web SDK reads it for
-    // prediction reconciliation.
-    out.extend_from_slice(&acked_seq.to_le_bytes());
-    out.extend_from_slice(&server_tick.to_le_bytes());
-}
-
-/// Hand one 20-byte movement input to the guest and journal it.
-fn deliver_input(room: &mut GameRoom, id: i64, payload: &[u8; 20]) {
-    if let Ok(ptr_i32) = room.wasm.on_alloc(20) {
-        let _ = room.wasm.write_memory(ptr_i32 as u32, payload);
-        let _ = room.wasm.on_input(id, ptr_i32, 20);
-    }
-}
-
-/// Apply a movement input from one session (Phase D + F).
-///
-/// Newest seqs flow straight through, exactly like the legacy newest-wins rule.
-/// A seq *behind* the newest is either a Phase D redundant resend (already
-/// journaled — dropped) or a genuinely late delivery: instead of dropping it,
-/// rewind the guest to the snapshot the input's predecessor arrived after,
-/// re-deliver every journaled input from that point, and resimulate the missed
-/// ticks. The guest must be deterministic for the replay to land cleanly;
-/// a trap mid-replay stops at the last good tick and the log says so.
-fn apply_input(
-    room: &mut GameRoom,
-    cfg: &crate::config::GameConfig,
-    dt: f64,
-    session: &str,
-    id: i64,
-    seq: u16,
-    payload: &[u8; 20],
-) {
-    let last = room.last_input_seq.entry(session.to_string()).or_insert(0);
-
-    if *last == 0 || engine_webrtc_protocol::is_newer(*last, seq) {
-        *last = seq;
-        deliver_input(room, id, payload);
-        let tick = room.current_tick;
-        room.input_journal.push_back(JournalInput {
-            tick,
-            session: session.to_string(),
-            id,
-            seq,
-            payload: *payload,
-        });
-        while room.input_journal.len() > cfg.rollback.journal_size {
-            room.input_journal.pop_front();
-        }
-        return;
-    }
-
-    if !cfg.rollback.enabled || seq == *last {
-        return; // legacy newest-wins drop
-    }
-    // Duplicate Phase D resend — it is already in the journal.
-    if room.input_journal.iter().any(|j| j.session == session && j.seq == seq) {
-        return;
-    }
-    // The input slots in right after its predecessor. No predecessor inside the
-    // journal window means we cannot place it; drop it like the old behavior did.
-    let Some(pred_idx) = room
-        .input_journal
-        .iter()
-        .rposition(|j| j.session == session && j.seq == seq.wrapping_sub(1))
-    else {
-        eprintln!("[dbg] late seq {seq}: no predecessor in journal ({} entries)", room.input_journal.len());
-        return;
-    };
-    let pred_tick = room.input_journal[pred_idx].tick;
-    let gap = room.current_tick.saturating_sub(pred_tick);
-    if gap == 0 || gap > cfg.rollback.max_replay_ticks {
-        return;
-    }
-
-    // Restore the guest from the checkpoint blob via the guest's own
-    // save()/load() contract — no raw linear-memory copy in the host.
-    let Some(ckpt) = room.rollback_buffer.blob_for(pred_tick) else {
-        return; // checkpoint aged out of the ring window
-    };
-    let load_ptr = room.wasm.on_alloc(ckpt.len() as i32).expect("wasm alloc ckpt") as u32 as usize;
-    room.wasm.write_memory(load_ptr as u32, ckpt).expect("write ckpt");
-    room.wasm.on_load(load_ptr as i32, ckpt.len() as i32).expect("wasm on_load");
-
-    // Insert the late input right behind its predecessor, keeping the journal
-    // ordered by arrival tick.
-    let mut items: Vec<JournalInput> = room.input_journal.drain(..).collect();
-    items.insert(pred_idx + 1, JournalInput {
-        tick: pred_tick,
-        session: session.to_string(),
-        id,
-        seq,
-        payload: *payload,
-    });
-    room.input_journal.extend(items);
-
-    // Resimulate pred_tick..current_tick, re-delivering each tick's inputs
-    // before the tick that consumed them.
-    let target = room.current_tick;
-    let mut cur = pred_tick;
-    let mut redelivered = 0usize;
-    while cur < target {
-        let batch: Vec<(i64, [u8; 20])> = room
-            .input_journal
-            .iter()
-            .filter(|j| j.tick == cur)
-            .map(|j| (j.id, j.payload))
-            .collect();
-        redelivered += batch.len();
-        for (jid, jpayload) in batch {
-            deliver_input(room, jid, &jpayload);
-        }
-        if let Ok(packed) = room.wasm.on_tick(dt) {
-            cur += 1;
-            // Guest serializes its own state; host stores the blob.
-            let sptr = ((packed >> 32) as u32) as usize;
-            let slen = (packed as u32) as usize;
-            if let Ok(blob) = room.wasm.read_memory(sptr as u32, slen as u32) {
-                let _ = room.rollback_buffer.save_blob(cur, blob);
-            }
-        } else {
-            break; // guest trapped: stop replay, state is pred_tick-rewound
-        }
-    }
-
-    eprintln!(
-        "[server] ⏪ late input seq {seq} (player {id}): rewound {} ticks, re-delivered {redelivered} inputs, resimulated to tick {cur}",
-        target - pred_tick
-    );
-}
-
-/// One 72-byte player record from the tank-3d delta layout:
-/// `[id i64][x y z yaw pitch hp score f64×7][state u32][pad u32]`.
-struct DeltaEntity {
-    id: i64,
-    pos: [f64; 3],
-}
-
-/// Parse the delta body into typed sections. The wire layout is versioned by
-/// the guest (FORMAT_VERSION=1): `[u8 ver][u32 count][72B × count]` then
-/// `[u32 bullet_count][32B × bullet_count]`. A malformed or foreign layout
-/// yields `None`, and the caller falls back to the unfiltered multicast.
-fn parse_delta_sections(delta: &[u8]) -> Option<(u32, Vec<DeltaEntity>, u32, usize, usize)> {
-    if delta.len() < 5 || delta[0] != 1 {
-        return None;
-    }
-    let count = u32::from_le_bytes(delta[1..5].try_into().ok()?) as usize;
-    if delta.len() < 5 + count * 72 + 4 {
-        return None;
-    }
-    let mut entities = Vec::with_capacity(count);
-    for i in 0..count {
-        let b = 5 + i * 72;
-        entities.push(DeltaEntity {
-            id: i64::from_le_bytes(delta[b..b + 8].try_into().ok()?),
-            pos: [
-                f64::from_le_bytes(delta[b + 8..b + 16].try_into().ok()?),
-                f64::from_le_bytes(delta[b + 16..b + 24].try_into().ok()?),
-                f64::from_le_bytes(delta[b + 24..b + 32].try_into().ok()?),
-            ],
-        });
-    }
-    let bc_off = 5 + count * 72;
-    let bullets = u32::from_le_bytes(delta[bc_off..bc_off + 4].try_into().ok()?) as usize;
-    let bullet_end = bc_off + 4 + bullets * 32;
-    if delta.len() < bullet_end {
-        return None;
-    }
-    Some((
-        delta[0] as u32,
-        entities,
-        bullets as u32,
-        bc_off,
-        bullet_end,
-    ))
-}
-
-/// Interest management for one viewer (Phase E): entities inside
-/// `near_radius` are always visible; those inside `far_radius` ride every
-/// `skip_ticks`-th tick; everything beyond `far_radius` is culled. The viewer
-/// and its own projectiles are never culled. The KD-tree is keyed by entity
-/// slot index, not player id, so negative (bot) ids cannot collide.
-fn filter_delta_for_viewer(
-    entities: &[DeltaEntity],
-    bullet_count: u32,
-    bullets_range: (usize, usize),
-    delta: &[u8],
-    viewer_id: i64,
-    viewer_pos: Option<[f64; 3]>,
-    tick: u64,
-    aoi: &crate::config::AoiConfig,
-    out: &mut Vec<u8>,
-) {
-    let mut visible: Vec<bool> = vec![false; entities.len()];
-    match viewer_pos {
-        None => visible.iter_mut().for_each(|v| *v = true),
-        Some(vp) => {
-            let mut index = engine_spatial::SpatialIndex3D::new();
-            for (i, e) in entities.iter().enumerate() {
-                index.insert(i as u32, e.pos);
-            }
-            for r in index.query_radius(vp, aoi.near_radius) {
-                let idx = r.entity_id as usize;
-                if idx < entities.len() {
-                    visible[idx] = true;
-                }
-            }
-            if aoi.skip_ticks <= 1 || tick % aoi.skip_ticks == 0 {
-                for r in index.query_radius(vp, aoi.far_radius.max(aoi.near_radius)) {
-                    let idx = r.entity_id as usize;
-                    if idx < entities.len() {
-                        visible[idx] = true;
-                    }
-                }
-            }
-        }
-    }
-
-    // The viewer always sees itself, even before its first position lands.
-    for (i, e) in entities.iter().enumerate() {
-        if e.id == viewer_id {
-            visible[i] = true;
-        }
-    }
-
-    let vis_count = visible.iter().filter(|v| **v).count() as u32;
-    let (bo, be) = bullets_range;
-    out.clear();
-    out.reserve(5 + vis_count as usize * 72 + 4 + (be - bo));
-    out.push(1); // FORMAT_VERSION stays 1 — the client only knows this layout
-    out.extend_from_slice(&vis_count.to_le_bytes());
-    for i in 0..entities.len() {
-        if visible[i] {
-            let b = 5 + i * 72;
-            out.extend_from_slice(&delta[b..b + 72]);
-        }
-    }
-
-    let mut vis_bullets: Vec<usize> = Vec::new();
-    for idx in 0..bullet_count as usize {
-        let b = bo + idx * 32;
-        if b + 32 > be {
-            break;
-        }
-        let owner = i64::from_le_bytes(delta[b + 24..b + 32].try_into().unwrap_or([0; 8]));
-        let keep = owner == viewer_id
-            || viewer_pos.map_or(true, |vp| {
-                let bx = f64::from_le_bytes(delta[b..b + 8].try_into().unwrap_or([0; 8]));
-                let by = f64::from_le_bytes(delta[b + 8..b + 16].try_into().unwrap_or([0; 8]));
-                let bz = f64::from_le_bytes(delta[b + 16..b + 24].try_into().unwrap_or([0; 8]));
-                (bx - vp[0]) * (bx - vp[0]) + (by - vp[1]) * (by - vp[1]) + (bz - vp[2]) * (bz - vp[2])
-                    <= aoi.bullet_radius * aoi.bullet_radius
-            });
-        if keep {
-            vis_bullets.push(b);
-        }
-    }
-    out.extend_from_slice(&(vis_bullets.len() as u32).to_le_bytes());
-    for b in vis_bullets {
-        out.extend_from_slice(&delta[b..b + 32]);
-    }
-}
-
-/// Stamp and fragment a delta body for the `game-unreliable` DataChannel: one
-/// UDP datagram per frame, each carrying the room-wide `seq` and the `tick` it
-/// belongs to.
-///
-/// Returns the number of frames written. Zero means "this client did not get
-/// this delta over WebRTC" — no open channel, or a body too large to carry — and
-/// the caller falls back to the WebSocket, which is already ordered and
-/// reliable and needs no stamping.
-///
-/// A partially sent delta is reported as zero. Retrying it is pointless: the
-/// next tick supersedes it, so an incomplete body is worthless, and the frames
-/// that did go out are cleaned up by the receiver's fragment expiry.
-fn send_delta_framed(
-    webrtc_server: &mut Option<WebRtcServer>,
-    session: &str,
-    seq: u16,
-    tick: u32,
-    body: &[u8],
-    scratch: &mut Vec<u8>,
-) -> usize {
-    let Some(srv) = webrtc_server.as_mut() else {
-        return 0;
-    };
-    let Some(total) = engine_webrtc_protocol::delta_fragment_count(body.len()) else {
-        eprintln!(
-            "[server] ⚠️ delta body {} B exceeds the channel max {} B — dropped",
-            body.len(),
-            engine_webrtc_protocol::MAX_DELTA_BODY
-        );
-        return 0;
-    };
-    let mut sent = 0usize;
-    for (idx, chunk) in body.chunks(engine_webrtc_protocol::MAX_DELTA_CHUNK).enumerate() {
-        engine_webrtc_protocol::write_delta_frame(scratch, seq, tick, idx as u8, total, chunk);
-        if srv.send_unreliable(session, scratch) {
-            sent += 1;
-        }
-    }
-    if sent == total as usize { sent } else { 0 }
-}
-
-/// Record that a client holds a reliable frame.
-///
-/// Forward-only: SCTP can re-deliver and a client that reconnects may replay an
-/// old ack, so the high-water mark is what a resync would resume from, not the
-/// last number that arrived.
-fn record_channel_ack(room: &mut GameRoom, client_id: &str, ack: engine_webrtc_protocol::Ack) {
-    let slot = room.acked_event_seq.entry(client_id.to_string()).or_insert(ack.seq);
-    if engine_webrtc_protocol::is_newer(*slot, ack.seq) {
-        *slot = ack.seq;
-    }
-}
+use crate::netcode;
+use crate::rooms::{self, GameServer};
 
 /// Pre-framed spectator "you are watching" confirm: `["delta"]` with id 0.
 const SPECTATOR_CONFIRM: &[u8] = &[0xA5, b'd', b'e', b'l', b't', b'a', 0, 0, 0, 0, 0, 0, 0, 0];
+
 /// Strip the msgpack type header from an inbound ROOM_DATA_BYTES payload:
 /// payload = [msgpack str][data...] -> returns the data part.
 fn strip_type_header(payload: &[u8]) -> Option<&[u8]> {
@@ -812,11 +147,15 @@ fn safe_relative(sub: &str) -> Option<&Path> {
     }
 }
 
+/// All rooms + the pre-instantiated room template (hot-swappable).
+/// Lives in [`crate::rooms`] (agent A4); `host.rs` drives it through its
+/// `get_or_create` / `hot_reload` lifecycle API.
+
 /// Run the server until killed.
 pub fn run(
     project_dir: &Path,
     wasm_path: &Path,
-    cfg: &crate::config::GameConfig,
+    cfg: &engine_config::GameConfig,
 ) -> std::io::Result<()> {
     // ------------------------------------------------------------------
     // Website over engine-http.
@@ -825,7 +164,7 @@ pub fn run(
     let website = if website_path.exists() {
         std::fs::read(&website_path)?
     } else {
-        include_bytes!("../crates/engine-net/examples/e2e/website.html").to_vec()
+        include_bytes!("../../engine-net/examples/e2e/website.html").to_vec()
     };
     let sdk_js = std::fs::read(cfg.sdk_dir.join("packages/sdk/dist/colyseus.js"))
         .unwrap_or_default();
@@ -838,7 +177,7 @@ pub fn run(
     let openoxide_js = if openoxide_js_path.exists() {
         std::fs::read(&openoxide_js_path).unwrap_or_default()
     } else {
-        include_bytes!("../examples/tank-3d/openoxide.js").to_vec()
+        include_bytes!("../../../examples/tank-3d/openoxide.js").to_vec()
     };
 
 
@@ -857,10 +196,15 @@ pub fn run(
         wasm_bytes.len()
     );
 
+    // Who owns the website port: if the control plane is configured to listen on
+    // `web_port`, Axum serves the statics and this transport must not bind — or
+    // hook — it. Otherwise the legacy in-transport HTTP hook stays in charge.
+    let control_owns_web = cfg.control.enabled && cfg.control.api_port == cfg.web_port;
+
     let mut addrs = vec![
         format!("0.0.0.0:{}", cfg.port).parse::<SocketAddr>().unwrap()
     ];
-    if cfg.web_port != cfg.port {
+    if cfg.web_port != cfg.port && !control_owns_web {
         addrs.push(format!("0.0.0.0:{}", cfg.web_port).parse::<SocketAddr>().unwrap());
     }
 
@@ -911,7 +255,7 @@ pub fn run(
     let rooms_meta = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(String, usize, usize)>::new()));
     let rooms_meta_http = rooms_meta.clone();
 
-    transport.on_http(move |raw_path| {
+    let http_hook = move |raw_path: &str| {
         let path = raw_path.split('?').next().unwrap_or(raw_path);
         // Uncontended by design: one transport thread serves all static hits.
         let mut cache = cache_hook.lock().ok()?;
@@ -980,7 +324,16 @@ pub fn run(
             }
             _ => None,
         }
-    });
+    };
+
+    if control_owns_web {
+        eprintln!(
+            "[server] 🏛️  port {} is the Axum control plane's; in-transport static hook skipped",
+            cfg.web_port
+        );
+    } else {
+        transport.on_http(http_hook);
+    }
 
     for addr in transport.bound_addrs() {
         eprintln!(
@@ -1048,17 +401,11 @@ pub fn run(
     let wasm_module = runtime.compile(&wasm_bytes).expect("compile room");
     // Link + pre-instantiate once; every room spawn after this is one
     // `InstancePre::instantiate` instead of rebuilding 12 host imports.
-    let linker = build_host_linker(&runtime, cfg.permissions);
+    let linker = rooms::build_host_linker(&runtime, cfg.permissions);
     let pre = runtime
         .prepare(&linker, &wasm_module)
         .expect("pre-instantiate room module");
-    let mut server = GameServer {
-        pre,
-        max_clients: cfg.max_clients,
-        physics,
-        rooms: HashMap::new(),
-        permissions: cfg.permissions,
-    };
+    let mut server = GameServer::new(pre, cfg.max_clients, physics, cfg.permissions);
 
     let mut last_tick = Instant::now();
     let tick_interval = Duration::from_secs_f64(1.0 / cfg.tick_rate.max(1) as f64);
@@ -1116,13 +463,7 @@ pub fn run(
                                 60.0 + ((n as f64) * 61.0) % (cfg.height - 120.0),
                             )
                         };
-                        let id = room.next_player_id;
-                        room.next_player_id += 1;
-                        if let Err(e) = room.wasm.on_join(id, x, y) {
-                            eprintln!("[server] ⚠️ guest on_join error for player {id}: {e}");
-                        }
-                        room.voice_room.join_participant(id as u32, Some(1), [x, 0.0, y]);
-                        room.sessions.insert(client_id.to_string(), id);
+                        let id = room.join(&client_id, x, y);
                         eprintln!("[server] {client_id} joined room '{room_name}' (player id {id})");
                     }
                     let _ = transport.flush();
@@ -1136,12 +477,10 @@ pub fn run(
                     let Some(room) = server.rooms.get_mut(room_name) else {
                         continue;
                     };
-                    room.spectators.remove(&*client_id);
-                    room.acked_event_seq.remove(&*client_id);
                     // A WebRTC peer that vanishes with its socket has to be
                     // announced, otherwise the rest of the mesh keeps
                     // re-negotiating with an id nobody answers.
-                    if let Some(gone) = room.voice_mesh.leave_session(&client_id) {
+                    if let Some(gone) = room.handle_disconnect(&client_id) {
                         announce_voice_peer_change(
                             &mut transport,
                             &mut room.voice_mesh,
@@ -1149,16 +488,8 @@ pub fn run(
                             gone,
                         );
                     }
-                    if let Some(id) = room.sessions.remove(&*client_id) {
-                        let _ = room.wasm.on_leave(id);
-                        room.voice_room.leave_participant(id as u32);
-                        room.last_input_seq.remove(&*client_id);
-                    room.input_journal.retain(|j| j.session != &*client_id);                    }
                     if let Some(ref mut srv) = webrtc_server {
                         srv.remove_session(&client_id);
-                    }
-                    if room.sessions.is_empty() && room.spectators.is_empty() {
-                        room.empty_since = Some(Instant::now());
                     }
                 }
                 TransportEvent::Packet {
@@ -1188,10 +519,7 @@ pub fn run(
 
                     // Spectator Upgrade Handshake: [0xFF, 'S', 'P', 'E', 'C']
                     if data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC" {
-                        if let Some(id) = room.sessions.remove(&*client_id) {
-                            let _ = room.wasm.on_leave(id);
-                        }
-                        room.spectators.insert(client_id.to_string());
+                        room.make_spectator(&client_id);
                         eprintln!("[server] 👁️  {client_id} upgraded to SPECTATOR in room '{room_name}'");
                         let _ = transport.send_to(&client_id, OpCode::RoomDataBytes, SPECTATOR_CONFIRM);
                         continue;
@@ -1403,7 +731,7 @@ pub fn run(
                     // Checked before the guest pass-through so a 4-byte ack never
                     // reaches `on_input` as if it were game input.
                     if let Some(ack) = engine_webrtc_protocol::parse_ack(data) {
-                        record_channel_ack(room, &client_id, ack);
+                        netcode::record_channel_ack(room, &client_id, ack);
                         continue;
                     }
 
@@ -1444,7 +772,7 @@ pub fn run(
                             // + Phase F: a genuinely late seq rewinds and replays instead of dropping.
                             let mut payload_20 = [0u8; 20];
                             payload_20.copy_from_slice(&data[3..23]);
-                            apply_input(
+                            netcode::apply_input(
                                 room,
                                 cfg,
                                 tick_interval.as_secs_f64(),
@@ -1493,14 +821,12 @@ pub fn run(
                         eprintln!("[server-udp] 👁️  {peer_addr} connected as SPECTATOR via UDP");
                         let _ = udp_sock.send_to(SPECTATOR_CONFIRM, peer_addr);
                     } else {
-                        let id = room.next_player_id;
-                        room.next_player_id += 1;
                         let n = room.sessions.len() + udp_peers.len();
                         let (x, y) = (
                             60.0 + ((n as f64) * 97.0) % (cfg.width - 120.0),
                             60.0 + ((n as f64) * 61.0) % (cfg.height - 120.0),
                         );
-                        let _ = room.wasm.on_join(id, x, y);
+                        let id = room.add_raw_player(x, y);
                         udp_peers.insert(peer_addr, (id, Instant::now()));
                         eprintln!("[server-udp] {peer_addr} joined room via UDP (player id {id})");
 
@@ -1514,7 +840,7 @@ pub fn run(
                 } else if let Some((id, last_seen)) = udp_peers.get_mut(&peer_addr) {
                     *last_seen = Instant::now();
                     if is_spec_handshake && *id != 0 {
-                        let _ = room.wasm.on_leave(*id);
+                        room.remove_raw_player(*id);
                         *id = 0;
                         eprintln!("[server-udp] 👁️  {peer_addr} upgraded to SPECTATOR via UDP");
                     } else if *id > 0 && !data.is_empty() {
@@ -1557,66 +883,60 @@ pub fn run(
                     WebRtcServerEvent::ChannelOpen { client_id, label } => {
                         eprintln!("[server] ⚡ WebRTC DataChannel '{label}' open for client {client_id}");
                     }
-                    WebRtcServerEvent::Message { client_id, channel_label: _, data } => {
-                        let room = server.get_or_create(&cfg.name);
-                        let Some(&id) = room.sessions.get(&*client_id) else { continue; };
-
-                        // 1. Unreliable 50Hz Movement Input: [0x01, ...]
-                        if data.len() == engine_webrtc_protocol::INPUT_WIRE_LEN && data[0] == engine_webrtc_protocol::OP_INPUT {
-                            if let Ok(input) = engine_webrtc_protocol::InputFrame::decode(&data) {
-                                if input.seq % 120 == 1 {
-                                    eprintln!("[server] ⚡ WebRTC UDP input stream active for player {id} (seq {})", input.seq);
-                                }
-                                let mut payload_20 = [0u8; 20];
-                                payload_20.copy_from_slice(&data[3..23]);
-                                apply_input(
-                                    room,
-                                    cfg,
-                                    tick_interval.as_secs_f64(),
-                                    &client_id,
-                                    id,
-                                    input.seq,
-                                    &payload_20,
-                                );
-                            }
-                        }
-                        // 2. Reliable Ordered Event Frame: [0x03, ...]
-                        else if data.len() == engine_webrtc_protocol::EVENT_WIRE_LEN && data[0] == engine_webrtc_protocol::OP_EVENT {
-                            if let Ok(mut event) = engine_webrtc_protocol::EventFrame::decode(&data) {
-                                room.event_seq = room.event_seq.wrapping_add(1);
-                                event.seq = room.event_seq;
-                                event.from = id as u16;
-
-                                let mut wire_event = Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
-                                engine_webrtc_protocol::encode_event(&event, &mut wire_event);
-
-                                if event.kind == engine_webrtc_protocol::EventKind::Fire {
-                                    let fire_payload = 16u32.to_le_bytes();
-                                    if let Ok(ptr) = room.wasm.on_alloc(4) {
-                                        let _ = room.wasm.write_memory(ptr as u32, &fire_payload);
-                                        let _ = room.wasm.on_input(id, ptr, 4);
-                                    }
-                                }
-
-                                // Broadcast event over reliable WebRTC DataChannel to everyone else
-                                srv.broadcast_reliable(&wire_event);
-
-                                // Also forward to WebSocket clients that haven't transitioned yet
-                                for (cid, &pid) in &room.sessions {
-                                    if pid != id && !srv.is_connected(cid) {
-                                        let _ = transport.send_to(cid, OpCode::RoomDataBytes, &wire_event);
-                                    }
-                                }
-                            }
-                        }
-                        // 3. Delivery ack for a reliable frame: [0x06, seq_u16, kind_u8]
-                        else if let Some(ack) = engine_webrtc_protocol::parse_ack(&data) {
-                            record_channel_ack(room, &client_id, ack);
-                        }
-                    }
+                    // Bytes arrive classified against their lane from
+                    // `poll_inbound` below; this event still fires for hosts that
+                    // parse raw payloads, and doubling up here would apply an
+                    // input twice.
+                    WebRtcServerEvent::Message { .. } => {}
                     WebRtcServerEvent::Disconnected { client_id } => {
                         eprintln!("[server] WebRTC disconnected for client {client_id}");
                     }
+                }
+            }
+
+            // Lane-classified client frames. The transport decided which channel
+            // each frame came in on: an ack that arrives on `game-unreliable` is
+            // `Refused` rather than `Ack`, because that lane cannot prove delivery.
+            for (client_id, msg) in srv.poll_inbound() {
+                let room = server.get_or_create(&cfg.name);
+                let Some(&id) = room.sessions.get(&*client_id) else { continue; };
+                match msg {
+                    Inbound::Input { seq, payload, resupplied } => {
+                        if !resupplied && seq % 120 == 1 {
+                            eprintln!("[server] ⚡ WebRTC UDP input stream active for player {id} (seq {seq})");
+                        }
+                        netcode::apply_input(room, cfg, tick_interval.as_secs_f64(), &client_id, id, seq, &payload);
+                    }
+                    Inbound::Event { raw } => {
+                        let Ok(mut event) = engine_webrtc_protocol::EventFrame::decode(&raw) else {
+                            continue;
+                        };
+                        room.event_seq = room.event_seq.wrapping_add(1);
+                        event.seq = room.event_seq;
+                        event.from = id as u16;
+
+                        let mut wire_event = Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
+                        engine_webrtc_protocol::encode_event(&event, &mut wire_event);
+
+                        if event.kind == engine_webrtc_protocol::EventKind::Fire {
+                            let fire_payload = 16u32.to_le_bytes();
+                            if let Ok(ptr) = room.wasm.on_alloc(4) {
+                                let _ = room.wasm.write_memory(ptr as u32, &fire_payload);
+                                let _ = room.wasm.on_input(id, ptr, 4);
+                            }
+                        }
+
+                        srv.broadcast_reliable(&wire_event);
+
+                        // Also forward to WebSocket clients that haven't transitioned yet
+                        for (cid, &pid) in &room.sessions {
+                            if pid != id && !srv.is_connected(cid) {
+                                let _ = transport.send_to(cid, OpCode::RoomDataBytes, &wire_event);
+                            }
+                        }
+                    }
+                    Inbound::Ack(ack) => netcode::record_channel_ack(room, &client_id, ack),
+                    Inbound::Other { .. } | Inbound::Refused(_) => {}
                 }
             }
         }
@@ -1660,30 +980,15 @@ pub fn run(
                 dead_rooms.clear();
 
                 for (name, room) in server.rooms.iter_mut() {
-                    room.current_tick += 1;
-                    // Rule 5: Fault-isolated simulation tick (trap doesn't crash server)
-                    let packed = match room.wasm.on_tick(dt) {
+                    // Rule 5: Fault-isolated simulation tick (trap doesn't crash
+                    // server); the Phase F checkpoint rides inside `GameRoom::tick`.
+                    let packed = match room.tick(dt, cfg.rollback.enabled) {
                         Ok(p) => p,
                         Err(e) => {
                             eprintln!("[server] ⚠️ guest trap during on_tick in room '{name}': {e}");
                             continue;
                         }
                     };
-
-                    // Phase F checkpoint: the guest serializes its own state
-                    // (tiny blob) — no raw linear-memory copy in the host.
-                    if cfg.rollback.enabled {
-                        let packed_state = room.wasm.on_save().expect("wasm on_save");
-                        let sptr = ((packed_state >> 32) as u32) as usize;
-                        let slen = (packed_state as u32) as usize;
-                        let blob = room
-                            .wasm
-                            .read_memory(sptr as u32, slen as u32)
-                            .expect("read save blob");
-                        let _ = room
-                            .rollback_buffer
-                            .save_blob(u64::from(room.current_tick), blob);
-                    }
                     let ptr = ((packed >> 32) as u32) as usize;
                     let len = (packed as u32) as usize;
 
@@ -1712,7 +1017,7 @@ pub fn run(
                     room.delta_seq = room.delta_seq.wrapping_add(1);
                     let delta_seq = room.delta_seq;
                     let aoi_sections = if cfg.aoi.enabled {
-                        parse_delta_sections(delta)
+                        netcode::parse_delta_sections(delta)
                     } else {
                         None
                     };
@@ -1741,7 +1046,7 @@ pub fn run(
                     for (session, id) in &room.sessions {
                         if let Some((_, entities, bullet_count, bc_off, bullet_end)) = &aoi_sections {
                             let viewer_pos = entities.iter().find(|e| e.id == *id).map(|e| e.pos);
-                            filter_delta_for_viewer(
+                            netcode::filter_delta_for_viewer(
                                 entities,
                                 *bullet_count,
                                 (*bc_off + 4, *bullet_end),
@@ -1753,19 +1058,13 @@ pub fn run(
                                 &mut filtered_buf,
                             );
                             let acked_seq = room.last_input_seq.get(session).copied().unwrap_or(0);
-                            wrap_delta_into(&mut delta_body, *id, &filtered_buf, acked_seq, server_tick_u32);
+                            netcode::wrap_delta_into(&mut delta_body, *id, &filtered_buf, acked_seq, server_tick_u32);
                         } else {
                             let acked_seq = room.last_input_seq.get(session).copied().unwrap_or(0);
-                            wrap_delta_into(&mut delta_body, *id, delta, acked_seq, server_tick_u32);
+                            netcode::wrap_delta_into(&mut delta_body, *id, delta, acked_seq, server_tick_u32);
                         }
-                        let framed = send_delta_framed(
-                            &mut webrtc_server,
-                            session,
-                            delta_seq,
-                            server_tick_u32,
-                            &delta_body,
-                            &mut frame_buf,
-                        );
+                        let framed =
+                            netcode::send_delta_framed(&mut webrtc_server, session, delta_seq, server_tick_u32, &delta_body);
                         if framed == 0 {
                             let _ = transport.send_to(session, OpCode::RoomDataBytes, &delta_body);
                         }
@@ -1784,15 +1083,14 @@ pub fn run(
                     // ride the same stamped channel as players, so a spectator
                     // also drops superseded frames instead of drawing them.
                     if !room.spectators.is_empty() {
-                        wrap_delta_into(&mut delta_body, 0, delta, 0, server_tick_u32);
+                        netcode::wrap_delta_into(&mut delta_body, 0, delta, 0, server_tick_u32);
                         for spec_session in &room.spectators {
-                            let framed = send_delta_framed(
+                            let framed = netcode::send_delta_framed(
                                 &mut webrtc_server,
                                 spec_session,
                                 delta_seq,
                                 server_tick_u32,
                                 &delta_body,
-                                &mut frame_buf,
                             );
                             if framed == 0 {
                                 let _ =
@@ -1806,20 +1104,14 @@ pub fn run(
                     // directly and the channel layer is WebRTC-only for now.
                     if let Some(ref udp_sock) = udp_socket {
                         for (&peer_addr, &(id, _)) in &udp_peers {
-                            wrap_delta_into(&mut frame_buf, id, delta, 0, server_tick_u32);
+                            netcode::wrap_delta_into(&mut frame_buf, id, delta, 0, server_tick_u32);
                             let _ = udp_sock.send_to(&frame_buf, peer_addr);
                         }
                     }
                 }
 
-                if room.sessions.is_empty() && room.spectators.is_empty() && udp_peers.is_empty() {
-                    match room.empty_since {
-                        Some(t) if t.elapsed() > Duration::from_secs(30) => {
-                            dead_rooms.push(name.clone());
-                        }
-                        Some(_) => {}
-                        None => room.empty_since = Some(Instant::now()),
-                    }
+                if udp_peers.is_empty() && room.reap_check(Duration::from_secs(30)) {
+                    dead_rooms.push(name.clone());
                 }
             }
         }
@@ -1839,7 +1131,7 @@ pub fn run(
                 eprintln!("[server-udp] disconnected (timeout): {addr}");
                 if id > 0 {
                     if let Some(room) = server.rooms.get_mut(&cfg.name) {
-                        let _ = room.wasm.on_leave(id);
+                        room.remove_raw_player(id);
                     }
                 }
             }
@@ -1874,6 +1166,10 @@ pub fn run(
                         "[server] 📝 Detected change in {} — recompiling room logic...",
                         cfg.source.display()
                     );
+                    // Dangling until integration: the TS→wasm room compiler
+                    // (`src/compile.rs`) has not been assigned a crate; this
+                    // call site must be re-pointed (or the whole hot-reload
+                    // block lifted into a `engine-compile`-backed helper).
                     match crate::compile::build(project_dir, cfg) {
                         Ok(_) => {
                             loaded_src_time = Some(src_current);
@@ -1895,42 +1191,20 @@ pub fn run(
                         match runtime
                             .compile(&bytes)
                             .and_then(|module| {
-                                let linker = build_host_linker(&runtime, server.permissions);
+                                let linker = rooms::build_host_linker(&runtime, server.permissions);
                                 runtime.prepare(&linker, &module)
                             }) {
                             Ok(pre) => {
-                                server.pre = pre;
                                 loaded_wasm_time = Some(current);
                                 eprintln!(
                                     "[server] 🔥 DEV HOT-RELOAD: room logic updated ({} bytes)!",
                                     bytes.len()
                                 );
 
-                                // 🔥 Hot-swap all actively running rooms without disconnecting players!
-                                for (room_name, room) in &mut server.rooms {
-                                    let physics = room.wasm.data().clone();
-                                    match RoomLogic::from_pre(&server.pre, physics) {
-                                        Ok(mut new_wasm) => {
-                                            let _ = new_wasm.on_create(server.max_clients);
-                                            // Re-join active players so state is maintained seamlessly
-                                            for (_sid, &pid) in &room.sessions {
-                                                let (x, y) = (
-                                                    60.0 + ((pid as f64) * 97.0) % (cfg.width - 120.0),
-                                                    60.0 + ((pid as f64) * 61.0) % (cfg.height - 120.0),
-                                                );
-                                                let _ = new_wasm.on_join(pid, x, y);
-                                            }
-                                            room.wasm = new_wasm;
-                                            eprintln!(
-                                                "[server] 🔄 Room '{room_name}' hot-reloaded with {} active players!",
-                                                room.sessions.len()
-                                            );
-                                        }
-                                        Err(e) => {
-                                            eprintln!("[server] ⚠️ Failed to re-instantiate room '{room_name}': {e}");
-                                        }
-                                    }
-                                }
+                                // 🔥 Hot-swap all actively running rooms without
+                                // disconnecting players (`GameRoom::reload_wasm`
+                                // re-joins every active player per room).
+                                server.hot_reload(pre, cfg.width, cfg.height);
                             }
                             Err(e) => {
                                 eprintln!("[server] ⚠️ hot-reload compilation failed: {e}");

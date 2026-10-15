@@ -131,11 +131,24 @@
     const DELTA_HEADER_LEN = 9; // [op][seq u16][tick u32][fragIdx u8][fragTotal u8]
     const ACK_WIRE_LEN = 4;     // [op][seq u16][kind u8]
     const MAX_DELTA_CHUNK = MESH_MAX_FRAME - DELTA_HEADER_LEN;
+    const MAX_FRAGMENTS = 255;  // width of frag_total (u8), parity with Rust
     const FRAGMENT_TTL_MS = 3000;
+    // Phase D reconciliation tail the server appends to every room delta:
+    // [acked_seq u16][server_tick u32]. `wrap_delta_into` writes it, this reads it.
+    const DELTA_TAIL_LEN = 6;
+    // How many half-assembled deltas may sit at once. A supersession normally
+    // retires them within a tick or two; more than this means a stalled link,
+    // and the excess is evicted rather than growing without bound.
+    const MAX_INFLIGHT_DELTAS = 8;
 
     /** `null` for anything that is not a well-formed delta frame. */
     function parseDeltaFrame(bytes) {
         if (!bytes || bytes.length < DELTA_HEADER_LEN || bytes[0] !== ChannelOp.DELTA) return null;
+        // Rust `send_frame`/`split_delta` refuse anything past the path MTU, so a
+        // longer frame is either corruption or a hostile sender. Accepting it
+        // would let one grow the reassembly buffer far beyond what the wire
+        // contract allows.
+        if (bytes.length > MESH_MAX_FRAME) return null;
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const fragIdx = bytes[7];
         const fragTotal = bytes[8];
@@ -174,19 +187,22 @@
      *
      * `push(frame)` returns `{ seq, tick, body }` exactly once per delta — when
      * its last chunk closes it — and `null` for a stale frame, an incomplete one,
-     * or both. Interleaving is resolved by supersession rather than by holding
-     * several messages at once: if chunks of tick 10 arrive while tick 11 is
-     * half-assembled, tick 10 wins the slot and tick 11 is thrown away. That is a
-     * deliberate trade — a delta nobody has asked for yet is worth less than the
-     * newest delta we do have.
+     * or both. Unlike the Rust `FragmentAssembler`, which keeps a single slot and
+     * so throws away tick 11's chunks when tick 10's arrive, this receiver lets
+     * several deltas be in flight at once: with `ordered: false` the chunks of
+     * tick 41 genuinely interleave with tick 40's, and closing 40 first should
+     * not cost us 41's progress. Supersession still wins — once seq S is applied,
+     * every buffered set that S overtakes can never be applied, so its chunks are
+     * dropped immediately and later fragments of those sets count as stale.
      */
     class DeltaSequencer {
         constructor(nowFn) {
             this.nowFn = nowFn || (() => Date.now());
             this.newest = null;
-            this.partial = null;
+            this.partials = new Map(); // seq -> { seq, tick, total, parts, received, at }
             this.staleCount = 0;
             this.assembledCount = 0;
+            this.expiredCount = 0;
         }
 
         push(frame) {
@@ -198,20 +214,27 @@
             const now = this.nowFn();
 
             if (frame.fragTotal === 1) {
-                this.newest = frame.seq;
-                this.partial = null;
-                this.assembledCount++;
+                this._apply(frame.seq);
                 return { seq: frame.seq, tick: frame.tick, body: frame.chunk };
             }
 
-            if (!this.partial || this.partial.seq !== frame.seq) {
-                this.partial = {
+            let p = this.partials.get(frame.seq);
+            // A changed frag_total for the same seq means the server restarted
+            // the delta; the old geometry can never be completed honestly.
+            if (p && p.total !== frame.fragTotal) {
+                this.partials.delete(frame.seq);
+                p = null;
+            }
+            if (!p) {
+                if (this.partials.size >= MAX_INFLIGHT_DELTAS) this._evictStalest();
+                p = {
                     seq: frame.seq, tick: frame.tick, total: frame.fragTotal,
                     parts: new Array(frame.fragTotal), received: 0, at: now,
                 };
+                this.partials.set(frame.seq, p);
             }
-            const p = this.partial;
             p.at = now;
+            // Duplicate chunk of a live set: place it once, count it once.
             if (p.parts[frame.fragIdx] === undefined) {
                 p.parts[frame.fragIdx] = frame.chunk;
                 p.received++;
@@ -223,19 +246,48 @@
             const body = new Uint8Array(len);
             let off = 0;
             for (const part of p.parts) { body.set(part, off); off += part.length; }
-            this.newest = frame.seq;
-            this.partial = null;
-            this.assembledCount++;
-            return { seq: p.seq, tick: p.tick, body };
+            const applied = { seq: p.seq, tick: p.tick, body };
+            this.partials.delete(frame.seq);
+            this._apply(frame.seq);
+            return applied;
         }
 
-        /** Forgets a half-received delta that stopped making progress. */
-        cleanup() {
-            if (this.partial && this.nowFn() - this.partial.at > FRAGMENT_TTL_MS) {
-                this.partial = null;
-                return true;
+        /** Makes `seq` the authoritative delta and retires everything it supersedes. */
+        _apply(seq) {
+            this.newest = seq;
+            for (const s of this.partials.keys()) {
+                if (!isNewerSeq(seq, s)) this.partials.delete(s);
             }
-            return false;
+            this.assembledCount++;
+        }
+
+        /**
+         * Frees room for a new set by dropping the one that has progressed least
+         * recently — with `p.at` refreshed by every chunk, that is the stalled one.
+         */
+        _evictStalest() {
+            let victim = null;
+            for (const [s, p] of this.partials) {
+                if (victim === null || p.at < this.partials.get(victim).at) victim = s;
+            }
+            if (victim !== null) {
+                this.partials.delete(victim);
+                this.expiredCount++;
+            }
+        }
+
+        /** Forgets half-received deltas that stopped making progress past the TTL. */
+        cleanup() {
+            const now = this.nowFn();
+            let expired = false;
+            for (const [s, p] of this.partials) {
+                if (now - p.at > FRAGMENT_TTL_MS) {
+                    this.partials.delete(s);
+                    this.expiredCount++;
+                    expired = true;
+                }
+            }
+            return expired;
         }
     }
 
@@ -377,12 +429,36 @@
             this.rtt = 0;
             this.jitter = 0;
             this._pingLoopTimer = null;
+            // PingManager full port: rolling window stats + in-flight tracking.
+            this._pingWindow = [];
+            this._pingWindowMax = 30;
+            this._oldestPendingSeq = null;
+            this._oldestPendingAt = 0;
+            this.rttMin = 0;
+            this.rttMax = 0;
 
             // Jitter buffer for smooth delta delivery (Lightyear-style margin)
             this.jitterBufferEnabled = false;
             this.jitterDelayMs = 80;
+            this.autoJitterBuffer = true;
             this._jitterQueue = [];
             this._jitterTimer = null;
+
+            // TimeSync: robust regression of arrival time against server tick.
+            this.timeSync = new OpenOxideTimeSync();
+            this.tickRate = 128;
+            this.clockOffsetMs = 0;
+            this.tickOriginMs = -1;
+            this.timeSync.setTickRate(this.tickRate);
+
+            // SeqFilter: newest-wins gate on the authoritative delta tick.
+            this.lastAppliedTick = -1;
+
+            // Interpolation timeline engine (game-agnostic pose buffer).
+            this._poseBuffers = new Map();
+            this._poseScratch = new Map();
+            this.poseBufferMax = 64;
+            this.extrapMaxAgeMs = 100;
             // WebRTC Client-Server DataChannels (str0m UDP star topology)
             this.serverPc = null;
             this.serverChUnreliable = null;
@@ -392,11 +468,14 @@
 
             // Server delta channel: newest-wins filter + fragment reassembler.
             // `deltaTick` is the authoritative tick the body describes, which is
-            // what interpolation reads; `staleDeltas` counts what we threw away.
+            // what interpolation reads; the counters mirror the sequencer's
+            // ledger for the HUD (see `deltaStats()`).
             this.deltas = new DeltaSequencer();
             this.deltaSeq = 0;
             this.deltaTick = 0;
             this.staleDeltas = 0;
+            this.reassembledDeltas = 0;
+            this.expiredDeltas = 0;
             this._fragmentTimer = null;
 
             this.timeline = null;
@@ -428,6 +507,10 @@
                 const sentAt = performance.now();
                 this._pendingPings.set(seq, sentAt);
                 this._pendingPingResolves.set(seq, resolve);
+                if (this._oldestPendingSeq == null || !this._pendingPings.has(this._oldestPendingSeq)) {
+                    this._oldestPendingSeq = seq;
+                    this._oldestPendingAt = sentAt;
+                }
                 const buf = new Uint8Array(5);
                 buf[0] = 18;
                 new DataView(buf.buffer).setUint32(1, seq, true);
@@ -444,8 +527,14 @@
 
         /** Continuously measure RTT/jitter. Results in room.rtt / room.jitter. */
         startPingLoop(intervalMs = 1000) {
+            this._pingIntervalMs = intervalMs;
             this.stopPingLoop();
-            this._pingLoopTimer = setInterval(() => this.ping(), intervalMs);
+            this._pingLoopTimer = setInterval(() => {
+                // Skip firing while a sample is still in flight (slow links / overlap).
+                if (this._pendingPings.size === 0) { this.ping(); return; }
+                if (performance.now() - this._oldestPendingAt > 2000) this._advanceOldestPending();
+                if (this._pendingPings.size === 0) this.ping();
+            }, intervalMs);
             this.ping();
         }
 
@@ -453,13 +542,64 @@
             if (this._pingLoopTimer) { clearInterval(this._pingLoopTimer); this._pingLoopTimer = null; }
         }
 
+        /** Drop a timed-out sample so the in-flight guard cannot stall the loop. */
+        _advanceOldestPending() {
+            this._pendingPings.delete(this._oldestPendingSeq);
+            this._pendingPingResolves.delete(this._oldestPendingSeq);
+            this._oldestPendingSeq = null;
+            for (const s of this._pendingPings.keys()) {
+                if (this._oldestPendingSeq == null) {
+                    this._oldestPendingSeq = s;
+                    this._oldestPendingAt = this._pendingPings.get(s);
+                } else if (this._pendingPings.get(s) < this._oldestPendingAt) {
+                    this._oldestPendingSeq = s;
+                    this._oldestPendingAt = this._pendingPings.get(s);
+                }
+            }
+        }
+
+        /**
+         * PingManager rolling-window stats on every [18] echo: rtt is an EWMA,
+         * jitter the mean absolute deviation of the last 30 samples, plus min/max.
+         * Also feeds the adaptive jitter-buffer delay.
+         */
+        _onPingEcho(seq, sentAt, now) {
+            const rtt = now - sentAt;
+            const w = this._pingWindow;
+            w.push(rtt);
+            if (w.length > this._pingWindowMax) w.shift();
+            let sum = 0, mn = Infinity, mx = -Infinity;
+            for (const s of w) { sum += s; if (s < mn) mn = s; if (s > mx) mx = s; }
+            const avg = sum / w.length;
+            let dev = 0;
+            for (const s of w) dev += Math.abs(s - avg);
+            dev /= w.length;
+            this.rttMin = Math.round(mn);
+            this.rttMax = Math.round(mx);
+            this.jitter = Math.round(dev);
+            const a = this.rtt === 0 ? 1 : 0.3;
+            this.rtt = Math.round(this.rtt === 0 ? avg : this.rtt * (1 - a) + avg * a);
+            if (this.autoJitterBuffer) {
+                this.jitterDelayMs = Math.max(20, Math.min(250, Math.round(2 * this.jitter + 8)));
+            }
+            const resolve = this._pendingPingResolves.get(seq);
+            if (resolve) { this._pendingPingResolves.delete(seq); resolve(rtt); }
+        }
+
         /**
          * Jitter buffer: deltas are delivered `delayMs` after arrival in FIFO
          * order, absorbing network bursts (Lightyear-style jitter margin).
          */
-        enableJitterBuffer(delayMs = 80) {
+        enableJitterBuffer(delayMs) {
             this.jitterBufferEnabled = true;
-            this.jitterDelayMs = delayMs;
+            // An explicit number is a manual override that pins the delay and
+            // turns the adaptive tuner off; omitting it leaves auto-tuning active.
+            if (delayMs != null) {
+                this.jitterDelayMs = delayMs;
+                this.autoJitterBuffer = false;
+            } else if (!this.autoJitterBuffer) {
+                this.jitterDelayMs = this.jitterDelayMs || 80;
+            }
             if (!this._jitterTimer) {
                 this._jitterTimer = setInterval(() => {
                     if (!this.jitterBufferEnabled) return;
@@ -520,6 +660,116 @@
             return this.timeline ? this.timeline.stats() : null;
         }
 
+        /**
+         * Clock offset / server timeline (TimeSync). `serverNow()` answers "what
+         * wall-clock is it on the server right now, in client performance.now()
+         * epoch"; `tickToTimeMs` / `timeToTick` map between the two through the
+         * fitted line. All updated lazily on each delta, zero extra traffic.
+         */
+        serverNow() {
+            const now = performance.now();
+            return this.timeSync.synced ? now + this.clockOffsetMs : now;
+        }
+
+        tickToTimeMs(tick) {
+            return this.timeSync.tickToTimeMs(tick);
+        }
+
+        timeToTick(t) {
+            return this.timeSync.timeToTick(t);
+        }
+
+        /**
+         * Record one pose snapshot for `id` at `serverTick` into a ≤64-entry ring,
+         * reusing the stored object to avoid GC churn. Older ticks are dropped once
+         * the ring is full and a same-tick retransmit simply overwrites in place.
+         */
+        bufferState(id, serverTick, poseObj) {
+            if (!Number.isFinite(serverTick)) return;
+            let buf = this._poseBuffers.get(id);
+            if (!buf) { buf = []; this._poseBuffers.set(id, buf); }
+            const last = buf.length ? buf[buf.length - 1] : null;
+            if (last && serverTick < last.tick) return; // superseded
+            if (last && last.tick === serverTick) {
+                copyPose(last.pose, poseObj);
+                return;
+            }
+            if (buf.length >= this.poseBufferMax) buf.shift();
+            const slot = { tick: serverTick, pose: {} };
+            buf.push(slot);
+            copyPose(slot.pose, poseObj);
+        }
+
+        /**
+         * Interpolated pose for `id` at `renderTimeMs`, or null before any snapshot.
+         * Render time is converted to a fractional tick through the fitted line, the
+         * bracketing snapshots are found, and every numeric field is lerped (mixed
+         * fields: numbers lerp, non-numbers keep the earlier snapshot's value). When
+         * render time is ahead of the newest snapshot it extrapolates along the last
+         * per-tick delta, clamped to 100 ms of age. The returned object is a per-id
+         * scratch that is reused on the next call — copy it if you must retain it.
+         */
+        sampleState(id, renderTimeMs) {
+            const buf = this._poseBuffers.get(id);
+            if (!buf || buf.length === 0) return null;
+            const target = this.timeSync.timeToTick(renderTimeMs);
+            const newest = buf[buf.length - 1];
+            if (target >= newest.tick) {
+                const out = this._scratchFor(id);
+                let extraTicks = target - newest.tick;
+                if (buf.length >= 2 && extraTicks > 0) {
+                    const prev = buf[buf.length - 2];
+                    const gap = newest.tick - prev.tick;
+                    if (gap > 0) {
+                        const maxExtraTicks = this.extrapMaxAgeMs / this.timeSync.msPerTick;
+                        if (extraTicks > maxExtraTicks) extraTicks = maxExtraTicks;
+                        this._blendPose(prev.pose, newest.pose, 1 + extraTicks / gap, out);
+                        return out;
+                    }
+                }
+                copyPose(out, newest.pose);
+                return out;
+            }
+            if (target <= buf[0].tick) {
+                const out = this._scratchFor(id);
+                copyPose(out, buf[0].pose);
+                return out;
+            }
+            let i = buf.length - 1;
+            while (i > 0 && buf[i].tick > target) i--;
+            const a = buf[i], b = buf[i + 1];
+            let alpha = (target - a.tick) / (b.tick - a.tick);
+            if (alpha < 0) alpha = 0; else if (alpha > 1) alpha = 1;
+            const out = this._scratchFor(id);
+            this._blendPose(a.pose, b.pose, alpha, out);
+            return out;
+        }
+
+        _scratchFor(id) {
+            let s = this._poseScratch.get(id);
+            if (!s) { s = {}; this._poseScratch.set(id, s); }
+            return s;
+        }
+
+        /** Blend two poses into `out`: numbers lerp by alpha, non-numbers keep the
+         *  earlier snapshot `a` (lower tick); keys unique to either side survive. */
+        _blendPose(a, b, alpha, out) {
+            for (const k in b) out[k] = b[k];
+            for (const k in a) {
+                const va = a[k], vb = b[k];
+                out[k] = (typeof va === 'number' && typeof vb === 'number')
+                    ? va + (vb - va) * alpha
+                    : va;
+            }
+            return out;
+        }
+
+        /** Drop every buffered pose and scratch state for one entity. */
+        forgetEntity(id) {
+            this._poseBuffers.delete(id);
+            this._poseScratch.delete(id);
+        }
+
         connect() {
             return new Promise((resolve, reject) => {
                 let cleanUrl = this.endpoint.endsWith('/') ? this.endpoint : `${this.endpoint}/`;
@@ -559,6 +809,9 @@
                     }
                     if (this.voice) this.voice.dispose();
                     this.stopPingLoop();
+                    this._pendingPings.clear();
+                    this._pendingPingResolves.clear();
+                    this._oldestPendingSeq = null;
                     if (this._jitterTimer) { clearInterval(this._jitterTimer); this._jitterTimer = null; }
                     if (this._fragmentTimer) { clearInterval(this._fragmentTimer); this._fragmentTimer = null; }
                     this.emit('close', ev);
@@ -759,14 +1012,8 @@
                 const sentAt = this._pendingPings.get(seq);
                 if (sentAt !== undefined) {
                     this._pendingPings.delete(seq);
-                    const rtt = performance.now() - sentAt;
-                    this._rttSamples.push(rtt);
-                    if (this._rttSamples.length > 20) this._rttSamples.shift();
-                    const avg = this._rttSamples.reduce((a, b) => a + b, 0) / this._rttSamples.length;
-                    this.rtt = Math.round(avg);
-                    this.jitter = Math.round(this._rttSamples.reduce((a, b) => a + Math.abs(b - avg), 0) / this._rttSamples.length);
-                    const resolveFn = this._pendingPingResolves.get(seq);
-                    if (resolveFn) { this._pendingPingResolves.delete(seq); resolveFn(rtt); }
+                    this._onPingEcho(seq, sentAt, performance.now());
+                    if (this._oldestPendingSeq === seq) this._advanceOldestPending();
                 }
                 return;
             }
@@ -785,8 +1032,10 @@
 
         /**
          * One stamped `game-unreliable` delta frame from the server star.
-         * Newest-wins supersession + fragment reassembly, mirroring
-         * engine_webrtc_protocol::channel::FragmentAssembler.
+         * Newest-wins supersession + fragment reassembly over the same wire
+         * format as engine_webrtc_protocol::channel::FragmentAssembler, with one
+         * deliberate difference: several deltas may reassemble concurrently, so
+         * interleaved chunks of the next tick are not paid for by the last.
          * Returns true if this frame belonged to the delta channel.
          */
         _handleDeltaFrame(bytes) {
@@ -795,16 +1044,32 @@
             if (!this._fragmentTimer) {
                 // A delta that stopped making progress must not pin its chunks.
                 this._fragmentTimer = setInterval(() => this.deltas.cleanup(), FRAGMENT_TTL_MS);
+                // Never keep a test or headless process alive for a janitor.
+                if (this._fragmentTimer.unref) this._fragmentTimer.unref();
             }
             const delta = this.deltas.push(frame);
-            if (!delta) {
-                this.staleDeltas = this.deltas.staleCount;
-                return true;
-            }
+            this.staleDeltas = this.deltas.staleCount;
+            this.expiredDeltas = this.deltas.expiredCount;
+            if (!delta) return true;
+            this.reassembledDeltas = this.deltas.assembledCount;
             this.deltaSeq = delta.seq;
             this.deltaTick = delta.tick;
+            // Delivery record: exactly one OP_ACK per reassembled delta — the
+            // fragments coalesce into it, so loss of a chunk is never acked and
+            // a delta is never acked twice. Reliable lane, so the server sees it.
+            this._ackEvent(delta.seq);
             this._processDeltaPayload(delta.body);
             return true;
+        }
+
+        /** The sequencer's ledger for the HUD: what we applied, ignored and expired. */
+        deltaStats() {
+            return {
+                reassembled: this.deltas.assembledCount,
+                stale: this.deltas.staleCount,
+                expired: this.deltas.expiredCount,
+                inFlight: this.deltas.partials.size,
+            };
         }
 
         /**
@@ -829,12 +1094,16 @@
                 // that still carries the msgpack type header. Voice ('V'/'W')
                 // and other frames never satisfy both conditions.
                 const pv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-                ackedSeq = pv.getUint16(payload.byteLength - 8, true);
-                serverTick = pv.getUint32(payload.byteLength - 4, true);
+                ackedSeq = pv.getUint16(payload.byteLength - DELTA_TAIL_LEN, true);
+                serverTick = pv.getUint32(payload.byteLength - DELTA_TAIL_LEN + 2, true);
                 this.ackedSeq = ackedSeq;
                 this.serverTick = serverTick;
-                payload = payload.subarray(0, payload.byteLength - 8);
+                payload = payload.subarray(0, payload.byteLength - DELTA_TAIL_LEN);
             }
+
+            // SeqFilter: a game delta whose tick does not advance the last applied
+            // tick is superseded (out-of-order/late) and must never reach the game.
+            if (serverTick >= 0 && serverTick <= this.lastAppliedTick) return;
 
             if (this.sessionId == null && payload.length >= 8) {
                 const v = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
@@ -856,6 +1125,13 @@
 
             const arrivalMs = performance.now();
             this.lastDeltaArrivalMs = arrivalMs;
+            if (serverTick >= 0) {
+                this.lastAppliedTick = serverTick;
+                this.timeSync.setTickRate(this.tickRate);
+                this.timeSync.addSample(arrivalMs, serverTick);
+                this.tickOriginMs = this.timeSync.tickOriginMs;
+                this.clockOffsetMs = this.timeSync.clockOffsetMs(arrivalMs);
+            }
             if (this.timeline && this._deltaDecoder && serverTick >= 0) {
                 try {
                     this.timeline.pushSnapshot(serverTick, this._deltaDecoder(payload), arrivalMs);
@@ -1044,6 +1320,10 @@
 
         leave() {
             this.serverRtcActive = false;
+            if (this._fragmentTimer) {
+                clearInterval(this._fragmentTimer);
+                this._fragmentTimer = null;
+            }
             if (this.serverPc) {
                 try { this.serverPc.close(); } catch (_) {}
                 this.serverPc = null;
@@ -1115,12 +1395,6 @@
                 for (let i = 0; i < list.length; i++) {
                     list[i](...args);
                 }
-            }
-        }
-
-        leave() {
-            if (this.ws) {
-                this.ws.close();
             }
         }
     }
@@ -1816,6 +2090,117 @@
      * Manages client-side inputs, instant zero-latency local prediction,
      * historical frame snapshots, and authoritative state reconciliations.
      */
+    /** Shallow key-mirror: copies every own key from `src` into `out`, dropping
+     *  stale keys, so reused pose/scratch objects never leak old fields. */
+    function copyPose(out, src) {
+        for (const k in out) if (!(k in src)) delete out[k];
+        for (const k in src) out[k] = src[k];
+        return out;
+    }
+
+    function median(values) {
+        const n = values.length;
+        if (n === 0) return NaN;
+        const s = values.slice().sort((a, b) => a - b);
+        return (n & 1) ? s[(n - 1) >> 1] : (s[n / 2 - 1] + s[n / 2]) * 0.5;
+    }
+
+    /**
+     * TimeSync — robust server-timeline estimator (Lightyear-style offset model).
+     * Records the last `maxSamples` (~64) delta arrivals as (arrivalMs, serverTick)
+     * points and fits a line tick = (time - origin) / msPerTick. The slope is the
+     * Theil-Sen median-of-consecutive-slopes (clamped to +/-25 % of the game's
+     * nominal `tickRate`, so bursts cannot make it run away); the intercept
+     * `tickOriginMs` is taken from the LOWER envelope — the smallest arrival-side
+     * origin, i.e. the lowest-latency samples — so late arrivals are discarded the
+     * way Lightyear discards high-offset frames. Purely passive: fed once per delta,
+     * it adds no traffic of its own.
+     */
+    class OpenOxideTimeSync {
+        constructor(maxSamples = 64) {
+            this.maxSamples = maxSamples;
+            this.nominalTickRate = 128;
+            this.tickRate = 128;
+            this.msPerTick = 1000 / 128;
+            this.tickOriginMs = -1;
+            this.minLatencyMs = 0;
+            this.synced = false;
+            this._pts = [];
+        }
+
+        setTickRate(rate) {
+            if (Number.isFinite(rate) && rate > 0) this.nominalTickRate = rate;
+        }
+
+        addSample(arrivalMs, serverTick) {
+            if (!Number.isFinite(arrivalMs) || !Number.isFinite(serverTick)) return;
+            const pts = this._pts;
+            if (pts.length && serverTick <= pts[pts.length - 1].tick) {
+                // Same-tick retransmit refreshes arrival; older tick is ignored.
+                if (serverTick === pts[pts.length - 1].tick) pts[pts.length - 1] = { t: arrivalMs, tick: serverTick };
+            } else {
+                pts.push({ t: arrivalMs, tick: serverTick });
+            }
+            while (pts.length > this.maxSamples) pts.shift();
+            this._fit();
+        }
+
+        _fit() {
+            const pts = this._pts;
+            if (pts.length === 0) return;
+            this.msPerTick = 1000 / this.nominalTickRate;
+            this.tickRate = this.nominalTickRate;
+
+            if (pts.length >= 2) {
+                const slopes = [];
+                for (let i = 1; i < pts.length; i++) {
+                    const dt = pts[i].t - pts[i - 1].t;
+                    const dn = pts[i].tick - pts[i - 1].tick;
+                    if (dt > 0 && dn > 0) slopes.push(dt / dn);
+                }
+                if (slopes.length) {
+                    const med = median(slopes);
+                    const nominal = 1000 / this.nominalTickRate;
+                    this.msPerTick = Math.max(nominal * 0.75, Math.min(nominal * 1.25, med));
+                    this.tickRate = 1000 / this.msPerTick;
+                }
+            }
+
+            let best = Infinity;
+            for (const p of pts) {
+                const origin = p.t - p.tick * this.msPerTick;
+                if (origin < best) best = origin;
+            }
+            this.tickOriginMs = best;
+            this.synced = true;
+        }
+
+        tickToTimeMs(tick) {
+            if (!this.synced) return tick * this.msPerTick;
+            return this.tickOriginMs + tick * this.msPerTick;
+        }
+
+        timeToTick(t) {
+            if (!this.synced) return 0;
+            return (t - this.tickOriginMs) / this.msPerTick;
+        }
+
+        clockOffsetMs(nowMs) {
+            // serverTime(now) = tick(now) * msPerTick = now - origin, so the offset
+            // that aligns client time to server time is simply -tickOriginMs.
+            if (!this.synced) return 0;
+            return -this.tickOriginMs;
+        }
+
+        sampleCount() { return this._pts.length; }
+
+        reset() {
+            this._pts.length = 0;
+            this.tickOriginMs = -1;
+            this.synced = false;
+        }
+    }
+
     /**
      * InterpolationBuffer — Lightyear-timeline-inspired snapshot buffer.
      * Push decoded server snapshots; sample() returns the state rendered
@@ -2311,7 +2696,9 @@
         DELTA_HEADER_LEN: DELTA_HEADER_LEN,
         ACK_WIRE_LEN: ACK_WIRE_LEN,
         MAX_DELTA_CHUNK: MAX_DELTA_CHUNK,
+        MAX_FRAGMENTS: MAX_FRAGMENTS,
         FRAGMENT_TTL_MS: FRAGMENT_TTL_MS,
+        DELTA_TAIL_LEN: DELTA_TAIL_LEN,
         parseDeltaFrame: parseDeltaFrame,
         encodeDeltaFrame: encodeDeltaFrame,
         encodeAck: encodeAck,
@@ -2320,7 +2707,8 @@
         RollbackPredictor: OpenOxideRollbackPredictor,
         InterpolationBuffer: OpenOxideInterpolationBuffer,
         InterpolationTimeline: OpenOxideInterpolationTimeline,
-        version: "1.4.0"
+        TimeSync: OpenOxideTimeSync,
+        version: "1.5.0"
     };
 }));
 

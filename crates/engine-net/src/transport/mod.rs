@@ -13,6 +13,7 @@ pub mod colyseus_ws;
 pub mod quic;
 pub mod tcp;
 pub mod udp;
+pub mod webrtc_frames;
 pub mod webrtc_server;
 
 use std::io;

@@ -4,5 +4,11 @@ version = "0.1.0"
 edition = "2024"
 description = "Agones Kubernetes lifecycle integration (Ready, Health ping, Shutdown)"
 
+# The sidecar is a loopback HTTP/1.1 peer, so the honest dependency set is
+# `std::net` for the transport and serde for the `/state` payload plus the
+# `/status` snapshot. No hyper, no reqwest, no prost: a dedicated OS thread
+# with a blocking socket cannot stall an Axum worker, which is the whole point
+# of `src/control/agones.rs`.
 [dependencies]
-engine-core = { path = "../engine-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

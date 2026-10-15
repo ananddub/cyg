@@ -11,6 +11,7 @@ pub mod connection;
 pub mod framing;
 mod bufio;
 pub mod pool;
+pub mod rtc_plane;
 pub mod transport;
 pub mod worker;
 
@@ -19,6 +20,9 @@ pub use connection::ClientConn;
 pub use bytes;
 pub use framing::{OpCode, decode_frame, encode_frame, iter_frames, take_frame};
 pub use pool::{AggregatedTelemetry, PoolConfig, WorkerPoolHandle, spawn_worker_pool};
+pub use rtc_plane::{
+    Plane, PlaneConfig, PlaneHandle, RtcDownlink, RtcInput, RtcPlaneError, UplinkEvent,
+};
 pub use transport::colyseus_ws::{MatchMakeError, MATCHMAKE_METHODS, close_code, response_status};
 pub use transport::{
     ColyseusWsTransport, GameTransport, QuicTransport, RawTcpTransport, TransportEvent,

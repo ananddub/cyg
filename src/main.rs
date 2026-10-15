@@ -5,16 +5,17 @@
 //!   ox-game run           (with no config.yml present) runs the built-in demo
 //!
 //! Everything is driven by config.yml — runtime, source, ports, tick rate.
+//!
+//! The engine itself lives in library crates: `engine-bus` (plane wiring),
+//! `engine-config` (config.toml), `engine-control` (Tokio/Axum control plane)
+//! and `engine-server` (rooms, netcode, sim plane, host loop, wasm build).
 
-mod compile;
-mod config;
 pub use engine_protocol as net_sync;
 pub use engine_physics as physics;
 pub use engine_physics::rapier as rapier_integration;
 pub use engine_spatial as spatial;
-mod server;
 
-use config::GameConfig;
+use engine_config::{GameConfig, CONFIG_TEMPLATE, ROOM_TEMPLATE};
 use std::path::{Path, PathBuf};
 
 fn main() {
@@ -79,8 +80,8 @@ fn init(dir: &Path) -> std::io::Result<()> {
         ));
     }
     std::fs::create_dir_all(dir)?;
-    std::fs::write(&config_path, config::CONFIG_TEMPLATE)?;
-    std::fs::write(dir.join("room.ts"), config::ROOM_TEMPLATE)?;
+    std::fs::write(&config_path, CONFIG_TEMPLATE)?;
+    std::fs::write(dir.join("room.ts"), ROOM_TEMPLATE)?;
     std::fs::write(
         dir.join("website.html"),
         include_bytes!("../crates/engine-net/examples/e2e/website.html"),
@@ -105,7 +106,7 @@ fn init(dir: &Path) -> std::io::Result<()> {
 /// `ox-game run [dir]` — compile (if needed) and serve.
 fn run(dir: &Path) -> std::io::Result<()> {
     let cfg = if dir.join("config.toml").exists() || dir.join("config.yml").exists() || dir.is_file() {
-        config::load_config(dir)?
+        engine_config::load_config(dir)?
     } else if dir == Path::new(".") && !Path::new("config.toml").exists() && !Path::new("config.yml").exists() {
         // No project here: run the built-in demo (example room + website).
         eprintln!("[run] no config.toml found — running the built-in demo");
@@ -135,8 +136,51 @@ fn run(dir: &Path) -> std::io::Result<()> {
     };
 
     println!("🧩 room runtime: {:?}", cfg.runtime);
-    let wasm_path = compile::build(&project_dir, &cfg)?;
-    server::run(&project_dir, &wasm_path, &cfg)
+    let wasm_path = engine_server::compile::build(&project_dir, &cfg)?;
+
+    // One bus for both planes: the sim thread owns the consumer ends, the
+    // control plane only ever `try_send`s onto the producer ends.
+    let bus = engine_bus::Bus::new(4096, 8192);
+
+    // Optional raw-UDP + pinned 128 Hz sim plane (Agent 3). Gated by
+    // OX_PLANES=1 so the existing WS/WebRTC flow is untouched by default.
+    let mut plane_cfg = engine_server::plane::PlaneConfig::from_env(&project_dir);
+    plane_cfg.wasm_path = wasm_path.clone();
+    if plane_cfg.enabled {
+        let udp_addr = plane_cfg.udp_addr.clone();
+        match engine_server::plane::spawn_sim_plane(bus.clone(), plane_cfg) {
+            Ok(_) => eprintln!("[main] 🧵 sim plane spawned (OX_PLANES=1, udp {udp_addr})"),
+            Err(e) => eprintln!("[main] ✖ sim plane spawn failed: {e}"),
+        }
+    }
+
+    // The Tokio/Axum control plane (Agent 1): matchmake, seat tokens, WS
+    // signaling, /status and statics. Bound before `host::run` starts so a
+    // port clash is reported here rather than swallowing the game loop.
+    // Held for the whole run — dropping it closes every HTTP and socket.
+    let _control = if cfg.control.enabled {
+        match engine_control::spawn(&project_dir, &cfg, &cfg.control, bus) {
+            Ok(plane) => {
+                eprintln!(
+                    "[main] 🏛️  control plane on http://{}:{} (matchmake, /ws/signal, /status, statics)",
+                    cfg.control.bind_addr, plane.port
+                );
+                Some(plane)
+            }
+            Err(e) => {
+                eprintln!(
+                    "[main] ✖ control plane on port {} failed to start: {e}",
+                    cfg.control.api_port
+                );
+                None
+            }
+        }
+    } else {
+        eprintln!("[main] control plane disabled ([control] enabled = false)");
+        None
+    };
+
+    engine_server::host::run(&project_dir, &wasm_path, &cfg)
 }
 
 /// `ox-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.
