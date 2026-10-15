@@ -40,6 +40,18 @@
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-dashboard/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-api/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/route/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/route/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/route/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/route_macros/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/socket/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/socket/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/socket/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/socket_macros/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/ws/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/ws_macros/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-api/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/test-datafusion/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

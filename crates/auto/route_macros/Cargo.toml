@@ -1,0 +1,19 @@
+[package]
+name = "auto_route_macros"
+version = "0.2.1"
+edition = "2024"
+rust-version = "1.85"
+description = "Procedural macros used by the auto_route Axum routing crate"
+license = "MIT"
+readme = "README.md"
+documentation = "https://docs.rs/auto_route_macros"
+keywords = ["axum", "routing", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers"]
+
+[lib]
+proc-macro=true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

@@ -1,19 +1,20 @@
 {
-  "name": "com.openoxide.sdk",
+  "name": "com.cookyourgame.sdk",
   "version": "1.0.0",
-  "displayName": "OpenOxide Gaming SDK",
-  "description": "High-performance UDP/WebSocket multiplayer client SDK for OpenOxide Gaming Server. Features sub-millisecond binary delta streaming, authoritative rewind alignment, native spectator mode, and .oxr match replay playback.",
+  "displayName": "CookYourGame SDK",
+  "description": "Ultra-lightweight, zero-allocation drag-and-drop multiplayer networking and BaaS client for Unity. Connects seamlessly to CookYourGame high-performance game servers.",
   "unity": "2021.3",
   "author": {
-    "name": "OpenOxide Team",
-    "url": "https://github.com/openoxide"
+    "name": "CookYourGame",
+    "url": "https://github.com/cookyourgame"
   },
   "keywords": [
     "multiplayer",
     "netcode",
-    "udp",
-    "openoxide",
-    "rapier",
-    "lag-compensation"
+    "cookyourgame",
+    "websocket",
+    "drag-and-drop",
+    "zero-allocation",
+    "pun-alternative"
   ]
 }

@@ -18,6 +18,17 @@ pub struct SeatGrant {
     pub room: String,
 }
 
+/// Why `verify_strict` rejected a JOIN token. Only the two outcomes a client
+/// can act on: `Expired` is disclosed only for a correctly-MACed token, so a
+/// forger learns nothing about any token it does not already hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeatError {
+    /// Bad layout, bad base64, or failed MAC → DENY(1).
+    Bad,
+    /// Valid MAC, `exp <= now` → DENY(2).
+    Expired,
+}
+
 pub struct SeatRegistry {
     secret: Vec<u8>,
 }

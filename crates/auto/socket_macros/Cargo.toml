@@ -1,0 +1,19 @@
+[package]
+name = "auto_socket_macros"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Procedural macros used by the auto_socket Socketioxide integration crate"
+license = "MIT"
+readme = "README.md"
+documentation = "https://docs.rs/auto_socket_macros"
+keywords = ["socketio", "websocket", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers"]
+
+[lib]
+proc-macro=true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

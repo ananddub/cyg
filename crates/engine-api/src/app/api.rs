@@ -1,0 +1,41 @@
+//! The one place the API's route groups are composed, so no group ever edits
+//! another's file to add a route.
+
+use axum::Router;
+
+use crate::{ApiState, app::state};
+
+/// Every browser-facing route, ready to serve.
+///
+/// Owns only what a controller cannot: the project-file fallback, a whole-router
+/// concern. The route groups register through `auto_route`'s compile-time
+/// inventory ([`app`] merges them).
+pub fn router(state: &ApiState) -> Router {
+    Router::new()
+        // One fallback for the whole surface: anything unmatched is a static
+        // file request, and `StaticServer` decides whether it exists.
+        .fallback(crate::controllers::static_routes::fallback)
+        .with_state(state.clone())
+}
+
+/// The full surface: the fallback, every auto-registered controller and socket,
+/// with the plane state attached per request.
+///
+/// Tolerant on purpose — a controller or socket that fails to resolve only drops
+/// the auto surface, never the hand-written fallback, so one bad DI graph cannot
+/// take the API down.
+pub async fn app(state: ApiState) -> Router {
+    state::install_state(state.clone());
+    let mut router = router(&state);
+    if let Ok(container) = auto_di::Container::new() {
+        match auto_route::build_routes(&container).await {
+            Ok(auto) => router = router.merge(auto),
+            Err(err) => eprintln!("auto_route: skipping auto-registered routes: {err}"),
+        }
+        match auto_ws::mount::<crate::infra::ws::WsProtocol>(&container, Router::new()).await {
+            Ok(sockets) => router = router.merge(sockets),
+            Err(err) => eprintln!("auto_ws: skipping auto-registered sockets: {err}"),
+        }
+    }
+    state::with_plane_state(router, state)
+}

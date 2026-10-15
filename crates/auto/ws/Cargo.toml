@@ -1,0 +1,21 @@
+[package]
+name = "auto_ws"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Automatic axum websocket event registration for auto-di managed handlers"
+license = "MIT"
+readme = "README.md"
+keywords = ["websocket", "axum", "dependency-injection", "proc-macro"]
+categories = ["web-programming", "asynchronous"]
+
+[dependencies]
+auto-di = "0.6.0"
+auto_ws_macros = { version = "0.1.0", path = "../ws_macros" }
+inventory = "0.3.24"
+axum = { version = "0.8", features = ["ws"] }
+futures = "0.3"
+tokio = { version = "1", features = ["sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }

@@ -1,0 +1,65 @@
+//! Parsing and answering one inbound text frame, plus the frame writer.
+
+use axum::extract::ws::{Message, WebSocket};
+
+use crate::ApiState;
+use crate::infra::seats::Seat;
+
+use super::frames::SignalIn;
+use super::wire::{ClientFrame, ServerFrame};
+
+/// Handle one text frame. `false` means the client asked to close.
+pub(super) async fn handle_text(
+    socket: &mut WebSocket,
+    state: &ApiState,
+    seat: &Seat,
+    text: &str,
+) -> bool {
+    match serde_json::from_str::<ClientFrame>(text) {
+        Ok(ClientFrame::Offer { sdp }) => {
+            if !state.signals.post(SignalIn::Offer { seat: seat.clone(), sdp }) {
+                reject(socket).await;
+            }
+            true
+        }
+        Ok(ClientFrame::Candidate { candidate, sdp_mid, sdp_index }) => {
+            if !state.signals.post(SignalIn::Candidate {
+                seat: seat.clone(),
+                candidate,
+                sdp_mid,
+                sdp_index,
+            }) {
+                reject(socket).await;
+            }
+            true
+        }
+        // The client says it is done: end the session. The single Close it
+        // owes the data plane is posted on teardown, not here — otherwise a
+        // graceful close would be a duplicate.
+        Ok(ClientFrame::Close) => false,
+        Err(e) => {
+            // A bad frame is the client's bug, not a reason to drop the
+            // session: name it and keep going.
+            let _ = send_frame(socket, &ServerFrame::Error {
+                message: format!("malformed signaling frame: {e}"),
+            })
+            .await;
+            true
+        }
+    }
+}
+
+/// A browser is never left in silence when no data plane has claimed the
+/// inbound queue: the socket answers instead of queueing for nobody.
+async fn reject(socket: &mut WebSocket) {
+    let _ = send_frame(
+        socket,
+        &ServerFrame::Error { message: "data plane is not accepting signaling".into() },
+    )
+    .await;
+}
+
+pub(super) async fn send_frame(socket: &mut WebSocket, frame: &ServerFrame) -> Result<(), axum::Error> {
+    let json = serde_json::to_string(frame).expect("ServerFrame is always serializable");
+    socket.send(Message::Text(json.into())).await
+}

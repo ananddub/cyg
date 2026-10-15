@@ -1,4 +1,7 @@
-use super::*;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+
+use super::{ApiError, V2Error};
 
 async fn body_of(err: ApiError) -> (StatusCode, String, Option<String>) {
     let response = err.into_response();
@@ -15,8 +18,8 @@ async fn body_of(err: ApiError) -> (StatusCode, String, Option<String>) {
 }
 
 /// A refusal has to be readable, and the message often quotes text the caller
-/// sent — a room name or a method segment. Debug-escaping that into JSON is
-/// how a browser ends up parsing `"rooms\u00e9"`.
+/// sent — a room name or a method segment. Debug-escaping that into JSON is how a
+/// browser ends up parsing `"rooms\u00e9"`.
 #[tokio::test]
 async fn an_error_body_is_json_even_when_the_message_is_not_ascii() {
     let (status, body, retry) =
@@ -34,4 +37,19 @@ async fn a_rate_limit_error_carries_a_usable_retry_after() {
     assert_eq!(retry.as_deref(), Some("1"), "zero seconds would tell a client to hammer again");
     let parsed: serde_json::Value = serde_json::from_str(&body).expect("{error} is JSON");
     assert!(parsed["error"].is_string());
+}
+
+/// A `/v2` refusal names its kind through the HTTP status, so the body carries the
+/// message and nothing else — no numeric `code` for a client to branch on.
+#[tokio::test]
+async fn a_v2_refusal_is_a_status_plus_a_bare_message() {
+    let response = V2Error::invalid_argument("bad thing").into_response();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("error body");
+    assert_eq!(
+        std::str::from_utf8(&bytes).expect("utf-8 body"),
+        r#"{"message":"bad thing"}"#
+    );
 }

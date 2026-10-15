@@ -28,4 +28,4 @@ crates/engine-wasm/tests/csharp/runtimeconfig.template.json
 # OpenOxide compiler temporary synthetic entry bridge files
 ._*_entry.ts
 *.cwasm
-
+reference/

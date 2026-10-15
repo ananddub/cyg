@@ -1,0 +1,18 @@
+[package]
+name = "auto_ws_macros"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Procedural macros used by the auto_ws axum websocket integration crate"
+license = "MIT"
+readme = "README.md"
+keywords = ["websocket", "axum", "dependency-injection", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

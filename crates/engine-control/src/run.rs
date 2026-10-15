@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use engine_api::{ApiState, gc_seats, serve, status};
+use engine_api::{ApiState, gc_seats, pump, serve};
 use engine_bus::Bus;
 use engine_config::{ControlConfig, GameConfig};
 
@@ -31,13 +31,18 @@ pub fn spawn(
     let listener = runtime
         .block_on(tokio::net::TcpListener::bind((control.bind_addr.as_str(), control.api_port)))?;
     let port = listener.local_addr()?.port();
-    let state = ApiState::new(project_dir, game, control, bus, port);
+    // `connect_lazy` registers pool tasks with the surrounding runtime, so the
+    // state must be built inside its context, not on the bare main thread.
+    let state = {
+        let _guard = runtime.enter();
+        ApiState::new(project_dir, game, control, bus, port)
+    };
 
     runtime.spawn(serve(listener, state.clone(), shutdown_signal()));
 
     // One consumer of the bus status queue, so `/status` always has the newest
     // sample without touching the simulation thread's lock-free path.
-    runtime.spawn(status::pump(state.clone()));
+    runtime.spawn(pump(state.clone()));
 
     // Expiring seats must not accumulate if nothing ever calls `verify`.
     runtime.spawn(gc_seats(state.clone()));

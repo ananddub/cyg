@@ -1,0 +1,33 @@
+[package]
+name = "auto_route"
+version = "0.2.1"
+edition = "2024"
+rust-version = "1.85"
+description = "Spring-style automatic Axum routing for auto-di managed controllers"
+license = "MIT"
+readme = "README.md"
+documentation = "https://docs.rs/auto_route"
+keywords = ["axum", "routing", "dependency-injection", "proc-macro"]
+categories = ["web-programming", "asynchronous"]
+
+[dependencies]
+auto-di = "0.6.0"
+auto_route_macros = { version = "0.2.1", path = "../route_macros" }
+auto_socket = { version = "0.1.0", path = "../socket" }
+axum = "0.8.9"
+inventory = "0.3.24"
+poem-openapi = { version = "5.1.16", features = ["swagger-ui"] }
+scalar_api_reference = { version = "0.2.2", features = ["axum"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ts-rs = { version = "12.0.1", features = ["serde-compat", "serde-json-impl"] }
+tracing = "0.1"
+
+[dev-dependencies]
+futures-util = "0.3"
+http-body-util = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+ts-rs = { version = "12.0.1", features = ["serde-compat", "serde-json-impl"] }
+tower = { version = "0.5", features = ["util"] }

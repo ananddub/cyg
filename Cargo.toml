@@ -15,7 +15,13 @@ members = [
     "crates/engine-spatial",
     "crates/engine-wasm",
     "crates/engine-webrtc-protocol",
-    "crates/engine-voice",
+    "crates/engine-voice", "crates/test-datafusion",
+    "crates/auto/route",
+    "crates/auto/route_macros",
+    "crates/auto/socket",
+    "crates/auto/socket_macros",
+    "crates/auto/ws",
+    "crates/auto/ws_macros",
 ]
 
 [package]

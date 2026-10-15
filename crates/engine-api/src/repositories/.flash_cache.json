@@ -1,0 +1,76 @@
+{
+  "version": "1.0",
+  "query_file_checksums": {
+    "db/queries/account.sql": "25a195651c0a41efec3372e2cb1e9e74f40660b9f3c2d578630884beeb8c4d80",
+    "db/queries/auth.sql": "5b04cf81165f8552354c1646fb634d72f102a84f8d1757a9dfa8dc38873f75d5",
+    "db/queries/channel.sql": "be9447716008ec53309fa1f270b4b8dc0a51d3d648c860110fdaf07c65d4b690",
+    "db/queries/friend.sql": "e12f0cd4d22e6c125d94af488d4e2b806f3165a30ab0b599f43aab2fe28a5c7d",
+    "db/queries/group.sql": "571023e15c5cfe68ed8e00c2dceef086b96759370699d7bdd85c407bdd94c4dc",
+    "db/queries/iap.sql": "3a579390f2ffdab7aee3506594e86276dbdc8d54fd6dffec7765219ab78dfbc3",
+    "db/queries/leaderboard.sql": "a262973ae1a17e92b3f5ad028a7acec67073a4126ff611eb46d3e1591205c592",
+    "db/queries/link.sql": "28fe5e76a5df932e7177859e5a765c0b7ed2ac2ece2a41ffe361f7aaadbca5cc",
+    "db/queries/notification.sql": "32be905479d03d8249242d83a8f8008e690241e9b26fef1d4321c65943964055",
+    "db/queries/session.sql": "304ca9c0a7ffa2e4f05dbe6e869d819faae1736e11c69c53a5c13e2b268878dc",
+    "db/queries/tournament.sql": "f00143439bf07267ef61f0672a058683f2bb18121fdf3bf8ffd982db7a697546",
+    "db/queries/unlink.sql": "c0348801321d9cb801bc1ee5e84d1b98db208cc35d8f6ce6e55c7a118f783e08",
+    "db/queries/user.sql": "aacd53940f7d96b12518ebf53dfeab89cbbb24336e9777bf034ff9ca115c8f8c"
+  },
+  "schema_checksum": "f38c6d9a422baf237ddd3c210ff241f9c96c5fb85c9ab918512afbd5474d42fe",
+  "config_checksum": "5a76e5830a4e610c2b0af91ca8c9e233753ead353ef30313f978c28dea001e41",
+  "query_table_deps": {
+    "db/queries/account.sql": [
+      "users",
+      "user_tombstone",
+      "user_device"
+    ],
+    "db/queries/auth.sql": [
+      "users",
+      "user_device"
+    ],
+    "db/queries/channel.sql": [
+      "message"
+    ],
+    "db/queries/friend.sql": [
+      "user_edge",
+      "users"
+    ],
+    "db/queries/group.sql": [
+      "g",
+      "groups",
+      "group_edge"
+    ],
+    "db/queries/iap.sql": [
+      "users",
+      "wallet_ledger",
+      "purchase",
+      "subscription"
+    ],
+    "db/queries/leaderboard.sql": [
+      "leaderboard",
+      "leaderboard_record"
+    ],
+    "db/queries/link.sql": [
+      "users",
+      "user_device"
+    ],
+    "db/queries/notification.sql": [
+      "notification"
+    ],
+    "db/queries/session.sql": [
+      "user_tombstone"
+    ],
+    "db/queries/tournament.sql": [
+      "leaderboard"
+    ],
+    "db/queries/unlink.sql": [
+      "users",
+      "user_device"
+    ],
+    "db/queries/user.sql": [
+      "users"
+    ]
+  },
+  "generated_file_checksums": {},
+  "last_generation": "2026-10-16T07:19:33.05144403+05:30",
+  "OutDir": "crates/engine-api/src/flash_gen"
+}

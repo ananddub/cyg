@@ -1,0 +1,17 @@
+version = "2"
+schema_dir = "db/schema"
+queries = "db/queries/"
+migrations_path = "db/migrations"
+json_path = "db/json"
+
+[database]
+provider = "postgresql"
+url_env = "DATABASE_URL"
+
+[gen.rust]
+enabled = true
+out = "crates/engine-api/src/repositories"
+driver = "sqlx"
+# Runtime-checked codegen: `flash gen` and `cargo build` must not need a live
+# database. SQL is validated when the generated method executes.
+macros = false

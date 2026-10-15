@@ -1,51 +1,122 @@
-# OpenOxide Gaming SDK for Unity
+# 🍳 CookYourGame (CYG) Unity SDK
 
-High-performance, sub-millisecond, low-latency UDP multiplayer client SDK for Unity (2021.3+ / Unity 6).
+Ultra-lightweight, zero-allocation drag-and-drop multiplayer networking client for Unity.
+Designed to replace legacy, expensive solutions (like reference PUN) with an ultra-affordable, high-performance architecture.
 
-## Features
-- **Raw UDP & WebSocket Networking**: Zero-allocation binary packet serialization.
-- **Authoritative Server Sync**: 60Hz delta alignment with lag compensation.
-- **Packed 20-Byte Input Streaming**: Low bandwidth footprint.
-- **Match Replay (.oxr)**: Record matches and play back with scrubber / instant kill-cams.
-- **Native Spectator Mode**: Observer streams without player entities.
+---
 
-## Installation via UPM (Unity Package Manager)
-Add via Git URL or local folder:
-```json
-"com.openoxide.sdk": "file:../../sdk/unity"
+## 🚀 Quick Start (In 3 Minutes)
+
+### 1. Installation
+In Unity, open **Window > Package Manager**, click **+ > Add package from git URL...** and enter:
+```
+https://github.com/cookyourgame/cookyourgame-unity.git
 ```
 
-## Quick Start
+---
+
+### 2. Connect to Server & Join a Room
+
+Create a simple C# script (e.g. `GameLobby.cs`):
+
 ```csharp
 using UnityEngine;
-using OpenOxide;
+using CookYourGame;
 
-public class GameNetwork : MonoBehaviour
+public class GameLobby : MonoBehaviour
 {
-    private OpenOxideClient client;
-    private OpenOxideRoom room;
-
     void Start()
     {
-        client = new OpenOxideClient("127.0.0.1", 7778);
-        room = client.JoinOrCreate("arena");
+        // 1. Connect to your server
+        CYGNetwork.Connect("ws://localhost:4000/ws");
 
-        room.OnDelta += delta => {
-            Debug.Log($"Received {delta.Entities.Length} combatants");
+        // 2. Listen for connection event
+        CYGNetwork.OnConnectedToServer += () =>
+        {
+            Debug.Log("Connected! Joining Room...");
+            CYGNetwork.JoinOrCreateRoom("MainRoom", maxPlayers: 4);
         };
-    }
 
-    void Update()
-    {
-        room?.Update();
-
-        // Send 20-byte packed player inputs
-        room?.SendInput(flags: 16, aimYaw: 0f, aimPitch: 0f, moveX: 0f, moveZ: 1f);
-    }
-
-    void OnDestroy()
-    {
-        room?.Leave();
+        // 3. Spawn player when room is joined
+        CYGNetwork.OnJoinedRoom += (roomName) =>
+        {
+            Debug.Log($"Joined {roomName}! Spawning player...");
+            CYGNetwork.Instantiate("PlayerPrefab", new Vector3(0, 1, 0), Quaternion.identity);
+        };
     }
 }
 ```
+
+---
+
+### 3. Make Any GameObject Multiplayer (Drag & Drop)
+
+1. Open your **Player Prefab** (placed inside a `Resources/` folder).
+2. Add component: **`CYGView`**
+3. Add component: **`CYGTransformSync`** (Check Position and Rotation)
+
+**That's it! Play the game in two windows — your players are moving in real time with smooth interpolation and lag compensation!**
+
+---
+
+### 4. Who is the Host? (`IsMasterClient`)
+
+Easily run host-only logic (like spawning enemies or timers) without server-side code:
+
+```csharp
+if (CYGNetwork.IsMasterClient)
+{
+    // Only the Master Client runs this:
+    SpawnCoins();
+}
+```
+
+---
+
+### 5. Remote Procedure Calls (`[CYGRPC]`)
+
+Call methods on other machines across the network:
+
+```csharp
+using UnityEngine;
+using CookYourGame;
+
+public class PlayerCombat : MonoBehaviour
+{
+    private CYGView view;
+
+    void Awake() => view = GetComponent<CYGView>();
+
+    void Update()
+    {
+        if (view.IsMine && Input.GetKeyDown(KeyCode.Space))
+        {
+            // Call FireWeapon on all other players
+            view.RPC("FireWeapon", CYGRPCTarget.Others, 100);
+        }
+    }
+
+    [CYGRPC]
+    void FireWeapon(int damage)
+    {
+        Debug.Log($"Player fired weapon with {damage} damage!");
+        // Play muzzle flash / sound effect
+    }
+}
+```
+
+---
+
+## 📦 What's Inside the SDK?
+
+* **`CYGNetwork`**: Static singleton manager (Connect, Rooms, MasterClient, RPCs).
+* **`CYGView`**: Network identity and ownership controller (`view.IsMine`).
+* **`CYGTransformSync`**: Smooth dead-reckoning movement and rotation synchronization.
+* **`CYGTransport`**: Thread-safe native WebSocket networking client.
+* **`CYGRPC`**: Remote procedure call attribute (`[CYGRPC]`).
+* **`CYGPlayer`**: Player data model (`ActorNumber`, `Username`, `IsMasterClient`).
+
+---
+
+## 📄 License
+MIT License — CookYourGame Team.

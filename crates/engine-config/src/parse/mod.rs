@@ -56,5 +56,44 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     if std::env::var("OX_AGONES").is_ok_and(|v| v == "1") {
         cfg.control.agones.enabled = true;
     }
+    // The account plane reads its DSN from the environment first: a container
+    // link sets `DATABASE_URL`, and no project should have to repeat a
+    // password inside a committed config.toml.
+    for name in ["OX_DATABASE_URL", "DATABASE_URL"] {
+        if let Ok(url) = std::env::var(name)
+            && !url.is_empty()
+        {
+            cfg.control.session.database_url = url;
+            break;
+        }
+    }
+    for (name, field) in [
+        ("OX_SIGNING_KEY", &mut cfg.control.session.signing_key),
+        ("OX_REFRESH_SIGNING_KEY", &mut cfg.control.session.refresh_signing_key),
+        ("OX_SERVER_KEY", &mut cfg.control.session.server_key),
+    ] {
+        if let Ok(v) = std::env::var(name)
+            && !v.is_empty()
+        {
+            *field = v;
+        }
+    }
+    for (name, field) in [
+        ("OX_CONSOLE_USERNAME", &mut cfg.control.console.username),
+        ("OX_CONSOLE_PASSWORD", &mut cfg.control.console.password),
+        ("OX_CONSOLE_SIGNING_KEY", &mut cfg.control.console.signing_key),
+    ] {
+        if let Ok(v) = std::env::var(name)
+            && !v.is_empty()
+        {
+            *field = v;
+        }
+    }
+    if let Ok(v) = std::env::var("OX_CONSOLE_TOKEN_EXPIRES_SEC")
+        && let Ok(secs) = v.parse::<i64>()
+        && secs > 0
+    {
+        cfg.control.console.token_expiry_secs = secs;
+    }
     Ok(cfg)
 }

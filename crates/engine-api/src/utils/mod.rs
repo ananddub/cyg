@@ -1,0 +1,22 @@
+//! Pure helpers shared by the other layers: parsing, shaping, formatting.
+//! Nothing here touches the database, router or shared state.
+
+pub mod auth;
+pub mod channel;
+pub mod dashboard;
+pub mod friend;
+pub mod group;
+pub mod iap;
+pub mod leaderboard;
+pub mod link;
+pub mod matchmake;
+pub mod notification;
+pub mod session;
+pub mod signaling;
+pub mod static_routes;
+pub mod status;
+pub mod storage;
+pub mod tournament;
+pub mod unlink;
+pub mod user;
+pub(crate) mod vendor;

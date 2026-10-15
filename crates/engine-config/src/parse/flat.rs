@@ -51,6 +51,28 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "agones_enabled" => {
             cfg.control.agones.enabled = value.parse().unwrap_or(cfg.control.agones.enabled)
         }
+        "database_url" => cfg.control.session.database_url = value.to_string(),
+        "signing_key" => cfg.control.session.signing_key = value.to_string(),
+        "refresh_signing_key" => {
+            cfg.control.session.refresh_signing_key = value.to_string()
+        }
+        "server_key" => cfg.control.session.server_key = value.to_string(),
+        "token_expires_sec" => {
+            cfg.control.session.token_expiry_secs =
+                value.parse().unwrap_or(cfg.control.session.token_expiry_secs)
+        }
+        "refresh_token_expires_sec" => {
+            cfg.control.session.refresh_expiry_secs =
+                value.parse().unwrap_or(cfg.control.session.refresh_expiry_secs)
+        }
+        "console_username" => cfg.control.console.username = value.to_string(),
+        "console_password" => cfg.control.console.password = value.to_string(),
+        "console_signing_key" => cfg.control.console.signing_key = value.to_string(),
+        "console_token_expires_sec" => {
+            cfg.control.console.token_expiry_secs = value
+                .parse()
+                .unwrap_or(cfg.control.console.token_expiry_secs)
+        }
         _ => {}
     }
 }

@@ -18,7 +18,27 @@ futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros", "signal"] }
 crossbeam-channel = "0.5"
 rust-embed = "8.5"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "uuid", "json", "derive"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+argon2 = "0.5"
+jsonwebtoken = "9"
+# Auto-discovered routing: `#[controller]`/`#[get]` macros register routes
+# through the compile-time inventory registry instead of a hand-written
+# router() per group.
+auto_route = { path = "../auto/route" }
+# Auto-discovered sockets: `#[auto_ws("/ws")]` declares a websocket and its
+# `#[on("event")]` handlers, mounted onto the same router.
+auto_ws = { path = "../auto/ws" }
+auto-di = "0.6"
+rand = "0.8"
+hex = "0.4"
+md-5 = "0.10"
+base64 = "0.22"
 
 [dev-dependencies]
 # Same version axum's `ws` feature already pins, for the live-socket test.
 tokio-tungstenite = "0.29"
+# Only for asserting the auto-registered controller actually dispatches.
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

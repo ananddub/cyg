@@ -13,6 +13,8 @@ pub struct ControlConfig {
     pub rate_limit_rps: u32,
     pub rate_limit_burst: u32,
     pub agones: AgonesConfig,
+    pub session: crate::session::SessionConfig,
+    pub console: crate::console::ConsoleConfig,
 }
 
 /// `[control.agones]`: Kubernetes Dedicated Game Server sidecar client.
@@ -49,6 +51,8 @@ impl Default for ControlConfig {
             rate_limit_rps: 20,
             rate_limit_burst: 40,
             agones: AgonesConfig::default(),
+            session: crate::session::SessionConfig::default(),
+            console: crate::console::ConsoleConfig::default(),
         }
     }
 }

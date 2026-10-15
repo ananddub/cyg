@@ -56,6 +56,29 @@ enabled = false
 http_port = 9358
 health_interval_ms = 2000
 host = "127.0.0.1"
+
+# BaaS-compatible account plane (/v2/account/*). Defaults match the own
+# config.yaml, so an unmodified BaaS SDK works unchanged.
+# Leave database_url empty (or unset DATABASE_URL) to keep the game running with
+# no accounts database; /v2 then answers 503.
+[control.session]
+database_url = ""
+max_db_connections = 10
+signing_key = "defaultsigningkey"
+refresh_signing_key = "defaultrefreshsigningkey"
+# Basic-auth credential the SDK sends on Authenticate* and SessionRefresh.
+server_key = "defaultkey"
+token_expires_sec = 60
+refresh_token_expires_sec = 3600
+
+# Admin console (/dashboard): its own login, separate from player sessions.
+# `console_user` rows in the database are checked first; username/password below
+# is the bootstrap superadmin for a fresh database. Change both before shipping.
+[control.console]
+username = "admin"
+password = "password"
+signing_key = "defaultconsolesigningkey"
+token_expires_sec = 3600
 "#;
 
 /// Starter room source `ox-game init` writes — the same contract as the
