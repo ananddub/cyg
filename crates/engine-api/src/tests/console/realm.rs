@@ -1,26 +1,9 @@
-//! The console surface and its own login realm: the bootstrap admin can sign in,
-//! a refusal is uniform, and a console token is not a player session — nor the
-//! reverse.
+//! Who can sign in, what a refusal looks like, and why a token from one plane is
+//! worth nothing on the other.
 
 use crate::error::UNAUTHENTICATED;
 
-use super::player_token;
-use super::server::V2Server;
-use super::v2_state;
-
-/// `[control.console]` defaults: the bootstrap superadmin a fresh database has.
-const ADMIN: &str = "admin";
-const PASSWORD: &str = "password";
-
-fn login(server: &V2Server, username: &str, password: &str) -> String {
-    let body = format!(r#"{{"username":"{username}","password":"{password}"}}"#);
-    let reply = server.post("/v2/console/authenticate", None, &body);
-    assert_eq!(reply.status, 200, "login failed: {}", reply.body);
-    reply.json()["token"]
-        .as_str()
-        .expect("a login is answered with a token")
-        .to_owned()
-}
+use super::helpers::{ADMIN, PASSWORD, V2Server, login, player_token, v2_state};
 
 #[test]
 fn the_bootstrap_admin_can_log_in_and_reach_a_protected_route() {

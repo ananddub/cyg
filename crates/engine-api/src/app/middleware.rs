@@ -134,6 +134,19 @@ impl ConsoleAuthed {
             ))
         }
     }
+
+    /// Refuse everything but an admin. Managing operators, settings and deleting
+    /// data are the operations a mistake cannot be undone from, so they are not
+    /// shared with the write roles.
+    pub fn require_admin(&self) -> Result<(), V2Error> {
+        if self.role().is_admin() {
+            Ok(())
+        } else {
+            Err(V2Error::permission_denied(
+                "This console action requires the admin role.",
+            ))
+        }
+    }
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for ConsoleAuthed {

@@ -1,11 +1,12 @@
-//! Console operators (`console_user`) as the console lists them.
+//! Console operators (`console_user`) as the console lists them, and the bodies
+//! that create and edit one.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::infra::console::ConsoleRole;
-use crate::repositories::console::ConsoleUserRow as Row;
+use crate::repositories::console::FindConsoleUserRow as Row;
 
 /// A console operator. The password and MFA secrets are absent by construction —
 /// the query never selects them.
@@ -40,4 +41,48 @@ impl From<Row> for ConsoleUserView {
             update_time: r.update_time,
         }
     }
+}
+
+/// `POST /v2/console/user` — a new operator. The role is named rather than sent as
+/// an ACL document: the console's own roles are the only ones an operator may
+/// assign, and a name cannot smuggle in a permission nobody reviewed.
+#[derive(Debug, Default, Deserialize)]
+pub struct CreateConsoleUserRequest {
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub password: String,
+    /// `admin`, `developer`, `maintainer` or `readonly`.
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub mfa_required: bool,
+}
+
+/// `PUT /v2/console/user/{id}` — the mutable profile. The password is absent by
+/// design: it has its own route, so editing a profile cannot change how someone
+/// signs in.
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdateConsoleUserRequest {
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub email: String,
+    /// `admin`, `developer`, `maintainer` or `readonly`.
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub mfa_required: bool,
+}
+
+/// `POST /v2/console/user/{id}/password` — an operator resetting someone else's
+/// credential, which is why it is its own route and carries nothing else.
+#[derive(Debug, Default, Deserialize)]
+pub struct SetConsolePasswordRequest {
+    #[serde(default)]
+    pub password: String,
 }

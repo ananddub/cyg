@@ -1,7 +1,9 @@
-//! `/v2/console/group` — groups and their members.
+//! `/v2/console/group` — groups, their members, and deleting a group.
 
 use axum::Json;
 
+use crate::app::middleware::ConsoleAuthed;
+use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::group::{GroupMemberRow, GroupRow};
 use crate::error::V2Error;
@@ -55,5 +57,32 @@ impl super::ConsoleService {
             .list_group_users(super::account_id(id)?, MAX_MEMBERS)
             .await?;
         Ok(Json(rows.into_iter().map(GroupMemberRow::from).collect()))
+    }
+
+    /// Delete a group. This is the same statement the player API uses, which is a
+    /// soft delete: the row keeps its history, stops being listed, and every other
+    /// surface reads that epoch as "gone". A hard delete here would be a second
+    /// meaning for the word the API already defines.
+    pub async fn delete_group(
+        &self,
+        state: &ApiState,
+        claims: &ConsoleAuthed,
+        id: &str,
+    ) -> Result<Json<Empty>, V2Error> {
+        claims.require_write()?;
+        let id = super::account_id(id)?;
+        let queries = super::queries(state)?;
+        let group = queries.get_group_by_id(id).await?;
+        queries.delete_group(id).await?;
+        super::audit(
+            state,
+            claims,
+            "group.delete",
+            "group",
+            Some(id),
+            &format!("Deleted group {}.", group.name),
+        )
+        .await;
+        Ok(Json(Empty {}))
     }
 }

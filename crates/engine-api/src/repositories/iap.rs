@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use super::models::*;
 use super::db::Queries;
+use super::console::ListWalletLedgerParams;
 
 pub struct InsertPurchaseParams {
     pub transaction_id: String,
@@ -19,11 +20,7 @@ pub struct InsertPurchaseParams {
     pub raw_response: serde_json::Value,
 }
 
-pub struct ListPurchasesParams {
-    pub user_id: Uuid,
-    pub limit: i64,
-    pub offset: i64,
-}
+pub type ListPurchasesParams = ListWalletLedgerParams;
 
 pub struct InsertSubscriptionParams {
     pub original_transaction_id: String,
@@ -37,7 +34,7 @@ pub struct InsertSubscriptionParams {
     pub raw_response: serde_json::Value,
 }
 
-pub type ListSubscriptionsParams = ListPurchasesParams;
+pub type ListSubscriptionsParams = ListWalletLedgerParams;
 
 pub struct InsertWalletLedgerParams {
     pub id: Uuid,

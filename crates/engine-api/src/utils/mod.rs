@@ -16,6 +16,7 @@ pub mod signaling;
 pub mod static_routes;
 pub mod status;
 pub mod storage;
+pub mod totp;
 pub mod tournament;
 pub mod unlink;
 pub mod user;

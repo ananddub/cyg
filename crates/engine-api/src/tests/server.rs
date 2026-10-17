@@ -78,7 +78,17 @@ impl V2Server {
         self.send("GET", path, auth, "")
     }
 
-    fn send(&self, method: &str, path: &str, auth: Option<&str>, body: &str) -> Reply {
+    pub(super) fn put(&self, path: &str, auth: Option<&str>, body: &str) -> Reply {
+        self.send("PUT", path, auth, body)
+    }
+
+    pub(super) fn delete(&self, path: &str, auth: Option<&str>) -> Reply {
+        self.send("DELETE", path, auth, "")
+    }
+
+    /// Any method, for the routes that are neither a `GET` nor a `POST`. The body is
+    /// always sent, because the console decides what a write means from it.
+    pub(super) fn send(&self, method: &str, path: &str, auth: Option<&str>, body: &str) -> Reply {
         let mut stream = TcpStream::connect(self.addr).expect("connect");
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))

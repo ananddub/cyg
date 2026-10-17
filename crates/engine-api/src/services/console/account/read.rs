@@ -1,13 +1,11 @@
-//! `/v2/console/account` — the player accounts the console browses.
-//!
-//! Read-only for now: ban, delete and note-writing are the Phase-2 mutations the
-//! same routes will grow.
+//! The reads over one account: the list, the row, its notes and its wallet ledger.
 
 use axum::Json;
 
 use crate::dto::console::Page;
 use crate::dto::console::account::{AccountNoteRow, AccountRow, WalletLedgerRow};
 use crate::error::V2Error;
+use crate::repositories::console::ListWalletLedgerParams;
 use crate::ApiState;
 
 impl super::ConsoleService {
@@ -51,7 +49,11 @@ impl super::ConsoleService {
         page: Page,
     ) -> Result<Json<Vec<WalletLedgerRow>>, V2Error> {
         let rows = super::queries(state)?
-            .list_wallet_ledger(super::account_id(id)?, page.limit(), page.offset())
+            .list_wallet_ledger(&ListWalletLedgerParams {
+                user_id: super::account_id(id)?,
+                limit: page.limit(),
+                offset: page.offset(),
+            })
             .await?;
         Ok(Json(rows.into_iter().map(WalletLedgerRow::from).collect()))
     }

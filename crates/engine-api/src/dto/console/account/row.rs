@@ -1,8 +1,8 @@
-//! Player accounts as the console lists and shows them: the row itself, its
-//! operator notes and its wallet ledger.
+//! The rows a console table and its side panels read: the account, its operator
+//! notes and its wallet ledger.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::repositories::models::{Users, UsersNotes, WalletLedger};
@@ -64,7 +64,7 @@ impl From<Users> for AccountRow {
 }
 
 /// An operator note attached to an account.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AccountNoteRow {
     pub id: Uuid,
     pub note: String,
@@ -84,7 +84,7 @@ impl From<UsersNotes> for AccountNoteRow {
 }
 
 /// One wallet ledger entry: the change the operator made and when.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct WalletLedgerRow {
     pub id: Uuid,
     pub changeset: serde_json::Value,

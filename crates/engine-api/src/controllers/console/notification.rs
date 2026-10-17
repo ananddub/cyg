@@ -1,4 +1,5 @@
-//! Auto-registered binding for `GET /v2/console/notification`.
+//! Auto-registered binding for `/v2/console/notification` — a player's
+//! notifications, and sending one.
 
 use std::sync::Arc;
 
@@ -6,9 +7,9 @@ use auto_route::controller;
 use axum::response::{IntoResponse, Response};
 
 use crate::app::middleware::ConsoleAuthed;
-use crate::app::params::Params;
+use crate::app::params::{Body, Params};
 use crate::current_state;
-use crate::dto::console::notification::NotificationQuery;
+use crate::dto::console::notification::{NotificationQuery, SendNotificationRequest};
 use crate::services::console::ConsoleService;
 
 struct ConsoleNotificationController {
@@ -26,6 +27,19 @@ impl ConsoleNotificationController {
         let state = current_state();
         self.service
             .list_notifications(&state, query)
+            .await
+            .into_response()
+    }
+
+    #[post("")]
+    async fn send(
+        &self,
+        auth: ConsoleAuthed,
+        Body(body): Body<SendNotificationRequest>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .send_notification(&state, &auth, body)
             .await
             .into_response()
     }

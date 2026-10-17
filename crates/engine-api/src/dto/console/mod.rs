@@ -12,6 +12,7 @@ pub mod iap;
 pub mod leaderboard;
 pub mod notification;
 pub mod setting;
+pub mod status;
 pub mod storage;
 pub mod user;
 

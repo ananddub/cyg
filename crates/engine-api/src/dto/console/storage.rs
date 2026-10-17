@@ -1,11 +1,19 @@
 //! The storage browser: an object as the console shows it, with its value parsed
-//! back into JSON so the viewer can pretty-print it.
+//! back into JSON so the viewer can pretty-print it, and the count a collection
+//! delete answers with.
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::repositories::console::ConsoleStorageRow;
+use crate::repositories::console::ListStorageRow;
+
+/// The reply to a delete that can take more than one row: how many went. A bare
+/// 200 would leave the console unable to tell "deleted 3" from "nothing matched".
+#[derive(Debug, Serialize)]
+pub struct DeletedCount {
+    pub removed: u64,
+}
 
 /// One stored object. `read`/`write` are the permission levels the storage API
 /// numbers (0 private, 1 owner, 2 public), kept numeric here for the editor.
@@ -22,11 +30,11 @@ pub struct StorageObjectRow {
     pub update_time: DateTime<Utc>,
 }
 
-impl From<ConsoleStorageRow> for StorageObjectRow {
-    fn from(s: ConsoleStorageRow) -> Self {
+impl From<ListStorageRow> for StorageObjectRow {
+    fn from(s: ListStorageRow) -> Self {
         Self {
             collection: s.collection,
-            key: s.key,
+            key: s.object_key,
             user_id: s.user_id,
             // `value` is selected as text; a column that somehow is not JSON shows
             // as a JSON string rather than failing the whole listing.

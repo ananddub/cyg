@@ -1,8 +1,7 @@
-//! Server settings (`setting`), as the console lists them. Read-only for now:
-//! changing a setting is a Phase-2 mutation.
+//! Server settings (`setting`), as the console lists and writes them.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::repositories::models::Setting;
 
@@ -22,4 +21,15 @@ impl From<Setting> for SettingRow {
             update_time: s.update_time,
         }
     }
+}
+
+/// `PUT /v2/console/setting` — a whole setting, created if it is new. Naming the
+/// value rather than patching it means a write can never leave a half-updated
+/// document behind.
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdateSettingRequest {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub value: serde_json::Value,
 }

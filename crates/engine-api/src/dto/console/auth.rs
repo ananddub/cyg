@@ -2,9 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The console login body. `mfa` is accepted so a client that sends it is not
-/// refused for the wrong reason, but a console user with MFA configured is turned
-/// away for now rather than let through unverified.
+/// The console login body. `mfa` is the authenticator code, required only when the
+/// operator has MFA enrolled — a login without one is refused once a secret exists.
 #[derive(Debug, Default, Deserialize)]
 pub struct AuthenticateRequest {
     #[serde(default)]
@@ -33,4 +32,23 @@ pub struct ConsoleSessionResponse {
 pub struct LogoutRequest {
     #[serde(default)]
     pub token: String,
+}
+
+/// `POST /v2/console/mfa/verify` and the body that disables MFA: the digit code an
+/// authenticator is showing, or one of the recovery codes written down at
+/// enrolment.
+#[derive(Debug, Default, Deserialize)]
+pub struct MfaCodeRequest {
+    #[serde(default)]
+    pub code: String,
+}
+
+/// The enrolment reply. `secret` is what a client types in by hand and `uri` is
+/// what it scans; `recovery_codes` are shown exactly once, because only their
+/// hashes are stored.
+#[derive(Debug, Serialize)]
+pub struct MfaEnrolmentResponse {
+    pub secret: String,
+    pub uri: String,
+    pub recovery_codes: Vec<String>,
 }

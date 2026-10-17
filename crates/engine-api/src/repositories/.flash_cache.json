@@ -1,19 +1,21 @@
 {
   "version": "1.0",
   "query_file_checksums": {
-    "db/queries/account.sql": "25a195651c0a41efec3372e2cb1e9e74f40660b9f3c2d578630884beeb8c4d80",
-    "db/queries/auth.sql": "5b04cf81165f8552354c1646fb634d72f102a84f8d1757a9dfa8dc38873f75d5",
-    "db/queries/channel.sql": "be9447716008ec53309fa1f270b4b8dc0a51d3d648c860110fdaf07c65d4b690",
-    "db/queries/friend.sql": "e12f0cd4d22e6c125d94af488d4e2b806f3165a30ab0b599f43aab2fe28a5c7d",
-    "db/queries/group.sql": "571023e15c5cfe68ed8e00c2dceef086b96759370699d7bdd85c407bdd94c4dc",
-    "db/queries/iap.sql": "3a579390f2ffdab7aee3506594e86276dbdc8d54fd6dffec7765219ab78dfbc3",
-    "db/queries/leaderboard.sql": "a262973ae1a17e92b3f5ad028a7acec67073a4126ff611eb46d3e1591205c592",
-    "db/queries/link.sql": "28fe5e76a5df932e7177859e5a765c0b7ed2ac2ece2a41ffe361f7aaadbca5cc",
-    "db/queries/notification.sql": "32be905479d03d8249242d83a8f8008e690241e9b26fef1d4321c65943964055",
-    "db/queries/session.sql": "304ca9c0a7ffa2e4f05dbe6e869d819faae1736e11c69c53a5c13e2b268878dc",
-    "db/queries/tournament.sql": "f00143439bf07267ef61f0672a058683f2bb18121fdf3bf8ffd982db7a697546",
-    "db/queries/unlink.sql": "c0348801321d9cb801bc1ee5e84d1b98db208cc35d8f6ce6e55c7a118f783e08",
-    "db/queries/user.sql": "aacd53940f7d96b12518ebf53dfeab89cbbb24336e9777bf034ff9ca115c8f8c"
+    "db/queries/account.sql": "585a2e29b933daf898ea26a1ab0efa81890866f64c59b01bc1476ec6f4064c90",
+    "db/queries/auth.sql": "6bcf83d52eecf8e655a9272009dcc3a72ae44590d0ac92c4a0fe0c0394254de5",
+    "db/queries/channel.sql": "bf3d5e1f13033f51929c59e4720a4448ee54a9005e17f911a9e1c7dbd06af94c",
+    "db/queries/console.sql": "9c4085b1e67b1b6ec33ca8ed4d19c6cf14a619f3fce61ee99a979243e456218c",
+    "db/queries/console_mutations.sql": "ae2bb7758455adfa490e62eaa2e3f5a16eac742e18b16b815eaf9b93e6c57cfa",
+    "db/queries/friend.sql": "fb3782a2278531dc7496ca04b49c607d9ff8c669fc79c79019d70b7fb7db2269",
+    "db/queries/group.sql": "1c2c9a7ed552ece68aff55442caf2240b31d3622b46f838619205d8823d9ca16",
+    "db/queries/iap.sql": "1c564e758a9b4e3d09911525332cfbb3c54df96205c67c863583ec52f7bec678",
+    "db/queries/leaderboard.sql": "65f67d7ed206e76c4848bea737492564fb24b038d68bf82bcbd50c92eed4ed5d",
+    "db/queries/link.sql": "1a880f0a8f774ad9b492faff393c08adc58b7252b6bcd32596ce7d01938de6b6",
+    "db/queries/notification.sql": "068b28c07918f56c3a4f4f8185f82ea73ef9fcf3bc1687596000d29e28fe0b06",
+    "db/queries/session.sql": "d94388acfced23296385f513059311c6b56c02c1788881addb34038c8a05c9d8",
+    "db/queries/tournament.sql": "92d13dd1e1664c50dee7c048583faa4e1098566a629f8369ade2ce53716d754b",
+    "db/queries/unlink.sql": "c90ee5e09e905d5da9617abdebf3e301bd440166021031796a73b516096b30b4",
+    "db/queries/user.sql": "bfeb3491032b84d79eeb190c211d2eae269aa85eed73d6dc753315ac9280d25b"
   },
   "schema_checksum": "f38c6d9a422baf237ddd3c210ff241f9c96c5fb85c9ab918512afbd5474d42fe",
   "config_checksum": "5a76e5830a4e610c2b0af91ca8c9e233753ead353ef30313f978c28dea001e41",
@@ -30,20 +32,45 @@
     "db/queries/channel.sql": [
       "message"
     ],
+    "db/queries/console.sql": [
+      "console_audit_log",
+      "console_acl_template",
+      "notification",
+      "console_user",
+      "leaderboard",
+      "storage",
+      "setting",
+      "purchase",
+      "users",
+      "wallet_ledger",
+      "users_notes",
+      "leaderboard_record"
+    ],
+    "db/queries/console_mutations.sql": [
+      "users",
+      "storage",
+      "notification",
+      "setting",
+      "console_audit_log",
+      "console_user",
+      "users_notes",
+      "user_edge",
+      "console_acl_template"
+    ],
     "db/queries/friend.sql": [
       "user_edge",
       "users"
     ],
     "db/queries/group.sql": [
-      "g",
       "groups",
-      "group_edge"
+      "group_edge",
+      "g"
     ],
     "db/queries/iap.sql": [
-      "users",
-      "wallet_ledger",
       "purchase",
-      "subscription"
+      "subscription",
+      "users",
+      "wallet_ledger"
     ],
     "db/queries/leaderboard.sql": [
       "leaderboard",
@@ -71,6 +98,6 @@
     ]
   },
   "generated_file_checksums": {},
-  "last_generation": "2026-10-16T07:19:33.05144403+05:30",
-  "OutDir": "crates/engine-api/src/flash_gen"
+  "last_generation": "2026-10-17T20:40:57.864578035+05:30",
+  "OutDir": "crates/engine-api/src/repositories"
 }

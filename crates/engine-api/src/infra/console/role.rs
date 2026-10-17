@@ -61,4 +61,57 @@ impl ConsoleRole {
             ConsoleRole::Readonly => "readonly",
         }
     }
+
+    /// A role named on the wire. `None` for anything unrecognised, so a caller can
+    /// answer 400 instead of silently widening or narrowing access.
+    pub fn from_name(name: &str) -> Option<ConsoleRole> {
+        match name {
+            "admin" => Some(ConsoleRole::Admin),
+            "developer" => Some(ConsoleRole::Developer),
+            "maintainer" => Some(ConsoleRole::Maintainer),
+            "readonly" => Some(ConsoleRole::Readonly),
+            _ => None,
+        }
+    }
+
+    /// The `acl` document a role is stored as. The number is authoritative for
+    /// [`from_acl`](ConsoleRole::from_acl); the boolean is written alongside it so a
+    /// reader that only looks at `admin` agrees.
+    pub fn to_acl(self) -> Value {
+        serde_json::json!({ "role": self.as_u8(), "admin": self.is_admin() })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_role_round_trips_through_its_names_and_its_acl() {
+        for role in [
+            ConsoleRole::Admin,
+            ConsoleRole::Developer,
+            ConsoleRole::Maintainer,
+            ConsoleRole::Readonly,
+        ] {
+            assert_eq!(ConsoleRole::from_name(role.as_str()), Some(role));
+            assert_eq!(ConsoleRole::from_acl(&role.to_acl()), role);
+            assert_eq!(ConsoleRole::from_u8(role.as_u8()), role);
+        }
+    }
+
+    #[test]
+    fn an_unknown_name_or_acl_never_widens_access() {
+        assert_eq!(ConsoleRole::from_name("root"), None);
+        assert_eq!(ConsoleRole::from_acl(&serde_json::json!({})), ConsoleRole::Readonly);
+        assert_eq!(
+            ConsoleRole::from_acl(&serde_json::json!({ "role": 99 })),
+            ConsoleRole::Readonly
+        );
+        // The boolean alone is enough, which is what the fine-grained migration writes.
+        assert_eq!(
+            ConsoleRole::from_acl(&serde_json::json!({ "admin": true })),
+            ConsoleRole::Admin
+        );
+    }
 }

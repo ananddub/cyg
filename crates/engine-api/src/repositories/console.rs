@@ -8,10 +8,8 @@ use serde_json::Value;
 use super::models::*;
 use super::db::Queries;
 
-/// A `console_user` row without its password or MFA secrets — the shape the list,
-/// and every reply, is built from.
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
-pub struct ConsoleUserRow {
+pub struct FindConsoleUserRow {
     pub id: Uuid,
     pub username: String,
     pub email: String,
@@ -23,10 +21,12 @@ pub struct ConsoleUserRow {
     pub mfa_required: Option<bool>,
 }
 
+pub type ListConsoleUsersRow = FindConsoleUserRow;
+
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
-pub struct ConsoleStorageRow {
+pub struct ListStorageRow {
     pub collection: String,
-    pub key: String,
+    pub object_key: String,
     pub user_id: Uuid,
     pub value: String,
     pub version: String,
@@ -36,40 +36,30 @@ pub struct ConsoleStorageRow {
     pub update_time: DateTime<Utc>,
 }
 
-pub struct UpsertConsoleUserParams {
-    pub id: Uuid,
-    pub email: String,
-    pub acl: serde_json::Value,
-    pub username: String,
-    pub password: Vec<u8>,
-    pub mfa_required: bool,
+pub type ListStorageInCollectionRow = ListStorageRow;
+
+pub struct ListWalletLedgerParams {
+    pub user_id: Uuid,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+pub struct ListLeaderboardsByCategoryParams {
+    pub category: i16,
+    pub limit: i64,
+    pub offset: i64,
 }
 
 impl Queries {
-    /// FindConsoleUser — the login lookup; matches username *or* email so one field
-    /// serves both. `role` is intentionally not selected: the fine-grained ACL
-    /// migration drops that column, so `SELECT *` would fail on a migrated database.
+    /// FindConsoleUser
     pub async fn find_console_user(
         &self,
-        login: &str,
-    ) -> Result<ConsoleUserRow, sqlx::Error> {
-        sqlx::query_as::<_, ConsoleUserRow>(
+        username: &str,
+    ) -> Result<FindConsoleUserRow, sqlx::Error> {
+        sqlx::query_as::<_, FindConsoleUserRow>(
             "SELECT id, username, email, acl, metadata, create_time, update_time, disable_time, mfa_required FROM console_user WHERE username = $1 OR email = $1;"
         )
-        .bind(login)
-        .fetch_one(&self.pool)
-        .await
-    }
-
-    /// FindConsoleUserAuth — the login lookup with the password column.
-    pub async fn find_console_user_auth(
-        &self,
-        login: &str,
-    ) -> Result<ConsoleUserAuthRow, sqlx::Error> {
-        sqlx::query_as::<_, ConsoleUserAuthRow>(
-            "SELECT id, username, email, acl, password, disable_time, mfa_required FROM console_user WHERE username = $1 OR email = $1;"
-        )
-        .bind(login)
+        .bind(username)
         .fetch_one(&self.pool)
         .await
     }
@@ -79,8 +69,8 @@ impl Queries {
         &self,
         limit: i64,
         offset: i64,
-    ) -> Result<Vec<ConsoleUserRow>, sqlx::Error> {
-        sqlx::query_as::<_, ConsoleUserRow>(
+    ) -> Result<Vec<ListConsoleUsersRow>, sqlx::Error> {
+        sqlx::query_as::<_, ListConsoleUsersRow>(
             "SELECT id, username, email, acl, metadata, create_time, update_time, disable_time, mfa_required FROM console_user ORDER BY create_time DESC, id ASC LIMIT $1 OFFSET $2;"
         )
         .bind(limit)
@@ -89,55 +79,7 @@ impl Queries {
         .await
     }
 
-    /// UpsertConsoleUser — the bootstrap superadmin row, mirroring the console login
-    /// so MFA configuration has somewhere to live.
-    pub async fn upsert_console_user(
-        &self,
-        params: &UpsertConsoleUserParams,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO console_user (id, email, acl, username, password, mfa_required) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET update_time = now(), acl = $3, username = $4, password = $5, mfa_required = $6;"
-        )
-        .bind(&params.id)
-        .bind(&params.email)
-        .bind(&params.acl)
-        .bind(&params.username)
-        .bind(&params.password)
-        .bind(&params.mfa_required)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    /// UpdateConsoleUserPassword
-    pub async fn update_console_user_password(
-        &self,
-        password: Vec<u8>,
-        id: Uuid,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE console_user SET password = $1, update_time = now() WHERE id = $2;"
-        )
-        .bind(password)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    /// DeleteConsoleUser
-    pub async fn delete_console_user(
-        &self,
-        id: Uuid,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM console_user WHERE id = $1;")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
-    }
-
-    /// ListAccounts — every player account, newest first.
+    /// ListAccounts
     pub async fn list_accounts(
         &self,
         limit: i64,
@@ -153,25 +95,27 @@ impl Queries {
     }
 
     /// CountAccounts
-    pub async fn count_accounts(&self) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar("SELECT count(*) FROM users;")
-            .fetch_one(&self.pool)
-            .await
+    pub async fn count_accounts(
+        &self,
+    ) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<sqlx::Postgres, i64>(
+            "SELECT count(*) FROM users;"
+        )
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// ListWalletLedger
     pub async fn list_wallet_ledger(
         &self,
-        user_id: Uuid,
-        limit: i64,
-        offset: i64,
+        params: &ListWalletLedgerParams,
     ) -> Result<Vec<WalletLedger>, sqlx::Error> {
         sqlx::query_as::<_, WalletLedger>(
             "SELECT id, user_id, changeset, metadata, create_time, update_time FROM wallet_ledger WHERE user_id = $1 ORDER BY create_time DESC, id ASC LIMIT $2 OFFSET $3;"
         )
-        .bind(user_id)
-        .bind(limit)
-        .bind(offset)
+        .bind(&params.user_id)
+        .bind(&params.limit)
+        .bind(&params.offset)
         .fetch_all(&self.pool)
         .await
     }
@@ -189,26 +133,6 @@ impl Queries {
         .await
     }
 
-    /// InsertUserNote
-    pub async fn insert_user_note(
-        &self,
-        id: Uuid,
-        user_id: Uuid,
-        note: &str,
-        create_id: Option<Uuid>,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO users_notes (id, user_id, note, create_id) VALUES ($1, $2, $3, $4);"
-        )
-        .bind(id)
-        .bind(user_id)
-        .bind(note)
-        .bind(create_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
     /// ListLeaderboards
     pub async fn list_leaderboards(
         &self,
@@ -224,14 +148,29 @@ impl Queries {
         .await
     }
 
-    /// ListAllLeaderboardRecords — the console view of a board, unfiltered by expiry.
+    /// ListLeaderboardsByCategory
+    pub async fn list_leaderboards_by_category(
+        &self,
+        params: &ListLeaderboardsByCategoryParams,
+    ) -> Result<Vec<Leaderboard>, sqlx::Error> {
+        sqlx::query_as::<_, Leaderboard>(
+            "SELECT * FROM leaderboard WHERE category = $1 ORDER BY create_time DESC, id ASC LIMIT $2 OFFSET $3;"
+        )
+        .bind(&params.category)
+        .bind(&params.limit)
+        .bind(&params.offset)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// ListAllLeaderboardRecords
     pub async fn list_all_leaderboard_records(
         &self,
         leaderboard_id: &str,
         limit: i64,
     ) -> Result<Vec<LeaderboardRecord>, sqlx::Error> {
         sqlx::query_as::<_, LeaderboardRecord>(
-            "SELECT leaderboard_id, owner_id, username, score, subscore, num_score, max_num_score, metadata, create_time, update_time, expiry_time FROM leaderboard_record WHERE leaderboard_id = $1 ORDER BY score DESC, subscore DESC, owner_id DESC LIMIT $2;"
+            "SELECT leaderboard_id, owner_id, username, score, subscore, num_score, metadata, create_time, update_time, expiry_time, max_num_score FROM leaderboard_record WHERE leaderboard_id = $1 ORDER BY score DESC, subscore DESC, owner_id DESC LIMIT $2;"
         )
         .bind(leaderboard_id)
         .bind(limit)
@@ -244,9 +183,9 @@ impl Queries {
         &self,
         limit: i64,
         offset: i64,
-    ) -> Result<Vec<ConsoleStorageRow>, sqlx::Error> {
-        sqlx::query_as::<_, ConsoleStorageRow>(
-            "SELECT collection, key, user_id, value::text AS value, version, read, write, create_time, update_time FROM storage ORDER BY update_time DESC, collection ASC, key ASC LIMIT $1 OFFSET $2;"
+    ) -> Result<Vec<ListStorageRow>, sqlx::Error> {
+        sqlx::query_as::<_, ListStorageRow>(
+            "SELECT collection, key AS object_key, user_id, value::text AS value, version, read, write, create_time, update_time FROM storage ORDER BY update_time DESC, collection ASC, object_key ASC LIMIT $1 OFFSET $2;"
         )
         .bind(limit)
         .bind(offset)
@@ -259,9 +198,9 @@ impl Queries {
         &self,
         collection: &str,
         limit: i64,
-    ) -> Result<Vec<ConsoleStorageRow>, sqlx::Error> {
-        sqlx::query_as::<_, ConsoleStorageRow>(
-            "SELECT collection, key, user_id, value::text AS value, version, read, write, create_time, update_time FROM storage WHERE collection = $1 ORDER BY key ASC, user_id ASC LIMIT $2;"
+    ) -> Result<Vec<ListStorageInCollectionRow>, sqlx::Error> {
+        sqlx::query_as::<_, ListStorageInCollectionRow>(
+            "SELECT collection, key AS object_key, user_id, value::text AS value, version, read, write, create_time, update_time FROM storage WHERE collection = $1 ORDER BY object_key ASC, user_id ASC LIMIT $2;"
         )
         .bind(collection)
         .bind(limit)
@@ -269,33 +208,21 @@ impl Queries {
         .await
     }
 
-    /// ListLeaderboardsByCategory — 0 lists leaderboards, 1 lists tournaments; both
-    /// share the `leaderboard` table.
-    pub async fn list_leaderboards_by_category(
+    /// ListStorageCollections
+    pub async fn list_storage_collections(
         &self,
-        category: i16,
-        limit: i64,
-        offset: i64,
-    ) -> Result<Vec<Leaderboard>, sqlx::Error> {
-        sqlx::query_as::<_, Leaderboard>(
-            "SELECT * FROM leaderboard WHERE category = $1 ORDER BY create_time DESC, id ASC LIMIT $2 OFFSET $3;"
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<sqlx::Postgres, String>(
+            "SELECT DISTINCT collection FROM storage ORDER BY collection ASC;"
         )
-        .bind(category)
-        .bind(limit)
-        .bind(offset)
         .fetch_all(&self.pool)
         .await
     }
 
-    /// ListStorageCollections
-    pub async fn list_storage_collections(&self) -> Result<Vec<String>, sqlx::Error> {
-        sqlx::query_scalar("SELECT DISTINCT collection FROM storage ORDER BY collection ASC;")
-            .fetch_all(&self.pool)
-            .await
-    }
-
     /// ListSettings
-    pub async fn list_settings(&self) -> Result<Vec<Setting>, sqlx::Error> {
+    pub async fn list_settings(
+        &self,
+    ) -> Result<Vec<Setting>, sqlx::Error> {
         sqlx::query_as::<_, Setting>(
             "SELECT name, value, update_time FROM setting ORDER BY name ASC;"
         )
@@ -318,29 +245,10 @@ impl Queries {
         .await
     }
 
-    /// InsertAuditLog
-    pub async fn insert_audit_log(
-        &self,
-        params: &InsertAuditLogParams,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO console_audit_log (id, console_user_id, console_username, email, action, resource, message, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);"
-        )
-        .bind(&params.id)
-        .bind(&params.console_user_id)
-        .bind(&params.console_username)
-        .bind(&params.email)
-        .bind(&params.action)
-        .bind(&params.resource)
-        .bind(&params.message)
-        .bind(&params.metadata)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
     /// ListAclTemplates
-    pub async fn list_acl_templates(&self) -> Result<Vec<ConsoleAclTemplate>, sqlx::Error> {
+    pub async fn list_acl_templates(
+        &self,
+    ) -> Result<Vec<ConsoleAclTemplate>, sqlx::Error> {
         sqlx::query_as::<_, ConsoleAclTemplate>(
             "SELECT id, name, description, acl, create_time, update_time FROM console_acl_template ORDER BY name ASC;"
         )
@@ -363,7 +271,7 @@ impl Queries {
         .await
     }
 
-    /// ListNotificationsForUser — the console view.
+    /// ListNotificationsForUser
     pub async fn list_notifications_for_user(
         &self,
         user_id: Uuid,
@@ -377,27 +285,5 @@ impl Queries {
         .fetch_all(&self.pool)
         .await
     }
-}
 
-/// A `console_user` row including its stored password — the login lookup.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct ConsoleUserAuthRow {
-    pub id: Uuid,
-    pub username: String,
-    pub email: String,
-    pub acl: serde_json::Value,
-    pub password: Option<Vec<u8>>,
-    pub disable_time: DateTime<Utc>,
-    pub mfa_required: Option<bool>,
-}
-
-pub struct InsertAuditLogParams {
-    pub id: Uuid,
-    pub console_user_id: Uuid,
-    pub console_username: String,
-    pub email: String,
-    pub action: String,
-    pub resource: String,
-    pub message: String,
-    pub metadata: serde_json::Value,
 }

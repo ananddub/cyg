@@ -45,4 +45,33 @@ impl ConsoleStorageController {
             .await
             .into_response()
     }
+
+    /// The owner is part of the key, so it is part of the path: two accounts can
+    /// hold the same key in the same collection and only one of them is being
+    /// deleted.
+    #[delete("/object/{collection}/{key}/{user_id}")]
+    async fn delete_object(
+        &self,
+        auth: ConsoleAuthed,
+        Path((collection, key, user_id)): Path<(String, String, String)>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .delete_storage_object(&state, &auth, &collection, &key, &user_id)
+            .await
+            .into_response()
+    }
+
+    #[delete("/collection/{collection}")]
+    async fn delete_collection(
+        &self,
+        auth: ConsoleAuthed,
+        Path(collection): Path<String>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .delete_storage_collection(&state, &auth, &collection)
+            .await
+            .into_response()
+    }
 }

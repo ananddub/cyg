@@ -6,6 +6,7 @@ use axum::Json;
 use crate::dto::console::Page;
 use crate::dto::console::leaderboard::{LeaderboardRecordRow, LeaderboardRow};
 use crate::error::V2Error;
+use crate::repositories::console::ListLeaderboardsByCategoryParams;
 use crate::ApiState;
 
 /// A board's page of records; the player API caps a listing at 100 the same way.
@@ -35,7 +36,11 @@ impl super::ConsoleService {
         category: i16,
     ) -> Result<Json<Vec<LeaderboardRow>>, V2Error> {
         let rows = super::queries(state)?
-            .list_leaderboards_by_category(category, page.limit(), page.offset())
+            .list_leaderboards_by_category(&ListLeaderboardsByCategoryParams {
+                category,
+                limit: page.limit(),
+                offset: page.offset(),
+            })
             .await?;
         Ok(Json(rows.into_iter().map(LeaderboardRow::from).collect()))
     }

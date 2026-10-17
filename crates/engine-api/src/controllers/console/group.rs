@@ -42,4 +42,13 @@ impl ConsoleGroupController {
             .await
             .into_response()
     }
+
+    #[delete("/{id}")]
+    async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+        let state = current_state();
+        self.service
+            .delete_group(&state, &auth, &id)
+            .await
+            .into_response()
+    }
 }
