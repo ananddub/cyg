@@ -9,6 +9,7 @@ use crate::ApiState;
 use crate::error::V2Error;
 
 pub mod delete;
+pub mod index;
 pub mod list;
 pub mod read;
 pub mod write;

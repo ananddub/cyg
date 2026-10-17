@@ -81,4 +81,20 @@ impl AccountController {
             .await
             .into_response()
     }
+
+    /// The self-service wallet update, as a `PUT`: metadata merge only, so a player
+    /// can annotate their own ledger entries but never move a balance. The `POST`
+    /// above shares this handler; currency changes are the console's to grant.
+    #[put("/wallet")]
+    async fn put_wallet(
+        &self,
+        auth: Authed,
+        Body(body): Body<UpdatePlayerWalletRequest>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .update_wallet(&state, &auth, body)
+            .await
+            .into_response()
+    }
 }

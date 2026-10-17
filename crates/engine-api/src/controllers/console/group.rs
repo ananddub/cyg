@@ -43,6 +43,15 @@ impl ConsoleGroupController {
             .into_response()
     }
 
+    #[get("/{id}/export")]
+    async fn export(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+        let state = current_state();
+        self.service
+            .export_group(&state, &auth, &id)
+            .await
+            .into_response()
+    }
+
     #[delete("/{id}")]
     async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();

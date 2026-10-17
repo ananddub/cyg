@@ -18,6 +18,26 @@ use crate::ApiState;
 use super::conflict::import_conflict;
 
 impl super::ConsoleService {
+    /// Import one account by id. The body is the same export document the bulk route
+    /// reads; the path id names the record being restored and must match the account
+    /// the document carries, so a body cannot be posted at the wrong address. The
+    /// restore itself runs through [`import_account`](Self::import_account).
+    pub async fn import_account_by_id(
+        &self,
+        state: &ApiState,
+        claims: &ConsoleAuthed,
+        id: &str,
+        body: AccountExport,
+    ) -> Result<Json<Empty>, V2Error> {
+        let id = super::account_id(id)?;
+        if body.account.id != id {
+            return Err(V2Error::invalid_argument(
+                "The account id in the body must match the id in the path.",
+            ));
+        }
+        self.import_account(state, claims, body).await
+    }
+
     /// Restore an account from its export. The id and the username must be free, so
     /// an import can never merge two accounts into one.
     pub async fn import_account(

@@ -3,11 +3,17 @@
 
 use axum::Json;
 
+use crate::app::middleware::ConsoleAuthed;
+use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::leaderboard::{LeaderboardRecordRow, LeaderboardRow};
 use crate::error::V2Error;
 use crate::repositories::console::ListLeaderboardsByCategoryParams;
+use crate::repositories::leaderboard::DeleteLeaderboardRecordParams;
+use crate::utils::leaderboard::types::is_tournament;
+use crate::utils::leaderboard::window::record_window;
 use crate::ApiState;
+use uuid::Uuid;
 
 /// A board's page of records; the player API caps a listing at 100 the same way.
 const MAX_RECORDS: i64 = 100;
@@ -63,5 +69,59 @@ impl super::ConsoleService {
             .list_all_leaderboard_records(id, MAX_RECORDS)
             .await?;
         Ok(Json(rows.into_iter().map(LeaderboardRecordRow::from).collect()))
+    }
+
+    /// Delete one owner's record from a plain leaderboard, the way the console's
+    /// record-delete handler does: it addresses a named owner and bypasses the
+    /// authoritative check an operator is exempt from. The window the record sits in
+    /// is the board's current one, the same the player route deletes, so an operator
+    /// removes the score a player would remove for themselves. A board with rounds is
+    /// not a leaderboard here: the tournament route owns those records.
+    pub async fn delete_leaderboard_record(
+        &self,
+        state: &ApiState,
+        claims: &ConsoleAuthed,
+        id: &str,
+        owner_id: &str,
+    ) -> Result<Json<Empty>, V2Error> {
+        claims.require_write()?;
+        if id.is_empty() {
+            return Err(V2Error::invalid_argument("Invalid leaderboard ID."));
+        }
+        let owner = Uuid::parse_str(owner_id)
+            .map_err(|_| V2Error::invalid_argument("Invalid owner ID."))?;
+        let queries = super::queries(state)?;
+        let board = queries
+            .get_leaderboard(id)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => V2Error::not_found("Leaderboard not found."),
+                other => V2Error::from_sqlx(other),
+            })?;
+        if is_tournament(&board) {
+            return Err(V2Error::not_found("Leaderboard not found."));
+        }
+        let expiry_time = record_window(&board)?;
+        queries
+            .delete_leaderboard_record(&DeleteLeaderboardRecordParams {
+                leaderboard_id: board.id,
+                owner_id: owner,
+                expiry_time,
+            })
+            .await
+            .map_err(|error| {
+                eprintln!("[console] leaderboard record delete: {error}");
+                V2Error::internal("Error deleting score from leaderboard.")
+            })?;
+        super::audit(
+            state,
+            claims,
+            "leaderboard.record.delete",
+            "leaderboard",
+            None,
+            &format!("Deleted {owner}'s record on leaderboard {id}."),
+        )
+        .await;
+        Ok(Json(Empty {}))
     }
 }

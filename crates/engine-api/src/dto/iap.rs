@@ -1,7 +1,6 @@
-//! `/v2/iap*` — the shapes purchase and subscription receipts travel in.
-//!
-//! The row → wire mapping lives here, the one place that knows both sides;
-//! `utils::iap` keeps only the pure receipt helpers.
+//! `/v2/iap*` — the shapes purchase and subscription receipts travel in, and
+//! the one row → wire mapping that knows both sides; `utils::iap` keeps only
+//! the pure receipt helpers.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -31,17 +30,37 @@ pub struct PurchaseRequest {
     pub transaction_id: Option<String>,
 }
 
-/// The purchase-token body shared by the Google and Huawei routes: both
-/// identify a purchase by a token string rather than by a receipt blob, so one
-/// shape serves `POST /v2/iap/purchase/{google,huawei}`.
+/// The purchase-token body shared by the token-shaped vendor routes: Google,
+/// Huawei, Facebook Instant and Samsung identify a purchase by an opaque
+/// credential, so one shape serves `POST /v2/iap/purchase/{google,huawei,
+/// facebookinstant,samsung}`. Facebook hands it as `signed_request`, Samsung as
+/// `purchase_id`; either alias is accepted where a token would be.
 #[derive(Debug, Deserialize)]
 pub struct PurchaseTokenRequest {
     #[serde(default)]
     pub purchase_token: String,
     #[serde(default)]
+    pub signed_request: Option<String>,
+    #[serde(default)]
+    pub purchase_id: Option<String>,
+    #[serde(default)]
     pub product_id: Option<String>,
     #[serde(default)]
     pub store: Option<i16>,
+}
+
+impl PurchaseTokenRequest {
+    /// The first credential the caller actually filled, then a vendor's alias.
+    pub(crate) fn credential(&self) -> &str {
+        if !self.purchase_token.is_empty() {
+            return &self.purchase_token;
+        }
+        self.signed_request
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| self.purchase_id.as_deref().filter(|s| !s.is_empty()))
+            .unwrap_or_default()
+    }
 }
 
 /// `POST /v2/iap/subscription/{apple,google,huawei}`.
@@ -107,6 +126,39 @@ fn environment_name(env: i16) -> String {
         1 => "SANDBOX".into(),
         2 => "PROD".into(),
         _ => "UNKNOWN".into(),
+    }
+}
+
+impl PurchaseResponse {
+    /// The entity a console validation parses out of a credential without
+    /// writing a row: identity from the receipt, times stamped now.
+    pub(crate) fn parsed(product_id: &str, transaction_id: &str) -> Self {
+        let now = Utc::now().timestamp();
+        PurchaseResponse {
+            product_id: product_id.to_owned(),
+            transaction_id: transaction_id.to_owned(),
+            purchase_time: now,
+            update_time: now,
+            refund_time: None,
+            environment: environment_name(0),
+            provider_notification: None,
+        }
+    }
+}
+
+impl SubscriptionResponse {
+    /// The parsed-entity twin of [`PurchaseResponse::parsed`]: active (state 1).
+    pub(crate) fn parsed(product_id: &str, transaction_id: &str) -> Self {
+        SubscriptionResponse {
+            product_id: product_id.to_owned(),
+            transaction_id: transaction_id.to_owned(),
+            purchase_time: Utc::now().timestamp(),
+            expiration_time: None,
+            refund_time: None,
+            environment: environment_name(0),
+            original_transaction_id: transaction_id.to_owned(),
+            state: 1,
+        }
     }
 }
 

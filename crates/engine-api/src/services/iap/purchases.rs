@@ -1,5 +1,6 @@
-//! Purchase recording and listing for `/v2/iap/purchase*` and the legacy
-//! `POST /v2/iap`.
+//! Purchase recording and listing for the Apple-shaped `POST /v2/iap*purchase`
+//! routes, the legacy `POST /v2/iap`, and the shared row write the token
+//! vendors in [`super::vendors`] reuse.
 
 use axum::Json;
 use base64::Engine;
@@ -8,9 +9,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::ApiState;
-use crate::dto::iap::{
-    ListQuery, PurchaseListResponse, PurchaseRequest, PurchaseResponse, PurchaseTokenRequest,
-};
+use crate::dto::iap::{ListQuery, PurchaseListResponse, PurchaseRequest, PurchaseResponse};
 use crate::repositories::iap::{InsertPurchaseParams, ListPurchasesParams};
 use crate::services::auth::q;
 use crate::error::V2Error;
@@ -57,50 +56,6 @@ impl IapService {
         .await
     }
 
-    pub async fn purchase_google(
-        &self,
-        state: &ApiState,
-        claims: &Authed,
-        body: PurchaseTokenRequest,
-    ) -> Result<Json<PurchaseResponse>, V2Error> {
-        if body.purchase_token.is_empty() {
-            return Err(V2Error::invalid_argument("purchase token cannot be empty"));
-        }
-        let transaction_id = hex_id(&body.purchase_token);
-        let raw = Value::String(body.purchase_token.clone());
-        record_purchase(
-            state,
-            claims.0.uuid()?,
-            transaction_id,
-            store_of(body.store, 1),
-            body.product_id.unwrap_or_default(),
-            raw,
-        )
-        .await
-    }
-
-    pub async fn purchase_huawei(
-        &self,
-        state: &ApiState,
-        claims: &Authed,
-        body: PurchaseTokenRequest,
-    ) -> Result<Json<PurchaseResponse>, V2Error> {
-        if body.purchase_token.is_empty() {
-            return Err(V2Error::invalid_argument("purchase token cannot be empty"));
-        }
-        let transaction_id = hex_id(&body.purchase_token);
-        let raw = Value::String(body.purchase_token.clone());
-        record_purchase(
-            state,
-            claims.0.uuid()?,
-            transaction_id,
-            store_of(body.store, 2),
-            body.product_id.unwrap_or_default(),
-            raw,
-        )
-        .await
-    }
-
     pub async fn list_purchases(
         &self,
         state: &ApiState,
@@ -131,7 +86,7 @@ impl IapService {
     }
 }
 
-async fn record_purchase(
+pub(super) async fn record_purchase(
     state: &ApiState,
     uid: Uuid,
     transaction_id: String,

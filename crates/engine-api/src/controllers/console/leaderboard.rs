@@ -57,6 +57,20 @@ impl ConsoleLeaderboardController {
             .await
             .into_response()
     }
+
+    /// Remove one owner's record from a plain leaderboard.
+    #[delete("/{id}/owner/{owner_id}")]
+    async fn delete_record(
+        &self,
+        auth: ConsoleAuthed,
+        Path((id, owner_id)): Path<(String, String)>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .delete_leaderboard_record(&state, &auth, &id, &owner_id)
+            .await
+            .into_response()
+    }
 }
 
 struct ConsoleTournamentController {

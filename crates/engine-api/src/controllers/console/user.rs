@@ -111,4 +111,36 @@ impl ConsoleUserController {
             .await
             .into_response()
     }
+
+    /// Force the second-factor requirement on, without touching an enrolment.
+    #[post("/{id}/mfa/require")]
+    async fn require_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+        let state = current_state();
+        self.service
+            .set_console_user_mfa_required(&state, &auth, &id, true)
+            .await
+            .into_response()
+    }
+
+    /// Lift the second-factor requirement. The enrolled secret is kept, so the
+    /// account could still be asked for a code until its factor is reset.
+    #[delete("/{id}/mfa/require")]
+    async fn unrequire_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+        let state = current_state();
+        self.service
+            .set_console_user_mfa_required(&state, &auth, &id, false)
+            .await
+            .into_response()
+    }
+
+    /// Reset the factor itself: the secret and recovery codes go, the requirement
+    /// stays, and the operator re-enrols at their next sign-in.
+    #[delete("/{id}/mfa/reset")]
+    async fn reset_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+        let state = current_state();
+        self.service
+            .reset_console_user_mfa(&state, &auth, &id)
+            .await
+            .into_response()
+    }
 }

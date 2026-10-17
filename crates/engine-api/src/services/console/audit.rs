@@ -7,7 +7,9 @@ use uuid::Uuid;
 
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
-use crate::dto::console::audit::{AclTemplateRequest, AclTemplateRow, AuditLogQuery, AuditLogRow};
+use crate::dto::console::audit::{
+    AclTemplateRequest, AclTemplateRow, AuditLogQuery, AuditLogRow, AuditLogUsers,
+};
 use crate::error::V2Error;
 use crate::repositories::console_mutations::{
     InsertAclTemplateParams, ListAuditLogsFilteredParams, UpdateAclTemplateParams,
@@ -34,6 +36,19 @@ impl super::ConsoleService {
             })
             .await?;
         Ok(Json(rows.into_iter().map(AuditLogRow::from).collect()))
+    }
+
+    /// The operators who appear in the trail, rolled up from the audit table. This
+    /// is the console's username-filter source: a name is listed only when it has
+    /// entries, ordered by how many.
+    pub async fn list_audit_log_users(
+        &self,
+        state: &ApiState,
+    ) -> Result<Json<AuditLogUsers>, V2Error> {
+        let usernames = super::manual::audit_usernames(super::pool(state)?)
+            .await
+            .map_err(V2Error::from_sqlx)?;
+        Ok(Json(AuditLogUsers { usernames }))
     }
 
     pub async fn list_acl_templates(

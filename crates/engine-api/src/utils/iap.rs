@@ -15,7 +15,9 @@ pub(crate) fn hex_id(raw: &str) -> String {
 }
 
 pub(crate) fn store_of(requested: Option<i16>, default: i16) -> i16 {
-    requested.unwrap_or(default).clamp(0, 2)
+    // 0 apple, 1 google, 2 huawei, 3 facebook instant, 4 samsung: the range the
+    // vendors here can name, so a bogus request value lands inside it.
+    requested.unwrap_or(default).clamp(0, 4)
 }
 
 pub(crate) fn environment_of(receipt: &str, store: i16) -> i16 {

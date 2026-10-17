@@ -5,9 +5,11 @@
 mod authenticate;
 mod console;
 mod gateway;
+mod iap;
 mod links;
 mod server;
 mod storage;
+mod storage_index;
 mod unlinks;
 
 use std::collections::HashMap;

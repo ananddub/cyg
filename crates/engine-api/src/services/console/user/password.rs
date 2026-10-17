@@ -1,11 +1,11 @@
-//! An operator's credential and its revocation: the password reset, the disable and
-//! enable, and the admin clear of a second factor.
+//! An operator's credential and its revocation: the admin password reset, the
+//! disable and enable, and the signed-in operator changing their own password.
 
 use axum::Json;
 
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
-use crate::dto::console::user::SetConsolePasswordRequest;
+use crate::dto::console::user::{ChangeConsolePasswordRequest, SetConsolePasswordRequest};
 use crate::error::V2Error;
 use crate::ApiState;
 
@@ -81,27 +81,44 @@ impl super::ConsoleService {
         Ok(Json(Empty {}))
     }
 
-    /// Clear another operator's second factor. An admin does this when someone has
-    /// lost both their device and their recovery codes, so no code can be demanded —
-    /// which is exactly why this is the one MFA route that is admin-only.
-    pub async fn clear_console_user_mfa(
+    /// The signed-in operator changing their own credential. The current password is
+    /// verified first, so a console token that fell into the wrong hands cannot
+    /// silently lock its owner out. The bootstrap superadmin has no row and so no
+    /// stored credential to check against, and is refused.
+    pub async fn change_console_password(
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
-        id: &str,
+        body: ChangeConsolePasswordRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        claims.require_admin()?;
-        let id = super::id(id, "console user")?;
+        check_password(&body.password)?;
+        let Some(id) = claims.0.uuid() else {
+            return Err(V2Error::failed_precondition(
+                "The bootstrap console account has no password to change.",
+            ));
+        };
         let queries = super::queries(state)?;
-        let view = self.view(&queries, id).await?;
-        queries.clear_console_user_mfa(id).await?;
+        let row = queries
+            .find_console_user_mfa_by_id(id)
+            .await
+            .map_err(|_| V2Error::not_found("Console user not found."))?;
+        let stored = row.password.as_deref().ok_or_else(|| {
+            V2Error::failed_precondition("No password is set for this account.")
+        })?;
+        if !crate::infra::jwt::verify_password(&body.current_password, stored) {
+            return Err(V2Error::unauthenticated("Current password is incorrect."));
+        }
+        queries
+            .update_console_user_password(&crate::infra::jwt::hash_password(&body.password)?, id)
+            .await
+            .map_err(V2Error::from_sqlx)?;
         super::audit(
             state,
             claims,
-            "console_user.mfa.clear",
+            "console_user.password_change",
             "console_user",
             Some(id),
-            &format!("Cleared the MFA of {}.", view.username),
+            &format!("Changed their own password ({})", row.username),
         )
         .await;
         Ok(Json(Empty {}))

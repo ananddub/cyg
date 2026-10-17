@@ -5,7 +5,7 @@ use axum::Json;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::Page;
-use crate::dto::console::group::{GroupMemberRow, GroupRow};
+use crate::dto::console::group::{GroupExport, GroupMemberRow, GroupRow};
 use crate::error::V2Error;
 use crate::repositories::group::ListGroupsParams;
 use crate::ApiState;
@@ -57,6 +57,26 @@ impl super::ConsoleService {
             .list_group_users(super::account_id(id)?, MAX_MEMBERS)
             .await?;
         Ok(Json(rows.into_iter().map(GroupMemberRow::from).collect()))
+    }
+
+    /// One group whole: its row and its members. Reading an export is a write-grade
+    /// privilege, the same as an account export, because it carries the member list
+    /// and the metadata alongside it.
+    pub async fn export_group(
+        &self,
+        state: &ApiState,
+        claims: &ConsoleAuthed,
+        id: &str,
+    ) -> Result<Json<GroupExport>, V2Error> {
+        claims.require_write()?;
+        let id = super::account_id(id)?;
+        let queries = super::queries(state)?;
+        let group = queries.get_group_by_id(id).await?;
+        let members = queries.list_group_users(id, MAX_MEMBERS).await?;
+        Ok(Json(GroupExport {
+            group: GroupRow::from(group),
+            members: members.into_iter().map(GroupMemberRow::from).collect(),
+        }))
     }
 
     /// Delete a group. This is the same statement the player API uses, which is a

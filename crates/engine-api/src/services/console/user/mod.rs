@@ -6,6 +6,7 @@
 //! sign-in is the revocation boundary, and `[control.console].token_expiry_secs`
 //! bounds how long one can last.
 
+mod mfa;
 mod password;
 mod write;
 
@@ -20,7 +21,7 @@ use crate::infra::console::ConsoleRole;
 use crate::repositories::db::Queries;
 use crate::ApiState;
 
-pub(super) use super::{ConsoleService, audit, id, never, queries};
+pub(super) use super::{manual, pool, ConsoleService, audit, id, never, queries};
 
 /// The shortest password the console accepts. A console credential reaches every
 /// account on the server, so it is held to more than a player's is.

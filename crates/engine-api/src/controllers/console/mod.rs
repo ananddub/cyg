@@ -15,6 +15,7 @@ pub mod leaderboard;
 pub mod match_routes;
 pub mod mfa;
 pub mod notification;
+pub mod password;
 pub mod setting;
 pub mod status;
 pub mod storage;

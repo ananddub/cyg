@@ -11,6 +11,7 @@ use crate::dto::iap::{
     ListQuery, SubscriptionListResponse, SubscriptionRequest, SubscriptionResponse,
 };
 use crate::repositories::iap::{InsertSubscriptionParams, ListPurchasesParams};
+use crate::repositories::models::Subscription;
 use crate::services::auth::q;
 use crate::error::V2Error;
 use crate::utils::iap::{decode_offset, environment_of, epoch, hex_id, store_of};
@@ -74,6 +75,30 @@ impl IapService {
             subscriptions,
             next_cursor,
         }))
+    }
+
+    /// `GET /v2/iap/subscription/{product_id}` — the caller's most recent
+    /// subscription for a product, the reference server's `GetSubscription`.
+    /// The statement is hand-written (`db/manual/iap.sql`): FlashORM generates
+    /// one lookup per key, and this is the second one.
+    pub async fn subscription_by_product(
+        &self,
+        state: &ApiState,
+        claims: &Authed,
+        product_id: &str,
+    ) -> Result<Json<SubscriptionResponse>, V2Error> {
+        let uid = claims.0.uuid()?;
+        let pool = state.db.as_ref().ok_or_else(V2Error::no_db)?;
+        let row = sqlx::query_as::<_, Subscription>(
+            "SELECT * FROM subscription WHERE user_id = $1 AND product_id = $2 \
+             ORDER BY purchase_time DESC, original_transaction_id ASC LIMIT 1",
+        )
+        .bind(uid)
+        .bind(product_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| V2Error::not_found("Subscription not found."))?;
+        Ok(Json(SubscriptionResponse::from(&row)))
     }
 }
 

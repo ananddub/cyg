@@ -103,3 +103,11 @@ impl From<ConsoleAclTemplate> for AclTemplateRow {
         }
     }
 }
+
+/// `GET /v2/console/audit/log/users` — the operators who appear in the trail, one
+/// entry each, most active first. Mirrors the console's users list, which the audit
+/// view reads to fill its username filter.
+#[derive(Debug, Serialize)]
+pub struct AuditLogUsers {
+    pub usernames: Vec<String>,
+}

@@ -21,6 +21,7 @@ pub mod notification;
 pub mod session;
 pub mod signaling;
 pub mod storage;
+pub mod storage_index;
 pub mod tournament;
 pub mod user;
 

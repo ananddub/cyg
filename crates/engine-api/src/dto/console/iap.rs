@@ -1,9 +1,10 @@
-//! Purchases and subscriptions, as the console lists them.
+//! Purchases and subscriptions, as the console lists and validates them.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::dto::iap::{PurchaseResponse, SubscriptionResponse};
 use crate::repositories::models::{Purchase, Subscription};
 
 /// One purchase receipt.
@@ -64,4 +65,63 @@ impl From<Subscription> for SubscriptionRow {
             refund_time: s.refund_time,
         }
     }
+}
+
+/// `POST /v2/console/iap/{vendor}/validate` — one credential in whichever
+/// spelling the vendor hands it, plus the reference server's `persist` flag.
+/// Persisting (the default) writes the row under `user_id`; `persist: false`
+/// only parses the entity back out.
+#[derive(Debug, Default, Deserialize)]
+pub struct ConsoleValidateRequest {
+    #[serde(default)]
+    pub receipt: String,
+    #[serde(default)]
+    pub purchase_token: String,
+    #[serde(default)]
+    pub signed_request: Option<String>,
+    #[serde(default)]
+    pub purchase_id: Option<String>,
+    #[serde(default)]
+    pub product_id: Option<String>,
+    /// `"purchase"` (the default) or `"subscription"`.
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub persist: Option<bool>,
+    #[serde(default)]
+    pub user_id: Option<String>,
+}
+
+impl ConsoleValidateRequest {
+    /// The first credential actually filled, in the envelope's own order.
+    pub(crate) fn credential(&self) -> &str {
+        for candidate in [
+            Some(self.receipt.as_str()),
+            Some(self.purchase_token.as_str()),
+            self.signed_request.as_deref(),
+            self.purchase_id.as_deref(),
+        ] {
+            if candidate.is_some_and(|c| !c.is_empty()) {
+                return candidate.unwrap_or_default();
+            }
+        }
+        ""
+    }
+
+    /// The reference server's default: validation persists unless told not to.
+    pub(crate) fn persists(&self) -> bool {
+        self.persist.unwrap_or(true)
+    }
+}
+
+/// `api.ValidatePurchaseResponse`'s shape for the console validate reply.
+#[derive(Debug, Serialize)]
+pub struct ValidatedPurchaseReply {
+    pub validated_purchases: Vec<PurchaseResponse>,
+}
+
+/// `api.ValidateSubscriptionResponse`'s shape: one subscription, not a list.
+#[derive(Debug, Serialize)]
+pub struct ValidatedSubscriptionReply {
+    pub subscription: SubscriptionResponse,
 }

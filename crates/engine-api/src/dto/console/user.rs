@@ -86,3 +86,14 @@ pub struct SetConsolePasswordRequest {
     #[serde(default)]
     pub password: String,
 }
+
+/// `POST /v2/console/password_change` — the signed-in operator changing their own
+/// credential. The current password is verified before the new one is written, so a
+/// stolen console token alone cannot lock the operator out of their own account.
+#[derive(Debug, Default, Deserialize)]
+pub struct ChangeConsolePasswordRequest {
+    #[serde(default)]
+    pub current_password: String,
+    #[serde(default)]
+    pub password: String,
+}

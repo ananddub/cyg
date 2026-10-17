@@ -24,6 +24,7 @@ pub mod iap;
 pub mod leaderboard;
 #[path = "match.rs"]
 pub mod matches;
+pub mod manual;
 pub mod mfa;
 pub mod notification;
 pub mod setting;

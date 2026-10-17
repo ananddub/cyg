@@ -72,6 +72,15 @@ impl From<ListGroupUsersRow> for GroupMemberRow {
     }
 }
 
+/// `GET /v2/console/group/{id}/export` — one group whole: its row and its members.
+/// Mirrors the account export's document style (the thing plus everything hanging
+/// off it) at the group's smaller scope, since a group has only members and metadata.
+#[derive(Debug, Serialize)]
+pub struct GroupExport {
+    pub group: GroupRow,
+    pub members: Vec<GroupMemberRow>,
+}
+
 /// The `group_edge.state` names, in schema order.
 fn state_name(state: i16) -> &'static str {
     match state {

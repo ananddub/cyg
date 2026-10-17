@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use auto_route::controller;
 use axum::Json;
+use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 
 use crate::current_state;
@@ -67,6 +68,28 @@ impl IapController {
             .into_response()
     }
 
+    #[post("/purchase/facebookinstant")]
+    async fn purchase_facebook_instant(
+        &self,
+        auth: Authed,
+        Json(body): JsonBody<PurchaseTokenRequest>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .purchase_facebook_instant(&state, &auth, body)
+            .await
+            .into_response()
+    }
+
+    #[post("/purchase/samsung")]
+    async fn purchase_samsung(&self, auth: Authed, Json(body): JsonBody<PurchaseTokenRequest>) -> Response {
+        let state = current_state();
+        self.service
+            .purchase_samsung(&state, &auth, body)
+            .await
+            .into_response()
+    }
+
     #[get("/purchase")]
     async fn list_purchases(&self, auth: Authed, req: QueryParams<ListQuery>) -> Response {
         let state = current_state();
@@ -120,6 +143,19 @@ impl IapController {
         let state = current_state();
         self.service
             .list_subscriptions(&state, &auth, req.0)
+            .await
+            .into_response()
+    }
+
+    #[get("/subscription/{product_id}")]
+    async fn subscription_by_product(
+        &self,
+        auth: Authed,
+        Path(product_id): Path<String>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .subscription_by_product(&state, &auth, &product_id)
             .await
             .into_response()
     }

@@ -1,15 +1,17 @@
-//! Auto-registered bindings for `/v2/console/purchase` and
-//! `/v2/console/subscription`.
+//! Auto-registered bindings for `/v2/console/purchase`,
+//! `/v2/console/subscription` and `/v2/console/iap`.
 
 use std::sync::Arc;
 
 use auto_route::controller;
+use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 
 use crate::app::middleware::ConsoleAuthed;
-use crate::app::params::Params;
+use crate::app::params::{Body, Params};
 use crate::current_state;
 use crate::dto::console::Page;
+use crate::dto::console::iap::ConsoleValidateRequest;
 use crate::services::console::ConsoleService;
 
 struct ConsolePurchaseController {
@@ -44,6 +46,49 @@ impl ConsoleSubscriptionController {
         let state = current_state();
         self.service
             .list_subscriptions(&state, page)
+            .await
+            .into_response()
+    }
+
+    #[delete("/{product_id}")]
+    async fn delete_by_product(&self, auth: ConsoleAuthed, Path(product_id): Path<String>) -> Response {
+        let state = current_state();
+        self.service
+            .delete_subscription_product(&state, &auth, &product_id)
+            .await
+            .into_response()
+    }
+}
+
+struct ConsoleIapController {
+    service: Arc<ConsoleService>,
+}
+
+#[controller("/v2/console/iap")]
+impl ConsoleIapController {
+    fn new(service: Arc<ConsoleService>) -> Self {
+        Self { service }
+    }
+
+    #[post("/{vendor}/validate")]
+    async fn validate(
+        &self,
+        auth: ConsoleAuthed,
+        Path(vendor): Path<String>,
+        Body(body): Body<ConsoleValidateRequest>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .validate_vendor(&state, &auth, &vendor, body)
+            .await
+            .into_response()
+    }
+
+    #[delete("/{vendor}/reset")]
+    async fn reset(&self, auth: ConsoleAuthed, Path(vendor): Path<String>) -> Response {
+        let state = current_state();
+        self.service
+            .reset_vendor(&state, &auth, &vendor)
             .await
             .into_response()
     }

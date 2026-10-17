@@ -72,6 +72,21 @@ impl ConsoleAccountController {
             .into_response()
     }
 
+    /// Import one account, addressed by its id.
+    #[post("/{id}/import")]
+    async fn import_one(
+        &self,
+        auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Body(body): Body<AccountExport>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .import_account_by_id(&state, &auth, &id, body)
+            .await
+            .into_response()
+    }
+
     #[post("/{id}/ban")]
     async fn ban(
         &self,

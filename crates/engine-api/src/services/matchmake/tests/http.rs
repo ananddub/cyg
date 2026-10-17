@@ -46,7 +46,8 @@ fn http_over_the_burst_is_a_429_with_retry_after() {
     let secs: u32 = retry.parse().expect("delta seconds");
     assert!((1..=2).contains(&secs), "honest wait, got {secs}");
     let v: serde_json::Value = serde_json::from_str(&body).expect("error body is JSON");
-    assert!(v["error"].as_str().unwrap().contains("rate limit"));
+    assert_eq!(v["error"]["code"], 8, "429 maps to RESOURCE_EXHAUSTED");
+    assert!(v["error"]["message"].as_str().unwrap().contains("rate limit"));
 }
 
 /// `evil"`, `evil/`, `evil\n` — percent-encoded so the router still sees

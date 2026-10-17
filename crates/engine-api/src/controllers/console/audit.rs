@@ -31,6 +31,13 @@ impl ConsoleAuditController {
             .await
             .into_response()
     }
+
+    /// The usernames the audit view filters by, grouped from the trail itself.
+    #[get("/log/users")]
+    async fn list_users(&self, _auth: ConsoleAuthed) -> Response {
+        let state = current_state();
+        self.service.list_audit_log_users(&state).await.into_response()
+    }
 }
 
 struct ConsoleAclController {

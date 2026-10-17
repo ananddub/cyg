@@ -36,7 +36,7 @@ async fn refuses_a_bad_or_missing_seat_token_before_the_upgrade() {
         let (status, body) = upgrade_get(addr, path).await;
         assert_eq!(status, 401, "{path} was not refused with 401");
         assert!(
-            body["error"].as_str().unwrap_or("").contains("seat"),
+            body["error"]["message"].as_str().unwrap_or("").contains("seat"),
             "plane-wide error body missing: {body}"
         );
     }
