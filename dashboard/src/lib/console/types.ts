@@ -1,0 +1,243 @@
+// Row shapes, mirrored from `crates/engine-api/src/dto/console/*.rs`. The wire is
+// snake_case because those DTOs have no `rename_all`, exactly as `/v2` does it.
+
+/** The token plus the identity it carries, so the shell can render its header
+ * without decoding the JWT. */
+export interface ConsoleSession {
+  token: string;
+  username: string;
+  email?: string;
+  role: string;
+}
+
+export interface ConsoleAccount {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string;
+  lang_tag: string;
+  location: string;
+  timezone: string;
+  email: string;
+  metadata: unknown;
+  wallet: unknown;
+  edge_count: number;
+  create_time: string;
+  update_time: string;
+  disable_time: string;
+  custom_id: string;
+  facebook_id: string;
+  google_id: string;
+  gamecenter_id: string;
+  steam_id: string;
+  apple_id: string;
+  facebook_instant_game_id: string;
+}
+
+export interface ConsoleAccountNote {
+  id: string;
+  note: string;
+  create_time: string;
+  update_time: string;
+}
+
+export interface ConsoleWalletLedger {
+  id: string;
+  changeset: unknown;
+  metadata: unknown;
+  create_time: string;
+  update_time: string;
+}
+
+/** The export/import document. `password` is never part of it, and absent optional
+ * columns stay `null` so an import can tell "no email" from "empty email". */
+export interface ConsoleAccountExport {
+  account: Record<string, unknown>;
+  devices: { id: string; provider: string }[];
+  notes: ConsoleAccountNote[];
+  wallet_ledger: ConsoleWalletLedger[];
+  storage: { collection: string; key: string; value: unknown; version: string; read: number; write: number; create_time: string; update_time: string }[];
+  edges: { destination_id: string; state: number; position: number; metadata: unknown }[];
+}
+
+export interface ConsoleUser {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  acl: unknown;
+  metadata: unknown;
+  mfa_required: boolean;
+  disabled: boolean;
+  create_time: string;
+  update_time: string;
+}
+
+export interface ConsoleGroup {
+  id: string;
+  creator_id: string;
+  name: string;
+  description: string;
+  avatar_url: string;
+  lang_tag: string;
+  metadata: unknown;
+  open: boolean;
+  edge_count: number;
+  max_count: number;
+  create_time: string;
+  update_time: string;
+}
+
+export interface ConsoleGroupMember {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string;
+  metadata: unknown;
+  state: string;
+  create_time: string;
+  edge_update_time: string | null;
+}
+
+export interface ConsoleLeaderboard {
+  id: string;
+  title: string;
+  description: string;
+  kind: string;
+  category: number;
+  operator: number;
+  sort_order: number;
+  reset_schedule: string;
+  authoritative: boolean;
+  metadata: unknown;
+  size: number;
+  max_num_score: number;
+  start_time: string;
+  end_time: string;
+  duration: number;
+  create_time: string;
+}
+
+export interface ConsoleRecord {
+  leaderboard_id: string;
+  owner_id: string;
+  username: string;
+  score: number;
+  subscore: number;
+  num_score: number;
+  metadata: unknown;
+  create_time: string;
+  update_time: string;
+  expiry_time: string;
+}
+
+export interface ConsoleStorageObject {
+  collection: string;
+  key: string;
+  user_id: string;
+  value: unknown;
+  version: string;
+  read: number;
+  write: number;
+  create_time: string;
+  update_time: string;
+}
+
+export interface ConsoleNotification {
+  id: string;
+  user_id: string;
+  subject: string;
+  content: unknown;
+  code: number;
+  sender_id: string;
+  create_time: string;
+}
+
+export interface ConsolePurchase {
+  transaction_id: string;
+  user_id: string;
+  product_id: string;
+  store: number;
+  environment: number;
+  purchase_time: string;
+  refund_time: string;
+  create_time: string;
+}
+
+export interface ConsoleSubscription {
+  original_transaction_id: string;
+  user_id: string;
+  product_id: string;
+  store: number;
+  environment: number;
+  purchase_time: string;
+  expire_time: string;
+  refund_time: string;
+  active: boolean;
+}
+
+export interface ConsoleSetting {
+  name: string;
+  value: unknown;
+  update_time: string;
+}
+
+export interface ConsoleAuditLog {
+  create_time: string;
+  id: string;
+  console_user_id: string;
+  console_username: string;
+  email: string;
+  action: string;
+  resource: string;
+  message: string;
+  metadata: unknown;
+}
+
+export interface ConsoleAclTemplate {
+  id: string;
+  name: string;
+  description: string;
+  acl: unknown;
+  create_time: string;
+  update_time: string;
+}
+
+/** `GET /v2/console/status` — the server's own facts, secrets absent. */
+export interface ConsoleStatus {
+  name: string;
+  version: string;
+  api_port: number;
+  uptime_secs: number;
+  database: boolean;
+  accounts: number;
+  console_users: number;
+  workers: number;
+  seat_ttl_secs: number;
+  rate_limit_rps: number;
+  rate_limit_burst: number;
+  player_token_expiry_secs: number;
+  console_token_expiry_secs: number;
+  agones: boolean;
+}
+
+/** One route the API explorer can call, read from the same OpenAPI document the
+ * route macros register. */
+export interface ConsoleRoute {
+  method: string;
+  path: string;
+  tags: string[];
+  summary: string;
+}
+
+/** `POST /v2/console/mfa` — `recovery_codes` are shown exactly once. */
+export interface MfaEnrolment {
+  secret: string;
+  uri: string;
+  recovery_codes: string[];
+}
+
+/** A delete that can take more than one row says how many went. */
+export interface DeletedCount {
+  removed: number;
+}
