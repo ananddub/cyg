@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react"
 import { Loader2, LockKeyhole } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { ConsoleError, consoleLogin } from "@/lib/console"
+import { ConsoleError, MFA_CODE_REQUIRED, consoleLogin } from "@/lib/console"
 import { saveSession } from "@/lib/session"
 import logoUrl from "@/assets/logo.png"
 
@@ -11,6 +11,11 @@ import logoUrl from "@/assets/logo.png"
 export function LoginPage() {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [mfa, setMfa] = useState("")
+  // Whether to show the code field. There is no endpoint that reports enrolment,
+  // so the field appears the first time the server asks for a code rather than
+  // up front, where it would be noise for every operator without one.
+  const [mfaAsked, setMfaAsked] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -20,9 +25,15 @@ export function LoginPage() {
     setBusy(true)
     setError(null)
     try {
-      saveSession(await consoleLogin(username, password))
+      saveSession(await consoleLogin(username, password, mfa))
     } catch (cause) {
-      setError(cause instanceof ConsoleError ? cause.message : String(cause))
+      // "MFA code required." is the one refusal the page acts on: the password was
+      // right, and the console is asking for the code it has no field for yet.
+      if (cause instanceof ConsoleError && cause.message === MFA_CODE_REQUIRED) {
+        setMfaAsked(true)
+      } else {
+        setError(cause instanceof ConsoleError ? cause.message : String(cause))
+      }
       setBusy(false)
     }
   }
@@ -69,6 +80,25 @@ export function LoginPage() {
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             />
           </label>
+
+          {mfaAsked && (
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Authenticator code</span>
+              <input
+                autoFocus
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123456, or a recovery code"
+                value={mfa}
+                onChange={(event) => setMfa(event.target.value)}
+                className="h-9 w-full rounded-md border border-border bg-background px-3 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              />
+              <span className="block text-[11px] text-muted-foreground">
+                A code from your authenticator app, or one of the recovery codes you
+                wrote down at enrolment.
+              </span>
+            </label>
+          )}
 
           {error !== null && (
             <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>

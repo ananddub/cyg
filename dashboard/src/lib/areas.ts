@@ -7,6 +7,7 @@ import {
   CreditCard,
   Cpu,
   Database,
+  Fingerprint,
   KeyRound,
   Layers,
   RefreshCw,
@@ -44,6 +45,7 @@ export const CONSOLE_AREAS: ConsoleArea[] = [
   { group: "Administration", id: "audit", label: "Audit Log", icon: ScrollText },
   { group: "Administration", id: "acl", label: "ACL Templates", icon: KeyRound },
   { group: "Administration", id: "settings", label: "Settings", icon: Settings },
+  { group: "Administration", id: "security", label: "My Security", icon: Fingerprint },
 ]
 
 export const DEFAULT_AREA = "runtime"

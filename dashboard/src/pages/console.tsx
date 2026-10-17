@@ -23,6 +23,7 @@ import {
 } from "@/components/console/views/monitoring"
 import { PurchasesView, SubscriptionsView } from "@/components/console/views/monetization"
 import { NotificationsView } from "@/components/console/views/notifications"
+import { SecurityView } from "@/components/console/views/security"
 import { StorageView } from "@/components/console/views/storage"
 import { CoreDetailsSidebar } from "@/components/core-details-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
@@ -125,6 +126,8 @@ function AreaView({
       return <AclTemplatesView />
     case "settings":
       return <SettingsView />
+    case "security":
+      return <SecurityView />
     default:
       return <RuntimeView data={data} />
   }
