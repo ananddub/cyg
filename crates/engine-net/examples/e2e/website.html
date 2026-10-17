@@ -2,38 +2,68 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>OpenOxide × Colyseus — PvP Shooter (Generic Byte Pipeline)</title>
+<title>CookYourGame — PvP Arena</title>
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-        background: #0b0e14; color: #e6e6e6;
-        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #000000; color: #fafafa;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
         display: flex; flex-direction: column; align-items: center;
-        min-height: 100vh; padding: 20px;
+        min-height: 100vh; padding: 24px;
+        -webkit-font-smoothing: antialiased;
     }
-    h1 { font-size: 1.4rem; margin-bottom: 4px; }
-    h1 span { color: #f87171; }
-    #status { font-size: 0.85rem; color: #888; margin-bottom: 12px; }
-    #status.ok { color: #4ade80; }
+    .header-bar {
+        display: flex; align-items: center; justify-content: space-between;
+        width: 800px; margin-bottom: 14px;
+    }
+    h1 {
+        font-size: 1.15rem; font-weight: 600; letter-spacing: -0.02em;
+        color: #fafafa; display: flex; align-items: center; gap: 8px;
+    }
+    h1 span.badge-pill {
+        font-size: 0.7rem; font-weight: 500; letter-spacing: 0;
+        background: #18181b; border: 1px solid #27272a;
+        color: #a1a1aa; padding: 2px 8px; border-radius: 9999px;
+    }
+    #status {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 0.8rem; font-weight: 500; color: #71717a;
+        background: #09090b; border: 1px solid #27272a;
+        padding: 3px 10px; border-radius: 9999px;
+    }
+    #status::before {
+        content: ''; width: 6px; height: 6px; border-radius: 50%;
+        background: #71717a; display: inline-block;
+    }
+    #status.ok { color: #e4e4e7; border-color: #3f3f46; }
+    #status.ok::before { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
     canvas {
-        background: #11151f;
-        border: 1px solid #2a2f3d;
+        background: #09090b;
+        border: 1px solid #27272a;
         border-radius: 12px;
         cursor: crosshair;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        box-shadow: 0 20px 40px -15px rgba(0,0,0,0.9);
     }
     #hud { 
-        margin-top: 12px; font-size: 0.9rem; color: #9ca3af; 
-        display: flex; gap: 24px; align-items: center;
-        background: #161b26; padding: 8px 18px; border-radius: 8px;
-        border: 1px solid #2a2f3d;
+        margin-top: 14px; font-size: 0.85rem; color: #71717a; 
+        display: flex; gap: 20px; align-items: center; justify-content: space-between;
+        background: #09090b; padding: 10px 20px; border-radius: 10px;
+        border: 1px solid #27272a; width: 800px;
     }
-    #hud b { color: #e6e6e6; }
+    .hud-metrics { display: flex; gap: 18px; align-items: center; }
+    .hud-metrics div { font-variant-numeric: tabular-nums; }
+    #hud b { color: #ffffff; font-weight: 600; margin-left: 2px; }
     .badge {
-        font-size: 0.8rem; background: #222b3d; padding: 4px 10px;
-        border-radius: 6px; border: 1px solid #374151; color: #cbd5e1;
+        font-size: 0.75rem; background: #18181b; padding: 4px 10px;
+        border-radius: 6px; border: 1px solid #27272a; color: #a1a1aa;
     }
 </style>
+<!-- Live demo, zero build: two-step join against the control plane —
+     POST {api}/api/matchmake/joinOrCreate/<room> for a seat reservation, then
+     the SDK dials ws://host:gamePort/{processId}/{roomId}?sessionId=… with the
+     seat's tokens (client.consumeSeatReservation). Falls back to a plain
+     client.joinOrCreate on the game WS port for ?host/?port/?endpoint or when
+     the plane is unreachable. -->
 <!-- The SDK bundle imports "@colyseus/schema" — resolve it to the local build. -->
 <script type="importmap">
     { "imports": { "@colyseus/schema": "./node_modules/@colyseus/schema/build/index.mjs" } }
@@ -49,16 +79,24 @@
 </script>
 </head>
 <body>
-    <h1>OpenOxide <span>×</span> Colyseus — PvP Shooter 🔫</h1>
-    <div id="status">connecting…</div>
+    <div class="header-bar">
+        <h1>CookYourGame <span>Arena</span> <span class="badge-pill">PvP 128Hz</span></h1>
+        <div id="status">connecting…</div>
+    </div>
     <canvas id="game" width="800" height="500"></canvas>
     <div id="hud">
-        <div>HP: <b id="hp" style="color:#4ade80">100</b></div>
-        <div>Score: <b id="score">0</b></div>
-        <div>Players: <b id="players">–</b></div>
-        <div>Bullets: <b id="bullets">0</b></div>
-        <div>Tick: <b id="tick">–</b></div>
-        <div class="badge">WASD to Move • Click or Space to Shoot 💥</div>
+        <div class="hud-metrics">
+            <div>HP <b id="hp" style="color:#ffffff">100</b></div>
+            <div>Score <b id="score">0</b></div>
+            <div>Players <b id="players">–</b></div>
+            <div>Bullets <b id="bullets">0</b></div>
+            <div>Tick <b id="tick">–</b></div>
+            <div>Room <b id="roomid">–</b></div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <div class="badge" id="matchstat" hidden></div>
+            <div class="badge">WASD Move • Space/Click Shoot</div>
+        </div>
     </div>
 
 <script type="module">
@@ -68,6 +106,8 @@
     const hpEl = document.getElementById('hp');
     const scoreEl = document.getElementById('score');
     const bulletsEl = document.getElementById('bullets');
+    const roomEl = document.getElementById('roomid');
+    const matchstatEl = document.getElementById('matchstat');
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
 
@@ -86,10 +126,25 @@
     let isMouseDown = false;
 
     const params = new URLSearchParams(window.location.search);
-    const gameHost = params.get('host') || ((location.hostname === '0.0.0.0' || !location.hostname)
-        ? (window.location.hostname || '127.0.0.1')
-        : location.hostname);
-    const gamePort = params.get('port') || '7777';
+    const pageHost = (location.hostname === '0.0.0.0' || !location.hostname)
+        ? '127.0.0.1' : location.hostname;
+    // Room name; the engine accepts 1-64 letters/digits/'-'/'_' (reserve.rs).
+    const roomName = (params.get('room') || 'game_room').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'game_room';
+
+    // The control plane (matchmake, /status, /api/rooms, statics) answers on
+    // engine-config's api_port — default 8124. When the engine itself serves
+    // this page, same-origin IS that plane, so prefer it; ?api= overrides.
+    const apiBase = (() => {
+        if (params.has('api')) {
+            let a = params.get('api');
+            if (!/^https?:\/\//.test(a)) a = `${location.protocol}//${a}`;
+            return a.replace(/\/+$/, '');
+        }
+        if (location.protocol === 'http:' || location.protocol === 'https:') {
+            return location.origin;
+        }
+        return `http://${pageHost}:8124`;
+    })();
 
     canvas.addEventListener('mousemove', e => {
         const rect = canvas.getBoundingClientRect();
@@ -143,35 +198,105 @@
     }
     setInterval(sendInput, 25);
 
-    async function join() {
-        const isHttps = location.protocol === 'https:';
-        const wsProto = isHttps ? 'wss:' : 'ws:';
+    // Every engine REST refusal carries the reference-shaped envelope
+    // {"error":{"code":<grpc n>,"message":"…","details":[…]}} (error/api.rs);
+    // the raw game WS port answers the older {"code":…,"error":"…"} shape
+    // instead. Non-JSON (a static server's 404 page) falls back to the bare
+    // status code, so the pill never shows "[object Object]".
+    async function describeHttpError(res) {
+        let detail = null;
+        try {
+            const body = await res.json();
+            if (body && typeof body.error === 'object' && body.error !== null) {
+                detail = body.error.message || `error code ${body.error.code}`;
+            } else if (body && typeof body.error === 'string') {
+                detail = `${body.error} (code ${body.code})`;
+            }
+        } catch (_) { /* not JSON */ }
+        return `HTTP ${res.status}${detail ? ` — ${detail}` : ''}`;
+    }
 
-        let endpoint;
-        if (params.has('endpoint')) {
-            endpoint = params.get('endpoint');
-        } else if (params.has('host')) {
+    // Step 1 of the real flow: POST the control plane's matchmake. An empty
+    // "{}" body is all joinOrCreate needs (reserve.rs mints the seat from the
+    // URL + rate-limit bucket alone). The reply is the seat reservation
+    // dto/matchmake.rs prints: name/sessionId/roomId/processId/
+    // reconnectionToken/seatToken/gamePort/controlPort/expiresAt/iceServers.
+    async function fetchSeat() {
+        const res = await fetch(`${apiBase}/api/matchmake/joinOrCreate/${roomName}`, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: '{}',
+        });
+        if (!res.ok) throw new Error(await describeHttpError(res));
+        const seat = await res.json();
+        if (!seat || !seat.roomId || !seat.sessionId || !seat.processId) {
+            throw new Error('malformed seat reservation');
+        }
+        return seat;
+    }
+
+    // Back-compat affordances: ?endpoint=, or ?host=/?port=, still hand the
+    // SDK a bare WS endpoint and it runs the game port's own
+    // /matchmake → upgrade handshake, exactly like test-client/sdk_e2e.mjs.
+    function directEndpoint(isHttps) {
+        const wsProto = isHttps ? 'wss:' : 'ws:';
+        if (params.has('endpoint')) return params.get('endpoint');
+        if (params.has('host')) {
             const h = params.get('host');
             const p = params.get('port') || (isHttps ? '443' : '7777');
-            endpoint = `${wsProto}//${h}${p && p !== '80' && p !== '443' ? ':' + p : ''}`;
-        } else if (isHttps) {
-            // Tunnel / HTTPS (Dev Tunnels, ngrok, cloudflare) — connect directly to current host over WSS!
-            endpoint = `${wsProto}//${location.host}`;
-        } else {
-            // Local HTTP:
-            const host = (location.hostname === '0.0.0.0' || !location.hostname) ? '127.0.0.1' : location.hostname;
-            const port = location.port || '8090';
-            endpoint = `${wsProto}//${host}:${port}`;
+            return `${wsProto}//${h}${p && p !== '80' && p !== '443' ? ':' + p : ''}`;
+        }
+        if (isHttps) {
+            // Tunnel / HTTPS (Dev Tunnels, ngrok, cloudflare) — one host serves
+            // both planes; connect straight to the current origin over WSS.
+            return `${wsProto}//${location.host}`;
+        }
+        return `${wsProto}//${pageHost}:${params.get('port') || '7777'}`;
+    }
+
+    async function join() {
+        const isHttps = location.protocol === 'https:';
+        const useControlPlane = !params.has('endpoint') && !params.has('host') && !isHttps;
+
+        let seat = null;
+        let seatError = null;
+        if (useControlPlane) {
+            statusEl.textContent = `matchmaking via ${apiBase}…`;
+            try {
+                seat = await fetchSeat();
+            } catch (e) {
+                seatError = e;
+            }
         }
 
-        statusEl.textContent = `connecting to ${endpoint}…`;
-        const client = new Colyseus.Client(endpoint);
-        room = await client.joinOrCreate('game_room');
+        if (seat) {
+            // Step 2: pass the reservation to the SDK and dial the game WS port
+            // it names. consumeSeatReservation builds the upgrade URL itself:
+            // ws://host:gamePort/{processId}/{roomId}?sessionId=…&reconnectionToken=…,
+            // which is what the engine's transport adopts (upgrade.rs / request.rs).
+            const wsProto = isHttps ? 'wss:' : 'ws:';
+            const seatHost = seat.publicAddress || pageHost;
+            const seatPort = seat.gamePort || 7777;
+            const client = new Colyseus.Client(`${wsProto}//${seatHost}:${seatPort}`);
+            room = await client.consumeSeatReservation(seat);
+        } else {
+            const endpoint = directEndpoint(isHttps);
+            statusEl.textContent = seatError
+                ? `matchmake failed (${seatError.message}) — joining ${endpoint} directly…`
+                : `connecting to ${endpoint}…`;
+            const client = new Colyseus.Client(endpoint);
+            room = await client.joinOrCreate(roomName);
+        }
+
+        roomEl.textContent = room.roomId || roomName;
 
         room.onMessage("delta", (bytes) => {
             tickCount++;
-            tickEl.textContent = tickCount;
 
+            // Layout (room.ts tick + netcode::wrap_delta_into):
+            // [i64 yourPlayerId][u32 players][{i64 id,f64 x,f64 y,f64 score,f64 hp}…]
+            // [f64 coinX,f64 coinY][u32 bullets]{f64 x,f64 y,i64 ownerId}…
+            // …then the authoritative tail: [acked_seq u16][server_tick u32].
             const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
             myPlayerId = view.getBigInt64(0, true);
             statusEl.textContent = `connected — you are player #${myPlayerId} — WASD move, CLICK to shoot!`;
@@ -219,6 +344,15 @@
             bullets = bList;
             bulletsEl.textContent = bCount;
 
+            // Authoritative tail (netcode::wrap_delta_into): [acked_seq u16]
+            // [server_tick u32]. Count-driven decoders stop before it; show the
+            // real server tick when present, the local delta counter otherwise.
+            if (bytes.byteLength >= offset + 6) {
+                tickEl.textContent = view.getUint32(offset + 2, true);
+            } else {
+                tickEl.textContent = tickCount;
+            }
+
             const me = players.find(p => p.id === myPlayerId);
             if (me) {
                 const roundedHp = Math.max(0, Math.round(me.hp));
@@ -241,11 +375,30 @@
         statusEl.textContent = 'failed: ' + (err?.message ?? err);
     });
 
+    // Honest server-side occupancy: GET /api/rooms is the player-visible
+    // telemetry endpoint (no auth, status.rs). /v2/match and
+    // /v2/matchmaker/stats exist but are session-gated, so this token-less
+    // demo cannot call them. Silently keeps the last value — and stays hidden
+    // entirely — when no engine plane answers.
+    async function pollRooms() {
+        try {
+            const res = await fetch(`${apiBase}/api/rooms`, { headers: { Accept: 'application/json' } });
+            if (!res.ok) return;
+            const list = await res.json();
+            if (!Array.isArray(list) || list.length === 0) return;
+            const mine = list.find(r => r.name === roomName) || list[0];
+            matchstatEl.textContent = `server: ${mine.clients ?? '?'}/${mine.maxClients ?? '?'} @ ${mine.tickHz ?? '?'} Hz`;
+            matchstatEl.hidden = false;
+        } catch (_) { /* static file server, cross-origin, or no control plane */ }
+    }
+    pollRooms();
+    setInterval(pollRooms, 5000);
+
     function render() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         // grid
-        ctx.strokeStyle = '#1b2230';
+        ctx.strokeStyle = '#18181b';
         ctx.lineWidth = 1;
         for (let x = 0; x < canvas.width; x += 40) {
             ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
