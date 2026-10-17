@@ -5,6 +5,7 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::app::middleware::ConsoleAuthed;
+use crate::dto::Empty;
 use crate::dto::console::account::{AccountRow, UpdateWalletRequest};
 use crate::error::V2Error;
 use crate::repositories::iap::InsertWalletLedgerParams;
@@ -44,7 +45,15 @@ impl super::ConsoleService {
                 .get(currency)
                 .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
-            wallet.insert(currency.clone(), serde_json::json!(held + delta));
+            // the reference server's `updateWallets` refuses a result below zero; a grant that would
+            // overdraw the account is rejected the same way.
+            let value = held + delta;
+            if value < 0.0 {
+                return Err(V2Error::failed_precondition(format!(
+                    "The {currency} balance cannot go negative."
+                )));
+            }
+            wallet.insert(currency.clone(), serde_json::json!(value));
         }
 
         queries
@@ -76,5 +85,43 @@ impl super::ConsoleService {
         // change would otherwise be reported as this handler's result.
         let updated = queries.get_user_by_id(id).await?;
         Ok(Json(AccountRow::from(updated)))
+    }
+
+    /// Delete one ledger entry from an account. The entry is matched by both its id
+    /// and the account, so a guessed id that belongs elsewhere is a 404, not a
+    /// deletion of another account's trail.
+    pub async fn delete_wallet_ledger(
+        &self,
+        state: &ApiState,
+        claims: &ConsoleAuthed,
+        id: &str,
+        wallet_id: &str,
+    ) -> Result<Json<Empty>, V2Error> {
+        claims.require_write()?;
+        let id = super::account_id(id)?;
+        let wallet_id = super::id(wallet_id, "wallet ledger")?;
+        if wallet_id.is_nil() {
+            return Err(V2Error::invalid_argument("Invalid wallet ledger id."));
+        }
+        let removed = crate::services::console::statements::delete_wallet_ledger(
+            super::pool(state)?,
+            wallet_id,
+            id,
+        )
+        .await
+        .map_err(V2Error::from_sqlx)?;
+        if !removed {
+            return Err(V2Error::not_found("Wallet ledger entry not found."));
+        }
+        super::audit(
+            state,
+            claims,
+            "account.wallet.ledger.delete",
+            "account",
+            Some(id),
+            "Deleted a wallet ledger entry.",
+        )
+        .await;
+        Ok(Json(Empty {}))
     }
 }

@@ -138,3 +138,12 @@ pub struct ListQuery {
     #[serde(default)]
     pub cursor: Option<String>,
 }
+
+/// `GET /v2/storage/{collection}/{key}/{user_id}`'s query. A version token names the
+/// exact state of the object the caller has; a read for a superseded version finds
+/// nothing, because the row only ever holds the version it was last written at.
+#[derive(Debug, Default, Deserialize)]
+pub struct ReadQuery {
+    #[serde(default)]
+    pub version: Option<String>,
+}

@@ -2,10 +2,45 @@
 //! table and differ by `category`, which the wire shape exposes as `kind`.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
+
+/// `POST /v2/console/tournament` and `PUT /v2/console/tournament/{id}` — a board's
+/// definition. A field left out takes the column default on a create and keeps the
+/// stored value on an update; `id` is only read from the body on a create.
+#[derive(Debug, Default, Deserialize)]
+pub struct TournamentWriteRequest {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub operator: Option<i16>,
+    #[serde(default)]
+    pub sort_order: Option<i16>,
+    #[serde(default)]
+    pub duration: Option<i32>,
+    #[serde(default)]
+    pub start_time: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub end_time: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub reset_schedule: Option<String>,
+    #[serde(default)]
+    pub authoritative: Option<bool>,
+    #[serde(default)]
+    pub join_required: Option<bool>,
+    #[serde(default)]
+    pub max_size: Option<i32>,
+    #[serde(default)]
+    pub max_num_score: Option<i32>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
 
 /// A leaderboard or tournament. `size` is the current record count.
 #[derive(Debug, Serialize)]

@@ -7,6 +7,7 @@ mod console;
 mod gateway;
 mod links;
 mod server;
+mod storage;
 mod unlinks;
 
 use std::collections::HashMap;

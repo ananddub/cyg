@@ -3,7 +3,9 @@
 //! reverse. The write routes are gated by the role inside the token, which is what
 //! lets the gates be exercised with no database behind the plane.
 
+mod boards;
 mod gates;
 mod helpers;
+mod matches;
 mod realm;
 mod routes;

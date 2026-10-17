@@ -6,8 +6,40 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::dto::console::account::WalletLedgerRow;
 use crate::repositories::account::ListDevicePushTokensRow;
 use crate::repositories::models::Users;
+
+/// One of the `ledger_items` a player sends to `POST /v2/account/wallet`: the id of
+/// a ledger entry the player already owns, and the metadata to merge onto it.
+#[derive(Debug, Default, Deserialize)]
+pub struct WalletLedgerMetadataItem {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+/// `POST /v2/account/wallet`.
+///
+/// `wallet_items` is a currency-to-delta map. A signed-in player may never send one
+/// that actually changes a balance: currency keys are reserved to console writes, so
+/// a non-empty map is refused and only `ledger_items` metadata merges proceed.
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdatePlayerWalletRequest {
+    #[serde(default)]
+    pub wallet_items: serde_json::Value,
+    #[serde(default)]
+    pub ledger_items: Vec<WalletLedgerMetadataItem>,
+}
+
+/// `GET` and `POST /v2/account/wallet`: the player's own currency document and the
+/// ledger that explains how it got there.
+#[derive(Debug, Serialize)]
+pub struct PlayerWalletResponse {
+    pub wallet: serde_json::Value,
+    pub ledger_items: Vec<WalletLedgerRow>,
+}
 
 /// The body of `PUT /v2/account`. Every field is optional: `None` means "leave the
 /// column alone", while a `Some("")` metadata means "clear it".

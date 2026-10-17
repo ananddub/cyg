@@ -14,6 +14,7 @@ pub mod iap;
 pub mod leaderboard;
 pub mod link;
 pub mod match_handler;
+pub mod match_query;
 pub mod matchmake;
 pub mod matchmaker;
 pub mod notification;

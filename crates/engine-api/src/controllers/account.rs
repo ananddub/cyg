@@ -12,9 +12,9 @@ use axum::response::{IntoResponse, Response};
 
 use crate::current_state;
 use crate::app::middleware::Authed;
-use crate::app::params::Params;
+use crate::app::params::{Body, Params};
 
-use crate::dto::account::{GetAccountQuery, UpdateAccountRequest};
+use crate::dto::account::{GetAccountQuery, UpdateAccountRequest, UpdatePlayerWalletRequest};
 use crate::services::account::AccountService;
 
 /// The `PUT /v2/account` body. `auto_route` emits an OpenAPI schema for a literal
@@ -59,6 +59,25 @@ impl AccountController {
         let state = current_state();
         self.service
             .delete_account(&state, &auth)
+            .await
+            .into_response()
+    }
+
+    #[get("/wallet")]
+    async fn wallet(&self, auth: Authed) -> Response {
+        let state = current_state();
+        self.service.get_wallet(&state, &auth).await.into_response()
+    }
+
+    #[post("/wallet")]
+    async fn update_wallet(
+        &self,
+        auth: Authed,
+        Body(body): Body<UpdatePlayerWalletRequest>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .update_wallet(&state, &auth, body)
             .await
             .into_response()
     }

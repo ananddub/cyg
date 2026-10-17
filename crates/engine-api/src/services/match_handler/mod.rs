@@ -14,7 +14,7 @@ pub mod lifecycle;
 
 pub use cleanup::{cleanup, match_exists};
 pub use data::{data_send, signal};
-pub use lifecycle::{create, create_with_tokens, join, leave};
+pub use lifecycle::{create, create_with_tokens, join, leave, terminate};
 
 struct Match {
     id: Uuid,
@@ -33,6 +33,46 @@ static MATCHES: OnceLock<RwLock<HashMap<Uuid, Match>>> = OnceLock::new();
 
 fn matches() -> &'static RwLock<HashMap<Uuid, Match>> {
     MATCHES.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// A live match as the read side sees it: the registry entry minus its join
+/// tokens, which a console operator has no business reading.
+pub struct MatchSnapshot {
+    pub id: Uuid,
+    pub label: String,
+    pub open: bool,
+    pub tick_rate: i32,
+    pub members: Vec<Presence>,
+}
+
+/// Every running match. The in-process registry is a match's only home, so this
+/// — not any table — is the real source the introspection routes read.
+pub fn list_snapshots() -> Vec<MatchSnapshot> {
+    matches()
+        .read()
+        .expect("match registry lock")
+        .values()
+        .map(snapshot_of)
+        .collect()
+}
+
+/// One running match by id, or `None` when it has already stopped.
+pub fn snapshot(id: Uuid) -> Option<MatchSnapshot> {
+    matches()
+        .read()
+        .expect("match registry lock")
+        .get(&id)
+        .map(snapshot_of)
+}
+
+fn snapshot_of(m: &Match) -> MatchSnapshot {
+    MatchSnapshot {
+        id: m.id,
+        label: m.label.clone(),
+        open: m.open,
+        tick_rate: m.tick_rate,
+        members: m.members.values().cloned().collect(),
+    }
 }
 
 fn presence_of(s: &session::Session) -> Presence {

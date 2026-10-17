@@ -170,3 +170,34 @@ pub fn leave(s: &Arc<session::Session>, raw_id: &str, cid: Option<String>) -> Re
     );
     Ok(())
 }
+
+/// Console terminate: drop the match from the registry and tell every still-live
+/// member it is gone, taking the id out of their session membership too. Returns
+/// `false` when no such match was running, so the caller can answer 404.
+pub fn terminate(id: Uuid) -> bool {
+    let members: Vec<Presence> = {
+        let mut all = matches().write().expect("match registry lock");
+        let Some(m) = all.remove(&id) else {
+            return false;
+        };
+        m.members.values().cloned().collect()
+    };
+    let event = Envelope {
+        cid: None,
+        message: EnvelopeMessage::MatchPresenceEvent {
+            match_id: id.simple().to_string(),
+            joins: Vec::new(),
+            leaves: members.clone(),
+        },
+    };
+    for presence in &members {
+        let Ok(uid) = Uuid::parse_str(&presence.user_id) else {
+            continue;
+        };
+        for sess in session::sessions_of(uid) {
+            sess.matches.write().expect("match set lock").remove(&id);
+            sess.send(&event);
+        }
+    }
+    true
+}

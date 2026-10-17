@@ -158,4 +158,17 @@ impl ConsoleAccountController {
             .await
             .into_response()
     }
+
+    #[delete("/{id}/wallet/{wallet_id}")]
+    async fn delete_wallet(
+        &self,
+        auth: ConsoleAuthed,
+        Path((id, wallet_id)): Path<(String, String)>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .delete_wallet_ledger(&state, &auth, &id, &wallet_id)
+            .await
+            .into_response()
+    }
 }

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use auto_route::controller;
+use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 
 use crate::app::middleware::ConsoleAuthed;
@@ -40,6 +41,15 @@ impl ConsoleNotificationController {
         let state = current_state();
         self.service
             .send_notification(&state, &auth, body)
+            .await
+            .into_response()
+    }
+
+    #[delete("/{id}")]
+    async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+        let state = current_state();
+        self.service
+            .delete_notification(&state, &auth, &id)
             .await
             .into_response()
     }

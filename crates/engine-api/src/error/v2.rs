@@ -1,15 +1,16 @@
-//! The `/v2` failure body: an HTTP status plus `{"message":"…"}`.
+//! The `/v2` failure body: an HTTP status plus the envelope
+//! `{"error":{"code":<grpc code>,"message":"…","details":[…]}}`.
 //!
-//! [`ErrorKind`] names the failure and chooses the status (400 bad request, 401
+//! [`ErrorKind`] names the failure and chooses both the status (400 bad request, 401
 //! unauthorized, 403 forbidden, 404 not found, 409 conflict, 429 rate limited, 503
-//! unavailable, …), so the body only has to say *why*.
+//! unavailable, …) and the numeric code, so the message only has to say *why*.
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde_json::json;
+use serde::Serialize;
 
-/// What kind of failure a `/v2` route reports. The kind is what chooses the HTTP
-/// status of the refusal, so it never appears in the body.
+/// What kind of failure a `/v2` route reports. The kind is both the gRPC code in the
+/// body and what chooses the HTTP status of the refusal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ErrorKind(u8);
 
@@ -32,6 +33,11 @@ pub const DATA_LOSS: ErrorKind = ErrorKind(15);
 pub const UNAUTHENTICATED: ErrorKind = ErrorKind(16);
 
 impl ErrorKind {
+    /// The gRPC status code this kind is named for, sent as `error.code`.
+    pub(crate) fn code(self) -> u8 {
+        self.0
+    }
+
     /// The HTTP status a refusal of this kind answers with.
     pub(crate) fn status(self) -> StatusCode {
         match self {
@@ -133,10 +139,30 @@ impl V2Error {
     }
 }
 
+/// The failure envelope `/v2` writes on the wire: `{"error":{…}}`. Serialising a
+/// struct rather than a `json!` map keeps the `code`, `message`, `details` order.
+#[derive(Serialize)]
+struct ErrorBody {
+    error: ErrorDetails,
+}
+
+#[derive(Serialize)]
+struct ErrorDetails {
+    code: u8,
+    message: String,
+    details: Vec<String>,
+}
+
 impl IntoResponse for V2Error {
     fn into_response(self) -> Response {
         let status = self.kind.status();
-        let body = axum::Json(json!({ "message": self.message }));
+        let body = axum::Json(ErrorBody {
+            error: ErrorDetails {
+                code: self.kind.code(),
+                message: self.message,
+                details: Vec::new(),
+            },
+        });
         let mut response = (status, body).into_response();
         if status == StatusCode::UNAUTHORIZED {
             // Every 401 carries this realm, and the refusal text must not leak into the header.

@@ -39,17 +39,42 @@ async fn a_rate_limit_error_carries_a_usable_retry_after() {
     assert!(parsed["error"].is_string());
 }
 
-/// A `/v2` refusal names its kind through the HTTP status, so the body carries the
-/// message and nothing else — no numeric `code` for a client to branch on.
+/// A `/v2` refusal carries its kind twice: the HTTP status and the numeric gRPC
+/// `code` in the envelope, with the message beside it and no details by default.
 #[tokio::test]
-async fn a_v2_refusal_is_a_status_plus_a_bare_message() {
+async fn a_v2_refusal_is_a_status_plus_an_error_envelope() {
     let response = V2Error::invalid_argument("bad thing").into_response();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
         .await
         .expect("error body");
+    let value: serde_json::Value = serde_json::from_slice(&bytes).expect("envelope is JSON");
+    assert_eq!(value["error"]["code"], 3);
+    assert_eq!(value["error"]["message"], "bad thing");
+    assert_eq!(value["error"]["details"], serde_json::json!([]));
     assert_eq!(
-        std::str::from_utf8(&bytes).expect("utf-8 body"),
-        r#"{"message":"bad thing"}"#
+        String::from_utf8_lossy(&bytes),
+        r#"{"error":{"code":3,"message":"bad thing","details":[]}}"#
     );
+}
+
+/// The codes are the gRPC numbers the kinds are named for, and every kind that has
+/// no HTTP mapping of its own still reports `INTERNAL`'s 13.
+#[tokio::test]
+async fn each_v2_kind_keeps_its_grpc_code() {
+    for (error, code) in [
+        (V2Error::not_found("gone"), 5),
+        (V2Error::already_exists("clash"), 6),
+        (V2Error::permission_denied("no"), 7),
+        (V2Error::unauthenticated("who"), 16),
+        (V2Error::no_db(), 14),
+        (V2Error::internal("oops"), 13),
+    ] {
+        let response = error.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .expect("error body");
+        let value: serde_json::Value = serde_json::from_slice(&bytes).expect("envelope is JSON");
+        assert_eq!(value["error"]["code"], code, "body: {value}");
+    }
 }

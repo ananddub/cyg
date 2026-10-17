@@ -34,6 +34,7 @@ pub fn add(
         string_props,
         numeric_props,
         party_id: *s.party.read().expect("party lock"),
+        created_at: chrono::Utc::now(),
     };
     let id = ticket.id.simple().to_string();
     pool().write().expect("matchmaker pool lock").push(ticket);

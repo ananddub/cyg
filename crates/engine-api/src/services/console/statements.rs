@@ -180,3 +180,33 @@ pub async fn delete_storage_object(
         .await?;
     Ok(done.rows_affected() > 0)
 }
+
+/// One wallet ledger entry, addressed by its own id and the account it belongs to.
+/// `user_id` is part of the match so an operator cannot delete a ledger entry by
+/// guessing an id that belongs to another account.
+pub async fn delete_wallet_ledger(
+    pool: &sqlx::PgPool,
+    ledger_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let done = sqlx::query("DELETE FROM wallet_ledger WHERE id = $1 AND user_id = $2;")
+        .bind(ledger_id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// One notification, addressed by its own id. The console deletes a notification
+/// outright — mirroring reference, the row is not scoped by recipient, so an operator
+/// can remove a notification by id alone.
+pub async fn delete_notification(
+    pool: &sqlx::PgPool,
+    id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let done = sqlx::query("DELETE FROM notification WHERE id = $1;")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}

@@ -14,6 +14,8 @@ pub mod group;
 pub mod iap;
 pub mod leaderboard;
 pub mod link;
+#[path = "match.rs"]
+pub mod matches;
 pub mod matchmake;
 pub mod notification;
 pub mod session;

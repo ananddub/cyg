@@ -18,9 +18,12 @@ use crate::ApiState;
 pub mod account;
 pub mod audit;
 pub mod auth;
+pub mod board;
 pub mod group;
 pub mod iap;
 pub mod leaderboard;
+#[path = "match.rs"]
+pub mod matches;
 pub mod mfa;
 pub mod notification;
 pub mod setting;

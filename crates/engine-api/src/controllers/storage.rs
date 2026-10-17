@@ -12,7 +12,7 @@ use axum::response::{IntoResponse, Response};
 use crate::current_state;
 use crate::app::middleware::Authed;
 
-use crate::dto::storage::{ListQuery, ObjectIdsRequest, WriteRequest};
+use crate::dto::storage::{ListQuery, ObjectIdsRequest, ReadQuery, WriteRequest};
 use crate::services::storage::StorageService;
 
 /// Aliases so `auto_route` does not require `poem_openapi::Type` from the plain
@@ -81,6 +81,20 @@ impl StorageController {
         let state = current_state();
         self.service
             .list_user_objects(&state, &auth, &collection, &user_id, req)
+            .await
+            .into_response()
+    }
+
+    #[get("/{collection}/{key}/{user_id}")]
+    async fn read_object(
+        &self,
+        auth: Authed,
+        Path((collection, key, user_id)): Path<(String, String, String)>,
+        Query(req): QueryParams<ReadQuery>,
+    ) -> Response {
+        let state = current_state();
+        self.service
+            .read_object(&state, &auth, &collection, &key, &user_id, req)
             .await
             .into_response()
     }

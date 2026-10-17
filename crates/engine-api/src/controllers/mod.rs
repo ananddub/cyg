@@ -15,6 +15,8 @@ pub mod health;
 pub mod iap;
 pub mod leaderboard;
 pub mod link;
+#[path = "match.rs"]
+pub mod match_routes;
 pub mod matchmake;
 pub mod notification;
 pub mod realtime;

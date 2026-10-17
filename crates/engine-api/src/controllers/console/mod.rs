@@ -11,6 +11,8 @@ pub mod auth;
 pub mod group;
 pub mod iap;
 pub mod leaderboard;
+#[path = "match.rs"]
+pub mod match_routes;
 pub mod mfa;
 pub mod notification;
 pub mod setting;

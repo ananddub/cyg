@@ -68,4 +68,34 @@ impl super::ConsoleService {
         .await;
         Ok(Json(Empty {}))
     }
+
+    /// Delete a notification by id, as the console removes it outright.
+    pub async fn delete_notification(
+        &self,
+        state: &ApiState,
+        claims: &ConsoleAuthed,
+        id: &str,
+    ) -> Result<Json<Empty>, V2Error> {
+        claims.require_write()?;
+        let id = super::id(id, "notification")?;
+        let removed = crate::services::console::statements::delete_notification(
+            super::pool(state)?,
+            id,
+        )
+        .await
+        .map_err(V2Error::from_sqlx)?;
+        if !removed {
+            return Err(V2Error::not_found("Notification not found."));
+        }
+        super::audit(
+            state,
+            claims,
+            "notification.delete",
+            "notification",
+            Some(id),
+            "Deleted a notification.",
+        )
+        .await;
+        Ok(Json(Empty {}))
+    }
 }

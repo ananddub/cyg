@@ -15,7 +15,7 @@ pub(super) struct V2Server {
 }
 
 /// One gateway reply. A refusal is read as the shape every `/v2` error has: an HTTP
-/// status naming the failure kind and a JSON `{"message": …}` body.
+/// status naming the failure kind and an `{"error":{"code":…,"message":…,…}}` body.
 pub(super) struct Reply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
@@ -36,7 +36,14 @@ impl Reply {
     pub(super) fn refusal(&self, kind: ErrorKind) -> String {
         let value = self.json();
         assert_eq!(self.status, kind.status().as_u16(), "body: {}", self.body);
-        value["message"]
+        assert_eq!(
+            value["error"]["code"].as_u64(),
+            Some(u64::from(kind.code())),
+            "refusal of kind {:?} reports the wrong code in {}",
+            kind,
+            self.body
+        );
+        value["error"]["message"]
             .as_str()
             .unwrap_or_else(|| panic!("no message in {}", self.body))
             .to_owned()
@@ -129,7 +136,9 @@ impl V2Server {
         });
         if status >= 400 {
             assert!(
-                value["message"].as_str().is_some_and(|m| !m.is_empty()),
+                value["error"]["message"]
+                    .as_str()
+                    .is_some_and(|m| !m.is_empty()),
                 "{path} -> {status} refusal has no message: {response_body}"
             );
         }
