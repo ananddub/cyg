@@ -1,8 +1,11 @@
 // Groups, and the members and roles of the selected one.
 
 import { useState } from "react"
+import { Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { ConfirmAction } from "@/components/console/actions"
 import { DataTable, Field, JsonBlock, Mono, PageHeading, Pager, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
@@ -21,12 +24,17 @@ const STATE_VARIANT: Record<string, "default" | "secondary" | "outline" | "destr
 
 export function GroupsView() {
   const [offset, setOffset] = useState(0)
-  const [selected, setSelected] = useState<ConsoleGroup | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const list = useConsoleQuery<ConsoleGroup[]>("groups", CONSOLE_ENDPOINTS.groups, {
     limit: PAGE_SIZE,
     offset,
   })
+
+  // The row is looked back up rather than held, so a delete leaves nothing stale
+  // behind: the id stops matching and the detail pane falls back to "nothing
+  // selected" as soon as the list refreshes.
+  const selected = list.data?.find((group) => group.id === selectedId) ?? null
 
   const columns: Column<ConsoleGroup>[] = [
     { header: "Name", cell: (row) => <span className="font-medium text-foreground">{row.name}</span> },
@@ -56,8 +64,8 @@ export function GroupsView() {
             loading={list.isPending}
             error={queryError(list.error)}
             rowKey={(row) => row.id}
-            onRowClick={(row) => setSelected(row)}
-            selectedKey={selected?.id}
+            onRowClick={(row) => setSelectedId(row.id)}
+            selectedKey={selectedId ?? undefined}
             empty="No groups yet."
           />
           <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
@@ -68,14 +76,15 @@ export function GroupsView() {
             <p className="px-4 py-6 text-sm text-muted-foreground">Select a row to inspect it.</p>
           </Panel>
         ) : (
-          <GroupDetail group={selected} />
+          <GroupDetail key={selected.id} group={selected} onDeleted={() => setSelectedId(null)} />
         )}
       </div>
     </div>
   )
 }
 
-function GroupDetail({ group }: { group: ConsoleGroup }) {
+function GroupDetail({ group, onDeleted }: { group: ConsoleGroup; onDeleted: () => void }) {
+  const [deleting, setDeleting] = useState(false)
   const members = useConsoleQuery<ConsoleGroupMember[]>("group-members", `${CONSOLE_ENDPOINTS.groups}/${group.id}/member`)
 
   const columns: Column<ConsoleGroupMember>[] = [
@@ -89,7 +98,16 @@ function GroupDetail({ group }: { group: ConsoleGroup }) {
 
   return (
     <div className="space-y-4">
-      <Panel title={group.name} description={shortId(group.id)}>
+      <Panel
+        title={group.name}
+        description={shortId(group.id)}
+        actions={
+          <Button size="sm" variant="destructive" onClick={() => setDeleting(true)}>
+            <Trash2 />
+            Delete
+          </Button>
+        }
+      >
         <div className="px-4 py-2">
           <Field label="Creator">{shortId(group.creator_id)}</Field>
           <Field label="Members">{`${num(group.edge_count)} / ${num(group.max_count)}`}</Field>
@@ -114,6 +132,19 @@ function GroupDetail({ group }: { group: ConsoleGroup }) {
           <JsonBlock value={group.metadata} />
         </div>
       </Panel>
+
+      <ConfirmAction
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        onDone={onDeleted}
+        title="Delete group"
+        message="The group and every membership go; the members' accounts are untouched."
+        confirmLabel="Delete group"
+        destructive
+        method="DELETE"
+        path={`${CONSOLE_ENDPOINTS.groups}/${group.id}`}
+        success="Group deleted."
+      />
     </div>
   )
 }

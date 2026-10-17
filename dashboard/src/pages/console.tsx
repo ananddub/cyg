@@ -14,6 +14,7 @@ import {
 } from "@/components/console/views/administration"
 import { GroupsView } from "@/components/console/views/groups"
 import { LeaderboardsView } from "@/components/console/views/leaderboards"
+import { MatchesView } from "@/components/console/views/matches"
 import {
   ClientsView,
   CoresView,
@@ -100,6 +101,8 @@ function AreaView({
       return <RoomsView data={data} />
     case "clients":
       return <ClientsView data={data} />
+    case "matches":
+      return <MatchesView />
     case "cores":
       return <CoresView data={data} onSelectWorker={onSelectWorker} />
     case "limits":

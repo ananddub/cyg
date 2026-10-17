@@ -1,6 +1,7 @@
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
+import { toast } from "sonner"
 
-import { consoleGet } from "@/lib/console"
+import { consoleGet, consoleWrite, type HttpMethod } from "@/lib/console"
 import { useSession } from "@/lib/session"
 
 /** A console read. Disabled until there is a token, never retried (a refusal is
@@ -27,4 +28,25 @@ export function queryError(error: unknown): string | null {
   if (error === null || error === undefined) return null
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+/** A console write. The method, path and body travel as one variable so a table
+ * can hold a single hook while each row points it at its own route — a hook per
+ * row would be a hook in a loop. Invalidation is not the caller's business: a
+ * write can move any list, so the whole `["console"]` cache is refreshed. */
+export function useConsoleMutation<TData = unknown>() {
+  const token = useSession()?.token ?? ""
+  const client = useQueryClient()
+  return useMutation<
+    TData,
+    Error,
+    { method: HttpMethod; path: string; body?: unknown; success: string }
+  >({
+    mutationFn: ({ method, path, body }) => consoleWrite<TData>(method, path, token, body),
+    onSuccess: (_data, variables) => {
+      void client.invalidateQueries({ queryKey: ["console"] })
+      toast.success(variables.success)
+    },
+    onError: (error) => toast.error(error.message),
+  })
 }

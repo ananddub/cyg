@@ -2,12 +2,16 @@
 // belong to an account), so the view asks for one account id first.
 
 import { useState, type FormEvent } from "react"
-import { Search } from "lucide-react"
+import { Loader2, Search, Send } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
-import { useConsoleQuery, queryError } from "@/hooks/use-console"
+import { TextArea, TextInput } from "@/components/console/form"
+import { parseJson } from "@/components/console/json"
+import { Modal } from "@/components/console/modal"
+import { useConsoleMutation, useConsoleQuery, queryError } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleNotification } from "@/lib/console"
 import { formatTime, shortId } from "@/lib/format"
 
@@ -16,6 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export function NotificationsView() {
   const [draft, setDraft] = useState("")
   const [userId, setUserId] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
 
   const list = useConsoleQuery<ConsoleNotification[]>(
     "notifications",
@@ -59,7 +64,16 @@ export function NotificationsView() {
         </Button>
       </form>
 
-      <Panel title="Notifications" description={userId === null ? "Enter an account id" : shortId(userId)}>
+      <Panel
+        title="Notifications"
+        description={userId === null ? "Enter an account id" : shortId(userId)}
+        actions={
+          <Button size="sm" variant="outline" disabled={userId === null} onClick={() => setSending(true)}>
+            <Send />
+            Send
+          </Button>
+        }
+      >
         {userId === null ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">
             Notifications are per account. Enter an id to list them.
@@ -88,6 +102,86 @@ export function NotificationsView() {
           </div>
         </Panel>
       )}
+
+      {userId !== null && (
+        <SendNotificationDialog userId={userId} open={sending} onClose={() => setSending(false)} />
+      )}
     </div>
+  )
+}
+
+/** The message the console sends a player. The sender is taken from the token,
+ * never the body, so a notification cannot claim someone else sent it. */
+function SendNotificationDialog({
+  userId,
+  open,
+  onClose,
+}: {
+  userId: string
+  open: boolean
+  onClose: () => void
+}) {
+  const [subject, setSubject] = useState("")
+  const [content, setContent] = useState("{}")
+  const [code, setCode] = useState("0")
+  const write = useConsoleMutation()
+
+  function close() {
+    setSubject("")
+    setContent("{}")
+    setCode("0")
+    onClose()
+  }
+
+  function confirm() {
+    const parsed = parseJson(content)
+    if ("error" in parsed) {
+      toast.error(`The content must be JSON: ${parsed.error}`)
+      return
+    }
+    const numeric = Number(code.trim() === "" ? "0" : code.trim())
+    if (!Number.isInteger(numeric) || numeric < -32768 || numeric > 32767) {
+      toast.error("The code must be a whole number between -32768 and 32767.")
+      return
+    }
+    write.mutate(
+      {
+        method: "POST",
+        path: CONSOLE_ENDPOINTS.notifications,
+        body: { user_id: userId, subject, content: parsed.value, code: numeric },
+        success: "Notification sent.",
+      },
+      { onSuccess: close },
+    )
+  }
+
+  return (
+    <Modal
+      open={open}
+      title="Send a notification"
+      description={`To ${userId}. The sender is the signed-in operator, taken from the token.`}
+      onClose={close}
+      footer={
+        <>
+          <Button variant="outline" onClick={close} disabled={write.isPending}>
+            Cancel
+          </Button>
+          <Button onClick={confirm} disabled={write.isPending}>
+            {write.isPending ? <Loader2 className="animate-spin" /> : <Send />}
+            Send
+          </Button>
+        </>
+      }
+    >
+      <TextInput label="Subject" value={subject} onChange={setSubject} placeholder="What this is about" />
+      <TextArea label="Content" rows={5} value={content} onChange={setContent} />
+      <TextInput
+        label="Code"
+        hint="The numeric code the client branches on; 0 when there is none."
+        value={code}
+        onChange={setCode}
+        mono
+      />
+    </Modal>
   )
 }

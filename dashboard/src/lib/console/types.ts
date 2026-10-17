@@ -241,3 +241,41 @@ export interface MfaEnrolment {
 export interface DeletedCount {
   removed: number;
 }
+
+/** One joined player, as the match state reports it — the realtime presence. */
+export interface ConsoleMatchPresence {
+  user_id: string;
+  session_id: string;
+  username: string;
+  node?: string;
+}
+
+/** The `api.Match` a console row wraps. Relay matches carry no handler name or tick
+ * rate, so those optional fields simply are not there. */
+export interface ConsoleMatchApi {
+  match_id: string;
+  authoritative: boolean;
+  label?: string;
+  size: number;
+  tick_rate?: number;
+  handler_name?: string;
+}
+
+/** `console.MatchList.Match`: an `api_match` plus the node it runs on (empty on a
+ * single-process plane). */
+export interface ConsoleMatch {
+  api_match: ConsoleMatchApi;
+  node: string;
+}
+
+export interface ConsoleMatchList {
+  matches: ConsoleMatch[];
+}
+
+/** `console.MatchState` — the members in the match, plus the tick and handler state
+ * a relay match does not hold. */
+export interface ConsoleMatchState {
+  presences: ConsoleMatchPresence[];
+  tick: number;
+  state: string;
+}

@@ -2,7 +2,10 @@
 // selected object's value.
 
 import { useState } from "react"
+import { Trash2 } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
+import { ConfirmAction } from "@/components/console/actions"
 import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
@@ -20,6 +23,8 @@ export function StorageView() {
   const collections = useConsoleQuery<string[]>("storage-collections", CONSOLE_ENDPOINTS.storageCollections)
   const [selected, setSelected] = useState<string | null>(null)
   const [object, setObject] = useState<ConsoleStorageObject | null>(null)
+  const [deletingCollection, setDeletingCollection] = useState<string | null>(null)
+  const [deletingObject, setDeletingObject] = useState(false)
 
   const objects = useConsoleQuery<ConsoleStorageObject[]>(
     "storage-objects",
@@ -64,24 +69,48 @@ export function StorageView() {
                 All objects
               </button>
               {collections.data.map((name) => (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={() => {
-                    setSelected(name)
-                    setObject(null)
-                  }}
-                  className={cn(
-                    "block w-full truncate px-4 py-1.5 text-left font-mono text-xs transition-colors hover:bg-foreground/5",
-                    selected === name ? "text-primary" : "text-muted-foreground",
-                  )}
-                >
-                  {name}
-                </button>
+                <div key={name} className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelected(name)
+                      setObject(null)
+                    }}
+                    className={cn(
+                      "min-w-0 flex-1 truncate px-4 py-1.5 text-left font-mono text-xs transition-colors hover:bg-foreground/5",
+                      selected === name ? "text-primary" : "text-muted-foreground",
+                    )}
+                  >
+                    {name}
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`Delete ${name}`}
+                    onClick={() => setDeletingCollection(name)}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
               ))}
             </div>
           )}
         </Panel>
+
+        <ConfirmAction
+          open={deletingCollection !== null}
+          onClose={() => setDeletingCollection(null)}
+          onDone={() => {
+            if (deletingCollection === selected) setSelected(null)
+          }}
+          title="Delete collection"
+          message={`Every object in "${deletingCollection ?? ""}" goes, for every account. Nothing puts it back.`}
+          confirmLabel="Delete collection"
+          destructive
+          method="DELETE"
+          path={`${CONSOLE_ENDPOINTS.storageCollection}/${encodeURIComponent(deletingCollection ?? "")}`}
+          success="Collection deleted."
+        />
 
         <div className="space-y-4">
           <Panel title={selected ?? "All objects"}>
@@ -98,10 +127,31 @@ export function StorageView() {
           </Panel>
 
           {object !== null && (
-            <Panel title="Value" description={`${object.collection}/${object.key}`}>
+            <Panel
+              title="Value"
+              description={`${object.collection}/${object.key}`}
+              actions={
+                <Button size="sm" variant="destructive" onClick={() => setDeletingObject(true)}>
+                  <Trash2 />
+                  Delete
+                </Button>
+              }
+            >
               <div className="p-3">
                 <JsonBlock value={object.value} />
               </div>
+              <ConfirmAction
+                open={deletingObject}
+                onClose={() => setDeletingObject(false)}
+                onDone={() => setObject(null)}
+                title="Delete object"
+                message={`${object.collection}/${object.key}, owned by ${object.user_id}.`}
+                confirmLabel="Delete object"
+                destructive
+                method="DELETE"
+                path={`${CONSOLE_ENDPOINTS.storageObject}/${encodeURIComponent(object.collection)}/${encodeURIComponent(object.key)}/${object.user_id}`}
+                success="Object deleted."
+              />
             </Panel>
           )}
         </div>

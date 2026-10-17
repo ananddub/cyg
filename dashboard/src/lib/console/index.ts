@@ -19,10 +19,13 @@ export const CONSOLE_ENDPOINTS = {
   accountImport: "/v2/console/account/import",
   users: "/v2/console/user",
   groups: "/v2/console/group",
+  matches: "/v2/console/match",
   leaderboards: "/v2/console/leaderboard",
   tournaments: "/v2/console/tournament",
   storage: "/v2/console/storage",
   storageCollections: "/v2/console/storage/collections",
+  storageCollection: "/v2/console/storage/collection",
+  storageObject: "/v2/console/storage/object",
   notifications: "/v2/console/notification",
   purchases: "/v2/console/purchase",
   subscriptions: "/v2/console/subscription",
@@ -78,11 +81,22 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   }
 }
 
-/** The `/v2` failure body is `{"message": "…"}`; anything else is shown verbatim. */
+/** The `/v2` failure body is `{"error":{"code":…,"message":"…","details":[…]}}`; the
+ * older `{"message":"…"}` and `{"error":"…"}` shapes are still accepted, and anything
+ * else is shown verbatim. */
 function refusalMessage(text: string, fallback: string): string {
   try {
-    const body = JSON.parse(text) as { message?: unknown };
+    const body = JSON.parse(text) as {
+      message?: unknown;
+      error?: unknown;
+    };
     if (typeof body.message === "string" && body.message !== "") return body.message;
+    const error = body.error;
+    if (typeof error === "string" && error !== "") return error;
+    if (error && typeof error === "object") {
+      const nested = (error as { message?: unknown }).message;
+      if (typeof nested === "string" && nested !== "") return nested;
+    }
   } catch {
     // Not JSON: fall through to the raw text.
   }
@@ -146,4 +160,16 @@ export function consoleWrite<T>(
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(body ?? {}),
   });
+}
+
+/** Save a value as a `.json` file. An export document is meant to be pasted back
+ * into the import dialog, so the download is the first half of the round trip. */
+export function downloadJson(filename: string, value: unknown): void {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
