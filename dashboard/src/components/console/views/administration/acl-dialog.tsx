@@ -9,7 +9,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { TextArea, TextInput } from "@/components/console/form"
 import { jsonText, parseJson } from "@/components/console/json"
-import { Modal } from "@/components/console/modal"
+import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleAclTemplate } from "@/lib/console"
 
@@ -58,7 +58,7 @@ export function TemplateDialog({
   }
 
   return (
-    <Modal
+    <FormSheet
       open={open}
       title={replacing ? `Edit ${template.name}` : "New ACL template"}
       description="The document an operator row would carry, kept under a name so it can be reused."
@@ -87,6 +87,6 @@ export function TemplateDialog({
         <code>role</code> is 1 admin, 2 developer, 3 maintainer, 4 readonly. An unrecognised document falls back to
         readonly — least privilege, never more.
       </p>
-    </Modal>
+    </FormSheet>
   )
 }

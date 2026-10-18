@@ -12,7 +12,7 @@ import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/con
 import type { Column } from "@/components/console/data-table"
 import { TextArea, TextInput } from "@/components/console/form"
 import { jsonText, parseJson } from "@/components/console/json"
-import { Modal } from "@/components/console/modal"
+import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation, useConsoleQuery, queryError } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleSetting } from "@/lib/console"
 import { formatTime } from "@/lib/format"
@@ -165,7 +165,7 @@ function SettingDialog({
   }
 
   return (
-    <Modal
+    <FormSheet
       open={open}
       title={replacing ? `Edit ${setting.name}` : "Set a setting"}
       description="The name is the key; the value is the whole document."
@@ -195,6 +195,6 @@ function SettingDialog({
       <p className="text-[11px] text-muted-foreground">
         The value is JSON: a string is quoted, a number is not.
       </p>
-    </Modal>
+    </FormSheet>
   )
 }

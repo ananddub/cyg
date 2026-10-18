@@ -1,4 +1,5 @@
-// Running matches, paged, with the selected match's live state on the right.
+// Running matches, paged, with the selected match's live state in a right-side
+// drawer.
 //
 // The list is the console's own view (`console.MatchList`): every row is still
 // joined and in the plane right now. Our data holds no match creation time, so
@@ -10,6 +11,7 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, Mono, PageHeading, Pager, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
+import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleMatch, type ConsoleMatchList } from "@/lib/console"
 import { dash, num, shortId } from "@/lib/format"
@@ -67,32 +69,34 @@ export function MatchesView() {
         description="Live realtime matches on this node. Select one to read its members and tick, or terminate it."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_26rem]">
-        <Panel
-          title="Running matches"
-          description={`page ${Math.floor(offset / PAGE_SIZE) + 1}`}
-        >
-          <DataTable
-            columns={columns}
-            rows={rows}
-            loading={list.isPending}
-            error={queryError(list.error)}
-            rowKey={(row) => row.api_match.match_id}
-            onRowClick={(row) => setSelectedId(row.api_match.match_id)}
-            selectedKey={selectedId ?? undefined}
-            empty="No matches running."
-          />
-          <Pager offset={offset} limit={PAGE_SIZE} count={rows?.length ?? 0} onChange={setOffset} />
-        </Panel>
+      <Panel
+        title="Running matches"
+        description={`page ${Math.floor(offset / PAGE_SIZE) + 1}`}
+      >
+        <DataTable
+          columns={columns}
+          rows={rows}
+          loading={list.isPending}
+          error={queryError(list.error)}
+          rowKey={(row) => row.api_match.match_id}
+          onRowClick={(row) => setSelectedId(row.api_match.match_id)}
+          selectedKey={selectedId ?? undefined}
+          empty="No matches running."
+        />
+        <Pager offset={offset} limit={PAGE_SIZE} count={rows?.length ?? 0} onChange={setOffset} />
+      </Panel>
 
-        {selected === null ? (
-          <Panel title="Match detail" description="No match selected">
-            <p className="px-4 py-6 text-sm text-muted-foreground">Select a row to inspect it.</p>
-          </Panel>
-        ) : (
+      <DetailSheet
+        open={selected !== null}
+        onClose={() => setSelectedId(null)}
+        title="Match detail"
+        description={selected ? shortId(selected.api_match.match_id) : undefined}
+        bodyClassName="space-y-4 px-5"
+      >
+        {selected !== null && (
           <MatchDetail key={selected.api_match.match_id} match={selected} onDeleted={() => setSelectedId(null)} />
         )}
-      </div>
+      </DetailSheet>
     </div>
   )
 }

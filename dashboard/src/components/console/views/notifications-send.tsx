@@ -8,7 +8,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { TextArea, TextInput } from "@/components/console/form"
 import { parseJson } from "@/components/console/json"
-import { Modal } from "@/components/console/modal"
+import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS } from "@/lib/console"
 
@@ -58,7 +58,7 @@ export function SendNotificationDialog({
   }
 
   return (
-    <Modal
+    <FormSheet
       open={open}
       title="Send a notification"
       description={`To ${userId}. The sender is the signed-in operator, taken from the token.`}
@@ -84,6 +84,6 @@ export function SendNotificationDialog({
         onChange={setCode}
         mono
       />
-    </Modal>
+    </FormSheet>
   )
 }

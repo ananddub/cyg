@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox, Select, TextInput } from "@/components/console/form"
-import { Modal } from "@/components/console/modal"
+import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleUser } from "@/lib/console"
 import { CONSOLE_ROLES } from "@/lib/console/roles"
@@ -54,7 +54,7 @@ export function UpdateOperatorDialog({
   }
 
   return (
-    <Modal
+    <FormSheet
       open={open}
       title={`Edit ${user.username}`}
       description="The profile only. Credentials have their own route, so a profile edit cannot change how someone signs in."
@@ -79,7 +79,7 @@ export function UpdateOperatorDialog({
         checked={mfaRequired}
         onChange={setMfaRequired}
       />
-    </Modal>
+    </FormSheet>
   )
 }
 
@@ -116,7 +116,7 @@ export function PasswordDialog({
   }
 
   return (
-    <Modal
+    <FormSheet
       open={open}
       title="Reset password"
       description="The operator will not be told the new password — it is set here, and passed on out of band."
@@ -134,6 +134,6 @@ export function PasswordDialog({
       }
     >
       <TextInput label="New password" type="password" value={password} onChange={setPassword} autoFocus />
-    </Modal>
+    </FormSheet>
   )
 }

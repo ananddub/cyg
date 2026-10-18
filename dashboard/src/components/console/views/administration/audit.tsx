@@ -6,6 +6,7 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, JsonBlock, Mono, PageHeading, Pager, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
+import { DetailSheet } from "@/components/console/detail-sheet"
 import { Select } from "@/components/console/form"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
 import {
@@ -20,7 +21,7 @@ const PAGE_SIZE = 25
 export function AuditLogView() {
   const [offset, setOffset] = useState(0)
   const [username, setUsername] = useState("")
-  const [selected, setSelected] = useState<ConsoleAuditLog | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   // The trail, narrowed by the operator filter. A new filter is a new first page —
   // otherwise the offset would carry into a different result set.
@@ -36,6 +37,10 @@ export function AuditLogView() {
     `${CONSOLE_ENDPOINTS.auditLog}/users`,
   )
 
+  // The row is read back from the list rather than held: a refetch that no longer
+  // carries the id closes the drawer instead of showing a stale entry.
+  const selected = list.data?.find((entry) => entry.id === selectedId) ?? null
+
   const operatorOptions = [
     { value: "", label: "All operators" },
     ...(users.data?.usernames ?? []).map((name) => ({ value: name, label: name })),
@@ -44,7 +49,7 @@ export function AuditLogView() {
   function filterByName(name: string) {
     setUsername(name)
     setOffset(0)
-    setSelected(null)
+    setSelectedId(null)
   }
 
   const columns: Column<ConsoleAuditLog>[] = [
@@ -78,20 +83,21 @@ export function AuditLogView() {
           loading={list.isPending}
           error={queryError(list.error)}
           rowKey={(row) => row.id}
-          onRowClick={(row) => setSelected(row)}
-          selectedKey={selected?.id}
+          onRowClick={(row) => setSelectedId(row.id)}
+          selectedKey={selectedId ?? undefined}
           empty="No audit entries yet."
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
       </Panel>
 
-      {selected !== null && (
-        <Panel title="Entry" description={`${selected.action} · ${shortId(selected.id)}`}>
-          <div className="p-3">
-            <JsonBlock value={selected.metadata} />
-          </div>
-        </Panel>
-      )}
+      <DetailSheet
+        open={selected !== null}
+        onClose={() => setSelectedId(null)}
+        title={selected ? `${selected.action} · ${shortId(selected.id)}` : "Entry"}
+        description={selected ? `${selected.console_username} · ${formatTime(selected.create_time)}` : undefined}
+      >
+        {selected !== null && <JsonBlock value={selected.metadata} />}
+      </DetailSheet>
     </div>
   )
 }

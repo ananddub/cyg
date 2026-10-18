@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
 import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
+import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleNotification } from "@/lib/console"
 import { formatTime, shortId } from "@/lib/format"
@@ -21,6 +22,7 @@ export function NotificationsView() {
   const [userId, setUserId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const list = useConsoleQuery<ConsoleNotification[]>(
     "notifications",
@@ -29,9 +31,14 @@ export function NotificationsView() {
     userId !== null,
   )
 
+  // Read back from the list, so deleting or refetching the opened row updates or
+  // closes the drawer rather than leaving a captured copy on screen.
+  const opened = list.data?.find((row) => row.id === openId) ?? null
+
   function submit(event: FormEvent) {
     event.preventDefault()
     setUserId(UUID.test(draft.trim()) ? draft.trim() : null)
+    setOpenId(null)
   }
 
   const columns: Column<ConsoleNotification>[] = [
@@ -46,7 +53,10 @@ export function NotificationsView() {
           variant="ghost"
           size="icon-sm"
           aria-label="Delete notification"
-          onClick={() => setDeleteId(row.id)}
+          onClick={(event) => {
+            event.stopPropagation()
+            setDeleteId(row.id)
+          }}
         >
           <Trash2 />
         </Button>
@@ -98,23 +108,21 @@ export function NotificationsView() {
             loading={list.isPending}
             error={queryError(list.error)}
             rowKey={(row) => row.id}
+            onRowClick={(row) => setOpenId(row.id)}
+            selectedKey={openId ?? undefined}
             empty="No notifications for this account."
           />
         )}
       </Panel>
 
-      {userId !== null && list.data !== undefined && list.data.length > 0 && (
-        <Panel title="Content">
-          <div className="space-y-3 p-3">
-            {list.data.map((row) => (
-              <div key={row.id}>
-                <p className="mb-1 text-xs font-medium text-foreground">{row.subject}</p>
-                <JsonBlock value={row.content} />
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
+      <DetailSheet
+        open={opened !== null}
+        onClose={() => setOpenId(null)}
+        title={opened?.subject ?? "Notification"}
+        description={opened ? `${opened.code} · ${formatTime(opened.create_time)}` : undefined}
+      >
+        {opened !== null && <JsonBlock value={opened.content} />}
+      </DetailSheet>
 
       {userId !== null && (
         <SendNotificationDialog userId={userId} open={sending} onClose={() => setSending(false)} />

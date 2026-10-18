@@ -1,6 +1,6 @@
-// Player accounts: the directory, paged, with the selected row's detail on the
-// right and the import dialog below. Every write on a row flows through the
-// detail, not this list.
+// Player accounts: the directory, paged, with the selected row's detail in a
+// right-side drawer and the import dialog below. Every write on a row flows
+// through the detail, not this list.
 
 import { useState } from "react"
 import { Plus } from "lucide-react"
@@ -15,9 +15,10 @@ import {
   Panel,
 } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
+import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleAccount } from "@/lib/console"
-import { dash, formatTime, num } from "@/lib/format"
+import { dash, formatTime, num, shortId } from "@/lib/format"
 
 import { AccountDetail } from "./detail"
 import { ImportDialog } from "./import-dialog"
@@ -59,38 +60,40 @@ export function AccountsView() {
         description="Player accounts. Select one to read its notes, wallet ledger and provider links — or to ban it, note it and adjust its wallet."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_26rem]">
-        <Panel
-          title="All accounts"
-          description={`page ${Math.floor(offset / PAGE_SIZE) + 1}`}
-          actions={
-            <Button size="sm" variant="outline" onClick={() => setImporting(true)}>
-              <Plus />
-              Import
-            </Button>
-          }
-        >
-          <DataTable
-            columns={columns}
-            rows={list.data}
-            loading={list.isPending}
-            error={queryError(list.error)}
-            rowKey={(row) => row.id}
-            onRowClick={(row) => setSelected(row.id)}
-            selectedKey={selected ?? undefined}
-            empty="No accounts yet."
-          />
-          <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
-        </Panel>
+      <Panel
+        title="All accounts"
+        description={`page ${Math.floor(offset / PAGE_SIZE) + 1}`}
+        actions={
+          <Button size="sm" variant="outline" onClick={() => setImporting(true)}>
+            <Plus />
+            Import
+          </Button>
+        }
+      >
+        <DataTable
+          columns={columns}
+          rows={list.data}
+          loading={list.isPending}
+          error={queryError(list.error)}
+          rowKey={(row) => row.id}
+          onRowClick={(row) => setSelected(row.id)}
+          selectedKey={selected ?? undefined}
+          empty="No accounts yet."
+        />
+        <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
+      </Panel>
 
-        {selected === null ? (
-          <Panel title="Account detail" description="No account selected">
-            <p className="px-4 py-6 text-sm text-muted-foreground">Select a row to inspect it.</p>
-          </Panel>
-        ) : (
+      <DetailSheet
+        open={selected !== null}
+        onClose={() => setSelected(null)}
+        title="Account detail"
+        description={selected ? shortId(selected) : undefined}
+        bodyClassName="space-y-4 px-5"
+      >
+        {selected !== null && (
           <AccountDetail key={selected} id={selected} onDeleted={() => setSelected(null)} />
         )}
-      </div>
+      </DetailSheet>
 
       <ImportDialog open={importing} onClose={() => setImporting(false)} />
     </div>

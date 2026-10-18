@@ -10,7 +10,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Checkbox, Select, TextInput, TextArea } from "@/components/console/form"
 import { jsonText, parseJson } from "@/components/console/json"
-import { Modal } from "@/components/console/modal"
+import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleLeaderboard } from "@/lib/console"
 
@@ -131,7 +131,7 @@ export function TournamentDialog({
   }
 
   return (
-    <Modal
+    <FormSheet
       open={open}
       title={creating ? "New tournament" : `Edit ${board?.id ?? ""}`}
       description="An id and a round length are what make it a tournament; the rest keep their defaults when left blank."
@@ -172,6 +172,6 @@ export function TournamentDialog({
       <Checkbox label="Authoritative" checked={form.authoritative} onChange={(value) => set("authoritative", value)} />
       <Checkbox label="Join required" checked={form.join_required} onChange={(value) => set("join_required", value)} />
       <TextArea label="Metadata" rows={4} value={form.metadata} onChange={(value) => set("metadata", value)} />
-    </Modal>
+    </FormSheet>
   )
 }

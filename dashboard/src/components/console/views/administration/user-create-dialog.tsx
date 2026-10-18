@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Select, TextInput } from "@/components/console/form"
-import { Modal } from "@/components/console/modal"
+import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS } from "@/lib/console"
 import { CONSOLE_ROLES } from "@/lib/console/roles"
@@ -44,7 +44,7 @@ export function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose
   }
 
   return (
-    <Modal
+    <FormSheet
       open={open}
       title="New operator"
       description="The role decides what this account can see; least privilege is the default."
@@ -71,6 +71,6 @@ export function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose
       />
       <TextInput label="Password" type="password" value={password} onChange={setPassword} />
       <Select label="Role" value={role} onChange={setRole} options={CONSOLE_ROLES} />
-    </Modal>
+    </FormSheet>
   )
 }

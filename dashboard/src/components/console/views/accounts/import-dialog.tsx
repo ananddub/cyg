@@ -9,7 +9,7 @@ import { toast } from "sonner"
 
 import { TextArea } from "@/components/console/form"
 import { parseJson } from "@/components/console/json"
-import { Modal } from "@/components/console/modal"
+import { FormSheet } from "@/components/console/form-sheet"
 import { Button } from "@/components/ui/button"
 import { useConsoleMutation } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS } from "@/lib/console"
@@ -64,7 +64,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   }
 
   return (
-    <Modal
+    <FormSheet
       open={open}
       title="Import an account"
       description="The document an Export writes back."
@@ -101,6 +101,6 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
       <p className="text-[11px] text-muted-foreground">
         The id and the username must be free, and a conflicting provider id is refused by name.
       </p>
-    </Modal>
+    </FormSheet>
   )
 }

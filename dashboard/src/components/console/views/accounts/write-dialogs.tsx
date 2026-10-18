@@ -1,11 +1,16 @@
 // The account area's dialogs that carry fields: the ban and its reason, the
 // operator note, and the wallet grant — a map of currency to *delta*, added to
-// what the account holds, which is the shape the ledger records.
+// what the account holds, which is the shape the ledger records. The ban and
+// the note are one field each and stay centered; the wallet is a real form, so
+// it opens in the drawer.
 
 import { useState } from "react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { Button } from "@/components/ui/button"
 import { TextArea, TextInput } from "@/components/console/form"
+import { FormSheet } from "@/components/console/form-sheet"
 import { parseJson } from "@/components/console/json"
 import { ConfirmDialog } from "@/components/console/modal"
 import { useConsoleMutation } from "@/hooks/use-console"
@@ -139,23 +144,31 @@ export function WalletDialog({ id, open, onClose }: AccountDialogProps) {
   }
 
   return (
-    <ConfirmDialog
+    <FormSheet
       open={open}
       title="Adjust the wallet"
-      message="Each value is added to what the account holds, and the same map is written to the ledger — so the trail records what was granted, not merely the new total."
-      confirmLabel="Apply"
-      busy={write.isPending}
+      description="Each value is added to what the account holds, and the same map is written to the ledger — so the trail records what was granted, not merely the new total."
       onClose={close}
-      onConfirm={confirm}
+      footer={
+        <>
+          <Button variant="outline" onClick={close} disabled={write.isPending}>
+            Cancel
+          </Button>
+          <Button onClick={confirm} disabled={write.isPending}>
+            {write.isPending && <Loader2 className="animate-spin" />}
+            Apply
+          </Button>
+        </>
+      }
     >
-      <TextArea label="Changeset" rows={4} value={changeset} onChange={setChangeset} />
+      <TextArea label="Changeset" rows={10} value={changeset} onChange={setChangeset} />
       <TextArea
         label="Metadata"
         hint="Optional, and recorded beside the change."
-        rows={2}
+        rows={4}
         value={metadata}
         onChange={setMetadata}
       />
-    </ConfirmDialog>
+    </FormSheet>
   )
 }
