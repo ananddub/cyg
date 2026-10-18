@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
 import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
+import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleAclTemplate } from "@/lib/console"
 import { dash, formatTime, shortId } from "@/lib/format"
@@ -37,38 +38,37 @@ export function AclTemplatesView() {
         description="Named permission documents an operator role can be defined from."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <Panel
-          title="Templates"
-          actions={
-            <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-              <Plus />
-              New template
-            </Button>
-          }
-        >
-          <DataTable
-            columns={columns}
-            rows={list.data}
-            loading={list.isPending}
-            error={queryError(list.error)}
-            rowKey={(row) => row.id}
-            onRowClick={(row) => setSelectedId(row.id)}
-            selectedKey={selectedId ?? undefined}
-            empty="No ACL templates defined."
-          />
-        </Panel>
+      <Panel
+        title="Templates"
+        actions={
+          <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
+            <Plus />
+            New template
+          </Button>
+        }
+      >
+        <DataTable
+          columns={columns}
+          rows={list.data}
+          loading={list.isPending}
+          error={queryError(list.error)}
+          rowKey={(row) => row.id}
+          onRowClick={(row) => setSelectedId(row.id)}
+          selectedKey={selectedId ?? undefined}
+          empty="No ACL templates defined."
+        />
+      </Panel>
 
-        {selected === null ? (
-          <Panel title="Permissions" description="No template selected">
-            <p className="px-4 py-6 text-sm text-muted-foreground">
-              Select a template to read its permissions.
-            </p>
-          </Panel>
-        ) : (
+      <DetailSheet
+        open={selected !== null}
+        onClose={() => setSelectedId(null)}
+        title={selected?.name ?? "Permissions"}
+        description={selected ? shortId(selected.id) : undefined}
+      >
+        {selected !== null && (
           <TemplateDetail key={selected.id} template={selected} onDeleted={() => setSelectedId(null)} />
         )}
-      </div>
+      </DetailSheet>
 
       <TemplateDialog open={creating} onClose={() => setCreating(false)} template={null} />
     </div>

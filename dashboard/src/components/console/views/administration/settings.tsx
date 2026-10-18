@@ -10,21 +10,16 @@ import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
 import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
-import { TextArea, TextInput } from "@/components/console/form"
+import { JsonTextArea, TextInput } from "@/components/console/form"
+import { JsonInline } from "@/components/console/json-view"
 import { jsonText, parseJson } from "@/components/console/json"
+import { DetailSheet } from "@/components/console/detail-sheet"
 import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation, useConsoleQuery, queryError } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleSetting } from "@/lib/console"
 import { formatTime } from "@/lib/format"
 
 const SETTINGS = CONSOLE_ENDPOINTS.settings
-
-/** One line of a value, short enough for a table cell. */
-function preview(value: unknown): string {
-  const text = JSON.stringify(value)
-  if (text === undefined) return "—"
-  return text.length > 60 ? `${text.slice(0, 60)}…` : text
-}
 
 export function SettingsView() {
   const list = useConsoleQuery<ConsoleSetting[]>("settings", SETTINGS)
@@ -35,7 +30,7 @@ export function SettingsView() {
 
   const columns: Column<ConsoleSetting>[] = [
     { header: "Name", cell: (row) => <span className="font-mono text-xs font-medium text-foreground">{row.name}</span> },
-    { header: "Value", cell: (row) => <span className="text-muted-foreground">{preview(row.value)}</span> },
+    { header: "Value", cell: (row) => <JsonInline value={row.value} /> },
     { header: "Updated", cell: (row) => <Mono>{formatTime(row.update_time)}</Mono> },
   ]
 
@@ -46,36 +41,37 @@ export function SettingsView() {
         description="Server-side key/value settings. A write replaces the whole value."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <Panel
-          title="Settings"
-          actions={
-            <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-              <Plus />
-              Set a setting
-            </Button>
-          }
-        >
-          <DataTable
-            columns={columns}
-            rows={list.data}
-            loading={list.isPending}
-            error={queryError(list.error)}
-            rowKey={(row) => row.name}
-            onRowClick={(row) => setSelectedName(row.name)}
-            selectedKey={selectedName ?? undefined}
-            empty="No settings recorded."
-          />
-        </Panel>
+      <Panel
+        title="Settings"
+        actions={
+          <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
+            <Plus />
+            Set a setting
+          </Button>
+        }
+      >
+        <DataTable
+          columns={columns}
+          rows={list.data}
+          loading={list.isPending}
+          error={queryError(list.error)}
+          rowKey={(row) => row.name}
+          onRowClick={(row) => setSelectedName(row.name)}
+          selectedKey={selectedName ?? undefined}
+          empty="No settings recorded."
+        />
+      </Panel>
 
-        {selected === null ? (
-          <Panel title="Setting" description="No setting selected">
-            <p className="px-4 py-6 text-sm text-muted-foreground">Select a row to read its value.</p>
-          </Panel>
-        ) : (
+      <DetailSheet
+        open={selected !== null}
+        onClose={() => setSelectedName(null)}
+        title={selected?.name ?? "Setting"}
+        description={selected ? formatTime(selected.update_time) : undefined}
+      >
+        {selected !== null && (
           <SettingDetail key={selected.name} setting={selected} onDeleted={() => setSelectedName(null)} />
         )}
-      </div>
+      </DetailSheet>
 
       <SettingDialog open={creating} onClose={() => setCreating(false)} setting={null} />
     </div>
@@ -191,7 +187,7 @@ function SettingDialog({
         autoFocus={!replacing}
         disabled={replacing}
       />
-      <TextArea label="Value" rows={6} value={value} onChange={setValue} />
+      <JsonTextArea label="Value" rows={6} value={value} onChange={setValue} />
       <p className="text-[11px] text-muted-foreground">
         The value is JSON: a string is quoted, a number is not.
       </p>

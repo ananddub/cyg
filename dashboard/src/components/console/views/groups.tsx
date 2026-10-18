@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
 import { DataTable, Field, JsonBlock, Mono, PageHeading, Pager, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
+import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
 import {
   CONSOLE_ENDPOINTS,
@@ -65,29 +66,31 @@ export function GroupsView() {
         description="Player groups and clans. Select one to list its members and their roles."
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <Panel title="All groups">
-          <DataTable
-            columns={columns}
-            rows={list.data}
-            loading={list.isPending}
-            error={queryError(list.error)}
-            rowKey={(row) => row.id}
-            onRowClick={(row) => setSelectedId(row.id)}
-            selectedKey={selectedId ?? undefined}
-            empty="No groups yet."
-          />
-          <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
-        </Panel>
+      <Panel title="All groups">
+        <DataTable
+          columns={columns}
+          rows={list.data}
+          loading={list.isPending}
+          error={queryError(list.error)}
+          rowKey={(row) => row.id}
+          onRowClick={(row) => setSelectedId(row.id)}
+          selectedKey={selectedId ?? undefined}
+          empty="No groups yet."
+        />
+        <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
+      </Panel>
 
-        {selected === null ? (
-          <Panel title="Group detail" description="No group selected">
-            <p className="px-4 py-6 text-sm text-muted-foreground">Select a row to inspect it.</p>
-          </Panel>
-        ) : (
+      <DetailSheet
+        open={selected !== null}
+        onClose={() => setSelectedId(null)}
+        title={selected?.name ?? "Group"}
+        description={selected ? shortId(selected.id) : undefined}
+        bodyClassName="space-y-4 px-5"
+      >
+        {selected !== null && (
           <GroupDetail key={selected.id} group={selected} onDeleted={() => setSelectedId(null)} />
         )}
-      </div>
+      </DetailSheet>
     </div>
   )
 }
