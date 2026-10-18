@@ -20,6 +20,11 @@ var owner_actor: int = -1
 
 var observed_components: Array[Node] = []
 
+## Set by a `CYGVisibilityCull` on this view when the object falls out of the
+## observing room's interest range: the tick pump skips the view entirely, so a
+## culled body costs no frames at all rather than an empty delta each tick.
+var network_dormant: bool = false
+
 var _auto_component := false
 
 

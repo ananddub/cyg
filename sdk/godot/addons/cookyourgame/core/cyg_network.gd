@@ -185,7 +185,7 @@ func flush_view_deltas() -> void:
 		return
 	for entry in _view_table.values():
 		var view := entry as CYGView
-		if view == null or not view.has_any_delta():
+		if view == null or view.network_dormant or not view.has_any_delta():
 			continue
 		var writer := CYGBitPacker.new()
 		view.collect_deltas(writer)

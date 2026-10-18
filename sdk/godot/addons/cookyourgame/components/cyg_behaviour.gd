@@ -152,4 +152,15 @@ func _resolve_view() -> CYGView:
 	for child in parent.get_children():
 		if child is CYGView:
 			return child
+	# A component may sit deep inside the networked node (a socket publisher under a
+	# `BoneAttachment3D`, a hitbox inside a collider), where no sibling carries the
+	# view. Walking up finds the nearest ancestor that owns one.
+	var ancestor := parent.get_parent()
+	while ancestor != null:
+		if ancestor is CYGView:
+			return ancestor
+		for child in ancestor.get_children():
+			if child is CYGView:
+				return child
+		ancestor = ancestor.get_parent()
 	return null
