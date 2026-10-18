@@ -1,0 +1,17 @@
+; Engine configuration file for the CYG Godot SDK validation harness.
+
+config_version=5
+
+[application]
+
+config/name="CYG SDK Test"
+run/main_scene="res://test/test_main.tscn"
+config/features=PackedStringArray("4.7")
+
+[autoload]
+
+CYGNetwork="*res://addons/cookyourgame/core/cyg_network.gd"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/cookyourgame/plugin.cfg")

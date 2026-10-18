@@ -29,3 +29,6 @@ crates/engine-wasm/tests/csharp/runtimeconfig.template.json
 ._*_entry.ts
 *.cwasm
 reference/
+
+# Godot editor/import cache for the SDK sample projects
+sdk/godot/.godot/
