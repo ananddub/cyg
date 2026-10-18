@@ -15,7 +15,7 @@ const SCENE_VIEW_ID := 0x00010001
 const PROBE_POSE := Vector3(1.25, -3.5, 7.0)
 const NATIVE_PACKET_TEXT := "native-packet"
 const RUN_SECONDS := 12.0
-const MAX_ATTEMPTS := 5
+const MAX_ATTEMPTS := 8
 ## Phase 2 avatar: the authority walks it in small steps so the proxy must
 ## interpolate rather than snap.
 const AVATAR_PREFAB_ID := 7
@@ -32,12 +32,32 @@ const SYNC2D_VIEW_A := 0x00020001
 const SYNC2D_VIEW_B := 0x00020002
 const SYNC2D_STEP := 0.05
 const SYNC2D_MAX_FRAME_JUMP := 0.2
+## Phase 3 rollback: a `CharacterBody3D` whose owner integrates and whose proxies
+## predict, spawned far from the avatar so the two streams never overlap.
+const ROLLBACK_PREFAB_ID := 8
+const ROLLBACK_PREFAB_NAME := "rollback"
+const ROLLBACK_PREFAB_SCENE := "res://test/rollback_prefab.tscn"
+const ROLLBACK_SPAWN_AT := Vector3(0.0, 0.0, -30.0)
+## The proxy predicts at half the authority's speed, so a reconciliation always has
+## something to correct: a pass can then never be a lucky agreement. Its velocity may
+## only ever leave that ceiling by being dragged onto the authority's trajectory.
+const PROXY_PREDICT_SPEED := 3.0
+const ROLLBACK_TRACK_MIN := PROXY_PREDICT_SPEED + 0.5
+## The authority ramps to `move_speed` 6.0 and never passes it, so anything above
+## 6.6 would be a snap rather than a correction.
+const ROLLBACK_TRACK_MAX := 6.6
+## Predictive rig: a locally registered view, never spawned, driven by its own clock.
+const PREDICT_VIEW_ID := 0x00030001
+const PREDICT_SNAP_Y := 5.0
+const PREDICT_TRUTH_Y := 9.0
 ## Every check the two clients produce together; the parent fails without any one.
 const REQUIRED_CHECKS := [
 	"bitpacker_roundtrip", "join_room", "ping_rtt", "connected_flag",
 	"rpc_local_echo", "rpc_received", "view_delta", "room_event", "godot_pipe",
 	"sync_properties", "actor_spawn", "transform_interpolated",
 	"transform_sync_2d", "ownership_toggle",
+	"network_clock", "history_window", "rollback_rewind", "tick_interpolation",
+	"predictive_rollback", "character_rollback",
 ]
 
 var _role := "parent"
@@ -51,6 +71,14 @@ var _avatar_view: CYGView = null
 var _proxy_view: CYGView = null
 var _proxy_samples: Array[float] = []
 var _max_frame_jump := 0.0
+var _rollback_authority: CYGCharacterSync3D = null
+var _rollback_proxy: CYGCharacterSync3D = null
+var _predict_holder: Node3D = null
+var _predictor: CYGPredictiveSync = null
+## High-water marks of the proxy's rewind: the largest correction the ledger ever
+## reported and the fastest the body ever went.
+var _rollback_max_mispredictions := 0
+var _rollback_max_speed := 0.0
 
 
 func _ready() -> void:
@@ -163,7 +191,11 @@ func _run_child() -> void:
 	_remove_report(_role)
 	_check("bitpacker_roundtrip", _test_bitpacker())
 	_check("sync_properties", _test_property_map())
-	_install_avatar_prefab()
+	_check("network_clock", _test_network_clock())
+	_check("history_window", _test_history_buffer())
+	_check("rollback_rewind", _test_rollback_synchronizer())
+	_check("tick_interpolation", _test_tick_interpolation())
+	_install_prefabs()
 
 	var network := get_node("/root/CYGNetwork")
 	var settings := CYGServerSettings.new()
@@ -173,22 +205,278 @@ func _run_child() -> void:
 	network.connect_to_room(ROOM, _role)
 
 
-## Registers the networked avatar prefab from `test/avatar_prefab.tscn`, the
-## editor-authored shape a game ships: `CYGActor3D` root + `CYGView` +
-## `CYGTransformSync3D` + `CYGOwnershipToggle` with its two node groups.
-func _install_avatar_prefab() -> void:
-	var packed := load(AVATAR_PREFAB_SCENE) as PackedScene
-	if packed == null:
-		push_error("harness: %s did not load as a PackedScene." % AVATAR_PREFAB_SCENE)
-		return
-
-	var entry := CYGPrefabEntry.new()
-	entry.id = AVATAR_PREFAB_ID
-	entry.name = AVATAR_PREFAB_NAME
-	entry.scene = packed
+## Registers the networked prefabs from their `.tscn` files, the editor-authored
+## shape a game ships: the avatar is `CYGActor3D` + `CYGView` + `CYGTransformSync3D`
+## + `CYGOwnershipToggle`, the rollback body is `CharacterBody3D` + `CYGView` +
+## `CYGCharacterSync3D` in remote-authority mode.
+func _install_prefabs() -> void:
 	var registry := CYGPrefabRegistry.new()
-	registry.entries = [entry]
+	registry.entries = [
+		_prefab_entry(AVATAR_PREFAB_ID, AVATAR_PREFAB_NAME, AVATAR_PREFAB_SCENE),
+		_prefab_entry(ROLLBACK_PREFAB_ID, ROLLBACK_PREFAB_NAME, ROLLBACK_PREFAB_SCENE),
+	]
 	CYGNetwork.prefabs = registry
+
+
+func _prefab_entry(id: int, prefab_name: String, scene_path: String) -> CYGPrefabEntry:
+	var entry := CYGPrefabEntry.new()
+	entry.id = id
+	entry.name = prefab_name
+	entry.scene = load(scene_path) as PackedScene
+	if entry.scene == null:
+		push_error("harness: %s did not load as a PackedScene." % scene_path)
+	return entry
+
+
+## Drift behaviour of the rollback clock: one tick of disagreement is frame jitter and
+## eases, two means the counter moved and re-anchors outright.
+func _test_network_clock() -> bool:
+	var clock := CYGNetworkTime.new()
+	clock.ticks_per_second = 30
+	clock.observe_tick(10)
+	clock.advance(clock.tick_duration_ms() + 0.5)
+	var counted := clock.tick() == 11
+	clock.latency_ms = 100.0
+	var lagged := clock.latency_ticks() == 3 and clock.rollback_tick() == 8
+	var phased := clock.sub_tick_phase() >= 0.0 and clock.sub_tick_phase() <= 1.0
+	# A single tick of drift only moves the smoothing offset; the counter stays put, so
+	# one late frame cannot teleport the prediction timeline.
+	clock.observe_tick(12)
+	var eased := absf(clock.smoothing_offset_ms()) > 0.5 and clock.tick() == 11
+	clock.advance(clock.tick_duration_ms())
+	var caught_up := clock.tick() == 12
+	clock.observe_tick(30)
+	var snapped := clock.tick() == 30 and clock.smoothing_offset_ms() == 0.0
+	return counted and lagged and phased and eased and caught_up and snapped
+
+
+## Slot-map eviction: a write past capacity silently ages out the oldest tick, and the
+## cached extremes survive out-of-order writes.
+func _test_history_buffer() -> bool:
+	var buffer := CYGHistoryBuffer.new(8)
+	for i in range(8):
+		buffer.push(i, i * 2)
+	buffer.push(8, 16)
+	var ringed: bool = buffer.capacity() == 8 and buffer.size() == 8 \
+		and buffer.get_state(8) == 16 and buffer.get_state(0) == null \
+		and buffer.oldest_tick() == 1 and buffer.newest_tick() == 8
+
+	buffer.erase_through(3)
+	var erased := buffer.size() == 5 and buffer.oldest_tick() == 4 and not buffer.contains(3)
+
+	buffer.trim_to(2)
+	var trimmed := buffer.size() == 2 and buffer.oldest_tick() == 7 and buffer.newest_tick() == 8
+
+	buffer.push(9, 18)
+	buffer.push(6, 12)
+	var reordered := buffer.oldest_tick() == 6 and buffer.newest_tick() == 9
+
+	buffer.erase_through(9)
+	var emptied := buffer.size() == 0 and buffer.newest_tick() == -1
+	return ringed and erased and trimmed and reordered and emptied
+
+
+## Deterministic resimulation: a wrong prediction must be rewound and replayed onto the
+## authority's trajectory, and an already-agreeing snapshot must move nothing.
+func _test_rollback_synchronizer() -> bool:
+	var dummy := RollbackDummy.new()
+	var clock := CYGNetworkTime.new()
+	clock.ticks_per_second = 30
+	clock.observe_tick(0)
+	var synchronizer := CYGRollbackSynchronizer.new(clock)
+	synchronizer.register(1, dummy.save_state, dummy.restore_state, dummy.simulate)
+	# A lambda captures the enclosing locals by value, so what the signal reports has to
+	# live in a reference type for the assertions to see it.
+	var emits := {"rewinds": 0, "landed_to": -1}
+	synchronizer.reconciled.connect(
+		func(_id: int, _from: int, to_tick: int, _mis: int) -> void:
+			emits["rewinds"] += 1
+			emits["landed_to"] = to_tick)
+
+	for _i in range(6):
+		clock.advance(clock.tick_duration_ms() + 0.5)
+		synchronizer.predict(1, 1.0)
+	var predicted: bool = dummy.position_x == 6.0 and synchronizer.pending_input_count(1) == 6
+
+	# The authority had travelled 30 units by the tick it confirms, three times what
+	# we recorded: everything newer has to be replayed on top of its state.
+	var corrected := synchronizer.reconcile(1, 3, {"position_x": 30.0, "velocity": 1.0})
+	var rewound: bool = corrected == 3 and dummy.position_x == 33.0 \
+		and emits["landed_to"] == 6 and emits["rewinds"] == 1 \
+		and synchronizer.pending_input_count(1) == 3
+	var misreported := synchronizer.misprediction_count(1) == 3
+
+	synchronizer.acknowledge(1, 6)
+	var settled: bool = synchronizer.pending_input_count(1) == 0 \
+		and synchronizer.last_authority_tick(1) == 6
+
+	clock.advance(clock.tick_duration_ms() + 0.5)
+	synchronizer.predict(1, 1.0)
+	var agreeing := synchronizer.reconcile(1, 7, {"position_x": 34.0, "velocity": 1.0}) == 0
+	var ok: bool = predicted and rewound and misreported and settled and agreeing \
+		and dummy.position_x == 34.0 and emits["rewinds"] == 1
+	if not ok:
+		var state := "predicted=%s rewound=%s mis=%s settled=%s agreeing=%s" % [
+			predicted, rewound, misreported, settled, agreeing]
+		print("[%s] rollback unit diag: %s corrected=%d x=%.3f emits=%s tick=%d" % [
+			_role, state, corrected, dummy.position_x, str(emits), clock.tick(),
+		])
+	return ok
+
+
+## Interpolation at the rollback render time, i.e. one latency window in the past, plus
+## the hold that a zero extrapolation limit must fall back to.
+func _test_tick_interpolation() -> bool:
+	var clock := CYGNetworkTime.new()
+	clock.ticks_per_second = 30
+	clock.observe_tick(0)
+	var interpolator := CYGTickInterpolator.new(clock)
+	interpolator.create_float_track("speed")
+	interpolator.create_vector3_track("aim")
+	for _i in range(5):
+		clock.advance(clock.tick_duration_ms() + 0.5)
+		var value_tick := clock.tick()
+		interpolator.push_float("speed", value_tick, float(value_tick) * 2.0)
+		interpolator.push_vector3("aim", value_tick, Vector3(float(value_tick), 0.0, 0.0))
+
+	clock.latency_ms = 66.7
+	var speed: float = interpolator.sample_float("speed")
+	var aim: Vector3 = interpolator.sample_vector3("aim")
+	var bracketed: bool = absf(speed - 6.0) < 0.001 and aim.is_equal_approx(Vector3(3, 0, 0)) \
+		and interpolator.last_value_float("speed") == 10.0 \
+		and absf(interpolator.tick_diff_float("speed") - 2.0) < 0.001
+	var unknown: bool = interpolator.sample_float("missing") == null \
+		and interpolator.track_keys().size() == 2
+
+	interpolator.set_extrapolation_limit(0)
+	clock.advance(clock.tick_duration_ms() * 10.0)
+	var held: float = interpolator.sample_float("speed")
+	return bracketed and unknown and absf(held - 10.0) < 0.001
+
+
+## A predictor built in-process with a clock only this test advances, so the ledger's
+## ticks are exact numbers rather than whatever the room clock read at the moment of
+## the call. The first authority answer is adopted outright (nothing recorded under a
+## different numbering may honestly be compared with it); the second has to rewind.
+func _run_predictive_rollback() -> void:
+	var clock := CYGNetworkTime.new()
+	clock.ticks_per_second = CYGNetwork.tick_rate
+	clock.observe_tick(0)
+
+	var holder := Node3D.new()
+	holder.name = "PredictRig"
+	add_child(holder)
+	_predict_holder = holder
+	var view := CYGView.new()
+	view.name = "CYGView"
+	view.view_id = PREDICT_VIEW_ID + CYGNetwork.local_actor_number
+	# A foreign owner makes this peer a predictor instead of the adjudicator, and an
+	# adjudicator has nothing to rewind: its own state is the definition of correct.
+	view.owner_actor = CYGNetwork.local_actor_number + 7777
+	holder.add_child(view)
+
+	var predictor := CYGPredictiveSync.new()
+	predictor.name = "Predictor"
+	# Handed in before `add_child` so `_ready` keeps it instead of taking the room clock.
+	predictor.time = clock
+	predictor.authority_target = CYGOpcodes.Target.OWNER
+	holder.add_child(predictor)
+	predictor.configure(_predict_move)
+	_predictor = predictor
+
+	predictor.apply_authority(clock.tick(), [Vector3(0.0, PREDICT_SNAP_Y, 0.0), 2.0])
+	var snapped: bool = is_equal_approx(holder.global_position.y, PREDICT_SNAP_Y) \
+		and is_zero_approx(holder.global_position.z) and predictor.sim_speed == 2.0
+
+	# Two predictions at the wrong speed, then the authority's answer for the first of
+	# them: the pose must come back and only the newer local intent survive it.
+	clock.advance(clock.tick_duration_ms() + 0.5)
+	predictor.predict_input(3.0)
+	var first_tick := clock.tick()
+	clock.advance(clock.tick_duration_ms() + 0.5)
+	predictor.predict_input(4.0)
+	predictor.apply_authority(first_tick, [Vector3(0.0, PREDICT_TRUTH_Y, 1.0), 2.0])
+
+	var step_seconds: float = clock.tick_duration_ms() / 1000.0
+	var expected_z: float = 1.0 + 4.0 * step_seconds
+	var rewound: bool = is_equal_approx(holder.global_position.y, PREDICT_TRUTH_Y) \
+		and absf(holder.global_position.z - expected_z) < 0.001 \
+		and predictor.sim_speed == 4.0
+	_check("predictive_rollback", snapped and rewound)
+	if not (snapped and rewound):
+		print("[%s] predict diag: snapped=%s rewound=%s pos=%s want_z=%.5f speed=%s tick=%d" % [
+			_role, snapped, rewound, holder.global_position, expected_z,
+			predictor.sim_speed, clock.tick(),
+		])
+	CYGNetwork.unregister_view(view.view_id)
+
+
+## The predictive rig's integrator: `speed` is the state the ledger snapshots, so a
+## rewind re-derives the position from the restored speed and the replayed inputs.
+func _predict_move(input: Variant, delta_ms: float) -> void:
+	var speed := float(input)
+	_predictor.sim_speed = speed
+	_predict_holder.global_position += Vector3(0.0, 0.0, speed * delta_ms / 1000.0)
+
+
+## Spawns the rollback body once both peers are in the room and holds its input down,
+## so every network tick the authority integrates and ships one `cyg_input` fan-out
+## plus a tick-stamped snapshot.
+func _run_rollback_authority() -> void:
+	# Past the avatar (2 s) so the two prefabs are never in flight at once.
+	await get_tree().create_timer(5.0).timeout
+	if not CYGNetwork.is_connected_flag:
+		return
+	var view := CYGNetwork.spawn_prefab(ROLLBACK_PREFAB_NAME, ROLLBACK_SPAWN_AT)
+	var actor: CharacterBody3D = null
+	if view != null:
+		actor = view.network_node as CharacterBody3D
+	if actor != null:
+		_rollback_authority = actor.get_node_or_null("CharacterSync") as CYGCharacterSync3D
+	if _rollback_authority == null:
+		print("[alice] rollback diag: no CYGCharacterSync3D on the spawned body (view=%s)" % view)
+		_check("character_rollback", false)
+		return
+	CYGNetwork.network_tick.connect(_drive_rollback_authority)
+
+
+func _drive_rollback_authority(_tick: int) -> void:
+	if _rollback_authority == null or not is_instance_valid(_rollback_authority):
+		return
+	# The proxy predicts at half this speed, so every snapshot it receives disagrees.
+	_rollback_authority.set_input(Vector2(1.0, 0.0), false)
+
+
+## Claims the second spawn for the rollback rig instead of the avatar assertion.
+func _setup_rollback_proxy(actor: Node3D) -> void:
+	var sync := actor.get_node_or_null("CharacterSync") as CYGCharacterSync3D
+	if sync == null:
+		return
+	# Deliberately slower than the authority: an agreement here could only come from
+	# the correction, never from the proxy's own integrator.
+	sync.move_speed = PROXY_PREDICT_SPEED
+	_rollback_proxy = sync
+
+
+## Watches the proxy's corrected velocity: a rewind must have happened and the body
+## must have been dragged past what its own input could produce. A snap past the
+## authority's ceiling is reported immediately instead of waiting out the run.
+func _sample_rollback_proxy() -> void:
+	if _checks.has("character_rollback"):
+		return
+	if _rollback_proxy == null or not is_instance_valid(_rollback_proxy):
+		return
+	_rollback_max_mispredictions = maxi(
+		_rollback_max_mispredictions, _rollback_proxy.misprediction_count())
+	_rollback_max_speed = maxf(_rollback_max_speed, _rollback_proxy.velocity.x)
+	if _rollback_max_speed > ROLLBACK_TRACK_MAX:
+		print("[bob] rollback diag: velocity %.3f snapped past the authority ceiling."
+			% _rollback_max_speed)
+		_check("character_rollback", false)
+		return
+	if _rollback_max_mispredictions == 0 or _rollback_max_speed < ROLLBACK_TRACK_MIN:
+		return
+	_check("character_rollback", true)
 
 
 ## Local round trip of the sync-property block: registration order is the wire
@@ -342,6 +630,30 @@ class ProbeSync:
 		pose = reader.read_vector3()
 
 
+## State the ledger rewinds for the deterministic synchronizer test: one position and
+## one velocity, so a resimulated tick is hand-checkable arithmetic.
+class RollbackDummy:
+	extends RefCounted
+
+	var position_x := 0.0
+	var velocity := 0.0
+
+	func save_state() -> Variant:
+		return {"position_x": position_x, "velocity": velocity}
+
+	func restore_state(state: Variant) -> void:
+		if state is Dictionary:
+			var authority_state: Dictionary = state
+			position_x = authority_state.get("position_x", position_x)
+			velocity = authority_state.get("velocity", velocity)
+
+	## The ledger hands every input back exactly as `predict()` received it, so the
+	## tick argument is only the number the replay is anchored to.
+	func simulate(input: Variant = null, _value_tick: Variant = null) -> void:
+		velocity = float(input)
+		position_x += velocity
+
+
 func _on_joined(room: String) -> void:
 	_joined = true
 	print("[%s] joined room '%s' as actor %d" % [
@@ -373,6 +685,7 @@ func _on_joined(room: String) -> void:
 	# that rides the RPC space reserved for it (view 0, hash 0xFFFF).
 	_peer = CYGMultiplayerPeer.new()
 	_peer.create_client()
+	_run_predictive_rollback()
 	_run_transform_sync_2d()
 
 	if _role == "alice":
@@ -380,6 +693,7 @@ func _on_joined(room: String) -> void:
 		# ends instead of firing once and racing the second client's join.
 		_run_sender()
 		_run_avatar_authority()
+		_run_rollback_authority()
 
 
 ## Emits one of every relayed packet shape.
@@ -444,11 +758,16 @@ func _on_object_spawned(view_id: int, _arguments: PackedByteArray) -> void:
 	var view := CYGNetwork.get_view(view_id)
 	if view == null:
 		return
-	_proxy_view = view
 	var actor := view.network_node as Node3D
 	if actor == null:
 		_check("actor_spawn", false)
 		return
+	# The rollback body is the second spawn and owns no `TransformSync`, so it claims
+	# its own check instead of joining the avatar's interpolation sample.
+	if actor.get_node_or_null("CharacterSync") != null:
+		_setup_rollback_proxy(actor)
+		return
+	_proxy_view = view
 	_check("actor_spawn", actor is CYGActor3D
 		and not view.is_mine
 		and view.owner_actor != CYGNetwork.local_actor_number
@@ -475,9 +794,15 @@ func _ownership_probe(actor: Node3D, is_owner: bool) -> void:
 		_check("ownership_toggle", not owner_only.is_processing() and proxy_only.visible)
 
 
-## Records the proxy's rendered pose per frame: many distinct positions along a
-## monotonic ramp with no large step is what interpolation looks like.
+## Records the proxy's rendered pose per frame and judges it: many distinct positions
+## along a monotonic ramp is what interpolation looks like, and a forward step bigger
+## than one tick's travel anywhere in the run is a snap rather than a glide.
+var _max_frame_back_step := 0.0
+
+
 func _sample_proxy() -> void:
+	if _checks.has("transform_interpolated"):
+		return
 	if _proxy_view == null or not is_instance_valid(_proxy_view):
 		return
 	var actor := _proxy_view.network_node as Node3D
@@ -491,15 +816,32 @@ func _sample_proxy() -> void:
 	if is_equal_approx(previous, x):
 		return
 	if _proxy_samples.size() > 1:
-		_max_frame_jump = maxf(_max_frame_jump, absf(x - previous))
+		var step: float = x - previous
+		if step > 0.0:
+			_max_frame_jump = maxf(_max_frame_jump, step)
+		else:
+			_max_frame_back_step = maxf(_max_frame_back_step, -step)
 	_proxy_samples.append(x)
 
+	if _max_frame_jump > AVATAR_MAX_FRAME_JUMP:
+		_report_proxy_sample("snapped %.3f in one frame" % _max_frame_jump)
+		_check("transform_interpolated", false)
+		return
 	var travelled: float = x - _proxy_samples[0]
-	if _proxy_samples.size() >= AVATAR_SAMPLES_MIN and travelled >= AVATAR_TRAVEL_MIN:
-		# A new snapshot landing behind an extrapolated pose may step back a
-		# little; anything larger than that is a jump, not interpolation.
-		_check("transform_interpolated", x > previous - 0.1
-			and _max_frame_jump <= AVATAR_MAX_FRAME_JUMP)
+	# A snapshot landing behind an extrapolated pose steps back a little, so the ramp is
+	# only declared once a frame that moved forward has been seen: a transient reversal
+	# must not be able to doom the whole run.
+	if _proxy_samples.size() >= AVATAR_SAMPLES_MIN and travelled >= AVATAR_TRAVEL_MIN \
+			and x > previous - 0.1:
+		_check("transform_interpolated", true)
+
+
+func _report_proxy_sample(reason: String) -> void:
+	print("[bob] avatar diag: %s; samples=%d last=%.3f max_jump=%.3f max_back=%.3f" % [
+		reason, _proxy_samples.size(),
+		_proxy_samples[_proxy_samples.size() - 1] if not _proxy_samples.is_empty() else 0.0,
+		_max_frame_jump, _max_frame_back_step,
+	])
 
 
 func _on_hello(args: Array) -> void:
@@ -538,6 +880,7 @@ func _process(delta: float) -> void:
 			_check("godot_pipe", packet == NATIVE_PACKET_TEXT.to_utf8_buffer() and sender == 2)
 	if _role == "bob":
 		_sample_proxy()
+		_sample_rollback_proxy()
 	# Bob outlives the sender so a late start cannot cost it the whole exchange.
 	var limit := RUN_SECONDS if _role == "alice" else RUN_SECONDS * 1.6
 	if _elapsed >= limit:
@@ -553,6 +896,14 @@ func _finish() -> void:
 	_finished = true
 	if _role == "bob":
 		_check("connected_flag", CYGNetwork.is_connected_flag)
+		if not _checks.has("transform_interpolated"):
+			_report_proxy_sample("never resolved into a ramp")
+			_check("transform_interpolated", false)
+		if not _checks.has("character_rollback"):
+			print("[bob] rollback diag: never resolved; proxy=%s mispredict=%d max_speed=%.3f" % [
+				_rollback_proxy, _rollback_max_mispredictions, _rollback_max_speed,
+			])
+			_check("character_rollback", false)
 	_append_report("DONE")
 	var network := get_node("/root/CYGNetwork")
 	network.disconnect_from_room()

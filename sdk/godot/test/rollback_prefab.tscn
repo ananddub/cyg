@@ -1,0 +1,25 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://addons/cookyourgame/components/cyg_actor_3d.gd" id="1"]
+[ext_resource type="Script" path="res://addons/cookyourgame/components/cyg_view.gd" id="2"]
+[ext_resource type="Script" path="res://addons/cookyourgame/components/cyg_character_sync_3d.gd" id="3"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_1"]
+size = Vector3(0.6, 1.6, 0.6)
+
+[node name="Rollback" type="CharacterBody3D"]
+script = ExtResource("1")
+
+[node name="CYGView" type="Node" parent="."]
+script = ExtResource("2")
+
+[node name="CharacterSync" type="Node" parent="."]
+script = ExtResource("3")
+authority_mode = 1
+move_speed = 6.0
+acceleration = 40.0
+gravity = 0.0
+jump_impulse = 0.0
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_1")

@@ -44,6 +44,10 @@ var room_name: String = ""
 ## Network ticks per second; the cadence authority peers sample deltas at.
 var tick_rate: int = 30
 var current_tick: int = 0
+## Room-wide rollback clock. Predicting components read their ticks from here
+## instead of creating a private one, so every rewind in the room lands on the
+## same number as the deltas `flush_view_deltas()` ships.
+var network_time: CYGNetworkTime = CYGNetworkTime.new()
 
 var _view_table: Dictionary = {}  # view_id -> CYGView
 var _view_index := 0
@@ -74,6 +78,9 @@ func _record_ping_sent() -> void:
 
 func _process(delta: float) -> void:
 	client.poll()
+	network_time.ticks_per_second = tick_rate
+	network_time.latency_ms = latency_ms
+	network_time.advance(delta * 1000.0)
 	var interval := 1.0 / float(maxi(tick_rate, 1))
 	_tick_accumulator += delta
 	# Catch up over at most one tick per frame: a stalled frame must not spend
@@ -81,6 +88,9 @@ func _process(delta: float) -> void:
 	if _tick_accumulator >= interval:
 		_tick_accumulator = fmod(_tick_accumulator, interval)
 		current_tick += 1
+		# The clock re-anchors to the counter every peer is sampling against, so a
+		# late frame shifts the wall-time expectation rather than the tick numbering.
+		network_time.observe_tick(current_tick)
 		network_tick.emit(current_tick)
 		flush_view_deltas()
 
@@ -495,6 +505,9 @@ func _clear_room_state() -> void:
 	_view_index = 0
 	latency_ms = 0.0
 	_view_table.clear()
+	# A rejoin restarts the authority's tick numbering, so the clock must drop its
+	# anchor instead of predicting against the previous session's timeline.
+	network_time.reset()
 
 
 func _acquire_instance(scene: PackedScene, position: Vector3, rotation: Quaternion) -> CYGView:
