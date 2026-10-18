@@ -26,6 +26,7 @@ import { PurchasesView, SubscriptionsView } from "@/components/console/views/mon
 import { NotificationsView } from "@/components/console/views/notifications"
 import { SecurityView } from "@/components/console/views/security"
 import { StorageView } from "@/components/console/views/storage"
+import { TournamentsView } from "@/components/console/views/tournaments"
 import { CoreDetailsSidebar } from "@/components/core-details-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { OfflineBanner } from "@/components/offline-banner"
@@ -115,6 +116,8 @@ function AreaView({
       return <NotificationsView />
     case "leaderboards":
       return <LeaderboardsView />
+    case "tournaments":
+      return <TournamentsView />
     case "storage":
       return <StorageView />
     case "purchases":

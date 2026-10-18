@@ -12,6 +12,8 @@ import { Mono, PageHeading, Panel } from "@/components/console/data-table"
 import { CONSOLE_ENDPOINTS, consoleWrite, type MfaEnrolment } from "@/lib/console"
 import { useSession } from "@/lib/session"
 
+import { PasswordChangePanel } from "./security-password"
+
 /** Which request is in flight, so one card's spinner does not light up another's. */
 type Step = "enrol" | "confirm" | "disable"
 
@@ -160,6 +162,8 @@ export function SecurityView() {
             </p>
           </div>
         </Panel>
+
+        <PasswordChangePanel />
       </div>
     </div>
   )

@@ -1,7 +1,8 @@
 // Groups, and the members and roles of the selected one.
 
 import { useState } from "react"
-import { Trash2 } from "lucide-react"
+import { Download, Loader2, Trash2 } from "lucide-react"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,7 +10,15 @@ import { ConfirmAction } from "@/components/console/actions"
 import { DataTable, Field, JsonBlock, Mono, PageHeading, Pager, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
-import { CONSOLE_ENDPOINTS, type ConsoleGroup, type ConsoleGroupMember } from "@/lib/console"
+import {
+  CONSOLE_ENDPOINTS,
+  consoleGet,
+  downloadJson,
+  type ConsoleGroup,
+  type ConsoleGroupExport,
+  type ConsoleGroupMember,
+} from "@/lib/console"
+import { useSession } from "@/lib/session"
 import { dash, formatTime, num, shortId } from "@/lib/format"
 
 const PAGE_SIZE = 25
@@ -84,8 +93,28 @@ export function GroupsView() {
 }
 
 function GroupDetail({ group, onDeleted }: { group: ConsoleGroup; onDeleted: () => void }) {
+  const token = useSession()?.token ?? ""
   const [deleting, setDeleting] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const members = useConsoleQuery<ConsoleGroupMember[]>("group-members", `${CONSOLE_ENDPOINTS.groups}/${group.id}/member`)
+
+  /** The group export carries the row and its members, saved as a file the operator
+   * can carry elsewhere — the same round trip the account export supports. */
+  async function exportGroup() {
+    setExporting(true)
+    try {
+      const document_ = await consoleGet<ConsoleGroupExport>(
+        `${CONSOLE_ENDPOINTS.groups}/${encodeURIComponent(group.id)}/export`,
+        token,
+      )
+      downloadJson(`group-${group.name || shortId(group.id)}.json`, document_)
+      toast.success("Exported.")
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const columns: Column<ConsoleGroupMember>[] = [
     { header: "Member", cell: (row) => <span className="text-foreground">{row.username}</span> },
@@ -102,10 +131,16 @@ function GroupDetail({ group, onDeleted }: { group: ConsoleGroup; onDeleted: () 
         title={group.name}
         description={shortId(group.id)}
         actions={
-          <Button size="sm" variant="destructive" onClick={() => setDeleting(true)}>
-            <Trash2 />
-            Delete
-          </Button>
+          <div className="flex shrink-0 gap-1.5">
+            <Button size="sm" variant="outline" onClick={exportGroup} disabled={exporting}>
+              {exporting ? <Loader2 className="animate-spin" /> : <Download />}
+              Export
+            </Button>
+            <Button size="sm" variant="destructive" onClick={() => setDeleting(true)}>
+              <Trash2 />
+              Delete
+            </Button>
+          </div>
         }
       >
         <div className="px-4 py-2">

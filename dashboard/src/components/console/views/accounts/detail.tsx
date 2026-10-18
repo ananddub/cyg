@@ -2,7 +2,7 @@
 // the acts an operator performs on it — ban, note, wallet, export, delete.
 
 import { useState } from "react"
-import { Ban, Download, Loader2, Plus, ShieldCheck, Trash2, Wallet } from "lucide-react"
+import { Ban, Download, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -15,13 +15,13 @@ import {
   type ConsoleAccount,
   type ConsoleAccountExport,
   type ConsoleAccountNote,
-  type ConsoleWalletLedger,
 } from "@/lib/console"
 import { useSession } from "@/lib/session"
 import { dash, formatTime, shortId } from "@/lib/format"
 
 import { AddNoteDialog, BanDialog, WalletDialog } from "./write-dialogs"
 import { DeleteAccountDialog, DeleteNoteDialog, UnbanDialog } from "./confirm-dialogs"
+import { WalletLedgerPanel } from "./wallet-panel"
 
 const ACCOUNT = CONSOLE_ENDPOINTS.accounts
 type Action = "ban" | "unban" | "note" | "wallet" | "delete"
@@ -34,9 +34,6 @@ export function AccountDetail({ id, onDeleted }: { id: string; onDeleted: () => 
 
   const account = useConsoleQuery<ConsoleAccount>("account", `${ACCOUNT}/${id}`)
   const notes = useConsoleQuery<ConsoleAccountNote[]>("account-notes", `${ACCOUNT}/${id}/note`)
-  const wallet = useConsoleQuery<ConsoleWalletLedger[]>("account-wallet", `${ACCOUNT}/${id}/wallet`, {
-    limit: 25,
-  })
 
   const disabled =
     account.data !== undefined && new Date(account.data.disable_time).getTime() > 0
@@ -111,31 +108,7 @@ export function AccountDetail({ id, onDeleted }: { id: string; onDeleted: () => 
         </div>
       </Panel>
 
-      <Panel
-        title="Wallet"
-        actions={
-          <Button size="sm" variant="outline" onClick={() => setAction("wallet")}>
-            <Wallet />
-            Adjust
-          </Button>
-        }
-      >
-        {wallet.data === undefined || wallet.data.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">No ledger entries.</p>
-        ) : (
-          <div className="divide-y divide-border/40">
-            {wallet.data.map((entry) => (
-              <div key={entry.id} className="px-4 py-3">
-                <div className="mb-1 flex items-center justify-between">
-                  <Mono>{shortId(entry.id)}</Mono>
-                  <Mono>{formatTime(entry.create_time)}</Mono>
-                </div>
-                <JsonBlock value={entry.changeset} />
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
+      <WalletLedgerPanel id={id} onAdjust={() => setAction("wallet")} />
 
       <Panel
         title="Operator notes"

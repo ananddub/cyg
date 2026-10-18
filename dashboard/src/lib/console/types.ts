@@ -99,6 +99,19 @@ export interface ConsoleGroupMember {
   edge_update_time: string | null;
 }
 
+/** `GET /v2/console/group/{id}/export` — one group whole: its row and its members.
+ * A download document, so the field names match what the server sends. */
+export interface ConsoleGroupExport {
+  group: ConsoleGroup;
+  members: ConsoleGroupMember[];
+}
+
+/** `GET /v2/console/audit/log/users` — the operators who appear in the trail, most
+ * active first. The source that fills the audit view's username filter. */
+export interface ConsoleAuditLogUsers {
+  usernames: string[];
+}
+
 export interface ConsoleLeaderboard {
   id: string;
   title: string;

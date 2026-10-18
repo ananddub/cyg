@@ -12,6 +12,7 @@ import type { ConsoleSession } from "@/lib/console/types";
 export const CONSOLE_ENDPOINTS = {
   authenticate: "/v2/console/authenticate",
   logout: "/v2/console/authenticate/logout",
+  passwordChange: "/v2/console/password_change",
   status: "/v2/console/status",
   routes: "/v2/console/route",
   mfa: "/v2/console/mfa",

@@ -1,6 +1,6 @@
-// The operator dialogs: create one, edit the profile of one, and hand one a new
-// password. Credentials and profile are separate routes by design — editing a
-// profile must never be a way to change how someone signs in.
+// Editing an existing operator: the profile (username, email, role, the second-factor
+// requirement) and, separately, handing them a new password. Credentials and profile
+// are separate routes by design — editing a profile must never change how someone signs in.
 
 import { useState } from "react"
 import { Loader2 } from "lucide-react"
@@ -10,79 +10,9 @@ import { Checkbox, Select, TextInput } from "@/components/console/form"
 import { Modal } from "@/components/console/modal"
 import { useConsoleMutation } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleUser } from "@/lib/console"
+import { CONSOLE_ROLES } from "@/lib/console/roles"
 
 const USERS = CONSOLE_ENDPOINTS.users
-
-/** The roles the console knows. A name, never a raw ACL document: an operator
- * may only assign permissions somebody already reviewed. */
-const ROLE_OPTIONS = [
-  { value: "admin", label: "Admin" },
-  { value: "developer", label: "Developer" },
-  { value: "maintainer", label: "Maintainer" },
-  { value: "readonly", label: "Readonly" },
-]
-
-/** `POST /v2/console/user` — username, password, an optional email and the role
- * name. The body is `CreateConsoleUserRequest`. */
-export function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [username, setUsername] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [role, setRole] = useState("readonly")
-  const write = useConsoleMutation()
-
-  function close() {
-    setUsername("")
-    setEmail("")
-    setPassword("")
-    setRole("readonly")
-    onClose()
-  }
-
-  function confirm() {
-    if (username === "" || password === "") return
-    write.mutate(
-      {
-        method: "POST",
-        path: USERS,
-        body: { username, email, password, role },
-        success: "Operator created.",
-      },
-      { onSuccess: close },
-    )
-  }
-
-  return (
-    <Modal
-      open={open}
-      title="New operator"
-      description="The role decides what this account can see; least privilege is the default."
-      onClose={close}
-      footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending || username === "" || password === ""}>
-            {write.isPending && <Loader2 className="animate-spin" />}
-            Create
-          </Button>
-        </>
-      }
-    >
-      <TextInput label="Username" value={username} onChange={setUsername} placeholder="jdoe" autoFocus />
-      <TextInput
-        label="Email"
-        hint="Optional. Shown under the name in the operator list."
-        value={email}
-        onChange={setEmail}
-        placeholder="jdoe@example.com"
-      />
-      <TextInput label="Password" type="password" value={password} onChange={setPassword} />
-      <Select label="Role" value={role} onChange={setRole} options={ROLE_OPTIONS} />
-    </Modal>
-  )
-}
 
 /** `PUT /v2/console/user/{id}` — the mutable profile: username, email, role and
  * the second-factor requirement. The password is absent from this body by
@@ -115,7 +45,7 @@ export function UpdateOperatorDialog({
     write.mutate(
       {
         method: "PUT",
-        path: `${USERS}/${user.id}`,
+        path: `${USERS}/${encodeURIComponent(user.id)}`,
         body: { username, email, role, mfa_required: mfaRequired },
         success: "Operator saved.",
       },
@@ -143,7 +73,7 @@ export function UpdateOperatorDialog({
     >
       <TextInput label="Username" value={username} onChange={setUsername} />
       <TextInput label="Email" value={email} onChange={setEmail} />
-      <Select label="Role" value={role} onChange={setRole} options={ROLE_OPTIONS} />
+      <Select label="Role" value={role} onChange={setRole} options={CONSOLE_ROLES} />
       <Checkbox
         label="Require a second factor at sign-in"
         checked={mfaRequired}
@@ -177,7 +107,7 @@ export function PasswordDialog({
     write.mutate(
       {
         method: "POST",
-        path: `${USERS}/${id}/password`,
+        path: `${USERS}/${encodeURIComponent(id)}/password`,
         body: { password },
         success: "Password set.",
       },

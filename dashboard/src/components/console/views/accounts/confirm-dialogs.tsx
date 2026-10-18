@@ -44,6 +44,27 @@ export function DeleteNoteDialog({
   )
 }
 
+export function DeleteLedgerDialog({
+  id,
+  walletId,
+  open,
+  onClose,
+}: AccountDialogProps & { walletId: string }) {
+  return (
+    <ConfirmAction
+      open={open}
+      onClose={onClose}
+      title="Delete the ledger entry"
+      message="One ledger row is removed; the account's balance is not recalculated from it. The audit trail keeps the record that it was."
+      confirmLabel="Delete entry"
+      destructive
+      method="DELETE"
+      path={`${ACCOUNT}/${id}/wallet/${encodeURIComponent(walletId)}`}
+      success="Ledger entry deleted."
+    />
+  )
+}
+
 export function DeleteAccountDialog({
   id,
   open,
