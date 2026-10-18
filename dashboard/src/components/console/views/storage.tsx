@@ -1,13 +1,15 @@
-// The storage browser: collections, the objects in the selected one, and the
-// selected object's value.
+// The storage browser: collections on the left as the rail, objects in the
+// selected one as the table, and the object's value in the drawer — the same
+// right-side sheet every other detail uses.
 
 import { useState } from "react"
 import { Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
-import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
+import { DataTable, Field, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
+import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleStorageObject } from "@/lib/console"
 import { formatTime, shortId } from "@/lib/format"
@@ -19,10 +21,16 @@ function permission(level: number): string {
   return PERMISSION[level] ?? String(level)
 }
 
+/** Storage rows are addressed by three parts at once, so the composite is the
+ * only honest row key. */
+function objectKey(row: ConsoleStorageObject): string {
+  return `${row.collection}/${row.key}/${row.user_id}`
+}
+
 export function StorageView() {
   const collections = useConsoleQuery<string[]>("storage-collections", CONSOLE_ENDPOINTS.storageCollections)
   const [selected, setSelected] = useState<string | null>(null)
-  const [object, setObject] = useState<ConsoleStorageObject | null>(null)
+  const [openKey, setOpenKey] = useState<string | null>(null)
   const [deletingCollection, setDeletingCollection] = useState<string | null>(null)
   const [deletingObject, setDeletingObject] = useState(false)
 
@@ -32,6 +40,10 @@ export function StorageView() {
       ? CONSOLE_ENDPOINTS.storage
       : `${CONSOLE_ENDPOINTS.storage}/${encodeURIComponent(selected)}`,
   )
+
+  // Read back from the list, so deleting the opened object — or switching
+  // collections — closes the drawer instead of pinning a stale value to it.
+  const opened = objects.data?.find((row) => objectKey(row) === openKey) ?? null
 
   const columns: Column<ConsoleStorageObject>[] = [
     { header: "Key", cell: (row) => <span className="font-medium text-foreground">{row.key}</span> },
@@ -43,23 +55,28 @@ export function StorageView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Storage"
         description="Every stored object, including private ones the player storage API hides."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
-        <Panel title="Collections" description={`${collections.data?.length ?? 0} total`}>
+      <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
+        <Panel
+          title="Collections"
+          description={`${collections.data?.length ?? 0} total`}
+          className="min-h-0"
+          fill
+        >
           {collections.data === undefined || collections.data.length === 0 ? (
             <p className="px-4 py-6 text-sm text-muted-foreground">None yet.</p>
           ) : (
-            <div className="max-h-[32rem] overflow-auto py-1">
+            <div className="min-h-0 flex-1 overflow-auto py-1">
               <button
                 type="button"
                 onClick={() => {
                   setSelected(null)
-                  setObject(null)
+                  setOpenKey(null)
                 }}
                 className={cn(
                   "block w-full px-4 py-1.5 text-left text-xs transition-colors hover:bg-foreground/5",
@@ -74,7 +91,7 @@ export function StorageView() {
                     type="button"
                     onClick={() => {
                       setSelected(name)
-                      setObject(null)
+                      setOpenKey(null)
                     }}
                     className={cn(
                       "min-w-0 flex-1 truncate px-4 py-1.5 text-left font-mono text-xs transition-colors hover:bg-foreground/5",
@@ -112,50 +129,60 @@ export function StorageView() {
           success="Collection deleted."
         />
 
-        <div className="space-y-4">
-          <Panel title={selected ?? "All objects"}>
-            <DataTable
-              columns={columns}
-              rows={objects.data}
-              loading={objects.isPending}
-              error={queryError(objects.error)}
-              rowKey={(row) => `${row.collection}/${row.key}/${row.user_id}`}
-              onRowClick={(row) => setObject(row)}
-              selectedKey={object === null ? undefined : `${object.collection}/${object.key}/${object.user_id}`}
-              empty="No objects."
-            />
-          </Panel>
-
-          {object !== null && (
-            <Panel
-              title="Value"
-              description={`${object.collection}/${object.key}`}
-              actions={
-                <Button size="sm" variant="destructive" onClick={() => setDeletingObject(true)}>
-                  <Trash2 />
-                  Delete
-                </Button>
-              }
-            >
-              <div className="p-3">
-                <JsonBlock value={object.value} />
-              </div>
-              <ConfirmAction
-                open={deletingObject}
-                onClose={() => setDeletingObject(false)}
-                onDone={() => setObject(null)}
-                title="Delete object"
-                message={`${object.collection}/${object.key}, owned by ${object.user_id}.`}
-                confirmLabel="Delete object"
-                destructive
-                method="DELETE"
-                path={`${CONSOLE_ENDPOINTS.storageObject}/${encodeURIComponent(object.collection)}/${encodeURIComponent(object.key)}/${object.user_id}`}
-                success="Object deleted."
-              />
-            </Panel>
-          )}
-        </div>
+        <Panel title={selected ?? "All objects"} className="min-h-0" fill>
+          <DataTable
+            columns={columns}
+            rows={objects.data}
+            loading={objects.isPending}
+            error={queryError(objects.error)}
+            rowKey={objectKey}
+            onRowClick={(row) => setOpenKey(objectKey(row))}
+            selectedKey={openKey ?? undefined}
+            empty="No objects."
+            fill
+          />
+        </Panel>
       </div>
+
+      <DetailSheet
+        open={opened !== null}
+        onClose={() => setOpenKey(null)}
+        title={opened?.key ?? "Object"}
+        description={opened ? `${opened.collection} · ${shortId(opened.user_id)}` : undefined}
+        bodyClassName="space-y-4"
+      >
+        {opened !== null && (
+          <>
+            <div>
+              <Field label="Read">{permission(opened.read)}</Field>
+              <Field label="Write">{permission(opened.write)}</Field>
+              <Field label="Version">{opened.version}</Field>
+              <Field label="Updated">{formatTime(opened.update_time)}</Field>
+            </div>
+            <JsonBlock value={opened.value} />
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setDeletingObject(true)}
+            >
+              <Trash2 />
+              Delete object
+            </Button>
+            <ConfirmAction
+              open={deletingObject}
+              onClose={() => setDeletingObject(false)}
+              onDone={() => setOpenKey(null)}
+              title="Delete object"
+              message={`${opened.collection}/${opened.key}, owned by ${opened.user_id}.`}
+              confirmLabel="Delete object"
+              destructive
+              method="DELETE"
+              path={`${CONSOLE_ENDPOINTS.storageObject}/${encodeURIComponent(opened.collection)}/${encodeURIComponent(opened.key)}/${opened.user_id}`}
+              success="Object deleted."
+            />
+          </>
+        )}
+      </DetailSheet>
     </div>
   )
 }
