@@ -1,0 +1,24 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://addons/cookyourgame/components/cyg_actor_3d.gd" id="1"]
+[ext_resource type="Script" path="res://addons/cookyourgame/components/cyg_view.gd" id="2"]
+[ext_resource type="Script" path="res://addons/cookyourgame/components/cyg_transform_sync_3d.gd" id="3"]
+[ext_resource type="Script" path="res://addons/cookyourgame/components/cyg_ownership_toggle.gd" id="4"]
+
+[node name="Avatar" type="Node3D"]
+script = ExtResource("1")
+
+[node name="CYGView" type="Node" parent="."]
+script = ExtResource("2")
+
+[node name="TransformSync" type="Node" parent="."]
+script = ExtResource("3")
+
+[node name="OwnerOnly" type="Node" parent="."]
+
+[node name="ProxyOnly" type="MeshInstance3D" parent="."]
+
+[node name="OwnershipToggle" type="Node" parent="."]
+script = ExtResource("4")
+enable_when_owner = [NodePath("../OwnerOnly")]
+disable_when_owner = [NodePath("../ProxyOnly")]

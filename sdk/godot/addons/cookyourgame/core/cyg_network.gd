@@ -18,6 +18,8 @@ signal object_despawned(view_id: int)
 signal player_joined(player: CYGPlayer)
 signal player_left(player: CYGPlayer)
 signal rewind_hit_received(payload: PackedByteArray)
+## Fixed-rate simulation tick that observed components sample their deltas on.
+signal network_tick(tick: int)
 ## Raw `MultiplayerPeer` packet from the reserved RPC pipe; the first two bytes
 ## are the sender's actor number.
 signal godot_packet_received(packet: PackedByteArray)
@@ -39,6 +41,9 @@ var latency_ms: float = 0.0
 var last_error_code: int = 0
 var last_error_message: String = ""
 var room_name: String = ""
+## Network ticks per second; the cadence authority peers sample deltas at.
+var tick_rate: int = 30
+var current_tick: int = 0
 
 var _view_table: Dictionary = {}  # view_id -> CYGView
 var _view_index := 0
@@ -46,6 +51,7 @@ var _last_ping_at := 0.0
 var _last_ping_sent_at := 0.0
 var _join_handshake_complete := false
 var _pending_nickname := ""
+var _tick_accumulator := 0.0
 
 
 func _ready() -> void:
@@ -66,8 +72,17 @@ func _record_ping_sent() -> void:
 	_last_ping_sent_at = Time.get_ticks_msec() / 1000.0
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	client.poll()
+	var interval := 1.0 / float(maxi(tick_rate, 1))
+	_tick_accumulator += delta
+	# Catch up over at most one tick per frame: a stalled frame must not spend
+	# the backlog replaying history that is already obsolete.
+	if _tick_accumulator >= interval:
+		_tick_accumulator = fmod(_tick_accumulator, interval)
+		current_tick += 1
+		network_tick.emit(current_tick)
+		flush_view_deltas()
 
 
 var is_connected_flag: bool:
@@ -147,6 +162,24 @@ func send_view_delta(view_id: int, delta_payload: PackedByteArray) -> bool:
 ## Sends a player input payload, opaque to the SDK.
 func send_input_payload(payload: PackedByteArray) -> bool:
 	return client.send_frame(CYGOpcodes.PlayerInput, payload)
+
+
+## Pushes every view with pending observed-component state onto the wire, one
+## packet per view, at the tick boundary.
+##
+## Only authority peers mark components dirty (`CYGBehaviour.set_property` and
+## the sync scripts gate on `has_authority`), so a proxy never has anything to
+## flush and needs no ownership filter here.
+func flush_view_deltas() -> void:
+	if not is_connected_flag:
+		return
+	for entry in _view_table.values():
+		var view := entry as CYGView
+		if view == null or not view.has_any_delta():
+			continue
+		var writer := CYGBitPacker.new()
+		view.collect_deltas(writer)
+		send_view_delta(view.view_id, writer.to_bytes())
 
 
 ## Sends a named room event as [LEB128 name length][utf8 name][body].
@@ -469,6 +502,10 @@ func _acquire_instance(scene: PackedScene, position: Vector3, rotation: Quaterni
 	if holder == null:
 		push_error("CYGNetwork: prefab scene has no Node root.")
 		return null
+	var root := spawn_root if spawn_root != null and is_instance_valid(spawn_root) else get_tree().current_scene
+	root.add_child(holder)
+	# The global pose is only meaningful once the node is in the tree; setting it
+	# before `add_child` reads an identity xform and silently spawns at the origin.
 	var node_3d := holder as Node3D
 	if node_3d != null:
 		node_3d.global_position = position
@@ -478,8 +515,6 @@ func _acquire_instance(scene: PackedScene, position: Vector3, rotation: Quaterni
 		view = CYGView.new()
 		view.name = "CYGView"
 		holder.add_child(view)
-	var root := spawn_root if spawn_root != null and is_instance_valid(spawn_root) else get_tree().current_scene
-	root.add_child(holder)
 	return view
 
 
