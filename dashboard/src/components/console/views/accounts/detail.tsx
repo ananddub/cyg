@@ -83,9 +83,9 @@ export function AccountDetail({ id, onDeleted }: { id: string; onDeleted: () => 
         }
       >
         {queryError(account.error) !== null ? (
-          <p className="px-4 py-6 text-sm text-destructive">{queryError(account.error)}</p>
+          <p className="px-4 py-6 text-center text-sm text-destructive">{queryError(account.error)}</p>
         ) : account.data === undefined ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">Loading…</p>
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">Loading…</p>
         ) : (
           <div className="px-4 py-2">
             <Field label="Username">{account.data.username}</Field>
@@ -120,7 +120,7 @@ export function AccountDetail({ id, onDeleted }: { id: string; onDeleted: () => 
         }
       >
         {notes.data === undefined || notes.data.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">No notes.</p>
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">No notes.</p>
         ) : (
           <div className="divide-y divide-border/40">
             {notes.data.map((note) => (

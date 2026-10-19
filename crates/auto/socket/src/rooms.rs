@@ -1,12 +1,20 @@
 use crate::LiveIdentity;
+use ahash::RandomState;
 use serde::Deserialize;
 use std::{
-    collections::{HashMap, HashSet},
-    sync::{Mutex, OnceLock},
+    collections::HashSet,
+    sync::OnceLock,
 };
 
-pub(crate) static ACTIVE_LIVE_ROOMS: OnceLock<Mutex<HashMap<String, ActiveLiveRoom>>> =
+pub(crate) type FastMap<K, V> = scc::HashMap<K, V, RandomState>;
+
+pub(crate) static ACTIVE_LIVE_ROOMS: OnceLock<FastMap<String, ActiveLiveRoom>> =
     OnceLock::new();
+
+#[inline]
+pub(crate) fn active_live_rooms() -> &'static FastMap<String, ActiveLiveRoom> {
+    ACTIVE_LIVE_ROOMS.get_or_init(|| FastMap::with_hasher(RandomState::new()))
+}
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct LiveSubscriptionRequest {
@@ -31,37 +39,35 @@ pub(crate) fn retain(
     request: &LiveSubscriptionRequest,
     identity: Option<LiveIdentity>,
 ) {
-    let mut rooms = ACTIVE_LIVE_ROOMS
-        .get_or_init(Default::default)
-        .lock()
-        .expect("active live room registry poisoned");
-    rooms
-        .entry(room.to_owned())
-        .and_modify(|active| active.subscribers += 1)
-        .or_insert_with(|| ActiveLiveRoom {
-            namespace,
-            room: room.to_owned(),
-            endpoint: request.endpoint.clone(),
-            args: request.args.clone(),
-            identity,
-            subscribers: 1,
-        });
+    let rooms = active_live_rooms();
+    match rooms.entry_sync(room.to_owned()) {
+        scc::hash_map::Entry::Occupied(mut occ) => {
+            occ.get_mut().subscribers += 1;
+        }
+        scc::hash_map::Entry::Vacant(vac) => {
+            vac.insert_entry(ActiveLiveRoom {
+                namespace,
+                room: room.to_owned(),
+                endpoint: request.endpoint.clone(),
+                args: request.args.clone(),
+                identity,
+                subscribers: 1,
+            });
+        }
+    }
 }
 pub(crate) fn release(room: &str) {
-    let mut rooms = ACTIVE_LIVE_ROOMS
-        .get_or_init(Default::default)
-        .lock()
-        .expect("active live room registry poisoned");
-    let remove = rooms.get_mut(room).is_some_and(|active| {
+    let rooms = active_live_rooms();
+    let mut should_remove = false;
+    let _ = rooms.update_sync(room, |_, active| {
         if active.subscribers > 1 {
             active.subscribers -= 1;
-            false
         } else {
-            true
+            should_remove = true;
         }
     });
-    if remove {
-        rooms.remove(room);
+    if should_remove {
+        let _ = rooms.remove_sync(room);
     }
 }
 pub(crate) fn scoped(

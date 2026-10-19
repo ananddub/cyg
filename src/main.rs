@@ -162,7 +162,21 @@ fn run(dir: &Path) -> std::io::Result<()> {
     };
 
     println!("🧩 room runtime: {:?}", cfg.runtime);
-    let wasm_path = engine_server::compile::build(&project_dir, &cfg)?;
+    // A project that ships only Unity C# gameplay has no room source at all.
+    // That is not fatal — the server boots in Unity-relay mode. Only a genuine
+    // build failure (source present but uncompilable) is reported.
+    let src_path = project_dir.join(&cfg.source);
+    let wasm_path = match engine_server::compile::build(&project_dir, &cfg) {
+        Ok(path) => path,
+        Err(_) if !src_path.exists() => {
+            eprintln!(
+                "[main] 🧩 no room source ({}) — running Unity-relay rooms only",
+                cfg.source.display()
+            );
+            cfg.out.clone()
+        }
+        Err(e) => return Err(e),
+    };
 
     // One bus for both planes: the sim thread owns the consumer ends, the
     // control plane only ever `try_send`s onto the producer ends, and the host

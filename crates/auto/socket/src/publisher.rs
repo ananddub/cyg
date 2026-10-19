@@ -1,7 +1,7 @@
 use crate::{
     LiveIdentity,
     rooms::scoped,
-    state::{LATEST_CHANNELS, SOCKET_IO, STREAM_CHANNELS, STREAM_HISTORY, StreamHistory},
+    state::{SOCKET_IO, StreamHistory, latest_channels, stream_channels, stream_history},
 };
 use serde::Serialize;
 use socketioxide::extract::SocketRef;
@@ -134,25 +134,29 @@ fn publish_latest(
 ) -> Result<(), PublishError> {
     SOCKET_IO.get().ok_or(PublishError::NotRegistered)?;
     let key = format!("{namespace}:{room}");
-    let mut channels = LATEST_CHANNELS
-        .get_or_init(Default::default)
-        .lock()
-        .expect("latest live channel registry poisoned");
-    if let Some(sender) = channels.get(&key) {
+    let channels = latest_channels();
+    if let Some(sender) = channels.read_sync(&key, |_, s| s.clone()) {
         sender.send_replace(message);
         return Ok(());
     }
     let (sender, mut receiver) = tokio::sync::watch::channel(message);
-    channels.insert(key, sender);
-    tokio::spawn(async move {
-        loop {
-            let value = receiver.borrow_and_update().clone();
-            let _ = emit_room(namespace, room.clone(), value).await;
-            if receiver.changed().await.is_err() {
-                break;
-            }
+    match channels.entry_sync(key) {
+        scc::hash_map::Entry::Occupied(occ) => {
+            occ.get().send_replace(receiver.borrow().clone());
         }
-    });
+        scc::hash_map::Entry::Vacant(vac) => {
+            vac.insert_entry(sender);
+            tokio::spawn(async move {
+                loop {
+                    let value = receiver.borrow_and_update().clone();
+                    let _ = emit_room(namespace, room.clone(), value).await;
+                    if receiver.changed().await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    }
     Ok(())
 }
 async fn publish_stream(
@@ -165,38 +169,44 @@ async fn publish_stream(
     SOCKET_IO.get().ok_or(PublishError::NotRegistered)?;
     let key = format!("{namespace}:{room}");
     if replay > 0 {
-        let mut histories = STREAM_HISTORY
-            .get_or_init(Default::default)
-            .lock()
-            .expect("stream history registry poisoned");
-        let history = histories
-            .entry(key.clone())
-            .or_insert_with(|| StreamHistory {
-                limit: replay,
-                events: VecDeque::with_capacity(replay),
-            });
-        history.limit = replay;
-        while history.events.len() >= history.limit {
-            history.events.pop_front();
+        let histories = stream_history();
+        match histories.entry_sync(key.clone()) {
+            scc::hash_map::Entry::Occupied(mut occ) => {
+                let history = occ.get_mut();
+                history.limit = replay;
+                while history.events.len() >= history.limit {
+                    history.events.pop_front();
+                }
+                history.events.push_back(message.clone());
+            }
+            scc::hash_map::Entry::Vacant(vac) => {
+                let mut events = VecDeque::with_capacity(replay);
+                events.push_back(message.clone());
+                vac.insert_entry(StreamHistory {
+                    limit: replay,
+                    events,
+                });
+            }
         }
-        history.events.push_back(message.clone());
     }
     let sender = {
-        let mut channels = STREAM_CHANNELS
-            .get_or_init(Default::default)
-            .lock()
-            .expect("stream live channel registry poisoned");
-        if let Some(sender) = channels.get(&key) {
-            sender.clone()
+        let channels = stream_channels();
+        if let Some(sender) = channels.read_sync(&key, |_, s| s.clone()) {
+            sender
         } else {
             let (sender, mut receiver) = tokio::sync::mpsc::channel(capacity.max(1));
-            channels.insert(key, sender.clone());
-            tokio::spawn(async move {
-                while let Some(value) = receiver.recv().await {
-                    let _ = emit_room(namespace, room.clone(), value).await;
+            match channels.entry_sync(key) {
+                scc::hash_map::Entry::Occupied(occ) => occ.get().clone(),
+                scc::hash_map::Entry::Vacant(vac) => {
+                    vac.insert_entry(sender.clone());
+                    tokio::spawn(async move {
+                        while let Some(value) = receiver.recv().await {
+                            let _ = emit_room(namespace, room.clone(), value).await;
+                        }
+                    });
+                    sender
                 }
-            });
-            sender
+            }
         }
     };
     sender

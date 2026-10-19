@@ -14,7 +14,7 @@ extends RefCounted
 ## referenced here: this is a plain clock the owner drives.
 ##
 ## Design derives from Netfox's MIT-licensed rollback engine (attribution in
-## LICENSE-NETFOX.md). Clean-room GDScript; no Netfox source text is copied.
+## LICENSE-NETFOX.md). Independent GDScript; no Netfox source text is copied.
 
 ## The emitted counter is this many ticks off before we stop smoothing and hard
 ## re-anchor: 0..1 tick disagreement is frame jitter, 2+ means a real desync/reset.

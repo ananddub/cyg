@@ -62,7 +62,7 @@ extends RefCounted
 ## before it is queued.
 ##
 ## Design derives from Netfox's MIT-licensed sync collections and Mirror's SyncList
-## dirty ops (attribution in LICENSE-NETFOX.md). Clean-room GDScript; no upstream
+## dirty ops (attribution in LICENSE-NETFOX.md). Independent GDScript; no upstream
 ## source text is copied.
 
 signal element_added(index: int, value: Variant)

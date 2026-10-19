@@ -1,11 +1,22 @@
 import * as React from "react"
 import { cn } from "cn"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  fill,
+  ...props
+}: React.ComponentProps<"table"> & {
+  /** Stretch to the height the parent flex column offers and scroll the rows
+   * inside that box, instead of growing the page. */
+  fill?: boolean
+}) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      className={cn(
+        "relative w-full overflow-x-auto",
+        fill && "min-h-0 flex-1 overflow-y-auto"
+      )}
     >
       <table
         data-slot="table"

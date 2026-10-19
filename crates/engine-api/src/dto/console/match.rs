@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::dto::matches::MatchResponse;
 use crate::infra::ws::envelope::Presence;
-use crate::services::match_handler::MatchSnapshot;
+use crate::services::realtime::matches::MatchSnapshot;
 
 /// `console.MatchList.Match`: an `api_match` plus its node.
 #[derive(Debug, Serialize)]

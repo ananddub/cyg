@@ -73,7 +73,13 @@ pub(super) fn parse_greeting(raw: &[u8]) -> Greeting {
         } else {
             segments.last().unwrap_or(&"")
         };
-        if base_room.is_empty() {
+        if let Some((clean_room, sid)) = base_room.split_once("sessionId=") {
+            if query.is_empty() {
+                format!("{}?sessionId={}", clean_room, sid)
+            } else {
+                format!("{}{}", clean_room, query)
+            }
+        } else if base_room.is_empty() {
             String::new()
         } else {
             format!("{}{}", base_room, query)

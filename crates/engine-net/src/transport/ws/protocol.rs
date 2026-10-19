@@ -59,3 +59,35 @@ pub(super) fn wire_opcode_for(opcode: OpCode) -> u8 {
         _ => PROTO_ROOM_DATA,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// These numbers are a contract with the Unity SDK
+    /// (`CYGWireProtocol` in sdk/unity/Runtime/Transport/CYGTransport.cs) and
+    /// the web/mesh SDKs. Drift here silently breaks every client, so pin them.
+    #[test]
+    fn wire_codes_match_the_sdk_contract() {
+        assert_eq!(PROTO_JOIN_ROOM, 10);
+        assert_eq!(PROTO_ERROR, 11);
+        assert_eq!(PROTO_LEAVE_ROOM, 12);
+        assert_eq!(PROTO_ROOM_DATA, 13);
+        assert_eq!(PROTO_ROOM_STATE, 14);
+        assert_eq!(PROTO_ROOM_STATE_PATCH, 15);
+        assert_eq!(PROTO_ROOM_DATA_BYTES, 17);
+        assert_eq!(PROTO_PING, 18);
+        assert_eq!(PROTO_ROOM_REQUEST, 21);
+        assert_eq!(PROTO_ROOM_RESPONSE, 22);
+        assert_eq!(PROTOCOL_CODE_MASK, 0x1F);
+    }
+
+    #[test]
+    fn internal_tags_map_onto_wire_codes() {
+        assert_eq!(wire_opcode_for(OpCode::RoomDataBytes), PROTO_ROOM_DATA_BYTES);
+        assert_eq!(wire_opcode_for(OpCode::StateDelta), PROTO_ROOM_STATE_PATCH);
+        assert_eq!(wire_opcode_for(OpCode::StateSnapshot), PROTO_ROOM_STATE);
+        assert_eq!(wire_opcode_for(OpCode::Ping), PROTO_PING);
+        assert_eq!(wire_opcode_for(OpCode::Error), PROTO_ERROR);
+    }
+}

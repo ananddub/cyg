@@ -15,7 +15,10 @@ mio = { version = "1.2.4", features = ["net", "os-poll"] }
 socket2 = { version = "0.6.5", features = ["all"] }
 str0m = "0.24.1"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros"] }
+scc = "3.8"
+ahash = "0.8"
 
 [dev-dependencies]
 engine-wasm = { path = "../engine-wasm" }
 wasmtime = "25.0.0"
+dashmap = "6.2"

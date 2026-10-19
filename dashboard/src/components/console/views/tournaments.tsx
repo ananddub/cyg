@@ -59,7 +59,7 @@ export function TournamentsView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Tournaments"
         description="Scheduled competitive rounds: create a board, move its definition, end it."
@@ -67,6 +67,7 @@ export function TournamentsView() {
 
       <Panel
         title="Tournaments"
+        fill
         actions={
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus />
@@ -81,6 +82,8 @@ export function TournamentsView() {
           error={queryError(list.error)}
           rowKey={(row) => row.id}
           empty="No tournaments defined."
+          fill
+          selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
       </Panel>

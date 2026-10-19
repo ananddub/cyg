@@ -54,15 +54,15 @@ async fn auto_registered_health_route_dispatches() {
 
     // The migrated surface: same paths as before, now registered by
     // `#[controller]` instead of a hand-written router per group.
-    for path in ["/status", "/api/rooms", "/health", "/v2/user"] {
+    for path in ["/status", "/api/rooms", "/health", "/v2/user", "/v2/inventory"] {
         let response = app
             .clone()
             .oneshot(Request::get(path).body(Body::empty()).unwrap())
             .await
             .expect("dispatch");
-        // `/v2/user` needs a session token, but it must not 404: a 401 proves
-        // the route exists and reached its extractor.
-        let ok = if path == "/v2/user" {
+        // `/v2/user` and `/v2/inventory` need a session token, but they must not 404:
+        // a 401 proves the route exists and reached its extractor.
+        let ok = if path == "/v2/user" || path == "/v2/inventory" {
             response.status() == StatusCode::UNAUTHORIZED
         } else {
             response.status() == StatusCode::OK
@@ -162,6 +162,12 @@ async fn every_migrated_path_is_still_registered() {
         ("GET", "/v2/storage/collection"),
         ("GET", "/v2/storage/collection/00000000-0000-0000-0000-000000000000"),
         ("GET", "/v2/storage/collection/key/00000000-0000-0000-0000-000000000000"),
+        // v2 inventory
+        ("GET", "/v2/inventory"),
+        ("POST", "/v2/inventory/equip"),
+        ("POST", "/v2/inventory/consume"),
+        ("POST", "/v2/inventory/grant"),
+        ("POST", "/v2/inventory/define"),
         // v2 leaderboard
         ("POST", "/v2/leaderboard/board"),
         ("GET", "/v2/leaderboard/board"),

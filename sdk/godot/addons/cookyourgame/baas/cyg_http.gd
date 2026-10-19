@@ -72,7 +72,7 @@ extends RefCounted
 ##     if not reply.is_success:
 ##         print("refused: ", reply.error_message())
 ##
-## Clean-room GDScript port of this repo's own SDKs (`sdk/unity/Runtime/BaaS/
+## Independent GDScript port of this repo's own SDKs (`sdk/unity/Runtime/BaaS/
 ## CYGHttp.cs` and `sdk/unreal/.../BaaS/CYGBaasHttp.cpp`); no upstream source
 ## text is copied. Nothing here derives from Netfox — the BaaS layer has no
 ## Netfox lineage, so this file carries no LICENSE-NETFOX.md attribution.

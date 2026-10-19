@@ -28,7 +28,7 @@ extends CYGBehaviour
 ## around its centre, mirroring the Unreal buffer's `bTreatAsSphere` flag.
 ##
 ## Design derives from Netfox's MIT-licensed rollback and Mirror/UNet's lag
-## compensation (attribution in LICENSE-NETFOX.md). Clean-room GDScript; no
+## compensation (attribution in LICENSE-NETFOX.md). Independent GDScript; no
 ## upstream source text is copied.
 
 ## Ticks of pose history kept; rounded up to a power of two by the ring.

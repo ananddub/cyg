@@ -5,9 +5,11 @@ import { useHashRoute } from "@/hooks/use-hash-route"
 import { consoleLogout } from "@/lib/console"
 import { defaultArea, findArea } from "@/lib/areas"
 import { clearSession, useSession } from "@/lib/session"
+import { useTheme } from "@/lib/theme"
 
 function App() {
   const session = useSession()
+  const mode = useTheme()
   const [route, navigate] = useHashRoute()
 
   // Dropping the local session first means the UI is on the login screen before
@@ -34,9 +36,9 @@ function App() {
           onLogout={logout}
         />
       )}
-      {/* Dark-only app: pin sonner to the dark palette rather than `system`,
-          which would render light toasts on a light-mode OS. */}
-      <Toaster theme="dark" position="bottom-right" closeButton gap={8} />
+      {/* The toaster follows the chosen theme, so a light session does not get
+          a dark toast dropped onto a white console. */}
+      <Toaster theme={mode} position="bottom-right" closeButton gap={8} />
     </>
   )
 }

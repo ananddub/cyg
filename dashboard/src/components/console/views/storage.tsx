@@ -69,7 +69,9 @@ export function StorageView() {
           fill
         >
           {collections.data === undefined || collections.data.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-muted-foreground">None yet.</p>
+            <p className="flex flex-1 items-center justify-center px-4 py-6 text-center text-sm text-muted-foreground">
+              None yet.
+            </p>
           ) : (
             <div className="min-h-0 flex-1 overflow-auto py-1">
               <button
@@ -140,6 +142,7 @@ export function StorageView() {
             selectedKey={openKey ?? undefined}
             empty="No objects."
             fill
+            selectable
           />
         </Panel>
       </div>

@@ -45,9 +45,9 @@ export function PurchasesView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading title="Purchases" description="Every verified in-app purchase receipt." />
-      <Panel title="Purchases">
+      <Panel title="Purchases" fill>
         <DataTable
           columns={columns}
           rows={list.data}
@@ -55,6 +55,8 @@ export function PurchasesView() {
           error={queryError(list.error)}
           rowKey={(row) => row.transaction_id}
           empty="No purchases recorded."
+          fill
+          selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
       </Panel>
@@ -96,9 +98,9 @@ export function SubscriptionsView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading title="Subscriptions" description="Recurring purchases and their expiry state." />
-      <Panel title="Subscriptions">
+      <Panel title="Subscriptions" fill>
         <DataTable
           columns={columns}
           rows={list.data}
@@ -106,6 +108,8 @@ export function SubscriptionsView() {
           error={queryError(list.error)}
           rowKey={(row) => row.original_transaction_id}
           empty="No subscriptions recorded."
+          fill
+          selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
       </Panel>

@@ -63,8 +63,10 @@ fn bind_peer(
     );
     let id = room.next_player_id;
     room.next_player_id += 1;
-    if let Err(e) = room.wasm.on_join(id, x, y) {
-        eprintln!("[sim] ⚠️ guest on_join error for player {id}: {e}");
+    if let Some(ref mut wasm) = room.wasm {
+        if let Err(e) = wasm.on_join(id, x, y) {
+            eprintln!("[sim] ⚠️ guest on_join error for player {id}: {e}");
+        }
     }
     room.sessions.insert(peer_id.clone(), id);
     session_of.insert(id, peer_id);
@@ -80,7 +82,9 @@ fn drop_peer(
     session_of: &mut HashMap<i64, PeerId>,
 ) {
     if let Some(id) = room.sessions.remove(peer_id) {
-        let _ = room.wasm.on_leave(id);
+        if let Some(ref mut wasm) = room.wasm {
+            let _ = wasm.on_leave(id);
+        }
         room.last_input_seq.remove(peer_id.as_str());
         browser_players.remove(&id);
         session_of.remove(&id);
@@ -181,7 +185,13 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         .ok()
         .and_then(|json| PhysicsWorld3D::from_json(&json).ok())
         .unwrap_or_default();
-    let mut room = GameRoom::new(&pre, cfg.max_players, physics);
+    let mut room = match GameRoom::new(&pre, cfg.max_players, physics) {
+        Ok(room) => room,
+        Err(e) => {
+            eprintln!("[sim] ✖️ room instantiation failed: {e} — sim thread exiting");
+            return;
+        }
+    };
 
     println!(
         "[sim] running on core {} tick_hz={} wasm={}",
@@ -349,30 +359,34 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         let mut trap = false;
         for _ in 0..ticks_to_run {
             room.current_tick += 1;
-            match room.wasm.on_tick(dt) {
-                Ok(packed) => {
-                    // packed = (ptr << 32) | len into the guest's linear memory.
-                    let (ptr, len) = decode_packed(packed);
-                    if len > engine_wasm::MAX_OUTBOUND_DELTA_SIZE {
-                        eprintln!("[sim] ⚠️ delta size {len} exceeds ABI max — skipped dispatch");
-                        trap = true; // don't read stale/oversized memory this tick
-                        break;
-                    }
-                    if len > 0 {
-                        if let Err(e) = room.wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf) {
-                            eprintln!("[sim] ⚠️ delta read failed: {e}");
-                            trap = true;
+            if let Some(ref mut wasm) = room.wasm {
+                match wasm.on_tick(dt) {
+                    Ok(packed) => {
+                        // packed = (ptr << 32) | len into the guest's linear memory.
+                        let (ptr, len) = decode_packed(packed);
+                        if len > engine_wasm::MAX_OUTBOUND_DELTA_SIZE {
+                            eprintln!("[sim] ⚠️ delta size {len} exceeds ABI max — skipped dispatch");
+                            trap = true; // don't read stale/oversized memory this tick
                             break;
                         }
-                    } else {
-                        delta_buf.clear();
+                        if len > 0 {
+                            if let Err(e) = wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf) {
+                                eprintln!("[sim] ⚠️ delta read failed: {e}");
+                                trap = true;
+                                break;
+                            }
+                        } else {
+                            delta_buf.clear();
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[sim] ⚠️ guest trap in on_tick at room tick {}: {e}", room.current_tick);
+                        trap = true;
+                        break;
                     }
                 }
-                Err(e) => {
-                    eprintln!("[sim] ⚠️ guest trap in on_tick at room tick {}: {e}", room.current_tick);
-                    trap = true;
-                    break;
-                }
+            } else {
+                delta_buf.clear();
             }
         }
 

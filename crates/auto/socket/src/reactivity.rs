@@ -1,9 +1,9 @@
 use crate::{
     LiveTableDescriptor,
-    rooms::ACTIVE_LIVE_ROOMS,
+    rooms::active_live_rooms,
     state::{
         CACHE_INVALIDATOR, LIVE_ENDPOINT_CACHE, LIVE_REFRESHERS, SOCKET_IO,
-        SUBSCRIPTION_REFRESH_GATES,
+        subscription_refresh_gates,
     },
 };
 use std::sync::Arc;
@@ -24,17 +24,13 @@ fn refresh_or_invalidate_rooms(changed: &std::collections::HashSet<&str>) {
         tracing::info!("live table notification has no matching endpoint");
         return;
     }
-    let rooms = ACTIVE_LIVE_ROOMS
-        .get_or_init(Default::default)
-        .lock()
-        .map(|rooms| {
-            rooms
-                .values()
-                .filter(|room| affected.contains(room.endpoint.as_str()))
-                .cloned()
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let mut rooms = Vec::new();
+    active_live_rooms().iter_sync(|_, room| {
+        if affected.contains(room.endpoint.as_str()) {
+            rooms.push(room.clone());
+        }
+        true
+    });
     tracing::info!(endpoints = ?affected, rooms = rooms.len(), "live rooms selected for refresh");
     let changed_tables = changed
         .iter()
@@ -175,14 +171,19 @@ pub(crate) async fn refresh_subscription(
     };
     for entry in refreshers.iter().filter(|entry| entry.endpoint == endpoint) {
         let gate = {
-            let mut gates = SUBSCRIPTION_REFRESH_GATES
-                .get_or_init(Default::default)
-                .lock()
-                .expect("subscription refresh registry poisoned");
-            gates
-                .entry(endpoint.to_owned())
-                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-                .clone()
+            let gates = subscription_refresh_gates();
+            if let Some(gate) = gates.read_sync(endpoint, |_, g| g.clone()) {
+                gate
+            } else {
+                match gates.entry_sync(endpoint.to_owned()) {
+                    scc::hash_map::Entry::Occupied(occ) => occ.get().clone(),
+                    scc::hash_map::Entry::Vacant(vac) => {
+                        let g = Arc::new(tokio::sync::Mutex::new(()));
+                        vac.insert_entry(g.clone());
+                        g
+                    }
+                }
+            }
         };
         let _guard = gate.lock().await;
         (entry.refresh)(args.clone(), identity.clone()).await;

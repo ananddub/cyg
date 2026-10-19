@@ -49,7 +49,7 @@ extends CYGBehaviour
 ## written as one float on the wire.
 ##
 ## Design derives from Netfox's MIT-licensed physics extras (attribution in
-## LICENSE-NETFOX.md). Clean-room GDScript; no Netfox source text is copied.
+## LICENSE-NETFOX.md). Independent GDScript; no Netfox source text is copied.
 
 enum ProxyIntegration {
 	## The body is frozen in kinematic mode and driven by the interpolated pose. It

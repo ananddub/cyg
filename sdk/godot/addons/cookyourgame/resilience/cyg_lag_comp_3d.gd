@@ -64,7 +64,7 @@ extends CYGBehaviour
 ##             lag_comp.report_hit(shot)   # emits the claim RPC to the room
 ##
 ## Design derives from Netfox's MIT-licensed rollback and Mirror/UNet's lag
-## compensation (attribution in LICENSE-NETFOX.md). Clean-room GDScript; no
+## compensation (attribution in LICENSE-NETFOX.md). Independent GDScript; no
 ## upstream source text is copied.
 
 ## The RPC a claim rides; must match the receiver's `claim_rpc`.

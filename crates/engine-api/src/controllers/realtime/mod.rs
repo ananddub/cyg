@@ -13,7 +13,6 @@ use crate::error::V2Error;
 use crate::infra::ws::envelope::EnvelopeMessage;
 use crate::infra::ws::session;
 
-pub mod handlers;
 pub mod messages;
 pub mod socket;
 

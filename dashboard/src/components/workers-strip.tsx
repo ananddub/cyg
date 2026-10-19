@@ -62,9 +62,9 @@ export function WorkersStrip({
   const totalOverruns = rows.reduce((acc, w) => acc + (w.overruns || 0), 0)
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       {/* ── KPI Metric Summary Tiles ── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
         <Card className="p-4 shadow-xs">
           <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
             <Cpu className="size-3.5 text-primary" />
@@ -120,10 +120,10 @@ export function WorkersStrip({
       </div>
 
       {/* ── Cores Interactive Table List ── */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden shadow-xs">
-        <Table>
-          <TableHeader>
-            <TableRow>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xs">
+        <Table fill>
+          <TableHeader className="sticky top-0 z-10 bg-card">
+            <TableRow className="hover:bg-transparent">
               <TableHead>Core / Identifier</TableHead>
               <TableHead>Execution Plane</TableHead>
               <TableHead>Threads</TableHead>

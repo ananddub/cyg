@@ -53,7 +53,7 @@ extends RefCounted
 ##             server_rpc("request_loadout")
 ##
 ## Design derives from Netfox's MIT-licensed sync collections and Mirror's
-## SyncDictionary dirty ops (attribution in LICENSE-NETFOX.md). Clean-room
+## SyncDictionary dirty ops (attribution in LICENSE-NETFOX.md). Independent
 ## GDScript; no upstream source text is copied.
 
 signal entry_added(key: String, value: Variant)

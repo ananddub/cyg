@@ -2,7 +2,7 @@
 name = "engine-physics"
 version = "0.1.0"
 edition = "2024"
-description = "Deterministic 3D BVH, spatial query, lag-compensation, and Rapier 2D/3D integration for OpenOxide"
+description = "Fixed-step 3D BVH, spatial query, lag-compensation, and Rapier 2D/3D integration for OpenOxide"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

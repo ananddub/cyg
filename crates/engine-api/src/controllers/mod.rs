@@ -29,3 +29,5 @@ pub mod storage_index;
 pub mod tournament;
 pub mod unlink;
 pub mod user;
+pub mod inventory;
+

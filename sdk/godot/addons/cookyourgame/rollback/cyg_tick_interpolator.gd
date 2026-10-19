@@ -15,7 +15,7 @@ extends RefCounted
 ## keyed by name instead.
 ##
 ## Design derivation: Netfox's tick interpolator (attribution lives in
-## LICENSE-NETFOX.md). Clean-room GDScript; no Netfox source text is copied.
+## LICENSE-NETFOX.md). Independent GDScript; no Netfox source text is copied.
 
 
 ## Samples kept per track. 16 covers any reasonable jitter window at 30 Hz.

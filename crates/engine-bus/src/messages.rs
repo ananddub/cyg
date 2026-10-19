@@ -36,6 +36,33 @@ pub struct OutFrame {
     pub bytes: Vec<u8>,
 }
 
+/// Why the sim should hot-swap its room module: a console upload of a fresh
+/// version, or a rollback re-activating an older one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReloadKind {
+    Upload,
+    Rollback,
+}
+
+/// Control plane → sim: the active WASM module for one game changed and live
+/// rooms should be swapped onto it (Level 1 hot-reload). Identity only — the
+/// bytes stay in `room_modules`; the reader fetches the version it is told to
+/// load (engine-api `WasmService::get_module_bytes`).
+#[derive(Clone, Debug)]
+pub struct WasmReload {
+    /// `games.id` as text; the bus carries no sqlx types.
+    pub game_id: String,
+    /// `games.game_key`, so a sim can match the reload against its own game
+    /// without a second lookup.
+    pub game_key: String,
+    /// The newly active `room_modules.version`.
+    pub version: i32,
+    /// SHA-256 hex of that version's binary — the integrity anchor the sim can
+    /// verify whatever it loads against.
+    pub sha256: String,
+    pub kind: ReloadKind,
+}
+
 /// Everything the sim accepts from the other planes.
 #[derive(Debug)]
 pub enum SimCommand {

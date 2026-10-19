@@ -3,50 +3,79 @@
 
 use std::io::Write;
 
-use bytes::{Buf, BufMut};
+use bytes::{Buf, BufMut, BytesMut};
 
 use super::super::client::WsClient;
 
 /// Server frames are never masked (RFC 6455).
+#[inline(always)]
 pub fn encode_ws_frame(payload: &[u8], out: &mut impl BufMut) {
-    // Binary frame: FIN bit (0x80) + opcode binary (0x02) = 0x82.
-    out.put_u8(0x82);
-
     let len = payload.len();
     if len <= 125 {
-        out.put_u8(len as u8);
+        let hdr = [0x82, len as u8];
+        out.put_slice(&hdr);
     } else if len <= 65535 {
-        out.put_u8(126);
-        out.put_slice(&(len as u16).to_be_bytes());
+        let be = (len as u16).to_be_bytes();
+        let hdr = [0x82, 126, be[0], be[1]];
+        out.put_slice(&hdr);
     } else {
-        out.put_u8(127);
-        out.put_slice(&(len as u64).to_be_bytes());
+        let be = (len as u64).to_be_bytes();
+        let mut hdr = [0u8; 10];
+        hdr[0] = 0x82;
+        hdr[1] = 127;
+        hdr[2..10].copy_from_slice(&be);
+        out.put_slice(&hdr);
     }
-
     out.put_slice(payload);
 }
 
 /// Queue one wire protocol message (opcode byte + payload) as a WS frame.
+#[inline(always)]
 pub fn queue_message(client: &mut WsClient, code: u8, payload: &[u8]) {
     encode_wire_frame(code, payload, &mut client.send_queue);
 }
 
 /// Encode `[code][payload]` as an unmasked binary WS frame directly into
 /// `out`, with no scratch buffer.
-pub fn encode_wire_frame(code: u8, payload: &[u8], out: &mut impl BufMut) {
+#[inline(always)]
+pub fn encode_wire_frame(code: u8, payload: &[u8], out: &mut BytesMut) {
     let len = payload.len() + 1;
-    out.put_u8(0x82);
-    if len <= 125 {
-        out.put_u8(len as u8);
+    let total_len = if len <= 125 {
+        len + 2
     } else if len <= 65535 {
-        out.put_u8(126);
-        out.put_slice(&(len as u16).to_be_bytes());
+        len + 4
     } else {
-        out.put_u8(127);
-        out.put_slice(&(len as u64).to_be_bytes());
+        len + 10
+    };
+    let cur_len = out.len();
+    if out.capacity().saturating_sub(cur_len) < total_len {
+        out.reserve(total_len);
     }
-    out.put_u8(code);
-    out.put_slice(payload);
+    unsafe {
+        let ptr = out.as_mut_ptr().add(cur_len);
+        if len <= 125 {
+            *ptr = 0x82;
+            *ptr.add(1) = len as u8;
+            *ptr.add(2) = code;
+            std::ptr::copy_nonoverlapping(payload.as_ptr(), ptr.add(3), payload.len());
+        } else if len <= 65535 {
+            *ptr = 0x82;
+            *ptr.add(1) = 126;
+            let be = (len as u16).to_be_bytes();
+            *ptr.add(2) = be[0];
+            *ptr.add(3) = be[1];
+            *ptr.add(4) = code;
+            std::ptr::copy_nonoverlapping(payload.as_ptr(), ptr.add(5), payload.len());
+        } else {
+            *ptr = 0x82;
+            *ptr.add(1) = 127;
+            let be = (len as u64).to_be_bytes();
+            std::ptr::copy_nonoverlapping(be.as_ptr(), ptr.add(2), 8);
+            *ptr.add(10) = code;
+            std::ptr::copy_nonoverlapping(payload.as_ptr(), ptr.add(11), payload.len());
+        }
+        out.set_len(out.len() + total_len);
+    }
 }
 
 /// Queue a WS control frame (ping/pong/close — always FIN, payload <= 125).
@@ -93,5 +122,62 @@ pub fn finish_close(client: WsClient) {
         let _ = std_stream.set_nonblocking(false);
         let _ = (&std_stream).write_all(&client.send_queue);
         // std_stream drops here, closing the socket.
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+
+    #[test]
+    fn test_encode_wire_frame_boundaries() {
+        // Test empty payload (len = 1)
+        let mut out = BytesMut::new();
+        encode_wire_frame(15, &[], &mut out);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0], 0x82);
+        assert_eq!(out[1], 1);
+        assert_eq!(out[2], 15);
+
+        // Test boundary len = 125 (payload = 124 bytes)
+        out.clear();
+        let p124 = vec![0xAA; 124];
+        encode_wire_frame(15, &p124, &mut out);
+        assert_eq!(out.len(), 124 + 3);
+        assert_eq!(out[0], 0x82);
+        assert_eq!(out[1], 125);
+        assert_eq!(out[2], 15);
+        assert_eq!(&out[3..], &p124[..]);
+
+        // Test boundary len = 126 (payload = 125 bytes) -> transitions to 2-byte len
+        out.clear();
+        let p125 = vec![0xBB; 125];
+        encode_wire_frame(15, &p125, &mut out);
+        assert_eq!(out.len(), 125 + 5);
+        assert_eq!(out[0], 0x82);
+        assert_eq!(out[1], 126);
+        assert_eq!(&out[2..4], &126u16.to_be_bytes());
+        assert_eq!(out[4], 15);
+        assert_eq!(&out[5..], &p125[..]);
+
+        // Test boundary len = 65535 (payload = 65534 bytes)
+        out.clear();
+        let p65534 = vec![0xCC; 65534];
+        encode_wire_frame(15, &p65534, &mut out);
+        assert_eq!(out.len(), 65534 + 5);
+        assert_eq!(out[0], 0x82);
+        assert_eq!(out[1], 126);
+        assert_eq!(&out[2..4], &65535u16.to_be_bytes());
+        assert_eq!(out[4], 15);
+
+        // Test boundary len = 65536 (payload = 65535 bytes) -> transitions to 8-byte len
+        out.clear();
+        let p65535 = vec![0xDD; 65535];
+        encode_wire_frame(15, &p65535, &mut out);
+        assert_eq!(out.len(), 65535 + 11);
+        assert_eq!(out[0], 0x82);
+        assert_eq!(out[1], 127);
+        assert_eq!(&out[2..10], &65536u64.to_be_bytes());
+        assert_eq!(out[10], 15);
     }
 }

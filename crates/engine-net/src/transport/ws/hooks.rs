@@ -10,7 +10,7 @@
 //! the caller is already holding.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use ahash::AHashMap;
 
 use bytes::Bytes;
 use mio::net::TcpListener;
@@ -36,9 +36,9 @@ pub type HttpHook = Box<dyn Fn(&str) -> Option<(Cow<'static, str>, Bytes)> + Sen
 pub(super) struct ServerCtx<'a> {
     pub(super) matchmake_hook: Option<&'a MatchmakeHook>,
     pub(super) http_hook: Option<&'a HttpHook>,
-    pub(super) retained: &'a HashMap<String, String>,
-    pub(super) seat_tokens: &'a mut HashMap<String, String>,
-    pub(super) client_rooms: &'a mut HashMap<String, String>,
+    pub(super) retained: &'a AHashMap<String, String>,
+    pub(super) seat_tokens: &'a mut AHashMap<String, String>,
+    pub(super) client_rooms: &'a mut AHashMap<String, String>,
 }
 
 /// Everything one `poll_events` pass mutates: field borrows of the transport
@@ -46,11 +46,11 @@ pub(super) struct ServerCtx<'a> {
 pub(super) struct Pass<'a> {
     pub(super) poll: &'a mut Poll,
     pub(super) listeners: &'a mut Vec<TcpListener>,
-    pub(super) clients: &'a mut HashMap<Token, WsClient>,
-    pub(super) client_tokens: &'a mut HashMap<String, Token>,
-    pub(super) client_rooms: &'a mut HashMap<String, String>,
-    pub(super) retained: &'a HashMap<String, String>,
-    pub(super) seat_tokens: &'a mut HashMap<String, String>,
+    pub(super) clients: &'a mut AHashMap<Token, WsClient>,
+    pub(super) client_tokens: &'a mut AHashMap<String, Token>,
+    pub(super) client_rooms: &'a mut AHashMap<String, String>,
+    pub(super) retained: &'a AHashMap<String, String>,
+    pub(super) seat_tokens: &'a mut AHashMap<String, String>,
     pub(super) matchmake_hook: &'a mut Option<MatchmakeHook>,
     pub(super) http_hook: &'a mut Option<HttpHook>,
     pub(super) next_token: &'a mut usize,

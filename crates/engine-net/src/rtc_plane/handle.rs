@@ -86,28 +86,21 @@ impl PlaneHandle {
         player_id: &Arc<str>,
         send: impl FnOnce(&mpsc::Sender<SessionInbound>) -> bool,
     ) -> bool {
-        let session_id = {
-            let index = self.registries.lock_players();
-            match index.get(player_id) {
-                Some(sid) => sid.clone(),
-                None => return false,
-            }
+        let session_id = match self.registries.player_to_session(player_id) {
+            Some(sid) => sid,
+            None => return false,
         };
-        let outbox = self.registries.lock_outbox();
-        match outbox.get(&session_id) {
-            Some(tx) => send(tx),
-            None => false,
-        }
+        self.registries.route_inbox(&session_id, send).unwrap_or(false)
     }
 
     /// The "which session belongs to player id" lookup.
     pub fn session_for_player(&self, player_id: &str) -> Option<Arc<str>> {
-        self.registries.lock_players().get(player_id).cloned()
+        self.registries.player_to_session(player_id)
     }
 
     /// Number of live sessions with a registered inbox.
     pub fn session_count(&self) -> usize {
-        self.registries.lock_outbox().len()
+        self.registries.session_count()
     }
 
     /// Await the next uplink event. The bridge drains this onto its crossbeam bus.

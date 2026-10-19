@@ -20,12 +20,18 @@ pub struct SeatResponse {
     pub seat_token: String,
     pub game_port: u16,
     pub control_port: u16,
+    pub udp_port: u16,
     pub ice_servers: String,
     pub expires_at: u64,
 }
 
 impl SeatResponse {
     pub fn new(state: &ApiState, seat: &Seat) -> SeatResponse {
+        let udp_port = std::env::var("OX_UDP_ADDR")
+            .ok()
+            .and_then(|addr| addr.split(':').last().and_then(|p| p.parse::<u16>().ok()))
+            .unwrap_or(7778);
+
         SeatResponse {
             name: seat.room.clone(),
             session_id: seat.id.clone(),
@@ -35,6 +41,7 @@ impl SeatResponse {
             seat_token: seat.token.clone(),
             game_port: state.game.port,
             control_port: state.control_port(),
+            udp_port,
             ice_servers: state.signals.ice_config().to_string(),
             expires_at: seat.expires_at,
         }
@@ -46,7 +53,7 @@ impl SeatResponse {
                 "{{\"name\":\"{name}\",\"sessionId\":\"{sid}\",\"roomId\":\"{room}\",",
                 "\"processId\":\"{proc}\",\"reconnectionToken\":\"{token}\",",
                 "\"seatToken\":\"{seat}\",\"gamePort\":{gport},\"controlPort\":{cport},",
-                "\"expiresAt\":{exp},\"iceServers\":{ice}}}"
+                "\"udpPort\":{uport},\"expiresAt\":{exp},\"iceServers\":{ice}}}"
             ),
             name = json_escape(&self.name),
             sid = json_escape(&self.session_id),
@@ -56,6 +63,7 @@ impl SeatResponse {
             seat = json_escape(&self.seat_token),
             gport = self.game_port,
             cport = self.control_port,
+            uport = self.udp_port,
             exp = self.expires_at,
             ice = json_string_literal(&self.ice_servers),
         )

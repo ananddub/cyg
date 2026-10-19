@@ -8,6 +8,7 @@ static MIGRATIONS: &[EmbeddedMigration] = &[
 ];
 
 /// Applies embedded migrations using the supplied sqlx pool. No Flash binary is required.
+#[allow(non_snake_case)]
 pub async fn FlashInitMigrate(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     sqlx::query("CREATE TABLE IF NOT EXISTS _flash_migrations (id VARCHAR(255) PRIMARY KEY, checksum VARCHAR(64) NOT NULL, finished_at TIMESTAMP NULL, migration_name VARCHAR(255) NOT NULL, started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)").execute(pool).await?;
     for migration in MIGRATIONS {

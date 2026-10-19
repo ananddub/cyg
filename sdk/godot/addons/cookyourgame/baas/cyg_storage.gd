@@ -99,7 +99,7 @@ extends RefCounted
 ## a request that never got a reply, so a storage read and a login cannot disagree about
 ## any of that. A game that must point storage somewhere else sets `CYGHttp.base_url`.
 ##
-## Clean-room port of this repo's Unity BaaS layer
+## Independent port of this repo's Unity BaaS layer
 ## (`sdk/unity/Runtime/BaaS/CYGStorage.cs`) onto the documented `/v2/` endpoints
 ## of the Rust engine-api; no upstream source text is copied.
 

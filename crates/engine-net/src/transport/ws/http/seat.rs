@@ -1,11 +1,18 @@
 //! Seat reservation the transport serves itself, and the JSON / JOIN_ROOM
 //! shapes the SDK consumes.
 
-use std::collections::HashMap;
+use ahash::AHashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::super::error::MatchMakeError;
 use super::super::protocol::{MATCHMAKE_METHODS, PROTO_JOIN_ROOM, SERIALIZER_ID};
+
+/// Monotonic tie-breaker for seat ids. The wall clock alone is not enough: a
+/// burst of joins inside one millisecond would otherwise mint identical ids,
+/// and because a player is keyed by `sessionId` the duplicates silently fold
+/// into a single seat (two clients, one player).
+static SEAT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Default matchmake served when the game has not registered a hook: seats for
 /// the full Colyseus method whitelist, reconnect via retained tokens, and
@@ -14,7 +21,7 @@ pub(super) fn default_matchmake(
     method: &str,
     room: &str,
     body: &str,
-    retained: &HashMap<String, String>,
+    retained: &AHashMap<String, String>,
     fallback_session: &str,
 ) -> Result<String, MatchMakeError> {
     if method == "reconnect" {
@@ -35,15 +42,23 @@ pub(super) fn default_matchmake(
         )));
     }
 
-    let session = format!("sdk_{}", now_millis());
+    let session = next_session_id();
     let token = format!("{}:{}", room, session);
     Ok(seat_json(room, &session, &token))
+}
+
+/// A unique seat id: `sdk_<unix_millis>_<seq>`. Uniqueness holds within a
+/// process (the counter) and across restarts (the clock); never contains `:`,
+/// which is the `room:session` token separator.
+fn next_session_id() -> String {
+    let seq = SEAT_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("sdk_{}_{seq}", now_millis())
 }
 
 /// `ISeatReservation` JSON consumed by the SDK (`packages/sdk/src/Client.ts`).
 fn seat_json(room: &str, session_id: &str, token: &str) -> String {
     format!(
-        "{{\"name\":\"{room}\",\"sessionId\":\"{sid}\",\"roomId\":\"{room}\",\"processId\":\"openoxide_1\",\"reconnectionToken\":\"{token}\"}}",
+        "{{\"name\":\"{room}\",\"sessionId\":\"{sid}\",\"roomId\":\"{room}\",\"processId\":\"openoxide_1\",\"reconnectionToken\":\"{token}\",\"gamePort\":7777,\"udpPort\":7778}}",
         room = room,
         sid = session_id,
         token = token
@@ -73,7 +88,7 @@ pub(super) fn parse_json_string(body: &str, key: &str) -> Option<String> {
 pub(super) fn build_join_reply(
     session_id: &str,
     room_id: &str,
-    seat_tokens: &HashMap<String, String>,
+    seat_tokens: &AHashMap<String, String>,
 ) -> Vec<u8> {
     let rt = seat_tokens
         .get(session_id)
@@ -87,4 +102,33 @@ pub(super) fn build_join_reply(
     reply.extend_from_slice(SERIALIZER_ID);
     reply.push(0x00); // msgpack fixint 0: empty state reflection
     reply
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The regression this guards: two joins in the same millisecond used to
+    /// produce the same `sdk_<millis>` id, folding two clients into one seat.
+    #[test]
+    fn session_ids_are_unique_within_a_millisecond() {
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..10_000 {
+            let id = next_session_id();
+            assert!(!id.contains(':'), "id must not break the room:session token");
+            assert!(seen.insert(id), "duplicate seat id minted");
+        }
+    }
+
+    #[test]
+    fn matchmake_issues_distinct_seats() {
+        let retained = AHashMap::new();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..1_000 {
+            let body = default_matchmake("joinOrCreate", "game_room", "{}", &retained, "fallback")
+                .expect("seat issued");
+            let sid = parse_json_string(&body, "sessionId").expect("sessionId in body");
+            assert!(seen.insert(sid), "duplicate sessionId across matchmake calls");
+        }
+    }
 }

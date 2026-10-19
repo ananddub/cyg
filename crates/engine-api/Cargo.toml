@@ -16,7 +16,11 @@ sha2 = "0.10"
 # `sha1` is what HMAC needs for the TOTP second factor (RFC 6238); the 0.10 line is
 # the one `hmac` 0.12 is built against, and axum already pulls it in.
 sha1 = "0.10"
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "multipart"] }
+# Upload ABI validation: enumerate a module's exports and full-validate its
+# bytes without spinning up a Cranelift compile — the same 0.217 line the
+# workspace's wasmtime already depends on.
+wasmparser = "0.217"
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros", "signal"] }
 crossbeam-channel = "0.5"
@@ -40,6 +44,9 @@ md-5 = "0.10"
 base64 = "0.22"
 # Base32: the encoding every authenticator app and `otpauth://` URI expects.
 data-encoding = "2"
+scc = "3.8"
+ahash = "0.8"
+arc-swap = "1.9.2"
 
 [dev-dependencies]
 # Same version axum's `ws` feature already pins, for the live-socket test.

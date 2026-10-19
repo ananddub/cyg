@@ -18,3 +18,5 @@ pub mod friend;
 pub mod leaderboard;
 pub mod console_mutations;
 pub mod group;
+pub mod inventory;
+

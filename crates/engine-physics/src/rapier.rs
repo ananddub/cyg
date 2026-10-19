@@ -1,7 +1,14 @@
-//! # Rapier 2D & 3D Deterministic Physics Pipeline
+//! # Rapier 2D & 3D Physics Pipeline
 //!
 //! Provides out-of-the-box integration for full rigid-body dynamics,
 //! compound colliders, gravity, and continuous collision detection (CCD).
+//!
+//! The default Rapier features used here are fixed-step but do **not** claim
+//! cross-platform bit-exact determinism. If you need lockstep/replay across
+//! operating systems, enable and validate Rapier's `enhanced-determinism`
+//! feature (or use the fixed-point helpers) before relying on checksum
+//! equality. Server-authoritative simulation does not require cross-platform
+//! determinism.
 
 use rapier3d::prelude as r3d;
 use rapier2d::prelude as r2d;

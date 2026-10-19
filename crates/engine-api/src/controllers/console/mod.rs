@@ -8,6 +8,7 @@
 pub mod account;
 pub mod audit;
 pub mod auth;
+pub mod games;
 pub mod group;
 pub mod iap;
 pub mod leaderboard;
@@ -20,3 +21,4 @@ pub mod setting;
 pub mod status;
 pub mod storage;
 pub mod user;
+pub mod wasm;

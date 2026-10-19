@@ -28,7 +28,7 @@ extends CYGBehaviour
 ## `[Vector3 position, float speed]`, so a projectile costs 6 + 4 + tag bytes.
 ##
 ## Derived from netfox's rollback prediction flow (MIT, Gálffy Tamás;
-## sdk/godot/addons/cookyourgame/LICENSE-NETFOX.md), written clean-room.
+## sdk/godot/addons/cookyourgame/LICENSE-NETFOX.md), written independently.
 
 const RPC_PREDICT := "cyg_predict"
 const RPC_CONFIRM_DEFAULT := "cyg_confirm"

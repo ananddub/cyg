@@ -47,7 +47,7 @@ extends CYGClient
 ##     # ... play, read CYGNetworkProfiler.active.snapshot() ...
 ##     wrapper.detach()                                   # byte-identical again
 ##
-## Design derives from Netfox's MIT-licensed profiler and Mirror's interest/transport metrics (attribution in LICENSE-NETFOX.md). Clean-room GDScript; no upstream source text is copied.
+## Design derives from Netfox's MIT-licensed profiler and Mirror's interest/transport metrics (attribution in LICENSE-NETFOX.md). Independent GDScript; no upstream source text is copied.
 
 ## Hard cap on each degrade queue; overflow force-delivers the oldest packet.
 const MAX_DEGRADE_QUEUE := 2048

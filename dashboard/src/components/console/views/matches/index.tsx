@@ -63,7 +63,7 @@ export function MatchesView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Matches & Matchmaking"
         description="Live realtime matches on this node. Select one to read its members and tick, or terminate it."
@@ -72,6 +72,7 @@ export function MatchesView() {
       <Panel
         title="Running matches"
         description={`page ${Math.floor(offset / PAGE_SIZE) + 1}`}
+        fill
       >
         <DataTable
           columns={columns}
@@ -82,6 +83,8 @@ export function MatchesView() {
           onRowClick={(row) => setSelectedId(row.api_match.match_id)}
           selectedKey={selectedId ?? undefined}
           empty="No matches running."
+          fill
+          selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={rows?.length ?? 0} onChange={setOffset} />
       </Panel>

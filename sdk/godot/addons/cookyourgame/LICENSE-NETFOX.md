@@ -7,9 +7,10 @@ client-side prediction with a per-tick history buffer, server reconciliation
 with rollback and replay, and entity interpolation between snapshots.
 
 That design is studied from Netfox's documentation and public source, and the
-code is written against this project's own wire protocol. It is still a
-derivative of Netfox's work, which is MIT licensed, so the upstream notice is
-reproduced here and must accompany any redistribution of the plugin.
+code is an independent reimplementation written against this project's own wire
+protocol. No upstream source text is copied. Netfox is MIT licensed, so the
+upstream notice is reproduced here and must accompany any redistribution of the
+plugin.
 
 ---
 

@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { TextArea, TextInput } from "@/components/console/form"
+import { JsonTextArea, TextInput } from "@/components/console/form"
 import { jsonText, parseJson } from "@/components/console/json"
 import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation } from "@/hooks/use-console"
@@ -82,7 +82,7 @@ export function TemplateDialog({
         onChange={setDescription}
         placeholder="What this template is for"
       />
-      <TextArea label="ACL" rows={5} value={acl} onChange={setAcl} />
+      <JsonTextArea label="ACL" rows={5} value={acl} onChange={setAcl} />
       <p className="text-[11px] text-muted-foreground">
         <code>role</code> is 1 admin, 2 developer, 3 maintainer, 4 readonly. An unrecognised document falls back to
         readonly — least privilege, never more.

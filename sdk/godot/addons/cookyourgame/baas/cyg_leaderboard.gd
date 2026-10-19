@@ -80,7 +80,7 @@ extends RefCounted
 ##         CYGLeaderboard.list("weekly-deathmatch", on_top, 25)
 ##         CYGLeaderboard.rank_of("weekly-deathmatch", my_uuid, on_my_rank)
 ##
-## Clean-room GDScript port of this repo's Unity/Unreal BaaS layer onto the
+## Independent GDScript port of this repo's Unity/Unreal BaaS layer onto the
 ## documented `/v2/` endpoints of `crates/engine-api`; no upstream source text
 ## is copied.
 

@@ -58,7 +58,7 @@ extends RefCounted
 ## authoritative.
 ##
 ## Design derives from Netfox's MIT-licensed reactive properties and Mirror's
-## SyncVar (attribution in LICENSE-NETFOX.md). Clean-room GDScript; no upstream
+## SyncVar (attribution in LICENSE-NETFOX.md). Independent GDScript; no upstream
 ## source text is copied.
 
 signal value_changed(property_name: String, old_value: Variant, new_value: Variant)

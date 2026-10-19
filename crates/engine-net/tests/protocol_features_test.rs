@@ -12,6 +12,7 @@
 //! - JOIN_ROOM handshake echoing the seat's reconnectionToken
 //! - Opcode mapping: ROOM_STATE (14) vs ROOM_STATE_PATCH (15)
 //! - Server-initiated disconnect with close code 4000 (CONSENTED)
+//! - Rejected join: queued ERROR (11) flushed ahead of close 4002 (WITH_ERROR)
 //! - Unresponsive-client heartbeat termination
 //!
 //! Protocol values verified against `packages/shared-types/src/Protocol.ts`
@@ -138,6 +139,82 @@ fn try_parse_ws_frame(buf: &[u8]) -> Option<(u8, Vec<u8>)> {
         return None;
     }
     Some((ws_opcode, buf[header_len..header_len + payload_len].to_vec()))
+}
+
+/// Byte length of the first complete frame in `buf`, if one is fully buffered.
+fn ws_frame_len(buf: &[u8]) -> Option<usize> {
+    if buf.len() < 2 {
+        return None;
+    }
+    let len = (buf[1] & 0x7F) as usize;
+    let (header_len, payload_len) = match len {
+        126 => {
+            if buf.len() < 4 {
+                return None;
+            }
+            (4usize, u16::from_be_bytes([buf[2], buf[3]]) as usize)
+        }
+        127 => {
+            if buf.len() < 10 {
+                return None;
+            }
+            (10usize, u64::from_be_bytes(buf[2..10].try_into().unwrap()) as usize)
+        }
+        n => (2usize, n),
+    };
+    if buf.len() < header_len + payload_len {
+        None
+    } else {
+        Some(header_len + payload_len)
+    }
+}
+
+/// Read `n` frames through ONE persistent buffer.
+///
+/// `read_frame` parses a single frame out of a fresh buffer, so any bytes that
+/// follow it in the same TCP read are lost — fine when the server writes one
+/// frame per flush, wrong for a burst (an ERROR written together with a close).
+fn read_frames(
+    stream: &mut TcpStream,
+    transport: &mut WsTransport,
+    n: usize,
+) -> Vec<(u8, Vec<u8>)> {
+    stream
+        .set_read_timeout(Some(Duration::from_millis(20)))
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let mut buf = Vec::new();
+    let mut out: Vec<(u8, Vec<u8>)> = Vec::with_capacity(n);
+    while out.len() < n {
+        while let Some(consumed) = ws_frame_len(&buf) {
+            let frame = try_parse_ws_frame(&buf).expect("buffered length implies parse");
+            buf.drain(..consumed);
+            out.push(frame);
+            if out.len() == n {
+                return out;
+            }
+        }
+        if std::time::Instant::now() > deadline {
+            panic!(
+                "only {} of {n} frames arrived; buffered: {buf:02X?}",
+                out.len()
+            );
+        }
+        let mut chunk = [0u8; 4096];
+        match stream.read(&mut chunk) {
+            Ok(0) => panic!("socket closed after {} of {n} frames", out.len()),
+            Ok(k) => buf.extend_from_slice(&chunk[..k]),
+            Err(ref e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                let _ = poll(transport);
+                let _ = transport.flush();
+            }
+            Err(e) => panic!("socket read error: {e}"),
+        }
+    }
+    out
 }
 
 /// Complete the RFC 6455 upgrade and return the stream (handshake reply +
@@ -591,6 +668,51 @@ fn test_server_disconnect_close_code_4000() {
 }
 
 #[test]
+fn test_disconnect_with_close_code_4002() {
+    let (mut transport, port) = spawn_transport();
+    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_full");
+
+    // Connected already fired inside ws_upgrade's polling.
+    let cid = "sess_full".to_string();
+
+    transport
+        .disconnect_with(&cid, 4002, "room is full")
+        .expect("disconnect_with");
+
+    let (ws_op, payload) = read_frame(&mut stream, &mut transport);
+    assert_eq!(ws_op, 0x8, "expected a close frame");
+    let code = u16::from_be_bytes([payload[0], payload[1]]);
+    assert_eq!(code, 4002, "a rejected join must use WITH_ERROR (4002)");
+    assert_eq!(&payload[2..], b"room is full", "close reason must survive");
+}
+
+/// The exact regression behind "the cap works but the client is never told":
+/// an ERROR queued just before the close must reach the wire *first*, in one
+/// write, instead of being dropped along with the socket.
+#[test]
+fn test_queued_error_precedes_close_frame() {
+    let (mut transport, port) = spawn_transport();
+    let mut stream =
+        ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_reject");
+    let cid = "sess_reject".to_string();
+
+    let reason = br#"{"code":4002,"message":"room is full"}"#;
+    transport.send_to(&cid, OpCode::Error, reason).unwrap();
+    transport.disconnect_with(&cid, 4002, "room is full").unwrap();
+
+    // Both frames leave in one write, so they must be read as a burst.
+    let frames = read_frames(&mut stream, &mut transport, 2);
+    let (op1, p1) = &frames[0];
+    assert_eq!(*op1, 0x2, "the queued ERROR must be a binary frame");
+    assert_eq!(p1[0], 11, "wire ERROR opcode is 11");
+    assert_eq!(&p1[1..], reason, "ERROR reason must be intact");
+
+    let (op2, p2) = &frames[1];
+    assert_eq!(*op2, 0x8, "close frame must follow the ERROR");
+    assert_eq!(u16::from_be_bytes([p2[0], p2[1]]), 4002);
+}
+
+#[test]
 fn test_leave_room_answers_close_code_4000() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_lv");
@@ -610,6 +732,36 @@ fn test_leave_room_answers_close_code_4000() {
     assert_eq!(ws_op, 0x8, "expected close frame after LEAVE_ROOM");
     let code = u16::from_be_bytes([payload[0], payload[1]]);
     assert_eq!(code, 4000, "LEAVE_ROOM close code must be CONSENTED (4000)");
+}
+
+/// A client that vanishes without a WebSocket close frame (process killed,
+/// network drop) must be reported as disconnected *immediately* off the socket
+/// EOF — not left to the heartbeat's ping timeout. Regression: the EOF flag was
+/// overwritten by the frame decoder, which returns `false` when a bare FIN
+/// carries no frame, leaving the peer in the room for the whole ping window.
+#[test]
+fn test_bare_tcp_eof_disconnects_without_close_frame() {
+    let (mut transport, port) = spawn_transport();
+    // Silence the heartbeat so only the read path can produce the event; if the
+    // EOF is dropped, `poll_until` times out and the test fails.
+    transport.set_heartbeat(HeartbeatConfig {
+        enabled: false,
+        ping_interval: Duration::from_secs(30),
+        max_retries: 0,
+    });
+    let stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_eof");
+
+    // Abrupt death: drop the socket. FIN is sent, no close frame follows.
+    drop(stream);
+
+    let start = std::time::Instant::now();
+    poll_until(&mut transport, |e| {
+        matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_eof")
+    });
+    assert!(
+        start.elapsed() < Duration::from_secs(1),
+        "a bare TCP EOF must disconnect off the read path, not the heartbeat"
+    );
 }
 
 // ---------------------------------------------------------------------------

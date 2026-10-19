@@ -1,9 +1,10 @@
 //! The once-a-second publish: roll the windows, stamp the report, feed the
 //! bus and the process-wide `current()` slot.
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use arc_swap::ArcSwapOption;
 use engine_bus::{Bus, StatusSnapshot, TICK_HISTOGRAM_BUCKETS};
 use engine_dashboard::MAX_CLIENT_ROWS;
 
@@ -60,9 +61,7 @@ impl Recorder {
         // it exactly once, so a full queue means the consumer stopped, not that
         // it is behind — and `/status` says so by ageing the sample it holds.
         let _ = bus.status_tx.try_send(snap.clone());
-        if let Ok(mut slot) = LAST.get_or_init(Mutex::default).lock() {
-            *slot = Some(snap);
-        }
+        LAST.get_or_init(ArcSwapOption::default).store(Some(Arc::new(snap)));
 
         self.n_input = 0;
         self.n_tick = 0;
@@ -72,12 +71,12 @@ impl Recorder {
     }
 }
 
-static LAST: OnceLock<Mutex<Option<StatusSnapshot>>> = OnceLock::new();
+static LAST: OnceLock<ArcSwapOption<StatusSnapshot>> = OnceLock::new();
 
 /// Last snapshot published (for any main-thread reader; lock-free read).
 pub fn current() -> Option<StatusSnapshot> {
-    LAST.get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .clone()
+    LAST.get_or_init(ArcSwapOption::default)
+        .load()
+        .as_deref()
+        .cloned()
 }

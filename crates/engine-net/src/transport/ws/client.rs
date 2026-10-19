@@ -12,6 +12,11 @@ pub(super) enum WsState {
     Connected,
 }
 
+/// Hard ceiling for one client's pending bytes. A peer that stops reading must
+/// not be able to grow the server's heap: at 16 KB per queued frame this is
+/// dozens of seconds of backlog, far past the point where the client is gone.
+pub(super) const MAX_SEND_QUEUE: usize = 1024 * 1024;
+
 pub(super) struct WsClient {
     pub(super) stream: mio::net::TcpStream,
     pub(super) state: WsState,

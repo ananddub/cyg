@@ -26,6 +26,15 @@ pub fn router(state: &ApiState) -> Router {
 /// take the API down.
 pub async fn app(state: ApiState) -> Router {
     state::install_state(state.clone());
+    // The tenancy tables are created here rather than by an operator step: a plane
+    // that booted against an empty database still has somewhere to register a game.
+    // A failure is reported and ignored — the pool is lazy, so Postgres being down at
+    // boot must not stop the API from coming up.
+    if let Some(pool) = state.db.as_ref() {
+        if let Err(err) = crate::services::games::ensure_schema(pool).await {
+            eprintln!("games: schema bootstrap failed: {err}");
+        }
+    }
     let mut router = router(&state);
     if let Ok(container) = auto_di::Container::new() {
         match auto_route::build_routes(&container).await {

@@ -76,12 +76,12 @@ export function RoomsView({ data }: { data: DashboardData }) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Game Rooms"
         description="Authoritative room instances running on the simulation plane. Select a room to inspect its players."
       />
-      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-xs">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xs">
         <RoomsTable
           rooms={data.rooms ?? undefined}
           clients={data.clients ?? undefined}
@@ -95,12 +95,12 @@ export function RoomsView({ data }: { data: DashboardData }) {
 
 export function ClientsView({ data }: { data: DashboardData }) {
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Connected Clients"
         description="Live network transport sessions, sorted by input silence and sequence acknowledgements."
       />
-      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-xs">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xs">
         <ClientsTable clients={data.clients ?? undefined} loading={data.clients === null} />
       </div>
     </div>
@@ -115,7 +115,7 @@ export function CoresView({
   onSelectWorker: (worker: WorkerRow) => void
 }) {
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Simulation Cores"
         description="Dedicated worker threads executing tick loops across CPU cores."

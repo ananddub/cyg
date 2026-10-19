@@ -268,3 +268,26 @@ export function save(): i64 {
 
 export function load(ptr: i32, len: i32): void {
 }
+
+// --- Flat C-ABI exports expected by the host (host.rs / rooms.rs) ---
+// The host binds these exact names; the short names above are kept for older
+// callers. Without these the room template fails to link (FunctionNotFound).
+export function on_alloc(len: i32): i32 {
+    return alloc(len);
+}
+
+export function on_tick(dt: f64): i64 {
+    return tick(dt);
+}
+
+export function on_save(): i64 {
+    return save();
+}
+
+export function on_load(ptr: i32, len: i32): void {
+    load(ptr, len);
+}
+
+export function on_is_full(count: i32): bool {
+    return is_full(count);
+}

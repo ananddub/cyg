@@ -12,3 +12,7 @@ Sub-millisecond UDP multiplayer networking plugin for Unreal Engine 5.x.
 1. Copy `OpenOxide` folder into your Unreal Project's `Plugins/` folder.
 2. In Project Settings -> Plugins, enable `OpenOxide Gaming SDK`.
 3. Rebuild your project.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). Copyright (c) 2026 CookYourGame Team.

@@ -30,7 +30,7 @@ extends RefCounted
 ## changes nothing allocates nothing.
 ##
 ## Design derives from Netfox's MIT-licensed sync collections and Mirror's
-## SyncList dirty masking (attribution in LICENSE-NETFOX.md). Clean-room
+## SyncList dirty masking (attribution in LICENSE-NETFOX.md). Independent
 ## GDScript; no upstream source text is copied.
 
 ## Mask geometry limit: 4096 slots is 512 wire bytes. Above that the caller must

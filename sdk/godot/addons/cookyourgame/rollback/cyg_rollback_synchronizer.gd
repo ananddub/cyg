@@ -14,7 +14,7 @@ extends RefCounted
 ##
 ## One instance serves several predicted objects keyed by an int id (the view id).
 ## Derived from netfox's rollback history/prediction flow (MIT, Gálffy Tamás;
-## sdk/godot/addons/cookyourgame/LICENSE-NETFOX.md), written clean-room.
+## sdk/godot/addons/cookyourgame/LICENSE-NETFOX.md), written independently.
 
 ## Raised when the ledger rewound and replayed at least one tick. `from_tick` is
 ## the authoritative tick actually applied, `to_tick` the newest local tick.

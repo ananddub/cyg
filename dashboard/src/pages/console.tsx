@@ -5,6 +5,8 @@
 import { useState } from "react"
 
 import { ConsoleSidebar } from "@/components/console/shell"
+import { ThemeToggle } from "@/components/console/theme-toggle"
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AccountsView } from "@/components/console/views/accounts"
 import {
   AclTemplatesView,
@@ -13,6 +15,7 @@ import {
   SettingsView,
 } from "@/components/console/views/administration"
 import { GroupsView } from "@/components/console/views/groups"
+import { GamesView } from "@/components/console/views/games"
 import { LeaderboardsView } from "@/components/console/views/leaderboards"
 import { MatchesView } from "@/components/console/views/matches"
 import {
@@ -27,6 +30,7 @@ import { NotificationsView } from "@/components/console/views/notifications"
 import { SecurityView } from "@/components/console/views/security"
 import { StorageView } from "@/components/console/views/storage"
 import { TournamentsView } from "@/components/console/views/tournaments"
+import { WasmUploadView } from "@/components/console/views/wasm-upload"
 import { CoreDetailsSidebar } from "@/components/core-details-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { OfflineBanner } from "@/components/offline-banner"
@@ -57,11 +61,12 @@ export function ConsolePage({
     worker === null ? null : ((data.workers ?? []).find((candidate) => candidate.name === worker.name) ?? worker)
 
   return (
-    <div className="flex min-h-svh w-full bg-background text-foreground">
+    <SidebarProvider className="h-svh w-full text-foreground">
       <ConsoleSidebar area={area} onNavigate={onNavigate} session={session} onLogout={onLogout} />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="sticky top-0 z-10 flex h-16 items-center border-b border-border/60 bg-background/80 px-4 backdrop-blur-md lg:px-8">
+      <SidebarInset className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-b-none! border-b-0! md:border md:border-border/60 md:peer-data-[variant=inset]:mb-0">
+        <div className="flex h-16 shrink-0 items-center border-b border-border/60 bg-background/80 px-4 backdrop-blur-md lg:rounded-t-xl lg:px-8">
+          <SidebarTrigger className="-ml-2 mr-2" />
           <DashboardHeader
             overview={data.overview ?? undefined}
             source={data.source}
@@ -69,22 +74,23 @@ export function ConsolePage({
             lastFrameAtMs={data.ws.lastFrameAtMs ?? undefined}
             sectionLabel={area.label}
           />
+          <ThemeToggle />
         </div>
 
-        <main className="flex-1 space-y-6 p-4 lg:p-8">
+        <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4 lg:p-8">
           {/* `null`: with no overview at all, there has been no frame since load
               — a stamp of "now" would claim a freshness the feed does not have. */}
           {offline && <OfflineBanner lastGoodAtMs={null} />}
           <AreaView id={area.id} data={data} onSelectWorker={setWorker} />
-        </main>
-      </div>
+        </div>
+      </SidebarInset>
 
       <CoreDetailsSidebar
         worker={activeWorker}
         overview={data.overview ?? undefined}
         onClose={() => setWorker(null)}
       />
-    </div>
+    </SidebarProvider>
   )
 }
 
@@ -114,6 +120,10 @@ function AreaView({
       return <GroupsView />
     case "notifications":
       return <NotificationsView />
+    case "games":
+      return <GamesView />
+    case "wasm":
+      return <WasmUploadView />
     case "leaderboards":
       return <LeaderboardsView />
     case "tournaments":

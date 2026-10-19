@@ -9,7 +9,7 @@ import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { TextArea, TextInput } from "@/components/console/form"
+import { JsonTextArea, TextArea, TextInput } from "@/components/console/form"
 import { FormSheet } from "@/components/console/form-sheet"
 import { parseJson } from "@/components/console/json"
 import { ConfirmDialog } from "@/components/console/modal"
@@ -161,8 +161,8 @@ export function WalletDialog({ id, open, onClose }: AccountDialogProps) {
         </>
       }
     >
-      <TextArea label="Changeset" rows={10} value={changeset} onChange={setChangeset} />
-      <TextArea
+      <JsonTextArea label="Changeset" rows={10} value={changeset} onChange={setChangeset} />
+      <JsonTextArea
         label="Metadata"
         hint="Optional, and recorded beside the change."
         rows={4}

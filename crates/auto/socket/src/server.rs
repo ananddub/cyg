@@ -4,7 +4,7 @@ use crate::{
     reactivity::refresh_subscription,
     registry::install_refreshers,
     rooms::{LiveSubscriptionRequest, SocketSubscriptions, release, retain, scoped},
-    state::{ACCESS_ENDPOINTS, LATEST_CHANNELS, SOCKET_IO, STREAM_HISTORY},
+    state::{ACCESS_ENDPOINTS, SOCKET_IO, latest_channels, stream_history},
 };
 use auto_di::{Container, DiError};
 use serde::Deserialize;
@@ -167,21 +167,16 @@ fn bind_subscribe(socket: &SocketRef, namespace: &'static str) {
 }
 fn replay(socket: &SocketRef, namespace: &str, room: &str) {
     let key = format!("{namespace}:{room}");
-    let latest = LATEST_CHANNELS
-        .get_or_init(Default::default)
-        .lock()
-        .ok()
-        .and_then(|items| items.get(&key).map(|sender| sender.borrow().clone()));
+    let latest = latest_channels()
+        .read_sync(&key, |_, sender| sender.borrow().clone());
     if let Some(latest) = latest {
         let _ = socket.emit("live:update", &latest);
     }
-    if let Ok(histories) = STREAM_HISTORY.get_or_init(Default::default).lock() {
-        if let Some(history) = histories.get(&key) {
-            for event in &history.events {
-                let _ = socket.emit("live:update", event);
-            }
+    stream_history().read_sync(&key, |_, history| {
+        for event in &history.events {
+            let _ = socket.emit("live:update", event);
         }
-    }
+    });
 }
 fn bind_unsubscribe(socket: &SocketRef) {
     socket.on(

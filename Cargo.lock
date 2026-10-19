@@ -146,6 +146,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -743,11 +752,13 @@ dependencies = [
 name = "auto_socket"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "auto-di",
  "auto_socket_macros",
  "axum",
  "inventory",
  "moka",
+ "scc",
  "serde",
  "serde_json",
  "socketioxide",
@@ -839,6 +850,7 @@ dependencies = [
  "matchit 0.8.4",
  "memchr",
  "mime",
+ "multer",
  "percent-encoding",
  "pin-project-lite",
  "serde_core",
@@ -2344,6 +2356,8 @@ dependencies = [
 name = "engine-api"
 version = "0.1.0"
 dependencies = [
+ "ahash",
+ "arc-swap",
  "argon2",
  "auto-di",
  "auto_route",
@@ -2365,6 +2379,7 @@ dependencies = [
  "md-5",
  "rand 0.8.8",
  "rust-embed",
+ "scc",
  "serde",
  "serde_json",
  "sha1 0.10.7",
@@ -2374,6 +2389,7 @@ dependencies = [
  "tokio-tungstenite 0.29.0",
  "tower",
  "uuid",
+ "wasmparser 0.217.1",
 ]
 
 [[package]]
@@ -2422,11 +2438,14 @@ dependencies = [
 name = "engine-net"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "bytes",
+ "dashmap",
  "engine-core",
  "engine-wasm",
  "engine-webrtc-protocol",
  "mio",
+ "scc",
  "socket2",
  "str0m",
  "tokio",
@@ -2447,6 +2466,7 @@ dependencies = [
 name = "engine-server"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "bytes",
  "crossbeam-channel",
  "engine-bus",
@@ -2462,6 +2482,7 @@ dependencies = [
  "hmac",
  "libc",
  "mio",
+ "scc",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5074,6 +5095,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
+name = "saa"
+version = "5.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd85992a680de788217d9c70b74aa7685b108cf1aba02f728fb27f1b27199ad1"
+
+[[package]]
 name = "safe_arch"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5106,6 +5133,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "scc"
+version = "3.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d5f8ca67c4f6208caf824037a6a9df0211b4e0937fccc4f543441f294d04511"
+dependencies = [
+ "saa",
+ "sdd",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5124,6 +5161,15 @@ dependencies = [
  "rustc-hash",
  "slab",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sdd"
+version = "4.8.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a31877eee03686b905845993b5d9809a220c9dd5a10e9d6021d7ca67384c9070"
+dependencies = [
+ "saa",
 ]
 
 [[package]]

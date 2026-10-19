@@ -5,10 +5,11 @@ Netfox-style rollback, lag compensation, the `/v2/` BaaS surface and an editor
 dock — in GDScript, with no native plugin and no engine fork.
 
 Everything lives under `addons/cookyourgame/`. Design derives from Netfox's
-MIT-licensed rollback stack and Mirror's transport/metrics layer
-(attribution: `addons/cookyourgame/LICENSE-NETFOX.md`); the code is clean-room
-GDScript written against this repository's Rust relay, so no upstream source
-text is copied.
+MIT-licensed rollback stack and Mirror's transport/metrics layer (attribution:
+`addons/cookyourgame/LICENSE-NETFOX.md` and
+`addons/cookyourgame/LICENSE-MIRROR.md`). The code is an independent GDScript
+reimplementation written against this repository's Rust relay; no upstream
+source text is copied.
 
 ## Install
 
@@ -111,7 +112,9 @@ CYGAuth.login_device(func(result: Dictionary) -> void:
 * `CYGStorage` — documents, collections, versioned writes, list with cursor.
 * `CYGInventory` — grant, define, equip to a slot, consume, instance ids.
 * `CYGLeaderboard` — weekly boards, `int64` scores normalised from strings.
-* `CYGChat` — channels, history paging, moderation.
+* `CYGChat` — channels, history paging, moderation. Channel ids are the
+  server's dotted form; use `CYGChat.room_channel("lobby")`,
+  `CYGChat.group_channel(group_id)` or `CYGChat.direct_channel(a, b)`.
 
 `CYGHttp.server_key_credential()` sends `Authorization: Basic base64("<server
 key>:")` for the routes the Rust gateway guards with a key instead of a session
@@ -214,3 +217,9 @@ debugging (`... res://test/test_main.tscn ++ role=alice`).
 Alice also drops her own socket at 6.5 s to prove the auto-reconnect path, and
 runs the whole session behind `CYGProfilingTransport` so the profiler's byte
 totals are counted from real traffic rather than fed.
+
+## License
+
+MIT — see [`LICENSE.md`](LICENSE.md). Copyright (c) 2026 CookYourGame Team.
+Third-party notices: [`addons/cookyourgame/LICENSE-NETFOX.md`](addons/cookyourgame/LICENSE-NETFOX.md)
+and [`addons/cookyourgame/LICENSE-MIRROR.md`](addons/cookyourgame/LICENSE-MIRROR.md).

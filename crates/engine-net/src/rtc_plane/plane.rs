@@ -1,8 +1,7 @@
 //! The plane owner: socket binding, the dedicated runtime thread and shutdown.
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use tokio::net::UdpSocket;
@@ -49,10 +48,7 @@ impl Plane {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let (uplink_tx, uplink_rx) = mpsc::unbounded_channel();
         let (notice_tx, notice_rx) = mpsc::unbounded_channel();
-        let registries = Registries {
-            outbox: Arc::new(Mutex::new(HashMap::new())),
-            player_index: Arc::new(Mutex::new(HashMap::new())),
-        };
+        let registries = Registries::new();
 
         let handle = PlaneHandle {
             cmd_tx: cmd_tx.clone(),

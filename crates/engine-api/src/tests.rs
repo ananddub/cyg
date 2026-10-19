@@ -4,6 +4,7 @@
 
 mod authenticate;
 mod console;
+mod games;
 mod gateway;
 mod iap;
 mod links;
@@ -11,6 +12,7 @@ mod server;
 mod storage;
 mod storage_index;
 mod unlinks;
+mod wasm_upload;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

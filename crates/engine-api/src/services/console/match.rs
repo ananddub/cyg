@@ -13,14 +13,14 @@ use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::matches::{ConsoleMatchList, ConsoleMatchRow, ConsoleMatchState};
 use crate::error::V2Error;
-use crate::services::match_handler;
+use crate::services::realtime::RealtimeMatchService;
 use crate::ApiState;
 
 impl super::ConsoleService {
     /// Page the running matches. The registry is a hash map, so the rows are sorted
     /// by id before slicing to make the paging deterministic across calls.
     pub async fn list_matches(&self, _state: &ApiState, page: Page) -> Json<ConsoleMatchList> {
-        let mut rows: Vec<ConsoleMatchRow> = match_handler::list_snapshots()
+        let mut rows: Vec<ConsoleMatchRow> = RealtimeMatchService::list_snapshots_all()
             .iter()
             .map(ConsoleMatchRow::from)
             .collect();
@@ -40,7 +40,7 @@ impl super::ConsoleService {
         id: &str,
     ) -> Result<Json<ConsoleMatchState>, V2Error> {
         let id = match_id(id)?;
-        let snapshot = match_handler::snapshot(id).ok_or_else(|| {
+        let snapshot = RealtimeMatchService::get_snapshot(id).ok_or_else(|| {
             V2Error::invalid_argument("Match not found, or match handler already stopped.")
         })?;
         Ok(Json(ConsoleMatchState {
@@ -60,7 +60,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = match_id(id)?;
-        if !match_handler::terminate(id) {
+        if !RealtimeMatchService::terminate_match(id) {
             return Err(V2Error::not_found("Match not found."));
         }
         super::audit(

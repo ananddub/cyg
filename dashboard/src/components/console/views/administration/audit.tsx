@@ -61,21 +61,23 @@ export function AuditLogView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading title="Audit Log" description="Every administrative action, newest first." />
 
-      <div className="max-w-xs">
+      <div className="max-w-xs shrink-0">
         <Select
           label="Operator"
           value={username}
           onChange={filterByName}
           options={operatorOptions}
+          searchable
         />
       </div>
 
       <Panel
         title="Entries"
         description={username === "" ? "All operators" : `Filtered to ${username}`}
+        fill
       >
         <DataTable
           columns={columns}
@@ -86,6 +88,8 @@ export function AuditLogView() {
           onRowClick={(row) => setSelectedId(row.id)}
           selectedKey={selectedId ?? undefined}
           empty="No audit entries yet."
+          fill
+          selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
       </Panel>

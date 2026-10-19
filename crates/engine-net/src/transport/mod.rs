@@ -80,12 +80,33 @@ pub trait GameTransport: Send {
     /// Send a message to a specific client session.
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> io::Result<()>;
 
+    /// Send the same message to several sessions. Transports may encode once
+    /// for all recipients; the default preserves per-session behaviour.
+    fn send_to_many(
+        &mut self,
+        client_ids: &[&str],
+        opcode: OpCode,
+        payload: &[u8],
+    ) -> io::Result<()> {
+        for client_id in client_ids {
+            self.send_to(client_id, opcode, payload)?;
+        }
+        Ok(())
+    }
+
     /// Broadcast a message to all connected clients.
     fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> io::Result<()>;
 
     /// Politely disconnect a client (server-initiated leave). Default: no-op.
     fn disconnect(&mut self, _client_id: &str) -> io::Result<()> {
         Ok(())
+    }
+
+    /// Server-initiated close with an explicit RFC 6455 close code and reason,
+    /// e.g. `close_code::WITH_ERROR` when a join is rejected. Default: falls
+    /// back to [`GameTransport::disconnect`].
+    fn disconnect_with(&mut self, client_id: &str, _code: u16, _reason: &str) -> io::Result<()> {
+        self.disconnect(client_id)
     }
 
     /// Flush batched pending writes to operating system sockets.

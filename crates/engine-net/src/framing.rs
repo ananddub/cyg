@@ -17,19 +17,29 @@ pub enum OpCode {
     StateDelta = 5,
     Custom = 6,
     RewindHitCheck = 7,
-    /// `ROOM_STATE` (14): full state snapshot for (re)joins.
+    /// Full state snapshot for (re)joins.
     StateSnapshot = 8,
-    /// `ROOM_DATA_BYTES` (17): binary message with a type prefix.
+    /// Opaque binary room payload. Internal tag only — the wire header code is
+    /// `17`, applied by `transport::ws::protocol::wire_opcode_for`.
     RoomDataBytes = 9,
-    /// `ROOM_REQUEST` (21): client request awaiting a response.
+    /// Client request awaiting a response (wire header code `21`).
     RoomRequest = 10,
-    /// `ROOM_RESPONSE` (22): server reply to a `ROOM_REQUEST`.
+    /// Server reply to a [`OpCode::RoomRequest`] (wire header code `22`).
     RoomResponse = 11,
-    /// `ERROR` (11): server-initiated error surfaced to `room.onError`.
+    /// Server-initiated error surfaced to `room.onError` (wire header code `11`).
     Error = 12,
 }
 
 impl OpCode {
+    /// Inverse of `opcode as u8` for the *internal* tag space the generic
+    /// framing helpers use.
+    ///
+    /// This is **not** the wire protocol. The client-facing header codes differ
+    /// (`10` = JOIN_ROOM, `11` = ERROR, `12` = LEAVE_ROOM, `15` = STATE_PATCH,
+    /// `17` = ROOM_DATA_BYTES, `18` = PING, `21` = ROOM_REQUEST, `22` =
+    /// ROOM_RESPONSE); the WebSocket transport maps between the two in
+    /// `transport::ws::protocol`, and `engine-server::netcode` owns the game
+    /// layer's canonical opcodes.
     pub fn from_u8(val: u8) -> Option<Self> {
         match val {
             0 => Some(Self::Ping),
@@ -45,6 +55,23 @@ impl OpCode {
             10 => Some(Self::RoomRequest),
             11 => Some(Self::RoomResponse),
             12 => Some(Self::Error),
+            _ => None,
+        }
+    }
+
+    /// Map a client-facing wire-protocol header code onto the engine tag.
+    ///
+    /// Mirrors the inbound table in `transport::ws::frames` and the inverse of
+    /// `transport::ws::protocol::wire_opcode_for`. Used by the game layer to put
+    /// a relayed packet back under the header its peers expect. Handshake and
+    /// control codes (`10`, `11`, `12`, `18`, `21`, `22`) have no game-layer
+    /// meaning here and return `None`.
+    pub fn from_wire(code: u8) -> Option<Self> {
+        match code {
+            13 => Some(Self::PlayerInput),
+            14 => Some(Self::StateSnapshot),
+            15 => Some(Self::StateDelta),
+            17 => Some(Self::RoomDataBytes),
             _ => None,
         }
     }

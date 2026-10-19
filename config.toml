@@ -9,3 +9,12 @@ port = 7777
 web_port = 8090
 tick_rate = 128
 max_clients = 16
+
+[control.session]
+database_url = "postgres://openoxide:change-me@localhost:5432/openoxide_db"
+max_db_connections = 10
+server_key = "defaultkey"
+
+[control.console]
+username = "admin"
+password = "password"

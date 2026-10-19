@@ -16,7 +16,7 @@ extends RefCounted
 ## demand so an out-of-order write cannot corrupt them.
 ##
 ## Design derives from Netfox's MIT-licensed rollback engine (attribution in
-## LICENSE-NETFOX.md). Clean-room GDScript; no Netfox source text is copied.
+## LICENSE-NETFOX.md). Independent GDScript; no Netfox source text is copied.
 
 # Pre-sized parallel arrays: no inner-class typing and no per-frame allocation,
 # mirroring the transform-sync ring the rest of the rollback layer already trusts.

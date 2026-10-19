@@ -26,7 +26,7 @@ extends CYGBehaviour
 ## every peer, because only the event index travels.
 ##
 ## Design derives from Netfox's MIT-licensed event layer (attribution in
-## LICENSE-NETFOX.md). Clean-room GDScript; no Netfox source text is copied.
+## LICENSE-NETFOX.md). Independent GDScript; no Netfox source text is copied.
 
 const RPC_NAME := "cyg_na2d"
 

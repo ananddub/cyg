@@ -20,7 +20,7 @@ extends CYGBehaviour
 ## the transform sync, so the two blocks decode independently off one reader.
 ##
 ## Prediction shape derives from netfox's network-rollback character tutorial
-## (MIT, © Gálffy Tamás); written clean-room against this SDK's contracts.
+## (MIT, © Gálffy Tamás); written independently against this SDK's contracts.
 
 enum AuthorityMode { OWNER_AUTHORITY, REMOTE_AUTHORITY }
 

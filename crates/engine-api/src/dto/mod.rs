@@ -24,6 +24,8 @@ pub mod storage;
 pub mod storage_index;
 pub mod tournament;
 pub mod user;
+pub mod inventory;
+
 
 /// An empty reply: the JSON object with no members that every endpoint with nothing
 /// to return answers with.

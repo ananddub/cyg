@@ -60,13 +60,13 @@ export function GroupsView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Groups"
         description="Player groups and clans. Select one to list its members and their roles."
       />
 
-      <Panel title="All groups">
+      <Panel title="All groups" fill>
         <DataTable
           columns={columns}
           rows={list.data}
@@ -76,6 +76,8 @@ export function GroupsView() {
           onRowClick={(row) => setSelectedId(row.id)}
           selectedKey={selectedId ?? undefined}
           empty="No groups yet."
+          fill
+          selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
       </Panel>

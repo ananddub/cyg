@@ -1,10 +1,11 @@
 //! Transport lifecycle: the `mio` poll, the listening sockets it owns and the
 //! maps that name every live session.
 
+use ahash::AHashMap;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
+use std::time::Instant;
 
 use bytes::{Bytes, BytesMut};
 use mio::net::TcpListener;
@@ -21,16 +22,16 @@ pub struct WsTransport {
     pub(super) poll: Poll,
     pub(super) events: Events,
     pub(super) listeners: Vec<TcpListener>,
-    pub(super) clients: HashMap<Token, WsClient>,
-    pub(super) client_tokens: HashMap<String, Token>,
+    pub(super) clients: AHashMap<Token, WsClient>,
+    pub(super) client_tokens: AHashMap<String, Token>,
     /// session id -> room id (from the upgrade URL path).
-    pub(super) client_rooms: HashMap<String, String>,
+    pub(super) client_rooms: AHashMap<String, String>,
     /// Abnormally-disconnected sessions kept alive for reconnection:
     /// reconnectionToken ("roomId:sessionId") -> session id.
-    pub(super) retained: HashMap<String, String>,
+    pub(super) retained: AHashMap<String, String>,
     /// session id -> reconnectionToken advertised in its matchmake seat, so
     /// the JOIN_ROOM handshake echoes the same token the SDK will reconnect with.
-    pub(super) seat_tokens: HashMap<String, String>,
+    pub(super) seat_tokens: AHashMap<String, String>,
     /// Events queued outside poll_events (e.g. `disconnect()`), drained first.
     pub(super) pending_events: Vec<TransportEvent>,
     /// Cross-poll event buffer; handed to `poll_events` via `mem::take` so
@@ -45,6 +46,12 @@ pub struct WsTransport {
     pub(super) sb: BytesMut,
     pub(super) heartbeat: HeartbeatConfig,
     pub(super) next_token: usize,
+    /// True when at least one client has bytes queued. `flush` skips the
+    /// O(clients) pass entirely while the server is idle.
+    pub(super) flush_dirty: bool,
+    /// Frames dropped because a client's send queue hit `MAX_SEND_QUEUE`.
+    pub(super) dropped_frames: u64,
+    pub(super) last_drop_log: Instant,
     /// Actual kernel-assigned bound address (resolves port 0).
     pub(super) bound_addr: SocketAddr,
     pub bound_addrs: Vec<SocketAddr>,
@@ -98,11 +105,11 @@ impl WsTransport {
             poll,
             events,
             listeners,
-            clients: HashMap::new(),
-            client_tokens: HashMap::new(),
-            client_rooms: HashMap::new(),
-            retained: HashMap::new(),
-            seat_tokens: HashMap::new(),
+            clients: AHashMap::new(),
+            client_tokens: AHashMap::new(),
+            client_rooms: AHashMap::new(),
+            retained: AHashMap::new(),
+            seat_tokens: AHashMap::new(),
             pending_events: Vec::new(),
             ev: Vec::new(),
             disconnected: Vec::new(),
@@ -110,6 +117,9 @@ impl WsTransport {
             sb: BytesMut::with_capacity(1024),
             heartbeat: HeartbeatConfig::default(),
             next_token,
+            flush_dirty: false,
+            dropped_frames: 0,
+            last_drop_log: Instant::now(),
             bound_addr,
             bound_addrs: resolved_addrs,
             matchmake_hook: None,
@@ -143,6 +153,11 @@ impl WsTransport {
     /// Which room a connected session belongs to.
     pub fn room_of(&self, client_id: &str) -> Option<&str> {
         self.client_rooms.get(client_id).map(String::as_str)
+    }
+
+    /// Frames dropped so far because a peer's send queue hit the cap.
+    pub fn dropped_frames(&self) -> u64 {
+        self.dropped_frames
     }
 
     /// Keep a disconnected session's reconnection token valid so a

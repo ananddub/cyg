@@ -31,8 +31,123 @@ use crate::netcode;
 use crate::rooms::{self, GameServer};
 use crate::telemetry::{PublishReport, Recorder};
 
+/// Upper bound on per-source UDP rate-limit entries. UDP source addresses are
+/// unauthenticated, so an attacker could otherwise grow this map without bound
+/// by spraying spoofed ports. Real peers are reaped on timeout/leave.
+const MAX_UDP_RATE_ENTRIES: usize = 4096;
+
 /// Pre-framed spectator "you are watching" confirm: `["delta"]` with id 0.
 const SPECTATOR_CONFIRM: &[u8] = &[0xA5, b'd', b'e', b'l', b't', b'a', 0, 0, 0, 0, 0, 0, 0, 0];
+
+/// Bound the inbound frames handled per loop iteration. The transport drains a
+/// socket fully on readiness (hundreds of frames per poll), and net + sim now
+/// share a thread: without this cap one burst delays the fixed tick until the
+/// whole batch is relayed.
+const MAX_FRAMES_PER_LOOP: usize = 256;
+
+/// The game loop's view of the WebSocket transport.
+///
+/// The transport runs on the caller's thread. `send_to` encodes straight into
+/// the client's send queue and `flush` writes once per loop iteration, so there
+/// is no outbound channel and no burst can be lost to a full `try_send` queue.
+pub struct LoopTransport {
+    ws: WsTransport,
+    /// session id -> room id, mirrored from the upgrade URL so the loop can
+    /// route connect/disconnect events without borrowing the transport.
+    client_rooms: Arc<scc::HashMap<String, String>>,
+    local_addr: Option<SocketAddr>,
+}
+
+impl LoopTransport {
+    fn new(ws: WsTransport) -> Self {
+        let local_addr = ws.bound_addrs().first().copied();
+        Self {
+            ws,
+            client_rooms: Arc::new(scc::HashMap::new()),
+            local_addr,
+        }
+    }
+
+    pub fn room_of(&self, client_id: &str) -> Option<String> {
+        self.client_rooms.read_sync(client_id, |_, r| r.clone())
+    }
+
+    pub fn take_room_of(&self, client_id: &str) -> Option<String> {
+        self.client_rooms.remove_sync(client_id).map(|(_, r)| r)
+    }
+
+    /// Frames dropped because a peer stopped draining its send queue.
+    pub fn dropped_frames(&self) -> u64 {
+        0
+    }
+
+    pub fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
+        self.ws.send_to(client_id, opcode, payload)
+    }
+
+    pub fn send_to_many(&mut self, client_ids: &[&str], opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
+        for &cid in client_ids {
+            let _ = self.ws.send_to(cid, opcode, payload);
+        }
+        Ok(())
+    }
+}
+
+impl GameTransport for LoopTransport {
+    fn poll_events(&mut self, timeout: Duration, events: &mut Vec<TransportEvent>) -> std::io::Result<()> {
+        self.ws.poll_events(timeout, events)?;
+        // Mirror newly connected sessions so `room_of` stays a cheap lookup.
+        for ev in events.iter() {
+            if let TransportEvent::Connected { client_id, .. } = ev {
+                if let Some(room) = self.ws.room_of(client_id) {
+                    let _ = self
+                        .client_rooms
+                        .insert_sync(client_id.to_string(), room.to_string());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
+        self.ws.send_to(client_id, opcode, payload)
+    }
+
+    fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
+        self.ws.broadcast(opcode, payload)
+    }
+
+    fn disconnect(&mut self, client_id: &str) -> std::io::Result<()> {
+        WsTransport::disconnect(&mut self.ws, client_id)
+    }
+
+    fn disconnect_with(&mut self, client_id: &str, code: u16, reason: &str) -> std::io::Result<()> {
+        self.ws.disconnect_with(client_id, code, reason)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.ws.flush()
+    }
+
+    fn ccu(&self) -> usize {
+        self.ws.ccu()
+    }
+
+    fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        self.local_addr
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no local addr"))
+    }
+
+    fn transport_name(&self) -> &'static str {
+        "mio-ws-loop"
+    }
+}
+
+/// Extracts the base room name without query string or stray session params.
+fn sanitize_room_name(raw: &str) -> &str {
+    let s = raw.split('?').next().unwrap_or(raw);
+    s.split("sessionId=").next().unwrap_or(s)
+}
 
 /// Strip the msgpack type header from an inbound ROOM_DATA_BYTES payload:
 /// payload = [msgpack str][data...] -> returns the data part.
@@ -148,6 +263,17 @@ fn safe_relative(sub: &str) -> Option<&Path> {
     }
 }
 
+/// Answer a rejected join: ERROR(4002) with a JSON body, then a `WITH_ERROR`
+/// close, in one flush. `WITH_ERROR` is terminal for the SDKs, so they surface
+/// the reason instead of reconnecting forever.
+fn reject_room(transport: &mut LoopTransport, client_id: &str, message: &str) {
+    let code = engine_net::close_code::WITH_ERROR;
+    let reason = format!("{{\"code\":{code},\"message\":\"{message}\"}}");
+    let _ = transport.send_to(client_id, OpCode::Error, reason.as_bytes());
+    let _ = transport.disconnect_with(client_id, code, message);
+    let _ = transport.flush();
+}
+
 /// Run the server until killed.
 ///
 /// `bus` is the same `Arc<Bus>` the control plane was spawned with: this loop is
@@ -191,11 +317,19 @@ pub fn run(
         ..engine_wasm::WasmConfig::default()
     })
     .expect("wasm runtime");
-    let wasm_bytes = std::fs::read(wasm_path)?;
-    eprintln!(
-        "[server] room logic loaded ({} bytes) — generic byte pipeline active",
-        wasm_bytes.len()
-    );
+    // The room module bytes are only needed for the boot log; the actual load
+    // happens below and is allowed to fail into Unity-relay-only mode. A missing
+    // file here must not take the whole process down.
+    match std::fs::metadata(wasm_path) {
+        Ok(m) => eprintln!(
+            "[server] room logic loaded ({} bytes) — generic byte pipeline active",
+            m.len()
+        ),
+        Err(_) => eprintln!(
+            "[server] no room logic file at {} — Unity-relay rooms only",
+            wasm_path.display()
+        ),
+    }
 
     // Who owns the website port: if the control plane is configured to listen on
     // `web_port`, Axum serves the statics and this transport must not bind — or
@@ -231,7 +365,7 @@ pub fn run(
         PhysicsWorld3D::default()
     };
 
-    let mut transport = WsTransport::new_multi(&addrs)
+    let mut raw_transport = WsTransport::new_multi(&addrs)
         .expect("bind transport ports");
 
     let webgl_dir = project_dir
@@ -253,7 +387,7 @@ pub fn run(
     let sdk_hook = sdk_js.clone();
     let schema_hook = schema_mjs.clone();
 
-    let rooms_meta = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(String, usize, usize)>::new()));
+    let rooms_meta = std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(Vec::<(String, usize, usize)>::new()));
     let rooms_meta_http = rooms_meta.clone();
 
     let http_hook = move |raw_path: &str| {
@@ -283,7 +417,7 @@ pub fn run(
 
         match path {
             "/api/rooms" => {
-                let meta = rooms_meta_http.lock().ok()?;
+                let meta = rooms_meta_http.load();
                 let mut json_items = Vec::new();
                 for (name, players, specs) in meta.iter() {
                     json_items.push(format!(
@@ -333,10 +467,10 @@ pub fn run(
             cfg.web_port
         );
     } else {
-        transport.on_http(http_hook);
+        raw_transport.on_http(http_hook);
     }
 
-    for addr in transport.bound_addrs() {
+    for addr in raw_transport.bound_addrs() {
         eprintln!(
             "[server] listening on http://0.0.0.0:{} (website) & ws://0.0.0.0:{} (game)",
             addr.port(),
@@ -344,13 +478,34 @@ pub fn run(
         );
     }
 
-    // Direct UDP Listener for Unity / Unreal / Godot (Port 7778)
-    let udp_socket = std::net::UdpSocket::bind("0.0.0.0:7778").ok();
+    // One thread: transport I/O and the simulation share this loop. An idle
+    // wait below blocks inside `poll`, so network work is still serviced while
+    // the sim waits for its next tick.
+    let mut transport = LoopTransport::new(raw_transport);
+
+    // Direct UDP Listener for Unity / Unreal / Godot native clients. The bind
+    // address follows the same `OX_UDP_ADDR` knob as the pinned sim plane, so a
+    // second instance (or a container) can move it off the default :7778.
+    let udp_addr = std::env::var("OX_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into());
+    let udp_socket = std::net::UdpSocket::bind(&udp_addr).ok();
     if let Some(ref s) = udp_socket {
         let _ = s.set_nonblocking(true);
-        eprintln!("[server] listening on udp://0.0.0.0:7778 (Unity / Unreal / Godot Native Engine)");
+        match s.local_addr() {
+            Ok(addr) => eprintln!(
+                "[server] listening on udp://{addr} (Unity / Unreal / Godot Native Engine)"
+            ),
+            Err(_) => eprintln!(
+                "[server] listening on udp://{udp_addr} (Unity / Unreal / Godot Native Engine)"
+            ),
+        }
+    } else {
+        eprintln!("[server] ⚠️ udp bind {udp_addr} failed — native UDP clients disabled");
     }
-    let mut udp_peers: HashMap<SocketAddr, (i64, Instant)> = HashMap::new();
+    let mut udp_peers: HashMap<SocketAddr, (i64, String, Instant)> = HashMap::new();
+    // Input-hub flood control: one token bucket per transport identity. These
+    // are created lazily and dropped with the session/peer.
+    let mut ws_input_rates: HashMap<String, netcode::InputRateLimiter> = HashMap::new();
+    let mut udp_input_rates: HashMap<SocketAddr, netcode::InputRateLimiter> = HashMap::new();
 
     // Direct WebRTC DataChannel UDP Server (Client-to-Server Star Topology via str0m)
     let webrtc_port = 7779;
@@ -400,20 +555,31 @@ pub fn run(
     }
 
     let wasm_load_start = Instant::now();
-    let wasm_module = runtime.load_or_compile_cached(wasm_path).expect("load room module");
-    let cwasm_path = wasm_path.with_extension("cwasm");
-    let is_aot = cwasm_path.exists();
-    eprintln!(
-        "[server] ⚡ room module loaded in {:.2?} (mode: {})",
-        wasm_load_start.elapsed(),
-        if is_aot { "AOT precompiled (.cwasm)" } else { "JIT compiled (.wasm)" }
-    );
     // Link + pre-instantiate once; every room spawn after this is one
     // `InstancePre::instantiate` instead of rebuilding 12 host imports.
-    let linker = rooms::build_host_linker(&runtime, cfg.permissions);
+    //
+    // A missing or broken room module is not fatal: a project that ships only
+    // Unity C# gameplay has no `room.ts`, and the server still has to boot and
+    // serve Unity-relay rooms. We log it and carry on with `pre = None`.
     let pre = runtime
-        .prepare(&linker, &wasm_module)
-        .expect("pre-instantiate room module");
+        .load_or_compile_cached(wasm_path)
+        .and_then(|module| {
+            let linker = rooms::build_host_linker(&runtime, cfg.permissions);
+            runtime.prepare(&linker, &module)
+        })
+        .map_err(|e| eprintln!("[server] load room module: {e}"))
+        .ok();
+    let wasm_available = pre.is_some();
+    if wasm_available {
+        let is_aot = wasm_path.with_extension("cwasm").exists();
+        eprintln!(
+            "[server] ⚡ room module loaded in {:.2?} (mode: {})",
+            wasm_load_start.elapsed(),
+            if is_aot { "AOT precompiled (.cwasm)" } else { "JIT compiled (.wasm)" }
+        );
+    } else {
+        eprintln!("[server] 🧩 no room module — running Unity-relay rooms only (WASM rooms disabled)");
+    }
     let mut server = GameServer::new(pre, cfg.max_clients, physics, cfg.permissions);
 
     let mut last_tick = Instant::now();
@@ -421,8 +587,11 @@ pub fn run(
     let mut tick_counter: u64 = 0;
     let mut tick_stat_start = Instant::now();
     let mut last_wasm_check = Instant::now();
-    let mut loaded_wasm_time: Option<std::time::SystemTime> =
-        std::fs::metadata(wasm_path).ok().and_then(|m| m.modified().ok());
+    let mut loaded_wasm_time: Option<std::time::SystemTime> = if wasm_available {
+        std::fs::metadata(wasm_path).ok().and_then(|m| m.modified().ok())
+    } else {
+        None
+    };
     let source_path = project_dir.join(&cfg.source);
     let mut loaded_src_time: Option<std::time::SystemTime> =
         std::fs::metadata(&source_path).ok().and_then(|m| m.modified().ok());
@@ -436,7 +605,7 @@ pub fn run(
     let mut delta_body: Vec<u8> = Vec::with_capacity(8 * 1024);
     let mut filtered_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
     let mut dead_rooms: Vec<String> = Vec::new();
-    let mut timed_out_udp: Vec<(SocketAddr, i64)> = Vec::new();
+    let mut timed_out_udp: Vec<(SocketAddr, i64, String)> = Vec::new();
     // Telemetry: the recorder gates itself to one publish per second, and the
     // rows are built only when that window actually rolls, never per packet.
     let mut recorder = Recorder::new();
@@ -448,31 +617,84 @@ pub fn run(
     let mut last_input_at: HashMap<String, Instant> = HashMap::new();
 
     loop {
-        let time_to_next_tick = tick_interval.saturating_sub(last_tick.elapsed());
-        let poll_timeout = if time_to_next_tick > Duration::from_millis(1) {
-            time_to_next_tick.saturating_sub(Duration::from_millis(1)).min(Duration::from_millis(2))
-        } else {
-            Duration::ZERO
-        };
-        transport
-            .poll_events(poll_timeout, &mut events)
-            .expect("poll");
+        // One wait per iteration, inside the poll: sockets are serviced at full
+        // speed and the loop wakes at the next tick deadline. The blocking poll
+        // must happen here rather than at the bottom of the loop: the transport
+        // hands its events to `events`, and they are drained immediately below.
+        // A capped batch may already be queued: drain it before reading more,
+        // otherwise a sustained burst grows the backlog faster than it drains.
+        if events.is_empty() {
+            let remaining_to_tick = tick_interval.saturating_sub(last_tick.elapsed());
+            let all_idle =
+                server.rooms.values().all(|r| r.is_hibernating()) && udp_peers.is_empty();
+            let wait = if all_idle {
+                remaining_to_tick.min(Duration::from_millis(5))
+            } else {
+                remaining_to_tick
+            };
+            transport.poll_events(wait, &mut events).expect("poll");
+        }
 
-        for event in events.drain(..) {
+        let batch = events.len().min(MAX_FRAMES_PER_LOOP);
+        for event in events.drain(..batch) {
             match event {
                 TransportEvent::Connected { client_id, .. } => {
-                    let raw_room = transport
-                        .room_of(&client_id)
-                        .unwrap_or(&cfg.name);
+                    let raw_room_str = transport.room_of(&client_id);
+                    let raw_room = raw_room_str.as_deref().unwrap_or(&cfg.name);
                     let is_spectator = raw_room.contains("spectator");
-                    let room_name = raw_room.split('?').next().unwrap_or(raw_room);
+                    let is_unity = raw_room.contains("unity") || raw_room.contains("cyg");
+                    let room_name = sanitize_room_name(raw_room);
 
-                    let room = server.get_or_create(room_name);
+                    // DoS guard: an unauthenticated client can name any room, so
+                    // cap how many distinct rooms an open name space can allocate
+                    // (each may be a WASM instance). Live rooms keep working.
+                    if server.would_exceed_room_limit(room_name, cfg.max_rooms) {
+                        eprintln!(
+                            "[server] ⛔ room limit reached ({}/{}): rejecting {client_id} for '{room_name}'",
+                            server.rooms.len(),
+                            cfg.max_rooms
+                        );
+                        reject_room(&mut transport, &client_id, "room limit reached");
+                        continue;
+                    }
+
+                    let room = if is_unity || !server.has_room_module() {
+                        server.get_or_create_unity(room_name)
+                    } else {
+                        match server.get_or_create(room_name) {
+                            Ok(room) => room,
+                            Err(e) => {
+                                // A guest that predates the ABI (or a broken
+                                // module) must cost one client, never the process.
+                                eprintln!(
+                                    "[server] ⛔ room '{room_name}' unavailable: {e} — rejecting {client_id}"
+                                );
+                                reject_room(&mut transport, &client_id, "room unavailable");
+                                continue;
+                            }
+                        }
+                    };
+                    if cfg.input_hub {
+                        // Explicit deployment mode. Do this before `join` so a
+                        // WASM room does not run `on_join`/physics even once.
+                        room.enable_input_hub();
+                    }
                     room.empty_since = None;
 
                     if is_spectator {
                         room.spectators.insert(client_id.to_string());
                         eprintln!("[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'");
+                    } else if room.is_full(cfg.max_clients) {
+                        // WASM rooms may override the ceiling via their
+                        // `on_is_full` export; relay rooms (no guest) fall back to
+                        // the host's `max_clients` so they cannot silently overfill.
+                        eprintln!(
+                            "[server] ⛔ room '{room_name}' is full ({}/{}): rejecting {client_id}",
+                            room.sessions.len(),
+                            cfg.max_clients
+                        );
+                        reject_room(&mut transport, &client_id, "room is full");
+                        continue;
                     } else {
                         let (x, y) = {
                             let n = room.sessions.len();
@@ -483,17 +705,41 @@ pub fn run(
                         };
                         let id = room.join(&client_id, x, y);
                         eprintln!("[server] {client_id} joined room '{room_name}' (player id {id})");
+
+                        // For Unity Netcode rooms, catch up the newly joined client with any spawned prefabs
+                        if let Some(ref unity) = room.unity {
+                            let mut wire_spawn = Vec::new();
+                            for (_view_id, (_prefab_id, _owner, spawn_bytes)) in &unity.spawned_prefabs {
+                                netcode::write_tunnel(
+                                    &mut wire_spawn,
+                                    netcode::CYG_OP_SPAWN_OBJECT,
+                                    spawn_bytes,
+                                );
+                                let _ = transport.send_to(&client_id, OpCode::RoomDataBytes, &wire_spawn);
+                            }
+                        }
                     }
                     let _ = transport.flush();
                 }
                 TransportEvent::Disconnected { client_id } => {
                     eprintln!("[server] disconnected: {client_id}");
                     last_input_at.remove(&*client_id);
-                    let raw_room = transport
-                        .room_of(&client_id)
-                        .unwrap_or(&cfg.name);
-                    let room_name = raw_room.split('?').next().unwrap_or(raw_room);
-                    let Some(room) = server.rooms.get_mut(room_name) else {
+                    ws_input_rates.remove(&*client_id);
+                    let raw_room_str = transport.take_room_of(&client_id);
+                    let room_name = if let Some(ref r) = raw_room_str {
+                        sanitize_room_name(r).to_string()
+                    } else {
+                        // Resilient fallback: locate which room holds this session
+                        let mut found = None;
+                        for (rname, r) in &server.rooms {
+                            if r.sessions.contains_key(&*client_id) || r.spectators.contains(&*client_id) {
+                                found = Some(rname.clone());
+                                break;
+                            }
+                        }
+                        found.unwrap_or_else(|| cfg.name.clone())
+                    };
+                    let Some(room) = server.rooms.get_mut(&room_name) else {
                         continue;
                     };
                     // A WebRTC peer that vanishes with its socket has to be
@@ -507,8 +753,39 @@ pub fn run(
                             gone,
                         );
                     }
+                    if let Some(ref mut unity) = room.unity {
+                        let to_remove: Vec<u32> = unity
+                            .spawned_prefabs
+                            .iter()
+                            .filter(|(_, (_, owner, _))| owner == &*client_id)
+                            .map(|(&vid, _)| vid)
+                            .collect();
+
+                        for vid in to_remove {
+                            unity.spawned_prefabs.remove(&vid);
+                            unity.entities.remove(&vid);
+                            unity.sync_vars.remove(&vid);
+                            unity.dirty_entities.remove(&vid);
+
+                            let mut despawn_body = Vec::new();
+                            netcode::put_varint(&mut despawn_body, vid as i32);
+                            let mut wire_despawn = Vec::new();
+                            netcode::write_tunnel(
+                                &mut wire_despawn,
+                                netcode::CYG_OP_DESPAWN_OBJECT,
+                                &despawn_body,
+                            );
+                            let targets: Vec<&str> = room.sessions.keys().map(String::as_str).collect();
+                            if !targets.is_empty() {
+                                let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, &wire_despawn);
+                            }
+                        }
+                    }
                     if let Some(ref mut srv) = webrtc_server {
                         srv.remove_session(&client_id);
+                    }
+                    if room.is_hibernating() {
+                        eprintln!("[server] ⏸️ Room '{room_name}' is now empty -> hibernating (0% CPU, 30s auto-close timer started)");
                     }
                 }
                 TransportEvent::Packet {
@@ -528,13 +805,13 @@ pub fn run(
                         );
                         continue;
                     }
-                    let raw_room = transport
-                        .room_of(&client_id)
-                        .unwrap_or(&cfg.name);
-                    let room_name = raw_room.split('?').next().unwrap_or(raw_room);
+                    let raw_room_str = transport.room_of(&client_id);
+                    let raw_room = raw_room_str.as_deref().unwrap_or(&cfg.name);
+                    let room_name = sanitize_room_name(raw_room);
                     let Some(room) = server.rooms.get_mut(room_name) else {
                         continue;
                     };
+                    room.note_activity();
 
                     // Spectator Upgrade Handshake: [0xFF, 'S', 'P', 'E', 'C']
                     if data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC" {
@@ -805,20 +1082,169 @@ pub fn run(
                         continue;
                     }
 
-                    // Rule 3 (Ownership) & Rule 5 (Fault isolation):
-                    // Guest allocates memory; host writes and invokes on_input safely without panicking.
                     last_input_at.insert(client_id.to_string(), Instant::now());
-                    match room.wasm.on_alloc(data.len() as i32) {
-                        Ok(ptr_i32) => {
-                            let ptr = ptr_i32 as u32;
-                            if let Err(e) = room.wasm.write_memory(ptr, data) {
-                                eprintln!("[server] ⚠️ failed to write memory for player {id}: {e}");
-                            } else if let Err(e) = room.wasm.on_input(id, ptr_i32, data.len() as i32) {
-                                eprintln!("[server] ⚠️ guest trap in on_input for player {id}: {e}");
+
+                    // Deterministic input-hub handling over WebSocket (opcode 19).
+                    // This path is opt-in per deployment via `input_hub = true`.
+                    // A packet never switches the room backend: that would let an
+                    // unauthenticated client disable the authoritative simulation.
+                    if data.len() >= netcode::WIRE_INPUT_TICK_HEADER_LEN
+                        && data[0] == netcode::CYG_WIRE_INPUT_TICK
+                    {
+                        if !cfg.input_hub {
+                            continue;
+                        }
+                        let Some(input_tick) = netcode::WireInputTick::parse(data) else {
+                            continue;
+                        };
+                        if !input_tick.has_valid_input_payload() {
+                            continue;
+                        }
+
+                        // Scope to the room this WebSocket actually joined. The
+                        // room_id in the packet is client-controlled, so it is
+                        // only accepted when it matches the authenticated route.
+                        // The session must already be joined to a real room;
+                        // never fall back to the configured default room, which
+                        // would let a half-joined socket inject into it.
+                        let Some(connected_room) = transport.room_of(&client_id) else {
+                            continue;
+                        };
+                        // Match the same sanitized name used to select `room`
+                        // above: the upgrade URL may still carry a query string
+                        // or a stray session parameter.
+                        if !netcode::room_id_matches(
+                            sanitize_room_name(&connected_room),
+                            &input_tick.room_id,
+                        ) {
+                            continue;
+                        }
+
+                        let now = Instant::now();
+                        let allowed = ws_input_rates
+                            .entry(client_id.to_string())
+                            .or_default()
+                            .allow(now);
+                        if !allowed {
+                            continue;
+                        }
+
+                        let actor = input_tick.player_actor_id;
+                        // The actor is a function of the authenticated session.
+                        // Without this check a client could claim somebody
+                        // else's actor before that peer joins, then inject
+                        // inputs as them to every other client.
+                        if actor != netcode::derive_input_actor(&client_id) {
+                            continue;
+                        }
+                        let already_claimed = room.input_hub_actors.contains_key(&*client_id);
+                        if !already_claimed
+                            && cfg.max_clients > 0
+                            && room.input_hub_actor_count() >= cfg.max_clients as usize
+                        {
+                            continue;
+                        }
+                        if !room.claim_input_actor(&client_id, actor) {
+                            // Actor changed or another session owns it: drop.
+                            continue;
+                        }
+                        if !room.record_input_tick_checked(
+                            &client_id,
+                            actor,
+                            input_tick.client_tick,
+                            input_tick.input_payload,
+                        ) {
+                            continue;
+                        }
+                        room.enable_input_hub();
+
+                        // Multicast to other WebSocket sessions in room.
+                        let mut targets: Vec<&str> = Vec::with_capacity(room.sessions.len());
+                        targets.extend(
+                            room.sessions
+                                .keys()
+                                .map(String::as_str)
+                                .filter(|cid| *cid != &*client_id),
+                        );
+                        if !targets.is_empty() {
+                            let _ = transport.send_to_many(
+                                &targets,
+                                OpCode::RoomDataBytes,
+                                data,
+                            );
+                        }
+
+                        // Also forward to UDP peers with zero serialization overhead.
+                        if let Some(ref udp_sock) = udp_socket {
+                            for (&peer_addr, (peer_id, peer_sess, _)) in &udp_peers {
+                                if *peer_id > 0 && peer_sess != &*client_id {
+                                    let _ = udp_sock.send_to(data, peer_addr);
+                                }
                             }
                         }
-                        Err(e) => {
-                            eprintln!("[server] ⚠️ guest on_alloc failed for player {id}: {e}");
+                        continue;
+                    }
+
+                    // Unity C# Netcode relay handler (tunneled RPCs/Spawns,
+                    // state patches). Peers get the packet back under the same
+                    // wire header the sender used.
+                    if let Some(relay_action) = netcode::handle_unity_relay_packet(room, &client_id, data) {
+                        let relay_op = OpCode::from_wire(relay_action.wire_code)
+                            .unwrap_or(OpCode::RoomDataBytes);
+                        if let Some(ref target_session) = relay_action.target {
+                            if !target_session.is_empty() {
+                                let _ = transport.send_to(target_session, relay_op, &relay_action.wire_payload);
+                            }
+                        } else {
+                            // Multicast to all other sessions in the room (sender
+                            // excluded). Encode once, queue to every recipient.
+                            let mut targets: Vec<&str> =
+                                Vec::with_capacity(room.sessions.len() + room.spectators.len());
+                            targets.extend(
+                                room.sessions
+                                    .keys()
+                                    .map(String::as_str)
+                                    .filter(|cid| *cid != &*client_id),
+                            );
+                            targets.extend(room.spectators.iter().map(String::as_str));
+                            if !targets.is_empty() {
+                                let _ = transport.send_to_many(
+                                    &targets,
+                                    relay_op,
+                                    &relay_action.wire_payload,
+                                );
+                            }
+
+                            // Also multicast to UDP peers
+                            if let Some(ref udp_sock) = udp_socket {
+                                let mut wire_pkt = Vec::with_capacity(1 + relay_action.wire_payload.len());
+                                wire_pkt.push(relay_action.wire_code);
+                                wire_pkt.extend_from_slice(&relay_action.wire_payload);
+                                for (&peer_addr, (_id, peer_sess, _)) in &udp_peers {
+                                    if peer_sess != &*client_id {
+                                        let _ = udp_sock.send_to(&wire_pkt, peer_addr);
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Rule 3 (Ownership) & Rule 5 (Fault isolation):
+                    // Guest allocates memory; host writes and invokes on_input safely without panicking.
+                    if let Some(ref mut wasm) = room.wasm {
+                        match wasm.on_alloc(data.len() as i32) {
+                            Ok(ptr_i32) => {
+                                let ptr = ptr_i32 as u32;
+                                if let Err(e) = wasm.write_memory(ptr, data) {
+                                    eprintln!("[server] ⚠️ failed to write memory for player {id}: {e}");
+                                } else if let Err(e) = wasm.on_input(id, ptr_i32, data.len() as i32) {
+                                    eprintln!("[server] ⚠️ guest trap in on_input for player {id}: {e}");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("[server] ⚠️ guest on_alloc failed for player {id}: {e}");
+                            }
                         }
                     }
                 }
@@ -830,15 +1256,191 @@ pub fn run(
             let mut udp_buf = [0u8; 4096];
             while let Ok((amt, peer_addr)) = udp_sock.recv_from(&mut udp_buf) {
                 let data = &udp_buf[..amt];
+                let is_input_tick = data.len() >= netcode::WIRE_INPUT_TICK_HEADER_LEN
+                    && data[0] == netcode::CYG_WIRE_INPUT_TICK;
+                if is_input_tick && !cfg.input_hub {
+                    // Never auto-enable lockstep from a datagram. Dropping here
+                    // also keeps a disabled input hub from being probed.
+                    continue;
+                }
                 let server_guard = &mut server;
-                let room = server_guard.get_or_create(&cfg.name);
+                let room = match server_guard.get_or_create(&cfg.name) {
+                    Ok(room) => room,
+                    Err(e) => {
+                        eprintln!("[server-udp] ⛔ room '{}' unavailable: {e}", cfg.name);
+                        continue;
+                    }
+                };
                 room.empty_since = None;
+                if cfg.input_hub {
+                    room.enable_input_hub();
+                }
 
                 let is_spec_handshake = data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC";
+                let mut session_id = if let Some((_, sess, _)) = udp_peers.get(&peer_addr) {
+                    sess.clone()
+                } else {
+                    format!("udp_{}_{}", peer_addr.ip(), peer_addr.port())
+                };
+
+                if !data.is_empty() && (data[0] == netcode::CYG_WIRE_LEAVE_ROOM || data[0] == netcode::CYG_OP_LEAVE_ROOM) {
+                    if let Some((id, sess, _)) = udp_peers.remove(&peer_addr) {
+                        eprintln!("[server-udp] {peer_addr} left room via UDP (session {sess})");
+                        udp_input_rates.remove(&peer_addr);
+                        room.release_input_actor(&sess);
+                        // Input-hub peers are also present in `sessions`; a
+                        // stale entry would keep the room awake and keep
+                        // forwarding to a peer that is gone.
+                        room.sessions.remove(&sess);
+                        if id > 0 {
+                            room.remove_raw_player(id);
+                        }
+                        if let Some(ref mut unity) = room.unity {
+                            let to_remove: Vec<u32> = unity
+                                .spawned_prefabs
+                                .iter()
+                                .filter(|(_, (_, owner, _))| owner == &sess)
+                                .map(|(&vid, _)| vid)
+                                .collect();
+
+                            for vid in to_remove {
+                                unity.spawned_prefabs.remove(&vid);
+                                unity.entities.remove(&vid);
+                                unity.sync_vars.remove(&vid);
+                                unity.dirty_entities.remove(&vid);
+
+                                let mut despawn_body = Vec::new();
+                                netcode::put_varint(&mut despawn_body, vid as i32);
+                                let mut wire_despawn = Vec::new();
+                                netcode::write_tunnel(
+                                    &mut wire_despawn,
+                                    netcode::CYG_OP_DESPAWN_OBJECT,
+                                    &despawn_body,
+                                );
+                                let mut wire_pkt = Vec::with_capacity(1 + wire_despawn.len());
+                                wire_pkt.push(netcode::CYG_WIRE_ROOM_DATA_BYTES);
+                                wire_pkt.extend_from_slice(&wire_despawn);
+                                for (&other_addr, _) in &udp_peers {
+                                    let _ = udp_sock.send_to(&wire_pkt, other_addr);
+                                }
+                                let targets: Vec<&str> = room.sessions.keys().map(String::as_str).collect();
+                                if !targets.is_empty() {
+                                    let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, &wire_despawn);
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                // Deterministic input-hub handling over UDP (opcode 19).
+                // Framing: [opcode: 19 (1B)] [room_id: 8B] [client_tick: 4B u32] [player_actor_id: 2B u16] [input_len: 1B] [input_payload: NB]
+                if is_input_tick {
+                    let Some(input_tick) = netcode::WireInputTick::parse(data) else {
+                        continue;
+                    };
+                    if !input_tick.has_valid_input_payload() {
+                        continue;
+                    }
+                    if !netcode::room_id_matches(&cfg.name, &input_tick.room_id) {
+                        continue;
+                    }
+
+                    if !udp_input_rates.contains_key(&peer_addr)
+                        && udp_input_rates.len() >= MAX_UDP_RATE_ENTRIES
+                    {
+                        continue;
+                    }
+                    let now = Instant::now();
+                    let allowed = udp_input_rates
+                        .entry(peer_addr)
+                        .or_default()
+                        .allow(now);
+                    if !allowed {
+                        continue;
+                    }
+
+                    let previous = udp_peers
+                        .get(&peer_addr)
+                        .map(|(id, sess, _)| (*id, sess.clone()));
+                    if let Some((0, _)) = previous {
+                        // Spectators observe; they do not publish inputs.
+                        continue;
+                    }
+                    let session_id = match previous.as_ref() {
+                        Some((_, sess)) if !sess.is_empty() => sess.clone(),
+                        _ => format!("udp_{}_{}", peer_addr.ip(), peer_addr.port()),
+                    };
+                    let actor = input_tick.player_actor_id;
+                    // The standard SDK joins over UDP first and adopts the
+                    // server-assigned `p{id}` session, so a joined peer's actor
+                    // must be exactly that id. Reject impersonation attempts.
+                    if let Some((id, _)) = previous.as_ref() {
+                        if *id > 0 && actor as i64 != *id {
+                            continue;
+                        }
+                    }
+                    let already_claimed = room.input_hub_actors.contains_key(&session_id);
+                    if !already_claimed
+                        && cfg.max_clients > 0
+                        && room.input_hub_actor_count() >= cfg.max_clients as usize
+                    {
+                        continue;
+                    }
+                    if !room.claim_input_actor(&session_id, actor) {
+                        continue;
+                    }
+                    if !room.record_input_tick_checked(
+                        &session_id,
+                        actor,
+                        input_tick.client_tick,
+                        input_tick.input_payload,
+                    ) {
+                        continue;
+                    }
+                    room.enable_input_hub();
+                    room.sessions.insert(session_id.clone(), actor as i64);
+
+                    if previous.is_none() {
+                        udp_peers.insert(
+                            peer_addr,
+                            (actor as i64, session_id.clone(), now),
+                        );
+                        eprintln!(
+                            "[server-udp] 🕹️ Peer {peer_addr} registered to input hub (actor_id: {actor}, session: {session_id})"
+                        );
+                    } else if let Some((id, sess, last_seen)) = udp_peers.get_mut(&peer_addr) {
+                        *id = actor as i64;
+                        *last_seen = now;
+                        if sess.is_empty() {
+                            *sess = session_id.clone();
+                        }
+                    }
+
+                    // Forward the already-serialized frame to other UDP peers.
+                    for (&other_addr, (peer_id, _, _)) in &udp_peers {
+                        if *peer_id > 0 && other_addr != peer_addr {
+                            let _ = udp_sock.send_to(data, other_addr);
+                        }
+                    }
+
+                    // ...and to WebSocket clients in the same room.
+                    let ws_targets: Vec<&str> = room
+                        .sessions
+                        .keys()
+                        .map(String::as_str)
+                        .filter(|sess| *sess != session_id.as_str())
+                        .collect();
+                    if !ws_targets.is_empty() {
+                        let _ = transport.send_to_many(&ws_targets, OpCode::RoomDataBytes, data);
+                    }
+                    continue;
+                }
 
                 if !udp_peers.contains_key(&peer_addr) {
                     if is_spec_handshake {
-                        udp_peers.insert(peer_addr, (0, Instant::now())); // 0 = spectator
+                        session_id = format!("spec_{}_{}", peer_addr.ip(), peer_addr.port());
+                        udp_peers.insert(peer_addr, (0, session_id.clone(), Instant::now())); // 0 = spectator
                         eprintln!("[server-udp] 👁️  {peer_addr} connected as SPECTATOR via UDP");
                         let _ = udp_sock.send_to(SPECTATOR_CONFIRM, peer_addr);
                     } else {
@@ -848,26 +1450,107 @@ pub fn run(
                             60.0 + ((n as f64) * 61.0) % (cfg.height - 120.0),
                         );
                         let id = room.add_raw_player(x, y);
-                        udp_peers.insert(peer_addr, (id, Instant::now()));
-                        eprintln!("[server-udp] {peer_addr} joined room via UDP (player id {id})");
+                        session_id = format!("p{}_{}_{}", id, peer_addr.ip(), peer_addr.port());
+                        udp_peers.insert(peer_addr, (id, session_id.clone(), Instant::now()));
+                        eprintln!("[server-udp] {peer_addr} joined room via UDP (player id {id}, session {session_id})");
+
+                        // 1. Send JOIN_ROOM handshake reply to the joining client so SDK marks room as joined
+                        let rt = format!("{}:{}", cfg.name, session_id);
+                        let mut join_reply = Vec::with_capacity(1 + 1 + rt.len() + 1 + 6 + 1);
+                        join_reply.push(netcode::CYG_WIRE_JOIN_ROOM);
+                        join_reply.push(rt.len() as u8);
+                        join_reply.extend_from_slice(rt.as_bytes());
+                        join_reply.push(6); // "schema".len()
+                        join_reply.extend_from_slice(b"schema");
+                        join_reply.push(0x00); // msgpack 0
+                        let _ = udp_sock.send_to(&join_reply, peer_addr);
+
+                        // 2. Initial catch-up spawns for Unity Netcode
+                        if let Some(ref unity) = room.unity {
+                            for (_view_id, (_prefab_id, _owner, spawn_bytes)) in &unity.spawned_prefabs {
+                                let mut tunnel_buf = Vec::new();
+                                netcode::write_tunnel(
+                                    &mut tunnel_buf,
+                                    netcode::CYG_OP_SPAWN_OBJECT,
+                                    spawn_bytes,
+                                );
+                                let mut wire_pkt = Vec::with_capacity(1 + tunnel_buf.len());
+                                wire_pkt.push(netcode::CYG_WIRE_ROOM_DATA_BYTES);
+                                wire_pkt.extend_from_slice(&tunnel_buf);
+                                let _ = udp_sock.send_to(&wire_pkt, peer_addr);
+                            }
+                        }
 
                         if data.len() == 20 {
-                            if let Ok(ptr) = room.wasm.on_alloc(data.len() as i32) {
-                                let _ = room.wasm.write_memory(ptr as u32, data);
-                                let _ = room.wasm.on_input(id, ptr, data.len() as i32);
+                            if let Some(ref mut wasm) = room.wasm {
+                                if let Ok(ptr) = wasm.on_alloc(data.len() as i32) {
+                                    let _ = wasm.write_memory(ptr as u32, data);
+                                    let _ = wasm.on_input(id, ptr, data.len() as i32);
+                                }
                             }
                         }
                     }
-                } else if let Some((id, last_seen)) = udp_peers.get_mut(&peer_addr) {
+                } else if let Some((id, _peer_sess, last_seen)) = udp_peers.get_mut(&peer_addr) {
                     *last_seen = Instant::now();
                     if is_spec_handshake && *id != 0 {
                         room.remove_raw_player(*id);
                         *id = 0;
                         eprintln!("[server-udp] 👁️  {peer_addr} upgraded to SPECTATOR via UDP");
                     } else if *id > 0 && !data.is_empty() {
-                        if let Ok(ptr) = room.wasm.on_alloc(data.len() as i32) {
-                            let _ = room.wasm.write_memory(ptr as u32, data);
-                            let _ = room.wasm.on_input(*id, ptr, data.len() as i32);
+                        if data.len() >= 1 && (data[0] == netcode::CYG_WIRE_PING || data[0] == netcode::CYG_OP_PING) {
+                            let _ = udp_sock.send_to(data, peer_addr);
+                            continue;
+                        }
+                        if data.len() == 20 {
+                            if let Some(ref mut wasm) = room.wasm {
+                                if let Ok(ptr) = wasm.on_alloc(data.len() as i32) {
+                                    let _ = wasm.write_memory(ptr as u32, data);
+                                    let _ = wasm.on_input(*id, ptr, data.len() as i32);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Unity CYG Netcode packet processing over UDP:
+                // Tunnel packets arrive as [CYG_WIRE_ROOM_DATA_BYTES (17)][CYG_TUNNEL_MAGIC (0x43)][len BE][op][body...]
+                let payload_slice = if data.len() >= 2 && data[0] == netcode::CYG_WIRE_ROOM_DATA_BYTES && data[1] == netcode::CYG_TUNNEL_MAGIC {
+                    &data[1..]
+                } else {
+                    data
+                };
+
+                if let Some(relay_action) = netcode::handle_unity_relay_packet(room, &session_id, payload_slice) {
+                    let mut wire_pkt = Vec::with_capacity(1 + relay_action.wire_payload.len());
+                    wire_pkt.push(relay_action.wire_code);
+                    wire_pkt.extend_from_slice(&relay_action.wire_payload);
+
+                    if let Some(ref target_session) = relay_action.target {
+                        if !target_session.is_empty() {
+                            // Point-to-point to specific UDP peer
+                            for (&target_addr, (_id, sess, _)) in &udp_peers {
+                                if sess == target_session {
+                                    let _ = udp_sock.send_to(&wire_pkt, target_addr);
+                                    break;
+                                }
+                            }
+                            // Also send to WebSocket if target is a WS session
+                            let relay_op = OpCode::from_wire(relay_action.wire_code).unwrap_or(OpCode::RoomDataBytes);
+                            let _ = transport.send_to(target_session, relay_op, &relay_action.wire_payload);
+                        }
+                    } else {
+                        // Multicast to all other UDP peers!
+                        for (&other_addr, (_id, _other_sess, _)) in &udp_peers {
+                            if other_addr != peer_addr {
+                                let _ = udp_sock.send_to(&wire_pkt, other_addr);
+                            }
+                        }
+
+                        // Also multicast to any WebSocket clients in the room
+                        let relay_op = OpCode::from_wire(relay_action.wire_code).unwrap_or(OpCode::RoomDataBytes);
+                        let ws_targets: Vec<&str> = room.sessions.keys().map(String::as_str).collect();
+                        if !ws_targets.is_empty() {
+                            let _ = transport.send_to_many(&ws_targets, relay_op, &relay_action.wire_payload);
                         }
                     }
                 }
@@ -919,7 +1602,13 @@ pub fn run(
             // each frame came in on: an ack that arrives on `game-unreliable` is
             // `Refused` rather than `Ack`, because that lane cannot prove delivery.
             for (client_id, msg) in srv.poll_inbound() {
-                let room = server.get_or_create(&cfg.name);
+                let room = match server.get_or_create(&cfg.name) {
+                    Ok(room) => room,
+                    Err(e) => {
+                        eprintln!("[server-webrtc] ⛔ room '{}' unavailable: {e}", cfg.name);
+                        continue;
+                    }
+                };
                 let Some(&id) = room.sessions.get(&*client_id) else { continue; };
                 match msg {
                     Inbound::Input { seq, payload, resupplied } => {
@@ -942,9 +1631,11 @@ pub fn run(
 
                         if event.kind == engine_webrtc_protocol::EventKind::Fire {
                             let fire_payload = 16u32.to_le_bytes();
-                            if let Ok(ptr) = room.wasm.on_alloc(4) {
-                                let _ = room.wasm.write_memory(ptr as u32, &fire_payload);
-                                let _ = room.wasm.on_input(id, ptr, 4);
+                            if let Some(ref mut wasm) = room.wasm {
+                                if let Ok(ptr) = wasm.on_alloc(4) {
+                                    let _ = wasm.write_memory(ptr as u32, &fire_payload);
+                                    let _ = wasm.on_input(id, ptr, 4);
+                                }
                             }
                         }
 
@@ -960,14 +1651,6 @@ pub fn run(
                     Inbound::Ack(ack) => netcode::record_channel_ack(room, &client_id, ack),
                     Inbound::Other { .. } | Inbound::Refused(_) => {}
                 }
-            }
-        }
-
-        // Microsecond precision: spin-wait final tail to hit exact tick deadline without scheduler jitter
-        let remaining_to_tick = tick_interval.saturating_sub(last_tick.elapsed());
-        if !remaining_to_tick.is_zero() && remaining_to_tick <= Duration::from_micros(600) {
-            while last_tick.elapsed() < tick_interval {
-                std::hint::spin_loop();
             }
         }
 
@@ -999,10 +1682,24 @@ pub fn run(
             }
 
             let tick_start = Instant::now();
-            for tick_idx in 0..ticks_to_run {
-                dead_rooms.clear();
+            dead_rooms.clear();
+            for (name, room) in server.rooms.iter_mut() {
+                // Auto-close evaluation for hibernating rooms
+                if room.is_hibernating() {
+                    let is_default = name == &cfg.name;
+                    if (!is_default || udp_peers.is_empty()) && room.reap_check(Duration::from_secs(30)) {
+                        dead_rooms.push(name.clone());
+                    }
+                }
+            }
 
+            for tick_idx in 0..ticks_to_run {
                 for (name, room) in server.rooms.iter_mut() {
+                    // Idle Hibernation (0% CPU for empty rooms)
+                    if room.is_hibernating() {
+                        continue;
+                    }
+
                     // Rule 5: Fault-isolated simulation tick (a guest trap does
                     // not crash the server); the rollback checkpoint rides
                     // inside `GameRoom::tick`.
@@ -1016,6 +1713,12 @@ pub fn run(
                     let ptr = ((packed >> 32) as u32) as usize;
                     let len = (packed as u32) as usize;
 
+                    if room.is_input_hub() {
+                        // In Input-Hub mode, the server NEVER runs game physics.
+                        // Inputs are collected and forwarded directly with zero serialization delay.
+                        continue;
+                    }
+
                     // Rule 4: Bounds check outbound delta size
                     if len > engine_wasm::MAX_OUTBOUND_DELTA_SIZE {
                         eprintln!(
@@ -1027,9 +1730,11 @@ pub fn run(
 
                     let is_last_tick = tick_idx + 1 == ticks_to_run;
                     if len > 0 && is_last_tick {
-                        if let Err(e) = room.wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf) {
-                            eprintln!("[server] ⚠️ failed to read delta memory in room '{name}': {e}");
-                            continue;
+                        if let Some(ref mut wasm) = room.wasm {
+                            if let Err(e) = wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf) {
+                                eprintln!("[server] ⚠️ failed to read delta memory in room '{name}': {e}");
+                                continue;
+                            }
                         }
                         let delta = &delta_buf[..];
 
@@ -1127,15 +1832,11 @@ pub fn run(
                     // datagram, no stamp: those clients parse the delta body
                     // directly and the channel layer is WebRTC-only for now.
                     if let Some(ref udp_sock) = udp_socket {
-                        for (&peer_addr, &(id, _)) in &udp_peers {
+                        for (&peer_addr, &(id, _, _)) in &udp_peers {
                             netcode::wrap_delta_into(&mut frame_buf, id, delta, 0, server_tick_u32);
                             let _ = udp_sock.send_to(&frame_buf, peer_addr);
                         }
                     }
-                }
-
-                if udp_peers.is_empty() && room.reap_check(Duration::from_secs(30)) {
-                    dead_rooms.push(name.clone());
                 }
             }
             // One sample per batch, as the pinned sim plane does: this is the
@@ -1147,26 +1848,69 @@ pub fn run(
             // Cleanup inactive UDP peers
             let now = Instant::now();
             timed_out_udp.clear();
-            udp_peers.retain(|&addr, (id, last_seen)| {
-                if now.duration_since(*last_seen) > Duration::from_secs(10) {
-                    timed_out_udp.push((addr, *id));
+            udp_peers.retain(|&addr, (id, sess, last_seen)| {
+                if now.duration_since(*last_seen) > Duration::from_millis(3000) {
+                    timed_out_udp.push((addr, *id, sess.clone()));
                     false
                 } else {
                     true
                 }
             });
-            for (addr, id) in timed_out_udp.drain(..) {
+            for (addr, id, sess) in timed_out_udp.drain(..) {
                 eprintln!("[server-udp] disconnected (timeout): {addr}");
-                if id > 0 {
-                    if let Some(room) = server.rooms.get_mut(&cfg.name) {
+                udp_input_rates.remove(&addr);
+                if let Some(room) = server.rooms.get_mut(&cfg.name) {
+                    room.release_input_actor(&sess);
+                    room.sessions.remove(&sess);
+                    if id > 0 {
                         room.remove_raw_player(id);
+                    }
+                    if let Some(ref mut unity) = room.unity {
+                        let to_remove: Vec<u32> = unity
+                            .spawned_prefabs
+                            .iter()
+                            .filter(|(_, (_, owner, _))| owner == &sess)
+                            .map(|(&vid, _)| vid)
+                            .collect();
+
+                        for vid in to_remove {
+                            unity.spawned_prefabs.remove(&vid);
+                            unity.entities.remove(&vid);
+                            unity.sync_vars.remove(&vid);
+                            unity.dirty_entities.remove(&vid);
+
+                            let mut despawn_body = Vec::new();
+                            netcode::put_varint(&mut despawn_body, vid as i32);
+                            let mut wire_despawn = Vec::new();
+                            netcode::write_tunnel(
+                                &mut wire_despawn,
+                                netcode::CYG_OP_DESPAWN_OBJECT,
+                                &despawn_body,
+                            );
+                            let mut wire_pkt = Vec::with_capacity(1 + wire_despawn.len());
+                            wire_pkt.push(netcode::CYG_WIRE_ROOM_DATA_BYTES);
+                            wire_pkt.extend_from_slice(&wire_despawn);
+                            if let Some(ref udp_sock) = udp_socket {
+                                for (&other_addr, _) in &udp_peers {
+                                    let _ = udp_sock.send_to(&wire_pkt, other_addr);
+                                }
+                            }
+                            let targets: Vec<&str> = room.sessions.keys().map(String::as_str).collect();
+                            if !targets.is_empty() {
+                                let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, &wire_despawn);
+                            }
+                        }
                     }
                 }
             }
 
             for name in dead_rooms.drain(..) {
-                server.rooms.remove(&name);
-                eprintln!("[server] room '{name}' disposed (empty 30s)");
+                if let Some(mut room) = server.rooms.remove(&name) {
+                    if let Some(snapshot) = room.export_snapshot() {
+                        server.save_snapshot(&name, snapshot);
+                    }
+                    eprintln!("[server] room '{name}' disposed and state saved (empty 30s)");
+                }
             }
             transport.flush().expect("flush");
         }
@@ -1174,12 +1918,11 @@ pub fn run(
         // Update shared room metadata for /api/rooms HTTP discovery
         if last_meta_update.elapsed() >= Duration::from_millis(500) {
             last_meta_update = Instant::now();
-            if let Ok(mut meta) = rooms_meta.lock() {
-                meta.clear();
-                for (name, room) in &server.rooms {
-                    meta.push((name.clone(), room.sessions.len(), room.spectators.len()));
-                }
+            let mut new_meta = Vec::with_capacity(server.rooms.len());
+            for (name, room) in &server.rooms {
+                new_meta.push((name.clone(), room.sessions.len(), room.spectators.len()));
             }
+            rooms_meta.store(std::sync::Arc::new(new_meta));
         }
 
         // ---- telemetry: one second of ticks plus the sessions this loop owns
@@ -1207,7 +1950,7 @@ pub fn run(
                     });
                 }
             }
-            for (&addr, &(id, last_seen)) in &udp_peers {
+            for (&addr, &(id, ref _sess, last_seen)) in &udp_peers {
                 sessions.push(SessionTelemetry {
                     session: addr.to_string(),
                     transport: "native-udp".to_string(),
@@ -1243,6 +1986,33 @@ pub fn run(
             last_wasm_check = Instant::now();
             let mut recompilation_triggered = false;
 
+            // 0. Control-plane reloads: the console's wasm upload/activate
+            // endpoints (`/v2/console/games/{gameId}/wasm*`, engine-api
+            // `WasmService`) publish a `WasmReload` on this bus whenever the
+            // active `room_modules` row changes. Drain them and force the same
+            // Level 1 in-memory swap the file watcher drives below.
+            let mut console_reload = false;
+            while let Ok(reload) = bus.reloads_rx.try_recv() {
+                console_reload = true;
+                eprintln!(
+                    "[server] 📦 console wasm reload: game '{}' {} v{} (sha256 {}…)",
+                    reload.game_key,
+                    match reload.kind {
+                        engine_bus::ReloadKind::Upload => "uploaded",
+                        engine_bus::ReloadKind::Rollback => "rolled back to",
+                    },
+                    reload.version,
+                    &reload.sha256[..reload.sha256.len().min(12)]
+                );
+            }
+            if console_reload && !wasm_available {
+                eprintln!(
+                    "[server] ⚠️ console reload ignored: this plane booted without a \
+                     room module at {} — nothing to hot-swap onto yet",
+                    wasm_path.display()
+                );
+            }
+
             // 1. Detect changes in the TypeScript room source (room.ts)
             if let Ok(src_current) = std::fs::metadata(&source_path).and_then(|m| m.modified()) {
                 if loaded_src_time != Some(src_current) {
@@ -1264,28 +2034,33 @@ pub fn run(
                 }
             }
 
-            // 2. Detect changes in compiled wasm (either from step 1 or external compiler)
-            if let Ok(current) = std::fs::metadata(wasm_path).and_then(|m| m.modified()) {
-                if loaded_wasm_time != Some(current) || recompilation_triggered {
-                    match runtime
-                        .load_or_compile_cached(wasm_path)
-                        .and_then(|module| {
-                            let linker = rooms::build_host_linker(&runtime, server.permissions);
-                            runtime.prepare(&linker, &module)
-                        }) {
-                        Ok(pre) => {
-                            loaded_wasm_time = Some(current);
-                            eprintln!(
-                                "[server] 🔥 DEV HOT-RELOAD: room logic updated!"
-                            );
+            // 2. Detect changes in compiled wasm (either from step 1 or external compiler).
+            // Skipped when the process booted without a room module — there is
+            // nothing to hot-swap onto. A step-0 console reload forces the same
+            // path even when the file mtime is unchanged.
+            if wasm_available {
+                if let Ok(current) = std::fs::metadata(wasm_path).and_then(|m| m.modified()) {
+                    if console_reload || loaded_wasm_time != Some(current) || recompilation_triggered {
+                        match runtime
+                            .load_or_compile_cached(wasm_path)
+                            .and_then(|module| {
+                                let linker = rooms::build_host_linker(&runtime, server.permissions);
+                                runtime.prepare(&linker, &module)
+                            }) {
+                            Ok(pre) => {
+                                loaded_wasm_time = Some(current);
+                                eprintln!(
+                                    "[server] 🔥 DEV HOT-RELOAD: room logic updated!"
+                                );
 
-                            // 🔥 Hot-swap all actively running rooms without
-                            // disconnecting players (`GameRoom::reload_wasm`
-                            // re-joins every active player per room).
-                            server.hot_reload(pre, cfg.width, cfg.height);
-                        }
-                        Err(e) => {
-                            eprintln!("[server] ⚠️ hot-reload compilation failed: {e}");
+                                // 🔥 Hot-swap all actively running rooms without
+                                // disconnecting players (`GameRoom::reload_wasm`
+                                // re-joins every active player per room).
+                                server.hot_reload(pre, cfg.width, cfg.height);
+                            }
+                            Err(e) => {
+                                eprintln!("[server] ⚠️ hot-reload compilation failed: {e}");
+                            }
                         }
                     }
                 }
@@ -1293,5 +2068,43 @@ pub fn run(
         }
 
         transport.flush().expect("flush");
+    }
+}
+
+#[cfg(test)]
+mod loop_transport_tests {
+    use super::*;
+
+    fn transport() -> LoopTransport {
+        LoopTransport::new(WsTransport::new("127.0.0.1:0".parse().unwrap()).unwrap())
+    }
+
+    /// A rejected join for a session the transport never accepted must be a
+    /// no-op, not a panic or a phantom disconnect. This is the same surface
+    /// `reject_room` uses on the live path (send ERROR, close WITH_ERROR,
+    /// flush) now that it calls the transport directly instead of a channel.
+    #[test]
+    fn reject_room_on_an_unknown_session_is_a_noop() {
+        let mut t = transport();
+        reject_room(&mut t, "sess_missing", "room is full");
+
+        let mut events = Vec::new();
+        t.poll_events(Duration::ZERO, &mut events).unwrap();
+        assert!(events.is_empty(), "unexpected events: {events:?}");
+        assert_eq!(t.ccu(), 0);
+    }
+
+    #[test]
+    fn local_addr_reports_the_bound_socket() {
+        let t = transport();
+        assert_ne!(t.local_addr().unwrap().port(), 0);
+    }
+
+    #[test]
+    fn room_name_sanitizer_drops_query_and_session_suffix() {
+        assert_eq!(sanitize_room_name("smoke"), "smoke");
+        assert_eq!(sanitize_room_name("smoke?sessionId=alice&token=x"), "smoke");
+        assert_eq!(sanitize_room_name("smoke?room=ignored"), "smoke");
+        assert_eq!(sanitize_room_name("smoke/sessionId=alice"), "smoke/");
     }
 }

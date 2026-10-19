@@ -65,13 +65,13 @@ export function NotificationsView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Notifications"
         description="Subject, content and delivery time for one account's notifications."
       />
 
-      <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+      <form onSubmit={submit} className="flex shrink-0 flex-wrap items-end gap-2">
         <label className="space-y-1.5">
           <span className="block text-xs font-medium text-muted-foreground">Account id</span>
           <input
@@ -90,6 +90,7 @@ export function NotificationsView() {
       <Panel
         title="Notifications"
         description={userId === null ? "Enter an account id" : shortId(userId)}
+        fill
         actions={
           <Button size="sm" variant="outline" disabled={userId === null} onClick={() => setSending(true)}>
             <Send />
@@ -98,7 +99,7 @@ export function NotificationsView() {
         }
       >
         {userId === null ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">
+          <p className="flex flex-1 items-center justify-center px-4 py-6 text-center text-sm text-muted-foreground">
             Notifications are per account. Enter an id to list them.
           </p>
         ) : (
@@ -111,6 +112,8 @@ export function NotificationsView() {
             onRowClick={(row) => setOpenId(row.id)}
             selectedKey={openId ?? undefined}
             empty="No notifications for this account."
+            fill
+            selectable
           />
         )}
       </Panel>

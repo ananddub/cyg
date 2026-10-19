@@ -35,7 +35,7 @@ export function SettingsView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Settings"
         description="Server-side key/value settings. A write replaces the whole value."
@@ -43,6 +43,7 @@ export function SettingsView() {
 
       <Panel
         title="Settings"
+        fill
         actions={
           <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
             <Plus />
@@ -59,6 +60,8 @@ export function SettingsView() {
           onRowClick={(row) => setSelectedName(row.name)}
           selectedKey={selectedName ?? undefined}
           empty="No settings recorded."
+          fill
+          selectable
         />
       </Panel>
 

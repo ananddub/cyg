@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::dto::matches::ListMatchesParams;
 use crate::error::INVALID_ARGUMENT;
 use crate::infra::ws::envelope::Presence;
-use crate::services::match_handler::{MatchSnapshot, create_with_tokens, snapshot, terminate};
+use crate::services::realtime::{RealtimeMatchService, matches::MatchSnapshot};
 
 use super::MatchQueryService;
 
@@ -118,8 +118,8 @@ fn a_default_list_reads_the_registry_and_answers_an_array() {
 
 #[test]
 fn a_created_match_is_listed_by_id_and_a_terminated_match_is_gone() {
-    let id = create_with_tokens(15, vec!["token".to_owned()]);
-    assert!(snapshot(id).is_some_and(|s| s.tick_rate == 15));
+    let id = RealtimeMatchService::create_match_with_tokens(15, vec!["token".to_owned()]);
+    assert!(RealtimeMatchService::get_snapshot(id).is_some_and(|s| s.tick_rate == 15));
 
     let Json(body) = MatchQueryService
         .list_matches(ListMatchesParams {
@@ -134,9 +134,9 @@ fn a_created_match_is_listed_by_id_and_a_terminated_match_is_gone() {
         "a running match must appear in the list"
     );
 
-    assert!(terminate(id));
-    assert!(snapshot(id).is_none());
-    assert!(!terminate(id), "terminating a gone match is a second no-op");
+    assert!(RealtimeMatchService::terminate_match(id));
+    assert!(RealtimeMatchService::get_snapshot(id).is_none());
+    assert!(!RealtimeMatchService::terminate_match(id), "terminating a gone match is a second no-op");
 }
 
 #[test]

@@ -30,7 +30,7 @@ extends Control
 ##     hud.link(wrapper.profiler)           # or explicitly
 ##     hud.visible = true
 ##
-## Design derives from Netfox's MIT-licensed profiler and Mirror's interest/transport metrics (attribution in LICENSE-NETFOX.md). Clean-room GDScript; no upstream source text is copied.
+## Design derives from Netfox's MIT-licensed profiler and Mirror's interest/transport metrics (attribution in LICENSE-NETFOX.md). Independent GDScript; no upstream source text is copied.
 
 ## Seconds between full label refreshes when no sample signal drives an earlier one.
 @export var redraw_interval: float = 0.25

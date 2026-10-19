@@ -44,7 +44,7 @@ extends CYGBehaviour
 ##   kind 0 -> [vector3 impulse][vector3 world position]   kind 1/2 -> [vector3]
 ##
 ## Design derives from Netfox's MIT-licensed physics extras (attribution in
-## LICENSE-NETFOX.md). Clean-room GDScript; no Netfox source text is copied.
+## LICENSE-NETFOX.md). Independent GDScript; no Netfox source text is copied.
 
 enum ProxyIntegration {
 	## The body is frozen in kinematic mode and driven by the interpolated pose. It

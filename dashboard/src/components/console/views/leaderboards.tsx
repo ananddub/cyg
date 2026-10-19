@@ -51,13 +51,13 @@ export function LeaderboardsView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Leaderboards"
         description="Ranked boards, with the selected board's records and record-level resets."
       />
 
-      <Panel title="Leaderboard definitions">
+      <Panel title="Leaderboard definitions" fill>
         <DataTable
           columns={columns}
           rows={list.data}
@@ -67,6 +67,8 @@ export function LeaderboardsView() {
           onRowClick={(row) => setSelectedId(row.id)}
           selectedKey={selectedId ?? undefined}
           empty="No leaderboards defined."
+          fill
+          selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
       </Panel>

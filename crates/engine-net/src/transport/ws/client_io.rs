@@ -62,12 +62,16 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                         }
                         if client.state == WsState::Connected {
                             // Frames may have arrived in the same TCP segment as the upgrade request; mio is edge-triggered, so drain them now.
-                            conn_dead = process_ws_frames(client, &mut *pass.buf, now);
+                            // `|=` keeps an EOF from the read loop above: a bare FIN
+                            // carries no frame, so process_ws_frames returns false.
+                            conn_dead |= process_ws_frames(client, &mut *pass.buf, now);
                         }
                     }
                 }
                 WsState::Connected => {
-                    conn_dead = process_ws_frames(client, &mut *pass.buf, now);
+                    // `|=` keeps an EOF from the read loop above: a bare FIN
+                    // carries no frame, so process_ws_frames returns false.
+                    conn_dead |= process_ws_frames(client, &mut *pass.buf, now);
                 }
             }
         }

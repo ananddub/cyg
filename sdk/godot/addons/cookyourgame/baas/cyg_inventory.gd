@@ -84,7 +84,7 @@ extends RefCounted
 ## endpoint, attaches the session `CYGAuth` published, and retries a request that never
 ## got a reply, so a bag fetch and an equip cannot disagree about any of that.
 ##
-## Clean-room port of this repo's Unity BaaS layer
+## Independent port of this repo's Unity BaaS layer
 ## (`sdk/unity/Runtime/BaaS/CYGInventory.cs`) onto the documented `/v2/` endpoints
 ## of the Rust engine-api; no upstream source text is copied.
 

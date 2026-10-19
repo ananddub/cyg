@@ -3,9 +3,10 @@ extends RefCounted
 ## Text channels over the room server's `/v2/channel` routes, with a local
 ## message cache a UI can bind to through signals.
 ##
-## Parity note: neither the Unity SDK (`sdk/unity/Runtime/BaaS/`) nor the
-## Unreal SDK (`sdk/unreal/.../Private/BaaS/`) ships a chat class, so this is
-## built strictly on the server's HTTP channel API — the routes in
+## Parity: the Unity SDK (`sdk/unity/Runtime/BaaS/CYGChat.cs`) and the Unreal
+## SDK (`sdk/unreal/CookYourGame/Source/CookYourGame/Public/BaaS/CYGBaasChat.h`)
+## expose the same routes and cache semantics; this file is the GDScript port.
+## The server's HTTP channel API is the contract — the routes in
 ## `crates/engine-api/src/controllers/channel.rs` and the shapes in
 ## `crates/engine-api/src/dto/channel.rs`.
 ##
@@ -16,6 +17,10 @@ extends RefCounted
 ## (group stream) or `user_id_one`/`user_id_two` (direct messages) — exactly
 ## one of those families appears per message, and an absent member is an
 ## absent key.
+##
+## A channel id is the server's dotted four-part id
+## (`<mode>.<subject>.<descriptor>.<label>`); use room_channel(),
+## group_channel() or direct_channel() instead of passing a bare room name.
 ##
 ## Endpoints, exactly as the server declares them:
 ##
@@ -69,12 +74,12 @@ extends RefCounted
 ##     var chat := CYGChat.new()
 ##     chat.message_received.connect(func(message): add_line(message["content"]))
 ##     chat.messages_updated.connect(func(channel_id, messages): refresh(channel_id, messages))
-##     chat.history("lobby", func(response):
+##     chat.history(CYGChat.room_channel("lobby"), func(response):
 ##         if response["is_success"]:
-##             refresh("lobby", chat.messages_for("lobby")))
-##     chat.send("lobby", "gg", Callable())
+##             refresh("lobby", chat.messages_for(CYGChat.room_channel("lobby"))))
+##     chat.send(CYGChat.room_channel("lobby"), "gg", Callable())
 ##
-## Clean-room GDScript port of this repo's Unity/Unreal BaaS layer onto the
+## Independent GDScript port of this repo's Unity/Unreal BaaS layer onto the
 ## documented `/v2/` endpoints of `crates/engine-api`; no upstream source text
 ## is copied.
 
@@ -85,6 +90,27 @@ const CACHE_LIMIT := 500
 const _MAX_BODY_ERROR := 240
 
 var _cache := {}  # channel_id -> Array[Dictionary], oldest first
+
+
+## The dotted channel id of a room stream: `2..<room>`.
+static func room_channel(room_name: String) -> String:
+	return "2.." + room_name
+
+
+## The dotted channel id of a group stream: `3.<group_id>..`.
+static func group_channel(group_id: String) -> String:
+	return "3." + group_id.to_lower() + ".."
+
+
+## The canonical dotted channel id of a direct stream: `4.<min>.<max>.`.
+static func direct_channel(user_id_one: String, user_id_two: String) -> String:
+	var one := user_id_one.to_lower()
+	var two := user_id_two.to_lower()
+	if one > two:
+		var swap := one
+		one = two
+		two = swap
+	return "4.%s.%s." % [one, two]
 
 
 ## Stored history for `channel_id`, page knobs matching `ListQuery`: `limit`

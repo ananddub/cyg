@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Checkbox, Select, TextInput, TextArea } from "@/components/console/form"
+import { Checkbox, JsonTextArea, Select, TextInput } from "@/components/console/form"
 import { jsonText, parseJson } from "@/components/console/json"
 import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation } from "@/hooks/use-console"
@@ -171,7 +171,7 @@ export function TournamentDialog({
       </div>
       <Checkbox label="Authoritative" checked={form.authoritative} onChange={(value) => set("authoritative", value)} />
       <Checkbox label="Join required" checked={form.join_required} onChange={(value) => set("join_required", value)} />
-      <TextArea label="Metadata" rows={4} value={form.metadata} onChange={(value) => set("metadata", value)} />
+      <JsonTextArea label="Metadata" rows={4} value={form.metadata} onChange={(value) => set("metadata", value)} />
     </FormSheet>
   )
 }

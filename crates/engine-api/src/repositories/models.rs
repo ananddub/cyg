@@ -4,7 +4,6 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use serde_json::Value;
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -261,4 +260,37 @@ pub struct WalletLedger {
     pub create_time: DateTime<Utc>,
     pub update_time: DateTime<Utc>,
 }
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct ItemDefinition {
+    pub item_id: String,
+    pub name: String,
+    pub category: String,
+    pub max_stack: i32,
+    pub rarity: String,
+    pub properties: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct PlayerInventoryItem {
+    pub instance_id: Uuid,
+    pub user_id: Uuid,
+    pub item_id: String,
+    pub quantity: i32,
+    pub slot_index: i32,
+    pub metadata: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct RoomPersistentSnapshot {
+    pub room_name: String,
+    pub backend: String,
+    pub snapshot_bytes: Vec<u8>,
+    pub entity_count: i32,
+    pub saved_at: DateTime<Utc>,
+}
+
 

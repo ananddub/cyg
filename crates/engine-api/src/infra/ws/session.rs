@@ -4,13 +4,14 @@
 //! sockets; the registry is process-global so the matchmaker, parties, chat and status
 //! planes can reach a session without threading `ApiState` through every callback.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use arc_swap::ArcSwapOption;
 
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
 use super::envelope::Envelope;
+use crate::services::realtime::{FastSet, new_fast_set};
 
 #[derive(Debug)]
 pub struct Session {
@@ -20,13 +21,13 @@ pub struct Session {
     /// Writer task inbox: serialised envelopes, delivered in order.
     tx: UnboundedSender<String>,
     /// Match ids this socket joined (realtime presence bookkeeping).
-    pub matches: RwLock<HashSet<Uuid>>,
+    pub matches: FastSet<Uuid>,
     /// Channel ids (hex stream ids) this socket joined.
-    pub channels: RwLock<HashSet<String>>,
+    pub channels: FastSet<String>,
     /// Party the socket belongs to, if any.
-    pub party: RwLock<Option<Uuid>>,
+    pub party: ArcSwapOption<Uuid>,
     /// User ids this socket follows via `status_follow`.
-    pub follows: RwLock<HashSet<Uuid>>,
+    pub follows: FastSet<Uuid>,
 }
 
 impl Session {
@@ -41,11 +42,19 @@ impl Session {
             uid,
             username,
             tx,
-            matches: RwLock::new(HashSet::new()),
-            channels: RwLock::new(HashSet::new()),
-            party: RwLock::new(None),
-            follows: RwLock::new(HashSet::new()),
+            matches: new_fast_set(),
+            channels: new_fast_set(),
+            party: ArcSwapOption::new(None),
+            follows: new_fast_set(),
         })
+    }
+
+    pub fn party_id(&self) -> Option<Uuid> {
+        self.party.load().as_ref().map(|u| **u)
+    }
+
+    pub fn set_party_id(&self, id: Option<Uuid>) {
+        self.party.store(id.map(Arc::new));
     }
 
     /// Queue one envelope for delivery. A full/closed queue means the writer died with
@@ -61,77 +70,39 @@ impl Session {
     }
 }
 
-#[derive(Default)]
-struct Registry {
-    by_sid: HashMap<Uuid, Arc<Session>>,
-    by_user: HashMap<Uuid, Vec<Arc<Session>>>,
-}
+static HUB: std::sync::OnceLock<crate::services::realtime::RealtimeSessionHub> = std::sync::OnceLock::new();
 
-static HUB: std::sync::OnceLock<RwLock<Registry>> = std::sync::OnceLock::new();
-
-fn hub() -> &'static RwLock<Registry> {
-    HUB.get_or_init(|| RwLock::new(Registry::default()))
+pub fn hub() -> &'static crate::services::realtime::RealtimeSessionHub {
+    HUB.get_or_init(crate::services::realtime::RealtimeSessionHub::new)
 }
 
 pub fn register(session: Arc<Session>) {
-    let mut reg = hub().write().expect("session hub lock");
-    reg.by_user
-        .entry(session.uid)
-        .or_default()
-        .push(session.clone());
-    reg.by_sid.insert(session.sid, session);
+    hub().register(session);
 }
 
 /// Drop a socket from the registry. The caller (read-loop teardown) still holds its
 /// `Arc` long enough to broadcast the departure events.
 pub fn unregister(sid: Uuid) -> Option<Arc<Session>> {
-    let mut reg = hub().write().expect("session hub lock");
-    let session = reg.by_sid.remove(&sid)?;
-    if let Some(list) = reg.by_user.get_mut(&session.uid) {
-        list.retain(|s| s.sid != sid);
-        if list.is_empty() {
-            reg.by_user.remove(&session.uid);
-        }
-    }
-    Some(session)
+    hub().unregister(sid)
 }
 
 pub fn find(sid: Uuid) -> Option<Arc<Session>> {
-    hub()
-        .read()
-        .expect("session hub lock")
-        .by_sid
-        .get(&sid)
-        .cloned()
+    hub().find(sid)
 }
 
 pub fn sessions_of(uid: Uuid) -> Vec<Arc<Session>> {
-    hub()
-        .read()
-        .expect("session hub lock")
-        .by_user
-        .get(&uid)
-        .cloned()
-        .unwrap_or_default()
+    hub().sessions_of(uid)
 }
 
 pub fn is_online(uid: Uuid) -> bool {
-    !sessions_of(uid).is_empty()
+    hub().is_online(uid)
 }
 
 pub fn online_users() -> Vec<Uuid> {
-    hub()
-        .read()
-        .expect("session hub lock")
-        .by_user
-        .keys()
-        .copied()
-        .collect()
+    hub().online_users()
 }
 
 /// Deliver one message to every live socket of a user.
 pub fn send_to_user(uid: Uuid, env: &Envelope) {
-    for s in sessions_of(uid) {
-        s.send(env);
-    }
+    hub().send_to_user(uid, env);
 }

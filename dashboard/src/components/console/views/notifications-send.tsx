@@ -6,7 +6,7 @@ import { Loader2, Send } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { TextArea, TextInput } from "@/components/console/form"
+import { JsonTextArea, TextInput } from "@/components/console/form"
 import { parseJson } from "@/components/console/json"
 import { FormSheet } from "@/components/console/form-sheet"
 import { useConsoleMutation } from "@/hooks/use-console"
@@ -76,7 +76,7 @@ export function SendNotificationDialog({
       }
     >
       <TextInput label="Subject" value={subject} onChange={setSubject} placeholder="What this is about" />
-      <TextArea label="Content" rows={5} value={content} onChange={setContent} />
+      <JsonTextArea label="Content" rows={5} value={content} onChange={setContent} />
       <TextInput
         label="Code"
         hint="The numeric code the client branches on; 0 when there is none."

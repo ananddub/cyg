@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::error::{INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED, UNAUTHENTICATED};
 use crate::infra::console::ConsoleRole;
-use crate::services::match_handler::create_with_tokens;
+use crate::services::realtime::RealtimeMatchService;
 
 use super::helpers::{ADMIN, PASSWORD, V2Server, login, player_token, token_for, v2_state};
 
@@ -60,7 +60,7 @@ fn the_console_match_routes_demand_a_console_token() {
 fn the_console_lists_running_matches_without_a_database() {
     let server = V2Server::start(v2_state());
     let auth = format!("Bearer {}", login(&server, ADMIN, PASSWORD));
-    let id = create_with_tokens(15, vec!["t".to_owned()]);
+    let id = RealtimeMatchService::create_match_with_tokens(15, vec!["t".to_owned()]);
 
     let reply = server.get("/v2/console/match", Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
@@ -78,7 +78,7 @@ fn the_console_lists_running_matches_without_a_database() {
     // Every row carries the node field, empty on this single-process plane.
     assert!(matches.iter().all(|row| row["node"].is_string()));
 
-    crate::services::match_handler::terminate(id);
+    RealtimeMatchService::terminate_match(id);
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn reading_a_match_state_names_the_missing_match() {
 fn a_running_match_reports_its_state() {
     let server = V2Server::start(v2_state());
     let auth = format!("Bearer {}", login(&server, ADMIN, PASSWORD));
-    let id = create_with_tokens(5, vec!["t".to_owned()]);
+    let id = RealtimeMatchService::create_match_with_tokens(5, vec!["t".to_owned()]);
 
     let reply = server.get(&format!("/v2/console/match/{id}/state"), Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
@@ -105,7 +105,7 @@ fn a_running_match_reports_its_state() {
     assert_eq!(body["tick"], 0);
     assert_eq!(body["state"], "");
 
-    crate::services::match_handler::terminate(id);
+    RealtimeMatchService::terminate_match(id);
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn terminating_a_match_is_a_write_the_readonly_cannot_make() {
     assert_eq!(reply.refusal(NOT_FOUND), "Match not found.");
 
     // A match that is really running goes on the admin's say-so.
-    let live = create_with_tokens(0, vec![]);
+    let live = RealtimeMatchService::create_match_with_tokens(0, vec![]);
     let reply = server.delete(&format!("/v2/console/match/{live}"), Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
 }

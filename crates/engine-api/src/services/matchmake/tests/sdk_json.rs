@@ -52,12 +52,14 @@ fn seat_json_is_parseable_and_nests_the_ice_blob_as_text() {
         seat_token: "tok".into(),
         game_port: 7777,
         control_port: 8090,
+        udp_port: 7778,
         ice_servers: "[{\"urls\":[\"stun:stun.l.google.com:19302\"]}]".into(),
         expires_at: 1_800_000_000,
     };
     let outer: serde_json::Value = serde_json::from_str(&resp.to_json()).unwrap();
     assert_eq!(outer["sessionId"].as_str().unwrap(), "s1");
     assert_eq!(outer["gamePort"].as_u64().unwrap(), 7777);
+    assert_eq!(outer["udpPort"].as_u64().unwrap(), 7778);
     let ice = outer["iceServers"].as_str().unwrap();
     let inner: serde_json::Value = serde_json::from_str(ice).unwrap();
     assert_eq!(inner[0]["urls"][0].as_str().unwrap(), "stun:stun.l.google.com:19302");
@@ -74,6 +76,7 @@ fn a_quote_in_a_seat_field_cannot_break_the_envelope() {
         seat_token: "t".into(),
         game_port: 1,
         control_port: 2,
+        udp_port: 7778,
         ice_servers: "[]".into(),
         expires_at: 3,
     };

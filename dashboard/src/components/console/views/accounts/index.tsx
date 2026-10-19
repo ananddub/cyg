@@ -54,7 +54,7 @@ export function AccountsView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Accounts"
         description="Player accounts. Select one to read its notes, wallet ledger and provider links — or to ban it, note it and adjust its wallet."
@@ -63,6 +63,7 @@ export function AccountsView() {
       <Panel
         title="All accounts"
         description={`page ${Math.floor(offset / PAGE_SIZE) + 1}`}
+        fill
         actions={
           <Button size="sm" variant="outline" onClick={() => setImporting(true)}>
             <Plus />
@@ -79,6 +80,8 @@ export function AccountsView() {
           onRowClick={(row) => setSelected(row.id)}
           selectedKey={selected ?? undefined}
           empty="No accounts yet."
+          fill
+          selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
       </Panel>

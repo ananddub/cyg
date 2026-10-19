@@ -31,7 +31,7 @@ export function WalletLedgerPanel({ id, onAdjust }: { id: string; onAdjust: () =
         }
       >
         {wallet.data === undefined || wallet.data.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">No ledger entries.</p>
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">No ledger entries.</p>
         ) : (
           <div className="divide-y divide-border/40">
             {wallet.data.map((entry) => (

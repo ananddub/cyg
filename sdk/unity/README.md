@@ -107,16 +107,70 @@ public class PlayerCombat : MonoBehaviour
 
 ---
 
-## 📦 What's Inside the SDK?
+## 📦 Package Layout
 
-* **`CYGNetwork`**: Static singleton manager (Connect, Rooms, MasterClient, RPCs).
-* **`CYGView`**: Network identity and ownership controller (`view.IsMine`).
-* **`CYGTransformSync`**: Smooth dead-reckoning movement and rotation synchronization.
-* **`CYGTransport`**: Thread-safe native WebSocket networking client.
-* **`CYGRPC`**: Remote procedure call attribute (`[CYGRPC]`).
-* **`CYGPlayer`**: Player data model (`ActorNumber`, `Username`, `IsMasterClient`).
+```
+Runtime/
+  CookYourGame.Runtime.asmdef
+  Core/            CYGNetwork, CYGNetworkManager, CYGView, CYGBehaviour,
+                   CYGPlayer, CYGOpCodes, CYGServerSettings, CYGPrefabRegistry,
+                   CYGSceneManager
+  Transport/       CYGTransport (wire framing + WebSocket), CYGProfilingTransport
+  Serialization/   CYGBitPacker, CYGDeltaPacker, CYGSyncVar, CYGRPC
+  Components/      CYGTransformSync, CYGAnimatorSync, CYGHierarchySync,
+                   CYGOwnershipToggle, CYGServerToggle, CYGVisibility
+  Resilience/      CYGSessionCookie, CYGLagCompensation
+  Pooling/         CYGObjectPool
+  Profiler/        CYGNetworkProfiler
+  Sim/             optional fixed-point simulation, rollback and input hub
+  BaaS/            CYGAuth, CYGHttp, CYGStorage, CYGInventory, CYGLeaderboard,
+                   CYGChat
+Editor/
+  CookYourGame.Editor.asmdef
+  CYGProfilerWindow.cs
+```
+
+### What each area gives you
+
+* **`Core/`** — session and identity. `CYGNetwork` (connect, rooms, master client, spawn/destroy), `CYGView` + `CYGBehaviour` (ownership via `IsMine`, spawn/despawn/owner-changed hooks, the 8-slot delta pump).
+* **`Transport/`** — `[len u16 BE][op u8][payload]` framing over a thread-safe WebSocket client. Install `CYGProfilingTransport` through `CYGNetwork.TransportFactory` to instrument bytes without touching the core.
+* **`Serialization/`** — `CYGBitWriter`/`CYGBitReader` (varint, half-float, packed vector, smallest-three quaternion), plus `CYGDeltaPacker` for binary diff/patch of state snapshots.
+* **`Components/`** — the drag-and-drop `MonoBehaviour`s. `CYGHierarchySync` rides the `StateDelta` channel, so attaching an object to a vehicle needs no new opcodes.
+* **`Resilience/`** — `CYGSessionCookie` resumes a dropped seat inside a 30s window with capped backoff; `CYGLagCompensation` rewinds collider history for hit registration.
+* **`Pooling/`** — `CYGObjectPool` backs `CYGNetwork.SpawnPrefab`/`DestroyObject`; pooled objects keep their stale `ViewId` until the caller reassigns it.
+* **`Profiler/`** — rolling one-second byte/packet counters per opcode, an in-game overlay (Left Ctrl+P) and an editor window. Stripped from shipping builds via `#if UNITY_EDITOR || DEVELOPMENT_BUILD`.
+* **`BaaS/`** — account, storage, inventory, leaderboard and chat over the control plane's `/v2/` routes. `CYGChat` reads and writes channel messages (build ids with `RoomChannelId`/`GroupChannelId`/`DirectChannelId`), keeps a bounded local timeline and raises `MessageReceived`/`MessagesUpdated` for the UI.
+
+---
+
+## 🧮 Optional Deterministic Simulation
+
+`Runtime/Sim` is an **opt-in** third mode; it does not replace the default
+server-authoritative or relay paths. Enable it only in a project whose
+simulation is written against the fixed-point `FP*` types and
+`FPCharacterController`, not Unity `Rigidbody`/PhysX.
+
+The input hub (wire opcode `19`) is also opt-in on the server
+(`input_hub = true`). It authenticates a peer's actor id from its session,
+scopes packets to the joined room, checks framing, tick monotonicity, payload
+shape and rate, then forwards validated inputs. That is tamper-resistance for
+the *transport*, **not anti-cheat**: every client can still see all inputs and
+state, and a modified client can produce any legal input. Competitive/FPS
+titles should use server-authoritative simulation with server collision and
+line-of-sight checks instead.
+
+Bit-exact determinism has been verified by the included checksum tests on one
+host. It has **not** been verified across Windows/Linux/macOS, different CPU
+architectures, or Unity player builds. Do not ship a cross-platform lockstep
+claim without running the same checksum suite on every target platform.
+
+The input hub relays inputs; it does not ship state snapshots or a
+server-driven tick epoch. Treat all peers as starting together at tick 0
+(a loading/start barrier) and do not allow late join or mid-match reconnect
+without a game-level resync. The current mode is a lockstep prototype, not a
+drop-in replacement for a server-simulated reference room.
 
 ---
 
 ## 📄 License
-MIT License — CookYourGame Team.
+MIT License — see [`LICENSE.md`](LICENSE.md). Copyright (c) 2026 CookYourGame Team.

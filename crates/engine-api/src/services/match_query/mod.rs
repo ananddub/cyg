@@ -15,7 +15,7 @@ use crate::dto::matches::{
     ListMatchesParams, MatchListResponse, MatchResponse, MatchmakerStatsResponse, MatchsetStat,
 };
 use crate::error::V2Error;
-use crate::services::{match_handler, matchmaker};
+use crate::services::realtime::{RealtimeMatchService, RealtimeMatchmakerService};
 
 /// The default page size, and the ceiling, both the reference server's.
 const DEFAULT_LIMIT: i64 = 10;
@@ -57,7 +57,7 @@ impl MatchQueryService {
             }
         }
 
-        let mut matches: Vec<MatchResponse> = match_handler::list_snapshots()
+        let mut matches: Vec<MatchResponse> = RealtimeMatchService::list_snapshots_all()
             .iter()
             .map(MatchResponse::from)
             .collect();
@@ -81,7 +81,7 @@ impl MatchQueryService {
     /// `GET /v2/matchmaker/stats`. Reports the real queue; `completions` stays empty
     /// because finished-ticket history is not kept here.
     pub fn matchmaker_stats(&self) -> Json<MatchmakerStatsResponse> {
-        let snapshot = matchmaker::stats();
+        let snapshot = RealtimeMatchmakerService::get_stats();
         let matchsets: Vec<MatchsetStat> = snapshot
             .matchsets
             .into_iter()

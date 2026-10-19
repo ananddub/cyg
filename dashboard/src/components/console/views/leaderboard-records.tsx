@@ -52,9 +52,9 @@ export function RecordsPanel({
         }
       >
         {queryError(records.error) !== null ? (
-          <p className="px-4 py-6 text-sm text-destructive">{queryError(records.error)}</p>
+          <p className="px-4 py-6 text-center text-sm text-destructive">{queryError(records.error)}</p>
         ) : records.data === undefined || records.data.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">No records.</p>
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">No records.</p>
         ) : (
           <div className="divide-y divide-border/40">
             {records.data.map((record, index) => (

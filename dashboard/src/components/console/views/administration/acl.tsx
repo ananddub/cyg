@@ -32,7 +32,7 @@ export function AclTemplatesView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="ACL Templates"
         description="Named permission documents an operator role can be defined from."
@@ -40,6 +40,7 @@ export function AclTemplatesView() {
 
       <Panel
         title="Templates"
+        fill
         actions={
           <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
             <Plus />
@@ -56,6 +57,8 @@ export function AclTemplatesView() {
           onRowClick={(row) => setSelectedId(row.id)}
           selectedKey={selectedId ?? undefined}
           empty="No ACL templates defined."
+          fill
+          selectable
         />
       </Panel>
 

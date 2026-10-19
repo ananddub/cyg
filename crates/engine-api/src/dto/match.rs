@@ -9,7 +9,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::services::match_handler::MatchSnapshot;
+use crate::services::realtime::matches::MatchSnapshot;
 
 /// `api.Match`, a relay match as the list reports it. `authoritative` is always
 /// `false`: this plane runs relay matches only, and the filter that asks for

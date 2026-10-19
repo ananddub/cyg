@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { SelectionCheckbox } from "@/components/console/data-table"
+import { useSelection } from "@/hooks/use-selection"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -57,11 +60,30 @@ export function ClientsTable({ clients, loading }: Props) {
     })
   }, [clients, dir])
 
+  const selection = useSelection(rows.map((client) => client.session))
+  const { selected, allSelected, someSelected } = selection
+
   return (
     <TooltipProvider>
-      <Table>
-        <TableHeader>
-          <TableRow>
+      {selected.size > 0 && (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+          <span className="tabular-nums">{selected.size} selected</span>
+          <Button variant="ghost" size="xs" onClick={selection.clear}>
+            Clear
+          </Button>
+        </div>
+      )}
+      <Table fill>
+        <TableHeader className="sticky top-0 z-10 bg-card">
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="w-8">
+              <SelectionCheckbox
+                checked={allSelected}
+                indeterminate={someSelected}
+                onChange={selection.toggleAll}
+                label="Select every session on this list"
+              />
+            </TableHead>
             <TableHead>Session</TableHead>
             <TableHead>Transport</TableHead>
             <TableHead>Player</TableHead>
@@ -79,7 +101,7 @@ export function ClientsTable({ clients, loading }: Props) {
           {loading && clients === undefined ? (
             Array.from({ length: 4 }, (_, i) => (
               <TableRow key={i}>
-                {Array.from({ length: 5 }, (_, j) => (
+                {Array.from({ length: 6 }, (_, j) => (
                   <TableCell key={j}>
                     <Skeleton className="h-4 w-full" />
                   </TableCell>
@@ -88,13 +110,20 @@ export function ClientsTable({ clients, loading }: Props) {
             ))
           ) : rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+              <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
                 No clients connected
               </TableCell>
             </TableRow>
           ) : (
             rows.map((c) => (
               <TableRow key={c.session}>
+                <TableCell className="w-8">
+                  <SelectionCheckbox
+                    checked={selected.has(c.session)}
+                    onChange={() => selection.toggle(c.session)}
+                    label={`Select ${c.session}`}
+                  />
+                </TableCell>
                 <TableCell>
                   <Tooltip>
                     <TooltipTrigger render={<span className="font-mono text-xs" />}>

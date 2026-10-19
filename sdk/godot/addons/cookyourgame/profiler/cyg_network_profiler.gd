@@ -59,7 +59,7 @@ extends RefCounted
 ##     var snap: Dictionary = profiler.snapshot()
 ##     print(snap["live"]["bytes_sent"], " bytes in the open window")
 ##
-## Design derives from Netfox's MIT-licensed profiler and Mirror's interest/transport metrics (attribution in LICENSE-NETFOX.md). Clean-room GDScript; no upstream source text is copied.
+## Design derives from Netfox's MIT-licensed profiler and Mirror's interest/transport metrics (attribution in LICENSE-NETFOX.md). Independent GDScript; no upstream source text is copied.
 
 signal sample_taken
 

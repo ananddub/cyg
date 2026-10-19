@@ -4,16 +4,16 @@
 //! The expired-entry sweep runs at the end of each write rather than on a ticker;
 //! equivalent, since a token past `exp` is already refused by signature validation.
 
+use ahash::RandomState;
+use scc::HashMap as FastMap;
 use std::collections::HashMap;
-use std::sync::RwLock;
-
 use uuid::Uuid;
 
 /// Revoked session and refresh tokens, by user.
 pub struct SessionCache {
     token_expiry_secs: i64,
     refresh_expiry_secs: i64,
-    users: RwLock<HashMap<Uuid, UserEntry>>,
+    users: FastMap<Uuid, UserEntry, RandomState>,
 }
 
 #[derive(Default)]
@@ -30,24 +30,20 @@ impl SessionCache {
         SessionCache {
             token_expiry_secs,
             refresh_expiry_secs,
-            users: RwLock::new(HashMap::new()),
+            users: FastMap::with_hasher(RandomState::new()),
         }
     }
 
     pub fn is_valid_session(&self, uid: Uuid, exp: i64, token_id: &str) -> bool {
-        let users = self.users.read().expect("session cache read lock");
-        let Some(entry) = users.get(&uid) else {
-            return true;
-        };
-        valid(entry, exp, token_id, self.token_expiry_secs, true)
+        self.users
+            .read_sync(&uid, |_, entry| valid(entry, exp, token_id, self.token_expiry_secs, true))
+            .unwrap_or(true)
     }
 
     pub fn is_valid_refresh(&self, uid: Uuid, exp: i64, token_id: &str) -> bool {
-        let users = self.users.read().expect("session cache read lock");
-        let Some(entry) = users.get(&uid) else {
-            return true;
-        };
-        valid(entry, exp, token_id, self.refresh_expiry_secs, false)
+        self.users
+            .read_sync(&uid, |_, entry| valid(entry, exp, token_id, self.refresh_expiry_secs, false))
+            .unwrap_or(true)
     }
 
     /// Blacklist one session/refresh pair; empty ids are skipped so a logout naming
@@ -60,10 +56,7 @@ impl SessionCache {
         refresh_exp: i64,
         refresh_id: &str,
     ) {
-        let mut users = self.users.write().expect("session cache write lock");
-        let entry = users.entry(uid).or_default();
-        // `exp + 1` keeps the entry alive one tick past the token it revokes, which is
-        // what makes the sweep's `exp <= now` safe.
+        let mut entry = self.users.entry_sync(uid).or_default();
         if !session_id.is_empty() {
             entry
                 .session_tokens
@@ -74,24 +67,33 @@ impl SessionCache {
                 .refresh_tokens
                 .insert(refresh_id.to_owned(), refresh_exp + 1);
         }
-        sweep(
-            &mut users,
-            chrono::Utc::now().timestamp(),
-            self.token_expiry_secs,
-            self.refresh_expiry_secs,
-        );
+        drop(entry);
+        self.sweep();
     }
 
     /// Invalidate everything this user holds, issued up to this instant.
     pub fn remove_all(&self, uid: Uuid) {
         let ts = chrono::Utc::now().timestamp();
-        let mut users = self.users.write().expect("session cache write lock");
-        let entry = users.entry(uid).or_default();
+        let mut entry = self.users.entry_sync(uid).or_default();
         if ts > entry.last_invalidation {
             entry.last_invalidation = ts;
             entry.session_tokens.clear();
             entry.refresh_tokens.clear();
         }
+    }
+
+    fn sweep(&self) {
+        let ts = chrono::Utc::now().timestamp();
+        let token_expiry = self.token_expiry_secs;
+        let refresh_expiry = self.refresh_expiry_secs;
+        self.users.retain_sync(|_, entry| {
+            entry.session_tokens.retain(|_, exp| *exp > ts);
+            entry.refresh_tokens.retain(|_, exp| *exp > ts);
+            let stamped = entry.last_invalidation > 0;
+            let aged = entry.last_invalidation < ts.saturating_sub(token_expiry)
+                && entry.last_invalidation < ts.saturating_sub(refresh_expiry);
+            !(entry.session_tokens.is_empty() && entry.refresh_tokens.is_empty() && (!stamped || aged))
+        });
     }
 }
 
@@ -107,17 +109,4 @@ fn valid(entry: &UserEntry, exp: i64, token_id: &str, expiry_secs: i64, session:
         &entry.refresh_tokens
     };
     !tokens.contains_key(token_id)
-}
-
-/// Drop token ids whose revocation has expired, then the user record once both
-/// lists are empty and its stamp is older than both windows.
-fn sweep(users: &mut HashMap<Uuid, UserEntry>, ts: i64, token_expiry: i64, refresh_expiry: i64) {
-    users.retain(|_, entry| {
-        entry.session_tokens.retain(|_, exp| *exp > ts);
-        entry.refresh_tokens.retain(|_, exp| *exp > ts);
-        let stamped = entry.last_invalidation > 0;
-        let aged = entry.last_invalidation < ts.saturating_sub(token_expiry)
-            && entry.last_invalidation < ts.saturating_sub(refresh_expiry);
-        !(entry.session_tokens.is_empty() && entry.refresh_tokens.is_empty() && (!stamped || aged))
-    });
 }

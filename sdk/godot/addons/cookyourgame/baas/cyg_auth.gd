@@ -71,7 +71,7 @@ extends RefCounted
 ## not a credential, and a guest that signs out must come back as the same
 ## guest. `logout()` clears the token fields and leaves the device id alone.
 ##
-## Clean-room GDScript port of this repo's own SDKs (`sdk/unity/Runtime/BaaS/
+## Independent GDScript port of this repo's own SDKs (`sdk/unity/Runtime/BaaS/
 ## CYGAuth.cs` and `sdk/unreal/.../BaaS/CYGBaasAuth.cpp`); no upstream source
 ## text is copied. Nothing here derives from Netfox — the BaaS layer has no
 ## Netfox lineage, so this file carries no LICENSE-NETFOX.md attribution.

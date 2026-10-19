@@ -7,7 +7,7 @@ import { useRef, useState, type ChangeEvent } from "react"
 import { Loader2, Upload } from "lucide-react"
 import { toast } from "sonner"
 
-import { TextArea } from "@/components/console/form"
+import { JsonTextArea } from "@/components/console/form"
 import { parseJson } from "@/components/console/json"
 import { FormSheet } from "@/components/console/form-sheet"
 import { Button } from "@/components/ui/button"
@@ -81,7 +81,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
         </>
       }
     >
-      <TextArea
+      <JsonTextArea
         label="Export document"
         rows={10}
         value={text}

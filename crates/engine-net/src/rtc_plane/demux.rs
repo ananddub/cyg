@@ -143,8 +143,8 @@ fn create_session(
     let (tx, rx) = mpsc::channel::<SessionInbound>(inbox_capacity.max(1));
     sessions.insert(session_id.clone(), tx.clone());
     unbound.insert(session_id.clone());
-    registries.lock_outbox().insert(session_id.clone(), tx);
-    registries.lock_players().insert(player_id.clone(), session_id.clone());
+    registries.insert_session(session_id.clone(), tx);
+    registries.bind_player(player_id.clone(), session_id.clone());
 
     tokio::spawn(session_task(
         rtc,

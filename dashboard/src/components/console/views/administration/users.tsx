@@ -53,7 +53,7 @@ export function ConsoleUsersView() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="Console Users"
         description="Operators who may sign in to this console, and the role each one holds. The config bootstrap account is not listed — it is not a row."
@@ -61,6 +61,7 @@ export function ConsoleUsersView() {
 
       <Panel
         title="Operators"
+        fill
         actions={
           <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
             <Plus />
@@ -77,6 +78,8 @@ export function ConsoleUsersView() {
           onRowClick={(row) => setSelectedId(row.id)}
           selectedKey={selectedId ?? undefined}
           empty="No console users besides the bootstrap account."
+          fill
+          selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
       </Panel>

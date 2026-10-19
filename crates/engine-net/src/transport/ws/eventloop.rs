@@ -11,14 +11,14 @@ use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use bytes::{Buf, BufMut};
+use bytes::Buf;
 
 use super::accept::on_listener_event;
-use super::client::WsState;
+use super::client::{WsState, MAX_SEND_QUEUE};
 use super::client_io::on_client_event;
 use super::hooks::Pass;
 use super::protocol::wire_opcode_for;
-use super::rfc6455::{encode_ws_frame, finish_close};
+use super::rfc6455::{encode_wire_frame, finish_close};
 use super::transport::WsTransport;
 use crate::framing::OpCode;
 use crate::transport::{GameTransport, TransportEvent};
@@ -94,7 +94,10 @@ impl GameTransport for WsTransport {
         self.clients = clients;
         self.disconnected = disconnected;
 
-        std::mem::swap(ev, &mut buf);
+        // Append to the caller's buffer: the trait promises appending, and a
+        // second poll (e.g. a blocking wait followed by an event drain) must not
+        // discard events the caller has not consumed yet.
+        ev.append(&mut buf);
         buf.clear();
         self.ev = buf;
         Ok(())
@@ -105,25 +108,63 @@ impl GameTransport for WsTransport {
         Ok(())
     }
 
+    fn send_to_many(
+        &mut self,
+        client_ids: &[&str],
+        opcode: OpCode,
+        payload: &[u8],
+    ) -> io::Result<()> {
+        self.send_many(client_ids, wire_opcode_for(opcode), payload);
+        Ok(())
+    }
+
     fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> io::Result<()> {
         let colyseus_opcode = wire_opcode_for(opcode);
-        let (sb, clients) = (&mut self.sb, &mut self.clients);
-        sb.reserve(11 + payload.len());
-        sb.put_u8(colyseus_opcode);
-        sb.put_slice(payload);
-        // Freeze first so the encoder can read the message and write the framed bytes into the same scratch in two disjoint steps.
-        let msg: bytes::Bytes = sb.split().freeze();
-        encode_ws_frame(&msg, sb);
-        let frame: bytes::Bytes = sb.split().freeze();
-        for client in clients.values_mut() {
+        self.sb.clear();
+        self.sb.reserve(11 + payload.len());
+        encode_wire_frame(colyseus_opcode, payload, &mut self.sb);
+        let frame = &self.sb[..];
+        let frame_len = frame.len();
+        let mut queued = false;
+        let mut overflowed = 0u64;
+        for client in self.clients.values_mut() {
             if matches!(client.state, WsState::Connected) {
-                client.send_queue.extend_from_slice(&frame);
+                let cur_len = client.send_queue.len();
+                if cur_len + frame_len > MAX_SEND_QUEUE {
+                    overflowed += 1;
+                    continue;
+                }
+                if client.send_queue.capacity().saturating_sub(cur_len) >= frame_len {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            frame.as_ptr(),
+                            client.send_queue.as_mut_ptr().add(cur_len),
+                            frame_len,
+                        );
+                        client.send_queue.set_len(cur_len + frame_len);
+                    }
+                } else {
+                    client.send_queue.extend_from_slice(frame);
+                }
+                queued = true;
             }
+        }
+        if queued {
+            self.flush_dirty = true;
+        }
+        if overflowed > 0 {
+            self.dropped_frames = self.dropped_frames.saturating_add(overflowed);
         }
         Ok(())
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        // Nothing queued: skip the O(clients) pass entirely (idle servers spend
+        // most of their loop here).
+        if !self.flush_dirty {
+            return Ok(());
+        }
+        let mut pending = false;
         for client in self.clients.values_mut() {
             if !client.send_queue.is_empty() {
                 match client.stream.write(&client.send_queue) {
@@ -132,8 +173,15 @@ impl GameTransport for WsTransport {
                     }
                     Err(_) => {}
                 }
+                pending |= !client.send_queue.is_empty();
+                // A burst leaves a large capacity behind; hand it back once the
+                // queue drains instead of pinning it for the client's lifetime.
+                if client.send_queue.is_empty() && client.send_queue.capacity() > 64 * 1024 {
+                    client.send_queue = bytes::BytesMut::with_capacity(4096);
+                }
             }
         }
+        self.flush_dirty = pending;
         Ok(())
     }
 
@@ -154,5 +202,9 @@ impl GameTransport for WsTransport {
 
     fn disconnect(&mut self, client_id: &str) -> io::Result<()> {
         WsTransport::disconnect(self, client_id)
+    }
+
+    fn disconnect_with(&mut self, client_id: &str, code: u16, reason: &str) -> io::Result<()> {
+        WsTransport::disconnect_with(self, client_id, code, reason)
     }
 }
