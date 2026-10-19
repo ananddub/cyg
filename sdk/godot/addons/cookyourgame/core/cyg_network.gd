@@ -8,6 +8,9 @@ extends Node
 signal connected_to_server
 signal joined_room(room_name: String)
 signal disconnected(reason: String)
+## A dropped socket is being retried: which attempt this is, and how long the SDK waits
+## before it fires. Emitted once per scheduled retry, never for a consented leave.
+signal reconnecting(attempt: int, delay_seconds: float)
 signal room_error(code: int, message: String)
 signal room_event(event_name: String, body: PackedByteArray)
 signal room_state_received(payload: PackedByteArray)
@@ -29,6 +32,17 @@ const EVENT_PLAYER_JOIN := "cyg_player_join"
 const EVENT_PLAYER_LEAVE := "cyg_player_leave"
 const MAX_EVENT_NAME_BYTES := 96
 const INVALID_PREFAB_ID := 0xFFFF
+## First reconnect wait, in seconds; each later attempt doubles it. Three attempts
+## (`CYGSessionCookie.MAX_RECONNECT_ATTEMPTS`) therefore cover 3.5 seconds of outage
+## before the SDK stops, which is a handover, not a server outage.
+const RECONNECT_BASE_DELAY_SECONDS := 0.5
+## How long a retry that produced neither a socket nor a refusal is given before the
+## next attempt is spent on it: a seat reservation that answers nothing is answered for.
+const RECONNECT_ATTEMPT_TIMEOUT_SECONDS := 3.0
+
+## The retry's own state machine, so a drop is retried on a growing delay without a Timer
+## node and without racing the transport's signals.
+enum ReconnectPhase { IDLE, WAITING, TRYING }
 
 var client: CYGClient
 var settings: CYGServerSettings = CYGServerSettings.new()
@@ -44,6 +58,16 @@ var room_name: String = ""
 ## Network ticks per second; the cadence authority peers sample deltas at.
 var tick_rate: int = 30
 var current_tick: int = 0
+## Retries the room on the SDK's own when the socket dies without being asked to. The
+## retry replays the server-issued reconnection token while the seat still holds one and
+## otherwise makes a fresh join of the same room name, so a laptop that slept through a
+## wifi handover comes back to the room it left. Set it false to handle `disconnected`
+## yourself.
+var auto_reconnect: bool = true
+## This install's persistent identity: it records that a drop is worth retrying and how
+## many retries have already been spent, so a restart does not buy a fresh budget.
+var session_cookie: CYGSessionCookie = CYGSessionCookie.new()
+
 ## Room-wide rollback clock. Predicting components read their ticks from here
 ## instead of creating a private one, so every rewind in the room lands on the
 ## same number as the deltas `flush_view_deltas()` ships.
@@ -56,6 +80,27 @@ var _last_ping_sent_at := 0.0
 var _join_handshake_complete := false
 var _pending_nickname := ""
 var _tick_accumulator := 0.0
+var _sent_in_window := 0
+var _received_in_window := 0
+var _window_accum := 0.0
+var _reconnect_phase := ReconnectPhase.IDLE
+var _reconnect_deadline := 0.0
+var _intentional_leave := false
+## Whether the next retry may replay the seat token. The first refusal retires it: a
+## reaped seat never comes back, and every further token replay is a round trip to the
+## same error while a join by room name would have put the player back in.
+var _reconnect_with_token := true
+
+## Deltas this peer sent and received during the last completed second. A rate rather
+## than a running total, because the question a profiler answers is "what is this tick
+## costing", and a total only ever goes up.
+var deltas_sent_per_second: int = 0
+var deltas_received_per_second: int = 0
+
+## Views this peer replicates, whether it owns them or only receives them.
+var view_count: int:
+	get:
+		return _view_table.size()
 
 
 func _ready() -> void:
@@ -69,6 +114,7 @@ func _ready() -> void:
 	client.socket_closed.connect(_handle_socket_closed)
 	client.server_error.connect(_handle_server_error)
 	client.seat_failed.connect(_handle_seat_failed)
+	session_cookie.load_or_create()
 	process_priority = 1000
 
 
@@ -78,6 +124,8 @@ func _record_ping_sent() -> void:
 
 func _process(delta: float) -> void:
 	client.poll()
+	_run_reconnect_clock()
+	_advance_rate_window(delta)
 	network_time.ticks_per_second = tick_rate
 	network_time.latency_ms = latency_ms
 	network_time.advance(delta * 1000.0)
@@ -136,6 +184,8 @@ func connect_url(url: String, player_name: String = "") -> void:
 
 
 func disconnect_from_room() -> void:
+	_intentional_leave = true
+	_reconnect_phase = ReconnectPhase.IDLE
 	client.disconnect_from_room()
 	_clear_room_state()
 
@@ -189,7 +239,20 @@ func flush_view_deltas() -> void:
 			continue
 		var writer := CYGBitPacker.new()
 		view.collect_deltas(writer)
-		send_view_delta(view.view_id, writer.to_bytes())
+		if send_view_delta(view.view_id, writer.to_bytes()):
+			_sent_in_window += 1
+
+
+## Rolls the one-second measurement window and publishes its counts.
+func _advance_rate_window(delta: float) -> void:
+	_window_accum += delta
+	if _window_accum < 1.0:
+		return
+	_window_accum = fmod(_window_accum, 1.0)
+	deltas_sent_per_second = _sent_in_window
+	deltas_received_per_second = _received_in_window
+	_sent_in_window = 0
+	_received_in_window = 0
 
 
 ## Sends a named room event as [LEB128 name length][utf8 name][body].
@@ -349,6 +412,10 @@ func _handle_join_handshake(payload: PackedByteArray) -> void:
 		push_warning("CYGNetwork: room serializer \"%s\" is not the schema codec this SDK decodes." % serializer)
 
 	_register_local_player()
+	# A seat is held again: the retry budget is for this outage, not for the process.
+	session_cookie.resolve_reconnect()
+	_reconnect_phase = ReconnectPhase.IDLE
+	_reconnect_with_token = true
 	_join_handshake_complete = true
 	client.ack_join()
 	joined_room.emit(room_name)
@@ -373,6 +440,7 @@ func _handle_room_bytes(payload: PackedByteArray) -> void:
 
 
 func _handle_view_delta(payload: PackedByteArray) -> void:
+	_received_in_window += 1
 	var reader := CYGBitReader.new()
 	reader.attach(payload)
 	var view_id := reader.read_int32()
@@ -480,9 +548,92 @@ func _handle_socket_open() -> void:
 func _handle_socket_closed(reason: String, code: int) -> void:
 	_clear_room_state()
 	disconnected.emit(reason)
+	var consented := _intentional_leave
+	_intentional_leave = false
+	if consented or not auto_reconnect or room_name.is_empty():
+		return
+	# The relay answers any closure with its own consented-leave close code, so the wire
+	# code cannot tell "the player left" from "the link died": `_intentional_leave` above
+	# is the only honest signal, and it already had its veto. A retry-inviting 4010 is
+	# passed through as the hint it is; every other code must not talk the cookie out of
+	# a reconnect the local side never asked for.
+	session_cookie.note_disconnect(reason,
+		code if code == CYGOpcodes.CloseMayTryReconnect else 0)
+	_schedule_reconnect()
+
+
+## Queues the retry, or says out loud that there is nothing left to try. A room that is
+## genuinely gone is refused faster than a handover that takes a second, and a game that
+## would rather ask the player gets the `room_error` before it burns another join.
+func _schedule_reconnect() -> void:
+	if not session_cookie.should_attempt_reconnect():
+		_give_up_reconnect()
+		return
+	var attempt := session_cookie.reconnect_attempts + 1
+	var delay := RECONNECT_BASE_DELAY_SECONDS * pow(2.0, float(attempt - 1))
+	_reconnect_deadline = _clock_seconds() + delay
+	_reconnect_phase = ReconnectPhase.WAITING
+	reconnecting.emit(attempt, delay)
+
+
+## Drives the retry from the frame pump: wait, fire, and if nothing came back, wait
+## again. Wall-clock deadlines, so a stalled frame costs a retry rather than postponing
+## one, and a game that reconnects by hand is noticed before the timer fires.
+func _run_reconnect_clock() -> void:
+	match _reconnect_phase:
+		ReconnectPhase.WAITING:
+			if _clock_seconds() < _reconnect_deadline:
+				return
+			if is_connected_flag:
+				_reconnect_phase = ReconnectPhase.IDLE
+				return
+			if not session_cookie.begin_reconnect_attempt():
+				_give_up_reconnect()
+				return
+			_reconnect_phase = ReconnectPhase.TRYING
+			_reconnect_deadline = _clock_seconds() + RECONNECT_ATTEMPT_TIMEOUT_SECONDS
+			_retry_seat()
+		ReconnectPhase.TRYING:
+			if is_connected_flag:
+				return
+			if _clock_seconds() >= _reconnect_deadline:
+				_schedule_reconnect()
+		_:
+			pass
+
+
+## Re-seats this peer: the server-issued token while the seat is still held, a fresh join
+## by room name once the server has reaped it. The second costs an actor number and a
+## full state rebuild, and is the honest price of an outage longer than the grace period.
+func _retry_seat() -> void:
+	var token := client.reconnection_token()
+	if token.is_empty() or not _reconnect_with_token:
+		_connect_to_room(room_name, _pending_nickname)
+		return
+	client.reconnect_to_room(room_name, token)
+
+
+## One failed retry is enough to learn the seat is gone: retire the token and let the
+## attempt already in flight time out into a join by room name, which is the only way
+## back into a room that has reaped the seat.
+func _note_reconnect_failure() -> void:
+	if _reconnect_phase == ReconnectPhase.TRYING:
+		_reconnect_with_token = false
+		_reconnect_deadline = _clock_seconds()
+
+
+func _give_up_reconnect() -> void:
+	_reconnect_phase = ReconnectPhase.IDLE
+	last_error_message = "reconnect abandoned after %d attempts" % session_cookie.reconnect_attempts
+	room_error.emit(last_error_code, last_error_message)
+
+
+func _clock_seconds() -> float:
+	return Time.get_ticks_msec() / 1000.0
 
 
 func _handle_server_error(detail: String) -> void:
+	_note_reconnect_failure()
 	var code := 0
 	var message := detail
 	var parsed := JSON.parse_string(detail)
@@ -495,6 +646,7 @@ func _handle_server_error(detail: String) -> void:
 
 
 func _handle_seat_failed(error: String) -> void:
+	_note_reconnect_failure()
 	disconnected.emit("matchmake failed: " + error)
 
 

@@ -16,6 +16,12 @@ const PROBE_POSE := Vector3(1.25, -3.5, 7.0)
 const NATIVE_PACKET_TEXT := "native-packet"
 const RUN_SECONDS := 12.0
 const MAX_ATTEMPTS := 8
+## Phase 6 resilience: alice tears down her own socket here — late enough that every
+## other check has already seen traffic, early enough for the SDK's 0.5 s backoff, one
+## retry and a full handshake to land before the run ends.
+const DROP_AT_SECONDS := 6.5
+## The verdict on that outage: by then a working reconnect has joined twice over.
+const RECOVERY_VERDICT_SECONDS := 10.0
 ## Phase 2 avatar: the authority walks it in small steps so the proxy must
 ## interpolate rather than snap.
 const AVATAR_PREFAB_ID := 7
@@ -87,6 +93,7 @@ const REQUIRED_CHECKS := [
 	"delta_packer_values", "sync_collections", "authority_toggle_gate",
 	"network_dormancy", "bone_attachment_wire",
 	"network_audio_dedup", "network_audio_pooled",
+	"reconnect_after_drop", "profiler_traffic",
 ]
 
 var _role := "parent"
@@ -113,6 +120,15 @@ var _rollback_max_speed := 0.0
 var _audio_sync: CYGNetworkAudio3D = null
 var _audio_pool_built := 0
 
+## Phase 6 resilience: the outage alice inflicts on herself, the reconnects the SDK
+## scheduled for it, and the rejoins that ended them.
+var _drop_triggered := false
+var _reconnect_attempts := 0
+var _rejoins := 0
+## Counting transport wrapped around alice's client, so the profiler reports the
+## traffic a real room run produced rather than numbers a test fed it.
+var _profiler_transport: CYGProfilingTransport = null
+
 
 func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
@@ -122,7 +138,14 @@ func _ready() -> void:
 	if _role == "parent":
 		_run_parent()
 		return
+	# Connected before the join so the first reconnect of a dropped run is counted.
+	CYGNetwork.reconnecting.connect(_on_reconnecting)
 	_run_child()
+
+
+func _on_reconnecting(attempt: int, delay_seconds: float) -> void:
+	_reconnect_attempts = maxi(_reconnect_attempts, attempt)
+	print("[%s] SDK scheduled reconnect #%d in %.2fs" % [_role, attempt, delay_seconds])
 
 
 func _run_parent() -> void:
@@ -1105,6 +1128,14 @@ class RollbackDummy:
 
 
 func _on_joined(room: String) -> void:
+	if _joined:
+		# A rejoin from the auto-reconnect below: the rigs already exist and the
+		# seat's actor number may have moved, so only the recovery clock cares.
+		_rejoins += 1
+		print("[%s] rejoined '%s' as actor %d" % [
+			_role, room, CYGNetwork.local_actor_number,
+		])
+		return
 	_joined = true
 	print("[%s] joined room '%s' as actor %d" % [
 		_role, room, CYGNetwork.local_actor_number,
@@ -1144,6 +1175,9 @@ func _on_joined(room: String) -> void:
 	_check_network_audio_dedup()
 
 	if _role == "alice":
+		# Counting transport first: every byte the rest of this run puts on the
+		# wire, including the outage and the rejoin, reaches the profiler through it.
+		_profiler_transport = CYGProfilingTransport.attach(CYGNetwork)
 		# Bob's boot time is not deterministic, so the probe repeats until the run
 		# ends instead of firing once and racing the second client's join.
 		_run_sender()
@@ -1168,9 +1202,12 @@ func _send_probe() -> void:
 
 
 func _run_sender() -> void:
-	while _elapsed < RUN_SECONDS and CYGNetwork.is_connected_flag:
+	while _elapsed < RUN_SECONDS:
 		await get_tree().create_timer(1.0).timeout
-		_send_probe()
+		# The outage leaves the seat for a moment; sending into it would only prove
+		# the loop can call a dead socket. Resuming on the rejoin is the point.
+		if CYGNetwork.is_connected_flag:
+			_send_probe()
 
 
 ## Spawns the avatar once both clients share the room, then walks it along +X on
@@ -1326,6 +1363,15 @@ func _process(delta: float) -> void:
 	if _role == "parent":
 		return
 	_elapsed += delta
+	if _role == "alice":
+		_step_recovery()
+	# Judged before the connection guard: an outage that never heals must still
+	# end the run, or the parent waits on a client that has nothing left to do.
+	# Bob outlives the sender so a late start cannot cost it the whole exchange.
+	var limit := RUN_SECONDS if _role == "alice" else RUN_SECONDS * 1.6
+	if _elapsed >= limit:
+		_finish()
+		return
 	if not CYGNetwork.is_connected_flag:
 		return
 	if CYGNetwork.latency_ms > 0.0 and not _checks.has("ping_rtt"):
@@ -1340,19 +1386,68 @@ func _process(delta: float) -> void:
 		_sample_proxy()
 		_sample_rollback_proxy()
 		_sample_network_audio()
-	# Bob outlives the sender so a late start cannot cost it the whole exchange.
-	var limit := RUN_SECONDS if _role == "alice" else RUN_SECONDS * 1.6
-	if _elapsed >= limit:
-		_finish()
 
 
 var _finished := false
+
+
+## Phase 6 resilience, alice only: yank our own socket and hold the SDK to the
+## promise that it recovers without help — `reconnecting` fired, and the room
+## handed the seat back.
+func _step_recovery() -> void:
+	if _checks.has("reconnect_after_drop"):
+		return
+	if not _drop_triggered:
+		if _elapsed < DROP_AT_SECONDS:
+			return
+		_drop_triggered = true
+		print("[alice] dropping the socket at %.1fs" % _elapsed)
+		CYGNetwork.client.simulate_drop()
+		return
+	if _elapsed < RECOVERY_VERDICT_SECONDS:
+		return
+	var recovered: bool = CYGNetwork.is_connected_flag and _reconnect_attempts > 0 and _rejoins > 0
+	_check("reconnect_after_drop", recovered)
+	if not recovered:
+		print("[alice] recovery diag: connected=%s reconnects=%d rejoins=%d error=%s" % [
+			CYGNetwork.is_connected_flag, _reconnect_attempts, _rejoins,
+			CYGNetwork.last_error_message,
+		])
+
+
+## Phase 6 profiler: the wrapped transport counted this run's real traffic, so the
+## ledger must be non-zero in both directions and the one-second ring must have
+## committed at least one window.
+func _report_profiler() -> void:
+	var profiler := CYGNetworkProfiler.active
+	if profiler == null:
+		print("[alice] profiler diag: no active profiler; the transport never installed")
+		_check("profiler_traffic", false)
+		return
+	var snapshot: Dictionary = profiler.snapshot()
+	var totals: Dictionary = snapshot["totals"]
+	var sent := int(totals["bytes_sent"])
+	var received := int(totals["bytes_received"])
+	var packets_out := int(totals["packets_sent"])
+	var samples := int(snapshot["sample_count"])
+	var deltas_out: Dictionary = snapshot["view_delta_bytes"]["out"]
+	var passed: bool = sent > 0 and received > 0 and packets_out > 0 and samples > 0
+	print("[alice] profiler: %d B sent / %d B received over %d packets, %d window(s), " % [
+		sent, received, packets_out, samples,
+	] + "view-delta keys=%s, rtt=%.2f ms" % [str(deltas_out.keys()), snapshot["rtt"]["avg_ms"]])
+	_check("profiler_traffic", passed)
+	if _profiler_transport != null:
+		_profiler_transport.detach()
+		_profiler_transport = null
 
 
 func _finish() -> void:
 	if _finished:
 		return
 	_finished = true
+	if _role == "alice":
+		_step_recovery()
+		_report_profiler()
 	if _role == "bob":
 		_check("connected_flag", CYGNetwork.is_connected_flag)
 		if not _checks.has("transform_interpolated"):

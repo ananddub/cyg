@@ -195,6 +195,18 @@ func close() -> void:
 	_outbound.clear()
 
 
+## Test seam for reconnect logic: tears the socket down the way a yanked cable does,
+## leaving the transition for `poll()` to notice. `close()` cannot stand in for a drop
+## because it clears `is_connected` itself, so the closed branch would have nothing to
+## report and `socket_closed` would never fire. `code` defaults to the SDK's own
+## "you may try again" close code, so a caller dropping the link sees the same
+## reconnect decision the room relay makes. No LeaveRoom wire frame is sent: the point
+## is that the peer is already unreachable.
+func simulate_drop(reason: String = "simulated-drop", code: int = CYGOpcodes.CloseMayTryReconnect) -> void:
+	if _state == WebSocketPeer.STATE_CONNECTING or _state == WebSocketPeer.STATE_OPEN:
+		_peer.close(code, reason)
+
+
 ## Call once per frame: drains the socket, flushes outbound and drives pings.
 func poll() -> void:
 	if _state == WebSocketPeer.STATE_CLOSED and _url.is_empty():

@@ -1,0 +1,68 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://addons/cookyourgame/profiler/cyg_profiler_hud.gd" id="1_6f5s2"]
+
+[node name="CYGProfilerHUD" type="Control" unique_id=114494243]
+layout_mode = 3
+anchors_preset = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("1_6f5s2")
+
+[node name="Panel" type="PanelContainer" parent="." unique_id=1535420843]
+custom_minimum_size = Vector2(360, 0)
+layout_mode = 0
+mouse_filter = 2
+
+[node name="Margin" type="MarginContainer" parent="Panel" unique_id=1239974002]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="Box" type="VBoxContainer" parent="Panel/Margin" unique_id=633480208]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="TitleLabel" type="Label" parent="Panel/Margin/Box" unique_id=1443671969]
+layout_mode = 2
+text = "CYG Network Profiler"
+
+[node name="TrafficLabel" type="Label" parent="Panel/Margin/Box" unique_id=1396517984]
+layout_mode = 2
+text = "offline: no profiler linked"
+
+[node name="PacketsLabel" type="Label" parent="Panel/Margin/Box" unique_id=1857160346]
+layout_mode = 2
+
+[node name="RttLabel" type="Label" parent="Panel/Margin/Box" unique_id=114731430]
+layout_mode = 2
+
+[node name="TickLabel" type="Label" parent="Panel/Margin/Box" unique_id=480332870]
+layout_mode = 2
+
+[node name="RollbackLabel" type="Label" parent="Panel/Margin/Box" unique_id=1065624026]
+layout_mode = 2
+
+[node name="ViewsLabel" type="Label" parent="Panel/Margin/Box" unique_id=1440718607]
+layout_mode = 2
+
+[node name="OutBar" type="ProgressBar" parent="Panel/Margin/Box" unique_id=414003106]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+max_value = 1.0
+show_percentage = false
+
+[node name="InBar" type="ProgressBar" parent="Panel/Margin/Box" unique_id=1216097572]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+max_value = 1.0
+show_percentage = false
+
+[node name="TickBar" type="ProgressBar" parent="Panel/Margin/Box" unique_id=731248061]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+max_value = 1.0
+show_percentage = false
