@@ -7,7 +7,6 @@
 //-----------------------------------------------------------------------------
 
 using System;
-using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -25,11 +24,13 @@ namespace CookYourGame.Sim
             Console.WriteLine($"[Pass 1] 10,000 operations completed.");
             Console.WriteLine($"[Pass 1] SHA-256 Checksum: {result1.Sha256}");
             Console.WriteLine($"[Pass 1] CRC-32  Checksum: 0x{result1.Crc32:X8}");
+            Console.WriteLine($"[Pass 1] FNV-1a 64 Checksum: 0x{result1.Fnv1a64:X16}");
 
             var result2 = RunSimulation(10000, 1337);
             Console.WriteLine($"[Pass 2] 10,000 operations completed.");
             Console.WriteLine($"[Pass 2] SHA-256 Checksum: {result2.Sha256}");
             Console.WriteLine($"[Pass 2] CRC-32  Checksum: 0x{result2.Crc32:X8}");
+            Console.WriteLine($"[Pass 2] FNV-1a 64 Checksum: 0x{result2.Fnv1a64:X16}");
 
             // Golden values pin the fixed-point math across machines and
             // runtimes. They are intentionally checked in: a mismatch means
@@ -40,9 +41,11 @@ namespace CookYourGame.Sim
             const uint GoldenCrc32 = 0xE9D6E0FF;
 
             bool sameRun = result1.Sha256 == result2.Sha256
-                && result1.Crc32 == result2.Crc32;
+                && result1.Crc32 == result2.Crc32
+                && result1.Fnv1a64 == result2.Fnv1a64;
             bool golden = result1.Sha256 == GoldenSha256
-                && result1.Crc32 == GoldenCrc32;
+                && result1.Crc32 == GoldenCrc32
+                && result1.Fnv1a64 == CYGDeterminismProbe.GoldenFnv1a64;
 
             if (sameRun && golden)
             {
@@ -118,136 +121,14 @@ namespace CookYourGame.Sim
         {
             public string Sha256;
             public uint Crc32;
+            public ulong Fnv1a64;
         }
 
         public static ChecksumResult RunSimulation(int iterations, uint seed)
         {
+            byte[] bytes = CYGDeterminismProbe.CreateStream(iterations, seed, out var report);
+
             using var sha = SHA256.Create();
-            using var ms = new MemoryStream();
-            using var writer = new BinaryWriter(ms);
-
-            uint lcg = seed;
-            uint Next()
-            {
-                lcg = lcg * 1664525u + 1013904223u;
-                return lcg;
-            }
-
-            for (int i = 0; i < iterations; i++)
-            {
-                // Generate pseudo-random fixed points in reasonable ranges
-                long rawA = (long)((Next() % 2000000) - 1000000) << 16;
-                long rawB = (long)((Next() % 2000000) - 1000000) << 16;
-                long rawC = (long)((Next() % 2000000) - 1000000) << 16;
-
-                if (rawB == 0) rawB = Fixed64Math.One;
-
-                FP a = FP.FromRaw(rawA);
-                FP b = FP.FromRaw(rawB);
-                FP c = FP.FromRaw(rawC);
-
-                // 1. Basic Scalar Arithmetic
-                FP sum = a + b;
-                FP diff = a - b;
-                FP mul = a * b;
-                FP div = a / b;
-                FP mod = a % b;
-                FP abs = FP.Abs(a);
-                FP sqrt = FP.Sqrt(abs);
-
-                // 2. Trigonometry
-                FP sinA = FP.Sin(a);
-                FP cosB = FP.Cos(b);
-                FP atan2AB = FP.Atan2(a, b);
-
-                // 3. 2D Vectors
-                FPVector2 v2a = new FPVector2(a, b);
-                FPVector2 v2b = new FPVector2(b, c);
-                FP v2dot = FPVector2.Dot(v2a, v2b);
-                FPVector2 v2lerp = FPVector2.Lerp(v2a, v2b, (FP)0.5f);
-                FPVector2 v2norm = v2a.Normalized;
-
-                // 4. 3D Vectors
-                FPVector3 v3a = new FPVector3(a, b, c);
-                FPVector3 v3b = new FPVector3(b, c, a);
-                FP v3dot = FPVector3.Dot(v3a, v3b);
-                FPVector3 v3cross = FPVector3.Cross(v3a, v3b);
-                FP v3dist = FPVector3.Distance(v3a, v3b);
-                FPVector3 v3proj = FPVector3.ProjectOnPlane(v3a, FPVector3.Up);
-                FPVector3 v3norm = v3cross.Normalized;
-
-                // 5. 3D Quaternions
-                FPQuaternion q1 = FPQuaternion.Euler(FP.Abs(a) % (FP)360, FP.Abs(b) % (FP)360, FP.Abs(c) % (FP)360);
-                FPVector3 axis = v3norm != FPVector3.Zero ? v3norm : FPVector3.Up;
-                FPQuaternion q2 = FPQuaternion.FromAxisAngle(axis, a);
-                FPQuaternion qMul = q1 * q2;
-                FPQuaternion qSlerp = FPQuaternion.Slerp(q1, q2, (FP)0.5f);
-                FPVector3 rotated = qMul * v3a;
-
-                // 6. Geometry & Collisions
-                FPVector3 boxHalf = new FPVector3(FP.Abs(a) + FP.One, FP.Abs(b) + FP.One, FP.Abs(c) + FP.One);
-                FPAABB aabb = new FPAABB(v3a - boxHalf, v3a + boxHalf);
-                FPSphere sphere = new FPSphere(v3b, FP.Abs(a) + FP.One);
-                FPCapsule capsule = FPCapsule.CreateVertical(v3a, FP.Abs(b) + (FP)2, (FP)0.5f);
-
-                bool aabbContains = aabb.Contains(v3b);
-                bool aabbSphereIntersects = aabb.Intersects(sphere);
-                bool capsuleSphereIntersects = capsule.Intersects(sphere);
-
-                // 7. Raycast & Shapecast Queries
-                FPRay ray = new FPRay(v3b + FPVector3.Up * (FP)10, FPVector3.Down);
-                bool hitAABB = FPRaycast.RaycastAABB(ray, aabb, (FP)100, out var hAABB);
-                bool hitSphere = FPRaycast.RaycastSphere(ray, sphere, (FP)100, out var hSphere);
-                bool hitCapsule = FPRaycast.RaycastCapsule(ray, capsule, (FP)100, out var hCapsule);
-
-                bool sCast = FPRaycast.SphereCast(new FPSphere(ray.Origin, (FP)0.25f), ray.Direction, (FP)100, aabb, out var hCast);
-
-                // Write all results to the deterministic stream
-                writer.Write(sum.RawValue);
-                writer.Write(diff.RawValue);
-                writer.Write(mul.RawValue);
-                writer.Write(div.RawValue);
-                writer.Write(mod.RawValue);
-                writer.Write(sqrt.RawValue);
-                writer.Write(sinA.RawValue);
-                writer.Write(cosB.RawValue);
-                writer.Write(atan2AB.RawValue);
-                writer.Write(v2dot.RawValue);
-                writer.Write(v2lerp.x.RawValue);
-                writer.Write(v2lerp.y.RawValue);
-                writer.Write(v3dot.RawValue);
-                writer.Write(v3cross.x.RawValue);
-                writer.Write(v3cross.y.RawValue);
-                writer.Write(v3cross.z.RawValue);
-                writer.Write(v3dist.RawValue);
-                writer.Write(v3proj.x.RawValue);
-                writer.Write(v3proj.y.RawValue);
-                writer.Write(v3proj.z.RawValue);
-                writer.Write(qMul.x.RawValue);
-                writer.Write(qMul.y.RawValue);
-                writer.Write(qMul.z.RawValue);
-                writer.Write(qMul.w.RawValue);
-                writer.Write(qSlerp.x.RawValue);
-                writer.Write(qSlerp.y.RawValue);
-                writer.Write(qSlerp.z.RawValue);
-                writer.Write(qSlerp.w.RawValue);
-                writer.Write(rotated.x.RawValue);
-                writer.Write(rotated.y.RawValue);
-                writer.Write(rotated.z.RawValue);
-                writer.Write(aabbContains);
-                writer.Write(aabbSphereIntersects);
-                writer.Write(capsuleSphereIntersects);
-                writer.Write(hitAABB);
-                if (hitAABB) { writer.Write(hAABB.Distance.RawValue); writer.Write(hAABB.Normal.x.RawValue); }
-                writer.Write(hitSphere);
-                if (hitSphere) { writer.Write(hSphere.Distance.RawValue); writer.Write(hSphere.Normal.y.RawValue); }
-                writer.Write(hitCapsule);
-                if (hitCapsule) { writer.Write(hCapsule.Distance.RawValue); writer.Write(hCapsule.Normal.z.RawValue); }
-                writer.Write(sCast);
-                if (sCast) { writer.Write(hCast.Distance.RawValue); }
-            }
-
-            byte[] bytes = ms.ToArray();
             byte[] hash = sha.ComputeHash(bytes);
             StringBuilder sb = new StringBuilder(hash.Length * 2);
             for (int b = 0; b < hash.Length; b++)
@@ -255,29 +136,12 @@ namespace CookYourGame.Sim
                 sb.Append(hash[b].ToString("x2"));
             }
 
-            uint crc = ComputeCrc32(bytes);
-
             return new ChecksumResult
             {
                 Sha256 = sb.ToString(),
-                Crc32 = crc
+                Crc32 = report.Crc32,
+                Fnv1a64 = report.Fnv1a64
             };
-        }
-
-        private static uint ComputeCrc32(byte[] bytes)
-        {
-            uint crc = 0xFFFFFFFF;
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                byte b = bytes[i];
-                crc ^= b;
-                for (int j = 0; j < 8; j++)
-                {
-                    uint mask = (uint)-(int)(crc & 1);
-                    crc = (crc >> 1) ^ (0xEDB88320u & mask);
-                }
-            }
-            return ~crc;
         }
     }
 }

@@ -9,7 +9,7 @@ namespace CookYourGame
     public class CYGServerSettings : ScriptableObject
     {
         /// <summary>Room name used when the game joins without naming one.</summary>
-        public const string DefaultRoomName = "game_room";
+        public const string DefaultRoomName = "cyg_room";
 
         /// <summary>Matchmake method that attaches to a room or starts it.</summary>
         public const string DefaultMatchmakeMethod = "joinOrCreate";

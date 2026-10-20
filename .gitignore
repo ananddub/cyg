@@ -14,10 +14,22 @@ crates/engine-wasm/tests/csharp/bin/
 crates/engine-wasm/tests/csharp/obj/
 crates/engine-wasm/tests/csharp/runtimeconfig.template.json
 
+# Unity CYG source generator
+sdk/unity/Tools~/CYG.CodeGen/bin/
+sdk/unity/Tools~/CYG.CodeGen/obj/
+sdk/unity/Tools~/CYG.CodeGen.Tests/bin/
+sdk/unity/Tools~/CYG.CodeGen.Tests/obj/
+
+# Unity CYG test harness build output (must stay outside the UPM package)
+sdk/unity/Runtime/Sim/Tests/bin/
+sdk/unity/Runtime/Sim/Tests/obj/
+sdk/.artifacts/
+
 # Unity build & cache artifacts
 **/[Ll]ibrary/
 **/[Tt]emp/
 **/[Oo]bj/
+**/[Bb]in/
 **/[Bb]uild/
 **/[Bb]uilds/
 **/[Ll]ogs/
@@ -25,6 +37,8 @@ crates/engine-wasm/tests/csharp/runtimeconfig.template.json
 *.sln
 *.csproj
 *.slnx
+!sdk/unity/Tools~/**/*.csproj
+!sdk/unity/Runtime/Sim/Tests/**/*.csproj
 # OpenOxide compiler temporary synthetic entry bridge files
 ._*_entry.ts
 *.cwasm

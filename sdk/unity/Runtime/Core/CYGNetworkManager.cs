@@ -33,8 +33,8 @@ namespace CookYourGame
         [Tooltip("Base HTTP/WS endpoint of the game server, e.g. http://127.0.0.1:7777")]
         [SerializeField] string serverUrl = "http://127.0.0.1:7777";
 
-        [Tooltip("Room name to join, e.g. game_room")]
-        [SerializeField] string roomName = "game_room";
+        [Tooltip("Room name to join, e.g. cyg_room")]
+        [SerializeField] string roomName = CYGServerSettings.DefaultRoomName;
 
         [Tooltip("Optional custom settings ScriptableObject. If set, overrides the URL and Room above.")]
         [SerializeField] CYGServerSettings settings;
@@ -106,7 +106,7 @@ namespace CookYourGame
                     }
 
                     fallbackSettings.ServerHttpUrl = string.IsNullOrEmpty(instance.serverUrl) ? "http://127.0.0.1:7777" : instance.serverUrl;
-                    fallbackSettings.RoomName = string.IsNullOrEmpty(instance.roomName) ? "game_room" : instance.roomName;
+                    fallbackSettings.RoomName = string.IsNullOrEmpty(instance.roomName) ? CYGServerSettings.DefaultRoomName : instance.roomName;
                     return fallbackSettings;
                 }
 
@@ -342,7 +342,7 @@ namespace CookYourGame
             if (instance != null)
             {
                 fallbackSettings.ServerHttpUrl = string.IsNullOrEmpty(instance.serverUrl) ? "http://127.0.0.1:7777" : instance.serverUrl;
-                fallbackSettings.RoomName = string.IsNullOrEmpty(instance.roomName) ? "game_room" : instance.roomName;
+                fallbackSettings.RoomName = string.IsNullOrEmpty(instance.roomName) ? CYGServerSettings.DefaultRoomName : instance.roomName;
             }
             return fallbackSettings;
         }

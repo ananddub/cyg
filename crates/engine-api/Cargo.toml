@@ -54,3 +54,5 @@ tokio-tungstenite = "0.29"
 # Only for asserting the auto-registered controller actually dispatches.
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "multipart"] }

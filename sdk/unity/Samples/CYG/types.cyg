@@ -1,0 +1,118 @@
+asset ItemSpec;
+
+struct PrimitiveSet {
+    Byte A;
+    SByte B;
+    Int16 C;
+    UInt16 D;
+    Int32 E;
+    UInt32 F;
+    Int64 G;
+    UInt64 H;
+    Boolean I;
+}
+
+struct MathSet {
+    FP F;
+    FPVector2 V2;
+    FPVector3 V3;
+    FPQuaternion Q;
+    FPMatrix4x4 M;
+    FPAABB Box;
+    FPBounds Bounds;
+    entity_ref Entity;
+    player_ref Player;
+}
+
+struct StringSet {
+    QString<16> Label;
+}
+
+struct CollectionSet {
+    array<FP>[8] Values;
+    list<FP>[4] History;
+    dictionary<Int32, FP>[8] Lookup;
+}
+
+struct AssetSet {
+    asset_ref<ItemSpec> Item;
+}
+
+enum Small : Byte {
+    Zero = 0,
+    One = 1
+}
+
+flags Bits : UInt16 {
+    None,
+    First,
+    Second,
+    Third
+}
+
+union Choice {
+    struct One {
+        FP Value;
+    }
+
+    struct Two {
+        FPVector2 Direction;
+        Boolean Enabled;
+    }
+}
+
+component FullState : 2001 {
+    FP F;
+    FPVector2 V2;
+    FPVector3 V3;
+    FPQuaternion Q;
+    FPMatrix4x4 M;
+    FPAABB Box;
+    FPBounds Bounds;
+    entity_ref Entity;
+    player_ref Player;
+    asset_ref<ItemSpec> Item;
+    QString<8> Label;
+    array<FP>[3] Cooldowns;
+    list<player_ref>[3] Players;
+    dictionary<Byte, FP>[3] Tuning;
+    Small Mode;
+    Bits Flags;
+    Choice Pick;
+}
+
+input {
+    button B0;
+    button B1;
+    button B2;
+    button B3;
+    button B4;
+    button B5;
+    button B6;
+    button B7;
+    button B8;
+    FP Axis;
+}
+
+global {
+    Int32 Round;
+    FP Time;
+    entity_ref Target;
+}
+
+event Plain : 1000100 {
+    Int32 Seq;
+}
+
+synced_event Shaped : 1000101 {
+    FPVector2 Direction;
+    Boolean On;
+}
+
+signal OnPing(FP value, entity_ref who);
+signal OnDone(Int32 code);
+
+event Empty : 1000102 {
+}
+
+signal Heartbeat();

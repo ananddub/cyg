@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>CookYourGame.Sim</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../Math/*.cs" />
+    <Compile Include="../Physics3D/*.cs" />
+    <Compile Include="../Core/*.cs" />
+    <Compile Include="../Rollback/*.cs" />
+  </ItemGroup>
+
+</Project>

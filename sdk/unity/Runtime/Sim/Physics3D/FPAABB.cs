@@ -13,7 +13,7 @@ namespace CookYourGame.Sim
     /// Axis-Aligned Bounding Box with fixed-point coordinates.
     /// </summary>
     [Serializable]
-    public struct FPAABB : IEquatable<FPAABB>
+    public struct FPAABB : IEquatable<FPAABB>, ICYGValue
     {
         public FPVector3 Min;
         public FPVector3 Max;
@@ -158,6 +158,38 @@ namespace CookYourGame.Sim
             Min += offset;
             Max += offset;
         }
+
+        #region CYG Wire Codec
+
+        public const int SizeInBytes = 48;
+
+        public readonly int WireSize => SizeInBytes;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly int WriteTo(byte[] buffer, int offset)
+        {
+            CYGWire.RequireWritable(buffer, offset, SizeInBytes);
+            Min.WriteTo(buffer, offset);
+            Max.WriteTo(buffer, offset + FPVector3.SizeInBytes);
+            return SizeInBytes;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void ReadFrom(byte[] buffer, int offset)
+        {
+            CYGWire.RequireReadable(buffer, offset, SizeInBytes);
+            Min.ReadFrom(buffer, offset);
+            Max.ReadFrom(buffer, offset + FPVector3.SizeInBytes);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly void ComputeChecksum(ref uint crc)
+        {
+            Min.ComputeChecksum(ref crc);
+            Max.ComputeChecksum(ref crc);
+        }
+
+        #endregion
 
         #region Interfaces
 

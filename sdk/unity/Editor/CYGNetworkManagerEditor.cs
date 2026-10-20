@@ -48,7 +48,7 @@ namespace CookYourGame.EditorTools
             EditorGUILayout.Space(6);
             EditorGUILayout.LabelField("Server Connection", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(serverUrlProp, new GUIContent("Server URL", "Base HTTP/WS endpoint of the server (e.g. http://127.0.0.1:7777)"));
-            EditorGUILayout.PropertyField(roomNameProp, new GUIContent("Room Name", "Room name to join or create (e.g. game_room)"));
+            EditorGUILayout.PropertyField(roomNameProp, new GUIContent("Room Name", "Room name to join or create (e.g. cyg_room)"));
             EditorGUILayout.PropertyField(settingsProp, new GUIContent("Settings (Optional)", "ScriptableObject asset for advanced settings. Overrides fields above if assigned."));
 
             EditorGUILayout.Space(6);

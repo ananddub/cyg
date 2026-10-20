@@ -13,7 +13,7 @@ namespace CookYourGame.Sim
     /// Deterministic 3D fixed-point quaternion.
     /// </summary>
     [Serializable]
-    public struct FPQuaternion : IEquatable<FPQuaternion>
+    public struct FPQuaternion : IEquatable<FPQuaternion>, ICYGValue
     {
         public FP x;
         public FP y;
@@ -372,6 +372,41 @@ namespace CookYourGame.Sim
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool operator !=(FPQuaternion a, FPQuaternion b) => !(a == b);
+
+        #endregion
+
+        #region CYG Wire Codec
+
+        public const int SizeInBytes = 32;
+
+        public readonly int WireSize => SizeInBytes;
+
+        public readonly int WriteTo(byte[] buffer, int offset)
+        {
+            CYGWire.RequireWritable(buffer, offset, SizeInBytes);
+            x.WriteTo(buffer, offset);
+            y.WriteTo(buffer, offset + FP.SizeInBytes);
+            z.WriteTo(buffer, offset + (FP.SizeInBytes * 2));
+            w.WriteTo(buffer, offset + (FP.SizeInBytes * 3));
+            return SizeInBytes;
+        }
+
+        public void ReadFrom(byte[] buffer, int offset)
+        {
+            CYGWire.RequireReadable(buffer, offset, SizeInBytes);
+            x.ReadFrom(buffer, offset);
+            y.ReadFrom(buffer, offset + FP.SizeInBytes);
+            z.ReadFrom(buffer, offset + (FP.SizeInBytes * 2));
+            w.ReadFrom(buffer, offset + (FP.SizeInBytes * 3));
+        }
+
+        public readonly void ComputeChecksum(ref uint crc)
+        {
+            x.ComputeChecksum(ref crc);
+            y.ComputeChecksum(ref crc);
+            z.ComputeChecksum(ref crc);
+            w.ComputeChecksum(ref crc);
+        }
 
         #endregion
 

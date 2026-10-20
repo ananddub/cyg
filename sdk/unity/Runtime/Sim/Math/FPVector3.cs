@@ -13,7 +13,7 @@ namespace CookYourGame.Sim
     /// 3D fixed-point vector.
     /// </summary>
     [Serializable]
-    public struct FPVector3 : IEquatable<FPVector3>
+    public struct FPVector3 : IEquatable<FPVector3>, ICYGValue
     {
         public FP x;
         public FP y;
@@ -253,6 +253,38 @@ namespace CookYourGame.Sim
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool operator !=(FPVector3 a, FPVector3 b) => !(a == b);
+
+        #endregion
+
+        #region CYG Wire Codec
+
+        public const int SizeInBytes = 24;
+
+        public readonly int WireSize => SizeInBytes;
+
+        public readonly int WriteTo(byte[] buffer, int offset)
+        {
+            CYGWire.RequireWritable(buffer, offset, SizeInBytes);
+            x.WriteTo(buffer, offset);
+            y.WriteTo(buffer, offset + FP.SizeInBytes);
+            z.WriteTo(buffer, offset + (FP.SizeInBytes * 2));
+            return SizeInBytes;
+        }
+
+        public void ReadFrom(byte[] buffer, int offset)
+        {
+            CYGWire.RequireReadable(buffer, offset, SizeInBytes);
+            x.ReadFrom(buffer, offset);
+            y.ReadFrom(buffer, offset + FP.SizeInBytes);
+            z.ReadFrom(buffer, offset + (FP.SizeInBytes * 2));
+        }
+
+        public readonly void ComputeChecksum(ref uint crc)
+        {
+            x.ComputeChecksum(ref crc);
+            y.ComputeChecksum(ref crc);
+            z.ComputeChecksum(ref crc);
+        }
 
         #endregion
 

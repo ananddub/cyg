@@ -15,7 +15,7 @@ namespace CookYourGame.Sim
     /// Range: -2,147,483,648 to +2,147,483,647.
     /// </summary>
     [Serializable]
-    public struct FP : IEquatable<FP>, IComparable<FP>
+    public struct FP : IEquatable<FP>, IComparable<FP>, ICYGValue
     {
         public long RawValue;
 
@@ -228,6 +228,35 @@ namespace CookYourGame.Sim
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static FP Atan(FP x) => new FP(Fixed64Math.Atan(x.RawValue));
+
+        #endregion
+
+        #region CYG Wire Codec
+
+        public const int SizeInBytes = 8;
+
+        public readonly int WireSize => SizeInBytes;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly int WriteTo(byte[] buffer, int offset)
+        {
+            CYGWire.RequireWritable(buffer, offset, SizeInBytes);
+            CYGWire.WriteInt64(buffer, offset, RawValue);
+            return SizeInBytes;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void ReadFrom(byte[] buffer, int offset)
+        {
+            CYGWire.RequireReadable(buffer, offset, SizeInBytes);
+            RawValue = CYGWire.ReadInt64(buffer, offset);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly void ComputeChecksum(ref uint crc)
+        {
+            CYGChecksum.HashLong(ref crc, RawValue);
+        }
 
         #endregion
 

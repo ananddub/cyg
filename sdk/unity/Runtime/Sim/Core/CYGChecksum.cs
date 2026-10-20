@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace CookYourGame.Sim
 {
@@ -60,6 +61,84 @@ namespace CookYourGame.Sim
             crc = CrcTable[(crc ^ (byte)((value >> 48) & 0xFF)) & 0xFF] ^ (crc >> 8);
             crc = CrcTable[(crc ^ (byte)((value >> 56) & 0xFF)) & 0xFF] ^ (crc >> 8);
             return crc;
+        }
+
+        #endregion
+
+        #region Generated Component Hashing
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void HashByte(ref uint crc, byte value)
+        {
+            crc = UpdateCrc(crc, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void HashInt16(ref uint crc, short value)
+        {
+            crc = UpdateCrc(crc, (byte)value);
+            crc = UpdateCrc(crc, (byte)(value >> 8));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void HashUInt16(ref uint crc, ushort value)
+        {
+            crc = UpdateCrc(crc, (byte)value);
+            crc = UpdateCrc(crc, (byte)(value >> 8));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void HashInt(ref uint crc, int value)
+        {
+            crc = UpdateCrc(crc, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void HashUInt(ref uint crc, uint value)
+        {
+            crc = UpdateCrc(crc, unchecked((int)value));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void HashLong(ref uint crc, long value)
+        {
+            crc = UpdateCrc(crc, value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void HashULong(ref uint crc, ulong value)
+        {
+            crc = UpdateCrc(crc, unchecked((long)value));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void HashSingle(ref uint crc, float value)
+        {
+            SingleInt bits = new SingleInt();
+            bits.Single = value;
+            crc = UpdateCrc(crc, bits.Int);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void HashDouble(ref uint crc, double value)
+        {
+            DoubleLong bits = new DoubleLong();
+            bits.Double = value;
+            crc = UpdateCrc(crc, bits.Long);
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct SingleInt
+        {
+            [FieldOffset(0)] public float Single;
+            [FieldOffset(0)] public int Int;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct DoubleLong
+        {
+            [FieldOffset(0)] public double Double;
+            [FieldOffset(0)] public long Long;
         }
 
         #endregion

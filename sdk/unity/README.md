@@ -122,9 +122,11 @@ Runtime/
   Resilience/      CYGSessionCookie, CYGLagCompensation
   Pooling/         CYGObjectPool
   Profiler/        CYGNetworkProfiler
-  Sim/             optional fixed-point simulation, rollback and input hub
+  Sim/             optional fixed-point ECS world, snapshots, rollback and input hub
+  CodeGen/         Roslyn source generator for deterministic components
   BaaS/            CYGAuth, CYGHttp, CYGStorage, CYGInventory, CYGLeaderboard,
                    CYGChat
+Samples/CYG/       arena.cyg and types.cyg DSL samples
 Editor/
   CookYourGame.Editor.asmdef
   CYGProfilerWindow.cs
@@ -159,16 +161,202 @@ state, and a modified client can produce any legal input. Competitive/FPS
 titles should use server-authoritative simulation with server collision and
 line-of-sight checks instead.
 
-Bit-exact determinism has been verified by the included checksum tests on one
-host. It has **not** been verified across Windows/Linux/macOS, different CPU
-architectures, or Unity player builds. Do not ship a cross-platform lockstep
-claim without running the same checksum suite on every target platform.
+### Cross-device determinism verification
+
+The tick math is integer-only Q32.32. `float`/`double` exist only at the
+conversion boundary (`FP.FromFloat`, `AsFloat`, rendering adapters); the
+fixed-point operators, trig, collision, snapshot and rollback paths do not use
+them. A `float`/`double` field in a `[CYGComponent]` is a determinism bug even
+though the generator only warns (`CYG010`).
+
+The canonical probe (`CYGDeterminismProbe`) runs 10,000 mixed operations and
+reduces the raw values to CRC-32 and FNV-1a 64. The hashes are pinned in code,
+so a mismatch fails instead of quietly passing a local run-to-run check:
+
+```bash
+dotnet run --project Runtime/Sim/Tests/DeterminismCheckTest.csproj -c Release
+# SHA-256  43544fe45821264e85e4f16a11925103d9c811ed7f4b40899ff15384aa5ed9af
+# CRC-32   0xE9D6E0FF
+# FNV-1a64 0x76E67011297DCBA1
+```
+
+In Unity, run `CookYourGame > Verify Physics Determinism`, or add the
+`CYG Determinism Self Check` component to a bootstrap scene and run a player
+build on every target. It logs, for example:
+
+```
+[CYG] DETERMINISM OK platform=Android backend=IL2CPP unity=... crc=0xE9D6E0FF fnv=0x76E67011297DCBA1 ...
+```
+
+Every device must log the same `crc` and `fnv`. Enable `Dump Stream` to write
+`cyg_determinism_stream.bin` under `persistentDataPath`; a byte diff
+(`cmp` or `fc /b`) reports the first diverging operation.
+
+Verified so far: .NET 8 (Linux x64) and Unity 6000.6.2f1 Mono (Linux x64).
+Android, iOS, WebGL and IL2CPP still need one run per target; the harness makes
+that a log line instead of an assumption.
+
+The probe covers the primitives. For a concrete game, also log
+`CYGWorld.ComputeChecksum()` at the same tick on each device; the first
+mismatching tick points at the system that diverged.
+
+This proves math and build parity, not input parity: every peer must simulate
+the same integer `CYGPlayerInput` bytes for the same tick. A float sampled from
+a device (analog stick, `Input.GetAxis`) is not cross-device stable by itself;
+canonicalize it to integer input before it enters the sim.
 
 The input hub relays inputs; it does not ship state snapshots or a
 server-driven tick epoch. Treat all peers as starting together at tick 0
 (a loading/start barrier) and do not allow late join or mid-match reconnect
 without a game-level resync. The current mode is a lockstep prototype, not a
 drop-in replacement for a server-simulated reference room.
+
+### Generated component serialization
+
+Hand-written `WriteTo`/`ReadFrom`/checksum code is easy to get wrong. The
+`CookYourGame.Sim` source generator (`Tools~/CYG.CodeGen`) lets you declare only
+the state:
+
+```csharp
+using CookYourGame.Sim;
+
+[CYGComponent(Id = 1001)]
+public partial struct CharacterState
+{
+    public FP Health;
+    public FPVector3 Velocity;
+    public bool Grounded;
+}
+```
+
+The generated partial supplies `SizeInBytes`, `TypeId`, `SchemaHash`, explicit
+little-endian `WriteTo`/`ReadFrom`, `ComputeChecksum`, and `CopyTo`. It rejects
+reference fields, unsupported nested values, explicit layout, generic
+components, and non-partial declarations. See
+`Tools~/CYG.CodeGen/README.md` for build and diagnostic details.
+
+### `.cyg` DSL (reference-style authoring)
+
+Instead of writing the C# component skeleton by hand, declare the whole
+simulation schema in `.cyg`. The CLI emits plain partial struct declarations;
+the same Roslyn generator above emits the wire codecs. There is exactly one
+serializer: sizes, `WriteTo`/`ReadFrom`, checksums and `SchemaHash` all come
+from one declaration.
+
+```cyg
+namespace Game;
+
+component Transform : 1002 {
+    FPVector3 Position;
+    FPQuaternion Rotation;
+    FPVector3 Scale;
+}
+
+enum PlayerStatus : Byte {
+    Grounded,
+    Jumping,
+    Dead
+}
+
+component Character : 1001 {
+    FP Health;
+    FP MaxHealth;
+    PlayerStatus Status;
+    array<FP>[4] Cooldowns;
+}
+
+event HitEffect : 1000001 {
+    FPVector3 Position;
+    Byte MaterialType;
+}
+
+synced_event PlayerEliminated : 1000002 {
+    entity_ref Victim;
+    entity_ref Killer;
+}
+
+signal OnMatchEnded(Int32 winningTeam);
+```
+
+Supported declarations:
+
+| Declaration | Purpose |
+| --- | --- |
+| `struct` | Plain deterministic value; can be nested in components |
+| `enum` / `flags` | Byte/SByte/Int16..UInt64-backed enumerations |
+| `union` | Tagged union with a one-byte tag and the largest variant payload |
+| `component : id` | ECS component with a fixed wire id (1000–999,999) |
+| `input` | Per-tick input struct with packed button flags |
+| `global` | Per-match global state |
+| `event : id` / `synced_event : id` | RPC payloads (1,000,000–1,999,999) |
+| `signal Name(args);` | Declared signal with deterministic `SignalIndex` |
+| `asset Name;` | `asset_ref<T>` target declaration |
+
+Field types: `FP`, `Byte`, `SByte`, `Int16`, `UInt16`, `Int32`, `UInt32`,
+`Int64`, `UInt64`, `Boolean`, `Char`, `FPVector2`, `FPVector3`,
+`FPQuaternion`, `FPMatrix4x4`, `FPAABB`, `FPBounds`, `entity_ref`,
+`player_ref`, `QString<N>`, `asset_ref<T>`, `array<T>[N]`, `list<T>[N]`,
+`dictionary<K,V>[N]`, plus user structs/enums/unions. Every value has a fixed
+wire size; managed references (`float`, `string`, `List<T>`, ...) are rejected
+with `CYGD001`–`CYGD004`.
+
+Compile and validate:
+
+```bash
+# once
+dotnet build sdk/unity/Tools~/CYG.Dsl.Cli/CYG.Dsl.Cli.csproj -c Release
+
+# validate without writing files
+dotnet sdk/unity/Tools~/CYG.Dsl.Cli/bin/Release/net10.0/CYG.Dsl.Cli.dll \
+  Assets/Game.cyg --check
+
+# emit C# next to the input (or use --out / --namespace)
+dotnet sdk/unity/Tools~/CYG.Dsl.Cli/bin/Release/net10.0/CYG.Dsl.Cli.dll \
+  Assets/Game.cyg --out Assets/CYGGenerated
+```
+
+The emitter refuses to write output when any diagnostic is an error. Component
+ids and signal indices are part of the wire contract: keep them stable, never
+reuse a retired id, and bump `SchemaHash` implicitly by changing the field
+layout. Changing a component layout without bumping its explicit id is allowed
+(the schema hash changes), but both peers must run the same generated code.
+
+### ECS world, snapshots and rollback
+
+`CYGWorld` stores generated components in dense per-type stores keyed by entity
+slot. Entity refs carry a slot generation, so recycled slots never revive stale
+references. Register the component types once, then drive the world through
+`CYGWorldRunner`:
+
+```csharp
+using CookYourGame.Sim;
+
+var world = new CYGWorld();
+world.Register<Character>();
+world.Register<Transform>();
+
+CYGEntityRef player = world.CreateEntity();
+world.Set(player, new Character { Health = FP.FromInt(100) });
+world.Set(player, new Transform { Position = FPVector3.Zero });
+
+var runner = new CYGWorldRunner(world, rollbackCapacity: 64);
+runner.Tick(w =>
+{
+    // advance simulation; the post-tick state is snapshotted automatically
+});
+runner.Rollback(1); // restore and re-simulate the previous frame
+
+uint checksum = world.ComputeChecksum(); // stores hashed in type-id order
+CYGWorldSnapshot snapshot = world.CreateSnapshot(); // buffers are reusable
+world.Restore(snapshot);
+```
+
+Snapshots are validated on restore (store count, type id and schema hash) so a
+stale or mismatched snapshot fails fast instead of corrupting the world.
+`CYGWorldRunner` snapshots after each tick, which means rolling back N frames
+restores the world exactly as it was at the end of that tick. These are pure
+C# types; they do not depend on `UnityEngine`, so the same code runs in the
+editor, player builds and server-side simulations.
 
 ---
 

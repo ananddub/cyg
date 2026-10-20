@@ -1,0 +1,111 @@
+asset WeaponSpec;
+
+struct DamageInfo {
+    entity_ref Source;
+    FP Amount;
+    Byte DamageType;
+}
+
+enum WeaponType : Byte {
+    None = 0,
+    Pistol = 1,
+    Rifle = 2,
+    Sniper = 3
+}
+
+flags PlayerStatus : Byte {
+    None,
+    Grounded,
+    Jumping,
+    Sprinting,
+    Reloading,
+    Dead
+}
+
+union AbilityData {
+    struct AbilityA {
+        FP Damage;
+        FPVector3 Direction;
+    }
+
+    struct AbilityB {
+        Int32 TargetCount;
+        FP Radius;
+    }
+}
+
+component Character : 1001 {
+    FP Health;
+    FP MaxHealth;
+    FPVector3 Velocity;
+    FPQuaternion Rotation;
+    WeaponType ActiveWeapon;
+    PlayerStatus Status;
+    player_ref Owner;
+    array<FP>[4] AbilityCooldowns;
+    DamageInfo LastDamage;
+}
+
+component Transform : 1002 {
+    FPVector3 Position;
+    FPQuaternion Rotation;
+    FPVector3 Scale;
+}
+
+component Projectile : 1003 {
+    entity_ref Owner;
+    FPVector3 Position;
+    FPVector3 Velocity;
+    FP Damage;
+    FP RemainingLifetime;
+}
+
+component Loadout : 1004 {
+    asset_ref<WeaponSpec> Primary;
+    asset_ref<WeaponSpec> Secondary;
+    asset_ref<WeaponSpec> Melee;
+}
+
+component Inventory : 1005 {
+    list<entity_ref>[16] Items;
+    dictionary<Int32, FP>[16] BuffDurations;
+}
+
+component PlayerInfo : 1006 {
+    QString<32> DisplayName;
+}
+
+input {
+    button Jump;
+    button Fire;
+    button AltFire;
+    button Reload;
+    button Crouch;
+    button Sprint;
+    FPVector2 MoveDirection;
+    FPVector2 AimDirection;
+}
+
+global {
+    FP MatchTimer;
+    Int32 RedTeamScore;
+    Int32 BlueTeamScore;
+    entity_ref Flag;
+    Boolean IsMatchStarted;
+}
+
+event HitEffect : 1000001 {
+    FPVector3 Position;
+    FPVector3 Normal;
+    Byte MaterialType;
+}
+
+synced_event PlayerEliminated : 1000002 {
+    entity_ref Victim;
+    entity_ref Killer;
+    WeaponType KillWeapon;
+    Int32 RemainingPlayers;
+}
+
+signal OnPlayerDamaged(entity_ref victim, FP damage, entity_ref source);
+signal OnMatchEnded(Int32 winningTeam);
