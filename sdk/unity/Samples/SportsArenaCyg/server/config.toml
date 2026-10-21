@@ -1,0 +1,19 @@
+name = "cyg_sports"
+runtime = "assemblyscript"
+source = "room.ts"
+out = "room_logic.wasm"
+port = 7777
+web_port = 8090
+tick_rate = 60
+max_clients = 2
+max_rooms = 8
+
+# Relay opcode-19 input ticks between the Unity clients instead of running a
+# server-authoritative WASM room. The sports simulation itself stays client-side.
+input_hub = true
+
+width = 800.0
+height = 500.0
+
+[control]
+enabled = false

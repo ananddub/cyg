@@ -1,0 +1,19 @@
+{
+    "name": "SportsArena.Cyg",
+    "rootNamespace": "CookYourGame.SportsArena",
+    "references": [
+        "CookYourGame.Runtime",
+        "CookYourGame.Sim",
+        "CookYourGame.Sim.Unity",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
