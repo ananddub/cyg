@@ -75,7 +75,7 @@ namespace CookYourGame.SportsArena
             player.ThrowCooldown = SportsArenaConfig.ThrowCooldown;
             player.AnimTriggers |= SportsArenaAnim.ThrowShort;
 
-            CYGPhysicsBody body = Physics.GetBody(Ball.BodyId);
+            CYGPhysicsBody body = _ballBody;
             if (body != null)
             {
                 body.IsActive = true;
@@ -99,7 +99,7 @@ namespace CookYourGame.SportsArena
             Ball.Position = player.Position + FPVector3.Up * FP.One;
             Ball.Velocity = impulse + FPVector3.Up * FP.FromInt(2);
             Ball.CatchLock = SportsArenaConfig.CatchCooldown;
-            CYGPhysicsBody body = Physics.GetBody(Ball.BodyId);
+            CYGPhysicsBody body = _ballBody;
             if (body != null)
             {
                 body.IsActive = true;

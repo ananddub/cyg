@@ -179,7 +179,7 @@ namespace CookYourGame.SportsArena
                 player.HasBall = true;
                 player.CatchCooldown = SportsArenaConfig.CatchCooldown;
                 player.AnimTriggers |= SportsArenaAnim.Catch;
-                CYGPhysicsBody body = Physics.GetBody(Ball.BodyId);
+                CYGPhysicsBody body = _ballBody;
                 if (body != null)
                 {
                     body.IsActive = false;

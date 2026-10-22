@@ -66,17 +66,19 @@ namespace CookYourGame.SportsArena
                 return;
             }
 
-            Tick++;
             if (networkMode)
             {
-                StepNetworkInputs();
+                // Network mode owns both the tick counter and the step gate.
+                // It only advances the simulation when both human inputs for
+                // the exact tick are present.
+                StepNetworkFrame();
+                return;
             }
-            else
+
+            Tick++;
+            for (int i = 0; i < _inputs.Length; i++)
             {
-                for (int i = 0; i < _inputs.Length; i++)
-                {
-                    _inputs[i] = ReadInput(i, Tick);
-                }
+                _inputs[i] = ReadInput(i, Tick);
             }
             Simulation.TickStep(_inputs);
         }

@@ -31,16 +31,19 @@ Assets/SportsArenaCyg/Scenes/SportsArena.unity
 - Six fighters, three per team. Player one is human; player two is a bot by
   default. P2 can be controlled with the keyboard by disabling
   `playerTwoIsBot` on the `Sports Arena` object. Players three to six are bots.
-- Optional two-window mode (`-network`) joins an OpenOxide input-hub room. Each
-  window publishes its local keyboard input as opcode-19 input ticks and applies
-  the peer's latest input to the other human slot. The simulated rules still run
-  locally in both clients.
+- Optional two-window mode (`-network`) joins an OpenOxide input-hub room.
+  Each window publishes tick-keyed keyboard input as opcode-19 packets and only
+  advances the deterministic simulation when both humans' inputs for the exact
+  tick are present. A HELLO/READY/START handshake gives both clients the same
+  tick-0 epoch, and CRC hashes are exchanged every 60 ticks to detect divergence.
+  The simulated rules still run locally in both clients.
 - All six original player spawners and both goal areas are used.
 - Original player animator is driven through `Normalized Speed`,
   `Is Grounded`, `Jump`, `Dash`, `Attack`, `Block`, `Has Ball`,
   `Catch Ball`, `Throw Ball Short`, `Is Stunned` and related parameters.
 - Minimal IMGUI scoreboard, timer, health bars and control hints.
-- PlayMode regression tests: 10/10 passing, including deterministic replay,
+- PlayMode regression tests: 16/16 passing, including deterministic replay,
+  state-hash divergence detection, reset determinism, the strict input gate,
   bot movement, ball catch, goal scoring and a live bootstrap test.
 
 ## Controls
@@ -56,9 +59,11 @@ to six are always bots in this port.
 In network mode both windows use the P1 row (WASD, Space, J, K, E, L). The
 backend orders the two session actors to decide which window owns P1 and which
 owns P2; each camera follows that window's own fighter. The HUD shows
-`YOU ARE P1` / `YOU ARE P2` and the relay status.
+`YOU ARE P1` / `YOU ARE P2`, the lockstep state, the current tick, verified hash
+count and the last state hash. A mismatch changes the status to `DESYNC` and
+stops the simulation instead of hiding the divergence.
 
-## Two-client input relay over OpenOxide
+## Two-client lockstep over OpenOxide
 
 The included `server/config.toml` starts the backend as a pure Unity relay room
 (`input_hub = true`, room `cyg_sports`, WebSocket/HTTP port 7777, UDP 7778):
@@ -77,21 +82,44 @@ cd /mnt/SSD/Devloper/unity/sports_arena_cyg/Build/Linux
 ```
 
 `-network` is opt-in; without it the sample remains the offline P1-vs-bots
-game. `CYG_NETWORK=1`, `CYG_SERVER_HOST`, `CYG_SERVER_PORT` and `CYG_ROOM` are
-also accepted. Both windows call `CYGNetwork.ConnectToMatch` directly and force
-`CYGWebSocketTransport`, so the actor id is derived from the same session the
-server records. No matchmaker, lobby or reconnect flow is involved.
+game. `CYG_NETWORK=1`, `CYG_SERVER_HOST`, `CYG_SERVER_PORT`, `CYG_ROOM` and
+`CYG_INPUT_DELAY` (0-8 ticks, default 2) are also accepted. Both windows call
+`CYGNetwork.ConnectToMatch` directly and force `CYGWebSocketTransport`, so the
+actor id is derived from the same session the server records. No matchmaker,
+lobby or reconnect flow is involved.
 
 Each fixed tick sends the local `CYGPlayerInput` as an opcode-19 packet with two
-redundant previous inputs. The backend validates room and actor, rate-limits,
-and forwards the packet to the other WebSocket clients. The receiving window
-applies the latest remote input to its non-local human slot. Rule simulation,
-scoring, ball ownership and bots still run independently in each client.
+redundant previous inputs. The packet header carries the exact tick, and the
+payload carries the tick in each `CYGPlayerInput`. The backend validates room
+and actor, rate-limits, records the tick, and forwards the packet to the other
+WebSocket client. The receiver stores all three inputs by their own tick rather
+than applying the newest input to its current state.
 
-This is input relay, not server-authoritative sports simulation. There is no
-shared start tick, rollback or snapshot reconciliation, so latency or a long
-stall can make the two local simulations diverge. There is no late join,
-reconnect, matchmaking, lobby or character selection.
+Both clients run the same tiny lockstep protocol over the backend's
+`CustomRpc` tunnel:
+
+1. `HELLO` discovers the peer's derived actor id. Lower actor id becomes P1.
+2. `READY` from the peer lets the lower actor send `START` with an epoch and the
+   input delay. Both clients call `SportsArenaSimulation.ResetForMatch()` and
+   begin at tick 0.
+3. Local input is sampled two ticks ahead (`CYG_INPUT_DELAY`, default 2; range
+   0-8). A tick advances only when both human inputs for that exact tick are in
+   the ring buffer. Missing input pauses rather than inventing a prediction.
+4. Every 60 ticks both clients send a CRC32 of the simulation state. If a
+   matching tick's hashes differ, both pause and the HUD shows `DESYNC`.
+
+The P3-P6 bots are still simulated locally in each client. Because the rules are
+fixed-point and the bots are deterministic functions of state, they stay aligned
+as long as the two human input streams and tick schedule do. Automatic rematch
+continues from the same tick stream, so the server's monotonic input-tick check
+is preserved.
+
+This is strict lockstep, not rollback or server-authoritative sports
+simulation. Latency or a long stall waits for the missing input instead of
+predicting, so the game can appear to pause. There is no late join, reconnect,
+matchmaking, lobby, snapshot reconciliation or server-side arena rules. The
+backend remains a relay and validator; it does not simulate the match.
+
 
 ## What is not the original
 
@@ -101,13 +129,14 @@ This is not 100% feature parity with the reference sample:
   assets, signals, `referenceGame`, `referenceRunner`, `referenceEntityView` or
   reference Realtime networking.
 - No original menu, lobby, matchmaking, late join, reconnect, character
-  selection or ability UI. The optional two-client input relay is not a
+  selection or ability UI. The optional two-client lockstep prototype is not a
   recreation of the original online session flow.
 - Original `.qprototype`, `.qunitydb` and baked reference map collision data are
   not read. The port approximates level collision from visible block props.
 - Offline, P2-P6 are local deterministic bots. In network mode P2 receives the
-  peer's human input, but P3-P6 are still independent local bots and there is
-  no server-authoritative match simulation.
+  peer's human input through strict tick gating, but P3-P6 are still
+  independently simulated local bots and there is no server-authoritative match
+  simulation.
 - Throw is a single balanced throw; the original short/long throw assets are
   not separately reproduced.
 - The port uses a simplified bot, not the original's human-only flow.
@@ -137,24 +166,45 @@ Then open the host project in Unity 6 and play
 PlayMode tests were run with:
 
 ```bash
-Unity -batchmode -nographics \
+/mnt/SSD/unity/editor_hub/6000.6.2f1/Editor/Unity -batchmode -nographics \
   -projectPath /mnt/SSD/Devloper/unity/sports_arena_cyg \
   -runTests -testPlatform PlayMode \
-  -testResults /tmp/sports_arena_tests.xml
+  -logFile /tmp/opencode/sports_arena_lockstep_tests4.log
 ```
 
-The suite includes the SDK's five existing PlayMode physics tests plus five
-Sports Arena tests. All ten pass.
+The suite includes the SDK's five existing PlayMode physics tests plus eleven
+Sports Arena tests. All 16 pass. The new coverage checks state-hash determinism,
+state-hash divergence, tick-0 reset determinism, the strict dual-input gate,
+future/stale remote-input rejection, and both hash-verification orderings.
 
-A Linux standalone player was also built and launched on the actual display.
-Two `-network` instances and one backend were run together. Both clients joined
-the same `cyg_sports` relay room, assigned opposite P1/P2 roles, and showed
-`PEER ONLINE`. Holding `W` in the P1 window produced `MoveY = 1000` on the P2
-window, holding `W` in P2 produced a remote `MoveY = 1000` on P1, and Space
-produced the remote Jump button bit. The two windows showed `YOU ARE P1` and
-`YOU ARE P2` with cameras following their respective local fighters.
+A Linux standalone player was built from the same scripts:
 
-The existing PlayMode suite still passes 10/10 after the network changes.
+```bash
+Unity -batchmode -quit \
+  -projectPath /mnt/SSD/Devloper/unity/sports_arena_cyg \
+  -buildLinux64Player \
+  /mnt/SSD/Devloper/unity/sports_arena_cyg/Build/Linux/SportsArena.x86_64
+```
+
+Two `-network` instances and one backend were launched on the actual display.
+Both joined `cyg_sports` with opposite roles (`P2`/`P1`), received the same
+`START epoch=1`, and reported identical hashes:
+
+```
+tick=0     hash=0xADEDB7EF
+tick=300   hash=0x885E24EE
+tick=600   hash=0x6A327EE6
+...
+tick=12600 hash=0x8BA4A789   verified=210
+```
+
+During that run, kernel-level `W` input into the focused P1 window was reported
+by the P2 client as `Remote key input received for P1 ... (move=0,1000)`, and
+`D` input into the focused P2 window was reported by P1 as
+`Remote key input received for P2 ... (move=1000,0)`. Both clients continued to
+produce the same hash at every sampled tick with no `DESYNC` log. The final
+rebuilt player was launched again and repeated the same handshake, identical
+hashes and both input-relay directions.
 
 ## Licensing
 

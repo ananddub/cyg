@@ -53,12 +53,21 @@ namespace CookYourGame.SportsArena
             if (arena.NetworkMode)
             {
                 string role = "P" + (arena.LocalPlayerIndex + 1);
-                string status = !arena.NetworkConnected
-                    ? "CONNECTING"
-                    : (arena.HasRemotePlayer ? "PEER ONLINE" : "WAITING FOR PEER");
+                string status = arena.NetworkStatusText;
+                string hash = arena.LastStateHashTick >= 0
+                    ? "  hash " + arena.LastStateHash.ToString("X8") + " @" + arena.LastStateHashTick
+                    : string.Empty;
                 controls = "YOU ARE " + role + "   |   OpenOxide: " + status
-                    + "   |   WASD move   Space jump   J punch   K dash   E throw   L block\n"
-                    + "Both windows publish keyboard input through the backend input hub.";
+                    + "   |   tick " + arena.Tick
+                    + (arena.VerifiedHashCount > 0 ? "  verified " + arena.VerifiedHashCount : string.Empty)
+                    + hash
+                    + "\nWASD move   Space jump   J punch   K dash   E throw   L block"
+                    + "   |   backend-relayed lockstep";
+                if (arena.HasDesync)
+                {
+                    controls = "DESYNC DETECTED @ TICK " + arena.DesyncTick
+                        + "   |   simulation paused\n" + controls;
+                }
             }
             else
             {

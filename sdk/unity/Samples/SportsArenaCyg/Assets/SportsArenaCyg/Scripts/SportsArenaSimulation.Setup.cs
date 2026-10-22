@@ -35,6 +35,63 @@ namespace CookYourGame.SportsArena
             Message = "GET READY";
         }
 
+        /// <summary>
+        /// Resets all match state to tick 0 for a network start epoch. Static
+        /// arena collision is preserved; only mutable player, ball and phase
+        /// state is rebuilt. Both peers call this after the same START message.
+        /// </summary>
+        public void ResetForMatch()
+        {
+            if (_controllers[0] == null)
+            {
+                return;
+            }
+
+            Tick = 0;
+            Phase = SportsArenaPhase.Countdown;
+            PhaseTimer = FP.FromInt(3);
+            MatchTime = SportsArenaConfig.MatchDuration;
+            Message = "GET READY";
+            for (int i = 0; i < Scores.Length; i++)
+            {
+                Scores[i] = 0;
+            }
+
+            for (int i = 0; i < Players.Length; i++)
+            {
+                SportsArenaPlayer player = Players[i];
+                player.Position = _spawns[i];
+                player.Velocity = FPVector3.Zero;
+                player.Yaw = player.Team == 0 ? FP.FromInt(90) : FP.FromInt(-90);
+                player.Grounded = false;
+                player.Blocking = false;
+                player.HasBall = false;
+                player.IsBot = i >= 2;
+                player.Health = SportsArenaConfig.MaxHealth;
+                player.PunchCooldown = FP.Zero;
+                player.PunchTimer = FP.Zero;
+                player.DashCooldown = FP.Zero;
+                player.DashTimer = FP.Zero;
+                player.ThrowCooldown = FP.Zero;
+                player.CatchCooldown = FP.Zero;
+                player.StunTimer = FP.Zero;
+                player.RespawnTimer = FP.Zero;
+                player.AnimSpeed = FP.Zero;
+                player.AnimTriggers = 0;
+                player.PreviousButtons = 0;
+
+                FPCharacterController controller = _controllers[i];
+                controller.Position = player.Position;
+                controller.Velocity = FPVector3.Zero;
+                controller.IsGrounded = false;
+                controller.GroundNormal = FPVector3.Up;
+            }
+
+            ResetBall();
+            Physics.ResetTransientState();
+            WriteSnapshot();
+        }
+
         private void CreateBallBody()
         {
             CYGPhysicsBody body = CYGPhysicsBody.CreateDynamic(
@@ -46,6 +103,7 @@ namespace CookYourGame.SportsArena
             body.EnableCcd = true;
             body.IsActive = false;
             Ball.BodyId = Physics.AddBody(body);
+            _ballBody = body;
         }
 
         private void ResetBall()
@@ -56,7 +114,7 @@ namespace CookYourGame.SportsArena
             Ball.CatchLock = FP.Zero;
             Ball.Position = BallSpawn;
             Ball.Velocity = FPVector3.Zero;
-            CYGPhysicsBody body = Physics.GetBody(Ball.BodyId);
+            CYGPhysicsBody body = _ballBody != null ? _ballBody : Physics.GetBody(Ball.BodyId);
             if (body != null)
             {
                 body.IsActive = true;
@@ -143,7 +201,7 @@ namespace CookYourGame.SportsArena
                 Phase = SportsArenaPhase.GoalScored;
                 PhaseTimer = FP.FromInt(3);
                 Ball.Active = false;
-                CYGPhysicsBody body = Physics.GetBody(Ball.BodyId);
+                CYGPhysicsBody body = _ballBody;
                 if (body != null)
                 {
                     body.IsActive = false;

@@ -69,12 +69,117 @@ namespace CookYourGame.SportsArena.Tests
             {
                 first.TickStep(inputs);
                 second.TickStep(inputs);
+                Assert.AreEqual(first.ComputeStateHash(), second.ComputeStateHash(),
+                    "state hash diverged at step " + i);
             }
 
             Assert.AreEqual(first.Tick, second.Tick);
             Assert.AreEqual(first.Snapshot.BallPosition, second.Snapshot.BallPosition);
             Assert.AreEqual(first.Snapshot.Positions[0], second.Snapshot.Positions[0]);
             Assert.AreEqual(first.Snapshot.Scores[0], second.Snapshot.Scores[0]);
+        }
+
+        [Test]
+        public void Simulation_StateHash_DetectsDifferentInput()
+        {
+            SportsArenaSimulation first = BuildSimulation();
+            SportsArenaSimulation second = BuildSimulation();
+            DisableBots(first);
+            DisableBots(second);
+            SportsArenaInput[] neutral = new SportsArenaInput[SportsArenaConfig.PlayerCount];
+            SportsArenaInput[] moving = new SportsArenaInput[SportsArenaConfig.PlayerCount];
+            moving[0].Value = new CYGPlayerInput(1, 0, CYGPlayerInput.MaxMove, 0);
+            for (int i = 0; i < 300; i++)
+            {
+                first.TickStep(neutral);
+                second.TickStep(moving);
+            }
+
+            Assert.AreNotEqual(first.ComputeStateHash(), second.ComputeStateHash());
+        }
+
+        [Test]
+        public void Simulation_ResetForMatch_ReturnsToSameInitialHash()
+        {
+            SportsArenaSimulation first = BuildSimulation();
+            SportsArenaSimulation second = BuildSimulation();
+            DisableBots(first);
+            DisableBots(second);
+            SportsArenaInput[] inputs = new SportsArenaInput[SportsArenaConfig.PlayerCount];
+            inputs[0].Value = new CYGPlayerInput(1, 0, CYGPlayerInput.MaxMove, 0);
+            for (int i = 0; i < 240; i++)
+            {
+                first.TickStep(inputs);
+            }
+            for (int i = 0; i < 60; i++)
+            {
+                second.TickStep(inputs);
+            }
+
+            first.ResetForMatch();
+            second.ResetForMatch();
+            Assert.AreEqual(0, first.Tick);
+            Assert.AreEqual(0, second.Tick);
+            Assert.AreEqual(first.ComputeStateHash(), second.ComputeStateHash(),
+                "both peers must produce the same tick-0 state after reset");
+        }
+
+        [Test]
+        public void Lockstep_GateRequiresBothInputsForExactTick()
+        {
+            SportsArenaLockstep lockstep = new SportsArenaLockstep();
+            lockstep.ResetForStart(1, 2, 0, 1, 1, 2);
+
+            Assert.IsFalse(lockstep.TryGetTickInputs(0, out _, out _));
+            Assert.IsTrue(lockstep.StoreLocal(0, new CYGPlayerInput(0, 0, 1, 0)));
+            Assert.IsFalse(lockstep.TryGetTickInputs(0, out _, out _));
+            Assert.IsTrue(lockstep.StoreRemote(1, new CYGPlayerInput(1, 0, 0, 0)));
+            Assert.IsFalse(lockstep.TryGetTickInputs(0, out _, out _),
+                "a future remote input must not satisfy the current tick");
+            Assert.IsTrue(lockstep.StoreRemote(0, new CYGPlayerInput(0, 0, 0, 0)));
+            Assert.IsTrue(lockstep.TryGetTickInputs(0, out CYGPlayerInput local, out CYGPlayerInput remote));
+            Assert.AreEqual(1, local.MoveX);
+            Assert.AreEqual(0, remote.MoveX);
+        }
+
+        [Test]
+        public void Lockstep_RejectsRemoteTicksOutsideWindow()
+        {
+            SportsArenaLockstep lockstep = new SportsArenaLockstep();
+            lockstep.ResetForStart(1, 2, 0, 1, 1, 2);
+
+            Assert.IsFalse(lockstep.StoreRemote(-1, new CYGPlayerInput(-1, 0, 0, 0)));
+            Assert.IsFalse(lockstep.StoreRemote(1000, new CYGPlayerInput(1000, 0, 0, 0)));
+            Assert.IsFalse(lockstep.StoreRemote(65, new CYGPlayerInput(65, 0, 0, 0)));
+            Assert.IsTrue(lockstep.StoreRemote(64, new CYGPlayerInput(64, 0, 0, 0)));
+            Assert.IsTrue(lockstep.StoreRemote(3, new CYGPlayerInput(3, 0, 0, 0)));
+        }
+
+        [Test]
+        public void Lockstep_DetectsHashMismatch()
+        {
+            SportsArenaLockstep lockstep = new SportsArenaLockstep();
+            lockstep.ResetForStart(1, 2, 0, 1, 1, 2);
+
+            Assert.IsTrue(lockstep.RecordLocalHash(60, 0xAAAA0001u));
+            Assert.IsFalse(lockstep.RecordRemoteHash(60, 0xBBBB0002u));
+            Assert.IsTrue(lockstep.HasDesync);
+            Assert.AreEqual(SportsArenaLockstepState.Desync, lockstep.State);
+            Assert.AreEqual(60, lockstep.DesyncTick);
+            Assert.AreEqual(1, lockstep.MismatchCount);
+        }
+
+        [Test]
+        public void Lockstep_VerifiesMatchingHashArrivingBeforeLocalStep()
+        {
+            SportsArenaLockstep lockstep = new SportsArenaLockstep();
+            lockstep.ResetForStart(1, 2, 0, 1, 1, 2);
+
+            Assert.IsTrue(lockstep.RecordRemoteHash(120, 0x12345678u));
+            Assert.IsTrue(lockstep.RecordLocalHash(120, 0x12345678u));
+            Assert.IsFalse(lockstep.HasDesync);
+            Assert.AreEqual(1, lockstep.VerifiedHashCount);
+            Assert.AreEqual(120, lockstep.LastVerifiedTick);
         }
 
         [Test]
@@ -136,10 +241,14 @@ namespace CookYourGame.SportsArena.Tests
             Assert.AreEqual(SportsArenaPhase.Playing, simulation.Phase);
             CYGPhysicsBody body = simulation.Physics.GetBody(simulation.Ball.BodyId);
             Assert.IsNotNull(body);
-            body.IsActive = false;
+            body.IsActive = true;
+            body.Position = simulation.Goals[0].Area.Center;
+            body.LinearVelocity = FPVector3.Zero;
+            body.AngularVelocity = FPVector3.Zero;
+            body.Wake();
             simulation.Ball.Holder = -1;
             simulation.Ball.Active = true;
-            simulation.Ball.Position = simulation.Goals[0].Area.Center;
+            simulation.Ball.Position = body.Position;
             simulation.TickStep(inputs);
 
             Assert.AreEqual(1, simulation.Scores[1], "the team attacking the first goal should score");

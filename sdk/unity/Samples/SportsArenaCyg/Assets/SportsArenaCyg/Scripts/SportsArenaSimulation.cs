@@ -14,6 +14,8 @@ namespace CookYourGame.SportsArena
         public readonly SportsArenaBall Ball = new SportsArenaBall();
         public readonly CYGPhysicsWorld Physics = new CYGPhysicsWorld();
 
+        private CYGPhysicsBody _ballBody;
+
         private readonly FPCharacterController[] _controllers = new FPCharacterController[SportsArenaConfig.PlayerCount];
         private readonly SportsArenaSnapshot _snapshot = new SportsArenaSnapshot();
         private readonly FPVector3[] _spawns = new FPVector3[SportsArenaConfig.PlayerCount];
@@ -83,6 +85,90 @@ namespace CookYourGame.SportsArena
         }
 
         public SportsArenaSnapshot Snapshot => _snapshot;
+
+        /// <summary>
+        /// CRC32 of every piece of simulation state that can affect a future
+        /// tick. The Unity view state (animations, camera, HUD message) is not
+        /// included. Physics.Tick is intentionally excluded because it is an
+        /// internal accumulator, not gameplay state; the ball body pose and
+        /// motion are hashed instead.
+        /// </summary>
+        public uint ComputeStateHash()
+        {
+            uint crc = 0xFFFFFFFFu;
+            CYGChecksum.HashInt(ref crc, Tick);
+            CYGChecksum.HashInt(ref crc, (int)Phase);
+            MatchTime.ComputeChecksum(ref crc);
+            PhaseTimer.ComputeChecksum(ref crc);
+
+            for (int i = 0; i < Scores.Length; i++)
+            {
+                CYGChecksum.HashInt(ref crc, Scores[i]);
+            }
+
+            for (int i = 0; i < Players.Length; i++)
+            {
+                SportsArenaPlayer player = Players[i];
+                if (player == null)
+                {
+                    continue;
+                }
+
+                CYGChecksum.HashInt(ref crc, player.Index);
+                CYGChecksum.HashInt(ref crc, player.Team);
+                player.Position.ComputeChecksum(ref crc);
+                player.Velocity.ComputeChecksum(ref crc);
+                player.Yaw.ComputeChecksum(ref crc);
+                HashBool(ref crc, player.Grounded);
+                HashBool(ref crc, player.Blocking);
+                HashBool(ref crc, player.HasBall);
+                HashBool(ref crc, player.IsBot);
+                player.Health.ComputeChecksum(ref crc);
+                player.PunchCooldown.ComputeChecksum(ref crc);
+                player.PunchTimer.ComputeChecksum(ref crc);
+                player.DashCooldown.ComputeChecksum(ref crc);
+                player.DashTimer.ComputeChecksum(ref crc);
+                player.ThrowCooldown.ComputeChecksum(ref crc);
+                player.CatchCooldown.ComputeChecksum(ref crc);
+                player.StunTimer.ComputeChecksum(ref crc);
+                player.RespawnTimer.ComputeChecksum(ref crc);
+                player.AnimSpeed.ComputeChecksum(ref crc);
+                CYGChecksum.HashByte(ref crc, player.PreviousButtons);
+
+                FPCharacterController controller = _controllers[i];
+                if (controller != null)
+                {
+                    controller.Position.ComputeChecksum(ref crc);
+                    controller.Velocity.ComputeChecksum(ref crc);
+                    HashBool(ref crc, controller.IsGrounded);
+                    controller.GroundNormal.ComputeChecksum(ref crc);
+                }
+            }
+
+            Ball.Position.ComputeChecksum(ref crc);
+            Ball.Velocity.ComputeChecksum(ref crc);
+            CYGChecksum.HashInt(ref crc, Ball.Holder);
+            CYGChecksum.HashInt(ref crc, Ball.LastThrower);
+            CYGChecksum.HashInt(ref crc, Ball.BodyId);
+            HashBool(ref crc, Ball.Active);
+            Ball.CatchLock.ComputeChecksum(ref crc);
+
+            CYGPhysicsBody ballBody = _ballBody;
+            if (ballBody != null)
+            {
+                HashBool(ref crc, ballBody.IsActive);
+                HashBool(ref crc, ballBody.IsAwake);
+                ballBody.Rotation.ComputeChecksum(ref crc);
+                ballBody.AngularVelocity.ComputeChecksum(ref crc);
+            }
+
+            return crc ^ 0xFFFFFFFFu;
+        }
+
+        private static void HashBool(ref uint crc, bool value)
+        {
+            CYGChecksum.HashByte(ref crc, value ? (byte)1 : (byte)0);
+        }
 
         public void AddStaticBox(FPVector3 center, FPVector3 halfExtents, FPQuaternion rotation)
         {

@@ -33,7 +33,7 @@ namespace CookYourGame.SportsArena
             }
 
             Physics.Step(dt);
-            CYGPhysicsBody body = Physics.GetBody(Ball.BodyId);
+            CYGPhysicsBody body = _ballBody;
             if (body == null)
             {
                 return;
