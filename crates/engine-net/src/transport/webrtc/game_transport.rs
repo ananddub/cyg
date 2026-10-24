@@ -22,6 +22,10 @@ pub struct WebRtcTransport {
     server: WebRtcServer,
     sock: UdpSocket,
     local: SocketAddr,
+    /// Readiness source for `poll_events`: the only registered interest is the
+    /// UDP socket, so a poll sleeps until a datagram arrives or the timeout
+    /// rolls — the idle wait the host loop hangs its fixed tick on.
+    poll: mio::Poll,
     events: mio::Events,
     /// session id -> last inbound instant (idle-session sweep).
     last_seen: std::collections::HashMap<String, Instant>,
@@ -36,28 +40,29 @@ pub struct WebRtcTransport {
 impl WebRtcTransport {
     pub fn new(bind_addr: SocketAddr) -> io::Result<Self> {
         let sock = UdpSocket::bind(bind_addr)?;
-        let local = sock.local_addr()?;
-        Ok(Self {
-            server: WebRtcServer::new(vec![local]),
-            sock,
-            local,
-            events: mio::Events::with_capacity(256),
-            last_seen: std::collections::HashMap::new(),
-            idle_after: Duration::from_secs(60),
-            pending: Vec::new(),
-            schema_descriptor: Bytes::new(),
-        })
+        Self::from_socket(sock.into(), vec![])
     }
 
     /// Take ownership of an already-bound UDP socket. The host loop binds the
     /// game port itself (so the seat reservation can advertise the real port
     /// and LAN/public candidates can be announced) and hands the socket over.
-    pub fn from_socket(sock: std::net::UdpSocket, announced_addrs: Vec<SocketAddr>) -> io::Result<Self> {
+    pub fn from_socket(
+        sock: std::net::UdpSocket,
+        announced_addrs: Vec<SocketAddr>,
+    ) -> io::Result<Self> {
         sock.set_nonblocking(true)?;
         let local = sock.local_addr()?;
+        let mut sock = UdpSocket::from_std(sock);
+        let poll = mio::Poll::new()?;
+        poll.registry().register(
+            &mut sock,
+            mio::Token(0),
+            mio::Interest::READABLE,
+        )?;
         Ok(Self {
             server: WebRtcServer::new(announced_addrs),
-            sock: UdpSocket::from_std(sock),
+            sock,
+            poll,
             local,
             events: mio::Events::with_capacity(256),
             last_seen: std::collections::HashMap::new(),
@@ -113,8 +118,13 @@ impl WebRtcTransport {
 }
 
 impl GameTransport for WebRtcTransport {
-    fn poll_events(&mut self, _timeout: Duration, events: &mut Vec<TransportEvent>) -> io::Result<()> {
+    fn poll_events(&mut self, timeout: Duration, events: &mut Vec<TransportEvent>) -> io::Result<()> {
         events.append(&mut self.pending);
+        // The loop's idle wait: sleep until the socket has a datagram or the
+        // tick deadline rolls. str0m retransmit timers tolerate a slip of up
+        // to one tick, the same wake granularity the WS transport had.
+        self.events.clear();
+        self.poll.poll(&mut self.events, Some(timeout))?;
         self.recv_udp();
         let now = Instant::now();
 
@@ -240,8 +250,3 @@ impl GameTransport for WebRtcTransport {
         "WebRTC DataChannel (UDP/str0m)"
     }
 }
-
-// Silence unused-import warning for `self.events` until the mio-driven
-// variant (signaling over the same socket) lands with R2a completion.
-#[allow(dead_code)]
-fn _events_unused(_: &mio::Events) {}
