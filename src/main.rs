@@ -866,7 +866,8 @@ fn run(dir: &Path) -> std::io::Result<()> {
         None
     };
 
-    engine_server::host::run(&project_dir, &wasm_path, &cfg, bus)
+    let signals = _control.as_ref().map(|plane| plane.signals());
+    engine_server::host::run(&project_dir, &wasm_path, &cfg, bus, signals)
 }
 
 /// `ox-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.

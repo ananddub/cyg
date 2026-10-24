@@ -36,8 +36,17 @@ const RELAY_REFUSAL: &str = "Game is configured for Unity C# Relay. WASM upload 
 const HOST_SOURCE: &str = include_str!("../../../../crates/engine-server/src/rooms.rs");
 
 /// Every export name the host declares it invokes on a guest.
+///
+/// Only the non-test part of `rooms.rs` is parsed: the `#[cfg(test)]` module
+/// at the bottom holds helpers whose names merely look like exports (e.g. a
+/// test named `on_auth_sees_the_client_options_and_can_reject`), and counting
+/// one of those would fail every drift assertion below.
 pub(super) fn abi_exports() -> Vec<String> {
-    HOST_SOURCE
+    let runtime_source = HOST_SOURCE
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(HOST_SOURCE);
+    runtime_source
         .lines()
         .filter_map(|line| {
             let (_, after) = line.trim().split_once("fn on_")?;

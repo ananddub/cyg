@@ -28,6 +28,28 @@ use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 use uuid::Uuid;
 
+/// An 8-character random suffix of hex LETTERS only (`a`-`f`).
+///
+/// The moderation filter rejects ~8% of random digit+letter strings — its
+/// context matcher reads sequences like "69a8e" as evasive sexual references
+/// — so e2e identifiers that pass through a profanity check must not sample
+/// digits. Letters-only suffixes are immune.
+fn letters_suffix() -> String {
+    let mut out = String::new();
+    let mut uuid = Uuid::new_v4().simple().to_string().into_bytes();
+    while out.len() < 8 {
+        if uuid.is_empty() {
+            uuid = Uuid::new_v4().simple().to_string().into_bytes();
+        }
+        let c = uuid.remove(0) as char;
+        if c.is_ascii_alphabetic() {
+            out.push(c);
+        }
+    }
+    out
+}
+
+
 const CONSOLE_USER: &str = "e2e-admin";
 const CONSOLE_PASSWORD: &str = "e2e-password";
 const SERVER_KEY: &str = "e2e-server-key";
@@ -650,7 +672,7 @@ async fn console_auth(client: &Client, base: &str, pool: &PgPool) -> String {
 /// relay game (Unity) and the authoritative game (custom/WASM) the next scenario uses.
 async fn games(client: &Client, base: &str, port: u16, console: &str) -> (String, String) {
     eprintln!("e2e: games and unity settings");
-    let suffix = &Uuid::new_v4().simple().to_string()[..8];
+    let suffix = letters_suffix();
     let unity_name = format!("E2E Unity {suffix}");
     let unity = json_body(
         client
@@ -1216,7 +1238,7 @@ async fn device_auth(client: &Client, base: &str, pool: &PgPool) {
         base64::engine::general_purpose::STANDARD.encode(format!("{SERVER_KEY}:"))
     );
     let device_id = format!("e2e-device-{}", Uuid::new_v4());
-    let username = format!("e2e-player-{}", &Uuid::new_v4().simple().to_string()[..8]);
+    let username = format!("e2e-player-{}", letters_suffix());
     let url = format!("{base}/v2/account/authenticate/device?username={username}&create=true");
 
     let created = json_body(
@@ -1315,7 +1337,7 @@ struct Player {
 /// route, with the Basic server key the plane was booted with.
 async fn device_player(client: &Client, base: &str, label: &str) -> Player {
     let device_id = format!("e2e-{label}-{}", Uuid::new_v4());
-    let username = format!("e2e-{label}-{}", &Uuid::new_v4().simple().to_string()[..8]);
+    let username = format!("e2e-{label}-{}", letters_suffix());
     let basic = format!(
         "Basic {}",
         base64::engine::general_purpose::STANDARD.encode(format!("{SERVER_KEY}:"))
@@ -1393,7 +1415,7 @@ async fn tournaments(client: &Client, base: &str, console: &str, pool: &PgPool) 
     eprintln!("e2e: tournaments");
     let now = Utc::now();
     let stamp = |offset: i64| (now + ChronoDuration::seconds(offset)).to_rfc3339();
-    let suffix = &Uuid::new_v4().simple().to_string()[..8];
+    let suffix = letters_suffix();
     let joined_id = format!("e2e-tournament-joined-{suffix}");
     let open_id = format!("e2e-tournament-open-{suffix}");
     let ended_id = format!("e2e-tournament-ended-{suffix}");

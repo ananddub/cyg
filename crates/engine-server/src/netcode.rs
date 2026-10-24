@@ -293,24 +293,21 @@ pub fn filter_delta_for_viewer(
 /// belongs to.
 ///
 /// Returns the number of frames written. Zero means "this client did not get
-/// this delta over WebRTC" — no open channel, or a body too large to carry — and
-/// the caller falls back to the WebSocket, which is already ordered and
-/// reliable and needs no stamping.
+/// this delta on the WebRTC delta lane" — no open channel, or a body too large
+/// to carry — and the caller falls back to the reliable lane, which is ordered
+/// and needs no stamping.
 ///
 /// A partially sent delta is reported as zero. Retrying it is pointless: the
 /// next tick supersedes it, so an incomplete body is worthless, and the frames
 /// that did go out are cleaned up by the receiver's fragment expiry.
 pub fn send_delta_framed(
-    webrtc_server: &mut Option<WebRtcServer>,
+    webrtc_server: &mut WebRtcServer,
     session: &str,
     seq: u16,
     tick: u32,
     body: &[u8],
 ) -> usize {
-    let Some(srv) = webrtc_server.as_mut() else {
-        return 0;
-    };
-    match srv.send_delta(session, seq, tick, body) {
+    match webrtc_server.send_delta(session, seq, tick, body) {
         Ok(report) => {
             if report.delivered() {
                 report.fragments

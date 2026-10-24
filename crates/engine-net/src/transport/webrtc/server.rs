@@ -127,8 +127,9 @@ impl WebRtcServer {
         self.flush_outbound();
     }
 
-    /// Remove a client session.
-    pub fn remove_session(&mut self, client_id: &str) {
+    /// Remove a client session. `true` when a session actually went away; a
+    /// miss is a no-op (no phantom `Disconnected` for an id never seen).
+    pub fn remove_session(&mut self, client_id: &str) -> bool {
         if let Some(mut session) = self.sessions.remove(client_id) {
             if let Some(addr) = session.remote_addr {
                 self.addr_to_session.remove(&addr);
@@ -137,6 +138,9 @@ impl WebRtcServer {
             self.sink.events.push(WebRtcServerEvent::Disconnected {
                 client_id: client_id.to_string(),
             });
+            true
+        } else {
+            false
         }
     }
 

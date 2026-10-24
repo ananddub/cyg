@@ -68,7 +68,7 @@ pub fn spawn(
         });
     }
 
-    Ok(ControlPlane { runtime, port })
+    Ok(ControlPlane { runtime, state, port })
 }
 
 /// Refuse to boot the control plane on well-known default secrets. A default-

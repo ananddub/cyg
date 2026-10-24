@@ -11,7 +11,6 @@
 //! pipeline (delta wrapping, AOI filtering, input journaling) in
 //! [`crate::netcode`].
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -21,9 +20,7 @@ use std::time::{Duration, Instant};
 use engine_bus::{Bus, SessionTelemetry};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc::contract::Inbound;
-use engine_net::transport::{
-    GameTransport, TransportEvent, WebRtcServer, WebRtcServerEvent, WsTransport,
-};
+use engine_net::transport::{GameTransport, TransportEvent, WebRtcServer, WebRtcTransport};
 use engine_physics::PhysicsWorld3D;
 use engine_wasm::WasmRuntime;
 
@@ -53,72 +50,130 @@ const MAX_FRAMES_PER_LOOP: usize = 256;
 /// spectator handshake (0xFF) keep their existing frames.
 const APP_MESSAGE_OPCODE: u8 = 0x05;
 
-/// The game loop's view of the WebSocket transport.
+/// The game loop's view of the WebRTC DataChannel transport.
 ///
-/// The transport runs on the caller's thread. `send_to` encodes straight into
-/// the client's send queue and `flush` writes once per loop iteration, so there
-/// is no outbound channel and no burst can be lost to a full `try_send` queue.
+/// The transport runs on the caller's thread: `poll_events` services the UDP
+/// socket and the str0m sessions, `send_to` queues straight into a session's
+/// lane and `flush` writes once per loop iteration, so there is no outbound
+/// channel and no burst can be lost to a full `try_send` queue.
+///
+/// Seat bookkeeping lives here, not in the wire transport: a WebRTC session is
+/// born from a signaling offer whose seat names the room, so the loop mirrors
+/// seat -> room/options at offer time and consults those maps on connect.
 pub struct LoopTransport {
-    ws: WsTransport,
-    /// session id -> room id, mirrored from the upgrade URL so the loop can
-    /// route connect/disconnect events without borrowing the transport.
+    rtc: WebRtcTransport,
+    /// session id -> room id, mirrored from the seat at signaling time so the
+    /// loop can route connect/disconnect events without borrowing the wire.
     client_rooms: Arc<scc::HashMap<String, String>>,
+    /// session id -> raw join options JSON carried by the seat's matchmake
+    /// call (empty until matchmake starts persisting them).
+    client_options: HashMap<String, String>,
+    /// Sessions whose disconnect was intentional (a server-initiated close).
+    /// Drained by `take_consented`.
+    consented: std::collections::HashSet<String>,
+    /// Abnormally-disconnected sessions kept alive for reconnection:
+    /// reconnectionToken ("roomId:sessionId") -> session id.
+    retained: HashMap<String, String>,
+    /// Lane-classified inbound frames drained from the wire transport during
+    /// `poll_events`; the loop takes them once per iteration.
+    inbound: Vec<(String, Inbound)>,
     local_addr: Option<SocketAddr>,
 }
 
 impl LoopTransport {
-    fn new(ws: WsTransport) -> Self {
-        let local_addr = ws.bound_addrs().first().copied();
+    fn new(rtc: WebRtcTransport) -> Self {
+        let local_addr = rtc.local_addr().ok();
         Self {
-            ws,
+            rtc,
             client_rooms: Arc::new(scc::HashMap::new()),
+            client_options: HashMap::new(),
+            consented: std::collections::HashSet::new(),
+            retained: HashMap::new(),
+            inbound: Vec::new(),
             local_addr,
         }
+    }
+
+    /// Record a seat's routing before (or as) its WebRTC session comes up:
+    /// which room it joins and what options its matchmake call carried.
+    pub fn register_seat(&mut self, session_id: &str, room: &str, options: &str) {
+        let _ = self
+            .client_rooms
+            .insert_sync(session_id.to_string(), room.to_string());
+        self.client_options
+            .insert(session_id.to_string(), options.to_string());
     }
 
     pub fn room_of(&self, client_id: &str) -> Option<String> {
         self.client_rooms.read_sync(client_id, |_, r| r.clone())
     }
 
-    /// Raw JSON join options the client sent on its upgrade URL.
+    /// Raw JSON join options the seat's matchmake call carried.
     pub fn options_of(&self, client_id: &str) -> Option<String> {
-        self.ws.options_of(client_id).map(str::to_string)
+        self.client_options.get(client_id).cloned()
     }
 
-    /// Whether the session's disconnect was intentional (client leave or a
-    /// server-initiated close). Such seats skip `allowReconnection` holds.
+    /// Whether the session's disconnect was intentional (a server-initiated
+    /// close). Such seats skip `allowReconnection` holds.
     pub fn take_consented(&mut self, client_id: &str) -> bool {
-        self.ws.take_consented(client_id)
+        self.consented.remove(client_id)
     }
 
     /// Keep this session's reconnection token valid so the SDK can resume it
     /// with `POST /matchmake/reconnect/<room>`.
     pub fn retain_session(&mut self, room_id: &str, session_id: &str) {
-        self.ws.retain_session(room_id, session_id);
+        self.retained.insert(
+            format!("{}:{}", room_id, session_id),
+            session_id.to_string(),
+        );
     }
 
-    pub fn take_room_of(&self, client_id: &str) -> Option<String> {
-        self.client_rooms.remove_sync(client_id).map(|(_, r)| r)
+    pub fn take_room_of(&mut self, client_id: &str) -> Option<String> {
+        let room = self.client_rooms.remove_sync(client_id).map(|(_, r)| r);
+        if room.is_some() {
+            self.client_options.remove(client_id);
+        }
+        room
     }
 
-    /// Frames dropped because a peer stopped draining its send queue.
+    /// Frames dropped because a peer stopped draining its lanes.
     pub fn dropped_frames(&self) -> u64 {
-        0
+        self.rtc.dropped_frames()
     }
 
-    pub fn send_to(
+    /// The wire-level WebRTC server: signaling re-offers, the lane-classified
+    /// inbound drain, stamped delta sends and reliable broadcasts.
+    pub fn rtc_server(&mut self) -> &mut WebRtcServer {
+        self.rtc.server_mut()
+    }
+
+    /// Read-only WebRTC session probe (telemetry).
+    pub fn is_rtc_connected(&self, session: &str) -> bool {
+        self.rtc.server().is_connected(session)
+    }
+
+    /// Lane-classified inbound frames drained by the last `poll_events`.
+    pub fn take_inbound(&mut self) -> Vec<(String, Inbound)> {
+        std::mem::take(&mut self.inbound)
+    }
+
+    /// Stamp and fragment one world delta onto a session's unreliable lane.
+    /// Returns the frame count; zero means the caller should fall back to the
+    /// reliable lane (`send_state`/`send_to`).
+    pub fn send_delta_framed(
         &mut self,
-        client_id: &str,
-        opcode: OpCode,
-        payload: &[u8],
-    ) -> std::io::Result<()> {
-        self.ws.send_to(client_id, opcode, payload)
+        session: &str,
+        seq: u16,
+        tick: u32,
+        body: &[u8],
+    ) -> usize {
+        netcode::send_delta_framed(self.rtc.server_mut(), session, seq, tick, body)
     }
 
     /// Queue a schema state frame on the latest-wins lane (unflushed state
     /// frames are replaced, not appended).
     pub fn send_state(&mut self, client_id: &str, payload: &[u8]) -> std::io::Result<()> {
-        self.ws.send_state(client_id, payload)
+        self.rtc.send_state(client_id, payload)
     }
 
     pub fn send_to_many(
@@ -128,7 +183,7 @@ impl LoopTransport {
         payload: &[u8],
     ) -> std::io::Result<()> {
         for &cid in client_ids {
-            let _ = self.ws.send_to(cid, opcode, payload);
+            let _ = self.rtc.send_to(cid, opcode, payload);
         }
         Ok(())
     }
@@ -140,42 +195,44 @@ impl GameTransport for LoopTransport {
         timeout: Duration,
         events: &mut Vec<TransportEvent>,
     ) -> std::io::Result<()> {
-        self.ws.poll_events(timeout, events)?;
-        // Mirror newly connected sessions so `room_of` stays a cheap lookup.
-        for ev in events.iter() {
-            if let TransportEvent::Connected { client_id, .. } = ev {
-                if let Some(room) = self.ws.room_of(client_id) {
-                    let _ = self
-                        .client_rooms
-                        .insert_sync(client_id.to_string(), room.to_string());
-                }
-            }
-        }
+        self.rtc.poll_events(timeout, events)?;
+        // The wire transport also derives `Packet { PlayerInput }` events from
+        // the contract's input lane; this loop consumes the lane-classified
+        // stream instead (it needs seq/resupply/ack context the derived event
+        // drops), so the derived view is discarded here.
+        events.retain(|ev| {
+            !matches!(ev, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. })
+        });
+        self.inbound.extend(self.rtc.server_mut().poll_inbound());
         Ok(())
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
-        self.ws.send_to(client_id, opcode, payload)
+        self.rtc.send_to(client_id, opcode, payload)
     }
 
     fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
-        self.ws.broadcast(opcode, payload)
+        self.rtc.broadcast(opcode, payload)
     }
 
     fn disconnect(&mut self, client_id: &str) -> std::io::Result<()> {
-        WsTransport::disconnect(&mut self.ws, client_id)
+        self.rtc.disconnect(client_id)
     }
 
-    fn disconnect_with(&mut self, client_id: &str, code: u16, reason: &str) -> std::io::Result<()> {
-        self.ws.disconnect_with(client_id, code, reason)
+    fn disconnect_with(&mut self, client_id: &str, _code: u16, _reason: &str) -> std::io::Result<()> {
+        // There is no close frame on a DataChannel: a server-initiated close
+        // just tears the session down, and its consent marker decides whether
+        // the seat is held for reconnection.
+        self.consented.insert(client_id.to_string());
+        self.rtc.disconnect(client_id)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.ws.flush()
+        self.rtc.flush()
     }
 
     fn ccu(&self) -> usize {
-        self.ws.ccu()
+        self.rtc.ccu()
     }
 
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
@@ -185,7 +242,7 @@ impl GameTransport for LoopTransport {
     }
 
     fn transport_name(&self) -> &'static str {
-        "mio-ws-loop"
+        "webrtc-datagram-loop"
     }
 }
 
@@ -292,59 +349,6 @@ fn reject_signal(
     let _ = transport.send_to(client_id, OpCode::RoomDataBytes, &frame);
 }
 
-/// Static files served over the game port. Each path is read from disk once
-/// and only re-read when its mtime changes, so a page load with 30 assets
-/// touches the filesystem once per changed file instead of once per request.
-#[derive(Default)]
-struct FileCache {
-    files: HashMap<std::path::PathBuf, (Option<std::time::SystemTime>, bytes::Bytes)>,
-}
-
-impl FileCache {
-    fn load(&mut self, path: &Path) -> Option<bytes::Bytes> {
-        let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
-        if let Some((seen, body)) = self.files.get(path) {
-            if mtime.is_some() && *seen == mtime {
-                return Some(body.clone());
-            }
-        }
-        let body = bytes::Bytes::from(std::fs::read(path).ok()?);
-        self.files.insert(path.to_path_buf(), (mtime, body.clone()));
-        Some(body)
-    }
-}
-
-/// Content type for a WebGL build extension, as a `'static` str so serving
-/// never allocates a header value.
-fn content_type_for(path: &Path) -> &'static str {
-    match path.extension().and_then(|s| s.to_str()).unwrap_or("") {
-        "html" => "text/html; charset=utf-8",
-        "js" | "mjs" => "application/javascript",
-        "wasm" => "application/wasm",
-        "css" => "text/css",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "json" => "application/json",
-        "data" => "application/octet-stream",
-        _ => "application/octet-stream",
-    }
-}
-
-/// Reject `..`/absolute components in a URL-derived relative path before
-/// joining it onto the asset directory.
-fn safe_relative(sub: &str) -> Option<&Path> {
-    let p = Path::new(sub);
-    let mut depth = 0usize;
-    for c in p.components() {
-        match c {
-            std::path::Component::Normal(_) => depth += 1,
-            std::path::Component::ParentDir => return None,
-            _ => return None,
-        }
-    }
-    if depth == 0 { None } else { Some(p) }
-}
-
 /// Answer a rejected join: ERROR(4002) with a JSON body, then a `WITH_ERROR`
 /// close, in one flush. `WITH_ERROR` is terminal for the SDKs, so they surface
 /// the reason instead of reconnecting forever.
@@ -365,30 +369,8 @@ pub fn run(
     wasm_path: &Path,
     cfg: &engine_config::GameConfig,
     bus: Arc<Bus>,
+    signals: Option<engine_api::infra::signaling::SignalHub>,
 ) -> std::io::Result<()> {
-    // ------------------------------------------------------------------
-    // Website over engine-http.
-    // ------------------------------------------------------------------
-    let website_path = project_dir.join(&cfg.website);
-    let website = if website_path.exists() {
-        std::fs::read(&website_path)?
-    } else {
-        Vec::new()
-    };
-    let sdk_js =
-        std::fs::read(cfg.sdk_dir.join("packages/sdk/dist/colyseus.js")).unwrap_or_default();
-    let schema_mjs = std::fs::read(
-        cfg.sdk_dir
-            .join("node_modules/@colyseus/schema/build/index.mjs"),
-    )
-    .unwrap_or_default();
-    let openoxide_js_path = project_dir.join("openoxide.js");
-    let openoxide_js = if openoxide_js_path.exists() {
-        std::fs::read(&openoxide_js_path).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-
     // ------------------------------------------------------------------
     // WASM runtime — the room logic module (hot-swappable).
     // ------------------------------------------------------------------
@@ -411,23 +393,48 @@ pub fn run(
         ),
     }
 
-    // Who owns the website port: if the control plane is configured to listen on
-    // `web_port`, Axum serves the statics and this transport must not bind — or
-    // hook — it. Otherwise the legacy in-transport HTTP hook stays in charge.
-    let control_owns_web = cfg.control.enabled && cfg.control.api_port == cfg.web_port;
-
-    let mut addrs = vec![
-        format!("0.0.0.0:{}", cfg.port)
-            .parse::<SocketAddr>()
-            .unwrap(),
-    ];
-    if cfg.web_port != cfg.port && !control_owns_web {
-        addrs.push(
-            format!("0.0.0.0:{}", cfg.web_port)
-                .parse::<SocketAddr>()
-                .unwrap(),
+    // The WebRTC game data plane: one UDP socket the str0m sessions share. The
+    // bind happens here (not inside the transport) so the seat reservation can
+    // advertise the port that actually opened and LAN/public candidates can be
+    // announced. Signaling itself rides the control plane's `/ws/signal` hub;
+    // offers handed over here mint the WebRTC sessions.
+    let webrtc_port: u16 = 7779;
+    let webrtc_udp = std::net::UdpSocket::bind(format!("0.0.0.0:{webrtc_port}"))
+        .or_else(|_| std::net::UdpSocket::bind("0.0.0.0:0"))
+        .ok();
+    let mut raw_transport = if let Some(sock) = webrtc_udp {
+        let actual_port = sock.local_addr().map(|a| a.port()).unwrap_or(webrtc_port);
+        eprintln!(
+            "[server] ⚡ WebRTC DataChannel server listening on udp://0.0.0.0:{actual_port}"
         );
-    }
+        let local_addr: SocketAddr = format!("127.0.0.1:{actual_port}").parse().unwrap();
+        let mut announced = vec![local_addr];
+        let lan_ip = std::net::UdpSocket::bind("0.0.0.0:0")
+            .and_then(|s| s.connect("8.8.8.8:80").map(|_| s.local_addr()))
+            .ok()
+            .and_then(|a| a.ok())
+            .map(|a| a.ip());
+        if let Some(ip) = lan_ip {
+            let lan_addr = SocketAddr::new(ip, actual_port);
+            if lan_addr != local_addr {
+                announced.push(lan_addr);
+                eprintln!("[server] ⚡ WebRTC announced LAN candidate: {lan_addr}");
+            }
+        }
+        if let Ok(ip) = std::env::var("PUBLIC_IP")
+            && let Ok(a) = format!("{ip}:{actual_port}").parse()
+        {
+            announced.push(a);
+        }
+        WebRtcTransport::from_socket(sock, announced).expect("webrtc transport")
+    } else {
+        eprintln!("[server] ⚠️ webrtc bind :{webrtc_port} failed — WebRTC data plane disabled");
+        WebRtcTransport::from_socket(
+            std::net::UdpSocket::bind("127.0.0.1:0").expect("ephemeral udp bind"),
+            Vec::new(),
+        )
+        .expect("ephemeral webrtc transport")
+    };
 
     // Prefer the cooked OXCL arena (ox-game cook <map.glb> arena.oxcl): it
     // feeds both the WASM host-data physics template and the native ECS rooms.
@@ -473,10 +480,8 @@ pub fn run(
         PhysicsWorld3D::default()
     };
 
-    let mut raw_transport = WsTransport::new_multi(&addrs).expect("bind transport ports");
-
-    // Generated by `ox-game run` from schema.ts. Clients receive it right
-    // after JOIN_ROOM and build their state contract from it.
+    // Generated by `ox-game run` from schema.ts. Clients receive it on their
+    // reliable DataChannel lane as soon as it opens.
     let descriptor_path = project_dir.join("openoxide.schema.bin");
     let schema_descriptor = std::fs::read(&descriptor_path).unwrap_or_default();
     if !schema_descriptor.is_empty() {
@@ -502,119 +507,6 @@ pub fn run(
         None
     };
 
-    let webgl_dir = project_dir
-        .parent()
-        .map(|p| p.join("OpenOxideArena/Build/WebGL"))
-        .unwrap_or_else(|| project_dir.join("unity"));
-    let website = bytes::Bytes::from(website);
-    let openoxide_js = bytes::Bytes::from(openoxide_js);
-    let sdk_js = bytes::Bytes::from(sdk_js);
-    let schema_mjs = bytes::Bytes::from(schema_mjs);
-    let web_cache = std::sync::Arc::new(std::sync::Mutex::new(FileCache::default()));
-
-    let cache_hook = web_cache.clone();
-    let website_path_hook = website_path.clone();
-    let openoxide_js_path_hook = openoxide_js_path.clone();
-    let map_path_hook = map_path.clone();
-    let website_default = website.clone();
-    let openoxide_default = openoxide_js.clone();
-    let sdk_hook = sdk_js.clone();
-    let schema_hook = schema_mjs.clone();
-
-    let rooms_meta =
-        std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
-            Vec::<(String, usize, usize)>::new(),
-        ));
-    let rooms_meta_http = rooms_meta.clone();
-
-    let http_hook = move |raw_path: &str| {
-        let path = raw_path.split('?').next().unwrap_or(raw_path);
-        // Uncontended by design: one transport thread serves all static hits.
-        let mut cache = cache_hook.lock().ok()?;
-
-        if path == "/unity" || path == "/unity/" {
-            if let Some(body) = cache.load(&webgl_dir.join("index.html")) {
-                return Some((Cow::Borrowed("text/html; charset=utf-8"), body));
-            }
-        }
-        if let Some(subpath) = path.strip_prefix("/unity/").or_else(|| {
-            if path.starts_with("/Build/") || path.starts_with("/TemplateData/") {
-                path.strip_prefix("/")
-            } else {
-                None
-            }
-        }) {
-            if let Some(rel) = safe_relative(subpath) {
-                let file_path = webgl_dir.join(rel);
-                if let Some(body) = cache.load(&file_path) {
-                    return Some((Cow::Borrowed(content_type_for(&file_path)), body));
-                }
-            }
-        }
-
-        match path {
-            "/api/rooms" => {
-                let meta = rooms_meta_http.load();
-                let mut json_items = Vec::new();
-                for (name, players, specs) in meta.iter() {
-                    json_items.push(format!(
-                        "{{\"name\":\"{}\",\"players\":{},\"spectators\":{}}}",
-                        name, players, specs
-                    ));
-                }
-                let body = format!("[{}]", json_items.join(","));
-                Some((
-                    Cow::Borrowed("application/json; charset=utf-8"),
-                    bytes::Bytes::from(body),
-                ))
-            }
-            "/health" => Some((
-                Cow::Borrowed("text/plain; charset=utf-8"),
-                bytes::Bytes::from_static(b"ok"),
-            )),
-            "/" | "/website.html" => Some((
-                Cow::Borrowed("text/html; charset=utf-8"),
-                cache
-                    .load(&website_path_hook)
-                    .unwrap_or_else(|| website_default.clone()),
-            )),
-            "/openoxide.js" => Some((
-                Cow::Borrowed("text/javascript; charset=utf-8"),
-                cache
-                    .load(&openoxide_js_path_hook)
-                    .unwrap_or_else(|| openoxide_default.clone()),
-            )),
-            "/arena_map.json" => Some((
-                Cow::Borrowed("application/json"),
-                cache.load(&map_path_hook).unwrap_or_default(),
-            )),
-            "/packages/sdk/dist/colyseus.js" => {
-                Some((Cow::Borrowed("text/javascript"), sdk_hook.clone()))
-            }
-            "/node_modules/@colyseus/schema/build/index.mjs" => {
-                Some((Cow::Borrowed("text/javascript"), schema_hook.clone()))
-            }
-            _ => None,
-        }
-    };
-
-    if control_owns_web {
-        eprintln!(
-            "[server] 🏛️  port {} is the Axum control plane's; in-transport static hook skipped",
-            cfg.web_port
-        );
-    } else {
-        raw_transport.on_http(http_hook);
-    }
-
-    for addr in raw_transport.bound_addrs() {
-        eprintln!(
-            "[server] listening on http://0.0.0.0:{} (website) & ws://0.0.0.0:{} (game)",
-            addr.port(),
-            addr.port()
-        );
-    }
-
     // Direct UDP Listener for Unity / Unreal / Godot native clients. The bind
     // address follows the same `OX_UDP_ADDR` knob as the pinned sim plane, so a
     // second instance (or a container) can move it off the default :7778.
@@ -626,7 +518,6 @@ pub fn run(
         let _ = s.set_nonblocking(true);
         match s.local_addr() {
             Ok(addr) => {
-                raw_transport.set_udp_port(addr.port());
                 eprintln!(
                     "[server] listening on udp://{addr} (Unity / Unreal / Godot Native Engine)"
                 );
@@ -644,48 +535,17 @@ pub fn run(
     // the sim waits for its next tick.
     let mut transport = LoopTransport::new(raw_transport);
     let mut udp_peers: HashMap<SocketAddr, (i64, String, Instant)> = HashMap::new();
+    // Signaling hand-over: the control plane's hub queues browser offers; this
+    // loop is the data-plane owner and drains them once per iteration.
+    let mut signal_rx = signals.as_ref().and_then(|hub| hub.take_signals());
     // Input-hub flood control: one token bucket per transport identity. These
     // are created lazily and dropped with the session/peer.
-    let mut ws_input_rates: HashMap<String, netcode::InputRateLimiter> = HashMap::new();
+    let mut rtc_input_rates: HashMap<String, netcode::InputRateLimiter> = HashMap::new();
     let mut udp_input_rates: HashMap<SocketAddr, netcode::InputRateLimiter> = HashMap::new();
     // Join-path bucket: creating a player runs guest `on_join` AND replies
     // with the full schema descriptor — a spoofed-source flood must not mint
     // players or amplify traffic. Reuses the same limiter type (5/s refill).
     let mut udp_join_rates: HashMap<SocketAddr, netcode::InputRateLimiter> = HashMap::new();
-
-    // Direct WebRTC DataChannel UDP Server (Client-to-Server Star Topology via str0m)
-    let webrtc_port = 7779;
-    let webrtc_udp = std::net::UdpSocket::bind(format!("0.0.0.0:{webrtc_port}"))
-        .or_else(|_| std::net::UdpSocket::bind("0.0.0.0:0"))
-        .ok();
-
-    let mut webrtc_server = if let Some(ref sock) = webrtc_udp {
-        let _ = sock.set_nonblocking(true);
-        let actual_port = sock.local_addr().map(|a| a.port()).unwrap_or(webrtc_port);
-        eprintln!("[server] ⚡ WebRTC DataChannel server listening on udp://0.0.0.0:{actual_port}");
-        let local_addr: SocketAddr = format!("127.0.0.1:{actual_port}").parse().unwrap();
-        let mut srv = WebRtcServer::new(vec![local_addr]);
-        let lan_ip = std::net::UdpSocket::bind("0.0.0.0:0")
-            .and_then(|s| s.connect("8.8.8.8:80").map(|_| s.local_addr()))
-            .ok()
-            .and_then(|a| a.ok())
-            .map(|a| a.ip());
-        if let Some(ip) = lan_ip {
-            let lan_addr = SocketAddr::new(ip, actual_port);
-            if lan_addr != local_addr {
-                srv.add_announced_addr(lan_addr);
-                eprintln!("[server] ⚡ WebRTC announced LAN candidate: {lan_addr}");
-            }
-        }
-        if let Ok(ip) = std::env::var("PUBLIC_IP") {
-            if let Ok(a) = format!("{ip}:{actual_port}").parse() {
-                srv.add_announced_addr(a);
-            }
-        }
-        Some(srv)
-    } else {
-        None
-    };
 
     eprintln!(
         "[server] ABI contract: host v{} (manifest requested: v{})",
@@ -750,7 +610,6 @@ pub fn run(
     let mut loaded_src_time: Option<std::time::SystemTime> = std::fs::metadata(&source_path)
         .ok()
         .and_then(|m| m.modified().ok());
-    let mut last_meta_update = Instant::now();
     let mut events = Vec::new();
     // Tick scratch: the delta read and the framed broadcast reuse these.
     let mut delta_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
@@ -775,6 +634,58 @@ pub fn run(
     let mut last_input_at: HashMap<String, Instant> = HashMap::new();
 
     loop {
+        // ---- signaling hand-over: browser SDP -> str0m sessions ----
+        // Offers arrive on the control plane's `/ws/signal` socket; the seat
+        // names the room, so the seat is mirrored here before the session it
+        // mints can surface a `Connected` event. Answers go back through the
+        // same hub, to whatever socket is still attached for that seat.
+        if let (Some(hub), Some(rx)) = (signals.as_ref(), signal_rx.as_mut()) {
+            while let Ok(sig) = rx.try_recv() {
+                match sig {
+                    engine_api::infra::signaling::SignalIn::Offer { seat, sdp } => {
+                        transport.register_seat(&seat.id, &seat.room, "");
+                        match transport.rtc_server().handle_offer(&seat.id, &sdp) {
+                            Ok(answer) => {
+                                hub.publish(
+                                    &seat.id,
+                                    engine_api::infra::signaling::SignalOut::Answer {
+                                        sdp: answer,
+                                    },
+                                );
+                                eprintln!(
+                                    "[server] ⚡ WebRTC offer accepted for seat {} (room '{}'), SDP answer returned",
+                                    seat.id, seat.room
+                                );
+                            }
+                            Err(e) => {
+                                hub.publish(
+                                    &seat.id,
+                                    engine_api::infra::signaling::SignalOut::Error {
+                                        message: e,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    engine_api::infra::signaling::SignalIn::Candidate { seat, candidate, .. } => {
+                        if let Err(e) = transport.rtc_server().handle_candidate(&seat.id, &candidate) {
+                            eprintln!(
+                                "[server] ⚠️ seat {} candidate error: {e} ({candidate})",
+                                seat.id
+                            );
+                        }
+                    }
+                    // The signaling socket went away. The data channel outlives
+                    // its signaling socket by design, so this is bookkeeping
+                    // only: the session teardown still surfaces as a normal
+                    // `Disconnected`.
+                    engine_api::infra::signaling::SignalIn::Close { seat } => {
+                        eprintln!("[server] signaling socket closed for seat {}", seat.id);
+                    }
+                }
+            }
+        }
+
         // One wait per iteration, inside the poll: sockets are serviced at full
         // speed and the loop wakes at the next tick deadline. The blocking poll
         // must happen here rather than at the bottom of the loop: the transport
@@ -916,7 +827,7 @@ pub fn run(
                 TransportEvent::Disconnected { client_id } => {
                     eprintln!("[server] disconnected: {client_id}");
                     last_input_at.remove(&*client_id);
-                    ws_input_rates.remove(&*client_id);
+                    rtc_input_rates.remove(&*client_id);
                     let raw_room_str = transport.take_room_of(&client_id);
                     let room_name = if let Some(ref r) = raw_room_str {
                         sanitize_room_name(r).to_string()
@@ -994,9 +905,7 @@ pub fn run(
                             }
                         }
                     }
-                    if let Some(ref mut srv) = webrtc_server {
-                        srv.remove_session(&client_id);
-                    }
+                    transport.rtc_server().remove_session(&client_id);
                     if room.is_hibernating() {
                         eprintln!(
                             "[server] ⏸️ Room '{room_name}' is now empty -> hibernating (0% CPU, 30s auto-close timer started)"
@@ -1123,7 +1032,8 @@ pub fn run(
                                 }
                             }
                             _kind if signal.to == engine_voice::SERVER_SENDER => {
-                                if let Some(ref mut webrtc) = webrtc_server {
+                                {
+                                    let webrtc = transport.rtc_server();
                                     match signal.kind {
                                         engine_voice::SignalKind::Offer => {
                                             let sdp_str = if let Ok(v) =
@@ -1334,13 +1244,11 @@ pub fn run(
                     {
                         if let Ok(input) = engine_webrtc_protocol::InputFrame::decode(data) {
                             last_input_at.insert(client_id.to_string(), Instant::now());
-                            if let Some(ref srv) = webrtc_server {
-                                if srv.is_connected(&client_id) && input.seq % 120 == 1 {
-                                    eprintln!(
-                                        "[server] ℹ️ Player {id} sent input over WebSocket fallback (seq {})",
-                                        input.seq
-                                    );
-                                }
+                            if transport.is_rtc_connected(&client_id) && input.seq % 120 == 1 {
+                                eprintln!(
+                                    "[server] ℹ️ Player {id} sent a stamped input frame (seq {})",
+                                    input.seq
+                                );
                             }
                             // Newest-Wins auto-sync rule (QUIC datagram behavior: drop stale packets, zero HOL blocking).
                             // With rollback on, a genuinely late seq rewinds and replays instead of dropping.
@@ -1398,7 +1306,7 @@ pub fn run(
                         }
 
                         let now = Instant::now();
-                        let allowed = ws_input_rates
+                        let allowed = rtc_input_rates
                             .entry(client_id.to_string())
                             .or_default()
                             .allow(now);
@@ -1893,123 +1801,77 @@ pub fn run(
             }
         }
 
-        // Poll WebRTC UDP socket for Client-to-Server DataChannel traffic (str0m)
-        if let Some(ref sock) = webrtc_udp {
-            let mut buf = [0u8; 2048];
-            let local_addr = sock
-                .local_addr()
-                .unwrap_or_else(|_| "0.0.0.0:7779".parse().unwrap());
-            while let Ok((amt, peer_addr)) = sock.recv_from(&mut buf) {
-                if let Some(ref mut srv) = webrtc_server {
-                    srv.handle_udp(peer_addr, local_addr, &buf[..amt]);
-                }
-            }
-        }
-
-        if let Some(ref mut srv) = webrtc_server {
-            srv.tick(Instant::now());
-
-            if let Some(ref sock) = webrtc_udp {
-                for (dest, data) in srv.poll_transmits() {
-                    if let Err(e) = sock.send_to(&data, dest) {
-                        eprintln!("[server] ⚠️ WebRTC UDP send_to({dest}) error: {e}");
-                    }
-                }
-            }
-
-            for ev in srv.poll_events() {
-                match ev {
-                    WebRtcServerEvent::Connected { client_id } => {
+        // Lane-classified client frames from the WebRTC data plane, drained by
+        // this iteration's `poll_events`. The transport decided which channel
+        // each frame came in on: an ack that arrives on `game-unreliable` is
+        // `Refused` rather than `Ack`, because that lane cannot prove delivery.
+        for (client_id, msg) in transport.take_inbound() {
+            let room_name = transport
+                .room_of(&client_id)
+                .map(|r| sanitize_room_name(&r).to_string())
+                .unwrap_or_else(|| cfg.name.clone());
+            let Some(room) = server.rooms.get_mut(&room_name) else {
+                continue;
+            };
+            let Some(&id) = room.sessions.get(&*client_id) else {
+                continue;
+            };
+            match msg {
+                Inbound::Input {
+                    seq,
+                    payload,
+                    resupplied,
+                } => {
+                    last_input_at.insert(client_id.clone(), Instant::now());
+                    if !resupplied && seq % 120 == 1 {
                         eprintln!(
-                            "[server] 🚀 Client {client_id} established WebRTC UDP DataChannel with Server!"
+                            "[server] ⚡ WebRTC UDP input stream active for player {id} (seq {seq})"
                         );
                     }
-                    WebRtcServerEvent::ChannelOpen { client_id, label } => {
-                        eprintln!(
-                            "[server] ⚡ WebRTC DataChannel '{label}' open for client {client_id}"
-                        );
-                    }
-                    // Bytes arrive classified against their lane from
-                    // `poll_inbound` below; this event still fires for hosts that
-                    // parse raw payloads, and doubling up here would apply an
-                    // input twice.
-                    WebRtcServerEvent::Message { .. } => {}
-                    WebRtcServerEvent::Disconnected { client_id } => {
-                        eprintln!("[server] WebRTC disconnected for client {client_id}");
-                    }
-                }
-            }
-
-            // Lane-classified client frames. The transport decided which channel
-            // each frame came in on: an ack that arrives on `game-unreliable` is
-            // `Refused` rather than `Ack`, because that lane cannot prove delivery.
-            for (client_id, msg) in srv.poll_inbound() {
-                let room = match server.get_or_create(&cfg.name) {
-                    Ok(room) => room,
-                    Err(e) => {
-                        eprintln!("[server-webrtc] ⛔ room '{}' unavailable: {e}", cfg.name);
-                        continue;
-                    }
-                };
-                let Some(&id) = room.sessions.get(&*client_id) else {
-                    continue;
-                };
-                match msg {
-                    Inbound::Input {
+                    netcode::apply_input(
+                        room,
+                        cfg,
+                        tick_interval.as_secs_f64(),
+                        &client_id,
+                        id,
                         seq,
-                        payload,
-                        resupplied,
-                    } => {
-                        last_input_at.insert(client_id.clone(), Instant::now());
-                        if !resupplied && seq % 120 == 1 {
-                            eprintln!(
-                                "[server] ⚡ WebRTC UDP input stream active for player {id} (seq {seq})"
-                            );
-                        }
-                        netcode::apply_input(
-                            room,
-                            cfg,
-                            tick_interval.as_secs_f64(),
-                            &client_id,
-                            id,
-                            seq,
-                            &payload,
-                        );
-                    }
-                    Inbound::Event { raw } => {
-                        let Ok(mut event) = engine_webrtc_protocol::EventFrame::decode(&raw) else {
-                            continue;
-                        };
-                        room.event_seq = room.event_seq.wrapping_add(1);
-                        event.seq = room.event_seq;
-                        event.from = id as u16;
-
-                        let mut wire_event =
-                            Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
-                        engine_webrtc_protocol::encode_event(&event, &mut wire_event);
-
-                        if event.kind == engine_webrtc_protocol::EventKind::Fire {
-                            let fire_payload = 16u32.to_le_bytes();
-                            if let Some(ref mut wasm) = room.wasm {
-                                if let Ok(ptr) = wasm.on_alloc(4) {
-                                    let _ = wasm.write_memory(ptr as u32, &fire_payload);
-                                    let _ = wasm.on_input(id, ptr, 4);
-                                }
-                            }
-                        }
-
-                        srv.broadcast_reliable(&wire_event);
-
-                        // Also forward to WebSocket clients that haven't transitioned yet
-                        for (cid, &pid) in &room.sessions {
-                            if pid != id && !srv.is_connected(cid) {
-                                let _ = transport.send_to(cid, OpCode::RoomDataBytes, &wire_event);
-                            }
-                        }
-                    }
-                    Inbound::Ack(ack) => netcode::record_channel_ack(room, &client_id, ack),
-                    Inbound::Other { .. } | Inbound::Refused(_) => {}
+                        &payload,
+                    );
                 }
+                Inbound::Event { raw } => {
+                    let Ok(mut event) = engine_webrtc_protocol::EventFrame::decode(&raw) else {
+                        continue;
+                    };
+                    room.event_seq = room.event_seq.wrapping_add(1);
+                    event.seq = room.event_seq;
+                    event.from = id as u16;
+
+                    let mut wire_event =
+                        Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
+                    engine_webrtc_protocol::encode_event(&event, &mut wire_event);
+
+                    if event.kind == engine_webrtc_protocol::EventKind::Fire {
+                        let fire_payload = 16u32.to_le_bytes();
+                        if let Some(ref mut wasm) = room.wasm {
+                            if let Ok(ptr) = wasm.on_alloc(4) {
+                                let _ = wasm.write_memory(ptr as u32, &fire_payload);
+                                let _ = wasm.on_input(id, ptr, 4);
+                            }
+                        }
+                    }
+
+                    transport.rtc_server().broadcast_reliable(&wire_event);
+
+                    // Sessions that never negotiated a data channel get the
+                    // event through the transport's reliable lane instead.
+                    for (cid, &pid) in &room.sessions {
+                        if pid != id && !transport.is_rtc_connected(cid) {
+                            let _ = transport.send_to(cid, OpCode::RoomDataBytes, &wire_event);
+                        }
+                    }
+                }
+                Inbound::Ack(ack) => netcode::record_channel_ack(room, &client_id, ack),
+                Inbound::Other { .. } | Inbound::Refused(_) => {}
             }
         }
 
@@ -2187,8 +2049,7 @@ pub fn run(
                                     acked_seq,
                                     server_tick_u32,
                                 );
-                                let framed = netcode::send_delta_framed(
-                                    &mut webrtc_server,
+                                let framed = transport.send_delta_framed(
                                     &session,
                                     delta_seq,
                                     server_tick_u32,
@@ -2220,8 +2081,7 @@ pub fn run(
                                     0,
                                     server_tick_u32,
                                 );
-                                let framed = netcode::send_delta_framed(
-                                    &mut webrtc_server,
+                                let framed = transport.send_delta_framed(
                                     &spec,
                                     delta_seq,
                                     server_tick_u32,
@@ -2240,13 +2100,6 @@ pub fn run(
                                 }
                             }
 
-                            if let Some(ref mut srv) = webrtc_server {
-                                if let Some(ref sock) = webrtc_udp {
-                                    for (dest, data) in srv.poll_transmits() {
-                                        let _ = sock.send_to(&data, dest);
-                                    }
-                                }
-                            }
                         } else {
                             // Interest management: parse the delta once per tick.
                             // When the layout is recognized and AOI is on, every player
@@ -2333,8 +2186,7 @@ pub fn run(
                                         server_tick_u32,
                                     );
                                 }
-                                let framed = netcode::send_delta_framed(
-                                    &mut webrtc_server,
+                                let framed = transport.send_delta_framed(
                                     session,
                                     delta_seq,
                                     server_tick_u32,
@@ -2350,13 +2202,6 @@ pub fn run(
                             }
 
                             // Flush outbound WebRTC UDP packets
-                            if let Some(ref mut srv) = webrtc_server {
-                                if let Some(ref sock) = webrtc_udp {
-                                    for (dest, data) in srv.poll_transmits() {
-                                        let _ = sock.send_to(&data, dest);
-                                    }
-                                }
-                            }
 
                             // 2. Broadcast to spectators with ID 0 (Observer mode). They
                             // ride the same stamped channel as players, so a spectator
@@ -2370,8 +2215,7 @@ pub fn run(
                                     server_tick_u32,
                                 );
                                 for spec_session in &room.spectators {
-                                    let framed = netcode::send_delta_framed(
-                                        &mut webrtc_server,
+                                    let framed = transport.send_delta_framed(
                                         spec_session,
                                         delta_seq,
                                         server_tick_u32,
@@ -2489,16 +2333,6 @@ pub fn run(
             transport.flush().expect("flush");
         }
 
-        // Update shared room metadata for /api/rooms HTTP discovery
-        if last_meta_update.elapsed() >= Duration::from_millis(500) {
-            last_meta_update = Instant::now();
-            let mut new_meta = Vec::with_capacity(server.rooms.len());
-            for (name, room) in &server.rooms {
-                new_meta.push((name.clone(), room.sessions.len(), room.spectators.len()));
-            }
-            rooms_meta.store(std::sync::Arc::new(new_meta));
-        }
-
         // ---- telemetry: one second of ticks plus the sessions this loop owns
         if publish_start.elapsed() >= Duration::from_secs(1) {
             let window_sec = publish_start.elapsed().as_secs_f64().max(1e-9);
@@ -2512,10 +2346,8 @@ pub fn run(
                 for (session, player_id) in members.chain(watching) {
                     // One session, one transport: the browser that negotiated a
                     // data channel is counted on WebRTC, where its packets
-                    // actually arrive, not on the socket it joined through.
-                    let live = webrtc_server
-                        .as_ref()
-                        .is_some_and(|srv| srv.is_connected(session));
+                    // actually arrive.
+                    let live = transport.is_rtc_connected(session);
                     webrtc_live += live as u32;
                     sessions.push(SessionTelemetry {
                         session: session.clone(),
@@ -2658,7 +2490,7 @@ mod loop_transport_tests {
     use super::*;
 
     fn transport() -> LoopTransport {
-        LoopTransport::new(WsTransport::new("127.0.0.1:0".parse().unwrap()).unwrap())
+        LoopTransport::new(WebRtcTransport::new("127.0.0.1:0".parse().unwrap()).unwrap())
     }
 
     /// A rejected join for a session the transport never accepted must be a

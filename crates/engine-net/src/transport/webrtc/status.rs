@@ -44,4 +44,9 @@ impl WebRtcServer {
     pub fn session_count(&self) -> usize {
         self.sessions.len()
     }
+
+    /// Frames dropped because a session had no open channel to receive them.
+    pub fn dropped_frames(&self) -> u64 {
+        self.sink.stats.frames_dropped_no_channel
+    }
 }

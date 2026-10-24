@@ -9,6 +9,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use mio::net::UdpSocket;
 
 use super::contract::Lane;
@@ -26,6 +27,10 @@ pub struct WebRtcTransport {
     last_seen: std::collections::HashMap<String, Instant>,
     idle_after: Duration,
     pending: Vec<TransportEvent>,
+    /// `openoxide.schema.bin` bytes queued on a session's reliable lane as
+    /// soon as that lane opens — the DataChannel equivalent of the WS
+    /// transport sending the descriptor right after the upgrade.
+    schema_descriptor: Bytes,
 }
 
 impl WebRtcTransport {
@@ -40,12 +45,56 @@ impl WebRtcTransport {
             last_seen: std::collections::HashMap::new(),
             idle_after: Duration::from_secs(60),
             pending: Vec::new(),
+            schema_descriptor: Bytes::new(),
         })
     }
 
-    /// Access the underlying server (signaling: handle_offer/candidate).
-    pub fn server(&mut self) -> &mut WebRtcServer {
+    /// Take ownership of an already-bound UDP socket. The host loop binds the
+    /// game port itself (so the seat reservation can advertise the real port
+    /// and LAN/public candidates can be announced) and hands the socket over.
+    pub fn from_socket(sock: std::net::UdpSocket, announced_addrs: Vec<SocketAddr>) -> io::Result<Self> {
+        sock.set_nonblocking(true)?;
+        let local = sock.local_addr()?;
+        Ok(Self {
+            server: WebRtcServer::new(announced_addrs),
+            sock: UdpSocket::from_std(sock),
+            local,
+            events: mio::Events::with_capacity(256),
+            last_seen: std::collections::HashMap::new(),
+            idle_after: Duration::from_secs(60),
+            pending: Vec::new(),
+            schema_descriptor: Bytes::new(),
+        })
+    }
+
+    /// Read-only access to the underlying server (telemetry: is_connected).
+    pub fn server(&self) -> &WebRtcServer {
+        &self.server
+    }
+
+    /// Access the underlying server (signaling: handle_offer/candidate, the
+    /// lane-classified inbound drain, stamped delta sends).
+    pub fn server_mut(&mut self) -> &mut WebRtcServer {
         &mut self.server
+    }
+
+    /// Set the `openoxide.schema.bin` descriptor pushed to a session on its
+    /// reliable lane as soon as that lane opens.
+    pub fn set_schema_descriptor(&mut self, descriptor: impl Into<Bytes>) {
+        self.schema_descriptor = descriptor.into();
+    }
+
+    /// Queue a schema state frame on the latest-wins unreliable lane (the
+    /// delta lane's outbound queue replaces, not appends). A session with no
+    /// open lane is a no-op here — the caller falls back to `send_to`.
+    pub fn send_state(&mut self, client_id: &str, payload: &[u8]) -> io::Result<()> {
+        let _ = self.server.send_delta(client_id, 0, 0, payload);
+        self.flush()
+    }
+
+    /// Frames dropped because a session had no open channel to receive them.
+    pub fn dropped_frames(&self) -> u64 {
+        self.server.dropped_frames()
     }
 
     fn recv_udp(&mut self) {
@@ -76,12 +125,22 @@ impl GameTransport for WebRtcTransport {
             let _ = self.sock.send_to(&data, dest);
         }
 
-        // Session lifecycle -> Connected/Disconnected.
+        // Session lifecycle -> Connected/Disconnected. The first open of a
+        // session's reliable lane carries the schema descriptor, so the client
+        // has its state contract before the first delta arrives.
         for ev in self.server.poll_events() {
             match ev {
-                WebRtcServerEvent::Connected { client_id }
-                | WebRtcServerEvent::ChannelOpen { client_id, .. } => {
+                WebRtcServerEvent::Connected { client_id } => {
                     self.last_seen.insert(client_id.clone(), now);
+                    if let Ok(peer) = self.sock.local_addr() {
+                        self.pending.push(TransportEvent::Connected { client_id: client_id.into(), peer_addr: peer });
+                    }
+                }
+                WebRtcServerEvent::ChannelOpen { client_id, label } => {
+                    self.last_seen.insert(client_id.clone(), now);
+                    if label == Lane::Reliable.label() && !self.schema_descriptor.is_empty() {
+                        self.server.send_reliable(&client_id, &self.schema_descriptor);
+                    }
                     if let Ok(peer) = self.sock.local_addr() {
                         self.pending.push(TransportEvent::Connected { client_id: client_id.into(), peer_addr: peer });
                     }
@@ -109,6 +168,8 @@ impl GameTransport for WebRtcTransport {
         }
 
         // Idle sweep: WebRTC sessions that stopped sending anything.
+        // `remove_session` queues the `Disconnected` itself, so it surfaces on
+        // the next poll — exactly once, like every other teardown.
         let idle_after = self.idle_after;
         let stale: Vec<String> = self
             .last_seen
@@ -119,7 +180,6 @@ impl GameTransport for WebRtcTransport {
         for cid in stale {
             self.server.remove_session(&cid);
             self.last_seen.remove(&cid);
-            self.pending.push(TransportEvent::Disconnected { client_id: cid.into() });
         }
 
         events.append(&mut self.pending);
@@ -149,11 +209,15 @@ impl GameTransport for WebRtcTransport {
     }
 
     fn disconnect(&mut self, client_id: &str) -> io::Result<()> {
-        self.server.remove_session(client_id);
-        self.last_seen.remove(client_id);
-        self.pending.push(TransportEvent::Disconnected {
-            client_id: client_id.into(),
-        });
+        // Only a session that actually existed reports a `Disconnected`: a
+        // server-initiated close for an unknown id (a rejected join, a double
+        // leave) must not fabricate a phantom disconnect.
+        if self.server.remove_session(client_id) {
+            self.last_seen.remove(client_id);
+            self.pending.push(TransportEvent::Disconnected {
+                client_id: client_id.into(),
+            });
+        }
         Ok(())
     }
 

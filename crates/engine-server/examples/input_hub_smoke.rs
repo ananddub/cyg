@@ -60,7 +60,7 @@ fn main() {
     let project_for_thread = project.clone();
     let wasm_for_thread = wasm.clone();
     let host = std::thread::spawn(move || {
-        engine_server::host::run(&project_for_thread, &wasm_for_thread, &cfg_for_thread, bus)
+        engine_server::host::run(&project_for_thread, &wasm_for_thread, &cfg_for_thread, bus, None)
     });
 
     // Give the host time to bind its sockets. The loop is otherwise idle.
