@@ -10,8 +10,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
+use engine_nav::nav2d::NavMesh2D;
 use engine_physics::{PhysicsWorld3D, RapierWorld2D};
 use rapier2d::prelude as r2d;
+use rapier3d::prelude as r3d;
 use engine_wasm::wasm_module;
 use serde::{Deserialize, Serialize};
 
@@ -74,6 +76,14 @@ pub const MAX_OUTBOX_MESSAGES: usize = 256;
 /// The deref impl keeps every physics host import (`caller.data().raycast(..)`)
 /// unchanged while giving the message outbox a home that is not part of the
 /// physics crate.
+/// One deterministic tick timer: `interval == 0` fires once, `> 0` repeats
+/// every `interval` ticks after the first firing.
+#[derive(Debug, Clone)]
+pub struct TimerState {
+    pub next_due: i64,
+    pub interval: i64,
+}
+
 pub struct RoomHostData {
     pub physics: PhysicsWorld3D,
     pub rapier2d: RapierWorld2D,
@@ -81,6 +91,22 @@ pub struct RoomHostData {
     pub rapier2d_bodies: HashMap<i32, r2d::RigidBodyHandle>,
     pub rapier2d_next_col_id: i32,
     pub rapier2d_colliders: HashMap<i32, r2d::ColliderHandle>,
+    /// Full Rapier 3D rigid-body world for guests that simulate their own
+    /// 3D physics (`sys_rapier3d_*`). Empty until `sys_rapier3d_init`.
+    pub rapier3d: engine_physics::RapierWorld3D,
+    pub rapier3d_next_body_id: i32,
+    pub rapier3d_bodies: HashMap<i32, r3d::RigidBodyHandle>,
+    pub rapier3d_next_col_id: i32,
+    pub rapier3d_colliders: HashMap<i32, r3d::ColliderHandle>,
+    /// Deterministic tick timers (`sys_timer_*`): the guest registers an id
+    /// with a tick delay/interval and polls; firing is computed against the
+    /// authoritative `clock_ticks`, so rollback replays identically.
+    pub timers: std::collections::BTreeMap<i64, TimerState>,
+    /// Fired timer ids waiting for `sys_timer_poll` to hand them over.
+    pub fired_timers: Vec<i64>,
+    /// Optional navmesh loaded from the project file at boot
+    /// (`sys_navmesh_find_path`). Read-only and shared across rooms.
+    pub navmesh: Option<std::sync::Arc<engine_nav::nav2d::NavMesh2D>>,
     pub outbox: Vec<OutboundMessage>,
     /// Deterministic, room-seeded RNG exposed to the guest as `sys_rng_*`
     /// (Phase-2 DX: the guest never implements its own PRNG — every client
@@ -100,6 +126,14 @@ impl RoomHostData {
     pub fn new(physics: PhysicsWorld3D) -> Self {
         Self {
             physics,
+            timers: std::collections::BTreeMap::new(),
+            fired_timers: Vec::new(),
+            navmesh: None,
+            rapier3d: engine_physics::RapierWorld3D::new(0.0, -9.81, 0.0),
+            rapier3d_next_body_id: 1,
+            rapier3d_bodies: HashMap::new(),
+            rapier3d_next_col_id: 1,
+            rapier3d_colliders: HashMap::new(),
             rapier2d: RapierWorld2D::new(0.0, 0.0),
             rapier2d_next_body_id: 1,
             rapier2d_bodies: HashMap::new(),
@@ -206,6 +240,174 @@ impl RoomHostData {
             self.rapier2d.remove_body(handle);
         }
     }
+
+    /// Load a cooked 2D map into the Rapier 2D world (host-side pre-load from
+    /// `arena_2d.json`), preserving the room's body-id counters.
+    pub fn load_arena_2d(&mut self, map: &engine_physics::MapConfig2D) {
+        let json = serde_json::to_string(map).expect("MapConfig2D serializes");
+        if let Ok(world) = RapierWorld2D::from_json(&json) {
+            let (gw, gh) = (world.gravity.x, world.gravity.y);
+            let arena = (world.arena_width, world.arena_height);
+            let counters = (self.rapier2d_next_body_id, self.rapier2d_next_col_id);
+            self.rapier2d = world;
+            self.rapier2d.gravity = r2d::Vector::new(gw, gh);
+            self.rapier2d.arena_width = arena.0;
+            self.rapier2d.arena_height = arena.1;
+            self.rapier2d_next_body_id = counters.0;
+            self.rapier2d_next_col_id = counters.1;
+        }
+    }
+
+    // ---- deterministic tick timers ----
+
+    /// Register (or re-register) a timer. `interval_ticks == 0` fires once;
+    /// `> 0` repeats every that-many ticks after the first firing.
+    pub fn timer_set(&mut self, timer_id: i64, delay_ticks: i64, interval_ticks: i64) {
+        let delay = delay_ticks.max(1);
+        self.timers.insert(
+            timer_id,
+            TimerState {
+                next_due: self.clock_ticks + delay,
+                interval: interval_ticks.max(0),
+            },
+        );
+        self.fired_timers.retain(|id| *id != timer_id);
+    }
+
+    pub fn timer_cancel(&mut self, timer_id: i64) {
+        self.timers.remove(&timer_id);
+        self.fired_timers.retain(|id| *id != timer_id);
+    }
+
+    /// Pop the next fired timer id against the authoritative tick (0 = none).
+    /// Due timers with an interval re-arm; one-shots are removed.
+    pub fn timer_poll(&mut self) -> i64 {
+        if self.fired_timers.is_empty() {
+            let due: Vec<i64> = self
+                .timers
+                .iter()
+                .filter(|(_, t)| self.clock_ticks >= t.next_due)
+                .map(|(id, _)| *id)
+                .collect();
+            for id in due {
+                if let Some(t) = self.timers.get_mut(&id) {
+                    if t.interval > 0 {
+                        t.next_due = self.clock_ticks + t.interval;
+                    } else {
+                        self.timers.remove(&id);
+                    }
+                }
+                self.fired_timers.push(id);
+            }
+        }
+        if self.fired_timers.is_empty() {
+            0
+        } else {
+            self.fired_timers.remove(0)
+        }
+    }
+
+    // ---- navmesh ----
+
+    /// A* path across the project navmesh, points written by the linker into
+    /// guest memory. `None` when no navmesh is loaded for this room.
+    pub fn navmesh_find_path(
+        &self,
+        from: (f32, f32),
+        to: (f32, f32),
+    ) -> Option<Vec<(f32, f32)>> {
+        self.navmesh.as_ref().and_then(|m| m.find_path(from, to))
+    }
+
+    // ---- Rapier 3D (mirror of the 2D family) ----
+
+    pub fn init_rapier3d(&mut self, gx: f32, gy: f32, gz: f32) {
+        self.rapier3d = engine_physics::RapierWorld3D::new(gx, gy, gz);
+        self.rapier3d_bodies.clear();
+        self.rapier3d_colliders.clear();
+        self.rapier3d_next_body_id = 1;
+        self.rapier3d_next_col_id = 1;
+    }
+
+    pub fn rapier3d_create_body(&mut self, body_type: i32, x: f32, y: f32, z: f32) -> i32 {
+        let handle = self.rapier3d.create_body(body_type, x, y, z);
+        let id = self.rapier3d_next_body_id;
+        self.rapier3d_next_body_id += 1;
+        self.rapier3d_bodies.insert(id, handle);
+        id
+    }
+
+    pub fn rapier3d_add_ball_collider(&mut self, body_id: i32, radius: f32) -> i32 {
+        let Some(&handle) = self.rapier3d_bodies.get(&body_id) else {
+            return 0;
+        };
+        let col = self.rapier3d.add_ball_collider(handle, radius);
+        let id = self.rapier3d_next_col_id;
+        self.rapier3d_next_col_id += 1;
+        self.rapier3d_colliders.insert(id, col);
+        id
+    }
+
+    pub fn rapier3d_add_box_collider(&mut self, body_id: i32, hx: f32, hy: f32, hz: f32) -> i32 {
+        let Some(&handle) = self.rapier3d_bodies.get(&body_id) else {
+            return 0;
+        };
+        let col = self.rapier3d.add_box_collider(handle, hx, hy, hz);
+        let id = self.rapier3d_next_col_id;
+        self.rapier3d_next_col_id += 1;
+        self.rapier3d_colliders.insert(id, col);
+        id
+    }
+
+    pub fn rapier3d_set_position(&mut self, body_id: i32, x: f32, y: f32, z: f32) {
+        if let Some(&handle) = self.rapier3d_bodies.get(&body_id) {
+            self.rapier3d.set_position(handle, x, y, z);
+        }
+    }
+
+    pub fn rapier3d_set_velocity(&mut self, body_id: i32, vx: f32, vy: f32, vz: f32) {
+        if let Some(&handle) = self.rapier3d_bodies.get(&body_id) {
+            self.rapier3d.set_velocity(handle, vx, vy, vz);
+        }
+    }
+
+    pub fn rapier3d_get_position(&self, body_id: i32) -> Option<[f32; 3]> {
+        let &handle = self.rapier3d_bodies.get(&body_id)?;
+        Some(self.rapier3d.position(handle))
+    }
+
+    pub fn rapier3d_get_velocity(&self, body_id: i32) -> [f32; 3] {
+        match self.rapier3d_bodies.get(&body_id) {
+            Some(&handle) => self.rapier3d.velocity(handle),
+            None => [0.0; 3],
+        }
+    }
+
+    pub fn rapier3d_apply_impulse(&mut self, body_id: i32, ix: f32, iy: f32, iz: f32) {
+        if let Some(&handle) = self.rapier3d_bodies.get(&body_id) {
+            self.rapier3d.apply_impulse(handle, ix, iy, iz);
+        }
+    }
+
+    pub fn rapier3d_step(&mut self, dt: f32) {
+        if dt > 0.0 {
+            self.rapier3d.integration_parameters.dt = dt;
+        }
+        self.rapier3d.step();
+    }
+
+    pub fn rapier3d_check_contact(&self, body_id_a: i32, body_id_b: i32) -> bool {
+        match (self.rapier3d_bodies.get(&body_id_a), self.rapier3d_bodies.get(&body_id_b)) {
+            (Some(&a), Some(&b)) => self.rapier3d.check_intersection(a, b),
+            _ => false,
+        }
+    }
+
+    pub fn rapier3d_remove_body(&mut self, body_id: i32) {
+        if let Some(handle) = self.rapier3d_bodies.remove(&body_id) {
+            self.rapier3d.remove_body(handle);
+        }
+    }
 }
 
 impl Deref for RoomHostData {
@@ -230,6 +432,10 @@ pub struct GameRoom {
     /// from) the snapshot store — the capability is actually enforced.
     pub(crate) storage_enabled: bool,
     pub(crate) wasm: Option<RoomLogic<RoomHostData>>,
+    /// Host extras injected by `GameServer::get_or_create` (project-level,
+    /// loaded once at boot): the 2D arena map and the shared navmesh.
+    pub(crate) arena_2d: Option<engine_physics::MapConfig2D>,
+    pub(crate) navmesh: Option<std::sync::Arc<NavMesh2D>>,
     /// Native bevy_ecs simulation state (`RoomBackend::Ecs` only).
     pub(crate) ecs: Option<crate::ecs_room::EcsRoomState>,
     /// Messages queued by the ECS backend between host drains (mirrors the
@@ -924,6 +1130,364 @@ pub(crate) fn build_host_linker(
                 },
             )
             .expect("link sys_rapier2d_remove_body");
+
+        // Host Spatial AOI: Remove (entity left the AOI set — keeps the KD-tree
+        // from answering for ghosts)
+        linker
+            .func_wrap(
+                ns,
+                "sys_spatial_remove",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      entity_id: i64,
+                      x: f64,
+                      y: f64|
+                      -> i32 {
+                    caller.data_mut().spatial.remove(entity_id as u32, [x, y]);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_spatial_remove");
+
+        // Host Timer ABI (deterministic tick timers — polling model: the guest
+        // registers an id, then polls `sys_timer_poll` once per tick; firing
+        // is computed against `sys_clock_ticks`, so rollback replays match)
+        linker
+            .func_wrap(
+                ns,
+                "sys_timer_set",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      timer_id: i64,
+                      delay_ticks: i64,
+                      interval_ticks: i64|
+                      -> i32 {
+                    caller
+                        .data_mut()
+                        .timer_set(timer_id, delay_ticks, interval_ticks);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_timer_set");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_timer_cancel",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, timer_id: i64| -> i32 {
+                    caller.data_mut().timer_cancel(timer_id);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_timer_cancel");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_timer_poll",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>| -> i64 {
+                    caller.data_mut().timer_poll()
+                },
+            )
+            .expect("link sys_timer_poll");
+
+        // Host Navmesh ABI: A* path over the project navmesh (points written
+        // to guest memory as f32 x,y pairs; returns the point count)
+        linker
+            .func_wrap(
+                ns,
+                "sys_navmesh_find_path",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      sx: f64,
+                      sy: f64,
+                      dx: f64,
+                      dy: f64,
+                      out_ptr: i32,
+                      max_points: i32|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    let Some(path) = caller
+                        .data()
+                        .navmesh_find_path((sx as f32, sy as f32), (dx as f32, dy as f32))
+                    else {
+                        return 0;
+                    };
+                    let count = if max_points > 0 {
+                        (max_points as usize).min(path.len())
+                    } else {
+                        path.len()
+                    };
+                    if count > 0 && out_ptr > 0 {
+                        let bytes_needed = count * 8;
+                        let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory")
+                        else {
+                            return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                        };
+                        let data = mem.data_mut(&mut caller);
+                        let offset = out_ptr as usize;
+                        if offset + bytes_needed > data.len() {
+                            return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                        }
+                        for (i, (px, py)) in path.iter().take(count).enumerate() {
+                            let pos = offset + i * 8;
+                            data[pos..pos + 4].copy_from_slice(&px.to_le_bytes());
+                            data[pos + 4..pos + 8].copy_from_slice(&py.to_le_bytes());
+                        }
+                    }
+                    count as i32
+                },
+            )
+            .expect("link sys_navmesh_find_path");
+
+        // Host Rapier3D ABI: full 3D rigid-body world (mirror of the 2D family)
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_init",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      gx: f64,
+                      gy: f64,
+                      gz: f64|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller.data_mut().init_rapier3d(gx as f32, gy as f32, gz as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier3d_init");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_create_body",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_type: i32,
+                      x: f64,
+                      y: f64,
+                      z: f64|
+                      -> i32 {
+                    if !permissions.physics {
+                        return 0;
+                    }
+                    caller
+                        .data_mut()
+                        .rapier3d_create_body(body_type, x as f32, y as f32, z as f32)
+                },
+            )
+            .expect("link sys_rapier3d_create_body");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_add_ball_collider",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id: i32,
+                      radius: f64|
+                      -> i32 {
+                    if !permissions.physics {
+                        return 0;
+                    }
+                    caller.data_mut().rapier3d_add_ball_collider(body_id, radius as f32)
+                },
+            )
+            .expect("link sys_rapier3d_add_ball_collider");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_add_box_collider",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id: i32,
+                      hx: f64,
+                      hy: f64,
+                      hz: f64|
+                      -> i32 {
+                    if !permissions.physics {
+                        return 0;
+                    }
+                    caller
+                        .data_mut()
+                        .rapier3d_add_box_collider(body_id, hx as f32, hy as f32, hz as f32)
+                },
+            )
+            .expect("link sys_rapier3d_add_box_collider");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_set_position",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id: i32,
+                      x: f64,
+                      y: f64,
+                      z: f64|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller
+                        .data_mut()
+                        .rapier3d_set_position(body_id, x as f32, y as f32, z as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier3d_set_position");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_set_velocity",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id: i32,
+                      vx: f64,
+                      vy: f64,
+                      vz: f64|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller
+                        .data_mut()
+                        .rapier3d_set_velocity(body_id, vx as f32, vy as f32, vz as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier3d_set_velocity");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_get_position",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id: i32,
+                      out_ptr: i32|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    let Some([x, y, z]) = caller.data().rapier3d_get_position(body_id) else {
+                        return 0;
+                    };
+                    if out_ptr <= 0 {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    }
+                    let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") else {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    };
+                    let data = mem.data_mut(&mut caller);
+                    let offset = out_ptr as usize;
+                    if offset + 12 > data.len() {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    }
+                    data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
+                    data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
+                    data[offset + 8..offset + 12].copy_from_slice(&z.to_le_bytes());
+                    1
+                },
+            )
+            .expect("link sys_rapier3d_get_position");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_get_velocity",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id: i32,
+                      out_ptr: i32|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    let [x, y, z] = caller.data().rapier3d_get_velocity(body_id);
+                    if out_ptr <= 0 {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    }
+                    let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") else {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    };
+                    let data = mem.data_mut(&mut caller);
+                    let offset = out_ptr as usize;
+                    if offset + 12 > data.len() {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    }
+                    data[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
+                    data[offset + 4..offset + 8].copy_from_slice(&y.to_le_bytes());
+                    data[offset + 8..offset + 12].copy_from_slice(&z.to_le_bytes());
+                    1
+                },
+            )
+            .expect("link sys_rapier3d_get_velocity");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_apply_impulse",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id: i32,
+                      ix: f64,
+                      iy: f64,
+                      iz: f64|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller
+                        .data_mut()
+                        .rapier3d_apply_impulse(body_id, ix as f32, iy as f32, iz as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier3d_apply_impulse");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_check_contact",
+                move |caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id_a: i32,
+                      body_id_b: i32|
+                      -> i32 {
+                    if !permissions.physics {
+                        return 0;
+                    }
+                    if caller.data().rapier3d_check_contact(body_id_a, body_id_b) {
+                        1
+                    } else {
+                        0
+                    }
+                },
+            )
+            .expect("link sys_rapier3d_check_contact");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_remove_body",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, body_id: i32| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller.data_mut().rapier3d_remove_body(body_id);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier3d_remove_body");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_step",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, dt: f64| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller.data_mut().rapier3d_step(dt as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier3d_step");
     }
 
     linker
@@ -945,6 +1509,8 @@ impl GameRoom {
         }
         Ok(Self {
             backend: RoomBackend::Wasm,
+            arena_2d: None,
+            navmesh: None,
             // Default on; `GameServer::get_or_create` overrides it from the
             // manifest permissions for every spawned room.
             storage_enabled: true,
@@ -985,6 +1551,8 @@ impl GameRoom {
     pub(crate) fn new_relay() -> Self {
         Self {
             backend: RoomBackend::Relay,
+            arena_2d: None,
+            navmesh: None,
             storage_enabled: true,
             wasm: None,
             ecs: None,
@@ -1717,6 +2285,10 @@ impl GameRoom {
         let mut new_wasm =
             RoomLogic::from_pre(pre, RoomHostData::new(physics)).map_err(|e| e.to_string())?;
         let _ = new_wasm.on_create(max_clients);
+        if let Some(map) = &self.arena_2d {
+            new_wasm.data_mut().load_arena_2d(map);
+        }
+        new_wasm.data_mut().navmesh = self.navmesh.clone();
         // Re-join active players so state is maintained seamlessly
         for (_sid, &pid) in &self.sessions {
             let (x, y) = (
@@ -1743,6 +2315,11 @@ pub struct GameServer {
     pub(crate) rooms: HashMap<String, GameRoom>,
     pub(crate) permissions: engine_wasm::AbiPermissions,
     pub(crate) persistent_snapshots: HashMap<String, Vec<u8>>,
+    /// Project-level 2D arena map (`arena_2d.json`), pre-loaded into every
+    /// WASM room's Rapier 2D world at spawn.
+    pub(crate) arena_2d: Option<engine_physics::MapConfig2D>,
+    /// Project-level shared navmesh (`navmesh.nav2d`).
+    pub(crate) navmesh: Option<std::sync::Arc<NavMesh2D>>,
 }
 
 impl GameServer {
@@ -1759,6 +2336,8 @@ impl GameServer {
             rooms: HashMap::new(),
             permissions,
             persistent_snapshots: HashMap::new(),
+            arena_2d: None,
+            navmesh: None,
         }
     }
 
@@ -1812,6 +2391,18 @@ impl GameServer {
         if !self.rooms.contains_key(name) {
             let mut room = if let Some(pre) = &self.pre {
                 let mut room = GameRoom::new(pre, self.max_clients, self.physics.clone())?;
+                room.arena_2d = self.arena_2d.clone();
+                room.navmesh = self.navmesh.clone();
+                if let Some(map) = &room.arena_2d {
+                    if let Some(wasm) = room.wasm.as_mut() {
+                        wasm.data_mut().load_arena_2d(map);
+                    }
+                }
+                if let Some(nav) = &room.navmesh {
+                    if let Some(wasm) = room.wasm.as_mut() {
+                        wasm.data_mut().navmesh = Some(nav.clone());
+                    }
+                }
                 if let Some(w) = room.wasm.as_mut() {
                     w.data_mut().seed_rng(name);
                 }
@@ -2516,5 +3107,96 @@ mod tests {
         );
         room.enable_input_hub();
         assert!(room.is_input_hub());
+    }
+}
+
+#[cfg(test)]
+mod host_extras_tests {
+    use super::*;
+
+    /// Deterministic tick timers: set fires after the delay, one-shots are
+    /// consumed, intervals re-arm, cancel silences — all against
+    /// `clock_ticks`, never wall-clock.
+    #[test]
+    fn tick_timers_fire_and_rearm_deterministically() {
+        let mut host = RoomHostData::new(PhysicsWorld3D::default());
+        host.timer_set(1, 5, 0); // one-shot, due at tick 5
+        host.timer_set(2, 3, 4); // repeating every 4 ticks, first due at 3
+
+        assert_eq!(host.timer_poll(), 0, "nothing due before any tick");
+        host.clock_ticks = 3;
+        assert_eq!(host.timer_poll(), 2, "interval timer fires at tick 3");
+        assert_eq!(host.timer_poll(), 0);
+        host.clock_ticks = 5;
+        assert_eq!(host.timer_poll(), 1, "one-shot fires at tick 5");
+        assert_eq!(host.timer_poll(), 0, "interval re-armed for 3+4=7, not due at 5");
+        host.clock_ticks = 7;
+        assert_eq!(host.timer_poll(), 2, "interval refires at 7");
+        host.timer_cancel(2);
+        host.clock_ticks = 100;
+        assert_eq!(host.timer_poll(), 0, "cancelled timer stays silent");
+    }
+
+    /// The Rapier 3D guest family: create → collide → step → contact, with
+    /// the id-counter maps maintained per room.
+    #[test]
+    fn rapier3d_family_simulates_and_reports_contacts() {
+        let mut host = RoomHostData::new(PhysicsWorld3D::default());
+        host.init_rapier3d(0.0, -9.81, 0.0);
+        let a = host.rapier3d_create_body(0, 0.0, 5.0, 0.0);
+        let b = host.rapier3d_create_body(1, 0.0, 0.0, 0.0); // fixed anvil
+        host.rapier3d_add_ball_collider(a, 0.5);
+        host.rapier3d_add_ball_collider(b, 0.5);
+
+        assert!(!host.rapier3d_check_contact(a, b));
+        for _ in 0..70 {
+            host.rapier3d_step(1.0 / 60.0);
+        }
+        let by = host.rapier3d_get_position(b).unwrap()[1];
+        assert!(host.rapier3d_get_position(a).unwrap()[1] < 1.05, "ball settled onto the anvil (by={by})");
+        // Resting contact is touching, not overlapping: push in to observe.
+        host.rapier3d_set_position(a, 0.0, 0.9, 0.0);
+        host.rapier3d_step(1.0 / 60.0);
+        assert!(host.rapier3d_check_contact(a, b), "overlapping bodies report contact");
+        assert!(host.rapier3d_get_position(a).unwrap()[1] > host.rapier3d_get_position(b).unwrap()[1]);
+
+        let (ay, by) = (host.rapier3d_get_position(a).unwrap()[1], host.rapier3d_get_position(b).unwrap()[1]);
+        let (ay, by) = (
+            host.rapier3d_get_position(a).unwrap()[1],
+            host.rapier3d_get_position(b).unwrap()[1],
+        );
+        eprintln!("DEBUG ay={ay} by={by} contact={}", host.rapier3d_check_contact(a, b));
+        host.rapier3d_remove_body(b);
+        assert!(!host.rapier3d_check_contact(a, b));
+    }
+
+    /// Spatial removal keeps the KD-tree from answering for departed entities.
+    #[test]
+    fn spatial_remove_drops_the_entity() {
+        let mut host = RoomHostData::new(PhysicsWorld3D::default());
+        host.spatial.upsert(7, [10.0, 10.0]);
+        assert!(host.spatial.query_radius([10.0, 10.0], 1.0).iter().any(|h| h.entity_id == 7));
+        host.spatial.remove(7, [10.0, 10.0]);
+        assert!(!host.spatial.query_radius([10.0, 10.0], 1.0).iter().any(|h| h.entity_id == 7));
+    }
+
+    /// Navmesh injection + A* path: a simple quad mesh routes around corners,
+    /// and a room without a navmesh answers nothing.
+    #[test]
+    fn navmesh_find_path_routes_across_the_mesh() {
+        let mesh = engine_nav::nav2d::NavMesh2D::from_trimesh(
+            vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+            vec![[0, 1, 2], [0, 2, 3]],
+        )
+        .expect("quad navmesh");
+        let mut host = RoomHostData::new(PhysicsWorld3D::default());
+        assert_eq!(host.navmesh_find_path((1.0, 1.0), (9.0, 9.0)), None, "no navmesh injected");
+        host.navmesh = Some(std::sync::Arc::new(mesh));
+        let path = host
+            .navmesh_find_path((1.0, 1.0), (9.0, 9.0))
+            .expect("path across the quad");
+        assert!(!path.is_empty(), "at least the goal waypoint");
+        let (last_x, last_y) = path[path.len() - 1];
+        assert!((last_x - 9.0).abs() < 2.0 && (last_y - 9.0).abs() < 2.0, "path ends near the goal");
     }
 }

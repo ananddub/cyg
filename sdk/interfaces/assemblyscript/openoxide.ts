@@ -2923,3 +2923,103 @@ export abstract class Room {
     }
 }
 
+// --- SPATIAL AOI: removal (entity left the AOI set) ------------------------
+
+@external("env", "sys_spatial_remove")
+declare function _sys_spatial_remove(entity_id: i64, x: f64, y: f64): i32;
+
+/** Remove a departed entity from the AOI index (pass its last known position). */
+export function spatialRemove(entityId: i64, x: f64, y: f64): void {
+    _sys_spatial_remove(entityId, x, y);
+}
+
+// --- DETERMINISTIC TICK TIMERS (polling model) ------------------------------
+// Register an id with a tick delay (and optional repeat interval), then poll
+// once per tick (usually first line of onTick). Firing is computed against
+// `clockTicks()`, so rollback replays fire identically.
+
+@external("env", "sys_timer_set")
+declare function _sys_timer_set(timer_id: i64, delay_ticks: i64, interval_ticks: i64): i32;
+
+@external("env", "sys_timer_cancel")
+declare function _sys_timer_cancel(timer_id: i64): i32;
+
+@external("env", "sys_timer_poll")
+declare function _sys_timer_poll(): i64;
+
+/** Register timer `id`: fires after `delayTicks`, then every `intervalTicks`
+ *  (0 = one-shot). Re-registering an id replaces its schedule. */
+export function timerSet(id: i64, delayTicks: i64, intervalTicks: i64 = 0): void {
+    _sys_timer_set(id, delayTicks, intervalTicks);
+}
+
+/** Stop a timer. */
+export function timerCancel(id: i64): void {
+    _sys_timer_cancel(id);
+}
+
+/** Pop the next fired timer id this tick (0 = none). Call once per tick. */
+export function timerPoll(): i64 {
+    return _sys_timer_poll();
+}
+
+// --- NAVMESH PATHFINDING (project navmesh.nav2d, host-owned) ----------------
+
+@external("env", "sys_navmesh_find_path")
+declare function _sys_navmesh_find_path(sx: f64, sy: f64, dx: f64, dy: f64, out_ptr: usize, max_points: i32): i32;
+
+/**
+ * A* path across the project navmesh. Fills `outBuf` with f32 x,y pairs
+ * (little-endian); returns the point count (0 = no path / no navmesh).
+ */
+export function navmeshFindPath(sx: f64, sy: f64, dx: f64, dy: f64, outBuf: usize, maxPoints: i32): i32 {
+    return _sys_navmesh_find_path(sx, sy, dx, dy, outBuf, maxPoints);
+}
+
+// --- RAPIER 3D (full rigid-body world, physics permission) ------------------
+
+@external("env", "sys_rapier3d_init")
+declare function _sys_rapier3d_init(gx: f64, gy: f64, gz: f64): i32;
+@external("env", "sys_rapier3d_create_body")
+declare function _sys_rapier3d_create_body(body_type: i32, x: f64, y: f64, z: f64): i32;
+@external("env", "sys_rapier3d_add_ball_collider")
+declare function _sys_rapier3d_add_ball_collider(body_id: i32, radius: f64): i32;
+@external("env", "sys_rapier3d_add_box_collider")
+declare function _sys_rapier3d_add_box_collider(body_id: i32, hx: f64, hy: f64, hz: f64): i32;
+@external("env", "sys_rapier3d_set_position")
+declare function _sys_rapier3d_set_position(body_id: i32, x: f64, y: f64, z: f64): i32;
+@external("env", "sys_rapier3d_set_velocity")
+declare function _sys_rapier3d_set_velocity(body_id: i32, vx: f64, vy: f64, vz: f64): i32;
+@external("env", "sys_rapier3d_get_position")
+declare function _sys_rapier3d_get_position(body_id: i32, out_ptr: i32): i32;
+@external("env", "sys_rapier3d_get_velocity")
+declare function _sys_rapier3d_get_velocity(body_id: i32, out_ptr: i32): i32;
+@external("env", "sys_rapier3d_apply_impulse")
+declare function _sys_rapier3d_apply_impulse(body_id: i32, ix: f64, iy: f64, iz: f64): i32;
+@external("env", "sys_rapier3d_check_contact")
+declare function _sys_rapier3d_check_contact(body_id_a: i32, body_id_b: i32): i32;
+@external("env", "sys_rapier3d_remove_body")
+declare function _sys_rapier3d_remove_body(body_id: i32): i32;
+@external("env", "sys_rapier3d_step")
+declare function _sys_rapier3d_step(dt: f64): i32;
+
+/** Reset the room's 3D physics world with the given gravity. */
+export function rapier3dInit(gx: f64, gy: f64, gz: f64): void { _sys_rapier3d_init(gx, gy, gz); }
+/** Create a body: 0 = dynamic, 1 = fixed, 2/3 = kinematic. Returns its id. */
+export function rapier3dCreateBody(bodyType: i32, x: f64, y: f64, z: f64): i32 { return _sys_rapier3d_create_body(bodyType, x, y, z); }
+/** Attach a ball collider to a body. */
+export function rapier3dAddBallCollider(bodyId: i32, radius: f64): i32 { return _sys_rapier3d_add_ball_collider(bodyId, radius); }
+/** Attach a cuboid collider (half-extents) to a body. */
+export function rapier3dAddBoxCollider(bodyId: i32, hx: f64, hy: f64, hz: f64): i32 { return _sys_rapier3d_add_box_collider(bodyId, hx, hy, hz); }
+export function rapier3dSetPosition(bodyId: i32, x: f64, y: f64, z: f64): void { _sys_rapier3d_set_position(bodyId, x, y, z); }
+export function rapier3dSetVelocity(bodyId: i32, vx: f64, vy: f64, vz: f64): void { _sys_rapier3d_set_velocity(bodyId, vx, vy, vz); }
+/** Write body position as 3×f32 into `outPtr`; returns 1 on success. */
+export function rapier3dGetPosition(bodyId: i32, outPtr: usize): i32 { return _sys_rapier3d_get_position(bodyId, outPtr as i32); }
+/** Write body velocity as 3×f32 into `outPtr`; returns 1 on success. */
+export function rapier3dGetVelocity(bodyId: i32, outPtr: usize): i32 { return _sys_rapier3d_get_velocity(bodyId, outPtr as i32); }
+export function rapier3dApplyImpulse(bodyId: i32, ix: f64, iy: f64, iz: f64): void { _sys_rapier3d_apply_impulse(bodyId, ix, iy, iz); }
+/** 1 while the two bodies' colliders overlap or share an active contact. */
+export function rapier3dCheckContact(bodyIdA: i32, bodyIdB: i32): bool { return _sys_rapier3d_check_contact(bodyIdA, bodyIdB) == 1; }
+export function rapier3dRemoveBody(bodyId: i32): void { _sys_rapier3d_remove_body(bodyId); }
+/** Step the 3D world (call once per tick after setting velocities). */
+export function rapier3dStep(dt: f64): void { _sys_rapier3d_step(dt); }

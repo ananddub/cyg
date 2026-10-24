@@ -91,17 +91,101 @@ impl RapierWorld3D {
         self.rigid_body_set.insert(rb)
     }
 
-    /// Attach a ball collider to a rigid body (3D).
-    pub fn add_ball_collider(&mut self, handle: r3d::RigidBodyHandle, radius: f32) {
+    /// Attach a ball collider to a rigid body (3D). Returns the collider handle.
+    pub fn add_ball_collider(&mut self, handle: r3d::RigidBodyHandle, radius: f32) -> r3d::ColliderHandle {
         let collider = r3d::ColliderBuilder::ball(radius).density(1.0).build();
         self.collider_set
-            .insert_with_parent(collider, handle, &mut self.rigid_body_set);
+            .insert_with_parent(collider, handle, &mut self.rigid_body_set)
+    }
+
+    /// Attach a cuboid collider (half-extents) to a rigid body (3D).
+    pub fn add_box_collider(
+        &mut self,
+        handle: r3d::RigidBodyHandle,
+        half_x: f32,
+        half_y: f32,
+        half_z: f32,
+    ) -> r3d::ColliderHandle {
+        let collider = r3d::ColliderBuilder::cuboid(half_x, half_y, half_z)
+            .density(1.0)
+            .build();
+        self.collider_set
+            .insert_with_parent(collider, handle, &mut self.rigid_body_set)
+    }
+
+    /// Teleport a body (3D).
+    pub fn set_position(&mut self, handle: r3d::RigidBodyHandle, x: f32, y: f32, z: f32) {
+        if let Some(body) = self.rigid_body_set.get_mut(handle) {
+            body.set_translation(r3d::Vector::new(x, y, z), true);
+        }
+    }
+
+    /// Apply a linear impulse at the body's center of mass (3D).
+    pub fn apply_impulse(&mut self, handle: r3d::RigidBodyHandle, ix: f32, iy: f32, iz: f32) {
+        if let Some(body) = self.rigid_body_set.get_mut(handle) {
+            body.apply_impulse(r3d::Vector::new(ix, iy, iz), true);
+        }
+    }
+
+    /// Remove a body and all of its colliders (3D).
+    pub fn remove_body(&mut self, handle: r3d::RigidBodyHandle) {
+        self.rigid_body_set.remove(
+            handle,
+            &mut self.island_manager,
+            &mut self.collider_set,
+            &mut self.impulse_joint_set,
+            &mut self.multibody_joint_set,
+            &mut self.soft_body_set,
+            true,
+        );
+    }
+
+    /// True while any collider pair of the two bodies intersects (3D).
+    /// Semantics are strict *overlap*: resting (touching) contacts report
+    /// false — push one body slightly into the other to observe contact.
+    pub fn check_intersection(
+        &self,
+        body_a: r3d::RigidBodyHandle,
+        body_b: r3d::RigidBodyHandle,
+    ) -> bool {
+        let (Some(rb_a), Some(rb_b)) = (self.rigid_body_set.get(body_a), self.rigid_body_set.get(body_b)) else {
+            return false;
+        };
+        for &col_a in rb_a.colliders() {
+            for &col_b in rb_b.colliders() {
+                // Strict geometric overlap (answers without any narrow-phase
+                // cache), falling back to the solver's active contact state
+                // for resting/touching bodies.
+                if self.narrow_phase.intersection_pair(col_a, col_b) == Some(true) {
+                    return true;
+                }
+                for pair in self.narrow_phase.contact_pairs() {
+                    let matches = (pair.collider1 == col_a && pair.collider2 == col_b)
+                        || (pair.collider1 == col_b && pair.collider2 == col_a);
+                    if matches {
+                        return pair.has_any_active_contact();
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Drive a body like a controlled player: set its linear velocity (3D).
     pub fn set_velocity(&mut self, handle: r3d::RigidBodyHandle, vx: f32, vy: f32, vz: f32) {
         if let Some(body) = self.rigid_body_set.get_mut(handle) {
             body.set_linvel(r3d::Vector::new(vx, vy, vz), true);
+        }
+    }
+
+    /// Read a body's linear velocity (3D).
+    pub fn velocity(&self, handle: r3d::RigidBodyHandle) -> [f32; 3] {
+        match self.rigid_body_set.get(handle) {
+            Some(body) => {
+                let v = body.linvel();
+                [v.x, v.y, v.z]
+            }
+            None => [0.0; 3],
         }
     }
 
@@ -352,8 +436,18 @@ impl RapierWorld2D {
         };
         for &col_a in rb_a.colliders() {
             for &col_b in rb_b.colliders() {
+                // Strict geometric overlap (answers without any narrow-phase
+                // cache), falling back to the solver's active contact state
+                // for resting/touching bodies.
                 if self.narrow_phase.intersection_pair(col_a, col_b) == Some(true) {
                     return true;
+                }
+                for pair in self.narrow_phase.contact_pairs() {
+                    let matches = (pair.collider1 == col_a && pair.collider2 == col_b)
+                        || (pair.collider1 == col_b && pair.collider2 == col_a);
+                    if matches {
+                        return pair.has_any_active_contact();
+                    }
                 }
             }
         }
