@@ -252,3 +252,69 @@ test("colyseus parity surface works end to end on a room", async () => {
         unstubBrowser();
     }
 });
+
+// ---------------------------------------------------------------------------
+// Entity-proxy + root-scalar listen parity (`player.listen("x", cb)` directly
+// on the entity, `callbacks.listen("coinX", cb)` for root scalars).
+// ---------------------------------------------------------------------------
+
+test("entities carry listen/onChange/bindTo and root scalars listen by name", async () => {
+    stubBrowser();
+    try {
+        const room = makeRoom();
+        room.connect();
+        const ws = FakeWebSocket.instances[0];
+        ws.receive({ type: "ice", config: { iceServers: [] } });
+        await new Promise((r) => setImmediate(r));
+        const pc = FakePeerConnection.instances[0];
+        pc.channels[1].readyState = 'open';
+        pc.channels[0].readyState = 'open';
+        pc.channels[1].onopen();
+        pc.channels[0].onopen();
+        await new Promise((r) => setImmediate(r));
+
+        // Root-scalar registry: the state entity is tracked once root scalars
+        // exist (the descriptor attach path does this on the live server).
+        room._rootScalars = { fields: [{ name: 'coinX' }, { name: 'coinY' }] };
+        room._rootValues = { coinX: 400, coinY: 250 };
+        room._trackEntity(room.state);
+
+        // 1. callbacks.listen("coinX", cb) — root scalar by name.
+        const rootSeen = [];
+        const unroot = OpenOxide.getStateCallbacks(room).listen('coinX', (v) => rootSeen.push(v));
+        room._fireFieldChange(room.state, 'coinX', 512, 400);
+        room._fireFieldChange(room.state, 'coinX', 600, 512);
+        assert.deepEqual(rootSeen, [512, 600]);
+        unroot();
+        room._fireFieldChange(room.state, 'coinX', 700, 512);
+        assert.deepEqual(rootSeen, [512, 600], "unsubscribe detaches");
+
+        // 2. player.listen("x", cb) directly on the entity — the proxy form.
+        const player = { id: 1, x: 10, y: 20 };
+        room._trackEntity(player);
+        const moves = [];
+        const unlisten = player.listen('x', (v, prev) => moves.push([v, prev]));
+        assert.deepEqual(moves, [[10, undefined]], "immediate default: current value fires now");
+        room._fireFieldChange(player, 'x', 30, 10);
+        assert.deepEqual(moves, [[10, undefined], [30, 10]]);
+
+        // 3. player.onChange(cb) — instance-level any-change. A real patch
+        //    fires the field listeners AND the any-change fan-out together
+        //    (_fireFieldChange + _fireUpdate), mirroring the apply path.
+        let anyCount = 0;
+        const unany = player.onChange(() => { anyCount++; });
+        room._fireFieldChange(player, 'y', 40, 20);
+        room._fireUpdate(room.state, player, 1);
+        assert.equal(anyCount, 1);
+        unlisten();
+        unany();
+        room._fireFieldChange(player, 'x', 50, 30);
+        room._fireUpdate(room.state, player, 1);
+        assert.equal(anyCount, 1, "detached handlers stay silent");
+
+        // 4. The proxy methods are invisible to serialization/enumeration.
+        assert.deepEqual(Object.keys(player).sort(), ['id', 'x', 'y']);
+    } finally {
+        unstubBrowser();
+    }
+});

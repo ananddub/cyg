@@ -751,10 +751,16 @@
         listen(instanceOrProperty, propertyOrHandler, handlerMaybe, immediate) {
             if (typeof instanceOrProperty === 'string') {
                 const map = this._collectionMap(instanceOrProperty);
-                if (!map || typeof propertyOrHandler !== 'function') {
-                    return () => {};
+                if (map) {
+                    return map.onChange(propertyOrHandler);
                 }
-                return map.onChange(propertyOrHandler);
+                // Not a collection: a root scalar ("coinX"), routed through
+                // the state entity's field callbacks — the apply path fires
+                // root changes there.
+                if (this.room.state && typeof propertyOrHandler === 'function') {
+                    return this.listen(this.room.state, instanceOrProperty, propertyOrHandler, immediate);
+                }
+                return () => {};
             }
             const instance = instanceOrProperty;
             const property = propertyOrHandler;
@@ -2190,11 +2196,43 @@
             this._defineStateProperties();
         }
 
+        /** The shared callback facade (also `Callbacks.get(room)`). */
+        _callbacks() {
+            return (this._schemaCallbacks ||= new SchemaCallbacks(this));
+        }
+
         _trackEntity(entity) {
             this._entityCallbacks.set(entity, {
                 fields: Object.create(null),
                 any: []
             });
+            // Colyseus proxy parity: entities carry listen/onChange/bindTo
+            // directly, so `(player) => player.listen("x", cb)` works inside
+            // an onAdd handler without reaching for the callbacks object.
+            // SchemaMap instances (collections) have their own onAdd/onChange
+            // methods — the proxy form is for plain decoded entities only.
+            if (entity !== null && typeof entity === 'object' &&
+                !(entity instanceof Map) &&
+                !Object.prototype.hasOwnProperty.call(entity, 'listen')) {
+                const room = this;
+                Object.defineProperties(entity, {
+                    listen: {
+                        value: (prop, handler, immediate) =>
+                            room._callbacks().listen(entity, prop, handler, immediate),
+                        enumerable: false, configurable: true, writable: true
+                    },
+                    onChange: {
+                        value: (handler, immediate) =>
+                            room._callbacks().onChange(entity, handler, immediate),
+                        enumerable: false, configurable: true, writable: true
+                    },
+                    bindTo: {
+                        value: (to, properties) =>
+                            room._callbacks().bindTo(entity, to, properties),
+                        enumerable: false, configurable: true, writable: true
+                    }
+                });
+            }
         }
 
         _fireAdd(map, entity, id) {
