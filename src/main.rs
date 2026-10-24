@@ -60,6 +60,12 @@ fn main() {
             }
         }
         "schema" | "gen-schema" => schema_command(&args[1..]),
+        "doctor" => {
+            if let Err(e) = doctor(&dir) {
+                eprintln!("✗ doctor found problems");
+                std::process::exit(1);
+            }
+        }
         "schema-codegen" | "schema-gen" => schema_codegen_command(&args[1..]),
         "schema-debug" | "schema-inspect" => schema_debug_command(&args[1..]),
         "cook" => {
@@ -83,6 +89,84 @@ fn main() {
     }
 }
 
+/// `ox-game doctor [dir]` — one command that validates everything a project
+/// needs: config, schema, wasm presence and the exact ABI export names the
+/// host will look up. Catches contract mismatches (e.g. `tick()` vs
+/// `on_tick()`) in seconds instead of at room-join time.
+fn doctor(dir: &Path) -> std::io::Result<()> {
+    let mut problems = 0usize;
+    println!("🩺 ox-game doctor — {}\n", dir.display());
+
+    // 1. config
+    let cfg = match engine_config::load_config(dir) {
+        Ok(cfg) => {
+            println!("✓ config.toml parses (name '{}', tick {}Hz)", cfg.name, cfg.tick_rate);
+            Some(cfg)
+        }
+        Err(e) => {
+            println!("✗ config.toml: {e}");
+            problems += 1;
+            None
+        }
+    };
+
+    // 2. schema
+    match schema::load_contract(dir) {
+        Ok(contract) => println!(
+            "✓ schema.ts parses ({} schemas, root '{}')",
+            contract.schemas.len(),
+            contract.root.name
+        ),
+        Err(e) => {
+            println!("✗ schema: {e}");
+            problems += 1;
+        }
+    }
+
+    // 3. room wasm + export names
+    let required = [
+        "on_create", "on_join", "on_leave", "on_alloc", "on_input", "on_tick", "on_save", "on_load",
+    ];
+    let out = cfg.as_ref().map(|c| dir.join(&c.out));
+    let wasm_path = out.filter(|p| p.exists());
+    match wasm_path {
+        Some(path) => {
+            let bytes = std::fs::read(&path)?;
+            match engine_wasm::WasmRuntime::new()
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r.compile(&bytes).map_err(|e| e.to_string()))
+                {
+                Ok(module) => {
+                    let exports: Vec<String> = module.exports().map(|e| e.name().to_string()).collect();
+                    let missing: Vec<&str> = required.iter().filter(|r| !exports.contains(&r.to_string())).copied().collect();
+                    if missing.is_empty() {
+                        println!("✓ room wasm exports the full host ABI ({} exports)", exports.len());
+                    } else {
+                        println!(
+                            "✗ room wasm is missing host exports: {}. The host looks up exactly these names (see sdk/interfaces). Got: {}",
+                            missing.join(", "),
+                            exports.join(", ")
+                        );
+                        problems += 1;
+                    }
+                }
+                Err(e) => {
+                    println!("✗ room wasm does not compile: {e}");
+                    problems += 1;
+                }
+            }
+        }
+        None => println!("• room wasm not built yet (run: ox-game run {})", dir.display()),
+    }
+
+    if problems > 0 {
+        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{problems} problem(s)")))
+    } else {
+        println!("\n✓ project looks healthy");
+        Ok(())
+    }
+}
+
 fn print_help() {
     println!(
         "ox-game — OpenOxide game server
@@ -98,6 +182,7 @@ USAGE:
   ox-game schema        [dir]    compile schema.ts to server code + browser descriptor
   ox-game schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|all)
   ox-game schema-debug [path]    inspect a compiled descriptor (--json)
+  ox-game doctor       [dir]    validate config, schema and wasm ABI exports
   ox-game                        same as `run` in the current directory
 
 CONFIG:

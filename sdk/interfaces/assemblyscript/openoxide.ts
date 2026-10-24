@@ -8,6 +8,23 @@
 // --- 1. INTERNAL HOST C-ABI DECLARATIONS (HIDDEN FROM DEVELOPER) ---
 // =============================================================================
 
+/**
+ * Deterministic pseudo-random float in [0, 1) — engine-owned ChaCha8 stream,
+ * seeded from the room name. Same room seed + same call order = identical
+ * sequences on server and every replaying client. Use this INSTEAD of
+ * Math.random anywhere gameplay randomness is involved (loot, spawns, crits).
+ */
+export function rngNext(): f64 {
+    return _sys_rng_next();
+}
+// =============================================================================
+
+// Deterministic room RNG — the HOST owns the ChaCha8 stream (seeded from the
+// room name), so every client replays identical sequences with zero traffic.
+// Never use Math.random in room logic: it breaks determinism.
+@external("ox", "sys_rng_next")
+declare function _sys_rng_next(): f64;
+
 @external("env", "sys_physics_move")
 declare function _sys_physics_move(
     px: f64, py: f64, pz: f64,

@@ -219,6 +219,10 @@ pub const MAX_OUTBOX_MESSAGES: usize = 256;
 pub struct RoomHostData {
     pub physics: PhysicsWorld3D,
     pub outbox: Vec<OutboundMessage>,
+    /// Deterministic, room-seeded RNG exposed to the guest as `sys_rng_*`
+    /// (Phase-2 DX: the guest never implements its own PRNG — every client
+    /// replays identical sequences from the same room seed).
+    pub rng: engine_core::RoomRng,
 }
 
 impl RoomHostData {
@@ -226,7 +230,14 @@ impl RoomHostData {
         Self {
             physics,
             outbox: Vec::new(),
+            rng: engine_core::RoomRng::from_seed_str("unseeded"),
         }
+    }
+
+    /// Re-seed the guest-facing RNG from the room name (called once at room
+    /// creation, where the name is known).
+    pub fn seed_rng(&mut self, room_name: &str) {
+        self.rng = engine_core::RoomRng::from_seed_str(room_name);
     }
 }
 
@@ -1559,7 +1570,10 @@ impl GameServer {
         // Hot path for an existing room borrows the key: no String per packet.
         if !self.rooms.contains_key(name) {
             let mut room = if let Some(pre) = &self.pre {
-                let room = GameRoom::new(pre, self.max_clients, self.physics.clone())?;
+                let mut room = GameRoom::new(pre, self.max_clients, self.physics.clone())?;
+                if let Some(w) = room.wasm.as_mut() {
+                    w.data_mut().seed_rng(name);
+                }
                 eprintln!(
                     "[server] room '{name}' created with 3D physics world (ABI v{})",
                     engine_wasm::CURRENT_ABI_VERSION
