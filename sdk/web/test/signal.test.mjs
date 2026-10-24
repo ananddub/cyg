@@ -1,0 +1,199 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import OpenOxide from "../openoxide.js";
+
+const { Room } = OpenOxide;
+
+// ---------------------------------------------------------------------------
+// Browser stand-ins. The SDK only touches the surface stubbed here: `new
+// WebSocket(url)`, `readyState`, `send`, and the event handlers on the
+// signaling socket; and the subset of RTCPeerConnection the SDP dance uses.
+// ---------------------------------------------------------------------------
+
+class FakeWebSocket {
+    static OPEN = 1;
+    static instances = [];
+    constructor(url) {
+        this.url = url;
+        this.readyState = FakeWebSocket.OPEN;
+        this.sent = [];
+        this.onopen = null;
+        this.onmessage = null;
+        this.onclose = null;
+        this.onerror = null;
+        FakeWebSocket.instances.push(this);
+    }
+    send(data) {
+        this.sent.push(data);
+    }
+    /** Test helper: one JSON frame from the hub. */
+    receive(obj) {
+        this.onmessage({ data: JSON.stringify(obj) });
+    }
+}
+
+class FakeDataChannel {
+    constructor(label) {
+        this.label = label;
+        this.binaryType = "";
+        this.readyState = "connecting";
+        this.sent = [];
+        this.onopen = null;
+        this.onmessage = null;
+        this.onclose = null;
+        this.onerror = null;
+    }
+    send(data) {
+        this.sent.push(data);
+    }
+}
+
+class FakePeerConnection {
+    static instances = [];
+    constructor(config) {
+        this.config = config;
+        this.channels = [];
+        this.localDescription = null;
+        this.remoteDescription = null;
+        this.signalingState = "stable";
+        this.iceCandidates = [];
+        this.onicecandidate = null;
+        this.onconnectionstatechange = null;
+        FakePeerConnection.instances.push(this);
+    }
+    createDataChannel(label, opts) {
+        const ch = new FakeDataChannel(label);
+        ch.opts = opts;
+        this.channels.push(ch);
+        return ch;
+    }
+    async createOffer() {
+        return { type: "offer", sdp: "OFFER-SDP" };
+    }
+    async setLocalDescription(desc) {
+        this.localDescription = desc;
+        this.signalingState = "have-local-offer";
+    }
+    async setRemoteDescription(desc) {
+        this.remoteDescription = desc;
+        this.signalingState = "stable";
+    }
+    async addIceCandidate(cand) {
+        this.iceCandidates.push(cand);
+    }
+    close() { /* noop */ }
+}
+
+function makeRoom(extra = {}) {
+    const client = { _httpBase: () => "http://127.0.0.1:8124" };
+    return new Room("ws://127.0.0.1:7777", "game_room", {
+        client,
+        sessionId: "sess-1",
+        reconnectionToken: "SEAT-TOKEN",
+        ...extra,
+    });
+}
+
+function stubBrowser() {
+    FakeWebSocket.instances = [];
+    FakePeerConnection.instances = [];
+    globalThis.WebSocket = FakeWebSocket;
+    globalThis.RTCPeerConnection = FakePeerConnection;
+}
+
+function unstubBrowser() {
+    delete globalThis.WebSocket;
+    delete globalThis.RTCPeerConnection;
+}
+
+// ---------------------------------------------------------------------------
+// The wire contract: URL, the four hub frames, and the channel handshake.
+// ---------------------------------------------------------------------------
+
+test("signal url carries the seat token over the control origin", () => {
+    stubBrowser();
+    try {
+        const room = makeRoom();
+        room.connect();
+        const ws = FakeWebSocket.instances[0];
+        assert.equal(ws.url, "ws://127.0.0.1:8124/ws/signal?seat=SEAT-TOKEN");
+    } finally {
+        unstubBrowser();
+    }
+});
+
+test("offer candidate and answer follow the hub protocol", async () => {
+    stubBrowser();
+    try {
+        const room = makeRoom();
+        const done = room.connect();
+        const ws = FakeWebSocket.instances[0];
+
+        // Hub hands out ICE config first; the offer goes out only after it.
+        ws.receive({ type: "ice", config: { iceServers: [{ urls: "stun:test" }] } });
+        await new Promise((r) => setImmediate(r));
+        const pc = FakePeerConnection.instances[0];
+        assert.equal(pc.config.iceServers[0].urls, "stun:test", "hub ice config wins");
+        assert.deepEqual(
+            pc.channels.map((c) => c.label),
+            ["game-unreliable", "game-reliable"],
+            "the two contract channels are created",
+        );
+        const unreliable = pc.channels[0];
+        assert.equal(unreliable.opts.ordered, false);
+        assert.equal(unreliable.opts.maxRetransmits, 0);
+
+        const offer = ws.sent.map((s) => JSON.parse(s)).find((m) => m.type === "offer");
+        assert.ok(offer, "offer sent");
+        assert.equal(offer.sdp, "OFFER-SDP");
+        assert.equal(room.serverPc.localDescription.sdp, "OFFER-SDP");
+
+        // Hub answer + a trickle candidate are applied to the pc.
+        ws.receive({ type: "answer", sdp: "ANSWER-SDP" });
+        ws.receive({ type: "candidate", candidate: "cand-1", sdpMid: "0", sdpIndex: 0 });
+        await new Promise((r) => setImmediate(r));
+        assert.equal(pc.remoteDescription.sdp, "ANSWER-SDP");
+        assert.equal(pc.iceCandidates[0].candidate, "cand-1");
+
+        // The reliable channel opening IS the room joining: 'open' fires and
+        // the connect() promise resolves with the room.
+        const opened = new Promise((r) => room.on("open", r));
+        pc.channels[1].onopen();
+        await opened;
+        await done;
+        assert.equal(room.isOpen, true);
+    } finally {
+        unstubBrowser();
+    }
+});
+
+test("hub error rejects the connect before any channel opens", async () => {
+    stubBrowser();
+    try {
+        const room = makeRoom();
+        const done = room.connect();
+        const ws = FakeWebSocket.instances[0];
+        ws.receive({ type: "error", message: "data plane is not accepting signaling" });
+        await assert.rejects(done, /not accepting signaling/);
+        assert.equal(room.isOpen, false);
+    } finally {
+        unstubBrowser();
+    }
+});
+
+test("without a seat the legacy game-port websocket is the fallback", async () => {
+    stubBrowser();
+    try {
+        // No reconnectionToken/sessionId -> the rtc branch cannot build a
+        // signal URL, so connect() must fall back to the game-port WS.
+        const client = { _httpBase: () => "http://127.0.0.1:8124" };
+        const room = new Room("ws://127.0.0.1:7777", "game_room", { client });
+        const done = room.connect();
+        const ws = FakeWebSocket.instances[0];
+        assert.match(ws.url, /:7777\/game_room/, "legacy game-port WS is the fallback");
+        ws.onopen();
+        await done;
+    } finally {
+        unstubBrowser();
+    }
+});

@@ -1276,7 +1276,188 @@
             this._poseScratch.delete(id);
         }
 
+        /**
+         * Connect to the room. DataChannel-first: a seat from matchmake
+         * negotiates `/ws/signal` + the server's UDP DataChannels directly —
+         * the game-port WebSocket only exists on hosts that still run one, so
+         * it stays as the fallback, not the path.
+         */
         connect() {
+            const canRtc = this._webrtcEnabled !== false &&
+                typeof RTCPeerConnection !== 'undefined' &&
+                !!this._client &&
+                !!(this.reconnectionToken || this._seatSessionId);
+            if (canRtc) return this._connectViaSignal();
+            return this._connectWebSocket();
+        }
+
+        /**
+         * DataChannel join: dial the control plane's `/ws/signal` with the
+         * seat token, answer the SDP dance over the one JSON protocol the
+         * hub speaks (`offer`/`candidate` up, `ice`/`answer`/`candidate`/
+         * `error` down), and run the room on the negotiated DataChannels.
+         * The schema descriptor arrives on the reliable lane right after the
+         * channel opens; the first delta's `your_id` confirms the session.
+         */
+        _connectViaSignal() {
+            return new Promise((resolve, reject) => {
+                this._connectResolve = resolve;
+                this._connectReject = reject;
+                let url;
+                try {
+                    const base = new URL(this._client._httpBase());
+                    const proto = base.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const token = this.reconnectionToken || this._seatSessionId || '';
+                    url = `${proto}//${base.host}/ws/signal?seat=${encodeURIComponent(token)}`;
+                } catch (e) {
+                    return reject(e);
+                }
+                let ws;
+                try {
+                    ws = new WebSocket(url);
+                } catch (e) {
+                    return reject(e);
+                }
+                this.signalWs = ws;
+                const fail = (err) => {
+                    if (!this.isOpen) {
+                        const r = this._connectReject;
+                        this._connectResolve = null;
+                        this._connectReject = null;
+                        if (r) r(err);
+                        this.emit('error', err);
+                    }
+                };
+                ws.onerror = () => fail(new Error('[OpenOxide SDK] signaling socket failed'));
+                ws.onclose = () => {
+                    if (!this.isOpen) {
+                        fail(new Error('[OpenOxide SDK] signaling closed before the data channel opened'));
+                    }
+                };
+                ws.onmessage = (ev) => {
+                    let msg = null;
+                    try { msg = JSON.parse(ev.data); } catch (_) { return; }
+                    if (msg.type === 'ice') {
+                        this._startSignalPeer(msg.config).catch(fail);
+                    } else if (msg.type === 'answer') {
+                        if (this.serverPc && this.serverPc.signalingState !== 'stable') {
+                            this.serverPc.setRemoteDescription({ type: 'answer', sdp: msg.sdp }).catch(fail);
+                        }
+                    } else if (msg.type === 'candidate') {
+                        if (this.serverPc) {
+                            this.serverPc.addIceCandidate({
+                                candidate: msg.candidate,
+                                sdpMid: msg.sdpMid == null ? null : msg.sdpMid,
+                                sdpMLineIndex: msg.sdpIndex == null ? null : msg.sdpIndex
+                            }).catch(() => { /* a late candidate from a dead pc is harmless */ });
+                        }
+                    } else if (msg.type === 'error') {
+                        fail(new Error(`[OpenOxide SDK] signaling refused: ${msg.message}`));
+                    }
+                };
+            });
+        }
+
+        /** Build the peer connection and send the offer once ICE config lands. */
+        async _startSignalPeer(iceConfig) {
+            if (this.serverPc) return;
+            const isLocal = (typeof location !== 'undefined') &&
+                (location.hostname === 'localhost' || location.hostname === '127.0.0.1' ||
+                    location.hostname.startsWith('192.168.') || location.hostname.startsWith('10.') ||
+                    location.hostname === '');
+            const config = (iceConfig && Array.isArray(iceConfig.iceServers) && iceConfig.iceServers.length)
+                ? iceConfig
+                : (isLocal ? { iceServers: [] } : { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+            const pc = new RTCPeerConnection(config);
+            this.serverPc = pc;
+            this._wireServerChannels(pc);
+
+            pc.onicecandidate = (e) => {
+                if (e.candidate && e.candidate.candidate &&
+                    this.signalWs && this.signalWs.readyState === 1) {
+                    this.signalWs.send(JSON.stringify({
+                        type: 'candidate',
+                        candidate: e.candidate.candidate,
+                        sdpMid: e.candidate.sdpMid,
+                        sdpMLineIndex: e.candidate.sdpMLineIndex
+                    }));
+                }
+            };
+
+            pc.onconnectionstatechange = () => {
+                if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    this.serverRtcActive = false;
+                }
+            };
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            this.signalWs.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp }));
+        }
+
+        /** The two contract channels: `game-unreliable` (newest-wins deltas)
+         *  and `game-reliable` (ordered events + the schema descriptor). */
+        _wireServerChannels(pc) {
+            // 1. game-unreliable: unordered, 0 retransmissions for 50-60Hz movement & state deltas over UDP
+            const chUnreliable = pc.createDataChannel('game-unreliable', {
+                ordered: false,
+                maxRetransmits: 0
+            });
+            chUnreliable.binaryType = 'arraybuffer';
+
+            // 2. game-reliable: ordered, reliable SCTP channel for gameplay events (fire, hit, score, kill)
+            const chReliable = pc.createDataChannel('game-reliable', {
+                ordered: true
+            });
+            chReliable.binaryType = 'arraybuffer';
+
+            this.serverChUnreliable = chUnreliable;
+            this.serverChReliable = chReliable;
+
+            const onBytes = (ev) => {
+                let bytes = null;
+                if (ev.data instanceof ArrayBuffer) {
+                    bytes = new Uint8Array(ev.data);
+                } else if (ev.data && ev.data.buffer) {
+                    bytes = new Uint8Array(ev.data.buffer, ev.data.byteOffset || 0, ev.data.byteLength || ev.data.length);
+                }
+                if (bytes) {
+                    this._handleInboundBinary(bytes);
+                }
+            };
+
+            chUnreliable.onopen = () => {
+                this.serverRtcActive = true;
+                this.serverRtcConnecting = false;
+                if (!this.isOpen && this.isSpectator) {
+                    try { chUnreliable.send(new Uint8Array([0xFF, 0x53, 0x50, 0x45, 0x43])); } catch (e) { /* closing */ }
+                }
+                this.emit('server-webrtc-open');
+            };
+
+            chReliable.onopen = () => {
+                this.emit('server-webrtc-reliable-open');
+                if (!this.isOpen) {
+                    this.isOpen = true;
+                    this._hasConnected = true;
+                    this._reconnectAttempts = 0;
+                    this.emit('open');
+                    const resolve = this._connectResolve;
+                    this._connectResolve = null;
+                    this._connectReject = null;
+                    if (resolve) resolve(this);
+                }
+            };
+
+            chUnreliable.onclose = () => {
+                this.serverRtcActive = false;
+            };
+
+            chUnreliable.onmessage = onBytes;
+            chReliable.onmessage = onBytes;
+        }
+
+        _connectWebSocket() {
             return new Promise((resolve, reject) => {
                 let cleanUrl = this.endpoint.endsWith('/') ? this.endpoint : `${this.endpoint}/`;
                 let wsUrl = `${cleanUrl}${this.roomName}`;
@@ -1381,75 +1562,7 @@
             try {
                 const pc = new RTCPeerConnection(config);
                 this.serverPc = pc;
-
-                // 1. game-unreliable: unordered, 0 retransmissions for 50-60Hz movement & state deltas over UDP
-                const chUnreliable = pc.createDataChannel('game-unreliable', {
-                    ordered: false,
-                    maxRetransmits: 0
-                });
-                chUnreliable.binaryType = 'arraybuffer';
-
-                // 2. game-reliable: ordered, reliable SCTP channel for gameplay events (fire, hit, score, kill)
-                const chReliable = pc.createDataChannel('game-reliable', {
-                    ordered: true
-                });
-                chReliable.binaryType = 'arraybuffer';
-
-                this.serverChUnreliable = chUnreliable;
-                this.serverChReliable = chReliable;
-
-                chUnreliable.onopen = () => {
-                    console.log('[OpenOxide SDK] ⚡ WebRTC Server "game-unreliable" channel OPEN (UDP)!');
-                    this.serverRtcActive = true;
-                    this.serverRtcConnecting = false;
-                    this.emit('server-webrtc-open');
-                };
-
-                chReliable.onopen = () => {
-                    console.log('[OpenOxide SDK] ⚡ WebRTC Server "game-reliable" channel OPEN (SCTP)!');
-                    this.emit('server-webrtc-reliable-open');
-                };
-
-                chUnreliable.onclose = () => {
-                    console.warn('[OpenOxide SDK] WebRTC Server "game-unreliable" channel closed');
-                    this.serverRtcActive = false;
-                };
-
-                chReliable.onclose = () => {
-                    console.warn('[OpenOxide SDK] WebRTC Server "game-reliable" channel closed');
-                };
-
-                chUnreliable.onerror = (e) => {
-                    console.warn('[OpenOxide SDK] WebRTC Server unreliable channel error:', e);
-                };
-
-                chReliable.onerror = (e) => {
-                    console.warn('[OpenOxide SDK] WebRTC Server reliable channel error:', e);
-                };
-
-                chUnreliable.onmessage = (ev) => {
-                    let bytes = null;
-                    if (ev.data instanceof ArrayBuffer) {
-                        bytes = new Uint8Array(ev.data);
-                    } else if (ev.data && ev.data.buffer) {
-                        bytes = new Uint8Array(ev.data.buffer, ev.data.byteOffset || 0, ev.data.byteLength || ev.data.length);
-                    }
-                    if (bytes) {
-                        this._handleInboundBinary(bytes);
-                    }
-                };
-
-                chReliable.onmessage = (ev) => {
-                    let bytes = null;
-                    if (ev.data instanceof ArrayBuffer) {
-                        bytes = new Uint8Array(ev.data);
-                    } else if (ev.data && ev.data.buffer) {
-                        bytes = new Uint8Array(ev.data.buffer, ev.data.byteOffset || 0, ev.data.byteLength || ev.data.length);
-                    }
-                    if (bytes) {
-                        this._handleInboundBinary(bytes);
-                    }
-                };
+                this._wireServerChannels(pc);
 
                 pc.onicecandidate = (e) => {
                     if (e.candidate && e.candidate.candidate) {
