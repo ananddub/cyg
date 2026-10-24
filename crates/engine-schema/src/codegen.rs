@@ -18,14 +18,18 @@ pub enum Language {
     Gdscript,
     Cpp,
     Lua,
+    /// AssemblyScript server-side state: typed entities + dirty tracking +
+    /// `commit()` — the developer mutates fields, never touches bytes.
+    As,
 }
 
 impl Language {
-    pub const ALL: [Language; 4] = [
+    pub const ALL: [Language; 5] = [
         Language::CSharp,
         Language::Gdscript,
         Language::Cpp,
         Language::Lua,
+        Language::As,
     ];
 
     pub fn parse(text: &str) -> Option<Language> {
@@ -34,6 +38,7 @@ impl Language {
             "gd" | "gdscript" | "godot" => Some(Language::Gdscript),
             "cpp" | "c++" | "cxx" => Some(Language::Cpp),
             "lua" | "luajit" => Some(Language::Lua),
+            "as" | "assemblyscript" => Some(Language::As),
             _ => None,
         }
     }
@@ -45,6 +50,7 @@ impl Language {
             Language::Gdscript => "openoxide_schema_generated.gd",
             Language::Cpp => "openoxide_schema_generated.hpp",
             Language::Lua => "openoxide_schema_generated.lua",
+            Language::As => "openoxide.schema.ts",
         }
     }
 
@@ -54,6 +60,7 @@ impl Language {
             Language::Gdscript => "GDScript",
             Language::Cpp => "C++",
             Language::Lua => "Lua",
+            Language::As => "AssemblyScript",
         }
     }
 
@@ -64,6 +71,7 @@ impl Language {
             Language::Gdscript => "gdscript",
             Language::Cpp => "cpp",
             Language::Lua => "lua",
+            Language::As => "as",
         }
     }
 }
@@ -79,6 +87,7 @@ pub fn emit(
     let root = root.cloned();
     match language {
         Language::CSharp => emit_csharp(schemas, root.as_ref(), &source_name),
+        Language::As => emit_as(schemas, root.as_ref(), &source_name),
         Language::Gdscript => emit_gdscript(schemas, root.as_ref(), &source_name),
         Language::Cpp => emit_cpp(schemas, root.as_ref(), &source_name),
         Language::Lua => emit_lua(schemas, root.as_ref(), &source_name),
@@ -1550,5 +1559,226 @@ mod tests {
         assert!(
             text.contains("registry.Register(\"Player\", delegate { return new PlayerRoot(); });")
         );
+    }
+}
+
+// =============================================================================
+// AssemblyScript server-state codegen (`--lang as`)
+//
+// Generates typed entity classes + a State class with per-field dirty
+// tracking and `commit()` — the developer mutates fields (`p.x += 1`) and
+// calls commit(); byte encoding never surfaces. Wire rows: [tag][len]
+// [id u64][fields in declaration order]. Collections get tags 0x01.. in
+// declaration order; the root's scalar block is one row tagged 0x10.
+// =============================================================================
+
+use crate::RootCollection;
+
+fn as_type(kind: &WireKind) -> &'static str {
+    match kind {
+        WireKind::U8 => "u8",
+        WireKind::I8 => "i8",
+        WireKind::U16 => "u16",
+        WireKind::I16 => "i16",
+        WireKind::U32 => "u32",
+        WireKind::I32 => "i32",
+        WireKind::F32 | WireKind::F64 => "f64",
+        WireKind::I64 => "i64",
+        WireKind::Bool => "bool",
+        WireKind::String => "string",
+        _ => "f64",
+    }
+}
+
+fn as_writer(kind: &WireKind) -> &'static str {
+    match kind {
+        WireKind::U8 => "writeU8",
+        WireKind::I8 => "writeI8",
+        WireKind::U16 => "writeU16",
+        WireKind::I16 => "writeI16",
+        WireKind::U32 => "writeU32",
+        WireKind::I32 => "writeI32",
+        WireKind::F32 | WireKind::F64 => "writeF64",
+        WireKind::I64 => "writeI64",
+        WireKind::Bool => "writeBool",
+        _ => "writeF64",
+    }
+}
+
+fn as_field_size(kind: &WireKind) -> usize {
+    match kind {
+        WireKind::U8 | WireKind::I8 | WireKind::Bool => 1,
+        WireKind::U16 | WireKind::I16 => 2,
+        WireKind::U32 | WireKind::I32 | WireKind::F32 => 4,
+        WireKind::F64 | WireKind::I64 => 8,
+        _ => 8,
+    }
+}
+
+/// One entity class: typed fields + baselines + dirty() + emit().
+fn emit_as_entity(out: &mut String, name: &str, fields: &[crate::SchemaField], tag_note: &str) {
+    out.push_str(&format!("export class {name} {{\n"));
+    let mut scalar_idx = 0usize;
+    let mut field_bytes = 0usize;
+    for f in fields {
+        if f.flags & crate::FIELD_TRANSIENT != 0 {
+            continue;
+        }
+        let ty = f
+            .ref_target
+            .as_ref()
+            .map(|_| "u64".to_string()) // refs travel as entity ids
+            .unwrap_or_else(|| as_type(&f.kind).to_string());
+        out.push_str(&format!("    {}: {} = 0;\n", f.name, ty));
+        out.push_str(&format!("    private _b{i}: {ty} = 0;\n", i = scalar_idx));
+        field_bytes += if f.ref_target.is_some() { 8 } else { as_field_size(&f.kind) };
+        scalar_idx += 1;
+    }
+    // dirty()
+    out.push_str("    dirty(): bool { return ");
+    if fields.is_empty() {
+        out.push_str("false");
+    } else {
+        let checks: Vec<String> = (0..scalar_idx)
+            .map(|i| format!("this.{} !== this._b{}", fields[i].name, i))
+            .collect();
+        out.push_str(&checks.join(" || "));
+    }
+    out.push_str("; }\n");
+    // keep()
+    out.push_str("    keep(): void { ");
+    for i in 0..scalar_idx {
+        out.push_str(&format!("this._b{} = this.{}; ", i, fields[i].name));
+    }
+    out.push_str("}\n");
+    // emit()
+    out.push_str(&format!(
+        "    /** {tag_note} — row: [tag][len][id u64][f32 fields] */\n    emit(w: DeltaWriter, tag: u8, id: u64): void {{\n        w.beginEntity(tag, {field_bytes}, id);\n"
+    ));
+    for f in fields {
+        if f.flags & crate::FIELD_TRANSIENT != 0 {
+            continue;
+        }
+        if f.ref_target.is_some() {
+            out.push_str(&format!("        w.writeI64(this.{} as i64);\n", f.name));
+        } else {
+            out.push_str(&format!(
+                "        w.{}(this.{} as {});\n",
+                as_writer(&f.kind),
+                f.name,
+                if f.kind == crate::WireKind::F64 { "f64" } else { as_type(&f.kind) }
+            ));
+        }
+    }
+    out.push_str("    }\n}\n\n");
+}
+
+pub fn emit_as(schemas: &[crate::SchemaDef], root: Option<&crate::RootState>, _source: &str) -> String {
+    let mut out = String::with_capacity(4096);
+    out.push_str("// GENERATED by `ox-game schema-codegen --lang as` — DO NOT EDIT.\n");
+    out.push_str("// Mutate these fields in your Room; `state.commit()` emits only\n// what changed. Wire rows: [tag][len][id u64][fields].\n\n");
+
+    let Some(root) = root else { return out };
+    let schema_by_name: std::collections::HashMap<&str, &crate::SchemaDef> =
+        schemas.iter().map(|s| (s.name.as_str(), s)).collect();
+
+    // Entity classes for every referenced schema, in collection order first.
+    let mut tags: Vec<(String, u8)> = Vec::new();
+    let mut tag: u8 = 1;
+    for c in &root.collections {
+        tags.push((c.name.clone(), tag));
+        tag += 1;
+    }
+    let mut emitted: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for c in &root.collections {
+        if emitted.insert(c.schema.as_str()) {
+            if let Some(def) = schema_by_name.get(c.schema.as_str()) {
+                emit_as_entity(&mut out, &c.schema, &def.fields, &format!("collection '{}'", c.name));
+            }
+        }
+    }
+
+    // State: collections as AS Maps + root scalars as a grouped row.
+    out.push_str(&format!("export class {} {{\n", root.name));
+    for c in &root.collections {
+        out.push_str(&format!(
+            "    {}: Map<u64, {}> = new Map();\n",
+            c.name, c.schema
+        ));
+    }
+    // root scalars block
+    if !root.scalars.is_empty() {
+        for f in &root.scalars {
+            out.push_str(&format!(
+                "    {}: {} = 0;\n    private _rs{}: {} = 0;\n",
+                f.name, as_type(&f.kind), 0, as_type(&f.kind)
+            ));
+        }
+    }
+    out.push_str("    private _w: DeltaWriter = new DeltaWriter(8192);\n\n");
+    out.push_str("    /** Emit every dirty row; returns the packed (ptr<<32)|len delta. */\n    commit(): i64 {\n");
+    for (name, t) in &tags {
+        out.push_str(&format!(
+            "        const ids{t} = this.{name}.keys(); const vals{t} = this.{name}.values();\n        for (let i = 0; i < ids{t}.length; i++) {{\n            const e{t} = vals{t}[i];\n            if (e{t}.dirty()) {{ e{t}.emit(this._w, {t}, ids{t}[i]); e{t}.keep(); }}\n        }}\n"
+        ));
+    }
+    if !root.scalars.is_empty() {
+        out.push_str("        { // root scalars — one row, tag 0x10\n            const w = this._w;\n");
+        let mut fb = 0usize;
+        for f in &root.scalars { fb += as_field_size(&f.kind); }
+        out.push_str(&format!("            w.beginEntity(0x10, {fb}, 0);\n"));
+        for f in &root.scalars {
+            out.push_str(&format!(
+                "            w.{}(this.{} as {});\n",
+                as_writer(&f.kind), f.name,
+                if f.kind == crate::WireKind::F64 { "f64" } else { as_type(&f.kind) }
+            ));
+        }
+        out.push_str("        }\n");
+    }
+    out.push_str("        return this._w.seal();\n    }\n}\n");
+    out
+}
+
+#[cfg(test)]
+mod as_codegen_tests {
+    use super::*;
+    use crate::{RootCollection, RootState, SchemaDef, SchemaField, WireKind};
+
+    fn field(name: &str, kind: WireKind) -> SchemaField {
+        SchemaField {
+            name: name.into(), kind, element: None, ref_target: None,
+            flags: 0, source_type: "number".into(), line: 0, column: 0,
+            default: None,
+        }
+    }
+
+    #[test]
+    fn as_codegen_emits_typed_state_with_dirty_commit() {
+        let player = SchemaDef {
+            name: "Player".into(), version: 1,
+            fields: vec![field("x", WireKind::F64), field("y", WireKind::F64), field("score", WireKind::F64)],
+            line: 0, column: 0,
+        };
+        let root = RootState {
+            name: "State".into(), version: 2,
+            scalars: vec![field("tick", WireKind::F64)],
+            collections: vec![RootCollection { name: "players".into(), schema: "Player".into() }],
+        };
+        let out = emit_as(&[player], Some(&root), "schema.ts");
+
+        // entity class: typed fields + baselines + dirty + emit row
+        assert!(out.contains("export class Player {"), "entity class");
+        assert!(out.contains("    x: f64 = 0;"));
+        assert!(out.contains("dirty(): bool { return this.x !== this._b0 || this.y !== this._b1 || this.score !== this._b2; }"));
+        assert!(out.contains("w.beginEntity(tag, 24, id);"), "player row = id(8) + 3x f64(24)");
+        assert!(out.contains("w.writeF64(this.x as f64);"));
+
+        // state: collection map + grouped root-scalar row + commit()
+        assert!(out.contains("export class State {"));
+        assert!(out.contains("    players: Map<u64, Player> = new Map();"));
+        assert!(out.contains("e1.dirty()) { e1.emit(this._w, 1, ids1[i]); e1.keep(); }"), "dirty-only emit, tag 1");
+        assert!(out.contains("w.beginEntity(0x10, 8, 0);"), "root scalars one row, tag 0x10");
+        assert!(out.contains("return this._w.seal();"), "packed return");
     }
 }
