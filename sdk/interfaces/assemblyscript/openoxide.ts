@@ -2680,6 +2680,34 @@ export abstract class Room {
         return this.simulationInterval;
     }
 
+    // --- Colyseus-parity sugar ---------------------------------------------
+
+    /// Wire the generated schema state (`ox-game schema-codegen --lang as`):
+    /// `this.setState(new State())` then `onTick` returns `this.commitState()`.
+    /// Only dirty rows are encoded — developer never touches bytes.
+    protected _schemaState: { commit(): i64 } | null = null;
+
+    setState(state: { commit(): i64 }): void {
+        this._schemaState = state;
+    }
+
+    get state(): { commit(): i64 } | null {
+        return this._schemaState;
+    }
+
+    /** Call at the end of onTick: `return this.commitState();` */
+    commitState(): i64 {
+        return this._schemaState !== null ? this._schemaState.commit() : 0;
+    }
+
+    setPatchRate(ms: i32): void {
+        this.patchRate = ms;
+    }
+
+    setSimulationInterval(intervalMs: i32): void {
+        this.simulationInterval = intervalMs;
+    }
+
     /// Seat admission. `options` is the raw JSON string the client passed to
     /// `joinOrCreate(room, options)` (empty when it sent none). Return `false`
     /// to reject the connection before any player id or state is created.
