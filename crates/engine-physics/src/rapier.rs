@@ -142,17 +142,20 @@ impl RapierWorld3D {
         for (_handle, col) in self.collider_set.iter() {
             // Static geometry (arena, ground) has no bound entity and
             // reports `0`; the caller distinguishes world hits from entity hits.
-            let (pos, entity) = match col.parent().and_then(|p| self.rigid_body_set.get(p)) {
-                Some(body) => (
-                    *body.position(),
-                    self.handle_entities
-                        .get(&col.parent().expect("checked above"))
-                        .copied()
-                        .unwrap_or(0),
-                ),
-                None => (*col.position(), col.user_data as u32),
+            // col.position() is already the world iso in this rapier version
+            // (collider rotation included); the body's iso alone drops rotated
+            // colliders' rotation (see the 2D raycast for the test that
+            // pinned this).
+            let entity = match col.parent().and_then(|p| self.rigid_body_set.get(p)) {
+                Some(_) => self
+                    .handle_entities
+                    .get(&col.parent().expect("checked above"))
+                    .copied()
+                    .unwrap_or(0),
+                None => col.user_data as u32,
             };
-            let local_ray = ray.transform_by(&pos.inverse());
+            let world_iso = *col.position();
+            let local_ray = ray.transform_by(&world_iso.inverse());
             let Some(toi) = col.shape().cast_local_ray(&local_ray, max_dist, true) else {
                 continue;
             };
@@ -168,6 +171,9 @@ impl RapierWorld3D {
 #[derive(Resource)]
 pub struct RapierWorld2D {
     pub gravity: r2d::Vector,
+    /// Static arena bounds loaded from a 2D map file (`from_json`), if any.
+    pub arena_width: f32,
+    pub arena_height: f32,
     pub integration_parameters: r2d::IntegrationParameters,
     pub physics_pipeline: r2d::PhysicsPipeline,
     pub island_manager: r2d::IslandManager,
@@ -193,6 +199,8 @@ impl RapierWorld2D {
     pub fn new(gx: f32, gy: f32) -> Self {
         Self {
             gravity: r2d::Vector::new(gx, gy),
+            arena_width: 0.0,
+            arena_height: 0.0,
             integration_parameters: r2d::IntegrationParameters::default(),
             physics_pipeline: r2d::PhysicsPipeline::new(),
             island_manager: r2d::IslandManager::new(),
@@ -368,17 +376,20 @@ impl RapierWorld2D {
         for (_handle, col) in self.collider_set.iter() {
             // Static geometry (arena, ground) has no bound entity and
             // reports `0`; the caller distinguishes world hits from entity hits.
-            let (pos, entity) = match col.parent().and_then(|p| self.rigid_body_set.get(p)) {
-                Some(body) => (
-                    *body.position(),
-                    self.handle_entities
-                        .get(&col.parent().expect("checked above"))
-                        .copied()
-                        .unwrap_or(0),
-                ),
-                None => (*col.position(), col.user_data as u32),
+            // col.position() is already the world iso in this rapier version
+            // (rotation included). Reading the body's iso instead dropped the
+            // collider's own rotation, so rotated map geometry cast in its
+            // unrotated footprint.
+            let entity = match col.parent().and_then(|p| self.rigid_body_set.get(p)) {
+                Some(_) => self
+                    .handle_entities
+                    .get(&col.parent().expect("checked above"))
+                    .copied()
+                    .unwrap_or(0),
+                None => col.user_data as u32,
             };
-            let local_ray = ray.transform_by(&pos.inverse());
+            let world_iso = *col.position();
+            let local_ray = ray.transform_by(&world_iso.inverse());
             let Some(toi) = col.shape().cast_local_ray(&local_ray, max_dist, true) else {
                 continue;
             };
@@ -585,3 +596,137 @@ mod tests {
         assert!(hit_moved, "Should intersect after moving both to (100, 100)");
     }
 }
+
+/// The 2D map file — the sibling of the 3D `arena_map.json`. Boxes carry
+/// `w`/`h` (full sizes) plus an optional `rotation` in radians; circles carry
+/// `r`. Static geometry only: bodies are created `fixed`, so a cooked 2D map
+/// loads once at boot and rooms clone it, never rebuild it per tick.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MapConfig2D {
+    pub arena_width: f32,
+    pub arena_height: f32,
+    /// Optional gravity override `[gx, gy]`; defaults to `[0, -9.81]`.
+    #[serde(default)]
+    pub gravity: Option<[f32; 2]>,
+    #[serde(default)]
+    pub obstacles: Vec<MapObstacleDef2D>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MapObstacleDef2D {
+    pub id: u32,
+    #[serde(default)]
+    pub name: String,
+    pub x: f32,
+    pub y: f32,
+    /// Box: full width. Ignored for circles.
+    #[serde(default)]
+    pub w: f32,
+    /// Box: full height. Ignored for circles.
+    #[serde(default)]
+    pub h: f32,
+    /// Circle radius. When present the obstacle is a circle, not a box.
+    #[serde(default)]
+    pub r: f32,
+    /// Box rotation in radians.
+    #[serde(default)]
+    pub rotation: f32,
+}
+
+impl RapierWorld2D {
+    /// Load a static 2D arena from JSON: fixed colliders only, one insert per
+    /// obstacle, nothing per tick.
+    pub fn from_json(json_str: &str) -> Result<Self, serde_json::Error> {
+        let cfg: MapConfig2D = serde_json::from_str(json_str)?;
+        let [gx, gy] = cfg.gravity.unwrap_or([0.0, -9.81]);
+        let mut world = Self::new(gx, gy);
+        world.arena_width = cfg.arena_width;
+        world.arena_height = cfg.arena_height;
+        for obs in cfg.obstacles {
+            let handle = world.create_body(1, obs.x, obs.y);
+            if obs.r > 0.0 {
+                world.add_circle_collider(handle, obs.r, false, 0.0, 0.0);
+            } else {
+                let col = r2d::ColliderBuilder::cuboid(obs.w * 0.5, obs.h * 0.5)
+                    .rotation(obs.rotation)
+                    .friction(0.0)
+                    .build();
+                world
+                    .collider_set
+                    .insert_with_parent(col, handle, &mut world.rigid_body_set);
+            }
+        }
+        Ok(world)
+    }
+}
+
+#[cfg(test)]
+mod map2d_tests {
+    use super::*;
+
+    /// A cooked 2D map loads as fixed colliders only: arena bounds recorded,
+    /// gravity override honoured, both shapes present, and a ray at the map
+    /// hits the box without any warm-up step.
+    #[test]
+    fn from_json_loads_a_static_2d_arena() {
+        let json = r#"{
+            "arena_width": 800,
+            "arena_height": 500,
+            "gravity": [0, -19.6],
+            "obstacles": [
+                { "id": 1, "name": "wall", "x": 400, "y": 250, "w": 40, "h": 200 },
+                { "id": 2, "name": "rock", "x": 100, "y": 100, "r": 12 }
+            ]
+        }"#;
+        let world = RapierWorld2D::from_json(json).expect("parse 2D map");
+
+        assert_eq!(world.arena_width, 800.0);
+        assert_eq!(world.arena_height, 500.0);
+        assert_eq!(world.gravity.y, -19.6, "gravity override honoured");
+        assert_eq!(world.collider_set.len(), 2, "one collider per obstacle");
+
+        // Fixed bodies: nothing moves under the world's own gravity.
+        let mut stepped = world;
+        for _ in 0..30 {
+            stepped.step();
+        }
+        let bodies: Vec<_> = stepped
+            .rigid_body_set
+            .iter()
+            .map(|(_, b)| b.is_fixed())
+            .collect();
+        assert!(bodies.iter().all(|fixed| *fixed), "map geometry is static");
+
+        // Ray straight down the +x axis at y=250 must hit the wall (x=400).
+        let hit = stepped.raycast_hit([200.0, 250.0], [1.0, 0.0], 500.0);
+        let (entity, toi) = hit.expect("wall is on the ray");
+        assert!(toi > 150.0 && toi < 250.0, "hit before the wall plane, toi={toi}");
+        assert_eq!(entity, 0, "static geometry reports entity 0");
+    }
+
+    /// Rotation is honoured: a rotated box no longer catches a ray that an
+    /// axis-aligned one would.
+    #[test]
+    fn rotated_box_changes_the_collision_footprint() {
+        let json = r#"{
+            "arena_width": 400, "arena_height": 400,
+            "obstacles": [
+                { "id": 1, "x": 200, "y": 200, "w": 20, "h": 200, "rotation": 1.5707964 }
+            ]
+        }"#;
+        let mut world = RapierWorld2D::from_json(json).expect("parse");
+        // Rotated ~90°: local x-half 10 maps to world y, local y-half 100 to
+        // world x — footprint becomes x∈[100,300], y∈[190,210] (a horizontal
+        // band), the opposite orientation of the unrotated box.
+        let through_band = world.raycast_hit([150.0, 300.0], [0.0, -1.0], 300.0);
+        assert!(through_band.is_some(), "a vertical ray crosses the y-band");
+        let above_band_short = world.raycast_hit([150.0, 300.0], [1.0, 0.0], 45.0);
+        assert!(above_band_short.is_none(), "x-ray stops before the band starts at x=100");
+        // A ray travelling inside the band's y-range crosses it at x=100.
+        let across_band = world.raycast_hit([50.0, 200.0], [1.0, 0.0], 300.0);
+        let (entity, toi) = across_band.expect("x-ray at y=200 reaches the band");
+        assert_eq!(entity, 0, "static map geometry");
+        assert!((toi - 50.0).abs() < 1.0, "first contact at the band edge, toi={toi}");
+    }
+}
+
