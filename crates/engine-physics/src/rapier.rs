@@ -79,6 +79,43 @@ impl RapierWorld3D {
     }
 
     /// Registers a mapping between an ECS EntityId and a Rapier rigid body handle.
+    /// Create a rigid body (0 = Dynamic, 1 = Fixed, 2/3 = Kinematic).
+    pub fn create_body(&mut self, body_type: i32, x: f32, y: f32, z: f32) -> r3d::RigidBodyHandle {
+        let builder = match body_type {
+            1 => r3d::RigidBodyBuilder::fixed(),
+            2 => r3d::RigidBodyBuilder::kinematic_velocity_based(),
+            3 => r3d::RigidBodyBuilder::kinematic_position_based(),
+            _ => r3d::RigidBodyBuilder::dynamic(),
+        };
+        let rb = builder.translation(r3d::Vector::new(x, y, z)).build();
+        self.rigid_body_set.insert(rb)
+    }
+
+    /// Attach a ball collider to a rigid body (3D).
+    pub fn add_ball_collider(&mut self, handle: r3d::RigidBodyHandle, radius: f32) {
+        let collider = r3d::ColliderBuilder::ball(radius).density(1.0).build();
+        self.collider_set
+            .insert_with_parent(collider, handle, &mut self.rigid_body_set);
+    }
+
+    /// Drive a body like a controlled player: set its linear velocity (3D).
+    pub fn set_velocity(&mut self, handle: r3d::RigidBodyHandle, vx: f32, vy: f32, vz: f32) {
+        if let Some(body) = self.rigid_body_set.get_mut(handle) {
+            body.set_linvel(r3d::Vector::new(vx, vy, vz), true);
+        }
+    }
+
+    /// Read a body's world position (3D).
+    pub fn position(&self, handle: r3d::RigidBodyHandle) -> [f32; 3] {
+        match self.rigid_body_set.get(handle) {
+            Some(body) => {
+                let t = body.translation();
+                [t.x, t.y, t.z]
+            }
+            None => [0.0; 3],
+        }
+    }
+
     pub fn bind_entity(&mut self, entity_id: u32, handle: r3d::RigidBodyHandle) {
         self.entity_handles.insert(entity_id, handle);
         self.handle_entities.insert(handle, entity_id);
@@ -196,6 +233,123 @@ impl RapierWorld2D {
     pub fn bind_entity(&mut self, entity_id: u32, handle: r2d::RigidBodyHandle) {
         self.entity_handles.insert(entity_id, handle);
         self.handle_entities.insert(handle, entity_id);
+    }
+
+    /// Create a rigid body:
+    /// body_type: 0 = Dynamic, 1 = Fixed, 2 = KinematicVelocityBased, 3 = KinematicPositionBased
+    pub fn create_body(&mut self, body_type: i32, x: f32, y: f32) -> r2d::RigidBodyHandle {
+        let builder = match body_type {
+            1 => r2d::RigidBodyBuilder::fixed(),
+            2 => r2d::RigidBodyBuilder::kinematic_velocity_based(),
+            3 => r2d::RigidBodyBuilder::kinematic_position_based(),
+            _ => r2d::RigidBodyBuilder::dynamic(),
+        };
+        let rb = builder.translation(r2d::Vector::new(x, y)).build();
+        self.rigid_body_set.insert(rb)
+    }
+
+    /// Add a circle/ball collider to a rigid body
+    pub fn add_circle_collider(
+        &mut self,
+        body_handle: r2d::RigidBodyHandle,
+        radius: f32,
+        is_sensor: bool,
+        restitution: f32,
+        friction: f32,
+    ) -> r2d::ColliderHandle {
+        let col = r2d::ColliderBuilder::ball(radius)
+            .sensor(is_sensor)
+            .restitution(restitution)
+            .friction(friction)
+            .build();
+        self.collider_set
+            .insert_with_parent(col, body_handle, &mut self.rigid_body_set)
+    }
+
+    /// Add a box/cuboid collider to a rigid body
+    pub fn add_box_collider(
+        &mut self,
+        body_handle: r2d::RigidBodyHandle,
+        half_w: f32,
+        half_h: f32,
+        is_sensor: bool,
+        restitution: f32,
+        friction: f32,
+    ) -> r2d::ColliderHandle {
+        let col = r2d::ColliderBuilder::cuboid(half_w, half_h)
+            .sensor(is_sensor)
+            .restitution(restitution)
+            .friction(friction)
+            .build();
+        self.collider_set
+            .insert_with_parent(col, body_handle, &mut self.rigid_body_set)
+    }
+
+    /// Set linear velocity of a body
+    pub fn set_velocity(&mut self, body: r2d::RigidBodyHandle, vx: f32, vy: f32) {
+        if let Some(rb) = self.rigid_body_set.get_mut(body) {
+            rb.set_linvel(r2d::Vector::new(vx, vy), true);
+        }
+    }
+
+    /// Get linear velocity of a body
+    pub fn get_velocity(&self, body: r2d::RigidBodyHandle) -> (f32, f32) {
+        if let Some(rb) = self.rigid_body_set.get(body) {
+            let v = rb.linvel();
+            (v.x, v.y)
+        } else {
+            (0.0, 0.0)
+        }
+    }
+
+    /// Get translation (x, y) of a body
+    pub fn get_position(&self, body: r2d::RigidBodyHandle) -> Option<(f32, f32)> {
+        self.rigid_body_set.get(body).map(|rb| {
+            let t = rb.translation();
+            (t.x, t.y)
+        })
+    }
+
+    /// Set translation (x, y) of a body
+    pub fn set_position(&mut self, body: r2d::RigidBodyHandle, x: f32, y: f32) {
+        if let Some(rb) = self.rigid_body_set.get_mut(body) {
+            rb.set_translation(r2d::Vector::new(x, y), true);
+        }
+    }
+
+    /// Apply an impulse to a body
+    pub fn apply_impulse(&mut self, body: r2d::RigidBodyHandle, ix: f32, iy: f32) {
+        if let Some(rb) = self.rigid_body_set.get_mut(body) {
+            rb.apply_impulse(r2d::Vector::new(ix, iy), true);
+        }
+    }
+
+    /// Remove a body and its attached colliders
+    pub fn remove_body(&mut self, body: r2d::RigidBodyHandle) {
+        self.rigid_body_set.remove(
+            body,
+            &mut self.island_manager,
+            &mut self.collider_set,
+            &mut self.impulse_joint_set,
+            &mut self.multibody_joint_set,
+            &mut self.soft_body_set,
+            true,
+        );
+    }
+
+    /// Test if two bodies intersect (via any of their colliders)
+    pub fn check_intersection(&self, body_a: r2d::RigidBodyHandle, body_b: r2d::RigidBodyHandle) -> bool {
+        let (Some(rb_a), Some(rb_b)) = (self.rigid_body_set.get(body_a), self.rigid_body_set.get(body_b)) else {
+            return false;
+        };
+        for &col_a in rb_a.colliders() {
+            for &col_b in rb_b.colliders() {
+                if self.narrow_phase.intersection_pair(col_a, col_b) == Some(true) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     pub fn raycast_hit(
@@ -399,5 +553,35 @@ mod tests {
         let y = world.rigid_body_set[handle].translation().y;
         assert!(y < 1.0);
         assert!(y >= 0.40);
+    }
+
+    #[test]
+    fn test_rapier2d_check_intersection() {
+        let mut world = RapierWorld2D::new(0.0, 0.0);
+        let coin = world.create_body(1, 400.0, 250.0);
+        world.add_circle_collider(coin, 24.0, true, 0.0, 0.0);
+
+        let player = world.create_body(0, 400.0, 250.0);
+        world.add_circle_collider(player, 14.0, false, 0.0, 0.0);
+
+        world.step();
+
+        let hit = world.check_intersection(player, coin);
+        println!("check_intersection result: {hit}");
+        assert!(hit, "Player and coin at same position must intersect!");
+
+        // Move coin to (100, 100)
+        world.set_position(coin, 100.0, 100.0);
+        world.step();
+        let hit_far = world.check_intersection(player, coin);
+        println!("after move coin far: {hit_far}");
+        assert!(!hit_far, "Should not intersect when far");
+
+        // Move player to (100, 100)
+        world.set_position(player, 100.0, 100.0);
+        world.step();
+        let hit_moved = world.check_intersection(player, coin);
+        println!("after move player to coin: {hit_moved}");
+        assert!(hit_moved, "Should intersect after moving both to (100, 100)");
     }
 }

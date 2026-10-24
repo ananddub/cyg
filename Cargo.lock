@@ -3025,6 +3025,7 @@ dependencies = [
  "hmac",
  "libc",
  "mio",
+ "rapier2d",
  "rapier3d",
  "scc",
  "serde",

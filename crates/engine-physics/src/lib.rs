@@ -13,3 +13,5 @@ pub use collision::*;
 pub use fixed::*;
 pub use oxcl::*;
 pub use rapier::*;
+pub use rapier2d;
+pub use rapier3d;

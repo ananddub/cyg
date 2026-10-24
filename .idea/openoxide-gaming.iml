@@ -59,6 +59,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-schema/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-schema/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-schema/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-server/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

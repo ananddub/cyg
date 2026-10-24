@@ -10,7 +10,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
-use engine_physics::PhysicsWorld3D;
+use engine_physics::{PhysicsWorld3D, RapierWorld2D};
+use rapier2d::prelude as r2d;
 use engine_wasm::wasm_module;
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +76,11 @@ pub const MAX_OUTBOX_MESSAGES: usize = 256;
 /// physics crate.
 pub struct RoomHostData {
     pub physics: PhysicsWorld3D,
+    pub rapier2d: RapierWorld2D,
+    pub rapier2d_next_body_id: i32,
+    pub rapier2d_bodies: HashMap<i32, r2d::RigidBodyHandle>,
+    pub rapier2d_next_col_id: i32,
+    pub rapier2d_colliders: HashMap<i32, r2d::ColliderHandle>,
     pub outbox: Vec<OutboundMessage>,
     /// Deterministic, room-seeded RNG exposed to the guest as `sys_rng_*`
     /// (Phase-2 DX: the guest never implements its own PRNG — every client
@@ -94,6 +100,11 @@ impl RoomHostData {
     pub fn new(physics: PhysicsWorld3D) -> Self {
         Self {
             physics,
+            rapier2d: RapierWorld2D::new(0.0, 0.0),
+            rapier2d_next_body_id: 1,
+            rapier2d_bodies: HashMap::new(),
+            rapier2d_next_col_id: 1,
+            rapier2d_colliders: HashMap::new(),
             outbox: Vec::new(),
             rng: engine_core::RoomRng::from_seed_str("unseeded"),
             spatial: engine_spatial::SpatialIndex2D::new(),
@@ -105,6 +116,95 @@ impl RoomHostData {
     /// creation, where the name is known).
     pub fn seed_rng(&mut self, room_name: &str) {
         self.rng = engine_core::RoomRng::from_seed_str(room_name);
+    }
+
+    pub fn init_rapier2d(&mut self, gx: f32, gy: f32) {
+        self.rapier2d = RapierWorld2D::new(gx, gy);
+        self.rapier2d_bodies.clear();
+        self.rapier2d_colliders.clear();
+        self.rapier2d_next_body_id = 1;
+        self.rapier2d_next_col_id = 1;
+    }
+
+    pub fn rapier2d_create_body(&mut self, body_type: i32, x: f32, y: f32) -> i32 {
+        let handle = self.rapier2d.create_body(body_type, x, y);
+        let id = self.rapier2d_next_body_id;
+        self.rapier2d_next_body_id += 1;
+        self.rapier2d_bodies.insert(id, handle);
+        id
+    }
+
+    pub fn rapier2d_add_circle_collider(&mut self, body_id: i32, radius: f32, is_sensor: bool, restitution: f32, friction: f32) -> i32 {
+        let Some(&handle) = self.rapier2d_bodies.get(&body_id) else {
+            return 0;
+        };
+        let col_handle = self.rapier2d.add_circle_collider(handle, radius, is_sensor, restitution, friction);
+        let col_id = self.rapier2d_next_col_id;
+        self.rapier2d_next_col_id += 1;
+        self.rapier2d_colliders.insert(col_id, col_handle);
+        col_id
+    }
+
+    pub fn rapier2d_add_box_collider(&mut self, body_id: i32, half_w: f32, half_h: f32, is_sensor: bool, restitution: f32, friction: f32) -> i32 {
+        let Some(&handle) = self.rapier2d_bodies.get(&body_id) else {
+            return 0;
+        };
+        let col_handle = self.rapier2d.add_box_collider(handle, half_w, half_h, is_sensor, restitution, friction);
+        let col_id = self.rapier2d_next_col_id;
+        self.rapier2d_next_col_id += 1;
+        self.rapier2d_colliders.insert(col_id, col_handle);
+        col_id
+    }
+
+    pub fn rapier2d_set_velocity(&mut self, body_id: i32, vx: f32, vy: f32) {
+        if let Some(&handle) = self.rapier2d_bodies.get(&body_id) {
+            self.rapier2d.set_velocity(handle, vx, vy);
+        }
+    }
+
+    pub fn rapier2d_get_velocity(&self, body_id: i32) -> (f32, f32) {
+        if let Some(&handle) = self.rapier2d_bodies.get(&body_id) {
+            self.rapier2d.get_velocity(handle)
+        } else {
+            (0.0, 0.0)
+        }
+    }
+
+    pub fn rapier2d_get_position(&self, body_id: i32) -> Option<(f32, f32)> {
+        let &handle = self.rapier2d_bodies.get(&body_id)?;
+        self.rapier2d.get_position(handle)
+    }
+
+    pub fn rapier2d_set_position(&mut self, body_id: i32, x: f32, y: f32) {
+        if let Some(&handle) = self.rapier2d_bodies.get(&body_id) {
+            self.rapier2d.set_position(handle, x, y);
+        }
+    }
+
+    pub fn rapier2d_apply_impulse(&mut self, body_id: i32, ix: f32, iy: f32) {
+        if let Some(&handle) = self.rapier2d_bodies.get(&body_id) {
+            self.rapier2d.apply_impulse(handle, ix, iy);
+        }
+    }
+
+    pub fn rapier2d_step(&mut self, dt: f32) {
+        if dt > 0.0 {
+            self.rapier2d.integration_parameters.dt = dt;
+        }
+        self.rapier2d.step();
+    }
+
+    pub fn rapier2d_check_contact(&self, body_id_a: i32, body_id_b: i32) -> bool {
+        let (Some(&handle_a), Some(&handle_b)) = (self.rapier2d_bodies.get(&body_id_a), self.rapier2d_bodies.get(&body_id_b)) else {
+            return false;
+        };
+        self.rapier2d.check_intersection(handle_a, handle_b)
+    }
+
+    pub fn rapier2d_remove_body(&mut self, body_id: i32) {
+        if let Some(handle) = self.rapier2d_bodies.remove(&body_id) {
+            self.rapier2d.remove_body(handle);
+        }
     }
 }
 
@@ -611,6 +711,219 @@ pub(crate) fn build_host_linker(
                 },
             )
             .expect("link sys_spatial_query");
+
+        // Host Rapier2D ABI: 2D Physics World
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_init",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, gx: f64, gy: f64| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller.data_mut().init_rapier2d(gx as f32, gy as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier2d_init");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_create_body",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, body_type: i32, x: f64, y: f64| -> i32 {
+                    if !permissions.physics {
+                        return 0;
+                    }
+                    caller.data_mut().rapier2d_create_body(body_type, x as f32, y as f32)
+                },
+            )
+            .expect("link sys_rapier2d_create_body");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_add_circle_collider",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id: i32,
+                      radius: f64,
+                      is_sensor: i32,
+                      restitution: f64,
+                      friction: f64| -> i32 {
+                    if !permissions.physics {
+                        return 0;
+                    }
+                    caller.data_mut().rapier2d_add_circle_collider(
+                        body_id,
+                        radius as f32,
+                        is_sensor != 0,
+                        restitution as f32,
+                        friction as f32,
+                    )
+                },
+            )
+            .expect("link sys_rapier2d_add_circle_collider");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_add_box_collider",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      body_id: i32,
+                      half_w: f64,
+                      half_h: f64,
+                      is_sensor: i32,
+                      restitution: f64,
+                      friction: f64| -> i32 {
+                    if !permissions.physics {
+                        return 0;
+                    }
+                    caller.data_mut().rapier2d_add_box_collider(
+                        body_id,
+                        half_w as f32,
+                        half_h as f32,
+                        is_sensor != 0,
+                        restitution as f32,
+                        friction as f32,
+                    )
+                },
+            )
+            .expect("link sys_rapier2d_add_box_collider");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_set_velocity",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, body_id: i32, vx: f64, vy: f64| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller.data_mut().rapier2d_set_velocity(body_id, vx as f32, vy as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier2d_set_velocity");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_get_velocity",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, body_id: i32, out_ptr: i32| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    let (vx, vy) = caller.data().rapier2d_get_velocity(body_id);
+                    if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
+                        let data = mem.data_mut(&mut caller);
+                        let offset = out_ptr as usize;
+                        if offset + 16 <= data.len() {
+                            data[offset..offset + 8].copy_from_slice(&(vx as f64).to_le_bytes());
+                            data[offset + 8..offset + 16].copy_from_slice(&(vy as f64).to_le_bytes());
+                            return engine_wasm::ABI_OK;
+                        }
+                    }
+                    engine_wasm::ABI_ERR_OUT_OF_BOUNDS
+                },
+            )
+            .expect("link sys_rapier2d_get_velocity");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_get_position",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, body_id: i32, out_ptr: i32| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    let Some((x, y)) = caller.data().rapier2d_get_position(body_id) else {
+                        return engine_wasm::ABI_ERR_INVALID_ARGUMENT;
+                    };
+                    if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
+                        let data = mem.data_mut(&mut caller);
+                        let offset = out_ptr as usize;
+                        if offset + 16 <= data.len() {
+                            data[offset..offset + 8].copy_from_slice(&(x as f64).to_le_bytes());
+                            data[offset + 8..offset + 16].copy_from_slice(&(y as f64).to_le_bytes());
+                            return engine_wasm::ABI_OK;
+                        }
+                    }
+                    engine_wasm::ABI_ERR_OUT_OF_BOUNDS
+                },
+            )
+            .expect("link sys_rapier2d_get_position");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_set_position",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, body_id: i32, x: f64, y: f64| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller.data_mut().rapier2d_set_position(body_id, x as f32, y as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier2d_set_position");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_apply_impulse",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, body_id: i32, ix: f64, iy: f64| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller.data_mut().rapier2d_apply_impulse(body_id, ix as f32, iy as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier2d_apply_impulse");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_step",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, dt: f64| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller.data_mut().rapier2d_step(dt as f32);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier2d_step");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_check_contact",
+                move |caller: wasmtime::Caller<'_, RoomHostData>, body_id_a: i32, body_id_b: i32| -> i32 {
+                    if !permissions.physics {
+                        return 0;
+                    }
+                    if caller.data().rapier2d_check_contact(body_id_a, body_id_b) {
+                        1
+                    } else {
+                        0
+                    }
+                },
+            )
+            .expect("link sys_rapier2d_check_contact");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_remove_body",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, body_id: i32| -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    caller.data_mut().rapier2d_remove_body(body_id);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier2d_remove_body");
     }
 
     linker

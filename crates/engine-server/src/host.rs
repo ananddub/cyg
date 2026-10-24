@@ -203,7 +203,7 @@ impl GameTransport for LoopTransport {
         events.retain(|ev| {
             !matches!(ev, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. })
         });
-        self.inbound.extend(self.rtc.server_mut().poll_inbound());
+        self.inbound.extend(self.rtc.poll_inbound());
         Ok(())
     }
 
@@ -675,12 +675,11 @@ pub fn run(
                             );
                         }
                     }
-                    // The signaling socket went away. The data channel outlives
-                    // its signaling socket by design, so this is bookkeeping
-                    // only: the session teardown still surfaces as a normal
-                    // `Disconnected`.
+                    // The signaling socket went away. Clean up the transport session immediately
+                    // so the seat is released and `on_leave` runs without waiting for idle timeout.
                     engine_api::infra::signaling::SignalIn::Close { seat } => {
                         eprintln!("[server] signaling socket closed for seat {}", seat.id);
+                        let _ = transport.disconnect_with(&seat.id, 1000, "signaling socket closed");
                     }
                 }
             }
@@ -758,6 +757,9 @@ pub fn run(
                         eprintln!(
                             "[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'"
                         );
+                    } else if room.sessions.contains_key(&*client_id) {
+                        // Already joined this room: ignore duplicate transport connection events
+                        continue;
                     } else if let Some(id) = room.rejoin(&client_id) {
                         // The seat was held by `allowReconnection`: keep the
                         // player id and guest state, skip auth/join.

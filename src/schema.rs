@@ -167,13 +167,16 @@ fn generate_file(dir: &Path, source_path: &Path) -> io::Result<SchemaOutput> {
     }
 
     // AS output imports the SDK relatively; with the conventional src/ layout
-    // the SDK lives in src/ beside room.ts — rewrite so the SDK is loaded once.
-    if server.exists() {
-        let fixed = std::fs::read_to_string(&server)
-            .map(|t| t.replace("from \"../openoxide\"", "from \"../src/openoxide\""))
-            .unwrap_or_default();
-        if fixed.contains("from \"../src/openoxide\"") {
-            let _ = std::fs::write(&server, fixed);
+    // the SDK lives in src/ beside room.ts — rewrite root copy to point to src/
+    // and provide a copy inside src/ so either import path resolves cleanly.
+    if dir.join("src").is_dir() {
+        let nested_server = dir.join("src").join(SERVER_FILE);
+        if write_bytes_if_changed(&nested_server, generated.server_ts.as_bytes())? {
+            wrote.push(nested_server);
+        }
+        let fixed = generated.server_ts.replace("from \"./openoxide\"", "from \"./src/openoxide\"");
+        if write_bytes_if_changed(&server, fixed.as_bytes())? {
+            // updated root copy
         }
     }
 

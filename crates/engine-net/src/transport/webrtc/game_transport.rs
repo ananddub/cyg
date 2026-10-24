@@ -31,6 +31,7 @@ pub struct WebRtcTransport {
     last_seen: std::collections::HashMap<String, Instant>,
     idle_after: Duration,
     pending: Vec<TransportEvent>,
+    inbound: Vec<(String, super::contract::Inbound)>,
     /// `openoxide.schema.bin` bytes queued on a session's reliable lane as
     /// soon as that lane opens — the DataChannel equivalent of the WS
     /// transport sending the descriptor right after the upgrade.
@@ -66,8 +67,9 @@ impl WebRtcTransport {
             local,
             events: mio::Events::with_capacity(256),
             last_seen: std::collections::HashMap::new(),
-            idle_after: Duration::from_secs(60),
+            idle_after: Duration::from_secs(5),
             pending: Vec::new(),
+            inbound: Vec::new(),
             schema_descriptor: Bytes::new(),
         })
     }
@@ -81,6 +83,11 @@ impl WebRtcTransport {
     /// lane-classified inbound drain, stamped delta sends).
     pub fn server_mut(&mut self) -> &mut WebRtcServer {
         &mut self.server
+    }
+
+    /// Drain lane-classified inbound frames preserved during `poll_events`.
+    pub fn poll_inbound(&mut self) -> Vec<(String, super::contract::Inbound)> {
+        std::mem::take(&mut self.inbound)
     }
 
     /// Set the `openoxide.schema.bin` descriptor pushed to a session on its
@@ -151,13 +158,12 @@ impl GameTransport for WebRtcTransport {
                     if label == Lane::Reliable.label() && !self.schema_descriptor.is_empty() {
                         self.server.send_reliable(&client_id, &self.schema_descriptor);
                     }
-                    if let Ok(peer) = self.sock.local_addr() {
-                        self.pending.push(TransportEvent::Connected { client_id: client_id.into(), peer_addr: peer });
-                    }
                 }
                 WebRtcServerEvent::Disconnected { client_id } => {
                     self.last_seen.remove(&client_id);
-                    self.pending.push(TransportEvent::Disconnected { client_id: client_id.into() });
+                    if !self.pending.iter().any(|e| matches!(e, TransportEvent::Disconnected { client_id: cid } if cid.as_ref() == client_id)) {
+                        self.pending.push(TransportEvent::Disconnected { client_id: client_id.into() });
+                    }
                 }
                 WebRtcServerEvent::Message { .. } => {}
             }
@@ -168,13 +174,14 @@ impl GameTransport for WebRtcTransport {
         // never surface here.
         for (client_id, msg) in self.server.poll_inbound() {
             self.last_seen.insert(client_id.clone(), now);
-            if let super::contract::Inbound::Input { payload, .. } = msg {
+            if let super::contract::Inbound::Input { payload, .. } = &msg {
                 self.pending.push(TransportEvent::Packet {
-                    client_id: client_id.into(),
+                    client_id: client_id.clone().into(),
                     opcode: OpCode::PlayerInput,
-                    payload: bytes::Bytes::copy_from_slice(&payload),
+                    payload: bytes::Bytes::copy_from_slice(payload),
                 });
             }
+            self.inbound.push((client_id, msg));
         }
 
         // Idle sweep: WebRTC sessions that stopped sending anything.
@@ -224,9 +231,11 @@ impl GameTransport for WebRtcTransport {
         // leave) must not fabricate a phantom disconnect.
         if self.server.remove_session(client_id) {
             self.last_seen.remove(client_id);
-            self.pending.push(TransportEvent::Disconnected {
-                client_id: client_id.into(),
-            });
+            if !self.pending.iter().any(|e| matches!(e, TransportEvent::Disconnected { client_id: cid } if cid.as_ref() == client_id)) {
+                self.pending.push(TransportEvent::Disconnected {
+                    client_id: client_id.into(),
+                });
+            }
         }
         Ok(())
     }

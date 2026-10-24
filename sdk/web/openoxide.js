@@ -766,7 +766,11 @@
             const property = propertyOrHandler;
             const handler = handlerMaybe;
             if (typeof handler !== 'function') return () => {};
-            const meta = this.room._entityCallbacks.get(instance);
+            let meta = this.room._entityCallbacks.get(instance);
+            if (!meta) {
+                this.room._trackEntity(instance);
+                meta = this.room._entityCallbacks.get(instance);
+            }
             if (!meta) return () => {};
             if (!meta.fields[property]) meta.fields[property] = [];
             const list = meta.fields[property];
@@ -2172,6 +2176,7 @@
                 return;
             }
 
+            const oldCallbacks = this._entityCallbacks.get(this.state);
             this.schema = first.schema;
             this.state = new SchemaMap(this, first.name, first.schema);
             this._entityCallbacks = new WeakMap();
@@ -2183,6 +2188,13 @@
                     this._rootValues[field.name] = this._schemaDefaultValue(field);
                 }
                 this._trackEntity(this.state);
+                if (oldCallbacks) {
+                    const newMeta = this._entityCallbacks.get(this.state);
+                    if (newMeta) {
+                        Object.assign(newMeta.fields, oldCallbacks.fields);
+                        newMeta.any.push(...oldCallbacks.any);
+                    }
+                }
             }
             for (let i = 0; i < parsed.collections.length; i++) {
                 const entry = parsed.collections[i];

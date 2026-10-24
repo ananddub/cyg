@@ -124,6 +124,11 @@ impl WebRtcServer {
                         sink.stats.frames_dropped_no_channel += n as u64;
                     }
                     session.channel_labels.remove(&cid);
+                    if session.ch_reliable.is_none() && session.ch_unreliable.is_none() && session.connected {
+                        sink.events.push(WebRtcServerEvent::Disconnected {
+                            client_id: session.client_id.clone(),
+                        });
+                    }
                 }
                 Output::Timeout(t) => {
                     session.next_timeout = Some(t);

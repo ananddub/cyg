@@ -133,6 +133,48 @@ declare function _host_send(
     data_len: i32
 ): i32;
 
+// --- RAPIER 2D PHYSICS (HOST-OWNED) ------------------------------------------
+
+@external("env", "sys_rapier2d_init")
+declare function _sys_rapier2d_init(gx: f64, gy: f64): i32;
+
+@external("env", "sys_rapier2d_create_body")
+declare function _sys_rapier2d_create_body(body_type: i32, x: f64, y: f64): i32;
+
+@external("env", "sys_rapier2d_add_circle_collider")
+declare function _sys_rapier2d_add_circle_collider(
+    body_id: i32, radius: f64, is_sensor: i32, restitution: f64, friction: f64
+): i32;
+
+@external("env", "sys_rapier2d_add_box_collider")
+declare function _sys_rapier2d_add_box_collider(
+    body_id: i32, half_w: f64, half_h: f64, is_sensor: i32, restitution: f64, friction: f64
+): i32;
+
+@external("env", "sys_rapier2d_set_velocity")
+declare function _sys_rapier2d_set_velocity(body_id: i32, vx: f64, vy: f64): i32;
+
+@external("env", "sys_rapier2d_get_velocity")
+declare function _sys_rapier2d_get_velocity(body_id: i32, out_ptr: usize): i32;
+
+@external("env", "sys_rapier2d_get_position")
+declare function _sys_rapier2d_get_position(body_id: i32, out_ptr: usize): i32;
+
+@external("env", "sys_rapier2d_set_position")
+declare function _sys_rapier2d_set_position(body_id: i32, x: f64, y: f64): i32;
+
+@external("env", "sys_rapier2d_apply_impulse")
+declare function _sys_rapier2d_apply_impulse(body_id: i32, ix: f64, iy: f64): i32;
+
+@external("env", "sys_rapier2d_step")
+declare function _sys_rapier2d_step(dt: f64): i32;
+
+@external("env", "sys_rapier2d_check_contact")
+declare function _sys_rapier2d_check_contact(body_id_a: i32, body_id_b: i32): i32;
+
+@external("env", "sys_rapier2d_remove_body")
+declare function _sys_rapier2d_remove_body(body_id: i32): i32;
+
 // =============================================================================
 // --- 2. VECTOR 2D & 3D MATH HELPERS ---
 // =============================================================================
@@ -879,6 +921,121 @@ export class Physics {
 }
 
 // =============================================================================
+// --- 3.5 AUTHORITATIVE HOST RAPIER 2D RIGID-BODY PHYSICS ---
+// =============================================================================
+
+export enum BodyType {
+    Dynamic = 0,
+    Fixed = 1,
+    KinematicVelocityBased = 2,
+    KinematicPositionBased = 3
+}
+
+export class Rapier2D {
+    private static _buf: ArrayBuffer = new ArrayBuffer(32);
+    private static _ptr: usize = changetype<usize>(Rapier2D._buf);
+    private static _view: DataView = new DataView(Rapier2D._buf);
+
+    /** Initialize host Rapier2D physics world with gravity (gx, gy). */
+    static init(gx: f64 = 0.0, gy: f64 = 0.0): void {
+        _sys_rapier2d_init(gx, gy);
+    }
+
+    /** Create a rigid body (Dynamic, Fixed, Kinematic) at (x, y). Returns body ID. */
+    static createBody(type: BodyType, x: f64, y: f64): i32 {
+        return _sys_rapier2d_create_body(type as i32, x, y);
+    }
+
+    /** Attach a circle/ball collider to a body. */
+    static addCircleCollider(
+        bodyId: i32,
+        radius: f64,
+        isSensor: bool = false,
+        restitution: f64 = 0.0,
+        friction: f64 = 0.5
+    ): i32 {
+        return _sys_rapier2d_add_circle_collider(
+            bodyId,
+            radius,
+            isSensor ? 1 : 0,
+            restitution,
+            friction
+        );
+    }
+
+    /** Attach a box/cuboid collider to a body. */
+    static addBoxCollider(
+        bodyId: i32,
+        halfW: f64,
+        halfH: f64,
+        isSensor: bool = false,
+        restitution: f64 = 0.0,
+        friction: f64 = 0.5
+    ): i32 {
+        return _sys_rapier2d_add_box_collider(
+            bodyId,
+            halfW,
+            halfH,
+            isSensor ? 1 : 0,
+            restitution,
+            friction
+        );
+    }
+
+    /** Set linear velocity (vx, vy) on a dynamic or velocity-based kinematic body. */
+    static setVelocity(bodyId: i32, vx: f64, vy: f64): void {
+        _sys_rapier2d_set_velocity(bodyId, vx, vy);
+    }
+
+    /** Read current linear velocity (vx, vy) of a body into out Vec2. */
+    static getVelocity(bodyId: i32, out: Vec2): bool {
+        let res = _sys_rapier2d_get_velocity(bodyId, Rapier2D._ptr);
+        if (res == 0) {
+            out.x = Rapier2D._view.getFloat64(0, true);
+            out.y = Rapier2D._view.getFloat64(8, true);
+            return true;
+        }
+        return false;
+    }
+
+    /** Read authoritative (x, y) position of a body into out Vec2. */
+    static getPosition(bodyId: i32, out: Vec2): bool {
+        let res = _sys_rapier2d_get_position(bodyId, Rapier2D._ptr);
+        if (res == 0) {
+            out.x = Rapier2D._view.getFloat64(0, true);
+            out.y = Rapier2D._view.getFloat64(8, true);
+            return true;
+        }
+        return false;
+    }
+
+    /** Teleport or set position (x, y) of a body. */
+    static setPosition(bodyId: i32, x: f64, y: f64): void {
+        _sys_rapier2d_set_position(bodyId, x, y);
+    }
+
+    /** Apply an instantaneous linear impulse (ix, iy) to a dynamic body. */
+    static applyImpulse(bodyId: i32, ix: f64, iy: f64): void {
+        _sys_rapier2d_apply_impulse(bodyId, ix, iy);
+    }
+
+    /** Step the authoritative Rapier2D physics simulation by dt seconds. */
+    static step(dt: f64): void {
+        _sys_rapier2d_step(dt);
+    }
+
+    /** Return true if any collider of bodyA touches or intersects any collider of bodyB. */
+    static checkContact(bodyA: i32, bodyB: i32): bool {
+        return _sys_rapier2d_check_contact(bodyA, bodyB) == 1;
+    }
+
+    /** Remove a body and all its attached colliders from the physics world. */
+    static removeBody(bodyId: i32): void {
+        _sys_rapier2d_remove_body(bodyId);
+    }
+}
+
+// =============================================================================
 // --- 4. ZERO-SETUP HOST LOGGING (NO @external NEEDED) ---
 // =============================================================================
 
@@ -1533,6 +1690,11 @@ function writeSchemaNumber(w: DeltaWriter, type: u8, value: f64): void {
     else { w.writeF64(value); }
 }
 
+/** Base for schema states: subclasses override commit() with encoded delta. */
+export class SchemaStateBase {
+    commit(): i64 { return 0; }
+}
+
 /**
  * A map of `id -> SchemaEntity` that emits full snapshots and field patches.
  *
@@ -1543,7 +1705,7 @@ function writeSchemaNumber(w: DeltaWriter, type: u8, value: f64): void {
  * return state.seal();          // packed pointer for onTick
  * ```
  */
-export class SchemaState {
+export class SchemaState extends SchemaStateBase {
     private _schema: SchemaDef;
     private _entities: Map<u32, SchemaEntity> = new Map<u32, SchemaEntity>();
     private _order: Array<u32> = new Array<u32>();
@@ -1554,11 +1716,15 @@ export class SchemaState {
     private _out: DeltaWriter = new DeltaWriter(1024);
 
     constructor(schema: SchemaDef) {
+        super();
         this._schema = schema;
     }
 
     get schemaHash(): u32 { return this._schema.hash; }
     get size(): i32 { return this._order.length; }
+    get ids(): Array<u32> { return this._order; }
+    keys(): Array<u32> { return this._order; }
+    values(): Array<SchemaEntity> { return this._entities.values(); }
 
     has(id: u32): bool { return this._entities.has(id); }
     get(id: u32): SchemaEntity { return this._entities.get(id); }
@@ -1689,6 +1855,10 @@ export class SchemaState {
         this.clearChanges();
         return out.seal();
     }
+
+    override commit(): i64 {
+        return this.seal();
+    }
 }
 
 /**
@@ -1709,7 +1879,7 @@ export class SchemaState {
  *                [u32 root dirty mask] [dirty values...]
  *                [u16 collection count] { [u16 id] [u32 hash] [u32 len] [section] }*
  */
-export class SchemaWorld {
+export class SchemaWorld extends SchemaStateBase {
     root: SchemaEntity;
     private _collections: Array<SchemaState> = new Array<SchemaState>();
     private _full: DeltaWriter = new DeltaWriter(1024);
@@ -1718,6 +1888,7 @@ export class SchemaWorld {
     private _out: DeltaWriter = new DeltaWriter(2048);
 
     constructor(root: SchemaEntity) {
+        super();
         this.root = root;
     }
 
@@ -1794,6 +1965,10 @@ export class SchemaWorld {
             this._collections[i].clearChanges();
         }
         return out.seal();
+    }
+
+    override commit(): i64 {
+        return this.seal();
     }
 }
 
@@ -2514,12 +2689,6 @@ export class EventEmitter {
  * Extend this class and implement the abstract lifecycle hooks.
  * The OpenOxide compiler automatically creates the Flat WASM ABI bridge!
  */
-/// Base for generated schema states (`schema-codegen --lang as`): the Room
-/// stores the reference; subclasses override commit() with dirty encoding.
-export class SchemaStateBase {
-    commit(): i64 { return 0; }
-}
-
 export abstract class Room {
     maxPlayers: i32 = 16;
 
@@ -2618,6 +2787,8 @@ export abstract class Room {
                     handler(id, new InputReader(ptr + 2 + typeLen, len - 2 - typeLen), this);
                     return;
                 }
+                this.onInputPacket(id, new InputReader(ptr + 2 + typeLen, len - 2 - typeLen));
+                return;
             }
         }
 

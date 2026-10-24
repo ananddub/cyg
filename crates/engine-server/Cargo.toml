@@ -14,6 +14,7 @@ engine-net = { path = "../engine-net" }
 engine-schema = { path = "../engine-schema" }
 engine-physics = { path = "../engine-physics" }
 rapier3d = "0.36"
+rapier2d = "0.36"
 engine-spatial = { path = "../engine-spatial" }
 engine-nav = { path = "../engine-nav" }
 engine-api = { path = "../engine-api" }
