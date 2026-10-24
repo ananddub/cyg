@@ -27,8 +27,13 @@ pub struct SchemaOutput {
 }
 
 fn find_source(dir: &Path) -> Option<PathBuf> {
-    let source = dir.join(TS_SOURCE_FILE);
-    source.exists().then_some(source)
+    // Root first, then the conventional src/ layout.
+    let root = dir.join(TS_SOURCE_FILE);
+    if root.exists() {
+        return Some(root);
+    }
+    let nested = dir.join("src").join(TS_SOURCE_FILE);
+    nested.exists().then_some(nested)
 }
 
 /// Regenerate when `schema.ts` exists; do nothing for projects that have not
