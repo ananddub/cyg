@@ -21,10 +21,10 @@ export function rngNext(): f64 {
 // --- SPATIAL AOI (kiddo KD-tree, host-owned) -------------------------------
 // Push each moving entity's position once per tick, then query neighbors.
 
-@external("ox", "sys_spatial_update")
+@external("env", "sys_spatial_update")
 declare function _sys_spatial_update(entity_id: i64, x: f64, y: f64): i32;
 
-@external("ox", "sys_spatial_query")
+@external("env", "sys_spatial_query")
 declare function _sys_spatial_query(x: f64, y: f64, radius: f64, out_ptr: usize, max_results: i32): i32;
 
 /** Insert-or-move an entity in the room's AOI index (idempotent per tick). */
@@ -42,7 +42,7 @@ export function spatialQuery(x: f64, y: f64, radius: f64, outIds: usize): i32 {
 
 // --- DETERMINISTIC CLOCK ---------------------------------------------------
 
-@external("ox", "sys_clock_ticks")
+@external("env", "sys_clock_ticks")
 declare function _sys_clock_ticks(): i64;
 
 /** The authoritative simulation tick counter (never wall-clock). */
@@ -76,7 +76,7 @@ export function isHeld(flags: u8, key: u8): bool {
 // Deterministic room RNG — the HOST owns the ChaCha8 stream (seeded from the
 // room name), so every client replays identical sequences with zero traffic.
 // Never use Math.random in room logic: it breaks determinism.
-@external("ox", "sys_rng_next")
+@external("env", "sys_rng_next")
 declare function _sys_rng_next(): f64;
 
 @external("env", "sys_physics_move")
