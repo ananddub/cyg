@@ -45,6 +45,9 @@ pub struct VisibilityDelta {
 /// High-performance 2D KD-Tree spatial index for entity proximity & AOI queries.
 pub struct SpatialIndex2D {
     tree: MutableKdTree<f64, 2>,
+    /// Last known position per entity — lets `upsert` remove the stale leaf
+    /// (kiddo removal needs the exact stored coordinates).
+    last_pos: std::collections::HashMap<u32, [f64; 2]>,
 }
 
 impl Default for SpatialIndex2D {
@@ -57,6 +60,7 @@ impl SpatialIndex2D {
     pub fn new() -> Self {
         Self {
             tree: MutableKdTree::default(),
+            last_pos: std::collections::HashMap::new(),
         }
     }
 
@@ -71,6 +75,16 @@ impl SpatialIndex2D {
     }
 
     /// Update an entity's 2D position.
+    /// Insert-or-move in one call — the guest-facing `sys_spatial_update`
+    /// path, where the caller does not track whether the entity is new.
+    /// Re-calling with a moved entity replaces its leaf (no duplicates).
+    pub fn upsert(&mut self, entity_id: u32, pos: [f64; 2]) {
+        if let Some(old) = self.last_pos.insert(entity_id, pos) {
+            self.tree.remove(&old, entity_id);
+        }
+        self.tree.add(&pos, entity_id);
+    }
+
     pub fn update(&mut self, entity_id: u32, old_pos: [f64; 2], new_pos: [f64; 2]) {
         self.remove(entity_id, old_pos);
         self.insert(entity_id, new_pos);
@@ -173,6 +187,7 @@ impl SpatialIndex3D {
     pub fn new() -> Self {
         Self {
             tree: MutableKdTree::default(),
+
         }
     }
 

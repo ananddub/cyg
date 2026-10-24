@@ -223,6 +223,14 @@ pub struct RoomHostData {
     /// (Phase-2 DX: the guest never implements its own PRNG — every client
     /// replays identical sequences from the same room seed).
     pub rng: engine_core::RoomRng,
+    /// Guest-maintained spatial index for AOI queries (`sys_spatial_*`): the
+    /// guest pushes entity positions each tick, the host answers radius
+    /// queries via the kiddo KD-tree.
+    pub spatial: engine_spatial::SpatialIndex2D,
+    /// Authoritative simulation tick counter, bumped once per `GameRoom::tick`
+    /// and read by the guest as `sys_clock_ticks` (deterministic — never
+    /// wall-clock).
+    pub clock_ticks: i64,
 }
 
 impl RoomHostData {
@@ -231,6 +239,8 @@ impl RoomHostData {
             physics,
             outbox: Vec::new(),
             rng: engine_core::RoomRng::from_seed_str("unseeded"),
+            spatial: engine_spatial::SpatialIndex2D::new(),
+            clock_ticks: 0,
         }
     }
 
@@ -1424,6 +1434,7 @@ impl GameRoom {
             self.sim_accum = Duration::ZERO;
         }
         if let Some(ref mut wasm) = self.wasm {
+            wasm.data_mut().clock_ticks = self.current_tick as i64;
             let packed = wasm.on_tick(guest_dt)?;
             if rollback_enabled {
                 // The guest serializes its own state (tiny blob) — no raw

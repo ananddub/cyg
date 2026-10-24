@@ -17,6 +17,84 @@
 export function rngNext(): f64 {
     return _sys_rng_next();
 }
+
+// --- SPATIAL AOI (kiddo KD-tree, host-owned) -------------------------------
+// Push each moving entity's position once per tick, then query neighbors.
+
+@external("ox", "sys_spatial_update")
+declare function _sys_spatial_update(entity_id: i64, x: f64, y: f64): i32;
+
+@external("ox", "sys_spatial_query")
+declare function _sys_spatial_query(x: f64, y: f64, radius: f64, out_ptr: usize, max_results: i32): i32;
+
+/** Insert-or-move an entity in the room's AOI index (idempotent per tick). */
+export function spatialUpdate(entityId: i64, x: f64, y: f64): void {
+    _sys_spatial_update(entityId, x, y);
+}
+
+/**
+ * Query entities within `radius` of (x, y). Fills `outIds` (u32 little-endian)
+ * with up to outIds.length / 4 entity ids; returns the count written.
+ */
+export function spatialQuery(x: f64, y: f64, radius: f64, outIds: usize): i32 {
+    return _sys_spatial_query(x, y, radius, outIds, outIds == 0 ? 0 : 9999);
+}
+
+// --- DETERMINISTIC CLOCK ---------------------------------------------------
+
+@external("ox", "sys_clock_ticks")
+declare function _sys_clock_ticks(): i64;
+
+/** The authoritative simulation tick counter (never wall-clock). */
+export function clockTicks(): i64 {
+    return _sys_clock_ticks();
+}
+
+// --- INPUT FLAGS (Phase-3-lite: no more raw bitmask decoding) ---------------
+
+export const Key = { W: 1, S: 2, A: 4, D: 8, Space: 16, Shift: 32 };
+
+/** First byte of an on_input payload as a held-key bitmask. */
+export function heldFlags(ptr: usize, len: usize): u8 {
+    return len > 0 ? load<u8>(ptr) : 0;
+}
+
+export function isHeld(flags: u8, key: u8): bool {
+    return (flags & key) != 0;
+}
+
+// --- TLV DELTA WRITER (Phase-1-lite: no more hand-rolled byte packing) ------
+// Wire convention: [tag u8][len u8][payload]. One PLAYER row =
+// [0x01][24][id u64][x f32][y f32][z f32][hp f32]. finish() returns the
+// (ptr << 32) | len value on_tick must give back to the host.
+
+export const TAG_PLAYER: u8 = 0x01;
+
+export class DeltaWriter {
+    private ptr: usize = 0;
+    private len: i32 = 0;
+    private cap: i32 = 4096;
+
+    constructor(cap: i32 = 4096) {
+        this.cap = cap;
+        this.ptr = heap.alloc(cap);
+    }
+
+    beginEntity(tag: u8, id: u64): void {
+        store<u8>(this.ptr + this.len, tag); this.len += 1;
+        store<u8>(this.ptr + this.len, 24); this.len += 1;
+        store<u64>(this.ptr + this.len, id); this.len += 8;
+    }
+
+    f32(value: f32): void { store<f32>(this.ptr + this.len, value); this.len += 4; }
+
+    /** Returns the packed (ptr << 32) | len for on_tick's return. */
+    finish(): u64 {
+        const packed = ((this.ptr as u64) << 32) | (this.len as u64);
+        this.len = 0; // reuse the arena next tick
+        return packed;
+    }
+}
 // =============================================================================
 
 // Deterministic room RNG — the HOST owns the ChaCha8 stream (seeded from the
