@@ -52,7 +52,15 @@ export function clockTicks(): i64 {
 
 // --- INPUT FLAGS (Phase-3-lite: no more raw bitmask decoding) ---------------
 
-export const Key = { W: 1, S: 2, A: 4, D: 8, Space: 16, Shift: 32 };
+// AS has no object literals — static-class constants instead.
+export class Key {
+    static readonly W: u8 = 1;
+    static readonly S: u8 = 2;
+    static readonly A: u8 = 4;
+    static readonly D: u8 = 8;
+    static readonly Space: u8 = 16;
+    static readonly Shift: u8 = 32;
+}
 
 /** First byte of an on_input payload as a held-key bitmask. */
 export function heldFlags(ptr: usize, len: usize): u8 {
@@ -63,38 +71,6 @@ export function isHeld(flags: u8, key: u8): bool {
     return (flags & key) != 0;
 }
 
-// --- TLV DELTA WRITER (Phase-1-lite: no more hand-rolled byte packing) ------
-// Wire convention: [tag u8][len u8][payload]. One PLAYER row =
-// [0x01][24][id u64][x f32][y f32][z f32][hp f32]. finish() returns the
-// (ptr << 32) | len value on_tick must give back to the host.
-
-export const TAG_PLAYER: u8 = 0x01;
-
-export class DeltaWriter {
-    private ptr: usize = 0;
-    private len: i32 = 0;
-    private cap: i32 = 4096;
-
-    constructor(cap: i32 = 4096) {
-        this.cap = cap;
-        this.ptr = heap.alloc(cap);
-    }
-
-    beginEntity(tag: u8, id: u64): void {
-        store<u8>(this.ptr + this.len, tag); this.len += 1;
-        store<u8>(this.ptr + this.len, 24); this.len += 1;
-        store<u64>(this.ptr + this.len, id); this.len += 8;
-    }
-
-    f32(value: f32): void { store<f32>(this.ptr + this.len, value); this.len += 4; }
-
-    /** Returns the packed (ptr << 32) | len for on_tick's return. */
-    finish(): u64 {
-        const packed = ((this.ptr as u64) << 32) | (this.len as u64);
-        this.len = 0; // reuse the arena next tick
-        return packed;
-    }
-}
 // =============================================================================
 
 // Deterministic room RNG — the HOST owns the ChaCha8 stream (seeded from the
@@ -940,6 +916,15 @@ export class DeltaWriter {
         let buf = new ArrayBuffer(initialCapacity);
         this._buf = buf;
         this._view = new DataView(buf);
+    }
+
+    /** [tag][len][id u64] header. fieldBytes = id + saare field bytes
+     *  (id ke baad jo likhoge) — developer byte math NAHI karta. */
+    beginEntity(tag: u8, fieldBytes: u8, id: u64): this {
+        this.writeU8(tag);
+        this.writeU8(fieldBytes);
+        this.writeI64(id as i64);
+        return this;
     }
 
     reset(): this {
