@@ -907,6 +907,10 @@
             // upgrade URL carries; `sessionId` is confirmed by the first delta.
             this.seatSessionId = options.sessionId || null;
             this._seatSessionId = this.seatSessionId;
+            /** Colyseus parity: the room's public id (the seat's room name
+             *  until the host assigns a distinct id). */
+            this.roomId = options.roomId || this.roomName;
+            this._leaveCode = null;
             this.reconnectionToken = options.reconnectionToken || null;
             this._client = options.client || null;
             this._autoReconnect = options.autoReconnect !== false;
@@ -1006,7 +1010,13 @@
          * App-level RTT measurement: [18][seq u32 LE] echoed by the server.
          * Resolves with RTT in ms (-1 on timeout).
          */
-        ping() {
+        ping(callback) {
+            const promise = this._pingImpl();
+            if (typeof callback === 'function') promise.then((ms) => callback(ms));
+            return promise;
+        }
+
+        _pingImpl() {
             return new Promise((resolve) => {
                 if (!this.ws || this.ws.readyState !== 1) return resolve(-1);
                 const seq = (this._pingSeq = (this._pingSeq + 1) & 0xFFFFFFFF) >>> 0;
@@ -1452,6 +1462,10 @@
             chUnreliable.onclose = () => {
                 this.serverRtcActive = false;
             };
+            chReliable.onclose = () => {
+                // Either lane dying means the peer connection is going down.
+                this.serverRtcActive = false;
+            };
 
             chUnreliable.onmessage = onBytes;
             chReliable.onmessage = onBytes;
@@ -1700,8 +1714,15 @@
             const payload = frame.subarray(2 + typeLen);
 
             // Generic listener first (useful for logging / routing), then the
-            // type-specific handlers registered with onMessage().
+            // type-specific handlers registered with onMessage(). The '*'
+            // wildcard sees every typed message as (type, payload), Colyseus-style.
             this.emit('message', type, payload);
+            const wildcard = this._messageHandlers.get('*');
+            if (wildcard) {
+                for (let i = 0; i < wildcard.length; i++) {
+                    wildcard[i](type, payload, this);
+                }
+            }
             const handlers = this._messageHandlers.get(type);
             if (handlers) {
                 for (let i = 0; i < handlers.length; i++) {
@@ -2028,7 +2049,8 @@
             }
         }
 
-        leave() {
+        leave(consented = true) {
+            this._leaveCode = consented ? 1000 : 1001;
             this._intentionalClose = true;
             if (this._reconnectTimer) {
                 clearTimeout(this._reconnectTimer);
@@ -2267,6 +2289,37 @@
         /** Called after every applied full/patch frame. */
         onStateChange(cb) {
             if (typeof cb === 'function') this._onStateChangeHandlers.push(cb);
+            return this;
+        }
+
+        /** Colyseus parity: `room.onError((code, message) => ...)` */
+        onError(cb) {
+            if (typeof cb !== 'function') return this;
+            return this.on('error', (err) => {
+                cb((err && err.code) || 0, (err && err.message) || String(err));
+            });
+        }
+
+        /** Colyseus parity: `room.onLeave((code, reason) => ...)` — the code is
+         *  the WS close code; a consented `leave()` reports 1000. */
+        onLeave(cb) {
+            if (typeof cb !== 'function') return this;
+            return this.on('close', (ev) => {
+                const code = this._leaveCode ?? (ev && ev.code) ?? 1006;
+                cb(code, ev && ev.reason);
+            });
+        }
+
+        /** Colyseus parity: `room.removeAllListeners()` — drops every handler
+         *  this room accumulated (messages, state, close, error). */
+        removeAllListeners() {
+            this._messageHandlers.clear();
+            this.listeners.clear();
+            this._onAddHandlers.length = 0;
+            this._onRemoveHandlers.length = 0;
+            this._onChangeHandlers.length = 0;
+            this._onCollectionChangeHandlers.length = 0;
+            this._onStateChangeHandlers.length = 0;
             return this;
         }
 
@@ -2643,6 +2696,14 @@
          * unless the room explicitly calls `broadcast`.
          */
         send(type, data = null) {
+            if (this.serverRtcActive && this.serverChReliable &&
+                this.serverChReliable.readyState === 'open') {
+                const frame = this._encodeAppMessage(type, data);
+                if (frame) {
+                    this.bytesOut += frame.byteLength;
+                    try { this.serverChReliable.send(frame); return true; } catch (e) { /* closing */ }
+                }
+            }
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
 
             const typeBytes = _encoder ? _encoder.encode(String(type)) : null;
@@ -2673,6 +2734,47 @@
             this.bytesOut += frame.byteLength;
             this.ws.send(frame);
             return true;
+        }
+
+        /** Build one typed app-message frame without choosing a transport. */
+        _encodeAppMessage(type, data = null) {
+            const typeBytes = _encoder ? _encoder.encode(String(type)) : null;
+            if (!typeBytes || typeBytes.length === 0 || typeBytes.length > APP_MESSAGE_MAX_TYPE) {
+                throw new Error('[OpenOxide SDK] message type must be 1..255 UTF-8 bytes');
+            }
+            let body;
+            if (data == null) {
+                body = new Uint8Array(0);
+            } else if (typeof data === 'string') {
+                body = _encoder ? _encoder.encode(data) : new Uint8Array(0);
+            } else if (data instanceof Uint8Array) {
+                body = data;
+            } else if (data instanceof ArrayBuffer) {
+                body = new Uint8Array(data);
+            } else if (ArrayBuffer.isView(data)) {
+                body = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+            } else {
+                body = _encoder ? _encoder.encode(JSON.stringify(data)) : new Uint8Array(0);
+            }
+            const frame = new Uint8Array(2 + typeBytes.length + body.length);
+            frame[0] = AppOp.MESSAGE;
+            frame[1] = typeBytes.length;
+            frame.set(typeBytes, 2);
+            frame.set(body, 2 + typeBytes.length);
+            return frame;
+        }
+
+        /** Colyseus parity: fire-and-forget over the unreliable lane. Returns
+         *  false when no unreliable path is open (the delta lane drops stale
+         *  frames by design — the caller re-sends or re-thinks). */
+        sendUnreliable(type, data = null) {
+            if (this.serverRtcActive && this.serverChUnreliable &&
+                this.serverChUnreliable.readyState === 'open') {
+                const frame = this._encodeAppMessage(type, data);
+                this.bytesOut += frame.byteLength;
+                try { this.serverChUnreliable.send(frame); return true; } catch (e) { /* closing */ }
+            }
+            return false;
         }
 
         /** Familiar `sendBytes(type, bytes)` name, now using the typed envelope. */

@@ -197,3 +197,58 @@ test("without a seat the legacy game-port websocket is the fallback", async () =
         unstubBrowser();
     }
 });
+
+// ---------------------------------------------------------------------------
+// Colyseus API-parity lock: the exact surface the official SDK's example uses
+// (`Callbacks.get(room)`, `room.onMessage('*')`, `room.onError/onLeave`,
+// `room.sendUnreliable`, `room.leave(consented)`).
+// ---------------------------------------------------------------------------
+
+test("colyseus parity surface works end to end on a room", async () => {
+    stubBrowser();
+    try {
+        const room = makeRoom();
+        room.connect();
+        const ws = FakeWebSocket.instances[0];
+        assert.equal(room.roomId, "game_room", "roomId defaults to the room name");
+
+        ws.receive({ type: "ice", config: { iceServers: [] } });
+        await new Promise((r) => setImmediate(r));
+        const pc = FakePeerConnection.instances[0];
+        pc.channels[1].readyState = 'open';
+        pc.channels[0].readyState = 'open';
+        pc.channels[1].onopen();
+        pc.channels[0].onopen();
+        await new Promise((r) => setImmediate(r));
+
+        // onMessage('*') sees every typed message as (type, payload).
+        const seen = [];
+        room.onMessage('*', (type, payload) => seen.push([type, payload]));
+        let payload = null;
+        room.onMessage('hello', (p) => { payload = p; });
+        pc.channels[1].onmessage({
+            data: (() => { const b = new Uint8Array(2 + 5 + 2); b[0] = 0x05; b[1] = 5;
+                b.set(new TextEncoder().encode('hello'), 2); b.set([1, 2], 7); return b.buffer; })()
+        });
+        assert.deepEqual(payload, new Uint8Array([1, 2]));
+        assert.equal(seen.length, 1);
+        assert.equal(seen[0][0], 'hello');
+
+        // send() rides the reliable DataChannel; sendUnreliable the other one.
+        assert.equal(room.sendBytes('input', new Uint8Array([7])), true);
+        assert.equal(pc.channels[1].sent.length, 1, "send goes over the reliable lane");
+        assert.equal(room.sendUnreliable('pos', new Uint8Array([1])), true);
+        assert.equal(pc.channels[0].sent.length, 1, "sendUnreliable rides the delta lane");
+
+        // leave(consented) surfaces as onLeave(1000).
+        const leftCode = new Promise((r) => room.onLeave((code) => r(code)));
+        await room.leave();
+        pc.channels[1].onclose();
+        room.emit('close', { code: 1000 });
+        assert.equal(await leftCode, 1000, "consented leave reports 1000");
+
+        room.removeAllListeners();
+    } finally {
+        unstubBrowser();
+    }
+});
