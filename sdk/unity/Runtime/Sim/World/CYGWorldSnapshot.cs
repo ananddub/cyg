@@ -18,6 +18,10 @@ namespace CookYourGame.Sim
         internal int[] Free = Array.Empty<int>();
         internal int FreeCount;
         internal uint StructuralVersion;
+        internal CYGRngState Rng;
+        internal Type GlobalType;
+        internal int GlobalSize;
+        internal byte[] GlobalBytes = Array.Empty<byte>();
 
         internal readonly List<CYGComponentStoreSnapshot> Stores = new List<CYGComponentStoreSnapshot>();
 
@@ -72,6 +76,27 @@ namespace CookYourGame.Sim
             }
 
             Array.Resize(ref Free, target);
+        }
+
+        internal void EnsureGlobalCapacity(int size)
+        {
+            if (size <= GlobalBytes.Length)
+            {
+                return;
+            }
+
+            int target = GlobalBytes.Length < 16 ? 16 : GlobalBytes.Length;
+            while (target < size)
+            {
+                if (target > int.MaxValue / 2)
+                {
+                    target = size;
+                    break;
+                }
+                target *= 2;
+            }
+
+            GlobalBytes = new byte[target];
         }
 
         internal void SyncStores(IReadOnlyList<ICYGComponentStore> stores)

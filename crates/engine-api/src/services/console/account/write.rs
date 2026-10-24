@@ -4,14 +4,12 @@ use axum::Json;
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::account::{AddNoteRequest, BanAccountRequest};
 use crate::error::V2Error;
-use crate::repositories::console_mutations::{
-    InsertUserNoteAnonymousParams, InsertUserNoteParams,
-};
-use crate::ApiState;
+use crate::repositories::console_mutations::{InsertUserNoteAnonymousParams, InsertUserNoteParams};
 
 impl super::ConsoleService {
     /// Ban an account: `disable_time` becomes now, which is what every other

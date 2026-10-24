@@ -136,6 +136,15 @@ namespace CookYourGame.Dsl.Core
                         }
                     }
                 }
+                else if (token.IsIdentifier("schema"))
+                {
+                    anyDeclaration = true;
+                    CygSchemaDecl? decl = ParseSchema();
+                    if (decl != null)
+                    {
+                        module.Schemas.Add(decl);
+                    }
+                }
                 else if (token.IsIdentifier("event") || token.IsIdentifier("synced_event"))
                 {
                     anyDeclaration = true;
@@ -154,11 +163,20 @@ namespace CookYourGame.Dsl.Core
                         module.Signals.Add(decl);
                     }
                 }
-                else if (token.IsIdentifier("rpc") || token.IsIdentifier("command"))
+                else if (token.IsIdentifier("command"))
+                {
+                    anyDeclaration = true;
+                    CygCommandDecl? decl = ParseCommand();
+                    if (decl != null)
+                    {
+                        module.Commands.Add(decl);
+                    }
+                }
+                else if (token.IsIdentifier("rpc"))
                 {
                     anyDeclaration = true;
                     Report(CygDiagnosticIds.UnsupportedType,
-                        $"'{token.Text}' declarations are reserved for a later CYG release; only signals, events and synced_event are supported today.",
+                        "'rpc' declarations are reserved for a later CYG release; use command, signal, event or synced_event.",
                         token.Span);
                     SkipDeclaration();
                 }
@@ -260,6 +278,44 @@ namespace CookYourGame.Dsl.Core
             }
 
             CygComponentDecl decl = new CygComponentDecl { Name = name!, Id = id, Span = keyword.Span };
+            ReadFields(decl.Fields);
+            return decl;
+        }
+
+        private CygSchemaDecl? ParseSchema()
+        {
+            CygToken keyword = Next();
+            if (!TryReadDeclarationHeader(out string? name, keyword, "schema"))
+            {
+                return null;
+            }
+
+            uint version = 1;
+            if (Match(CygTokenKind.Colon))
+            {
+                CygToken number = Current;
+                if (number.Kind == CygTokenKind.Number)
+                {
+                    Next();
+                    if (number.Number <= 0 || number.Number > uint.MaxValue)
+                    {
+                        Report(CygDiagnosticIds.Schema,
+                            $"Schema version {number.Number} must be between 1 and {uint.MaxValue}.",
+                            number.Span);
+                    }
+                    else
+                    {
+                        version = (uint)number.Number;
+                    }
+                }
+                else
+                {
+                    Report(CygDiagnosticIds.Schema, "Expected a numeric schema version after ':'.", number.Span);
+                    SkipToBlockStart();
+                }
+            }
+
+            CygSchemaDecl decl = new CygSchemaDecl { Name = name!, Version = version, Span = keyword.Span };
             ReadFields(decl.Fields);
             return decl;
         }
@@ -475,6 +531,42 @@ namespace CookYourGame.Dsl.Core
             }
 
             CygEventDecl decl = new CygEventDecl { Name = name!, Id = id, Synced = synced, Span = keyword.Span };
+            ReadFields(decl.Fields);
+            return decl;
+        }
+
+        private CygCommandDecl? ParseCommand()
+        {
+            CygToken keyword = Next();
+            if (!TryReadDeclarationHeader(out string? name, keyword, "command"))
+            {
+                return null;
+            }
+
+            int? id = null;
+            if (Match(CygTokenKind.Colon))
+            {
+                CygToken number = Current;
+                if (number.Kind == CygTokenKind.Number)
+                {
+                    Next();
+                    if (number.Number > int.MaxValue || number.Number < int.MinValue)
+                    {
+                        Report(CygDiagnosticIds.CommandId, $"Command id {number.Number} does not fit in a 32-bit integer.", number.Span);
+                    }
+                    else
+                    {
+                        id = (int)number.Number;
+                    }
+                }
+                else
+                {
+                    Report(CygDiagnosticIds.CommandId, "Expected a numeric command id after ':'.", number.Span);
+                    SkipToBlockStart();
+                }
+            }
+
+            CygCommandDecl decl = new CygCommandDecl { Name = name!, Id = id, Span = keyword.Span };
             ReadFields(decl.Fields);
             return decl;
         }

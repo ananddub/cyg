@@ -25,6 +25,10 @@ sdk/unity/Runtime/Sim/Tests/bin/
 sdk/unity/Runtime/Sim/Tests/obj/
 sdk/.artifacts/
 
+# Determinism Lab build output
+sdk/unity/Tools~/CYG.DeterminismLab/*/bin/
+sdk/unity/Tools~/CYG.DeterminismLab/*/obj/
+
 # Unity build & cache artifacts
 **/[Ll]ibrary/
 **/[Tt]emp/
@@ -46,3 +50,8 @@ reference/
 
 # Godot editor/import cache for the SDK sample projects
 sdk/godot/.godot/
+
+# CYG VS Code extension output
+sdk/unity/Tools~/CYG.VSCode/node_modules/
+sdk/unity/Tools~/CYG.VSCode/server/
+sdk/unity/Tools~/CYG.VSCode/*.vsix

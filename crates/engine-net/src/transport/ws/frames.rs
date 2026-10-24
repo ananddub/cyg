@@ -10,7 +10,7 @@ use super::protocol::{
     PROTOCOL_CODE_MASK, PROTO_JOIN_ROOM, PROTO_LEAVE_ROOM, PROTO_PING, PROTO_ROOM_DATA,
     PROTO_ROOM_DATA_BYTES, PROTO_ROOM_REQUEST, close_code,
 };
-use super::rfc6455::{next_ws_frame, queue_close_frame, queue_message, queue_ws_control};
+use super::rfc6455::{next_ws_frame, queue_close_frame, queue_message, queue_ws_control, MAX_INBOUND_FRAME_SIZE};
 use crate::framing::OpCode;
 use crate::transport::TransportEvent;
 
@@ -23,7 +23,17 @@ pub(super) fn process_ws_frames(
     events_out: &mut Vec<TransportEvent>,
     now: Instant,
 ) -> bool {
-    while let Some((ws_opcode, fin, payload)) = next_ws_frame(&mut client.recv_buf) {
+    while let Some(frame) = next_ws_frame(&mut client.recv_buf) {
+        let (ws_opcode, fin, payload) = match frame {
+            Ok(frame) => frame,
+            Err(()) => {
+                // Peer declared a frame over MAX_INBOUND_FRAME_SIZE: policy
+                // violation — close with 1009 (Message Too Big) and drop.
+                client.consented = true;
+                queue_close_frame(client, 1009, "frame too large");
+                return true;
+            }
+        };
         // Any inbound frame proves the client is alive: refresh the heartbeat deadline (some WebSocket stacks answer app traffic but delay pongs).
         client.last_activity = now;
         client.ping_sent_at = None;
@@ -32,6 +42,7 @@ pub(super) fn process_ws_frames(
         match ws_opcode {
             0x8 => {
                 // Client-initiated close: echo a close frame, then drop.
+                client.consented = true;
                 queue_close_frame(client, close_code::CONSENTED, "leave");
                 return true;
             }
@@ -45,8 +56,16 @@ pub(super) fn process_ws_frames(
                 continue;
             }
             0x0 => {
-                // Continuation fragment.
+                // Continuation fragment. Same 1 MiB cap as single frames — an
+                // endless fin=0 stream must not accumulate memory forever.
                 if client.frag_opcode.is_some() {
+                    if client.frag_buf.len() + payload.len()
+                        > super::rfc6455::MAX_INBOUND_FRAME_SIZE
+                    {
+                        client.consented = true;
+                        queue_close_frame(client, 1009, "message too large");
+                        return true;
+                    }
                     client.frag_buf.extend_from_slice(&payload);
                     if fin {
                         let msg = client.frag_buf.split().freeze();
@@ -96,6 +115,7 @@ fn dispatch_message(
         }
         PROTO_LEAVE_ROOM => {
             // Client leave: answer close 4000 CONSENTED, then drop.
+            client.consented = true;
             queue_close_frame(client, close_code::CONSENTED, "leave");
             return true;
         }

@@ -32,8 +32,8 @@ impl auto_ws::Protocol for WsProtocol {
         // serving plane. It is stashed on the identity because the connection
         // task outlives the request that opened it.
         let state = crate::current_state();
-        let Query(WsQuery { token }) = Query::<WsQuery>::try_from_uri(&parts.uri)
-            .map_err(IntoResponse::into_response)?;
+        let Query(WsQuery { token }) =
+            Query::<WsQuery>::try_from_uri(&parts.uri).map_err(IntoResponse::into_response)?;
         let token = token
             .filter(|token| !token.is_empty())
             .or_else(|| bearer(parts))
@@ -65,9 +65,7 @@ impl auto_ws::Protocol for WsProtocol {
                 message: error.message.clone(),
             }),
         })
-        .unwrap_or_else(|_| {
-            "{\"type\":\"error\",\"message\":\"cannot encode error\"}".to_string()
-        })
+        .unwrap_or_else(|_| "{\"type\":\"error\",\"message\":\"cannot encode error\"}".to_string())
     }
 }
 

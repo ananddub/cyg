@@ -103,7 +103,10 @@ mod tests {
     #[test]
     fn an_unknown_name_or_acl_never_widens_access() {
         assert_eq!(ConsoleRole::from_name("root"), None);
-        assert_eq!(ConsoleRole::from_acl(&serde_json::json!({})), ConsoleRole::Readonly);
+        assert_eq!(
+            ConsoleRole::from_acl(&serde_json::json!({})),
+            ConsoleRole::Readonly
+        );
         assert_eq!(
             ConsoleRole::from_acl(&serde_json::json!({ "role": 99 })),
             ConsoleRole::Readonly

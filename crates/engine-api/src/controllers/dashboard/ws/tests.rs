@@ -62,15 +62,25 @@ fn hello_then_snapshot_carry_the_same_overview_keys() {
         hello["protocol"].as_u64(),
         Some(u64::from(engine_dashboard::WS_PROTOCOL))
     );
-    assert!(snapshot.get("protocol").is_none(), "only hello negotiates the protocol");
+    assert!(
+        snapshot.get("protocol").is_none(),
+        "only hello negotiates the protocol"
+    );
     assert_eq!(overview_keys(&hello), overview_keys(&snapshot));
-    assert!(snapshot["ticks"].is_object(), "a snapshot must be enough to redraw the graphs");
+    assert!(
+        snapshot["ticks"].is_object(),
+        "a snapshot must be enough to redraw the graphs"
+    );
 }
 
 #[test]
 fn a_frame_is_bounded_in_size() {
     let json = serde_json::to_string(&frames::snapshot_frame(&state())).unwrap();
-    assert!(json.len() < 128 * 1024, "snapshot frame is {} bytes", json.len());
+    assert!(
+        json.len() < 128 * 1024,
+        "snapshot frame is {} bytes",
+        json.len()
+    );
 }
 
 mod live_socket;

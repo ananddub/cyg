@@ -10,12 +10,12 @@ use axum::Json;
 use axum::http::HeaderMap;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::app::middleware::bearer_token;
 use crate::dto::Empty;
 use crate::dto::console::auth::{AuthenticateRequest, ConsoleSessionResponse, LogoutRequest};
 use crate::error::V2Error;
 use crate::infra::console::{self, ConsoleRole};
-use crate::ApiState;
 
 impl super::ConsoleService {
     pub async fn authenticate(

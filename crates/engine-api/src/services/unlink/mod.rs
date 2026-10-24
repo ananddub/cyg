@@ -8,8 +8,8 @@ use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use crate::ApiState;
-use crate::error::V2Error;
 use crate::app::middleware::session_claims;
+use crate::error::V2Error;
 
 pub mod credential;
 pub mod device;

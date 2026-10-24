@@ -11,6 +11,36 @@ using System.Runtime.CompilerServices;
 
 namespace CookYourGame.Sim
 {
+    [Flags]
+    public enum CYGCollisionFlags
+    {
+        None = 0,
+        Sides = 1 << 0,
+        Above = 1 << 1,
+        Below = 1 << 2
+    }
+
+    /// <summary>Kinematic platform whose motion is carried by grounded characters.</summary>
+    public struct CYGMovingPlatform
+    {
+        public int Id;
+        public FPAABB Box;
+        public FPVector3 Velocity;
+
+        public CYGMovingPlatform(int id, FPAABB box, FPVector3 velocity)
+        {
+            Id = id;
+            Box = box;
+            Velocity = velocity;
+        }
+    }
+
+    /// <summary>Optional collision-world extension for moving platforms.</summary>
+    public interface ICYGMovingPlatformWorld
+    {
+        bool TryGetPlatformVelocity(FPVector3 point, out FPVector3 velocity);
+    }
+
     /// <summary>
     /// Interface for collision queries required by deterministic character controllers.
     /// </summary>
@@ -25,21 +55,82 @@ namespace CookYourGame.Sim
     /// <summary>
     /// Lightweight collision world implementation holding AABBs, Spheres, and Capsules.
     /// </summary>
-    public class SimpleCollisionWorld : ICollisionWorld
+    public class SimpleCollisionWorld : ICollisionWorld, ICYGMovingPlatformWorld
     {
         public readonly List<FPAABB> Boxes = new List<FPAABB>();
         public readonly List<FPSphere> Spheres = new List<FPSphere>();
         public readonly List<FPCapsule> Capsules = new List<FPCapsule>();
+        public readonly List<CYGMovingPlatform> Platforms = new List<CYGMovingPlatform>();
+
+        /// <summary>Static triangle meshes baked from level MeshColliders.</summary>
+        public readonly List<CYGStaticMesh> Meshes = new List<CYGStaticMesh>();
 
         public void AddBox(FPAABB box) => Boxes.Add(box);
         public void AddSphere(FPSphere sphere) => Spheres.Add(sphere);
         public void AddCapsule(FPCapsule capsule) => Capsules.Add(capsule);
+        public void AddMovingPlatform(CYGMovingPlatform platform) => Platforms.Add(platform);
+
+        public void AddMesh(CYGStaticMesh mesh)
+        {
+            if (mesh != null && !Meshes.Contains(mesh))
+            {
+                Meshes.Add(mesh);
+            }
+        }
+
+        /// <summary>Adds every mesh registered under the given ids.</summary>
+        public void AddMeshes(IList<CYGStaticMesh> meshes)
+        {
+            if (meshes == null)
+            {
+                return;
+            }
+            for (int i = 0; i < meshes.Count; i++)
+            {
+                AddMesh(meshes[i]);
+            }
+        }
+
+        /// <summary>Advances kinematic platforms; call once per simulation tick before characters move.</summary>
+        public void AdvancePlatforms(FP deltaTime)
+        {
+            for (int i = 0; i < Platforms.Count; i++)
+            {
+                CYGMovingPlatform platform = Platforms[i];
+                platform.Box.Translate(platform.Velocity * deltaTime);
+                Platforms[i] = platform;
+            }
+        }
+
+        public bool TryGetPlatformVelocity(FPVector3 point, out FPVector3 velocity)
+        {
+            bool found = false;
+            FP top = FP.MinValue;
+            velocity = FPVector3.Zero;
+
+            for (int i = 0; i < Platforms.Count; i++)
+            {
+                CYGMovingPlatform platform = Platforms[i];
+                FPAABB probe = platform.Box;
+                probe.Expand((FP)0.05f);
+                if (probe.Contains(point) && platform.Box.Max.y > top)
+                {
+                    top = platform.Box.Max.y;
+                    velocity = platform.Velocity;
+                    found = true;
+                }
+            }
+
+            return found;
+        }
 
         public void Clear()
         {
             Boxes.Clear();
             Spheres.Clear();
             Capsules.Clear();
+            Platforms.Clear();
+            Meshes.Clear();
         }
 
         public bool CapsuleCast(FPCapsule capsule, FPVector3 direction, FP maxDistance, out FPRaycastHit hit)
@@ -66,6 +157,22 @@ namespace CookYourGame.Sim
             for (int i = 0; i < Capsules.Count; i++)
             {
                 if (FPRaycast.CapsuleCast(capsule, direction, maxDistance, Capsules[i], out var h))
+                {
+                    if (h.Distance < bestDist) { bestDist = h.Distance; hit = h; }
+                }
+            }
+
+            for (int i = 0; i < Platforms.Count; i++)
+            {
+                if (FPRaycast.CapsuleCast(capsule, direction, maxDistance, Platforms[i].Box, out var h))
+                {
+                    if (h.Distance < bestDist) { bestDist = h.Distance; hit = h; }
+                }
+            }
+
+            for (int i = 0; i < Meshes.Count; i++)
+            {
+                if (Meshes[i].CapsuleCast(capsule, direction, maxDistance, out var h))
                 {
                     if (h.Distance < bestDist) { bestDist = h.Distance; hit = h; }
                 }
@@ -103,6 +210,22 @@ namespace CookYourGame.Sim
                 }
             }
 
+            for (int i = 0; i < Platforms.Count; i++)
+            {
+                if (FPRaycast.SphereCast(sphere, direction, maxDistance, Platforms[i].Box, out var h))
+                {
+                    if (h.Distance < bestDist) { bestDist = h.Distance; hit = h; }
+                }
+            }
+
+            for (int i = 0; i < Meshes.Count; i++)
+            {
+                if (Meshes[i].SphereCast(sphere, direction, maxDistance, out var h))
+                {
+                    if (h.Distance < bestDist) { bestDist = h.Distance; hit = h; }
+                }
+            }
+
             return hit.Hit;
         }
 
@@ -135,6 +258,22 @@ namespace CookYourGame.Sim
                 }
             }
 
+            for (int i = 0; i < Platforms.Count; i++)
+            {
+                if (FPRaycast.RaycastAABB(ray, Platforms[i].Box, maxDistance, out var h))
+                {
+                    if (h.Distance < bestDist) { bestDist = h.Distance; hit = h; }
+                }
+            }
+
+            for (int i = 0; i < Meshes.Count; i++)
+            {
+                if (Meshes[i].Raycast(ray, maxDistance, out var h))
+                {
+                    if (h.Distance < bestDist) { bestDist = h.Distance; hit = h; }
+                }
+            }
+
             return hit.Hit;
         }
 
@@ -153,6 +292,16 @@ namespace CookYourGame.Sim
             for (int i = 0; i < Capsules.Count; i++)
             {
                 if (capsule.Intersects(Capsules[i])) return true;
+            }
+
+            for (int i = 0; i < Platforms.Count; i++)
+            {
+                if (Platforms[i].Box.Intersects(capsule)) return true;
+            }
+
+            for (int i = 0; i < Meshes.Count; i++)
+            {
+                if (Meshes[i].Overlaps(capsule)) return true;
             }
 
             return false;
@@ -178,6 +327,15 @@ namespace CookYourGame.Sim
         public FPVector3 Velocity;
         public bool IsGrounded;
         public FPVector3 GroundNormal = FPVector3.Up;
+
+        /// <summary>Surfaces touched by the last Move call.</summary>
+        public CYGCollisionFlags CollisionFlags { get; private set; }
+
+        /// <summary>Velocity of the platform under the feet, zero when airborne.</summary>
+        public FPVector3 PlatformVelocity { get; private set; }
+
+        /// <summary>Normal of the last blocking contact in the last Move call.</summary>
+        public FPVector3 LastHitNormal { get; private set; }
 
         public FPCharacterController()
         {
@@ -213,6 +371,7 @@ namespace CookYourGame.Sim
         /// </summary>
         public bool CheckGrounded(ICollisionWorld world)
         {
+            PlatformVelocity = FPVector3.Zero;
             if (world == null)
             {
                 IsGrounded = false;
@@ -226,19 +385,23 @@ namespace CookYourGame.Sim
             if (world.CapsuleCast(capsule, FPVector3.Down, checkDist, out var hit))
             {
                 FP slopeAngle = FPVector3.Angle(hit.Normal, FPVector3.Up);
+                GroundNormal = hit.Normal;
                 if (slopeAngle <= SlopeLimit)
                 {
                     IsGrounded = true;
-                    GroundNormal = hit.Normal;
+                    CollisionFlags |= CYGCollisionFlags.Below;
+
+                    ICYGMovingPlatformWorld moving = world as ICYGMovingPlatformWorld;
+                    FPVector3 velocity;
+                    if (moving != null && moving.TryGetPlatformVelocity(Position + FPVector3.Down * SkinWidth, out velocity))
+                    {
+                        PlatformVelocity = velocity;
+                    }
                     return true;
                 }
-                else
-                {
-                    // Too steep to stand on
-                    IsGrounded = false;
-                    GroundNormal = hit.Normal;
-                    return false;
-                }
+
+                IsGrounded = false;
+                return false;
             }
 
             IsGrounded = false;
@@ -246,14 +409,37 @@ namespace CookYourGame.Sim
             return false;
         }
 
+        private static CYGCollisionFlags ClassifyNormal(FPVector3 normal)
+        {
+            if (normal.y > FP.Half)
+            {
+                return CYGCollisionFlags.Below;
+            }
+            if (normal.y < -FP.Half)
+            {
+                return CYGCollisionFlags.Above;
+            }
+            return CYGCollisionFlags.Sides;
+        }
+
         /// <summary>
         /// Moves the character by the specified displacement vector using kinematic sweep and slide.
         /// </summary>
         public void Move(FPVector3 displacement, ICollisionWorld world)
         {
-            if (world == null || displacement.SqrMagnitude < MinMoveDistance * MinMoveDistance)
+            CollisionFlags = CYGCollisionFlags.None;
+            PlatformVelocity = FPVector3.Zero;
+
+            if (world == null)
             {
                 Position += displacement;
+                return;
+            }
+
+            if (displacement.SqrMagnitude < MinMoveDistance * MinMoveDistance)
+            {
+                Position += displacement;
+                CheckGrounded(world);
                 return;
             }
 
@@ -299,6 +485,8 @@ namespace CookYourGame.Sim
 
                 if (world.CapsuleCast(capsule, moveDir, moveDist + SkinWidth, out var hit))
                 {
+                    LastHitNormal = hit.Normal;
+                    CollisionFlags |= ClassifyNormal(hit.Normal);
                     FP stepDistance = FP.Max(FP.Zero, hit.Distance - SkinWidth);
                     FP remainingDist = moveDist - stepDistance;
 
@@ -382,6 +570,7 @@ namespace CookYourGame.Sim
                     Position += FPVector3.Up * (startLift + upDist - downDist)
                               + fwdDir * fwdDist;
                     horizontalMove = FPVector3.Zero;
+                    CollisionFlags |= CYGCollisionFlags.Below;
                     return true;
                 }
             }
@@ -394,6 +583,8 @@ namespace CookYourGame.Sim
         /// </summary>
         public void SimpleMove(FPVector3 targetVelocity, FP deltaTime, ICollisionWorld world, FP gravity)
         {
+            FPVector3 carry = IsGrounded ? PlatformVelocity : FPVector3.Zero;
+
             if (IsGrounded)
             {
                 Velocity = targetVelocity;
@@ -406,7 +597,7 @@ namespace CookYourGame.Sim
                 Velocity.y -= gravity * deltaTime;
             }
 
-            FPVector3 motion = Velocity * deltaTime;
+            FPVector3 motion = Velocity * deltaTime + carry * deltaTime;
             Move(motion, world);
         }
     }

@@ -3,25 +3,25 @@
 //! All state and methods are fully encapsulated on the `RealtimeChatService` struct as lock-free `FastMap`s,
 //! injected as a singleton via `auto_di` with zero free functions, statics, or mutexes.
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use auto_di::singleton;
 use auto_ws::{Conn, Msg};
 use chrono::Utc;
 use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
+use super::{FastMap, new_fast_map};
 use crate::ApiState;
+use crate::controllers::realtime::messages::*;
+use crate::controllers::realtime::{Dispatched, session_of, state_of};
 use crate::error::V2Error;
 use crate::infra::ws::envelope::{
     ChannelMessage, ChannelMessageAck, Envelope, EnvelopeMessage, Presence,
 };
 use crate::infra::ws::session::{self, Session};
 use crate::repositories::channel::{InsertChannelMessageParams, UpdateChannelMessageParams};
-use crate::controllers::realtime::messages::*;
-use crate::controllers::realtime::{Dispatched, session_of, state_of};
 use crate::utils::channel::{MODE_DM, MODE_GROUP, Stream, stream_of_channel};
-use super::{FastMap, new_fast_map};
 
 const ROLE_MEMBER: i16 = 2;
 
@@ -81,7 +81,12 @@ impl RealtimeChatService {
         }
     }
 
-    async fn assert_member(&self, state: &ApiState, uid: Uuid, stream: &Stream) -> Result<(), V2Error> {
+    async fn assert_member(
+        &self,
+        state: &ApiState,
+        uid: Uuid,
+        stream: &Stream,
+    ) -> Result<(), V2Error> {
         match stream.mode {
             MODE_DM => {
                 if uid != stream.subject && uid != stream.descriptor {
@@ -111,7 +116,10 @@ impl RealtimeChatService {
             Some(c) => c.members.remove(&sid),
             None => return None,
         };
-        let is_empty = channel_ref.as_ref().map(|c| c.members.is_empty()).unwrap_or(false);
+        let is_empty = channel_ref
+            .as_ref()
+            .map(|c| c.members.is_empty())
+            .unwrap_or(false);
         drop(channel_ref);
         if is_empty {
             self.channels.remove_sync(channel_id);

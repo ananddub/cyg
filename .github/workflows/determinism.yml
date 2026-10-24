@@ -1,0 +1,78 @@
+name: determinism
+
+on:
+  push:
+    paths:
+      - "sdk/unity/Runtime/Sim/**"
+      - "sdk/unity/Tools~/CYG.World.Tests/**"
+      - "sdk/unity/Tools~/CYG.Physics3D.Tests/**"
+      - "sdk/unity/Tools~/CYG.Physics2D.Tests/**"
+      - "sdk/unity/Tools~/CYG.Navigation.Tests/**"
+      - "sdk/unity/Tools~/CYG.Dsl.Tests/**"
+      - "sdk/unity/Tools~/CYG.CodeGen.Tests/**"
+      - "sdk/unity/Tools~/CYG.Headless.Match/**"
+      - "sdk/unity/Tools~/CYG.Lsp/**"
+      - "sdk/unity/Tools~/CYG.Dsl.Core/**"
+      - "sdk/unity/Tools~/CYG.Dsl.Contracts/**"
+      - ".github/workflows/determinism.yml"
+  pull_request:
+    paths:
+      - "sdk/unity/Runtime/Sim/**"
+      - "sdk/unity/Tools~/CYG.World.Tests/**"
+      - "sdk/unity/Tools~/CYG.Physics3D.Tests/**"
+      - "sdk/unity/Tools~/CYG.Physics2D.Tests/**"
+      - "sdk/unity/Tools~/CYG.Navigation.Tests/**"
+      - "sdk/unity/Tools~/CYG.Dsl.Tests/**"
+      - "sdk/unity/Tools~/CYG.CodeGen.Tests/**"
+      - "sdk/unity/Tools~/CYG.Headless.Match/**"
+      - "sdk/unity/Tools~/CYG.Lsp/**"
+      - "sdk/unity/Tools~/CYG.Dsl.Core/**"
+      - "sdk/unity/Tools~/CYG.Dsl.Contracts/**"
+      - ".github/workflows/determinism.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  checksums:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Fixed-point golden probe
+        run: dotnet run --configuration Release --project "sdk/unity/Runtime/Sim/Tests/DeterminismCheckTest.csproj"
+
+      - name: World, RNG and rollback golden scenario
+        run: dotnet run --configuration Release --project "sdk/unity/Tools~/CYG.World.Tests/CYG.World.Tests.csproj"
+
+      - name: 3D physics determinism and rollback
+        run: dotnet run --configuration Release --project "sdk/unity/Tools~/CYG.Physics3D.Tests/CYG.Physics3D.Tests.csproj"
+
+      - name: 2D physics determinism and rollback
+        run: dotnet run --configuration Release --project "sdk/unity/Tools~/CYG.Physics2D.Tests/CYG.Physics2D.Tests.csproj"
+
+      - name: Navigation bake, pathfinding and agent checksums
+        run: dotnet run --configuration Release --project "sdk/unity/Tools~/CYG.Navigation.Tests/CYG.Navigation.Tests.csproj"
+
+      - name: DSL parser and emitter
+        run: dotnet run --configuration Release --project "sdk/unity/Tools~/CYG.Dsl.Tests"
+
+      - name: Code generator size, type id and schema goldens
+        run: dotnet run --configuration Release --project "sdk/unity/Tools~/CYG.CodeGen.Tests"
+
+      - name: Headless two-client rollback match across all modes
+        run: dotnet run --configuration Release --project "sdk/unity/Tools~/CYG.Headless.Match" -- --mode all --quiet
+
+      - name: Editor language server build
+        run: dotnet build --configuration Release "sdk/unity/Tools~/CYG.Lsp/CYG.Lsp.csproj"

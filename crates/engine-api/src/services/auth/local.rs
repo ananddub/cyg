@@ -10,12 +10,12 @@ use uuid::Uuid;
 
 use super::validate::Login;
 use crate::ApiState;
+use crate::dto::session::SessionResponse;
+use crate::error::V2Error;
+use crate::infra::jwt;
 use crate::repositories::auth::{CreateUserWithCustomIdParams, CreateUserWithEmailParams};
 use crate::services::auth::q;
 use crate::utils::auth::{existing, insert_failed, lookup_failed, session};
-use crate::error::V2Error;
-use crate::infra::jwt;
-use crate::dto::session::SessionResponse;
 
 /// Device ids live in `user_device`, keyed by the id itself, so a device row can
 /// name an account since linked to a vendor — refused rather than logged into.
@@ -43,6 +43,12 @@ pub async fn device(
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(sqlx::Error::RowNotFound) if create => {
+            // New accounts get a clean, length-checked handle (offline <1µs).
+            if !crate::moderation::is_valid_username(username) {
+                return Err(V2Error::invalid_argument(
+                    "Username must be 3-20 characters and free of profanity.",
+                ));
+            }
             let uid = create_device(state, id, username).await?;
             Ok(session(uid, username, true, vars))
         }
@@ -141,11 +147,7 @@ fn check_password(password: &str, stored: &Option<Vec<u8>>) -> Result<(), V2Erro
 
 /// The device creation BaaS wraps in one transaction: the account is inserted only
 /// while the device id is *still* absent, so two concurrent first logins cannot both mint.
-async fn create_device(
-    state: &ApiState,
-    device_id: &str,
-    username: &str,
-) -> Result<Uuid, V2Error> {
+async fn create_device(state: &ApiState, device_id: &str, username: &str) -> Result<Uuid, V2Error> {
     let db = state.db.as_ref().ok_or_else(V2Error::no_db)?;
     let id = Uuid::new_v4();
     let mut tx = db.begin().await.map_err(insert_failed)?;

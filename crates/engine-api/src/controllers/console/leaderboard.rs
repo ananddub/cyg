@@ -37,7 +37,10 @@ impl ConsoleLeaderboardController {
     #[get("/{id}")]
     async fn get(&self, _auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
-        self.service.get_leaderboard(&state, &id).await.into_response()
+        self.service
+            .get_leaderboard(&state, &id)
+            .await
+            .into_response()
     }
 
     #[get("/{id}/records")]
@@ -86,7 +89,10 @@ impl ConsoleTournamentController {
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service.list_tournaments(&state, page).await.into_response()
+        self.service
+            .list_tournaments(&state, page)
+            .await
+            .into_response()
     }
 
     #[post("")]

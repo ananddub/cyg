@@ -9,10 +9,10 @@ use auto_route::controller;
 use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 
-use crate::current_state;
-use crate::dto::notification::{DeleteRequest, ListQuery};
 use crate::app::middleware::Authed;
 use crate::app::params::Params;
+use crate::current_state;
+use crate::dto::notification::{DeleteRequest, ListQuery};
 
 use crate::services::notification::NotificationService;
 
@@ -27,11 +27,7 @@ impl NotificationController {
     }
 
     #[get("")]
-    async fn list_notifications(
-        &self,
-        auth: Authed,
-        Params(req): Params<ListQuery>,
-    ) -> Response {
+    async fn list_notifications(&self, auth: Authed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
         self.service.list(&state, &auth, req).await.into_response()
     }
@@ -50,12 +46,11 @@ impl NotificationController {
     }
 
     #[delete("/{id}")]
-    async fn delete_notification(
-        &self,
-        auth: Authed,
-        Path(id): Path<String>,
-    ) -> Response {
+    async fn delete_notification(&self, auth: Authed, Path(id): Path<String>) -> Response {
         let state = current_state();
-        self.service.delete_one(&state, &auth, &id).await.into_response()
+        self.service
+            .delete_one(&state, &auth, &id)
+            .await
+            .into_response()
     }
 }

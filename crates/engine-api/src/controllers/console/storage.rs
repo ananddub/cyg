@@ -25,7 +25,10 @@ impl ConsoleStorageController {
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service.list_storage(&state, page).await.into_response()
+        self.service
+            .list_storage(&state, page)
+            .await
+            .into_response()
     }
 
     #[get("/collections")]

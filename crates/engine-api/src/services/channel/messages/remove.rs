@@ -4,10 +4,10 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
-use crate::dto::channel::MessageResponse;
-use crate::services::auth::q;
-use crate::error::V2Error;
 use crate::app::middleware::Authed;
+use crate::dto::channel::MessageResponse;
+use crate::error::V2Error;
+use crate::services::auth::q;
 
 use crate::utils::channel::stream_of_channel;
 

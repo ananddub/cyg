@@ -4,13 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bevy_ecs = { version = "0.15", default-features = false }
+engine-core = { path = "../engine-core" }
 engine-bus = { path = "../engine-bus" }
 engine-config = { path = "../engine-config" }
 engine-dashboard = { path = "../engine-dashboard" }
 engine-wasm = { path = "../engine-wasm" }
 engine-net = { path = "../engine-net" }
+engine-schema = { path = "../engine-schema" }
 engine-physics = { path = "../engine-physics" }
+rapier3d = "0.36"
 engine-spatial = { path = "../engine-spatial" }
+engine-nav = { path = "../engine-nav" }
+engine-api = { path = "../engine-api" }
 engine-voice = { path = "../engine-voice" }
 engine-webrtc-protocol = { path = "../engine-webrtc-protocol" }
 bytes = "1.10"

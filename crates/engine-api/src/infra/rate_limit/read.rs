@@ -10,7 +10,11 @@ impl IpRateLimiter {
         if !self.buckets.contains_key(&addr) {
             // Never seen: a full burst, unless the ceiling is full, in which
             // case `allow` would refuse it — so do not advertise "go now".
-            return if self.buckets.len() >= MAX_BUCKETS { 1 } else { 0 };
+            return if self.buckets.len() >= MAX_BUCKETS {
+                1
+            } else {
+                0
+            };
         }
         let deficit = 1.0 - self.tokens_now(addr);
         if deficit <= 0.0 {

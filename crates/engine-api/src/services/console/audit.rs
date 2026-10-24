@@ -5,6 +5,7 @@
 use axum::Json;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::audit::{
@@ -14,7 +15,6 @@ use crate::error::V2Error;
 use crate::repositories::console_mutations::{
     InsertAclTemplateParams, ListAuditLogsFilteredParams, UpdateAclTemplateParams,
 };
-use crate::ApiState;
 
 impl super::ConsoleService {
     /// The trail, filtered. Every filter is optional; an empty one means "any",
@@ -30,7 +30,9 @@ impl super::ConsoleService {
                 resource: query.resource.trim().to_owned(),
                 console_username: query.username.trim().to_owned(),
                 create_time_start: query.after.unwrap_or_else(super::never),
-                create_time_end: query.before.unwrap_or(chrono::DateTime::<chrono::Utc>::MAX_UTC),
+                create_time_end: query
+                    .before
+                    .unwrap_or(chrono::DateTime::<chrono::Utc>::MAX_UTC),
                 limit: query.limit(),
                 offset: query.offset(),
             })

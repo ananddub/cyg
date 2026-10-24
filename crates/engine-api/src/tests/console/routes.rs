@@ -10,7 +10,10 @@ fn a_malformed_id_is_a_bad_request_naming_the_account() {
     let server = V2Server::start(v2_state());
     let auth = token_for(ConsoleRole::Admin);
     let reply = server.post("/v2/console/account/not-a-uuid/ban", Some(&auth), "{}");
-    assert_eq!(reply.refusal(crate::error::INVALID_ARGUMENT), "Invalid account id.");
+    assert_eq!(
+        reply.refusal(crate::error::INVALID_ARGUMENT),
+        "Invalid account id."
+    );
 }
 
 #[test]

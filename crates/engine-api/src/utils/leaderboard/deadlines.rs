@@ -7,8 +7,8 @@ use chrono::{DateTime, Duration, Utc};
 
 use super::cron::Schedule;
 use super::window::{bad_schedule, epoch, parse_schedule};
-use crate::repositories::models::Leaderboard;
 use crate::error::V2Error;
+use crate::repositories::models::Leaderboard;
 
 /// Unix seconds are what the wire carries, so every boundary is one.
 pub struct Deadlines {
@@ -73,9 +73,7 @@ pub fn calculate(board: &Leaderboard, now: DateTime<Utc>) -> Result<Deadlines, V
     if start > end_active {
         // The board started after the round we landed in but before the next
         // reset, so the caller is in the pair of boundaries the start begins.
-        let pair = schedule
-            .next_many(at(start), 2)
-            .ok_or_else(bad_schedule)?;
+        let pair = schedule.next_many(at(start), 2).ok_or_else(bad_schedule)?;
         start_active = pair[0].timestamp();
         expiry = pair[1].timestamp();
         end_active = start_active + duration;

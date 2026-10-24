@@ -35,6 +35,9 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "allow_storage" => {
             cfg.permissions.storage = value.parse().unwrap_or(cfg.permissions.storage)
         }
+        "allow_messaging" => {
+            cfg.permissions.messaging = value.parse().unwrap_or(cfg.permissions.messaging)
+        }
         "voice_ice_servers" => cfg.voice_ice_servers = value.to_string(),
         "control_enabled" => cfg.control.enabled = value.parse().unwrap_or(cfg.control.enabled),
         "api_port" => cfg.control.api_port = value.parse().unwrap_or(cfg.control.api_port),
@@ -55,17 +58,17 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         }
         "database_url" => cfg.control.session.database_url = value.to_string(),
         "signing_key" => cfg.control.session.signing_key = value.to_string(),
-        "refresh_signing_key" => {
-            cfg.control.session.refresh_signing_key = value.to_string()
-        }
+        "refresh_signing_key" => cfg.control.session.refresh_signing_key = value.to_string(),
         "server_key" => cfg.control.session.server_key = value.to_string(),
         "token_expires_sec" => {
-            cfg.control.session.token_expiry_secs =
-                value.parse().unwrap_or(cfg.control.session.token_expiry_secs)
+            cfg.control.session.token_expiry_secs = value
+                .parse()
+                .unwrap_or(cfg.control.session.token_expiry_secs)
         }
         "refresh_token_expires_sec" => {
-            cfg.control.session.refresh_expiry_secs =
-                value.parse().unwrap_or(cfg.control.session.refresh_expiry_secs)
+            cfg.control.session.refresh_expiry_secs = value
+                .parse()
+                .unwrap_or(cfg.control.session.refresh_expiry_secs)
         }
         "console_username" => cfg.control.console.username = value.to_string(),
         "console_password" => cfg.control.console.password = value.to_string(),

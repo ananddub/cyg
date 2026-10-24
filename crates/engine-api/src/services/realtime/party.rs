@@ -3,18 +3,18 @@
 //! All state and methods are fully encapsulated on the `RealtimePartyService` struct as lock-free `FastMap`s,
 //! injected as a singleton via `auto_di` with zero free functions, statics, or mutexes.
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use auto_di::singleton;
 use auto_ws::{Conn, Msg};
+use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
+use super::{FastMap, new_fast_map};
+use crate::controllers::realtime::messages::*;
+use crate::controllers::realtime::{Dispatched, session_of};
 use crate::error::V2Error;
 use crate::infra::ws::envelope::{Envelope, EnvelopeMessage, ErrorMsg, Party, Presence};
 use crate::infra::ws::session::{self, Session};
-use crate::controllers::realtime::messages::*;
-use crate::controllers::realtime::{Dispatched, session_of};
-use super::{FastMap, new_fast_map};
 
 const MAX_PARTY_SIZE: i32 = 4;
 
@@ -123,16 +123,21 @@ impl RealtimePartyService {
         let reply = self.wire_of(&p, s.sid);
         let _ = self.parties.insert_sync(id, p);
         s.set_party_id(Some(id));
-        s.send_message(msg.cid().map(str::to_string), EnvelopeMessage::PartyReply { party: reply });
+        s.send_message(
+            msg.cid().map(str::to_string),
+            EnvelopeMessage::PartyReply { party: reply },
+        );
         Ok(None)
     }
 
     pub async fn join(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: PartyJoin = msg.payload()?;
         let s = session_of(conn);
-        let id = Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
+        let id =
+            Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
         let (joined, member_sids) = {
-            let mut p = self.parties
+            let mut p = self
+                .parties
                 .get_sync(&id)
                 .ok_or_else(|| V2Error::not_found("party not found"))?;
             if !p.open {
@@ -148,7 +153,10 @@ impl RealtimePartyService {
             (wire, sids)
         };
         s.set_party_id(Some(id));
-        s.send_message(msg.cid().map(str::to_string), EnvelopeMessage::PartyReply { party: joined });
+        s.send_message(
+            msg.cid().map(str::to_string),
+            EnvelopeMessage::PartyReply { party: joined },
+        );
         let event = Envelope {
             cid: None,
             message: EnvelopeMessage::PartyMemberJoin {
@@ -169,7 +177,8 @@ impl RealtimePartyService {
     pub async fn leave(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: PartyLeave = msg.payload()?;
         let s = session_of(conn);
-        let id = Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
+        let id =
+            Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
         let (left, remaining, _closed, _new_leader_sid) = {
             let party_ref = self.parties.get_sync(&id);
             let Some(mut p) = party_ref else {
@@ -218,17 +227,26 @@ impl RealtimePartyService {
     pub async fn promote(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: PartyPromote = msg.payload()?;
         let s = session_of(conn);
-        let party_id = Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
-        let target_sid = Uuid::parse_str(&req.presence.session_id).map_err(|_| V2Error::invalid_argument("invalid target session id"))?;
+        let party_id =
+            Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
+        let target_sid = Uuid::parse_str(&req.presence.session_id)
+            .map_err(|_| V2Error::invalid_argument("invalid target session id"))?;
         if s.party_id() != Some(party_id) {
             return Err(V2Error::permission_denied("not a member of this party"));
         }
         let (leader_presence, member_sids) = {
-            let mut p = self.parties.get_sync(&party_id).ok_or_else(|| V2Error::not_found("party not found"))?;
+            let mut p = self
+                .parties
+                .get_sync(&party_id)
+                .ok_or_else(|| V2Error::not_found("party not found"))?;
             if p.leader_sid != s.sid {
                 return Err(V2Error::permission_denied("only party leader can promote"));
             }
-            let presence = p.members.get(&target_sid).cloned().ok_or_else(|| V2Error::not_found("target is not in party"))?;
+            let presence = p
+                .members
+                .get(&target_sid)
+                .cloned()
+                .ok_or_else(|| V2Error::not_found("target is not in party"))?;
             p.leader_sid = target_sid;
             let sids: Vec<Uuid> = p.members.keys().copied().collect();
             (presence, sids)
@@ -251,14 +269,20 @@ impl RealtimePartyService {
     pub async fn update(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: PartyUpdate = msg.payload()?;
         let s = session_of(conn);
-        let party_id = Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
+        let party_id =
+            Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
         if s.party_id() != Some(party_id) {
             return Err(V2Error::permission_denied("not a member of this party"));
         }
         {
-            let mut p = self.parties.get_sync(&party_id).ok_or_else(|| V2Error::not_found("party not found"))?;
+            let mut p = self
+                .parties
+                .get_sync(&party_id)
+                .ok_or_else(|| V2Error::not_found("party not found"))?;
             if p.leader_sid != s.sid {
-                return Err(V2Error::permission_denied("only party leader can update party"));
+                return Err(V2Error::permission_denied(
+                    "only party leader can update party",
+                ));
             }
             if let Some(open) = req.open {
                 p.open = open;
@@ -273,7 +297,8 @@ impl RealtimePartyService {
     pub async fn close(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: PartyClose = msg.payload()?;
         let s = session_of(conn);
-        let party_id = Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
+        let party_id =
+            Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
         if s.party_id() != Some(party_id) {
             return Err(V2Error::permission_denied("not a member of this party"));
         }
@@ -281,7 +306,9 @@ impl RealtimePartyService {
             let party_ref = self.parties.get_sync(&party_id);
             let Some(p) = party_ref else { return Ok(None) };
             if p.leader_sid != s.sid {
-                return Err(V2Error::permission_denied("only party leader can close party"));
+                return Err(V2Error::permission_denied(
+                    "only party leader can close party",
+                ));
             }
             let sids: Vec<Uuid> = p.members.keys().copied().collect();
             drop(p);
@@ -307,7 +334,8 @@ impl RealtimePartyService {
     pub async fn data_send(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: PartyDataSend = msg.payload()?;
         let s = session_of(conn);
-        let party_id = Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
+        let party_id =
+            Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
         if s.party_id() != Some(party_id) {
             return Err(V2Error::permission_denied("not a member of this party"));
         }
@@ -345,7 +373,14 @@ impl RealtimePartyService {
             );
             return Ok(None);
         };
-        let ticket = match super::RealtimeMatchmakerService::add_ticket(&s, req.min_count, req.max_count, req.query, req.string_properties, req.numeric_properties) {
+        let ticket = match super::RealtimeMatchmakerService::add_ticket(
+            &s,
+            req.min_count,
+            req.max_count,
+            req.query,
+            req.string_properties,
+            req.numeric_properties,
+        ) {
             Ok(t) => t,
             Err(err_msg) => {
                 s.send_message(msg.cid().map(str::to_string), err_msg);
@@ -365,12 +400,16 @@ impl RealtimePartyService {
     pub async fn matchmaker_remove(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: PartyMatchmakerRemove = msg.payload()?;
         let s = session_of(conn);
-        let party_id = Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
+        let party_id =
+            Uuid::parse_str(&req.party_id).map_err(|_| V2Error::not_found("party not found"))?;
         if s.party_id() != Some(party_id) {
             return Err(V2Error::permission_denied("not a member of this party"));
         }
         if super::RealtimeMatchmakerService::remove_ticket(&s, &req.ticket) {
-            s.send_message(msg.cid().map(str::to_string), EnvelopeMessage::MatchmakerDone);
+            s.send_message(
+                msg.cid().map(str::to_string),
+                EnvelopeMessage::MatchmakerDone,
+            );
         }
         Ok(None)
     }

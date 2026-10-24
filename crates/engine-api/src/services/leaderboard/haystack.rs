@@ -6,18 +6,18 @@
 use axum::Json;
 use uuid::Uuid;
 
+use super::list::records_list;
+use super::load_board;
+use super::neighbours::haystack;
+use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::leaderboard::{HaystackQuery, RecordListResponse};
+use crate::error::V2Error;
+use crate::services::auth::q;
 use crate::utils::leaderboard::types::{
     BAD_EXPIRY, BAD_OWNER, INVALID_ID, MAX_OWNER_LIMIT, NO_OWNER, OWNER_LIMIT, number,
 };
 use crate::utils::leaderboard::window::query_window;
-use crate::dto::leaderboard::{HaystackQuery, RecordListResponse};
-use super::list::records_list;
-use super::load_board;
-use super::neighbours::haystack;
-use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
-use crate::ApiState;
 
 impl super::LeaderboardService {
     pub async fn list_records_around_owner(
@@ -54,9 +54,12 @@ impl super::LeaderboardService {
             return Ok(Json(RecordListResponse::default()));
         };
         if !req.cursor.is_empty() {
-            let listed = records_list(&queries, &board, window, Some(limit), &req.cursor, &[]).await?;
+            let listed =
+                records_list(&queries, &board, window, Some(limit), &req.cursor, &[]).await?;
             return Ok(Json(listed));
         }
-        Ok(Json(haystack(&queries, &board, window, owner, limit).await?))
+        Ok(Json(
+            haystack(&queries, &board, window, owner, limit).await?,
+        ))
     }
 }

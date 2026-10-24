@@ -1,4 +1,3 @@
-
 use std::path::{Path, PathBuf};
 
 pub const ENV_DIST: &str = "OX_DASHBOARD_DIST";
@@ -51,5 +50,8 @@ pub fn child_under(dist: &Path, rest: &str) -> Option<PathBuf> {
         }
     }
     let found = std::fs::canonicalize(out).ok()?;
-    found.is_file().then_some(found).filter(|p| p.starts_with(dist))
+    found
+        .is_file()
+        .then_some(found)
+        .filter(|p| p.starts_with(dist))
 }

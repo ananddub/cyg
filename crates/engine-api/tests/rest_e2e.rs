@@ -8,12 +8,14 @@
 //!
 //! The order mirrors a real operator: read telemetry, mint a seat, sign into the
 //! console, register games, tune the Unity settings, upload/activate/roll back a
-//! room module, and finally authenticate a device account against the same schema.
+//! room module, authenticate a device account, and finally run a tournament from
+//! definition through join, score writes and deletion.
 
 use std::path::Path;
 use std::time::Duration;
 
 use base64::Engine as _;
+use chrono::{Duration as ChronoDuration, Utc};
 use engine_bus::Bus;
 use engine_config::{ConsoleConfig, ControlConfig, GameConfig, SessionConfig};
 use reqwest::multipart::{Form, Part};
@@ -47,6 +49,14 @@ const CONSOLE_AUDIT_SQL: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../db/schema/console_audit_log.sql"
 ));
+const LEADERBOARD_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/leaderboard.sql"
+));
+const LEADERBOARD_RECORD_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/leaderboard_record.sql"
+));
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rest_api_end_to_end() {
@@ -61,6 +71,7 @@ async fn rest_api_end_to_end() {
     let (relay_game, wasm_game) = games(&client, &base, port, &console).await;
     wasm_lifecycle(&client, &base, &console, &relay_game, &wasm_game).await;
     device_auth(&client, &base, &env.pool).await;
+    tournaments(&client, &base, &console, &env.pool).await;
     audit_trail(&env.pool).await;
     // The seat is still outstanding at the end of the run, which is what `/status`
     // promised after the mint.
@@ -224,6 +235,9 @@ async fn apply_schema(pool: &PgPool) {
         ("user_device", USER_DEVICE_SQL),
         ("console_user", CONSOLE_USER_SQL),
         ("console_audit_log", CONSOLE_AUDIT_SQL),
+        ("leaderboard", LEADERBOARD_SQL),
+        // After `leaderboard`, whose primary key its foreign key names.
+        ("leaderboard_record", LEADERBOARD_RECORD_SQL),
     ] {
         apply_file(pool, label, ddl).await;
     }
@@ -1287,6 +1301,1057 @@ async fn device_auth(client: &Client, base: &str, pool: &PgPool) {
         .await
         .expect("the user row was written");
     assert_eq!(stored_username, username);
+}
+
+/// A signed-in test player: the session token plus the id and username the
+/// server wrote into it, so record rows can be checked against that account.
+struct Player {
+    token: String,
+    uid: String,
+    username: String,
+}
+
+/// A fresh device account through the real `/v2/account/authenticate/device`
+/// route, with the Basic server key the plane was booted with.
+async fn device_player(client: &Client, base: &str, label: &str) -> Player {
+    let device_id = format!("e2e-{label}-{}", Uuid::new_v4());
+    let username = format!("e2e-{label}-{}", &Uuid::new_v4().simple().to_string()[..8]);
+    let basic = format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(format!("{SERVER_KEY}:"))
+    );
+    let body = json_body(
+        client
+            .post(format!(
+                "{base}/v2/account/authenticate/device?username={username}&create=true"
+            ))
+            .header(reqwest::header::AUTHORIZATION, basic)
+            .json(&json!({ "id": device_id }))
+            .send()
+            .await
+            .expect("device authenticate for a tournament player"),
+        StatusCode::OK,
+        "device authenticate for a tournament player",
+    )
+    .await;
+    Player {
+        token: body["token"].as_str().expect("session token").to_owned(),
+        uid: jwt_uid(&body["token"]),
+        username,
+    }
+}
+
+/// Define a tournament through the console route and return its wire shape.
+async fn define_tournament(client: &Client, base: &str, console: &str, body: Value) -> Value {
+    json_body(
+        client
+            .post(format!("{base}/v2/console/tournament"))
+            .bearer_auth(console)
+            .json(&body)
+            .send()
+            .await
+            .expect("define a tournament"),
+        StatusCode::OK,
+        "define a tournament",
+    )
+    .await
+}
+
+/// Submit one score to a tournament as a player.
+async fn write_record(client: &Client, base: &str, token: &str, id: &str, body: Value) -> Value {
+    json_body(
+        client
+            .post(format!("{base}/v2/tournament/{id}"))
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .expect("write a tournament record"),
+        StatusCode::OK,
+        "write a tournament record",
+    )
+    .await
+}
+
+fn tournament_ids(page: &Value) -> Vec<String> {
+    page["tournaments"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .map(|row| row["id"].as_str().expect("tournament id").to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Tournament behaviour over the real routes: the console defines the boards, a
+/// player browses, joins, writes, reads the round and its standing, and the
+/// operator renames and deletes. Window maths, join gates, size and attempt
+/// counters, record ordering and cascading deletes are asserted against the
+/// database the routes actually wrote.
+async fn tournaments(client: &Client, base: &str, console: &str, pool: &PgPool) {
+    eprintln!("e2e: tournaments");
+    let now = Utc::now();
+    let stamp = |offset: i64| (now + ChronoDuration::seconds(offset)).to_rfc3339();
+    let suffix = &Uuid::new_v4().simple().to_string()[..8];
+    let joined_id = format!("e2e-tournament-joined-{suffix}");
+    let open_id = format!("e2e-tournament-open-{suffix}");
+    let ended_id = format!("e2e-tournament-ended-{suffix}");
+    let authoritative_id = format!("e2e-tournament-authoritative-{suffix}");
+    let plain_id = format!("e2e-leaderboard-{suffix}");
+
+    let alpha = device_player(client, base, "alpha").await;
+    let bravo = device_player(client, base, "bravo").await;
+    let charlie = device_player(client, base, "charlie").await;
+
+    // The player and operator realms do not substitute for each other.
+    refusal(
+        client
+            .post(format!("{base}/v2/console/tournament"))
+            .json(&json!({ "id": "anonymous", "duration": 60 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::UNAUTHORIZED,
+        "define a tournament without a console token",
+    )
+    .await;
+    refusal(
+        client
+            .get(format!("{base}/v2/tournament"))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::UNAUTHORIZED,
+        "browse tournaments without a session",
+    )
+    .await;
+
+    // Definitions the console must refuse before touching the table.
+    for (body, expected) in [
+        (json!({ "duration": 60 }), "Tournament ID must be provided."),
+        (
+            json!({ "id": format!("e2e-bad-duration-{suffix}") }),
+            "A tournament needs a duration of at least one second.",
+        ),
+        (
+            json!({
+                "id": format!("e2e-bad-size-{suffix}"),
+                "duration": 60,
+                "max_size": 0
+            }),
+            "Both max_size and max_num_score must be positive.",
+        ),
+        (
+            json!({
+                "id": format!("e2e-bad-schedule-{suffix}"),
+                "duration": 60,
+                "reset_schedule": "every minute"
+            }),
+            "leaderboard reset schedule is not a cron expression",
+        ),
+    ] {
+        let message = refusal(
+            client
+                .post(format!("{base}/v2/console/tournament"))
+                .bearer_auth(console)
+                .json(&body)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "an invalid tournament definition",
+        )
+        .await;
+        assert_eq!(message, expected);
+    }
+
+    // Three boards for the player flow and one already closed. Explicit start
+    // times make the browser's ordering deterministic.
+    let joined = define_tournament(
+        client,
+        base,
+        console,
+        json!({
+            "id": joined_id.clone(),
+            "title": "E2E Joined Tournament",
+            "description": "covered by rest_e2e",
+            "duration": 3600,
+            "start_time": stamp(-300),
+            "join_required": true,
+            "max_size": 2,
+            "max_num_score": 3,
+            "metadata": { "lane": "e2e" }
+        }),
+    )
+    .await;
+    assert_eq!(joined["id"], joined_id);
+    assert_eq!(joined["title"], "E2E Joined Tournament");
+    assert_eq!(joined["duration"], 3600);
+    assert_eq!(joined["join_required"], true);
+    assert_eq!(joined["max_size"], 2);
+    assert_eq!(joined["max_num_score"], 3);
+    assert_eq!(joined["can_enter"], true);
+    assert!(joined["metadata"].as_str().unwrap().contains("lane"));
+    assert!(joined["start_time"].is_string());
+    assert!(joined.get("size").is_none(), "no entrant prints no size");
+    assert!(
+        joined.get("end_time").is_none(),
+        "an open-ended board has no end time on the wire"
+    );
+
+    define_tournament(
+        client,
+        base,
+        console,
+        json!({
+            "id": open_id.clone(),
+            "title": "E2E Open Tournament",
+            "duration": 1800,
+            "start_time": stamp(-240),
+            "max_size": 2,
+            "max_num_score": 10
+        }),
+    )
+    .await;
+    define_tournament(
+        client,
+        base,
+        console,
+        json!({
+            "id": authoritative_id.clone(),
+            "title": "E2E Authoritative Tournament",
+            "duration": 1800,
+            "start_time": stamp(-180),
+            "authoritative": true
+        }),
+    )
+    .await;
+    define_tournament(
+        client,
+        base,
+        console,
+        json!({
+            "id": ended_id.clone(),
+            "title": "E2E Ended Tournament",
+            "duration": 3600,
+            "start_time": stamp(-7200),
+            "end_time": stamp(-3600),
+            "join_required": true
+        }),
+    )
+    .await;
+
+    // A plain leaderboard shares the table but is not a tournament: the player
+    // routes must neither list it nor address it.
+    sqlx::query("INSERT INTO leaderboard (id, title, category, duration) VALUES ($1, $2, 0, 0)")
+        .bind(&plain_id)
+        .bind("E2E Plain Leaderboard")
+        .execute(pool)
+        .await
+        .expect("seed a plain leaderboard");
+
+    let duplicate = refusal(
+        client
+            .post(format!("{base}/v2/console/tournament"))
+            .bearer_auth(console)
+            .json(&json!({ "id": joined_id.clone(), "duration": 60 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::CONFLICT,
+        "a duplicate tournament id",
+    )
+    .await;
+    assert_eq!(duplicate, "Tournament id is already taken.");
+
+    // The browser lists only tournaments, in start order, and only the ones
+    // whose window has not closed.
+    let page = json_body(
+        client
+            .get(format!("{base}/v2/tournament?limit=10"))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "browse tournaments",
+    )
+    .await;
+    assert_eq!(
+        tournament_ids(&page),
+        vec![joined_id.clone(), open_id.clone(), authoritative_id.clone()]
+    );
+    let row = page["tournaments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == joined_id)
+        .expect("the joined tournament is listed");
+    assert_eq!(row["can_enter"], true);
+    assert_eq!(row["join_required"], true);
+    assert!(row.get("size").is_none());
+
+    let first = json_body(
+        client
+            .get(format!("{base}/v2/tournament?limit=1"))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "browse tournaments, first page",
+    )
+    .await;
+    assert_eq!(tournament_ids(&first), vec![joined_id.clone()]);
+    let cursor = first["cursor"]
+        .as_str()
+        .expect("a full page carries a cursor")
+        .to_owned();
+    assert!(!cursor.is_empty());
+    let second = json_body(
+        client
+            .get(format!("{base}/v2/tournament?limit=1&cursor={cursor}"))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "browse tournaments, second page",
+    )
+    .await;
+    assert_eq!(tournament_ids(&second), vec![open_id.clone()]);
+
+    // The end-time filter is how an operator sees closed rounds; the default
+    // listing hides them.
+    let closed = json_body(
+        client
+            .get(format!("{base}/v2/tournament?end_time={}", now.timestamp()))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "browse ended tournaments",
+    )
+    .await;
+    assert_eq!(tournament_ids(&closed), vec![ended_id.clone()]);
+
+    let empty = json_body(
+        client
+            .get(format!("{base}/v2/tournament?category_start=2"))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "browse outside the category",
+    )
+    .await;
+    assert!(tournament_ids(&empty).is_empty());
+
+    for (query, expected) in [
+        (
+            "start_time=1000&end_time=500",
+            "Tournament end time must be greater than start time.",
+        ),
+        ("limit=101", "Limit must be between 1 and 100."),
+        (
+            "category_start=5&category_end=1",
+            "Tournament category end must be greater than category start.",
+        ),
+    ] {
+        let message = refusal(
+            client
+                .get(format!("{base}/v2/tournament?{query}"))
+                .bearer_auth(&alpha.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "an invalid tournament query",
+        )
+        .await;
+        assert_eq!(message, expected);
+    }
+
+    for id in ["does-not-exist", plain_id.as_str()] {
+        let message = refusal(
+            client
+                .get(format!("{base}/v2/tournament/{id}"))
+                .bearer_auth(&alpha.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "a non-tournament board",
+        )
+        .await;
+        assert_eq!(message, "Tournament not found.");
+    }
+
+    // Joining puts a zero-score row in the round and moves the size once.
+    let joined_url = format!("{base}/v2/tournament/{joined_id}");
+    expect(
+        client
+            .post(format!("{joined_url}/join"))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "alpha joins",
+    )
+    .await;
+    let size: i32 = sqlx::query_scalar("SELECT size FROM leaderboard WHERE id = $1")
+        .bind(&joined_id)
+        .fetch_one(pool)
+        .await
+        .expect("read the tournament size");
+    assert_eq!(size, 1);
+    expect(
+        client
+            .post(format!("{joined_url}/join"))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "alpha joins twice",
+    )
+    .await;
+    let size: i32 = sqlx::query_scalar("SELECT size FROM leaderboard WHERE id = $1")
+        .bind(&joined_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(size, 1, "a second join is the same entrant");
+
+    let joined_row: (i32, String, i64) = sqlx::query_as(
+        "SELECT num_score, username, EXTRACT(EPOCH FROM expiry_time)::bigint
+         FROM leaderboard_record WHERE leaderboard_id = $1 AND owner_id = $2",
+    )
+    .bind(&joined_id)
+    .bind(Uuid::parse_str(&alpha.uid).unwrap())
+    .fetch_one(pool)
+    .await
+    .expect("the join row exists");
+    assert_eq!(joined_row.0, 0);
+    assert_eq!(joined_row.1, alpha.username);
+    assert_eq!(
+        joined_row.2, 0,
+        "an open-ended round stores the epoch window"
+    );
+
+    // A join-required board refuses a score from someone who never joined.
+    let message = refusal(
+        client
+            .post(&joined_url)
+            .bearer_auth(&bravo.token)
+            .json(&json!({ "score": 1 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "write before joining",
+    )
+    .await;
+    assert_eq!(
+        message,
+        "Must join tournament before attempting to write value."
+    );
+    expect(
+        client
+            .post(format!("{joined_url}/join"))
+            .bearer_auth(&bravo.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "bravo joins",
+    )
+    .await;
+    let size: i32 = sqlx::query_scalar("SELECT size FROM leaderboard WHERE id = $1")
+        .bind(&joined_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(size, 2);
+    let message = refusal(
+        client
+            .post(format!("{joined_url}/join"))
+            .bearer_auth(&charlie.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "join a full tournament",
+    )
+    .await;
+    assert_eq!(
+        message,
+        "Tournament cannot be joined as it has reached its max size."
+    );
+
+    // Best-score writes, an operator override, and the attempt cap: the last
+    // write changes nothing, and no counter moves because the cap is a WHERE.
+    let first = write_record(
+        client,
+        base,
+        &alpha.token,
+        &joined_id,
+        json!({ "score": 10, "metadata": "{\"mood\":\"happy\"}" }),
+    )
+    .await;
+    assert_eq!(first["score"], "10");
+    assert_eq!(first["num_score"], 1);
+    assert_eq!(first["owner_id"], alpha.uid);
+    assert_eq!(first["username"], alpha.username);
+    assert_eq!(first["rank"], "1");
+    assert!(first["metadata"].as_str().unwrap().contains("happy"));
+    assert!(
+        first.get("expiry_time").is_none(),
+        "the epoch window prints no expiry"
+    );
+
+    let second = write_record(
+        client,
+        base,
+        &alpha.token,
+        &joined_id,
+        json!({ "score": 5 }),
+    )
+    .await;
+    assert_eq!(second["score"], "10", "best keeps the higher score");
+    assert_eq!(second["num_score"], 2);
+
+    let third = write_record(
+        client,
+        base,
+        &alpha.token,
+        &joined_id,
+        json!({ "score": 3, "operator": 2 }),
+    )
+    .await;
+    assert_eq!(third["score"], "3", "operator 2 replaces the score");
+    assert_eq!(third["num_score"], 3);
+
+    let capped = write_record(
+        client,
+        base,
+        &alpha.token,
+        &joined_id,
+        json!({ "score": 4 }),
+    )
+    .await;
+    assert_eq!(capped["score"], "3");
+    assert_eq!(
+        capped["num_score"], 3,
+        "the attempt cap leaves the record untouched"
+    );
+
+    let bravo_record = write_record(
+        client,
+        base,
+        &bravo.token,
+        &joined_id,
+        json!({ "score": 7, "subscore": 4 }),
+    )
+    .await;
+    assert_eq!(bravo_record["score"], "7");
+    assert_eq!(bravo_record["subscore"], "4");
+    assert_eq!(bravo_record["rank"], "1");
+    assert_eq!(bravo_record["num_score"], 1);
+
+    let (stored_score, stored_attempts, stored_username): (i64, i32, String) = sqlx::query_as(
+        "SELECT score, num_score, username FROM leaderboard_record
+         WHERE leaderboard_id = $1 AND owner_id = $2",
+    )
+    .bind(&joined_id)
+    .bind(Uuid::parse_str(&alpha.uid).unwrap())
+    .fetch_one(pool)
+    .await
+    .expect("alpha's record is stored");
+    assert_eq!(stored_score, 3);
+    assert_eq!(stored_attempts, 3);
+    assert_eq!(stored_username, alpha.username);
+    let size: i32 = sqlx::query_scalar("SELECT size FROM leaderboard WHERE id = $1")
+        .bind(&joined_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(size, 2, "writes never move the join counter");
+
+    // The round, ordered by score with ranks, and the named-owner batch.
+    let listing = json_body(
+        client
+            .get(&joined_url)
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "list tournament records",
+    )
+    .await;
+    let records = listing["records"].as_array().expect("records page");
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["owner_id"], bravo.uid);
+    assert_eq!(records[0]["score"], "7");
+    assert_eq!(records[0]["rank"], "1");
+    assert_eq!(records[1]["owner_id"], alpha.uid);
+    assert_eq!(records[1]["score"], "3");
+    assert_eq!(records[1]["rank"], "2");
+    assert_eq!(listing["rank_count"], "2");
+
+    let owners = json_body(
+        client
+            .get(format!("{joined_url}?owner_ids={}", alpha.uid))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "list named owner records",
+    )
+    .await;
+    assert_eq!(
+        owners["records"].as_array().map(Vec::len),
+        Some(2),
+        "without a handed-back cursor the round is still paged"
+    );
+    let own = owners["owner_records"].as_array().expect("owner records");
+    assert_eq!(own.len(), 1);
+    assert_eq!(own[0]["owner_id"], alpha.uid);
+    assert_eq!(own[0]["score"], "3");
+
+    // The tournament route's documented quirk: owners plus a cursor asks for
+    // the named records only, so the page is not read at all.
+    let paged = json_body(
+        client
+            .get(format!("{joined_url}?limit=1"))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "one record of the round",
+    )
+    .await;
+    let cursor = paged["next_cursor"]
+        .as_str()
+        .expect("a truncated page carries a cursor")
+        .to_owned();
+    let only_owners = json_body(
+        client
+            .get(format!(
+                "{joined_url}?owner_ids={}&cursor={cursor}",
+                alpha.uid
+            ))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "owners with a cursor",
+    )
+    .await;
+    assert!(
+        only_owners.get("records").is_none(),
+        "owners with a cursor pages nothing"
+    );
+    let own = only_owners["owner_records"]
+        .as_array()
+        .expect("owner records");
+    assert_eq!(own.len(), 1);
+    assert_eq!(own[0]["owner_id"], alpha.uid);
+
+    let around = json_body(
+        client
+            .get(format!("{joined_url}/owner/{}", alpha.uid))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "haystack around the owner",
+    )
+    .await;
+    let window = around["records"].as_array().expect("haystack records");
+    assert_eq!(window.len(), 2);
+    assert!(window.iter().any(|row| row["owner_id"] == alpha.uid));
+
+    for (query, expected) in [
+        (
+            "limit=101",
+            "Invalid limit - limit must be between 1 and 100.",
+        ),
+        ("owner_ids=nope", "One or more owner IDs are invalid."),
+    ] {
+        let message = refusal(
+            client
+                .get(format!("{joined_url}?{query}"))
+                .bearer_auth(&alpha.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "an invalid records query",
+        )
+        .await;
+        assert_eq!(message, expected);
+    }
+
+    // A closed board refuses the round and any write, joins are inactive, and
+    // its window reads as empty rather than missing.
+    let ended_expectations = [
+        (
+            client
+                .get(format!("{base}/v2/tournament/{ended_id}"))
+                .bearer_auth(&alpha.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "Tournament has ended.",
+            "list the records of an ended tournament",
+        ),
+        (
+            client
+                .post(format!("{base}/v2/tournament/{ended_id}"))
+                .bearer_auth(&alpha.token)
+                .json(&json!({ "score": 1 }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "Tournament not found or has ended.",
+            "write to an ended tournament",
+        ),
+        (
+            client
+                .post(format!("{base}/v2/tournament/{ended_id}/join"))
+                .bearer_auth(&alpha.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "Tournament is not active and cannot accept new joins.",
+            "join an ended tournament",
+        ),
+    ];
+    for (response, status, expected, what) in ended_expectations {
+        let message = refusal(response, status, what).await;
+        assert_eq!(message, expected);
+    }
+    let closed_window = json_body(
+        client
+            .get(format!(
+                "{base}/v2/tournament/{ended_id}/owner/{}",
+                alpha.uid
+            ))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "haystack on an ended tournament",
+    )
+    .await;
+    assert!(closed_window.get("records").is_none());
+
+    // An authoritative board only takes server-side submissions.
+    let message = refusal(
+        client
+            .post(format!("{base}/v2/tournament/{authoritative_id}"))
+            .bearer_auth(&alpha.token)
+            .json(&json!({ "score": 1 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "write to an authoritative tournament",
+    )
+    .await;
+    assert_eq!(
+        message,
+        "Tournament only allows authoritative score submissions."
+    );
+
+    // An open board inserts on the first write, refuses a newcomer once full,
+    // and releases the place when the row is deleted.
+    let open_url = format!("{base}/v2/tournament/{open_id}");
+    let open_first = write_record(
+        client,
+        base,
+        &alpha.token,
+        &open_id,
+        json!({ "score": 100 }),
+    )
+    .await;
+    assert_eq!(open_first["score"], "100");
+    assert_eq!(open_first["num_score"], 1);
+    let open_second = write_record(
+        client,
+        base,
+        &charlie.token,
+        &open_id,
+        json!({ "score": 50 }),
+    )
+    .await;
+    assert_eq!(open_second["num_score"], 1);
+    let size: i32 = sqlx::query_scalar("SELECT size FROM leaderboard WHERE id = $1")
+        .bind(&open_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(size, 2);
+
+    let better = write_record(client, base, &alpha.token, &open_id, json!({ "score": 90 })).await;
+    assert_eq!(better["score"], "100");
+    assert_eq!(better["num_score"], 2);
+    let incremented = write_record(
+        client,
+        base,
+        &alpha.token,
+        &open_id,
+        json!({ "score": 5, "operator": 3 }),
+    )
+    .await;
+    assert_eq!(incremented["score"], "105");
+    assert_eq!(incremented["num_score"], 3);
+
+    let message = refusal(
+        client
+            .post(&open_url)
+            .bearer_auth(&bravo.token)
+            .json(&json!({ "score": 9 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "write to a full open tournament",
+    )
+    .await;
+    assert_eq!(message, "Tournament has reached max size.");
+    let (count, size): (i64, i32) = sqlx::query_as(
+        "SELECT
+            (SELECT COUNT(*) FROM leaderboard_record WHERE leaderboard_id = $1),
+            (SELECT size FROM leaderboard WHERE id = $1)",
+    )
+    .bind(&open_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!((count, size), (2, 2), "the refused insert is rolled back");
+
+    expect(
+        client
+            .delete(&open_url)
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "alpha deletes their record",
+    )
+    .await;
+    let (count, size): (i64, i32) = sqlx::query_as(
+        "SELECT
+            (SELECT COUNT(*) FROM leaderboard_record WHERE leaderboard_id = $1),
+            (SELECT size FROM leaderboard WHERE id = $1)",
+    )
+    .bind(&open_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!((count, size), (1, 1));
+    let reentered = write_record(client, base, &alpha.token, &open_id, json!({ "score": 7 })).await;
+    assert_eq!(reentered["score"], "7");
+    assert_eq!(reentered["num_score"], 1);
+    let size: i32 = sqlx::query_scalar("SELECT size FROM leaderboard WHERE id = $1")
+        .bind(&open_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(size, 2);
+    expect(
+        client
+            .delete(&open_url)
+            .bearer_auth(&bravo.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "a recordless delete is a no-op",
+    )
+    .await;
+    let size: i32 = sqlx::query_scalar("SELECT size FROM leaderboard WHERE id = $1")
+        .bind(&open_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(size, 2, "removing nothing releases nothing");
+
+    // The console edits a tournament in place: omitted fields keep their
+    // stored values, and the board cannot be demoted out of the tournament.
+    let updated = json_body(
+        client
+            .put(format!("{base}/v2/console/tournament/{joined_id}"))
+            .bearer_auth(console)
+            .json(&json!({
+                "title": "E2E Joined Tournament (renamed)",
+                "max_num_score": 5
+            }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "rename a tournament",
+    )
+    .await;
+    assert_eq!(updated["title"], "E2E Joined Tournament (renamed)");
+    assert_eq!(updated["duration"], 3600);
+    assert_eq!(updated["max_num_score"], 5);
+    let message = refusal(
+        client
+            .put(format!("{base}/v2/console/tournament/{joined_id}"))
+            .bearer_auth(console)
+            .json(&json!({ "duration": 0 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "drop a tournament's duration",
+    )
+    .await;
+    assert_eq!(
+        message,
+        "A tournament needs a duration of at least one second."
+    );
+    let message = refusal(
+        client
+            .put(format!("{base}/v2/console/tournament/{plain_id}"))
+            .bearer_auth(console)
+            .json(&json!({ "title": "not a tournament" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "update a plain leaderboard as a tournament",
+    )
+    .await;
+    assert_eq!(message, "Tournament not found.");
+
+    // Ending a tournament by hand cascades its records, and the player route
+    // stops knowing the id.
+    expect(
+        client
+            .delete(format!("{base}/v2/console/tournament/{ended_id}"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "delete the ended tournament",
+    )
+    .await;
+    expect(
+        client
+            .delete(format!("{base}/v2/console/tournament/{joined_id}"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "delete the joined tournament",
+    )
+    .await;
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM leaderboard_record WHERE leaderboard_id = $1")
+            .bind(&joined_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0, "the board's records cascade with it");
+    let message = refusal(
+        client
+            .get(&joined_url)
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "read a deleted tournament",
+    )
+    .await;
+    assert_eq!(message, "Tournament not found.");
+    let message = refusal(
+        client
+            .delete(format!("{base}/v2/console/tournament/{plain_id}"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "delete a plain leaderboard as a tournament",
+    )
+    .await;
+    assert_eq!(message, "Tournament not found.");
+
+    for id in [&open_id, &authoritative_id] {
+        expect(
+            client
+                .delete(format!("{base}/v2/console/tournament/{id}"))
+                .bearer_auth(console)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::OK,
+            "delete a tournament",
+        )
+        .await;
+    }
+    let page = json_body(
+        client
+            .get(format!("{base}/v2/tournament"))
+            .bearer_auth(&alpha.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "browse after deletions",
+    )
+    .await;
+    assert!(tournament_ids(&page).is_empty());
+
+    // The plain board is cleaned through its own route.
+    expect(
+        client
+            .delete(format!("{base}/v2/console/leaderboard/{plain_id}"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "delete the plain leaderboard",
+    )
+    .await;
+
+    // The console trail records every board transition it performed.
+    let (creates, updates, deletes): (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+            COUNT(*) FILTER (WHERE action = 'tournament.create'),
+            COUNT(*) FILTER (WHERE action = 'tournament.update'),
+            COUNT(*) FILTER (WHERE action = 'tournament.delete')
+         FROM console_audit_log",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("read the board audit trail");
+    assert_eq!(creates, 4);
+    assert_eq!(updates, 1);
+    assert_eq!(deletes, 4);
 }
 
 async fn audit_trail(pool: &PgPool) {

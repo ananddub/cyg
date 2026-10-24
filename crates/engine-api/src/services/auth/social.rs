@@ -5,14 +5,18 @@
 
 use axum::Json;
 
-use crate::dto::auth::GameCenterAccount;
 use super::validate;
-use crate::error::V2Error;
+use crate::dto::auth::GameCenterAccount;
 use crate::dto::session::SessionResponse;
+use crate::error::V2Error;
 use crate::utils::vendor;
 
 /// A Facebook or Google access token.
-pub fn token(profile: &str, raw: &str, requested_username: &str) -> Result<Json<SessionResponse>, V2Error> {
+pub fn token(
+    profile: &str,
+    raw: &str,
+    requested_username: &str,
+) -> Result<Json<SessionResponse>, V2Error> {
     if raw.is_empty() {
         return Err(V2Error::invalid_argument(format!(
             "{profile} access token is required."

@@ -6,13 +6,19 @@
 //! - Client input sequencing & reconciliation acknowledgments
 //! - Room lifecycle interfaces and state management
 
+pub mod components;
 pub mod input;
 pub mod rewind;
+pub mod rng;
+pub mod tick;
 
 use std::time::Duration;
 
+pub use components::*;
 pub use input::{PlayerInput, PlayerInputBuffer};
 pub use rewind::{EntityHistory, Interpolation, RewindManager, TransformSnapshot};
+pub use rng::RoomRng;
+pub use tick::TickRunner;
 
 /// Unique session identifier for a connected client.
 ///

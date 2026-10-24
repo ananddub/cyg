@@ -1,4 +1,4 @@
-use engine_dashboard::{ClientRow, MAX_CLIENT_ROWS, TickPoint, TickSeries, TICK_HISTOGRAM_BUCKETS};
+use engine_dashboard::{ClientRow, MAX_CLIENT_ROWS, TICK_HISTOGRAM_BUCKETS, TickPoint, TickSeries};
 
 use crate::ApiState;
 use crate::utils::dashboard::history::history;
@@ -44,6 +44,14 @@ pub fn build_ticks() -> TickSeries {
             }
         })
         .collect();
-    let histogram = entries.last().map(|e| e.snapshot.tick_histogram).unwrap_or([0; TICK_HISTOGRAM_BUCKETS]);
-    TickSeries { interval_sec: 1, points, histogram, bucket_edges_us: engine_dashboard::bucket_edges_us() }
+    let histogram = entries
+        .last()
+        .map(|e| e.snapshot.tick_histogram)
+        .unwrap_or([0; TICK_HISTOGRAM_BUCKETS]);
+    TickSeries {
+        interval_sec: 1,
+        points,
+        histogram,
+        bucket_edges_us: engine_dashboard::bucket_edges_us(),
+    }
 }

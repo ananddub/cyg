@@ -172,12 +172,13 @@ pub async fn delete_storage_object(
     key: &str,
     user_id: Uuid,
 ) -> Result<bool, sqlx::Error> {
-    let done = sqlx::query("DELETE FROM storage WHERE collection = $1 AND key = $2 AND user_id = $3;")
-        .bind(collection)
-        .bind(key)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
+    let done =
+        sqlx::query("DELETE FROM storage WHERE collection = $1 AND key = $2 AND user_id = $3;")
+            .bind(collection)
+            .bind(key)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
     Ok(done.rows_affected() > 0)
 }
 
@@ -200,10 +201,7 @@ pub async fn delete_wallet_ledger(
 /// One notification, addressed by its own id. The console deletes a notification
 /// outright — mirroring reference, the row is not scoped by recipient, so an operator
 /// can remove a notification by id alone.
-pub async fn delete_notification(
-    pool: &sqlx::PgPool,
-    id: Uuid,
-) -> Result<bool, sqlx::Error> {
+pub async fn delete_notification(pool: &sqlx::PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
     let done = sqlx::query("DELETE FROM notification WHERE id = $1;")
         .bind(id)
         .execute(pool)

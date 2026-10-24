@@ -7,6 +7,7 @@
 //! which compile against the pinned types below.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
 use engine_physics::PhysicsWorld3D;
@@ -35,6 +36,9 @@ pub enum RoomBackend {
     UnityRelay,
     /// Server-Authoritative WASM Mode: Runs Rapier3D physics & game logic.
     Wasm,
+    /// Native bevy_ecs mode: TickRunner + ECS-synced Rapier3D + RoomRng +
+    /// OXCL arena. No WASM guest — the simulation is Rust-native.
+    Ecs,
     /// reference-Style Deterministic Tick Input-Hub: Server never runs physics,
     /// collects player inputs, bundles them by tick, and forwards them.
     InputHub,
@@ -78,14 +82,17 @@ impl UnityNetcodeState {
         rot: [f32; 4],
         vel: [f32; 3],
     ) {
-        let entry = self.entities.entry(view_id).or_insert_with(|| EntityNetState {
-            view_id,
-            owner_session: owner_session.to_string(),
-            position: pos,
-            rotation: rot,
-            velocity: vel,
-            dirty: true,
-        });
+        let entry = self
+            .entities
+            .entry(view_id)
+            .or_insert_with(|| EntityNetState {
+                view_id,
+                owner_session: owner_session.to_string(),
+                position: pos,
+                rotation: rot,
+                velocity: vel,
+                dirty: true,
+            });
         entry.position = pos;
         entry.rotation = rot;
         entry.velocity = vel;
@@ -94,7 +101,10 @@ impl UnityNetcodeState {
     }
 
     pub fn update_sync_var(&mut self, view_id: u32, var_id: u16, val: Vec<u8>) {
-        self.sync_vars.entry(view_id).or_default().insert(var_id, val);
+        self.sync_vars
+            .entry(view_id)
+            .or_default()
+            .insert(var_id, val);
     }
 
     pub fn export_snapshot(&self) -> UnityPersistentSnapshot {
@@ -146,7 +156,10 @@ impl UnityNetcodeState {
         }
 
         for (view_id, var_id, val) in snap.sync_vars {
-            self.sync_vars.entry(view_id).or_default().insert(var_id, val);
+            self.sync_vars
+                .entry(view_id)
+                .or_default()
+                .insert(var_id, val);
         }
 
         for (view_id, prefab_id, owner, payload) in snap.spawned_prefabs {
@@ -181,6 +194,56 @@ pub enum RoomSnapshotData {
     Wasm(Vec<u8>),
 }
 
+/// A typed message queued by the guest through `host_send`.
+///
+/// `target == 0` broadcasts to every member (and spectator); a positive value
+/// is the player id returned by `on_join`. The host owns routing because the
+/// guest knows player ids, not transport session ids.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutboundMessage {
+    pub target: i64,
+    /// UTF-8 event/message name, e.g. `"discard"` or `"chat"`.
+    pub event: String,
+    pub payload: Vec<u8>,
+}
+
+/// Bound on guest-queued messages between host drains. The host normally drains
+/// every tick, but a guest could otherwise grow this vector without limit.
+pub const MAX_OUTBOX_MESSAGES: usize = 256;
+
+/// Host state attached to one WASM store.
+///
+/// The deref impl keeps every physics host import (`caller.data().raycast(..)`)
+/// unchanged while giving the message outbox a home that is not part of the
+/// physics crate.
+pub struct RoomHostData {
+    pub physics: PhysicsWorld3D,
+    pub outbox: Vec<OutboundMessage>,
+}
+
+impl RoomHostData {
+    pub fn new(physics: PhysicsWorld3D) -> Self {
+        Self {
+            physics,
+            outbox: Vec::new(),
+        }
+    }
+}
+
+impl Deref for RoomHostData {
+    type Target = PhysicsWorld3D;
+
+    fn deref(&self) -> &Self::Target {
+        &self.physics
+    }
+}
+
+impl DerefMut for RoomHostData {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.physics
+    }
+}
+
 /// One named room: an isolated simulation + its members.
 pub struct GameRoom {
     pub(crate) backend: RoomBackend,
@@ -188,8 +251,13 @@ pub struct GameRoom {
     /// `on_save`/`on_load` are never invoked, so a game cannot write to (or read
     /// from) the snapshot store — the capability is actually enforced.
     pub(crate) storage_enabled: bool,
-    pub(crate) wasm: Option<RoomLogic<PhysicsWorld3D>>,
+    pub(crate) wasm: Option<RoomLogic<RoomHostData>>,
     pub(crate) unity: Option<UnityNetcodeState>,
+    /// Native bevy_ecs simulation state (`RoomBackend::Ecs` only).
+    pub(crate) ecs: Option<crate::ecs_room::EcsRoomState>,
+    /// Messages queued by the ECS backend between host drains (mirrors the
+    /// WASM `RoomHostData.outbox` contract).
+    pub(crate) ecs_outbox: Vec<OutboundMessage>,
     pub(crate) sessions: HashMap<String, i64>,
     pub(crate) spectators: HashSet<String>,
     pub(crate) next_player_id: i64,
@@ -201,6 +269,18 @@ pub struct GameRoom {
     pub(crate) last_input_seq: HashMap<String, u16>,
     pub(crate) event_seq: u16,
     pub(crate) delta_seq: u16,
+    /// Sessions that already received the schema full snapshot. New viewers
+    /// get the full row once, then field-level patches.
+    pub(crate) schema_sent: HashSet<String>,
+    /// Sessions whose socket died but whose seat is held for reconnection:
+    /// session -> (player id, give-up deadline).
+    pub(crate) pending_leaves: HashMap<String, (i64, Instant)>,
+    /// Set when a patch window skipped ticks; the next send is a full snapshot.
+    pub(crate) patch_skipped: bool,
+    /// When the last schema patch window opened (patch-rate gating).
+    pub(crate) last_patch_at: Option<Instant>,
+    /// Host-tick time accumulated toward the guest's simulation interval.
+    pub(crate) sim_accum: Duration,
     pub(crate) acked_event_seq: HashMap<String, u16>,
     pub(crate) input_journal: VecDeque<JournalInput>,
     pub(crate) input_hub_records: VecDeque<InputHubTickRecord>,
@@ -243,17 +323,24 @@ pub(crate) struct JournalInput {
 pub(crate) fn build_host_linker(
     runtime: &engine_wasm::WasmRuntime,
     permissions: engine_wasm::AbiPermissions,
-) -> wasmtime::Linker<PhysicsWorld3D> {
-    let mut linker = runtime.create_linker::<PhysicsWorld3D>();
+) -> wasmtime::Linker<RoomHostData> {
+    let mut linker = runtime.create_linker::<RoomHostData>();
 
     // Register host functions under both canonical `game_host_v1` and legacy `env` namespaces (Rule 1 & Rule 8)
-    for ns in &[engine_wasm::HOST_NAMESPACE_V1, engine_wasm::HOST_NAMESPACE_LEGACY] {
+    for ns in &[
+        engine_wasm::HOST_NAMESPACE_V1,
+        engine_wasm::HOST_NAMESPACE_LEGACY,
+    ] {
         // Abort callback
         linker
             .func_wrap(
                 ns,
                 "abort",
-                |_caller: wasmtime::Caller<'_, PhysicsWorld3D>, _m: u32, _f: u32, _l: u32, _c: u32| {},
+                |_caller: wasmtime::Caller<'_, RoomHostData>,
+                 _m: u32,
+                 _f: u32,
+                 _l: u32,
+                 _c: u32| {},
             )
             .expect("link abort");
 
@@ -262,7 +349,7 @@ pub(crate) fn build_host_linker(
             .func_wrap(
                 ns,
                 "host_log",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>, ptr: i32, len: i32| -> i32 {
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>, ptr: i32, len: i32| -> i32 {
                     if !permissions.logging {
                         return engine_wasm::ABI_ERR_PERMISSION_DENIED;
                     }
@@ -290,12 +377,77 @@ pub(crate) fn build_host_linker(
             )
             .expect("link host_log");
 
+        // Host messaging ABI: queue a typed, optionally targeted room message.
+        // The guest supplies a UTF-8 name + opaque payload; the host routes it
+        // to the player id (or broadcasts for target == 0). Actual framing and
+        // transport writes happen on the host loop, never inside the guest call.
+        linker
+            .func_wrap(
+                ns,
+                "host_send",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      target: i64,
+                      type_ptr: i32,
+                      type_len: i32,
+                      data_ptr: i32,
+                      data_len: i32|
+                      -> i32 {
+                    if !permissions.messaging {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    if type_len <= 0
+                        || type_len > 255
+                        || data_len < 0
+                        || data_len as usize > engine_wasm::MAX_INBOUND_PAYLOAD_SIZE
+                    {
+                        return engine_wasm::ABI_ERR_INVALID_ARGUMENT;
+                    }
+
+                    let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") else {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    };
+                    let memory = mem.data(&caller);
+                    let t_off = type_ptr as usize;
+                    let t_end = t_off.saturating_add(type_len as usize);
+                    let d_off = data_ptr as usize;
+                    let d_end = d_off.saturating_add(data_len as usize);
+                    if t_off >= memory.len()
+                        || t_end > memory.len()
+                        || (data_len > 0 && (d_off >= memory.len() || d_end > memory.len()))
+                    {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    }
+
+                    let event = match std::str::from_utf8(&memory[t_off..t_end]) {
+                        Ok(name) => name.to_string(),
+                        Err(_) => return engine_wasm::ABI_ERR_INVALID_UTF8,
+                    };
+                    let payload = if data_len > 0 {
+                        memory[d_off..d_end].to_vec()
+                    } else {
+                        Vec::new()
+                    };
+
+                    let data = caller.data_mut();
+                    if data.outbox.len() >= MAX_OUTBOX_MESSAGES {
+                        return engine_wasm::ABI_ERR_BUFFER_OVERFLOW;
+                    }
+                    data.outbox.push(OutboundMessage {
+                        target,
+                        event,
+                        payload,
+                    });
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link host_send");
+
         // Host Version ABI (Rule 1: Version query)
         linker
             .func_wrap(
                 ns,
                 "get_abi_version",
-                move |_caller: wasmtime::Caller<'_, PhysicsWorld3D>| -> i32 {
+                move |_caller: wasmtime::Caller<'_, RoomHostData>| -> i32 {
                     engine_wasm::CURRENT_ABI_VERSION as i32
                 },
             )
@@ -306,7 +458,12 @@ pub(crate) fn build_host_linker(
             .func_wrap(
                 ns,
                 "sys_physics_surface_y",
-                move |caller: wasmtime::Caller<'_, PhysicsWorld3D>, px: f64, py: f64, pz: f64, radius: f64| -> f64 {
+                move |caller: wasmtime::Caller<'_, RoomHostData>,
+                      px: f64,
+                      py: f64,
+                      pz: f64,
+                      radius: f64|
+                      -> f64 {
                     if !permissions.physics {
                         return 0.0;
                     }
@@ -320,15 +477,23 @@ pub(crate) fn build_host_linker(
             .func_wrap(
                 ns,
                 "sys_physics_move",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>,
-                 px: f64, py: f64, pz: f64,
-                 vx: f64, vy: f64, vz: f64,
-                 radius: f64, dt: f64,
-                 out_ptr: i32| -> i32 {
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      px: f64,
+                      py: f64,
+                      pz: f64,
+                      vx: f64,
+                      vy: f64,
+                      vz: f64,
+                      radius: f64,
+                      dt: f64,
+                      out_ptr: i32|
+                      -> i32 {
                     if !permissions.physics {
                         return engine_wasm::ABI_ERR_PERMISSION_DENIED;
                     }
-                    let res = caller.data().move_and_slide(px, py, pz, vx, vy, vz, radius, dt);
+                    let res = caller
+                        .data()
+                        .move_and_slide(px, py, pz, vx, vy, vz, radius, dt);
 
                     if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
                         let data = mem.data_mut(&mut caller);
@@ -336,13 +501,18 @@ pub(crate) fn build_host_linker(
                         if offset + 24 <= data.len() {
                             data[offset..offset + 8].copy_from_slice(&res.new_x.to_le_bytes());
                             data[offset + 8..offset + 16].copy_from_slice(&res.new_y.to_le_bytes());
-                            data[offset + 16..offset + 24].copy_from_slice(&res.new_z.to_le_bytes());
+                            data[offset + 16..offset + 24]
+                                .copy_from_slice(&res.new_z.to_le_bytes());
                         } else {
                             return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
                         }
                     }
 
-                    if res.is_grounded { 1 } else { 0 }
+                    if res.is_grounded {
+                        1
+                    } else {
+                        0
+                    }
                 },
             )
             .expect("link sys_physics_move");
@@ -352,11 +522,16 @@ pub(crate) fn build_host_linker(
             .func_wrap(
                 ns,
                 "sys_physics_raycast",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>,
-                 ox: f64, oy: f64, oz: f64,
-                 dx: f64, dy: f64, dz: f64,
-                 max_dist: f64,
-                 out_ptr: i32| -> i32 {
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      ox: f64,
+                      oy: f64,
+                      oz: f64,
+                      dx: f64,
+                      dy: f64,
+                      dz: f64,
+                      max_dist: f64,
+                      out_ptr: i32|
+                      -> i32 {
                     if !permissions.physics {
                         return engine_wasm::ABI_ERR_PERMISSION_DENIED;
                     }
@@ -368,11 +543,16 @@ pub(crate) fn build_host_linker(
                             let data = mem.data_mut(&mut caller);
                             let offset = out_ptr as usize;
                             if offset + 36 <= data.len() {
-                                data[offset..offset + 8].copy_from_slice(&hit.point.x.to_le_bytes());
-                                data[offset + 8..offset + 16].copy_from_slice(&hit.point.y.to_le_bytes());
-                                data[offset + 16..offset + 24].copy_from_slice(&hit.point.z.to_le_bytes());
-                                data[offset + 24..offset + 32].copy_from_slice(&hit.distance.to_le_bytes());
-                                data[offset + 32..offset + 36].copy_from_slice(&hit.collider_id.to_le_bytes());
+                                data[offset..offset + 8]
+                                    .copy_from_slice(&hit.point.x.to_le_bytes());
+                                data[offset + 8..offset + 16]
+                                    .copy_from_slice(&hit.point.y.to_le_bytes());
+                                data[offset + 16..offset + 24]
+                                    .copy_from_slice(&hit.point.z.to_le_bytes());
+                                data[offset + 24..offset + 32]
+                                    .copy_from_slice(&hit.distance.to_le_bytes());
+                                data[offset + 32..offset + 36]
+                                    .copy_from_slice(&hit.collider_id.to_le_bytes());
                             } else {
                                 return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
                             }
@@ -391,12 +571,16 @@ pub(crate) fn build_host_linker(
             .func_wrap(
                 ns,
                 "sys_physics_lag_record",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>,
-                 tick: i64,
-                 entity_id: i32,
-                 kind: i32,
-                 min_x: f64, min_y: f64, min_z: f64,
-                 max_x: f64, max_y: f64, max_z: f64| {
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      tick: i64,
+                      entity_id: i32,
+                      kind: i32,
+                      min_x: f64,
+                      min_y: f64,
+                      min_z: f64,
+                      max_x: f64,
+                      max_y: f64,
+                      max_z: f64| {
                     if !permissions.lag_compensation {
                         return;
                     }
@@ -420,30 +604,47 @@ pub(crate) fn build_host_linker(
             .func_wrap(
                 ns,
                 "sys_physics_lag_raycast",
-                move |mut caller: wasmtime::Caller<'_, PhysicsWorld3D>,
-                 shoot_tick: i64,
-                 ox: f64, oy: f64, oz: f64,
-                 dx: f64, dy: f64, dz: f64,
-                 max_dist: f64,
-                 out_ptr: i32| -> i32 {
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      shoot_tick: i64,
+                      ox: f64,
+                      oy: f64,
+                      oz: f64,
+                      dx: f64,
+                      dy: f64,
+                      dz: f64,
+                      max_dist: f64,
+                      out_ptr: i32|
+                      -> i32 {
                     if !permissions.lag_compensation {
                         return engine_wasm::ABI_ERR_PERMISSION_DENIED;
                     }
                     let origin = engine_physics::Vec3::new(ox, oy, oz);
                     let dir = engine_physics::Vec3::new(dx, dy, dz);
 
-                    if let Some(hit) = caller.data_mut().lag_compensated_raycast(shoot_tick as u64, origin, dir, max_dist) {
+                    if let Some(hit) = caller.data_mut().lag_compensated_raycast(
+                        shoot_tick as u64,
+                        origin,
+                        dir,
+                        max_dist,
+                    ) {
                         if let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") {
                             let data = mem.data_mut(&mut caller);
                             let offset = out_ptr as usize;
                             if offset + 44 <= data.len() {
-                                data[offset..offset + 8].copy_from_slice(&hit.point.x.to_le_bytes());
-                                data[offset + 8..offset + 16].copy_from_slice(&hit.point.y.to_le_bytes());
-                                data[offset + 16..offset + 24].copy_from_slice(&hit.point.z.to_le_bytes());
-                                data[offset + 24..offset + 32].copy_from_slice(&hit.distance.to_le_bytes());
-                                data[offset + 32..offset + 36].copy_from_slice(&hit.entity_id.to_le_bytes());
-                                data[offset + 36..offset + 40].copy_from_slice(&hit.kind.to_le_bytes());
-                                data[offset + 40..offset + 44].copy_from_slice(&hit.collider_id.to_le_bytes());
+                                data[offset..offset + 8]
+                                    .copy_from_slice(&hit.point.x.to_le_bytes());
+                                data[offset + 8..offset + 16]
+                                    .copy_from_slice(&hit.point.y.to_le_bytes());
+                                data[offset + 16..offset + 24]
+                                    .copy_from_slice(&hit.point.z.to_le_bytes());
+                                data[offset + 24..offset + 32]
+                                    .copy_from_slice(&hit.distance.to_le_bytes());
+                                data[offset + 32..offset + 36]
+                                    .copy_from_slice(&hit.entity_id.to_le_bytes());
+                                data[offset + 36..offset + 40]
+                                    .copy_from_slice(&hit.kind.to_le_bytes());
+                                data[offset + 40..offset + 44]
+                                    .copy_from_slice(&hit.collider_id.to_le_bytes());
                             } else {
                                 return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
                             }
@@ -464,13 +665,13 @@ impl GameRoom {
     /// Spawn a room from the pre-instantiated template: one `instantiate`
     /// against the shared linker, then the guest's `on_create`.
     pub(crate) fn new(
-        pre: &engine_wasm::WasmPreInstance<PhysicsWorld3D>,
+        pre: &engine_wasm::WasmPreInstance<RoomHostData>,
         max_clients: i32,
         physics: PhysicsWorld3D,
     ) -> Result<Self, engine_wasm::WasmError> {
         // A guest that predates the ABI (e.g. missing `on_alloc`) must fail the
         // one room, not abort the whole process — the caller rejects the client.
-        let mut wasm = RoomLogic::from_pre(pre, physics)?;
+        let mut wasm = RoomLogic::from_pre(pre, RoomHostData::new(physics))?;
         if let Err(e) = wasm.on_create(max_clients) {
             eprintln!("[server] ⚠️ guest on_create error: {e}");
         }
@@ -481,6 +682,8 @@ impl GameRoom {
             storage_enabled: true,
             wasm: Some(wasm),
             unity: Some(UnityNetcodeState::default()),
+            ecs: None,
+            ecs_outbox: Vec::new(),
             sessions: HashMap::new(),
             spectators: HashSet::new(),
             next_player_id: 1,
@@ -496,6 +699,11 @@ impl GameRoom {
             last_input_seq: HashMap::new(),
             event_seq: 0,
             delta_seq: 0,
+            schema_sent: HashSet::new(),
+            pending_leaves: HashMap::new(),
+            patch_skipped: false,
+            last_patch_at: None,
+            sim_accum: Duration::ZERO,
             acked_event_seq: HashMap::new(),
             input_journal: VecDeque::new(),
             input_hub_records: VecDeque::new(),
@@ -512,6 +720,8 @@ impl GameRoom {
             storage_enabled: true,
             wasm: None,
             unity: Some(UnityNetcodeState::default()),
+            ecs: None,
+            ecs_outbox: Vec::new(),
             sessions: HashMap::new(),
             spectators: HashSet::new(),
             next_player_id: 1,
@@ -527,6 +737,11 @@ impl GameRoom {
             last_input_seq: HashMap::new(),
             event_seq: 0,
             delta_seq: 0,
+            schema_sent: HashSet::new(),
+            pending_leaves: HashMap::new(),
+            patch_skipped: false,
+            last_patch_at: None,
+            sim_accum: Duration::ZERO,
             acked_event_seq: HashMap::new(),
             input_journal: VecDeque::new(),
             input_hub_records: VecDeque::new(),
@@ -534,6 +749,16 @@ impl GameRoom {
             input_hub_sessions: HashMap::new(),
             input_hub_last_tick: HashMap::new(),
         }
+    }
+
+    /// Spawn a native bevy_ecs room: TickRunner + ECS-synced Rapier3D +
+    /// deterministic RoomRng + OXCL arena. Zero WASM, zero locks.
+    /// `arena` comes from `ox-game cook <map.glb> arena.oxcl` (optional).
+    pub(crate) fn new_ecs(name: &str, arena: Option<&engine_physics::oxcl::CookedMesh>) -> Self {
+        let mut room = Self::new_unity_relay();
+        room.backend = RoomBackend::Ecs;
+        room.ecs = Some(crate::ecs_room::EcsRoomState::new(name, arena));
+        room
     }
 
     /// Spawn a reference-inspired Deterministic Input-Hub room (zero-physics
@@ -608,7 +833,8 @@ impl GameRoom {
                 return false;
             }
         }
-        self.input_hub_last_tick.insert(player_actor_id, client_tick);
+        self.input_hub_last_tick
+            .insert(player_actor_id, client_tick);
         if self.input_hub_records.len() >= 256 {
             self.input_hub_records.pop_front();
         }
@@ -660,6 +886,44 @@ impl GameRoom {
         self.backend == RoomBackend::Wasm
     }
 
+    /// Whether this room runs the native bevy_ecs simulation.
+    #[inline]
+    pub fn is_ecs(&self) -> bool {
+        self.backend == RoomBackend::Ecs
+    }
+
+    /// Tick the native ECS simulation and queue its delta for the host to
+    /// broadcast (same `OutboundMessage` contract a WASM guest's `host_send`
+    /// uses: `target = 0` = room-wide, event `"delta"`, TLV payload).
+    /// Returns the delta byte count for telemetry.
+    pub(crate) fn tick_ecs(&mut self, dt: f64) -> usize {
+        let Some(ref mut ecs) = self.ecs else {
+            return 0;
+        };
+        let delta = ecs.tick(dt);
+        if delta.is_empty() {
+            return 0;
+        }
+        const MAX_ECS_OUTBOX: usize = 256;
+        let len = delta.len();
+        if self.ecs_outbox.len() < MAX_ECS_OUTBOX {
+            self.ecs_outbox.push(OutboundMessage {
+                target: 0,
+                event: "delta".to_string(),
+                payload: delta,
+            });
+        }
+        len
+    }
+
+    /// Route one session's raw input bytes into the ECS backend (first byte
+    /// is the WASD flags bitmask).
+    pub(crate) fn ecs_input(&mut self, session: &str, data: &[u8]) {
+        if let Some(ref mut ecs) = self.ecs {
+            ecs.apply_input(session, data);
+        }
+    }
+
     /// Whether this room operates in deterministic Input-Hub mode.
     #[inline]
     pub fn is_input_hub(&self) -> bool {
@@ -690,7 +954,10 @@ impl GameRoom {
                         let len = (packed as u32) as usize;
                         if len > 0 {
                             let mut buf = vec![0u8; len];
-                            if wasm.read_memory_into(ptr as u32, len as u32, &mut buf).is_ok() {
+                            if wasm
+                                .read_memory_into(ptr as u32, len as u32, &mut buf)
+                                .is_ok()
+                            {
                                 let snap = RoomSnapshotData::Wasm(buf);
                                 return serde_json::to_vec(&snap).ok();
                             }
@@ -698,6 +965,16 @@ impl GameRoom {
                     }
                 }
                 None
+            }
+            RoomBackend::Ecs => {
+                if let Some(ref mut ecs) = self.ecs {
+                    // Positions + health of every live avatar, in TLV form —
+                    // the same delta encoding the backend broadcasts.
+                    let snap = RoomSnapshotData::Wasm(ecs.export_tlv());
+                    serde_json::to_vec(&snap).ok()
+                } else {
+                    None
+                }
             }
             RoomBackend::InputHub => None,
         }
@@ -723,7 +1000,9 @@ impl GameRoom {
             RoomSnapshotData::Wasm(wasm_bytes) => {
                 if let Some(ref mut wasm) = self.wasm {
                     let len = wasm_bytes.len() as i32;
-                    let ptr = wasm.on_alloc(len).map_err(|e| format!("on_alloc failed: {e}"))?;
+                    let ptr = wasm
+                        .on_alloc(len)
+                        .map_err(|e| format!("on_alloc failed: {e}"))?;
                     wasm.write_memory(ptr as u32, &wasm_bytes)
                         .map_err(|e| format!("write_memory failed: {e}"))?;
                     wasm.on_load(ptr, len)
@@ -742,7 +1021,9 @@ impl GameRoom {
     /// [`Self::is_full`], which lets the guest override the policy.
     #[inline]
     pub(crate) fn is_at_capacity(&self, max_clients: i32) -> bool {
-        (self.is_unity_relay() || self.is_input_hub()) && max_clients > 0 && self.sessions.len() as i32 >= max_clients
+        (self.is_unity_relay() || self.is_input_hub())
+            && max_clients > 0
+            && self.sessions.len() as i32 >= max_clients
     }
 
     /// Capacity decision for a joining player.
@@ -769,12 +1050,173 @@ impl GameRoom {
         let instance = wasm.raw_instance();
         // AssemblyScript `bool` is an i32 on the wire (0/1), which is also the
         // only result shape wasmtime accepts here.
-        let func = instance
-            .get_typed_func::<(i32,), i32>("on_is_full")
-            .ok()?;
+        let func = instance.get_typed_func::<(i32,), i32>("on_is_full").ok()?;
         func.call(instance.store_mut(), (count,))
             .ok()
             .map(|v| v != 0)
+    }
+
+    /// Seat admission through the guest's optional `onAuth(clientId, options)`.
+    /// `None` means the guest ships no hook (or cannot be called); the caller
+    /// then admits the client, matching Colyseus's default `onAuth`.
+    pub(crate) fn authorize(&mut self, id: i64, options: &str) -> bool {
+        self.guest_on_auth(id, options).unwrap_or(true)
+    }
+
+    fn guest_on_auth(&mut self, id: i64, options: &str) -> Option<bool> {
+        let wasm = self.wasm.as_mut()?;
+        if wasm
+            .raw_instance()
+            .get_typed_func::<(i64, i32, i32), i32>("on_auth")
+            .is_err()
+        {
+            return None;
+        }
+        let bytes = options.as_bytes();
+        let len = i32::try_from(bytes.len()).ok()?;
+        let ptr = if len == 0 {
+            0
+        } else {
+            // Fail closed: a guest that asked for auth but whose allocator
+            // failed must not silently admit anyone.
+            let ptr = wasm.on_alloc(len).ok()?;
+            wasm.write_memory(ptr as u32, bytes).ok()?;
+            ptr
+        };
+        let instance = wasm.raw_instance();
+        let func = instance
+            .get_typed_func::<(i64, i32, i32), i32>("on_auth")
+            .ok()?;
+        func.call(instance.store_mut(), (id, ptr, len))
+            .ok()
+            .map(|v| v != 0)
+    }
+
+    /// Milliseconds the guest wants a disconnected seat held for reconnection.
+    /// `None` when the export is absent, so the seat is released immediately.
+    fn guest_allow_reconnection(&mut self, id: i64) -> Option<i32> {
+        let wasm = self.wasm.as_mut()?;
+        let instance = wasm.raw_instance();
+        let func = instance
+            .get_typed_func::<(i64,), i32>("on_allow_reconnection")
+            .ok()?;
+        func.call(instance.store_mut(), (id,)).ok()
+    }
+
+    /// Guest-configured patch cadence in milliseconds (0 = every tick).
+    fn guest_patch_rate_ms(&mut self) -> i32 {
+        let Some(wasm) = self.wasm.as_mut() else {
+            return 0;
+        };
+        let instance = wasm.raw_instance();
+        let Ok(func) = instance.get_typed_func::<(), i32>("on_patch_rate") else {
+            return 0;
+        };
+        func.call(instance.store_mut(), ()).unwrap_or(0).max(0)
+    }
+
+    /// Guest-configured simulation cadence in milliseconds (0 = every tick).
+    fn guest_simulation_rate_ms(&mut self) -> i32 {
+        let Some(wasm) = self.wasm.as_mut() else {
+            return 0;
+        };
+        let instance = wasm.raw_instance();
+        let Ok(func) = instance.get_typed_func::<(), i32>("on_simulation_rate") else {
+            return 0;
+        };
+        func.call(instance.store_mut(), ()).unwrap_or(0).max(0)
+    }
+
+    /// True when this session's seat is held for reconnection.
+    #[allow(dead_code)]
+    pub(crate) fn has_pending_leave(&self, session: &str) -> bool {
+        self.pending_leaves.contains_key(session)
+    }
+
+    /// Resume a held seat: cancel the pending leave and call the guest's
+    /// `onReconnect`. Returns the retained player id; `onJoin` is not re-run.
+    pub(crate) fn rejoin(&mut self, session: &str) -> Option<i64> {
+        let (id, _deadline) = self.pending_leaves.remove(session)?;
+        if self.sessions.get(session).copied() != Some(id) {
+            return None;
+        }
+        self.note_activity();
+        if let Some(ref mut wasm) = self.wasm {
+            let _ = wasm
+                .raw_instance()
+                .call::<(i64,), ()>("on_reconnect", (id,));
+        }
+        Some(id)
+    }
+
+    /// Release every seat whose reconnection deadline passed. Returns whether
+    /// any guest `onLeave` ran, so the caller can flush the outbox.
+    pub(crate) fn expire_pending_leaves(&mut self, now: Instant) -> bool {
+        if self.pending_leaves.is_empty() {
+            return false;
+        }
+        let expired: Vec<(String, i64)> = self
+            .pending_leaves
+            .iter()
+            .filter(|(_, (_, deadline))| now >= *deadline)
+            .map(|(session, (id, _))| (session.clone(), *id))
+            .collect();
+        for (session, id) in &expired {
+            self.pending_leaves.remove(session);
+            self.sessions.remove(session);
+            self.release_player(session, *id);
+        }
+        if !expired.is_empty() && self.sessions.is_empty() && self.spectators.is_empty() {
+            self.empty_since = Some(now);
+        }
+        !expired.is_empty()
+    }
+
+    /// Run the guest's optional `onDispose` before the host drops the room.
+    pub(crate) fn dispose(&mut self) {
+        if let Some(ref mut wasm) = self.wasm {
+            let _ = wasm.raw_instance().call::<(), ()>("on_dispose", ());
+        }
+    }
+
+    /// Patch-rate gate. Returns false when this tick's state frame must be
+    /// dropped; the skipped changes are recovered because the next due frame
+    /// is sent as a full snapshot.
+    pub(crate) fn should_send_patch(&mut self, now: Instant) -> bool {
+        let rate = self.guest_patch_rate_ms();
+        if rate <= 0 {
+            self.last_patch_at = Some(now);
+            return true;
+        }
+        let due = match self.last_patch_at {
+            Some(last) => now.duration_since(last) >= Duration::from_millis(rate as u64),
+            None => true,
+        };
+        if due {
+            self.last_patch_at = Some(now);
+        } else {
+            self.patch_skipped = true;
+        }
+        due
+    }
+
+    /// Consume the "a patch window was skipped" flag for this send.
+    pub(crate) fn take_patch_skipped(&mut self) -> bool {
+        std::mem::take(&mut self.patch_skipped)
+    }
+
+    /// Drop one player's guest slot and its per-session bookkeeping.
+    pub(crate) fn release_player(&mut self, session: &str, id: i64) {
+        self.release_input_actor(session);
+        if let Some(ref mut ecs) = self.ecs {
+            ecs.remove_player(session);
+        }
+        if let Some(ref mut wasm) = self.wasm {
+            let _ = wasm.on_leave(id);
+        }
+        self.voice_room.leave_participant(id as u32);
+        self.last_input_seq.remove(session);
+        self.input_journal.retain(|j| j.session != session);
     }
 
     /// Deterministic spawn scatter for a new player, derived from how many
@@ -796,12 +1238,16 @@ impl GameRoom {
         let id = self.next_player_id;
         self.next_player_id += 1;
         self.empty_since = None;
+        if let Some(ref mut ecs) = self.ecs {
+            ecs.add_player(session, id, x, y);
+        }
         if let Some(ref mut wasm) = self.wasm {
             if let Err(e) = wasm.on_join(id, x, y) {
                 eprintln!("[server] ⚠️ guest on_join error for player {id}: {e}");
             }
         }
-        self.voice_room.join_participant(id as u32, Some(1), [x, 0.0, y]);
+        self.voice_room
+            .join_participant(id as u32, Some(1), [x, 0.0, y]);
         self.sessions.insert(session.to_string(), id);
         id
     }
@@ -823,6 +1269,7 @@ impl GameRoom {
                 let _ = wasm.on_leave(id);
             }
         }
+        self.schema_sent.remove(session);
         self.spectators.insert(session.to_string());
     }
 
@@ -846,32 +1293,63 @@ impl GameRoom {
         }
     }
 
-    /// Full disconnect sequence for one session: remove spectator and ack
-    /// records, drop it from the WebRTC voice mesh, release the player slot
-    /// (guest `on_leave`, voice participant, input seq, journal entries), and
-    /// arm the empty-room timer when nobody is left.
-    ///
-    /// Returns the voice-peer id that vanished, if the session was in the P2P
-    /// mesh — the caller must announce `PeerLeft` for it over its transport.
-    pub(crate) fn handle_disconnect(&mut self, session: &str) -> Option<u32> {
+    /// Detach a session's shared bookkeeping: spectator slot, pending schema
+    /// acks, and the WebRTC voice mesh entry. Returns the voice-peer id that
+    /// vanished, if the session was in the P2P mesh.
+    fn detach_session(&mut self, session: &str) -> Option<u32> {
         self.spectators.remove(session);
+        self.schema_sent.remove(session);
         self.acked_event_seq.remove(session);
-        self.release_input_actor(session);
         // A WebRTC peer that vanishes with its socket has to be
         // announced, otherwise the rest of the mesh keeps
         // re-negotiating with an id nobody answers.
-        let gone = self.voice_mesh.leave_session(session);
-        if let Some(id) = self.sessions.remove(session) {
-            if let Some(ref mut wasm) = self.wasm {
-                let _ = wasm.on_leave(id);
-            }
-            self.voice_room.leave_participant(id as u32);
-            self.last_input_seq.remove(session);
-            self.input_journal.retain(|j| j.session != session);
-        }
+        self.voice_mesh.leave_session(session)
+    }
+
+    fn arm_empty_timer(&mut self) {
         if self.sessions.is_empty() && self.spectators.is_empty() {
             self.empty_since = Some(Instant::now());
         }
+    }
+
+    /// Consented disconnect: the client asked to leave (or the server closed
+    /// the socket), so the seat is released right away — `allowReconnection`
+    /// does not hold it. Returns the voice-peer id that vanished, if any.
+    pub(crate) fn handle_disconnect(&mut self, session: &str) -> Option<u32> {
+        let gone = self.detach_session(session);
+        self.pending_leaves.remove(session);
+        match self.sessions.get(session).copied() {
+            Some(id) => {
+                self.sessions.remove(session);
+                self.release_player(session, id);
+            }
+            None => self.release_input_actor(session),
+        }
+        self.arm_empty_timer();
+        gone
+    }
+
+    /// Unexpected disconnect (socket drop, heartbeat timeout): if the guest
+    /// implements `allowReconnection`, the seat and player id are held until
+    /// the deadline; otherwise the player is released immediately.
+    pub(crate) fn handle_unexpected_disconnect(&mut self, session: &str) -> Option<u32> {
+        let gone = self.detach_session(session);
+        match self.sessions.get(session).copied() {
+            Some(id) => {
+                // A seat may be held for reconnection; the player id and guest
+                // state are untouched until the deadline expires.
+                let hold = self.guest_allow_reconnection(id).unwrap_or(0);
+                if hold > 0 {
+                    let deadline = Instant::now() + Duration::from_millis(hold as u64);
+                    self.pending_leaves.insert(session.to_string(), (id, deadline));
+                } else {
+                    self.sessions.remove(session);
+                    self.release_player(session, id);
+                }
+            }
+            None => self.release_input_actor(session),
+        }
+        self.arm_empty_timer();
         gone
     }
 
@@ -916,8 +1394,26 @@ impl GameRoom {
             // reference-style Input Hub: zero server physics.
             return Ok(0);
         }
+        // Simulation cadence: the guest may ask the host to run `onTick`
+        // less often than the network tick. Each run still receives a
+        // fixed dt (the configured interval), so the simulation stays
+        // deterministic instead of seeing jittery deltas.
+        let rate_ms = self.guest_simulation_rate_ms();
+        let mut guest_dt = dt;
+        if rate_ms > 0 {
+            let interval = Duration::from_millis(rate_ms as u64);
+            self.sim_accum += Duration::from_secs_f64(dt);
+            if self.sim_accum < interval {
+                return Ok(0);
+            }
+            // Never burst through a stall: one step, fresh accumulator.
+            self.sim_accum = Duration::ZERO;
+            guest_dt = interval.as_secs_f64();
+        } else {
+            self.sim_accum = Duration::ZERO;
+        }
         if let Some(ref mut wasm) = self.wasm {
-            let packed = wasm.on_tick(dt)?;
+            let packed = wasm.on_tick(guest_dt)?;
             if rollback_enabled {
                 // The guest serializes its own state (tiny blob) — no raw
                 // linear-memory copy in the host.
@@ -935,23 +1431,39 @@ impl GameRoom {
         }
     }
 
+    /// Take every typed message the guest queued through `host_send` since the
+    /// last drain. The host loop routes and frames them after the tick (or
+    /// after a join/input that produced them), so a guest never touches the
+    /// transport.
+    pub fn drain_outbox(&mut self) -> Vec<OutboundMessage> {
+        let mut out = match self.wasm.as_mut() {
+            Some(wasm) => std::mem::take(&mut wasm.data_mut().outbox),
+            None => Vec::new(),
+        };
+        if !self.ecs_outbox.is_empty() {
+            out.append(&mut self.ecs_outbox);
+        }
+        out
+    }
+
     /// Hot-swap this room's WASM instance for the freshly compiled template,
     /// keeping the room's physics world and re-joining every active player at
     /// their id-derived spawn point so nobody is disconnected. Returns the
     /// number of players carried over, or the instantiation error as text.
     pub(crate) fn reload_wasm(
         &mut self,
-        pre: &engine_wasm::WasmPreInstance<PhysicsWorld3D>,
+        pre: &engine_wasm::WasmPreInstance<RoomHostData>,
         max_clients: i32,
         width: f64,
         height: f64,
     ) -> Result<usize, String> {
         let physics = if let Some(ref wasm) = self.wasm {
-            wasm.data().clone()
+            wasm.data().physics.clone()
         } else {
             PhysicsWorld3D::default()
         };
-        let mut new_wasm = RoomLogic::from_pre(pre, physics).map_err(|e| e.to_string())?;
+        let mut new_wasm =
+            RoomLogic::from_pre(pre, RoomHostData::new(physics)).map_err(|e| e.to_string())?;
         let _ = new_wasm.on_create(max_clients);
         // Re-join active players so state is maintained seamlessly
         for (_sid, &pid) in &self.sessions {
@@ -973,7 +1485,7 @@ pub struct GameServer {
     /// Linked, validated template: spawning a room costs one instantiate.
     /// `None` when the process booted without a room module — the server then
     /// serves Unity-relay rooms only instead of refusing to start.
-    pub(crate) pre: Option<engine_wasm::WasmPreInstance<PhysicsWorld3D>>,
+    pub(crate) pre: Option<engine_wasm::WasmPreInstance<RoomHostData>>,
     pub(crate) max_clients: i32,
     pub(crate) physics: PhysicsWorld3D,
     pub(crate) rooms: HashMap<String, GameRoom>,
@@ -983,7 +1495,7 @@ pub struct GameServer {
 
 impl GameServer {
     pub(crate) fn new(
-        pre: Option<engine_wasm::WasmPreInstance<PhysicsWorld3D>>,
+        pre: Option<engine_wasm::WasmPreInstance<RoomHostData>>,
         max_clients: i32,
         physics: PhysicsWorld3D,
         permissions: engine_wasm::AbiPermissions,
@@ -1012,7 +1524,8 @@ impl GameServer {
             "[server] 💾 Saved persistent snapshot for room '{room_name}' ({} bytes)",
             snapshot.len()
         );
-        self.persistent_snapshots.insert(room_name.to_string(), snapshot);
+        self.persistent_snapshots
+            .insert(room_name.to_string(), snapshot);
     }
 
     /// Retrieve a previously saved snapshot for a room, if one exists.
@@ -1036,9 +1549,7 @@ impl GameServer {
     /// blocked — the limit only bites on creation, so an open room-name space
     /// cannot be used to allocate unbounded rooms (each may be a WASM instance).
     pub(crate) fn would_exceed_room_limit(&self, name: &str, max_rooms: u32) -> bool {
-        max_rooms > 0
-            && !self.rooms.contains_key(name)
-            && self.rooms.len() >= max_rooms as usize
+        max_rooms > 0 && !self.rooms.contains_key(name) && self.rooms.len() >= max_rooms as usize
     }
 
     pub(crate) fn get_or_create(
@@ -1066,7 +1577,9 @@ impl GameServer {
             // Auto-restore persistent snapshot if available
             if let Some(snap_bytes) = self.persistent_snapshots.get(name) {
                 if let Err(e) = room.import_snapshot(snap_bytes) {
-                    eprintln!("[server] ⚠️ Failed to restore persistent snapshot for '{name}': {e}");
+                    eprintln!(
+                        "[server] ⚠️ Failed to restore persistent snapshot for '{name}': {e}"
+                    );
                 } else {
                     eprintln!("[server] 🔄 Restored persistent snapshot for room '{name}'");
                 }
@@ -1075,6 +1588,25 @@ impl GameServer {
             self.rooms.insert(name.to_string(), room);
         }
         Ok(self.rooms.get_mut(name).expect("room just inserted"))
+    }
+
+    /// Retrieve or instantiate a native bevy_ecs room (zero-WASM, Rust sim).
+    /// `arena` is the cooked `arena.oxcl` mesh when the project ships one.
+    pub(crate) fn get_or_create_ecs(
+        &mut self,
+        name: &str,
+        arena: Option<&engine_physics::oxcl::CookedMesh>,
+    ) -> &mut GameRoom {
+        if !self.rooms.contains_key(name) {
+            let mut room = GameRoom::new_ecs(name, arena);
+            eprintln!(
+                "[server] room '{name}' created with native bevy_ecs backend (Rapier3D + RoomRng{})",
+                if arena.is_some() { " + OXCL arena" } else { "" }
+            );
+            room.storage_enabled = self.permissions.storage;
+            self.rooms.insert(name.to_string(), room);
+        }
+        self.rooms.get_mut(name).expect("room just inserted")
     }
 
     /// Retrieve or instantiate a Pure Unity C# Netcode Relay room (zero-WASM).
@@ -1089,7 +1621,9 @@ impl GameServer {
             // Auto-restore persistent snapshot if available
             if let Some(snap_bytes) = self.persistent_snapshots.get(name) {
                 if let Err(e) = room.import_snapshot(snap_bytes) {
-                    eprintln!("[server] ⚠️ Failed to restore persistent snapshot for '{name}': {e}");
+                    eprintln!(
+                        "[server] ⚠️ Failed to restore persistent snapshot for '{name}': {e}"
+                    );
                 } else {
                     eprintln!("[server] 🔄 Restored persistent snapshot for room '{name}'");
                 }
@@ -1105,7 +1639,7 @@ impl GameServer {
     /// `runtime.prepare` succeed on a changed `room_logic.wasm`).
     pub(crate) fn hot_reload(
         &mut self,
-        pre: engine_wasm::WasmPreInstance<PhysicsWorld3D>,
+        pre: engine_wasm::WasmPreInstance<RoomHostData>,
         width: f64,
         height: f64,
     ) {
@@ -1182,7 +1716,13 @@ mod tests {
     #[test]
     fn test_unity_netcode_state_updates() {
         let mut state = UnityNetcodeState::default();
-        state.update_transform(101, "sess_player1", [1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], [0.5, 0.0, 0.0]);
+        state.update_transform(
+            101,
+            "sess_player1",
+            [1.0, 2.0, 3.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [0.5, 0.0, 0.0],
+        );
 
         let ent = state.entities.get(&101).expect("entity exists");
         assert_eq!(ent.position, [1.0, 2.0, 3.0]);
@@ -1190,7 +1730,11 @@ mod tests {
         assert!(state.dirty_entities.contains(&101));
 
         state.update_sync_var(101, 12, vec![0xCA, 0xFE]);
-        let val = state.sync_vars.get(&101).and_then(|v| v.get(&12)).expect("sync var exists");
+        let val = state
+            .sync_vars
+            .get(&101)
+            .and_then(|v| v.get(&12))
+            .expect("sync var exists");
         assert_eq!(val, &[0xCA, 0xFE]);
     }
 
@@ -1264,6 +1808,238 @@ mod tests {
         GameRoom::new(&pre, 16, PhysicsWorld3D::default()).expect("instantiate guest room")
     }
 
+    /// Guest that exercises every Phase 4 hook: auth reads the options byte,
+    /// a 5s reconnection hold, patch/simulation cadence, and counters for
+    /// leave/reconnect/dispose so tests can observe the lifecycle.
+    const LIFECYCLE_GUEST_WAT: &str = r#"
+        (module
+          (memory (export "memory") 1)
+          (global $ticks (mut i32) (i32.const 0))
+          (global $leaves (mut i32) (i32.const 0))
+          (global $reconnects (mut i32) (i32.const 0))
+          (global $disposals (mut i32) (i32.const 0))
+          (func (export "on_create") (param i32))
+          (func (export "on_join") (param i64 f64 f64))
+          (func (export "on_leave") (param i64)
+            (global.set $leaves (i32.add (global.get $leaves) (i32.const 1))))
+          (func (export "on_alloc") (param i32) (result i32) (i32.const 1024))
+          (func (export "on_input") (param i64 i32 i32))
+          (func (export "on_tick") (param f64) (result i64)
+            (global.set $ticks (i32.add (global.get $ticks) (i32.const 1)))
+            (i64.const 0))
+          (func (export "on_save") (result i64) (i64.const 0))
+          (func (export "on_load") (param i32 i32))
+          (func (export "on_auth") (param i64 i32 i32) (result i32)
+            (i32.and
+              (i32.gt_s (local.get 2) (i32.const 0))
+              (i32.eq (i32.load8_u (i32.const 1024)) (i32.const 123))))
+          (func (export "on_allow_reconnection") (param i64) (result i32) (i32.const 5000))
+          (func (export "on_reconnect") (param i64)
+            (global.set $reconnects (i32.add (global.get $reconnects) (i32.const 1))))
+          (func (export "on_dispose")
+            (global.set $disposals (i32.add (global.get $disposals) (i32.const 1))))
+          (func (export "on_patch_rate") (result i32) (i32.const 100))
+          (func (export "on_simulation_rate") (result i32) (i32.const 50))
+          (func (export "tick_count") (result i32) (global.get $ticks))
+          (func (export "leave_count") (result i32) (global.get $leaves))
+          (func (export "reconnect_count") (result i32) (global.get $reconnects))
+          (func (export "dispose_count") (result i32) (global.get $disposals))
+        )
+    "#;
+
+    fn lifecycle_room() -> GameRoom {
+        let runtime = engine_wasm::WasmRuntime::new().expect("wasm runtime");
+        let module = runtime
+            .compile(LIFECYCLE_GUEST_WAT.as_bytes())
+            .expect("compile lifecycle wat");
+        let linker = build_host_linker(&runtime, engine_wasm::AbiPermissions::default());
+        let pre = runtime.prepare(&linker, &module).expect("prepare guest");
+        GameRoom::new(&pre, 16, PhysicsWorld3D::default()).expect("instantiate lifecycle room")
+    }
+
+    fn guest_i32(room: &mut GameRoom, export: &str) -> i32 {
+        room.wasm
+            .as_mut()
+            .expect("wasm guest")
+            .raw_instance()
+            .call::<(), i32>(export, ())
+            .expect("counter export")
+    }
+
+    #[test]
+    fn on_auth_sees_the_client_options_and_can_reject() {
+        let mut room = lifecycle_room();
+        // The guest admits only options that start with `{`.
+        assert!(room.authorize(1, r#"{"token":"ok"}"#));
+        assert!(!room.authorize(2, "denied"));
+
+        // A guest without the export falls back to Colyseus's allow default.
+        let mut relay = GameRoom::new_unity_relay();
+        assert!(relay.authorize(1, "anything"));
+    }
+
+    #[test]
+    fn allow_reconnection_holds_the_seat_then_reconnect_resumes_it() {
+        let mut room = lifecycle_room();
+        let id = room.join("alice", 0.0, 0.0);
+        assert_eq!(room.handle_unexpected_disconnect("alice"), None);
+
+        assert!(
+            room.has_pending_leave("alice"),
+            "a 5s hold must keep the seat"
+        );
+        assert_eq!(
+            room.sessions.get("alice"),
+            Some(&id),
+            "the player id and guest slot survive the disconnect"
+        );
+        assert_eq!(guest_i32(&mut room, "leave_count"), 0);
+
+        assert_eq!(room.rejoin("alice"), Some(id));
+        assert!(!room.has_pending_leave("alice"));
+        assert_eq!(guest_i32(&mut room, "reconnect_count"), 1);
+        assert_eq!(guest_i32(&mut room, "leave_count"), 0);
+
+        // A seat that never comes back is released when the deadline passes.
+        assert_eq!(room.handle_unexpected_disconnect("alice"), None);
+        room.pending_leaves
+            .insert("alice".to_string(), (id, Instant::now()));
+        assert!(room.expire_pending_leaves(Instant::now()));
+        assert!(room.sessions.is_empty());
+        assert_eq!(guest_i32(&mut room, "leave_count"), 1);
+        assert!(room.is_hibernating());
+    }
+
+    #[test]
+    fn consented_disconnect_releases_a_held_seat_immediately() {
+        let mut room = lifecycle_room();
+        let id = room.join("carol", 0.0, 0.0);
+        // Hold the seat first: a drop that would be recoverable…
+        room.handle_unexpected_disconnect("carol");
+        assert!(room.has_pending_leave("carol"));
+
+        // …then the client comes back and leaves on purpose: no hold.
+        assert_eq!(room.rejoin("carol"), Some(id));
+        assert_eq!(room.handle_disconnect("carol"), None);
+        assert!(!room.has_pending_leave("carol"));
+        assert!(room.sessions.is_empty());
+        assert_eq!(guest_i32(&mut room, "leave_count"), 1);
+        assert!(room.is_hibernating());
+    }
+
+    #[test]
+    fn reconnect_after_the_deadline_is_a_fresh_join() {
+        let mut room = lifecycle_room();
+        let id = room.join("bob", 0.0, 0.0);
+        room.handle_unexpected_disconnect("bob");
+        room.pending_leaves
+            .insert("bob".to_string(), (id, Instant::now()));
+        assert!(room.expire_pending_leaves(Instant::now()));
+        assert_eq!(room.rejoin("bob"), None);
+        assert_eq!(guest_i32(&mut room, "reconnect_count"), 0);
+    }
+
+    #[test]
+    fn patch_rate_skips_windows_and_forces_the_next_full() {
+        let mut room = lifecycle_room();
+        let t0 = Instant::now();
+        assert!(room.should_send_patch(t0), "first window is always due");
+        assert!(
+            !room.should_send_patch(t0 + Duration::from_millis(50)),
+            "inside the 100ms window the patch is skipped"
+        );
+        assert!(
+            room.take_patch_skipped(),
+            "the skipped window must force a full snapshot"
+        );
+        assert!(!room.take_patch_skipped(), "the flag is consumed once");
+        assert!(room.should_send_patch(t0 + Duration::from_millis(101)));
+    }
+
+    #[test]
+    fn simulation_rate_runs_at_a_fixed_dt_and_skips_intermediate_ticks() {
+        let mut room = lifecycle_room();
+        for _ in 0..4 {
+            assert_eq!(room.tick(0.01, false).unwrap(), 0);
+        }
+        assert_eq!(
+            guest_i32(&mut room, "tick_count"),
+            0,
+            "50ms cadence with 10ms host ticks: four ticks are not enough"
+        );
+        assert_eq!(room.tick(0.01, false).unwrap(), 0);
+        assert_eq!(
+            guest_i32(&mut room, "tick_count"),
+            1,
+            "the fifth 10ms tick reaches the guest"
+        );
+        assert_eq!(room.sim_accum, Duration::ZERO);
+    }
+
+    #[test]
+    fn dispose_runs_the_guest_hook() {
+        let mut room = lifecycle_room();
+        room.dispose();
+        assert_eq!(guest_i32(&mut room, "dispose_count"), 1);
+    }
+
+    /// ABI-complete guest that queues one typed message during `on_create`.
+    const MESSAGE_GUEST_WAT: &str = r#"
+        (module
+          (import "env" "host_send"
+            (func $host_send (param i64 i32 i32 i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 0) "chat")
+          (data (i32.const 8) "\01\02\03")
+          (func (export "on_create") (param i32)
+            (drop (call $host_send
+              (i64.const 0) (i32.const 0) (i32.const 4) (i32.const 8) (i32.const 3))))
+          (func (export "on_join") (param i64 f64 f64))
+          (func (export "on_leave") (param i64))
+          (func (export "on_alloc") (param i32) (result i32) (i32.const 0))
+          (func (export "on_input") (param i64 i32 i32))
+          (func (export "on_tick") (param f64) (result i64) (i64.const 0))
+          (func (export "on_save") (result i64) (i64.const 0))
+          (func (export "on_load") (param i32 i32))
+        )
+    "#;
+
+    fn wat_message_room(permissions: engine_wasm::AbiPermissions) -> GameRoom {
+        let runtime = engine_wasm::WasmRuntime::new().expect("wasm runtime");
+        let module = runtime
+            .compile(MESSAGE_GUEST_WAT.as_bytes())
+            .expect("compile message wat");
+        let linker = build_host_linker(&runtime, permissions);
+        let pre = runtime.prepare(&linker, &module).expect("prepare guest");
+        GameRoom::new(&pre, 16, PhysicsWorld3D::default()).expect("instantiate message room")
+    }
+
+    #[test]
+    fn guest_messages_are_queued_for_the_host_and_gated_by_permission() {
+        let mut room = wat_message_room(engine_wasm::AbiPermissions::default());
+        assert_eq!(
+            room.drain_outbox(),
+            vec![OutboundMessage {
+                target: 0,
+                event: "chat".to_string(),
+                payload: vec![1, 2, 3],
+            }]
+        );
+        assert!(
+            room.drain_outbox().is_empty(),
+            "drain must consume the queue"
+        );
+
+        let mut denied = wat_message_room(engine_wasm::AbiPermissions {
+            messaging: false,
+            ..Default::default()
+        });
+        assert!(
+            denied.drain_outbox().is_empty(),
+            "a manifest without messaging must not let the guest queue traffic"
+        );
+    }
+
     #[test]
     fn guest_on_is_full_overrides_the_host_ceiling() {
         let mut room = wat_room();
@@ -1293,7 +2069,10 @@ mod tests {
 
         // Permitted: the guest's on_save / on_load are actually reached.
         assert!(room.export_snapshot().is_some(), "permitted room persists");
-        assert!(room.import_snapshot(&snap).is_ok(), "permitted room restores");
+        assert!(
+            room.import_snapshot(&snap).is_ok(),
+            "permitted room restores"
+        );
 
         // Denied: neither guest export may be reached.
         room.storage_enabled = false;
@@ -1389,7 +2168,8 @@ mod tests {
         assert!(!server.rooms.get("room_b").unwrap().is_hibernating());
 
         // 4. Room A 30s timeout elapsed -> Auto-close & dispose from memory
-        server.rooms.get_mut("room_a").unwrap().empty_since = Some(Instant::now() - Duration::from_secs(31));
+        server.rooms.get_mut("room_a").unwrap().empty_since =
+            Some(Instant::now() - Duration::from_secs(31));
 
         let mut dead_rooms = Vec::new();
         for (name, room) in server.rooms.iter_mut() {
@@ -1428,8 +2208,16 @@ mod tests {
 
         // 2. Player spawns a shelter (prefab_id = 42, view_id = 100)
         let unity = room.unity.as_mut().unwrap();
-        unity.spawned_prefabs.insert(100, (42, "player_builder".into(), vec![1, 2, 3, 4]));
-        unity.update_transform(100, "player_builder", [12.5, 3.0, -45.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
+        unity
+            .spawned_prefabs
+            .insert(100, (42, "player_builder".into(), vec![1, 2, 3, 4]));
+        unity.update_transform(
+            100,
+            "player_builder",
+            [12.5, 3.0, -45.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        );
         unity.update_sync_var(100, 1, vec![100, 100]); // Health = 100
 
         // 3. Player disconnects -> Room hibernates
@@ -1453,7 +2241,10 @@ mod tests {
         let restored_room = server.rooms.get("world_zone_survival").unwrap();
         let restored_unity = restored_room.unity.as_ref().unwrap();
         assert_eq!(restored_unity.entities.len(), 1);
-        let entity = restored_unity.entities.get(&100).expect("view_id 100 preserved");
+        let entity = restored_unity
+            .entities
+            .get(&100)
+            .expect("view_id 100 preserved");
         assert_eq!(entity.position, [12.5, 3.0, -45.0]);
         assert_eq!(entity.rotation, [0.0, 1.0, 0.0, 0.0]);
         assert!(entity.dirty);
@@ -1461,10 +2252,16 @@ mod tests {
         // Verify spawned prefabs and sync vars restored
         assert!(restored_unity.spawned_prefabs.contains_key(&100));
         assert_eq!(restored_unity.spawned_prefabs.get(&100).unwrap().0, 42);
-        assert_eq!(restored_unity.spawned_prefabs.get(&100).unwrap().2, vec![1, 2, 3, 4]);
+        assert_eq!(
+            restored_unity.spawned_prefabs.get(&100).unwrap().2,
+            vec![1, 2, 3, 4]
+        );
 
         assert!(restored_unity.sync_vars.contains_key(&100));
-        assert_eq!(restored_unity.sync_vars.get(&100).unwrap().get(&1).unwrap(), &vec![100, 100]);
+        assert_eq!(
+            restored_unity.sync_vars.get(&100).unwrap().get(&1).unwrap(),
+            &vec![100, 100]
+        );
     }
 
     #[test]
@@ -1499,8 +2296,14 @@ mod tests {
         let payload = [0u8; 9];
 
         assert!(room.claim_input_actor("session-a", 7));
-        assert!(!room.claim_input_actor("session-a", 8), "session cannot change actors");
-        assert!(!room.claim_input_actor("session-b", 7), "actor is owned by session-a");
+        assert!(
+            !room.claim_input_actor("session-a", 8),
+            "session cannot change actors"
+        );
+        assert!(
+            !room.claim_input_actor("session-b", 7),
+            "actor is owned by session-a"
+        );
         assert!(room.claim_input_actor("session-b", 8));
 
         assert!(room.record_input_tick_checked("session-a", 7, 10, &payload));
@@ -1531,7 +2334,10 @@ mod tests {
         assert!(room.is_wasm());
         room.enable_input_hub();
         assert!(room.is_input_hub());
-        assert!(room.wasm.is_none(), "input hub must never keep a physics guest");
+        assert!(
+            room.wasm.is_none(),
+            "input hub must never keep a physics guest"
+        );
         room.enable_input_hub();
         assert!(room.is_input_hub());
     }

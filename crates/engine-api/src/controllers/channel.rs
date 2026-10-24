@@ -9,10 +9,10 @@ use auto_route::controller;
 use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 
-use crate::current_state;
-use crate::dto::channel::{ListQuery, SendRequest, UpdateRequest};
 use crate::app::middleware::Authed;
 use crate::app::params::{Body, Params};
+use crate::current_state;
+use crate::dto::channel::{ListQuery, SendRequest, UpdateRequest};
 
 use crate::services::channel::ChannelService;
 

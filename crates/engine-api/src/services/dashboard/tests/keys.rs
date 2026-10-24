@@ -21,7 +21,10 @@ fn an_idle_overview_serialises_every_key_as_zero_not_omission() {
     let rooms = build_rooms(&s);
     assert_eq!(rooms.len(), 1, "one room per process");
     assert_eq!(rooms[0].status, "empty");
-    assert!(rooms[0].sample_age_ms.is_none(), "no sample means no age, not zero");
+    assert!(
+        rooms[0].sample_age_ms.is_none(),
+        "no sample means no age, not zero"
+    );
     assert_eq!(rooms[0].server_id, "http://127.0.0.1:8124");
     assert_eq!(rooms[0].signaling_url, "ws://127.0.0.1:8124/ws/signal");
 
@@ -46,7 +49,10 @@ fn a_fed_snapshot_makes_the_room_live_with_an_age() {
     let rooms = build_rooms(&s);
     assert_eq!(rooms[0].status, "live");
     assert_eq!(rooms[0].clients, 2);
-    assert_eq!(rooms[0].empty_for_sec, None, "a room with players is not empty");
+    assert_eq!(
+        rooms[0].empty_for_sec, None,
+        "a room with players is not empty"
+    );
     assert!(rooms[0].has_sim_sample);
     assert!(rooms[0].sample_age_ms.unwrap() < 5_000);
     assert_eq!(build_overview(&s).ccu, 2);

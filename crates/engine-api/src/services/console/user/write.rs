@@ -3,6 +3,7 @@
 use axum::Json;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::user::{
@@ -10,7 +11,6 @@ use crate::dto::console::user::{
 };
 use crate::error::V2Error;
 use crate::repositories::console_mutations::{InsertConsoleUserParams, UpdateConsoleUserParams};
-use crate::ApiState;
 
 use super::{check_password, named, operator_conflict, role_from};
 

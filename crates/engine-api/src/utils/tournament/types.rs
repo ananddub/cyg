@@ -6,9 +6,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::error::{INVALID_ARGUMENT, UNKNOWN, V2Error};
-use crate::utils::leaderboard::{
-    DB_BEST, DB_DECREMENT, DB_INCREMENT, DB_SET, number, owner_ids,
-};
+use crate::utils::leaderboard::{DB_BEST, DB_DECREMENT, DB_INCREMENT, DB_SET, number, owner_ids};
 
 pub const ID_MISSING: &str = "Tournament ID must be provided";
 pub const ID_MISSING_DOT: &str = "Tournament ID must be provided.";
@@ -99,8 +97,8 @@ struct CursorBody {
 }
 
 pub fn page_cursor(id: &str) -> String {
-    let json = serde_json::to_vec(&CursorBody { id: id.to_string() })
-        .unwrap_or_else(|_| Vec::new());
+    let json =
+        serde_json::to_vec(&CursorBody { id: id.to_string() }).unwrap_or_else(|_| Vec::new());
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)
 }
 
@@ -112,9 +110,7 @@ pub fn decode_page_cursor(raw: &str) -> Result<Option<String>, V2Error> {
     }
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(raw)
-        .or_else(|_| {
-            base64::engine::general_purpose::URL_SAFE.decode(raw)
-        })
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(raw))
         .map_err(|_| V2Error::new(UNKNOWN, CURSOR_INVALID))?;
     let body: CursorBody =
         serde_json::from_slice(&bytes).map_err(|_| V2Error::new(UNKNOWN, CURSOR_INVALID))?;

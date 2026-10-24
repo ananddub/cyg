@@ -10,9 +10,9 @@ use auto_route::controller;
 use axum::extract::Json;
 use axum::response::{IntoResponse, Response};
 
-use crate::current_state;
 use crate::app::middleware::Authed;
 use crate::app::params::{Body, Params};
+use crate::current_state;
 
 use crate::dto::account::{GetAccountQuery, UpdateAccountRequest, UpdatePlayerWalletRequest};
 use crate::services::account::AccountService;

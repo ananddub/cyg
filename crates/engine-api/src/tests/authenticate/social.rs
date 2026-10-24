@@ -2,9 +2,7 @@
 //! stand in front of reading a profile this server cannot reach.
 
 use super::helpers::{V2Server, server_key, v2_state};
-use crate::error::{
-    DATA_LOSS, FAILED_PRECONDITION, INVALID_ARGUMENT, UNAUTHENTICATED,
-};
+use crate::error::{DATA_LOSS, FAILED_PRECONDITION, INVALID_ARGUMENT, UNAUTHENTICATED};
 
 /// Apple and Steam are refused by what this server's configuration does not have,
 /// before their token is read for anything.

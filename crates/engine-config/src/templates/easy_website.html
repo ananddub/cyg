@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OpenOxide — Easy Room</title>
+<style>
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 12px;
+        background: #09090b; color: #fafafa;
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    }
+    h1 { margin: 0; font-size: 1.05rem; font-weight: 600; color: #a1a1aa; }
+    #status { font-size: .82rem; color: #71717a; }
+    #status.ok { color: #4ade80; }
+    #status.err { color: #f87171; }
+    canvas { border: 1px solid #27272a; border-radius: 10px; background: #111113; }
+    #hint { font-size: .75rem; color: #52525b; }
+    #log { min-height: 1.2em; font-size: .8rem; color: #60a5fa; }
+</style>
+</head>
+<body>
+<h1>OpenOxide Easy Room</h1>
+<div id="status">connecting…</div>
+<canvas id="game" width="800" height="500"></canvas>
+<div id="hint">WASD / arrows to move · Q = local event + broadcast · H = hello · P = targeted ping · I = state inspector</div>
+<div id="log"></div>
+
+<script src="/openoxide.js"></script>
+<script>
+(async function () {
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const pageHost = (location.hostname === '0.0.0.0' || !location.hostname)
+        ? '127.0.0.1' : location.hostname;
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const endpoint = `${wsProto}//${pageHost}:7777`;
+    const roomName = new URLSearchParams(location.search).get('room') || 'game_room';
+
+    let room = null;
+    let me = null;
+    let players = [];
+    const keys = {};
+
+    function setStatus(text, cls) {
+        statusEl.textContent = text;
+        statusEl.className = cls || '';
+    }
+
+    function note(text) {
+        logEl.textContent = text;
+    }
+
+    function flags() {
+        let f = 0;
+        if (keys['KeyW'] || keys['ArrowUp']) f |= 1;
+        if (keys['KeyS'] || keys['ArrowDown']) f |= 2;
+        if (keys['KeyA'] || keys['ArrowLeft']) f |= 4;
+        if (keys['KeyD'] || keys['ArrowRight']) f |= 8;
+        return f;
+    }
+
+    function sendInput() {
+        if (!room || !room.isOpen) return;
+        const bytes = new Uint8Array(4);
+        new DataView(bytes.buffer).setUint32(0, flags(), true);
+        room.send('input', bytes);
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+            keys[e.code] = true;
+            e.preventDefault();
+            sendInput();
+        }
+        if (e.code === 'KeyQ') room && room.send('discard');
+        if (e.code === 'KeyH') room && room.send('hello');
+        if (e.code === 'KeyP') room && room.send('ping');
+        if (e.code === 'KeyI' && window.inspector) {
+            window.inspector.el ? window.inspector.detach() : window.inspector.attach();
+        }
+    });
+    window.addEventListener('keyup', (e) => {
+        keys[e.code] = false;
+        sendInput();
+    });
+    setInterval(sendInput, 33);
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = '#1f1f23';
+        ctx.lineWidth = 1;
+        for (let x = 0; x <= canvas.width; x += 50) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for (let y = 0; y <= canvas.height; y += 50) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+        for (const p of players) {
+            const mine = me != null && p.id === me;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
+            ctx.fillStyle = mine ? '#4ade80' : '#60a5fa';
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = mine ? '#bbf7d0' : '#1d4ed8';
+            ctx.stroke();
+            ctx.fillStyle = '#e4e4e7';
+            ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(String(p.id), p.x, p.y - 20);
+        }
+    }
+
+    try {
+        // The schema arrives with the join handshake (openoxide.schema.bin),
+        // so the client needs no schema file and no useSchema() call.
+        const client = new OpenOxide.Client(endpoint);
+        window.room = room = await client.joinOrCreate(roomName);
+        window.inspector = new OpenOxide.Inspector(room);
+
+        // Colyseus v5 callback API.
+        const callbacks = OpenOxide.getStateCallbacks(room);
+        callbacks.onAdd('players', (player, id) => {
+            note('player added: ' + id);
+            // callbacks.listen(player, 'x', (current, previous) => { ... });
+        });
+        callbacks.onRemove('players', (player, id) => {
+            note('player removed: ' + id);
+        });
+
+        room.on('open', () => setStatus('connected', 'ok'));
+        room.on('close', () => setStatus('disconnected', 'err'));
+        room.on('reconnecting', (attempt) => setStatus(`reconnecting (${attempt})…`, 'warn'));
+        room.on('reconnected', () => setStatus('reconnected', 'ok'));
+        room.on('schemaerror', (message) => setStatus(message, 'err'));
+
+        room.onStateChange((state) => {
+            const collection = state.players || state;
+            players = Array.from(collection.values());
+            if (room.sessionId != null) me = Number(room.sessionId);
+            setStatus(`connected — you are player #${me}`, 'ok');
+        });
+
+        room.onMessage('joined', (payload) => {
+            note('player joined: ' + new TextDecoder().decode(payload));
+        });
+        room.onMessage('notice', (payload) => {
+            note(new TextDecoder().decode(payload));
+        });
+        room.onMessage('hello', () => {
+            note('hello from the room');
+        });
+        room.onMessage('pong', () => {
+            note('pong — targeted reply');
+        });
+
+        function frame() { draw(); requestAnimationFrame(frame); }
+        frame();
+    } catch (err) {
+        setStatus('failed: ' + (err && err.message ? err.message : err), 'err');
+    }
+})();
+</script>
+</body>
+</html>

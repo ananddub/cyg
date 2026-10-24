@@ -597,7 +597,11 @@ namespace CookYourGame
             if (request.result != UnityWebRequest.Result.Success)
             {
                 string detail = request.downloadHandler != null ? request.downloadHandler.text : string.Empty;
-                Debug.LogError("[CYG] matchmake failed (" + request.responseCode + "): " + detail);
+                if (string.IsNullOrEmpty(detail))
+                {
+                    detail = request.error ?? "Connection failed";
+                }
+                Debug.LogError("[CYG] matchmake failed (" + request.responseCode + ") at " + request.url + ": " + detail);
                 ClearRoomState();
                 if (OnDisconnectedEvent != null)
                 {

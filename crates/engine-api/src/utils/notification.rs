@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::repositories::models::Notification;
 use crate::error::V2Error;
+use crate::repositories::models::Notification;
 use crate::services::social::{cursor_decode, cursor_encode, uid};
 
 pub(crate) const LIMIT_RANGE: &str = "Invalid limit - limit must be between 1 and 100.";

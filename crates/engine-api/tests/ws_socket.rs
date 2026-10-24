@@ -20,20 +20,25 @@ use engine_api::{ApiState, serve};
 
 /// A plane bound to `port`, built the way `serve` builds it.
 fn state(port: u16) -> ApiState {
-    let game = GameConfig { name: "tank-3d".into(), ..GameConfig::default() };
-    let control = ControlConfig { api_port: 0, ..ControlConfig::default() };
+    let game = GameConfig {
+        name: "tank-3d".into(),
+        ..GameConfig::default()
+    };
+    let control = ControlConfig {
+        api_port: 0,
+        ..ControlConfig::default()
+    };
     ApiState::new(Path::new("."), &game, &control, Bus::new(16, 16), port)
 }
 
 /// A bound listener plus the token a client authenticates with.
 async fn plane() -> (u16, String, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("ephemeral bind");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("ephemeral bind");
     let port = listener.local_addr().expect("bound addr").port();
-    let (session, _) = engine_api::infra::jwt::mint_token_pair(
-        uuid::Uuid::new_v4(),
-        "player",
-        HashMap::new(),
-    );
+    let (session, _) =
+        engine_api::infra::jwt::mint_token_pair(uuid::Uuid::new_v4(), "player", HashMap::new());
     let server = tokio::spawn(serve(listener, state(port), std::future::pending()));
     (port, session, server)
 }
@@ -66,7 +71,11 @@ async fn a_socket_answers_ping_on_the_cid_and_shapes_message_errors() {
         .await
         .expect("ping sent");
     let pong = next_json(&mut ws).await;
-    assert_eq!(pong["cid"].as_str(), Some("1"), "the reply carries the request cid");
+    assert_eq!(
+        pong["cid"].as_str(),
+        Some("1"),
+        "the reply carries the request cid"
+    );
     assert_eq!(pong["type"].as_str(), Some("pong"));
 
     // An unknown tag is the parse failure it always was: a `type:"error"` frame
@@ -81,7 +90,10 @@ async fn a_socket_answers_ping_on_the_cid_and_shapes_message_errors() {
         refused.get("code").is_none(),
         "an error frame carries no numeric code: {refused}"
     );
-    assert!(refused["cid"].is_null(), "an undecodable frame has no cid to answer on");
+    assert!(
+        refused["cid"].is_null(),
+        "an undecodable frame has no cid to answer on"
+    );
     assert!(
         refused["message"]
             .as_str()
@@ -110,8 +122,7 @@ async fn an_upgrade_without_a_session_token_never_opens_a_socket() {
 async fn closing_the_socket_leaves_the_session_behind() {
     let (port, _token, server) = plane().await;
     let uid = uuid::Uuid::new_v4();
-    let (session, _) =
-        engine_api::infra::jwt::mint_token_pair(uid, "player", HashMap::new());
+    let (session, _) = engine_api::infra::jwt::mint_token_pair(uid, "player", HashMap::new());
     let url = format!("ws://127.0.0.1:{port}/ws?token={session}");
     let (mut ws, _) = tokio_tungstenite::connect_async(&url)
         .await
@@ -124,10 +135,14 @@ async fn closing_the_socket_leaves_the_session_behind() {
         .expect("ping sent");
     let _ = next_json(&mut ws).await;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while !engine_api::infra::ws::session::is_online(uid) && tokio::time::Instant::now() < deadline {
+    while !engine_api::infra::ws::session::is_online(uid) && tokio::time::Instant::now() < deadline
+    {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    assert!(engine_api::infra::ws::session::is_online(uid), "connected session is registered");
+    assert!(
+        engine_api::infra::ws::session::is_online(uid),
+        "connected session is registered"
+    );
 
     ws.close(None).await.expect("close sent");
 

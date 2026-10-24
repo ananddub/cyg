@@ -8,13 +8,13 @@ use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use super::bearer;
-use crate::dto::Empty;
-use crate::utils::unlink::{refused};
 use crate::ApiState;
-use crate::repositories::db::Queries;
-use crate::services::auth::q;
+use crate::dto::Empty;
 use crate::dto::auth;
 use crate::error::V2Error;
+use crate::repositories::db::Queries;
+use crate::services::auth::q;
+use crate::utils::unlink::refused;
 
 impl super::UnlinkService {
     /// `POST /v2/account/unlink/device`. Refused when it would leave the account with

@@ -5,9 +5,9 @@
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::utils::storage::CURSOR_MESSAGE;
 use crate::error::V2Error;
 use crate::services::social;
+use crate::utils::storage::CURSOR_MESSAGE;
 
 pub(super) struct Resumed {
     pub(super) key: String,

@@ -11,16 +11,16 @@ mod statements;
 use axum::Json;
 use uuid::Uuid;
 
-use crate::dto::storage::{ListQuery, StorageObjectList};
-use crate::utils::storage::*;
 use super::pool;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
-use crate::services::social;
 use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::storage::{ListQuery, StorageObjectList};
+use crate::error::V2Error;
+use crate::services::social;
+use crate::utils::storage::*;
 
 use cursor::resume;
-use fetch::{fetch, Listing};
+use fetch::{Listing, fetch};
 use reply::reply;
 
 impl super::StorageService {
@@ -59,8 +59,8 @@ impl super::StorageService {
         if collection.is_empty() {
             return Err(V2Error::invalid_argument(INVALID_OBJECT_MESSAGE));
         }
-        let owner =
-            Uuid::parse_str(user_id).map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
+        let owner = Uuid::parse_str(user_id)
+            .map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
         let listing = if owner == auth.0.uuid()? {
             Listing::Own
         } else {

@@ -4,8 +4,8 @@
 //! BaaS parity: `server/storage_index.go` (the index the runtime builds and the
 //! console query the server answers) — with the object value as the indexed document.
 
-mod query;
 mod parse;
+mod query;
 mod sql;
 mod statements;
 
@@ -13,10 +13,10 @@ use axum::Json;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::dto::storage_index::{StorageIndexDef, StorageIndexDefinitions};
-use crate::error::V2Error;
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::dto::storage_index::{StorageIndexDef, StorageIndexDefinitions};
+use crate::error::V2Error;
 
 use super::pool;
 use statements::{DELETE_INDEX, GET_INDEX, INSERT_INDEX, LIST_INDEXES};
@@ -32,8 +32,10 @@ pub(super) const MISSING_FIELDS_MESSAGE: &str =
     "Storage index fields must name at least one top-level key of the object value.";
 pub(super) const TOO_MANY_FIELDS_MESSAGE: &str =
     "Storage index fields must name at most four top-level keys.";
-pub(super) const BAD_MAX_ENTRIES_MESSAGE: &str = "Storage index max entries must be greater than zero.";
-pub(super) const CLASHED_NAME_MESSAGE: &str = "Cannot create index: an index with this name already exists.";
+pub(super) const BAD_MAX_ENTRIES_MESSAGE: &str =
+    "Storage index max entries must be greater than zero.";
+pub(super) const CLASHED_NAME_MESSAGE: &str =
+    "Cannot create index: an index with this name already exists.";
 pub(super) const NO_INDEX_MESSAGE: &str = "Index not found.";
 
 /// A stored definition; its `fields` are JSONB because the row holds a list of keys.

@@ -20,6 +20,7 @@ pub fn spawn(
     control: &ControlConfig,
     bus: Arc<Bus>,
 ) -> std::io::Result<ControlPlane> {
+    refuse_default_secrets(game, control)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(control.workers.max(1))
         .thread_name("ox-control")
@@ -68,4 +69,41 @@ pub fn spawn(
     }
 
     Ok(ControlPlane { runtime, port })
+}
+
+/// Refuse to boot the control plane on well-known default secrets. A default-
+/// configured deployment is trivially full-console-compromisable (anyone can
+/// forge an admin token offline with the documented default key). `OX_ALLOW_DEFAULT_SECRETS=1`
+/// is the explicit dev-only escape hatch.
+fn refuse_default_secrets(game: &GameConfig, control: &ControlConfig) -> std::io::Result<()> {
+    if std::env::var("OX_ALLOW_DEFAULT_SECRETS").as_deref() == Ok("1") {
+        eprintln!("[control] ⚠️  OX_ALLOW_DEFAULT_SECRETS=1 — booting with default secrets (DEV ONLY)");
+        return Ok(());
+    }
+    let mut defaults: Vec<&str> = Vec::new();
+    let s = &control.session;
+    for (name, value) in [
+        ("session.signing_key", s.signing_key.as_str()),
+        ("session.refresh_signing_key", s.refresh_signing_key.as_str()),
+        ("session.server_key", s.server_key.as_str()),
+        ("control.seat_secret", control.seat_secret.as_str()),
+    ] {
+        if value.starts_with("default") || value == "ox-dev-seat-secret" {
+            defaults.push(name);
+        }
+    }
+    let c = &control.console;
+    if c.password == "password" || c.signing_key.starts_with("default") {
+        defaults.push("control.console.*");
+    }
+    if !defaults.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "refusing to start: default secrets configured ({}). Set real secrets in config.toml, or export OX_ALLOW_DEFAULT_SECRETS=1 for local dev.",
+                defaults.join(", ")
+            ),
+        ));
+    }
+    Ok(())
 }

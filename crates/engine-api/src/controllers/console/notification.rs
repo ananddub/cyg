@@ -24,7 +24,11 @@ impl ConsoleNotificationController {
     }
 
     #[get("")]
-    async fn list(&self, _auth: ConsoleAuthed, Params(query): Params<NotificationQuery>) -> Response {
+    async fn list(
+        &self,
+        _auth: ConsoleAuthed,
+        Params(query): Params<NotificationQuery>,
+    ) -> Response {
         let state = current_state();
         self.service
             .list_notifications(&state, query)

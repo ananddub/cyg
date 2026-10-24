@@ -67,5 +67,7 @@ fn handle(
     if body.len() > MAX_BODY_BYTES {
         return Ok(StatusCode::PAYLOAD_TOO_LARGE.into_response());
     }
-    Ok(service.reserve(state, peer.ip(), &method, &room, &body)?.into_response())
+    Ok(service
+        .reserve(state, peer.ip(), &method, &room, &body)?
+        .into_response())
 }

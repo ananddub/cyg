@@ -4,12 +4,12 @@
 use axum::Json;
 use axum::http::HeaderMap;
 
-use crate::dto::session::LogoutRequest;
+use crate::ApiState;
+use crate::app::middleware::session_claims;
 use crate::dto::Empty;
+use crate::dto::session::LogoutRequest;
 use crate::error::V2Error;
 use crate::infra::jwt;
-use crate::app::middleware::session_claims;
-use crate::ApiState;
 
 use crate::utils::session::revocation;
 

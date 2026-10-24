@@ -1,0 +1,18 @@
+{
+    "name": "CookYourGame.Sim.Tests",
+    "rootNamespace": "CookYourGame.Sim.Tests",
+    "references": [
+        "CookYourGame.Sim"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

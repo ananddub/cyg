@@ -4,6 +4,110 @@ OpenOxide is language-agnostic. Game rooms compile into WebAssembly and execute 
 
 Developers write authoritative multiplayer game logic using pure, high-level object-oriented or idiomatic room classes without needing to write low-level WebAssembly C-ABI functions.
 
+## Three independent room channels
+
+OpenOxide keeps these separate so each one can be reasoned about on its own:
+
+| Channel | Server API | Client API | Frequency |
+| :--- | :--- | :--- | :--- |
+| Local room events | `this.on(name, cb)` / `this.emit(name, id, a, b)` | — | In-process only |
+| Typed messages | `onMessage(name, cb)` / `broadcast(name, bytes)` / `sendTo(id, name, bytes)` | `room.send(name, data)` / `room.onMessage(name, cb)` | On demand, reliable |
+| Continuous state | `SchemaState.seal()` in `onTick(dt)` | `room.state` (auto-attached) + `getStateCallbacks(room)` | 20 / 30 / 60 / 120 Hz |
+
+The browser SDK is OpenOxide's own (`sdk/web/openoxide.js`); it does not depend on Colyseus or msgpack. Typed messages use this envelope:
+
+```text
+[0x05][type_len u8][UTF-8 type][opaque payload]
+```
+
+`type_len` is 1..255 bytes. The host routes the frame to the guest, and the guest routes it to the matching `onMessage` handler. Outbound messages are queued by the guest (`host_send`) and written by the host loop after `onTick`, and immediately after `onJoin` / `onInput` replies, so guest code never touches a socket. The SDK injects the room instance as the last callback argument, which keeps callbacks usable with AssemblyScript's no-GC `stub` runtime (captured closures are not available there).
+
+```typescript
+// server: room.ts
+this.on("discard", (id, a, b, room) => {
+    // local only; call room.broadcast() if clients need to know
+});
+
+this.onMessage("chat", (id, reader, room) => {
+    room.broadcastText("chat", "hello");
+    room.sendTo(id, "ack", null);
+});
+```
+
+```javascript
+// browser: website.html
+const client = new OpenOxide.Client('http://127.0.0.1:7777');
+const room = await client.joinOrCreate('game_room');
+
+room.onMessage('chat', (payload) => {
+    console.log(new TextDecoder().decode(payload));
+});
+room.send('chat', new Uint8Array([1, 2, 3]));
+```
+
+### Continuous state (schema)
+
+Declare fields once in Colyseus v5 syntax in `schema.ts`; `ox-game run` /
+`ox-game schema` generates `openoxide.schema.ts` for the room and
+`openoxide.schema.bin`, a compact descriptor the host sends to every client on
+join. The browser builds its schema from that descriptor, so the field lists
+cannot drift and no client schema file is needed. The first frame is a full
+snapshot; later frames carry only changed fields. A client that reconnects gets
+the descriptor again and a fresh full snapshot.
+
+```ts
+// schema.ts
+import { schema, t } from "@colyseus/schema";
+
+export const Player = schema({
+    x: t.number(),
+    y: t.number(),
+    flags: t.uint32(),
+}, "Player");
+
+export const State = schema({ players: t.map(Player) }, "State");
+```
+
+```typescript
+// server: room.ts — generated class, no local SchemaDef
+import { Room, SchemaState } from "./openoxide";
+import { Player, PlayerSchema } from "./openoxide.schema";
+
+export class GameRoom extends Room {
+    state: SchemaState = new SchemaState(PlayerSchema);
+
+    onJoin(id: i64, x: f64, y: f64): void {
+        const p = new Player();
+        p.x = x;
+        p.y = y;
+        this.state.set(id as u32, p);
+    }
+    onTick(dt: f64): i64 {
+        return this.state.seal();
+    }
+}
+```
+
+```javascript
+// browser — only /openoxide.js is needed
+const room = await new OpenOxide.Client('http://127.0.0.1:7777')
+    .joinOrCreate('game_room');
+
+const callbacks = OpenOxide.getStateCallbacks(room);
+callbacks.onAdd('players', (player, id) => { /* ... */ });
+callbacks.listen(player, 'x', (current, previous) => { /* ... */ });
+callbacks.onRemove('players', (player, id) => { /* ... */ });
+room.onStateChange((state) => render(state.players.values()));
+```
+
+The descriptor is the only schema source: the browser builds its declarations
+from it on join, and `schema.ts` is the only file you edit.
+
+See [`docs/SCHEMA.md`](../../docs/SCHEMA.md) for the wire format, limits, and
+migration notes, and [`docs/MATCHMAKING.md`](../../docs/MATCHMAKING.md) for
+`joinOrCreate`, auth hooks, room listing, and reconnect.
+
+
 > [!TIP]
 > **🏆 Recommended for Maximum Performance: WebAssembly (Rust / Pure C / C++)**
 > For competitive 128 Hz authoritative multiplayer rooms, **WebAssembly (Rust / C / C++) is the strongly recommended #1 choice**:
@@ -158,7 +262,7 @@ function BattleRoom:onInput(id, data)
 end
 
 function BattleRoom:onTick(dt)
-    -- Fixed tick update (20 - 128 Hz)
+    -- Fixed tick update (20 - 120 Hz)
     -- Return serialized delta byte string
     return ""
 end

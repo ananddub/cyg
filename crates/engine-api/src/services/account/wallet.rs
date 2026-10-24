@@ -11,12 +11,12 @@
 use axum::Json;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::account::{PlayerWalletResponse, UpdatePlayerWalletRequest};
 use crate::dto::console::account::WalletLedgerRow;
 use crate::error::V2Error;
 use crate::repositories::console::ListWalletLedgerParams;
-use crate::ApiState;
 
 /// How much of a player's own ledger one read returns. A trail is browsed, not
 /// paged, from the client.
@@ -75,7 +75,9 @@ impl super::AccountService {
             .await
             .map_err(V2Error::from_sqlx)?;
             if changed.rows_affected() == 0 {
-                return Err(V2Error::not_found("That ledger entry does not belong to this account."));
+                return Err(V2Error::not_found(
+                    "That ledger entry does not belong to this account.",
+                ));
             }
         }
 

@@ -12,10 +12,10 @@
 
 use axum::Json;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::error::V2Error;
-use crate::ApiState;
 
 use super::Vendor;
 
@@ -77,7 +77,9 @@ impl super::super::ConsoleService {
             .await?
             .rows_affected();
         if deleted == 0 {
-            return Err(V2Error::not_found("Subscription not found for this product."));
+            return Err(V2Error::not_found(
+                "Subscription not found for this product.",
+            ));
         }
         super::super::audit(
             state,

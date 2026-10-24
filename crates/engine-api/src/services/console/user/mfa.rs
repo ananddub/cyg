@@ -3,10 +3,10 @@
 
 use axum::Json;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::error::V2Error;
-use crate::ApiState;
 
 use super::{manual, pool};
 
@@ -58,7 +58,10 @@ impl super::ConsoleService {
         let (action, verb) = if required {
             ("console_user.mfa.require", "Required MFA for")
         } else {
-            ("console_user.mfa.unrequire", "Cleared the MFA requirement for")
+            (
+                "console_user.mfa.unrequire",
+                "Cleared the MFA requirement for",
+            )
         };
         super::audit(
             state,

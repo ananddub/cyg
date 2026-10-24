@@ -6,20 +6,20 @@
 use axum::Json;
 use chrono::{DateTime, Utc};
 
+use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::tournament::{ListQuery, TournamentListResponse, TournamentResponse};
+use crate::error::V2Error;
+use crate::repositories::models::Leaderboard;
+use crate::services::auth::q;
+use crate::services::leaderboard::pool;
+use crate::utils::leaderboard::at;
 use crate::utils::tournament::statement::PAGE_SQL;
 use crate::utils::tournament::types::{
     BAD_CATEGORY_END, BAD_CATEGORY_ORDER, BAD_NUMBER, BAD_PAGE_LIMIT, BAD_TIME_ORDER,
     DEFAULT_CATEGORY_END, DEFAULT_PAGE_LIMIT, DEFAULT_TIME, PAGE_FAILED, decode_page_cursor,
     defaulted, limit, page_cursor,
 };
-use crate::repositories::models::Leaderboard;
-use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::services::leaderboard::pool;
-use crate::utils::leaderboard::at;
-use crate::app::middleware::Authed;
-use crate::ApiState;
 
 /// The filters, resolved the way the cache reads them: categories bound the column, a start
 /// time of `-1` is no bound, and the end filter's mode picks which timestamp test is live.
@@ -34,7 +34,11 @@ struct Bounds {
 
 fn bounds(req: &ListQuery, now: DateTime<Utc>) -> Result<Bounds, V2Error> {
     let category_start = defaulted(req.category_start.as_deref(), 0, BAD_NUMBER)?;
-    let category_end = defaulted(req.category_end.as_deref(), DEFAULT_CATEGORY_END, BAD_NUMBER)?;
+    let category_end = defaulted(
+        req.category_end.as_deref(),
+        DEFAULT_CATEGORY_END,
+        BAD_NUMBER,
+    )?;
     if req.category_end.is_some() && category_end >= 128 {
         return Err(V2Error::invalid_argument(BAD_CATEGORY_END));
     }
@@ -85,7 +89,9 @@ impl super::TournamentService {
             None => None,
             Some(id) => match queries.get_tournament(&id).await {
                 Ok(board) => Some(board),
-                Err(sqlx::Error::RowNotFound) => return Ok(Json(TournamentListResponse::default())),
+                Err(sqlx::Error::RowNotFound) => {
+                    return Ok(Json(TournamentListResponse::default()));
+                }
                 Err(error) => {
                     eprintln!("[v2] tournament cursor: {error}");
                     return Err(V2Error::internal(PAGE_FAILED));

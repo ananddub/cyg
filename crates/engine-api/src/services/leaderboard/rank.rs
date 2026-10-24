@@ -5,13 +5,13 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::utils::leaderboard::types::{ascending, ranks_enabled};
 use crate::dto::leaderboard::RecordResponse;
-use crate::utils::leaderboard::wire::int64;
+use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::leaderboard::GetLeaderboardRecordRankDescParams;
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
-use crate::error::V2Error;
+use crate::utils::leaderboard::types::{ascending, ranks_enabled};
+use crate::utils::leaderboard::wire::int64;
 
 /// A board with ranks disabled reports none: the rank cache is skipped
 /// entirely, and so is the count of ranks available.

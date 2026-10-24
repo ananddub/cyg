@@ -41,7 +41,10 @@ fn a_denied_request_costs_no_tokens_and_is_counted() {
         assert!(!l.allow(ip(4)));
     }
     assert_eq!(l.counts(), (2, 10));
-    assert!(l.tokens_now(ip(4)) < 1.0, "a refusal cannot top the bucket back up");
+    assert!(
+        l.tokens_now(ip(4)) < 1.0,
+        "a refusal cannot top the bucket back up"
+    );
 }
 
 #[test]

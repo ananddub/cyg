@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use auto_route::controller;
-use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, Request};
 use axum::Json;
+use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, Request};
 use axum::response::{IntoResponse, Response};
 use engine_bus::ReloadKind;
 use uuid::Uuid;
@@ -151,10 +151,7 @@ impl ConsoleWasmController {
         request: Request,
     ) -> Response {
         let state = current_state();
-        let game_id = match auth
-            .require_write()
-            .and_then(|()| Self::game_id(&game_id))
-        {
+        let game_id = match auth.require_write().and_then(|()| Self::game_id(&game_id)) {
             Ok(id) => id,
             Err(e) => return e.into_response(),
         };
@@ -183,10 +180,7 @@ impl ConsoleWasmController {
         kind: ReloadKind,
     ) -> Response {
         let state = current_state();
-        let game_id = match auth
-            .require_write()
-            .and_then(|()| Self::game_id(&game_id))
-        {
+        let game_id = match auth.require_write().and_then(|()| Self::game_id(&game_id)) {
             Ok(id) => id,
             Err(e) => return e.into_response(),
         };
@@ -239,12 +233,9 @@ impl ConsoleWasmController {
                     filename = Some(name);
                 }
                 "source_code" => {
-                    let bytes = field
-                        .bytes()
-                        .await
-                        .map_err(|e| {
-                            V2Error::invalid_argument(format!("Failed to read source: {e}"))
-                        })?;
+                    let bytes = field.bytes().await.map_err(|e| {
+                        V2Error::invalid_argument(format!("Failed to read source: {e}"))
+                    })?;
                     source_code = Some(String::from_utf8_lossy(&bytes).into_owned());
                 }
                 // Unknown fields are skipped, not rejected: a client that

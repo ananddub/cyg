@@ -77,7 +77,10 @@ pub struct TournamentResponse {
 impl TournamentResponse {
     /// The board as the tournament routes answer it: the row's own configuration
     /// plus the three boundaries of the round `now` falls in.
-    pub fn from_board(board: &Leaderboard, now: DateTime<Utc>) -> Result<TournamentResponse, V2Error> {
+    pub fn from_board(
+        board: &Leaderboard,
+        now: DateTime<Utc>,
+    ) -> Result<TournamentResponse, V2Error> {
         let Deadlines {
             start_active,
             end_active,

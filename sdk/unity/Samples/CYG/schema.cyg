@@ -1,0 +1,30 @@
+// Shared CYG schema fixture.
+//
+// Parsed by both the Rust `engine-schema` generator tests and the C# CYG
+// frontend tests, so the two frontends cannot drift apart.
+
+namespace CookYourGame.Samples;
+
+enum Team : Byte {
+    Neutral,
+    Red,
+    Blue
+}
+
+flags PlayerStatus : Byte {
+    None,
+    Grounded,
+    Jumping,
+    Dead
+}
+
+schema PlayerState : 1 {
+    FP x;
+    FP y;
+    UInt32 flags;
+    Team team;
+    PlayerStatus status;
+    Int32 score;
+    Boolean alive;
+    entity_ref target;
+}

@@ -223,6 +223,18 @@ namespace CookYourGame.Dsl
         public List<CygField> Fields { get; } = new List<CygField>();
     }
 
+    /// <summary>
+    /// A state-sync schema. Unlike components/structs, schema fields use only
+    /// the eight numeric/bool wire types understood by `SchemaDef`.
+    /// </summary>
+    public sealed class CygSchemaDecl
+    {
+        public string Name { get; set; } = string.Empty;
+        public uint Version { get; set; } = 1;
+        public List<CygField> Fields { get; } = new List<CygField>();
+        public CygSpan Span { get; set; } = CygSpan.None;
+    }
+
     public sealed class CygEnumDecl : CygTypeDecl
     {
         public CygPrimitive Underlying { get; set; } = CygPrimitive.Int32;
@@ -274,6 +286,14 @@ namespace CookYourGame.Dsl
         public CygSpan Span { get; set; } = CygSpan.None;
     }
 
+    public sealed class CygCommandDecl
+    {
+        public string Name { get; set; } = string.Empty;
+        public int? Id { get; set; }
+        public List<CygField> Fields { get; } = new List<CygField>();
+        public CygSpan Span { get; set; } = CygSpan.None;
+    }
+
     public sealed class CygSignalParam
     {
         public string Name { get; set; } = string.Empty;
@@ -304,7 +324,9 @@ namespace CookYourGame.Dsl
         public CygInputDecl? Input { get; set; }
         public CygGlobalDecl? Global { get; set; }
         public List<CygEventDecl> Events { get; } = new List<CygEventDecl>();
+        public List<CygCommandDecl> Commands { get; } = new List<CygCommandDecl>();
         public List<CygSignalDecl> Signals { get; } = new List<CygSignalDecl>();
+        public List<CygSchemaDecl> Schemas { get; } = new List<CygSchemaDecl>();
         public List<CygDiagnostic> Diagnostics { get; } = new List<CygDiagnostic>();
 
         public bool HasErrors => Diagnostics.Any(d => d.Severity == CygSeverity.Error);
@@ -357,7 +379,7 @@ namespace CookYourGame.Dsl
         CygEmitResult Emit(CygModule module, CygEmitOptions options);
     }
 
-    /// <summary>Reserved component/event id ranges. Support values use no id at all.</summary>
+    /// <summary>Reserved component/event/command id ranges. Support values use no id at all.</summary>
     public static class CygIds
     {
         public const int Globals = 1;
@@ -368,9 +390,12 @@ namespace CookYourGame.Dsl
         public const int LastComponent = 999_999;
         public const int FirstEvent = 1_000_000;
         public const int LastEvent = 1_999_999;
+        public const int FirstCommand = 2_000_000;
+        public const int LastCommand = 2_999_999;
 
         public static bool IsUserComponent(int id) => id >= FirstComponent && id <= LastComponent;
         public static bool IsEvent(int id) => id >= FirstEvent && id <= LastEvent;
+        public static bool IsCommand(int id) => id >= FirstCommand && id <= LastCommand;
     }
 
     /// <summary>Names the generators reserve so emitted members can never collide.</summary>
@@ -413,6 +438,8 @@ namespace CookYourGame.Dsl
         public const string MissingExplicitId = "CYGD116";
         public const string UnknownAsset = "CYGD117";
         public const string DuplicateField = "CYGD118";
+        public const string CommandId = "CYGD119";
+        public const string Schema = "CYGD120";
         public const string Emit = "CYGD200";
     }
 }

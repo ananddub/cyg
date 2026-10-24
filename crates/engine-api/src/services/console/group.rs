@@ -2,13 +2,13 @@
 
 use axum::Json;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::group::{GroupExport, GroupMemberRow, GroupRow};
 use crate::error::V2Error;
 use crate::repositories::group::ListGroupsParams;
-use crate::ApiState;
 
 /// The console lists every group: no language, state or size filter is applied,
 /// which the `-1`/`""` bounds the statement reads as "unbounded" express.
@@ -37,11 +37,7 @@ impl super::ConsoleService {
         Ok(Json(rows.into_iter().map(GroupRow::from).collect()))
     }
 
-    pub async fn get_group(
-        &self,
-        state: &ApiState,
-        id: &str,
-    ) -> Result<Json<GroupRow>, V2Error> {
+    pub async fn get_group(&self, state: &ApiState, id: &str) -> Result<Json<GroupRow>, V2Error> {
         let group = super::queries(state)?
             .get_group_by_id(super::account_id(id)?)
             .await?;

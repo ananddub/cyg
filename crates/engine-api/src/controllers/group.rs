@@ -7,9 +7,9 @@ use auto_route::controller;
 use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 
-use crate::current_state;
 use crate::app::middleware::Authed;
 use crate::app::params::{Body, Params};
+use crate::current_state;
 
 use crate::dto::group::{CreateGroupRequest, ListQuery, UpdateGroupRequest, UsersQuery};
 use crate::services::group::{GroupMemberService, GroupService, UserGroupService};
@@ -26,33 +26,30 @@ impl GroupController {
     }
 
     #[get("")]
-    async fn list_groups(
-        &self,
-        auth: Authed,
-        Params(req): Params<ListQuery>,
-    ) -> Response {
+    async fn list_groups(&self, auth: Authed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
-        self.groups.list_groups(&state, &auth, req).await.into_response()
+        self.groups
+            .list_groups(&state, &auth, req)
+            .await
+            .into_response()
     }
 
     #[post("")]
-    async fn create_group(
-        &self,
-        auth: Authed,
-        Body(body): Body<CreateGroupRequest>,
-    ) -> Response {
+    async fn create_group(&self, auth: Authed, Body(body): Body<CreateGroupRequest>) -> Response {
         let state = current_state();
-        self.groups.create_group(&state, &auth, body).await.into_response()
+        self.groups
+            .create_group(&state, &auth, body)
+            .await
+            .into_response()
     }
 
     #[get("/{group_id}")]
-    async fn get_group(
-        &self,
-        auth: Authed,
-        Path(raw_id): Path<String>,
-    ) -> Response {
+    async fn get_group(&self, auth: Authed, Path(raw_id): Path<String>) -> Response {
         let state = current_state();
-        self.groups.get_group(&state, &auth, raw_id).await.into_response()
+        self.groups
+            .get_group(&state, &auth, raw_id)
+            .await
+            .into_response()
     }
 
     #[put("/{group_id}")]
@@ -63,37 +60,37 @@ impl GroupController {
         Body(body): Body<UpdateGroupRequest>,
     ) -> Response {
         let state = current_state();
-        self.groups.update_group(&state, &auth, raw_id, body).await.into_response()
+        self.groups
+            .update_group(&state, &auth, raw_id, body)
+            .await
+            .into_response()
     }
 
     #[delete("/{group_id}")]
-    async fn delete_group(
-        &self,
-        auth: Authed,
-        Path(raw_id): Path<String>,
-    ) -> Response {
+    async fn delete_group(&self, auth: Authed, Path(raw_id): Path<String>) -> Response {
         let state = current_state();
-        self.groups.delete_group(&state, &auth, raw_id).await.into_response()
+        self.groups
+            .delete_group(&state, &auth, raw_id)
+            .await
+            .into_response()
     }
 
     #[post("/{group_id}/join")]
-    async fn join_group(
-        &self,
-        auth: Authed,
-        Path(raw_id): Path<String>,
-    ) -> Response {
+    async fn join_group(&self, auth: Authed, Path(raw_id): Path<String>) -> Response {
         let state = current_state();
-        self.groups.join_group(&state, &auth, raw_id).await.into_response()
+        self.groups
+            .join_group(&state, &auth, raw_id)
+            .await
+            .into_response()
     }
 
     #[post("/{group_id}/leave")]
-    async fn leave_group(
-        &self,
-        auth: Authed,
-        Path(raw_id): Path<String>,
-    ) -> Response {
+    async fn leave_group(&self, auth: Authed, Path(raw_id): Path<String>) -> Response {
         let state = current_state();
-        self.groups.leave_group(&state, &auth, raw_id).await.into_response()
+        self.groups
+            .leave_group(&state, &auth, raw_id)
+            .await
+            .into_response()
     }
 
     #[get("/{group_id}/user")]
@@ -104,7 +101,10 @@ impl GroupController {
         Params(req): Params<ListQuery>,
     ) -> Response {
         let state = current_state();
-        self.members.list_group_users(&state, &auth, raw_id, req).await.into_response()
+        self.members
+            .list_group_users(&state, &auth, raw_id, req)
+            .await
+            .into_response()
     }
 
     #[post("/{group_id}/add")]
@@ -115,7 +115,10 @@ impl GroupController {
         Params(req): Params<UsersQuery>,
     ) -> Response {
         let state = current_state();
-        self.members.add_group_users(&state, &auth, raw_id, req).await.into_response()
+        self.members
+            .add_group_users(&state, &auth, raw_id, req)
+            .await
+            .into_response()
     }
 
     #[post("/{group_id}/kick")]
@@ -126,7 +129,10 @@ impl GroupController {
         Params(req): Params<UsersQuery>,
     ) -> Response {
         let state = current_state();
-        self.members.kick_group_users(&state, &auth, raw_id, req).await.into_response()
+        self.members
+            .kick_group_users(&state, &auth, raw_id, req)
+            .await
+            .into_response()
     }
 
     #[post("/{group_id}/ban")]
@@ -137,7 +143,10 @@ impl GroupController {
         Params(req): Params<UsersQuery>,
     ) -> Response {
         let state = current_state();
-        self.members.ban_group_users(&state, &auth, raw_id, req).await.into_response()
+        self.members
+            .ban_group_users(&state, &auth, raw_id, req)
+            .await
+            .into_response()
     }
 
     #[post("/{group_id}/promote")]
@@ -150,7 +159,8 @@ impl GroupController {
         let state = current_state();
         self.members
             .promote_group_users(&state, &auth, raw_id, req)
-            .await.into_response()
+            .await
+            .into_response()
     }
 
     #[post("/{group_id}/demote")]
@@ -163,7 +173,8 @@ impl GroupController {
         let state = current_state();
         self.members
             .demote_group_users(&state, &auth, raw_id, req)
-            .await.into_response()
+            .await
+            .into_response()
     }
 }
 
@@ -187,6 +198,9 @@ impl UserGroupController {
         Params(req): Params<ListQuery>,
     ) -> Response {
         let state = current_state();
-        self.service.list_user_groups(&state, &auth, raw_user, req).await.into_response()
+        self.service
+            .list_user_groups(&state, &auth, raw_user, req)
+            .await
+            .into_response()
     }
 }

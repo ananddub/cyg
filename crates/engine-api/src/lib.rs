@@ -17,6 +17,7 @@ pub mod controllers;
 pub mod dto;
 pub mod error;
 pub mod infra;
+pub mod moderation;
 pub mod repositories;
 pub mod services;
 pub mod utils;

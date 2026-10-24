@@ -9,10 +9,10 @@
 //! its JSON companion under `?format=json`).
 
 use auto_route::controller;
+use axum::Json;
 use axum::extract::{Path, Query};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -56,11 +56,7 @@ impl ConsoleGamesController {
     }
 
     #[post("")]
-    async fn create(
-        &self,
-        auth: ConsoleAuthed,
-        Body(body): Body<CreateGameRequest>,
-    ) -> Response {
+    async fn create(&self, auth: ConsoleAuthed, Body(body): Body<CreateGameRequest>) -> Response {
         let state = current_state();
         if let Err(err) = auth.require_admin() {
             return err.into_response();
@@ -191,16 +187,15 @@ fn asset_response(connection: &UnityConnectionDto) -> Response {
     let yaml = unity_asset_yaml(connection);
     Response::builder()
         .status(StatusCode::OK)
-        .header(
-            axum::http::header::CONTENT_TYPE,
-            "application/octet-stream",
-        )
+        .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
         .header(
             axum::http::header::CONTENT_DISPOSITION,
             "attachment; filename=\"CYGServerSettings.asset\"",
         )
         .body(axum::body::Body::from(yaml))
-        .unwrap_or_else(|_| V2Error::internal("The asset reply could not be built.").into_response())
+        .unwrap_or_else(|_| {
+            V2Error::internal("The asset reply could not be built.").into_response()
+        })
 }
 
 /// The asset document, in the shape Unity's own serializer emits for a

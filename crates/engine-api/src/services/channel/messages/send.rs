@@ -4,11 +4,11 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::channel::{MessageResponse, SendRequest};
+use crate::error::V2Error;
 use crate::repositories::channel::InsertChannelMessageParams;
 use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
 
 use crate::utils::channel::stream_of_channel;
 
@@ -33,6 +33,9 @@ impl ChannelService {
                 "Message content must be a JSON object.",
             ));
         }
+        // Offline, sub-microsecond profanity filtering on every authored
+        // string before the message is stored or fanned out to members.
+        let content = crate::moderation::sanitize_json(body.content);
         let msg = q(state)?
             .insert_channel_message(&InsertChannelMessageParams {
                 id: Uuid::new_v4(),
@@ -42,7 +45,7 @@ impl ChannelService {
                 stream_subject: stream.subject,
                 stream_descriptor: stream.descriptor,
                 stream_label: stream.label.clone(),
-                content: body.content,
+                content,
             })
             .await?;
         Ok(Json(MessageResponse::new(&msg, &stream)))

@@ -40,8 +40,14 @@ fn a_code_is_accepted_one_step_either_side() {
     let stale = code_at(RFC_SECRET, now - 90).expect("code");
 
     assert!(verify(RFC_SECRET, &current, now));
-    assert!(verify(RFC_SECRET, &previous, now), "one step behind is skew");
-    assert!(!verify(RFC_SECRET, &stale, now), "three steps behind is not");
+    assert!(
+        verify(RFC_SECRET, &previous, now),
+        "one step behind is skew"
+    );
+    assert!(
+        !verify(RFC_SECRET, &stale, now),
+        "three steps behind is not"
+    );
 }
 
 #[test]
@@ -67,7 +73,10 @@ fn a_generated_secret_is_base32_and_unique() {
     assert_ne!(a, b);
     // 20 bytes is exactly 32 base32 characters.
     assert_eq!(a.len(), 32);
-    assert!(code_at(&a, 1_700_000_000).is_some(), "round-trips through base32");
+    assert!(
+        code_at(&a, 1_700_000_000).is_some(),
+        "round-trips through base32"
+    );
 }
 
 #[test]

@@ -26,10 +26,19 @@ impl IpRateLimiter {
                 self.squeezed += 1;
                 return false;
             }
-            self.buckets.insert(addr, Bucket { tokens: burst, last: now });
+            self.buckets.insert(
+                addr,
+                Bucket {
+                    tokens: burst,
+                    last: now,
+                },
+            );
             self.order.push_back(addr);
         }
-        let bucket = self.buckets.get_mut(&addr).expect("bucket was just created");
+        let bucket = self
+            .buckets
+            .get_mut(&addr)
+            .expect("bucket was just created");
         if bucket.tokens >= 1.0 {
             bucket.tokens -= 1.0;
             self.allowed += 1;
@@ -51,7 +60,9 @@ impl IpRateLimiter {
         for _ in 0..MAKEROOM_SCAN_BUDGET {
             // The queue is empty, so the map is too: nothing to reclaim, but there
             // is room for a new source.
-            let Some(addr) = self.order.pop_front() else { return true };
+            let Some(addr) = self.order.pop_front() else {
+                return true;
+            };
             self.swept += 1;
             let Some(bucket) = self.buckets.get_mut(&addr) else {
                 // A queue entry with no bucket is a slot that is already free.

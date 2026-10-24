@@ -31,4 +31,16 @@ pub(super) struct WsClient {
     pub(super) last_activity: Instant,
     pub(super) ping_sent_at: Option<Instant>,
     pub(super) missed_pings: u32,
+    /// Client asked to leave (`LEAVE_ROOM` or a WS close). The host uses this
+    /// to skip `allowReconnection` seat holds for intentional departures.
+    pub(super) consented: bool,
+    /// Start and length of the last queued schema-state frame, while it is
+    /// still the unflushed tail of `send_queue` (latest-wins state channel).
+    pub(super) state_frame_start: Option<usize>,
+    pub(super) state_frame_len: usize,
+    /// Whether the socket is currently registered with WRITABLE interest.
+    /// Level-triggered epoll reports a writable socket on EVERY poll, so the
+    /// interest is added only while send backpressure exists and removed the
+    /// moment the queue drains — otherwise the loop burns a core per client.
+    pub(super) registered_writable: bool,
 }

@@ -11,8 +11,8 @@ use crate::ApiState;
 use crate::dto::Empty;
 use crate::dto::auth;
 use crate::dto::link::SyncQuery;
-use crate::services::auth::social;
 use crate::error::V2Error;
+use crate::services::auth::social;
 use crate::utils::vendor;
 
 impl super::LinkService {

@@ -45,6 +45,8 @@ pub(super) fn serve_matchmake(
             &req.url_body,
             ctx.retained,
             &client.session_id,
+            ctx.game_port,
+            ctx.udp_port,
         ),
     };
     let (status, payload) = match result {

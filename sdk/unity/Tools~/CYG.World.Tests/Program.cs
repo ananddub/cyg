@@ -37,8 +37,22 @@ namespace CookYourGame.Sim.Tests
                 TestRegistration();
                 TestClear();
                 TestRunnerRollback();
+                RngTests.RunAll();
+                GlobalsTests.RunAll();
+                WorldRollbackSessionTests.RunAll();
+                PhysicsNavigationBridgeTests.RunAll();
+                DesyncDiagnosticsTests.RunAll();
+                SystemsTests.RunAll();
+                EventsSignalsCommandsTests.RunAll();
+                KccTests.RunAll();
+                NetcodeTests.RunAll();
+                ReplayTests.RunAll();
+                DeterministicScenarioTests.RunAll();
+                TwoBoxTestRunner.Run();
+                ViewComponentTests.RunAll();
+                FeatureTests.RunAll();
 
-                Console.WriteLine("CYG world tests passed: assertions=" + _assertions);
+                Console.WriteLine("CYG world tests passed: assertions=" + (_assertions + EventsSignalsCommandsTests.AssertionCount + KccTests.AssertionCount + NetcodeTests.AssertionCount + ReplayTests.AssertionCount + GlobalsTests.AssertionCount + WorldRollbackSessionTests.AssertionCount + PhysicsNavigationBridgeTests.AssertionCount + TwoBoxTestRunner.AssertionCount + ViewComponentTests.AssertionCount + FeatureTests.AssertionCount));
                 return 0;
             }
             catch (Exception ex)

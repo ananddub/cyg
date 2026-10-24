@@ -3,12 +3,14 @@
 use axum::Json;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
-use crate::dto::console::notification::{NotificationQuery, NotificationRow, SendNotificationRequest};
+use crate::dto::console::notification::{
+    NotificationQuery, NotificationRow, SendNotificationRequest,
+};
 use crate::error::V2Error;
 use crate::repositories::console_mutations::InsertNotificationParams;
-use crate::ApiState;
 
 impl super::ConsoleService {
     pub async fn list_notifications(
@@ -78,12 +80,10 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::id(id, "notification")?;
-        let removed = crate::services::console::statements::delete_notification(
-            super::pool(state)?,
-            id,
-        )
-        .await
-        .map_err(V2Error::from_sqlx)?;
+        let removed =
+            crate::services::console::statements::delete_notification(super::pool(state)?, id)
+                .await
+                .map_err(V2Error::from_sqlx)?;
         if !removed {
             return Err(V2Error::not_found("Notification not found."));
         }

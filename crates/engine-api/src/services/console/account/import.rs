@@ -3,6 +3,7 @@
 
 use axum::Json;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::account::AccountExport;
@@ -13,7 +14,6 @@ use crate::repositories::models::Users;
 use crate::services::console::statements::{
     self, ImportAccountParams, ImportDeviceParams, ImportLedgerParams, ImportNoteParams,
 };
-use crate::ApiState;
 
 use super::conflict::import_conflict;
 
@@ -49,7 +49,9 @@ impl super::ConsoleService {
         claims.require_admin()?;
         let account = body.account;
         if account.id.is_nil() {
-            return Err(V2Error::invalid_argument("The imported account needs an id."));
+            return Err(V2Error::invalid_argument(
+                "The imported account needs an id.",
+            ));
         }
         if account.username.trim().is_empty() {
             return Err(V2Error::invalid_argument(

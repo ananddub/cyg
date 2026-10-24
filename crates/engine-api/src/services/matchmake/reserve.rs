@@ -7,12 +7,12 @@ use std::net::IpAddr;
 
 use axum::http::StatusCode;
 
-use crate::utils::matchmake::{MATCHMAKE_METHODS, printable, valid_room_name};
-use crate::dto::matchmake::{SeatResponse, json_string_field};
 use super::MatchmakeService;
 use crate::ApiError;
 use crate::ApiState;
+use crate::dto::matchmake::{SeatResponse, json_string_field};
 use crate::infra::seats::SeatRegistry;
+use crate::utils::matchmake::{MATCHMAKE_METHODS, printable, valid_room_name};
 
 impl MatchmakeService {
     /// The endpoint, as a function of the socket's source address.
@@ -26,7 +26,11 @@ impl MatchmakeService {
     ) -> Result<SeatResponse, ApiError> {
         // 1. Charge this IP *before* anything expensive runs. A poisoned lock fails
         //    open: the limiter is defence in depth, the seat signature is the gate.
-        let charged = state.limiter.lock().map(|mut l| l.allow(ip)).unwrap_or(true);
+        let charged = state
+            .limiter
+            .lock()
+            .map(|mut l| l.allow(ip))
+            .unwrap_or(true);
         if !charged {
             // `Retry-After` comes out of the same bucket that just said no, so a
             // page that waits the advertised time is not refused again.
@@ -61,7 +65,9 @@ impl MatchmakeService {
             .map(|mut r: std::sync::MutexGuard<'_, SeatRegistry>| {
                 r.mint(room, state.control.seat_ttl_secs)
             })
-            .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "seat registry unavailable"))?
+            .map_err(|_| {
+                ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "seat registry unavailable")
+            })?
             .ok_or_else(|| {
                 ApiError::new(
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -96,7 +102,10 @@ fn resume_seat(state: &ApiState, body: &str) -> Result<SeatResponse, ApiError> {
         .map(|mut r| r.verify(&token))
         .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "seat registry unavailable"))?
         .ok_or_else(|| {
-            ApiError::new(StatusCode::UNAUTHORIZED, "reconnection token expired or unknown")
+            ApiError::new(
+                StatusCode::UNAUTHORIZED,
+                "reconnection token expired or unknown",
+            )
         })?;
     Ok(SeatResponse::new(state, &seat))
 }

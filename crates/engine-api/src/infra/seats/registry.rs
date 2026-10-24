@@ -65,7 +65,11 @@ impl SeatRegistry {
         // game plane. Uniqueness comes from the expiry: always strictly above every
         // expiry this room ever used, within the drift cap.
         let base = Self::now_secs().saturating_add(ttl_secs);
-        let used = self.next_expiry.get(room).map(|e| e.saturating_add(1)).unwrap_or(0);
+        let used = self
+            .next_expiry
+            .get(room)
+            .map(|e| e.saturating_add(1))
+            .unwrap_or(0);
         let expires_at = base.max(used);
         if expires_at > base.saturating_add(MAX_TTL_DRIFT_SECS) {
             self.refused += 1;

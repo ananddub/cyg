@@ -17,9 +17,9 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::dto::console::wasm::{AbiReport, ModuleDto, UploadResponse};
 use crate::error::V2Error;
-use crate::ApiState;
 
 use super::pool;
 
@@ -110,12 +110,13 @@ impl WasmService {
         let pool = pool(state)?;
         let mut tx = pool.begin().await.map_err(V2Error::from_sqlx)?;
 
-        let version: i32 =
-            sqlx::query_scalar("SELECT COALESCE(MAX(version), 0) + 1 FROM room_modules WHERE game_id = $1")
-                .bind(game_id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(V2Error::from_sqlx)?;
+        let version: i32 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM room_modules WHERE game_id = $1",
+        )
+        .bind(game_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(V2Error::from_sqlx)?;
 
         sqlx::query("UPDATE room_modules SET is_active = false WHERE game_id = $1 AND is_active")
             .bind(game_id)
@@ -168,13 +169,15 @@ impl WasmService {
         game_id: Uuid,
         version: i32,
     ) -> Result<(String, Vec<u8>), V2Error> {
-        let row = sqlx::query("SELECT filename, binary_bytes FROM room_modules WHERE game_id = $1 AND version = $2")
-            .bind(game_id)
-            .bind(version)
-            .fetch_optional(pool(state)?)
-            .await
-            .map_err(V2Error::from_sqlx)?
-            .ok_or_else(|| V2Error::not_found(format!("Module version {version} not found.")))?;
+        let row = sqlx::query(
+            "SELECT filename, binary_bytes FROM room_modules WHERE game_id = $1 AND version = $2",
+        )
+        .bind(game_id)
+        .bind(version)
+        .fetch_optional(pool(state)?)
+        .await
+        .map_err(V2Error::from_sqlx)?
+        .ok_or_else(|| V2Error::not_found(format!("Module version {version} not found.")))?;
         Ok((row.get("filename"), row.get("binary_bytes")))
     }
 
@@ -237,7 +240,11 @@ impl WasmService {
         .await
         .map_err(V2Error::from_sqlx)?;
         match row {
-            None => return Err(V2Error::not_found(format!("Module version {version} not found."))),
+            None => {
+                return Err(V2Error::not_found(format!(
+                    "Module version {version} not found."
+                )));
+            }
             Some(true) => {
                 return Err(V2Error::failed_precondition(
                     "Cannot delete the active module; activate another version first.",
@@ -287,7 +294,10 @@ impl WasmService {
             )
             .await?;
         Self::publish_reload(state, game_id, &game_key, &module, ReloadKind::Upload);
-        Ok(UploadResponse { module, abi: report })
+        Ok(UploadResponse {
+            module,
+            abi: report,
+        })
     }
 
     /// Validate a candidate module against the host ABI without touching the
@@ -319,9 +329,7 @@ impl WasmService {
                 Ok(wasmparser::Payload::ExportSection(section)) => {
                     for entry in section {
                         match entry {
-                            Ok(export)
-                                if export.kind == wasmparser::ExternalKind::Func =>
-                            {
+                            Ok(export) if export.kind == wasmparser::ExternalKind::Func => {
                                 functions.push(export.name.to_owned());
                             }
                             Ok(_) => {}

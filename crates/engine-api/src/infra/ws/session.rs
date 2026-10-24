@@ -4,8 +4,8 @@
 //! sockets; the registry is process-global so the matchmaker, parties, chat and status
 //! planes can reach a session without threading `ApiState` through every callback.
 
-use std::sync::Arc;
 use arc_swap::ArcSwapOption;
+use std::sync::Arc;
 
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
@@ -70,7 +70,8 @@ impl Session {
     }
 }
 
-static HUB: std::sync::OnceLock<crate::services::realtime::RealtimeSessionHub> = std::sync::OnceLock::new();
+static HUB: std::sync::OnceLock<crate::services::realtime::RealtimeSessionHub> =
+    std::sync::OnceLock::new();
 
 pub fn hub() -> &'static crate::services::realtime::RealtimeSessionHub {
     HUB.get_or_init(crate::services::realtime::RealtimeSessionHub::new)

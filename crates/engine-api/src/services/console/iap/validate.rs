@@ -11,6 +11,7 @@ use axum::Json;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::console::iap::{
     ConsoleValidateRequest, ValidatedPurchaseReply, ValidatedSubscriptionReply,
@@ -19,7 +20,6 @@ use crate::dto::iap::{PurchaseResponse, SubscriptionResponse};
 use crate::error::V2Error;
 use crate::repositories::iap::{InsertPurchaseParams, InsertSubscriptionParams};
 use crate::utils::iap::{environment_of, epoch, hex_id};
-use crate::ApiState;
 
 use super::Vendor;
 
@@ -48,8 +48,9 @@ impl super::super::ConsoleService {
         body: ConsoleValidateRequest,
     ) -> Result<ValidatedReply, V2Error> {
         claims.require_write()?;
-        let vendor = Vendor::parse(vendor_name)
-            .ok_or_else(|| V2Error::invalid_argument(format!("Unknown IAP vendor: {vendor_name}")))?;
+        let vendor = Vendor::parse(vendor_name).ok_or_else(|| {
+            V2Error::invalid_argument(format!("Unknown IAP vendor: {vendor_name}"))
+        })?;
         let subscription = match body.kind.as_deref().filter(|k| !k.is_empty()) {
             None | Some("purchase") => false,
             Some("subscription") => true,
@@ -121,9 +122,11 @@ impl super::super::ConsoleService {
                 &format!("Validated a {} subscription.", vendor.label()),
             )
             .await;
-            Ok(ValidatedReply::Subscription(Json(ValidatedSubscriptionReply {
-                subscription: SubscriptionResponse::from(&row),
-            })))
+            Ok(ValidatedReply::Subscription(Json(
+                ValidatedSubscriptionReply {
+                    subscription: SubscriptionResponse::from(&row),
+                },
+            )))
         } else {
             let row = queries
                 .insert_purchase(&InsertPurchaseParams {

@@ -4,11 +4,11 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::channel::{MessageResponse, UpdateRequest};
+use crate::error::V2Error;
 use crate::repositories::channel::UpdateChannelMessageParams;
 use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
 
 use crate::utils::channel::stream_of_channel;
 

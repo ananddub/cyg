@@ -87,7 +87,10 @@ impl ApiState {
                 control.rate_limit_burst,
             ))),
             signals: signaling::SignalHub::new(game.voice_ice_servers.clone()),
-            statics: Arc::new(crate::services::static_routes::StaticServer::new(project_dir, game)),
+            statics: Arc::new(crate::services::static_routes::StaticServer::new(
+                project_dir,
+                game,
+            )),
             status_rx: Arc::new(OnceReceiver::new(bus.status_rx.clone())),
             latest_status: Arc::new(std::sync::Mutex::new(None)),
             port,

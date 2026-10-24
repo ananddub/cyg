@@ -67,7 +67,8 @@ END $$
 
 /// The document `games.config` defaults to, restated as one value so a create that
 /// names no config and the column's own default agree.
-pub static DEFAULT_GAME_CONFIG_JSON: &str = r#"{"tick_rate": 128, "max_clients": 16, "persistent_rooms": false, "auto_close_seconds": 30}"#;
+pub static DEFAULT_GAME_CONFIG_JSON: &str =
+    r#"{"tick_rate": 128, "max_clients": 16, "persistent_rooms": false, "auto_close_seconds": 30}"#;
 
 /// Create the tenancy tables if they are missing. Order matters only in that a game
 /// must exist before a module can point at one.

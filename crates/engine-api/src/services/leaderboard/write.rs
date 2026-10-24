@@ -7,22 +7,22 @@ use axum::Json;
 use serde_json::Value;
 use sqlx::PgPool;
 
+use super::rank::rank_of;
+use super::{load_board, pool};
+use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::leaderboard::{RecordRequest, RecordResponse};
+use crate::error::V2Error;
+use crate::repositories::db::Queries;
+use crate::repositories::leaderboard::GetLeaderboardRecordParams;
+use crate::repositories::models::{Leaderboard, LeaderboardRecord};
+use crate::services::auth::q;
 use crate::utils::leaderboard::statement::{Write, statement};
 use crate::utils::leaderboard::types::{
     AUTH_WRITE, BAD_RECORD, DB_INCREMENT, INVALID_ID, WRITE_FAILED, ascending, parse_metadata,
     ranks_enabled, resolve_operator,
 };
 use crate::utils::leaderboard::window::record_window;
-use crate::dto::leaderboard::{RecordRequest, RecordResponse};
-use super::rank::rank_of;
-use super::{load_board, pool};
-use crate::repositories::db::Queries;
-use crate::repositories::leaderboard::GetLeaderboardRecordParams;
-use crate::repositories::models::{Leaderboard, LeaderboardRecord};
-use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
-use crate::ApiState;
 
 /// A write that changed nothing answers with the record as it stands: the operator's
 /// `WHERE` rejected it, or a concurrent write took the primary key slot BaaS aimed at.
@@ -82,7 +82,7 @@ async fn apply(
     board: &Leaderboard,
     write: &Write<'_>,
 ) -> Result<RecordResponse, V2Error> {
-    let record = upsert(pool, queries, write, &statement(write, ascending(board))).await?;
+    let record = upsert(pool, queries, write, &statement(write, !ascending(board))).await?;
     let rank = if ranks_enabled(board) {
         rank_of(queries, board, &record)
             .await

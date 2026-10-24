@@ -3,18 +3,18 @@
 //! All state and methods are fully encapsulated on the `RealtimeMatchService` struct as lock-free `FastMap`s,
 //! injected as a singleton via `auto_di` with zero global statics or free functions.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock};
 use auto_di::singleton;
 use auto_ws::{Conn, Msg};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, OnceLock};
 use uuid::Uuid;
 
+use super::{FastMap, new_fast_map};
+use crate::controllers::realtime::messages::*;
+use crate::controllers::realtime::{Dispatched, session_of};
 use crate::error::V2Error;
 use crate::infra::ws::envelope::{Envelope, EnvelopeMessage, Presence};
 use crate::infra::ws::session::{self, Session};
-use crate::controllers::realtime::messages::*;
-use crate::controllers::realtime::{Dispatched, session_of};
-use super::{FastMap, new_fast_map};
 
 pub struct Match {
     pub id: Uuid,
@@ -134,7 +134,13 @@ impl RealtimeMatchService {
 
     // --- Match Lifecycle & Operations ---
 
-    pub fn create_match(&self, _s: &Arc<Session>, open: bool, tick_rate: i32, label: String) -> Uuid {
+    pub fn create_match(
+        &self,
+        _s: &Arc<Session>,
+        open: bool,
+        tick_rate: i32,
+        label: String,
+    ) -> Uuid {
         let id = Uuid::new_v4();
         let _ = self.matches.insert_sync(
             id,
@@ -226,7 +232,10 @@ impl RealtimeMatchService {
             ));
         };
 
-        let mut match_ref = self.matches.get_sync(&target).ok_or_else(|| V2Error::not_found("match not found"))?;
+        let mut match_ref = self
+            .matches
+            .get_sync(&target)
+            .ok_or_else(|| V2Error::not_found("match not found"))?;
         if let Some(tok) = token.as_ref().filter(|t| !t.is_empty()) {
             match_ref.tokens.remove(tok);
             self.tokens_to_match.remove_sync(tok);
@@ -261,7 +270,12 @@ impl RealtimeMatchService {
         Ok(())
     }
 
-    pub fn leave_match(&self, s: &Arc<Session>, raw_id: &str, cid: Option<String>) -> Result<(), V2Error> {
+    pub fn leave_match(
+        &self,
+        s: &Arc<Session>,
+        raw_id: &str,
+        cid: Option<String>,
+    ) -> Result<(), V2Error> {
         let id = Uuid::parse_str(raw_id).map_err(|_| V2Error::not_found("match not found"))?;
         let (member_ids, gone) = {
             let match_ref = self.matches.get_sync(&id);
@@ -311,19 +325,22 @@ impl RealtimeMatchService {
         data: String,
     ) -> Result<(), V2Error> {
         let id = Uuid::parse_str(raw_id).map_err(|_| V2Error::not_found("match not found"))?;
-        let (recipients, sender) = self.matches.read_sync(&id, |_, m| {
-            if !m.members.contains_key(&s.sid) {
-                return Err(V2Error::permission_denied(
-                    "must join the match before sending data",
-                ));
-            }
-            let recipients: Vec<Uuid> = m
-                .members
-                .values()
-                .map(|p| Uuid::parse_str(&p.user_id).unwrap_or_default())
-                .collect();
-            Ok((recipients, self.presence_of(s)))
-        }).ok_or_else(|| V2Error::not_found("match not found"))??;
+        let (recipients, sender) = self
+            .matches
+            .read_sync(&id, |_, m| {
+                if !m.members.contains_key(&s.sid) {
+                    return Err(V2Error::permission_denied(
+                        "must join the match before sending data",
+                    ));
+                }
+                let recipients: Vec<Uuid> = m
+                    .members
+                    .values()
+                    .map(|p| Uuid::parse_str(&p.user_id).unwrap_or_default())
+                    .collect();
+                Ok((recipients, self.presence_of(s)))
+            })
+            .ok_or_else(|| V2Error::not_found("match not found"))??;
         let event = Envelope {
             cid: None,
             message: EnvelopeMessage::MatchData {
@@ -346,12 +363,15 @@ impl RealtimeMatchService {
         cid: Option<String>,
     ) -> Result<(), V2Error> {
         let id = Uuid::parse_str(raw_id).map_err(|_| V2Error::not_found("match not found"))?;
-        let member_uids: Vec<Uuid> = self.matches.read_sync(&id, |_, m| {
-            m.members
-                .values()
-                .map(|p| Uuid::parse_str(&p.user_id).unwrap_or_default())
-                .collect()
-        }).ok_or_else(|| V2Error::not_found("match not found"))?;
+        let member_uids: Vec<Uuid> = self
+            .matches
+            .read_sync(&id, |_, m| {
+                m.members
+                    .values()
+                    .map(|p| Uuid::parse_str(&p.user_id).unwrap_or_default())
+                    .collect()
+            })
+            .ok_or_else(|| V2Error::not_found("match not found"))?;
         let event = Envelope {
             cid: None,
             message: EnvelopeMessage::MatchSignal {
@@ -454,7 +474,9 @@ impl RealtimeMatchService {
             req.tick_rate,
             req.name.unwrap_or(req.label),
         );
-        Ok(Some(EnvelopeMessage::MatchCreateAck { match_id: id.simple().to_string() }))
+        Ok(Some(EnvelopeMessage::MatchCreateAck {
+            match_id: id.simple().to_string(),
+        }))
     }
 
     pub async fn join(&self, conn: &Conn, msg: &Msg) -> Dispatched {
@@ -471,8 +493,12 @@ impl RealtimeMatchService {
 
     pub async fn leave(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: MatchLeave = msg.payload()?;
-        self.leave_match(&session_of(conn), &req.match_id, msg.cid().map(str::to_string))
-            .map(|_| None)
+        self.leave_match(
+            &session_of(conn),
+            &req.match_id,
+            msg.cid().map(str::to_string),
+        )
+        .map(|_| None)
     }
 
     pub async fn data_send(&self, conn: &Conn, msg: &Msg) -> Dispatched {

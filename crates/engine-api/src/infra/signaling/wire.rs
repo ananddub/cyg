@@ -10,7 +10,9 @@ use super::frames::SignalOut;
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(super) enum ClientFrame {
-    Offer { sdp: String },
+    Offer {
+        sdp: String,
+    },
     Candidate {
         candidate: String,
         #[serde(rename = "sdpMid")]
@@ -29,8 +31,12 @@ pub(super) enum ClientFrame {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(super) enum ServerFrame {
-    Ice { config: serde_json::Value },
-    Answer { sdp: String },
+    Ice {
+        config: serde_json::Value,
+    },
+    Answer {
+        sdp: String,
+    },
     Candidate {
         candidate: String,
         #[serde(rename = "sdpMid", skip_serializing_if = "Option::is_none")]
@@ -38,17 +44,27 @@ pub(super) enum ServerFrame {
         #[serde(rename = "sdpMLineIndex", skip_serializing_if = "Option::is_none")]
         sdp_index: Option<u32>,
     },
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 impl From<SignalOut> for ServerFrame {
     fn from(msg: SignalOut) -> ServerFrame {
         match msg {
             SignalOut::Answer { sdp } => ServerFrame::Answer { sdp },
-            SignalOut::Candidate { candidate, sdp_mid, sdp_index } => {
-                ServerFrame::Candidate { candidate, sdp_mid, sdp_index }
-            }
-            SignalOut::IceServers { config } => ServerFrame::Ice { config: crate::utils::signaling::parse_ice(&config) },
+            SignalOut::Candidate {
+                candidate,
+                sdp_mid,
+                sdp_index,
+            } => ServerFrame::Candidate {
+                candidate,
+                sdp_mid,
+                sdp_index,
+            },
+            SignalOut::IceServers { config } => ServerFrame::Ice {
+                config: crate::utils::signaling::parse_ice(&config),
+            },
             SignalOut::Error { message } => ServerFrame::Error { message },
         }
     }

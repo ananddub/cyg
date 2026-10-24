@@ -51,6 +51,17 @@ declare function _sys_physics_lag_raycast(
 @external("env", "host_log")
 declare function _host_log(ptr: usize, len: i32): i32;
 
+// Typed room message: target=0 broadcasts, target=player id sends to one player.
+// The host frames it as [0x05][type_len u8][type][payload] and routes it.
+@external("env", "host_send")
+declare function _host_send(
+    target: i64,
+    type_ptr: usize,
+    type_len: i32,
+    data_ptr: usize,
+    data_len: i32
+): i32;
+
 // =============================================================================
 // --- 2. VECTOR 2D & 3D MATH HELPERS ---
 // =============================================================================
@@ -827,7 +838,7 @@ export class Log {
  */
 export class DeltaWriter {
     private _buf: ArrayBuffer;
-    private _view: DataView;
+    private _view: DataView = new DataView(new ArrayBuffer(0));
     private _offset: i32 = 0;
 
     constructor(initialCapacity: i32 = 1024) {
@@ -861,6 +872,20 @@ export class DeltaWriter {
         this.ensureCapacity(1);
         this._view.setUint8(this._offset, val);
         this._offset += 1;
+        return this;
+    }
+
+    writeI8(val: i8): this {
+        this.ensureCapacity(1);
+        this._view.setInt8(this._offset, val);
+        this._offset += 1;
+        return this;
+    }
+
+    writeI16(val: i16): this {
+        this.ensureCapacity(2);
+        this._view.setInt16(this._offset, val, true);
+        this._offset += 2;
         return this;
     }
 
@@ -899,6 +924,50 @@ export class DeltaWriter {
         return this;
     }
 
+    writeI32(val: i32): this {
+        this.ensureCapacity(4);
+        this._view.setInt32(this._offset, val, true);
+        this._offset += 4;
+        return this;
+    }
+
+    writeBool(val: bool): this {
+        this.ensureCapacity(1);
+        this._view.setUint8(this._offset, val ? 1 : 0);
+        this._offset += 1;
+        return this;
+    }
+
+    /** Append an existing byte buffer (used by the schema encoder). */
+    writeBytes(src: ArrayBuffer): this {
+        let bytes = Uint8Array.wrap(src);
+        this.ensureCapacity(bytes.length);
+        let dst = Uint8Array.wrap(this._buf);
+        dst.set(bytes, this._offset);
+        this._offset += bytes.length;
+        return this;
+    }
+
+    /** Append another writer's written region without allocating a copy. */
+    writeWriter(src: DeltaWriter): this {
+        this.ensureCapacity(src.length);
+        let dst = Uint8Array.wrap(this._buf);
+        let bytes = Uint8Array.wrap(src.buffer, 0, src.length);
+        dst.set(bytes, this._offset);
+        this._offset += src.length;
+        return this;
+    }
+
+    /** Number of bytes written since the last reset. */
+    get length(): i32 {
+        return this._offset;
+    }
+
+    /** Backing buffer (may be larger than `length`). */
+    get buffer(): ArrayBuffer {
+        return this._buf;
+    }
+
     /** Writes a 2D vector as two 32-bit floats (8 bytes total) */
     writeVec2(v: Vec2): this {
         this.writeF32(v.x as f32);
@@ -921,6 +990,730 @@ export class DeltaWriter {
         let ptr = changetype<usize>(this._buf) as i64;
         let len = this._offset as i64;
         return (ptr << 32) | len;
+    }
+}
+
+// =============================================================================
+// --- 5.1 SCHEMA STATE SYNC (COLYSEUS-STYLE, OWN WIRE FORMAT) ---
+// =============================================================================
+//
+// Define the schema once on the server and once on the client. The server
+// stores values in a compact binary row per entity; setters mark fields dirty
+// and `SchemaState.seal()` emits a full snapshot plus a field-level patch.
+// The host sends the full snapshot to a client once, then patches.
+//
+// Wire (inside the delta body, after the recipient id):
+//   full:  "OXS2" [u8 1] [u32 schema hash] [u32 count] { [u32 id] [values...] }*
+//   patch: "OXS2" [u8 2] [u32 schema hash] [u32 ops]   { op... }*
+//   conjoined onTick payload:
+//          "OXS2" [u32 fullLen] [full] [u32 patchLen] [patch]
+//
+// Values: numeric/bool primitives, fixed-width UTF-8 strings (255 bytes) and
+// flat primitive arrays, <= 32 fields per entity. Nested schemas stay on the
+// typed-message channel.
+//
+// Field flags: bit 0 = optional (one presence byte on the wire), bit 1 = static
+// and bit 2 = transient (both full-snapshot only, never patched).
+
+export enum FieldType {
+    U8 = 1,
+    U16 = 2,
+    U32 = 3,
+    I32 = 4,
+    F32 = 5,
+    F64 = 6,
+    BOOL = 7,
+    I64 = 8,
+    I8 = 9,
+    I16 = 10,
+    STRING = 11,
+    ARRAY = 12,
+}
+
+export const SCHEMA_FIELD_OPTIONAL: u8 = 1;
+export const SCHEMA_FIELD_STATIC: u8 = 2;
+export const SCHEMA_FIELD_TRANSIENT: u8 = 4;
+
+const SCHEMA_MAGIC_0: u8 = 0x4F; // O
+const SCHEMA_MAGIC_1: u8 = 0x58; // X
+const SCHEMA_MAGIC_2: u8 = 0x53; // S
+const SCHEMA_MAGIC_3: u8 = 0x32; // 2
+const SCHEMA_MAX_FIELDS: i32 = 32;
+
+function schemaFieldSize(type: u8): i32 {
+    if (type == FieldType.U8 || type == FieldType.I8 || type == FieldType.BOOL) return 1;
+    if (type == FieldType.U16 || type == FieldType.I16) return 2;
+    if (type == FieldType.U32 || type == FieldType.I32 || type == FieldType.F32) return 4;
+    if (type == FieldType.STRING || type == FieldType.ARRAY) return 0;
+    return 8; // F64 / I64
+}
+
+function schemaArraysEqual(a: Array<f64>, b: Array<f64>): bool {
+    if (a.length != b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] != b[i]) return false;
+    }
+    return true;
+}
+
+function writeSchemaMagic(w: DeltaWriter): void {
+    w.writeU8(SCHEMA_MAGIC_0);
+    w.writeU8(SCHEMA_MAGIC_1);
+    w.writeU8(SCHEMA_MAGIC_2);
+    w.writeU8(SCHEMA_MAGIC_3);
+}
+
+/**
+ * Declarative field list shared by the server and the browser client.
+ *
+ * ```ts
+ * const PlayerSchema = new SchemaDef("Player", 1)
+ *   .u32("id")
+ *   .f64("x")
+ *   .f64("y")
+ *   .u32("flags");
+ * ```
+ */
+export class SchemaDef {
+    private _name: string;
+    private _version: u32;
+    private _names: Array<string> = new Array<string>();
+    private _types: Array<u8> = new Array<u8>();
+    private _flags: Array<u8> = new Array<u8>();
+    private _elements: Array<u8> = new Array<u8>();
+    private _offsets: Array<i32> = new Array<i32>();
+    private _sizes: Array<i32> = new Array<i32>();
+    private _byteSize: i32 = 0;
+    private _hash: u32;
+
+    constructor(name: string, version: u32 = 1) {
+        this._name = name;
+        this._version = version;
+        this._rehash();
+    }
+
+    private mix(hash: u32, text: string): u32 {
+        let bytes = String.UTF8.encode(text);
+        let ptr = changetype<usize>(bytes);
+        let h = hash;
+        for (let i = 0; i < bytes.byteLength; i++) {
+            h = h ^ (load<u8>(ptr + i) as u32);
+            h = h * 16777619;
+        }
+        return h;
+    }
+
+    private _rehash(): void {
+        let h: u32 = 2166136261;
+        h = this.mix(h, this._name);
+        h = this.mix(h, "|");
+        h = this.mix(h, this._version.toString());
+        for (let i = 0; i < this._names.length; i++) {
+            h = this.mix(h, "|");
+            h = this.mix(h, this._names[i]);
+            h = this.mix(h, ":");
+            h = this.mix(h, this._types[i].toString());
+            let element = this._elements[i];
+            if (element != 0) {
+                h = this.mix(h, ".");
+                h = this.mix(h, element.toString());
+            }
+            let flags = this._flags[i];
+            if (flags != 0) {
+                h = this.mix(h, ":");
+                h = this.mix(h, flags.toString());
+            }
+        }
+        this._hash = h;
+    }
+
+    private add(name: string, type: u8, element: u8 = 0): this {
+        if (this._names.length >= SCHEMA_MAX_FIELDS) return this;
+        let size = schemaFieldSize(type);
+        this._names.push(name);
+        this._types.push(type);
+        this._flags.push(0);
+        this._elements.push(element);
+        this._offsets.push(this._byteSize);
+        this._sizes.push(size);
+        this._byteSize += size;
+        this._rehash();
+        return this;
+    }
+
+    private _lastIndex(): i32 { return this._names.length - 1; }
+
+    /** Marks the most recently added field as optional (presence byte). */
+    optional(): this {
+        let i = this._lastIndex();
+        if (i >= 0) {
+            this._flags[i] = (this._flags[i] | SCHEMA_FIELD_OPTIONAL) as u8;
+            this._rehash();
+        }
+        return this;
+    }
+
+    /** Marks the most recently added field as full-snapshot only. */
+    staticField(): this {
+        let i = this._lastIndex();
+        if (i >= 0) {
+            this._flags[i] = (this._flags[i] | SCHEMA_FIELD_STATIC) as u8;
+            this._rehash();
+        }
+        return this;
+    }
+
+    /** Marks the most recently added field as transient (full-snapshot only). */
+    transient(): this {
+        let i = this._lastIndex();
+        if (i >= 0) {
+            this._flags[i] = (this._flags[i] | SCHEMA_FIELD_TRANSIENT) as u8;
+            this._rehash();
+        }
+        return this;
+    }
+
+    u8(name: string): this { return this.add(name, FieldType.U8 as u8); }
+    i8(name: string): this { return this.add(name, FieldType.I8 as u8); }
+    u16(name: string): this { return this.add(name, FieldType.U16 as u8); }
+    i16(name: string): this { return this.add(name, FieldType.I16 as u8); }
+    u32(name: string): this { return this.add(name, FieldType.U32 as u8); }
+    i32(name: string): this { return this.add(name, FieldType.I32 as u8); }
+    f32(name: string): this { return this.add(name, FieldType.F32 as u8); }
+    f64(name: string): this { return this.add(name, FieldType.F64 as u8); }
+    bool(name: string): this { return this.add(name, FieldType.BOOL as u8); }
+    i64(name: string): this { return this.add(name, FieldType.I64 as u8); }
+    string(name: string): this { return this.add(name, FieldType.STRING as u8); }
+    array(name: string, elementType: u8): this { return this.add(name, FieldType.ARRAY as u8, elementType); }
+
+    get hash(): u32 { return this._hash; }
+    get version(): u32 { return this._version; }
+    get name(): string { return this._name; }
+    get fieldCount(): i32 { return this._names.length; }
+    get byteSize(): i32 { return this._byteSize; }
+
+    fieldName(index: i32): string { return this._names[index]; }
+    fieldType(index: i32): u8 { return this._types[index]; }
+    fieldFlags(index: i32): u8 { return this._flags[index]; }
+    fieldElement(index: i32): u8 { return this._elements[index]; }
+    fieldOffset(index: i32): i32 { return this._offsets[index]; }
+    fieldSize(index: i32): i32 { return this._sizes[index]; }
+    isOptional(index: i32): bool { return (this._flags[index] & SCHEMA_FIELD_OPTIONAL) != 0; }
+    isFullOnly(index: i32): bool {
+        return (this._flags[index] & (SCHEMA_FIELD_STATIC | SCHEMA_FIELD_TRANSIENT)) != 0;
+    }
+
+    /** Stable index for a field name, resolved once at module load. */
+    indexOf(name: string): i32 {
+        for (let i = 0; i < this._names.length; i++) {
+            if (this._names[i] == name) return i;
+        }
+        return -1;
+    }
+}
+
+/**
+ * One row in a schema state. Subclass it and expose typed getters/setters:
+ *
+ * ```ts
+ * const X = PlayerSchema.indexOf("x");
+ *
+ * class Player extends SchemaEntity {
+ *   constructor() { super(PlayerSchema); }
+ *   get x(): f64 { return this.getF64(X); }
+ *   set x(v: f64) { this.setF64(X, v); }
+ * }
+ * ```
+ *
+ * Setters only mark the field dirty when the value actually changes, so a
+ * no-op tick produces an empty patch.
+ */
+export class SchemaEntity {
+    private _schema: SchemaDef;
+    private _buf: ArrayBuffer;
+    private _view: DataView = new DataView(new ArrayBuffer(0));
+    private _dirty: u32 = 0;
+    private _present: u32 = 0;
+    private _strings: Array<string> = new Array<string>();
+    private _arrays: Array<Array<f64>> = new Array<Array<f64>>();
+    private _id: u32 = 0;
+
+    constructor(schema: SchemaDef) {
+        this._schema = schema;
+        let size = schema.byteSize;
+        this._buf = new ArrayBuffer(size > 0 ? size : 1);
+        this._view = new DataView(this._buf);
+        for (let i = 0; i < schema.fieldCount; i++) {
+            this._strings.push("");
+            this._arrays.push(new Array<f64>());
+        }
+    }
+
+    get schemaHash(): u32 { return this._schema.hash; }
+    get dirtyMask(): u32 { return this._dirty; }
+    get fieldCount(): i32 { return this._schema.fieldCount; }
+    get id(): u32 { return this._id; }
+    set id(value: u32) { this._id = value; }
+
+    clearDirty(): void { this._dirty = 0; }
+
+    private _bit(index: i32): u32 {
+        return (1 as u32) << (index as u32);
+    }
+
+    /** Optional fields report false while absent; all others are always present. */
+    hasField(index: i32): bool {
+        if (!this._schema.isOptional(index)) return true;
+        return (this._present & this._bit(index)) != 0;
+    }
+
+    /** Clears an optional field; marks the field dirty for the next patch. */
+    clearField(index: i32): void {
+        if (!this._schema.isOptional(index)) return;
+        if ((this._present & this._bit(index)) == 0) return;
+        this._present = this._present & ~this._bit(index);
+        this._mark(index);
+    }
+
+    private _touch(index: i32, changed: bool): void {
+        let optional = this._schema.isOptional(index);
+        let present = (this._present & this._bit(index)) != 0;
+        if (!changed && (!optional || present)) return;
+        if (optional) this._present = this._present | this._bit(index);
+        this._mark(index);
+    }
+
+    getU8(i: i32): u8 { return this._view.getUint8(this._schema.fieldOffset(i)); }
+    setU8(i: i32, v: u8): void {
+        let off = this._schema.fieldOffset(i);
+        let changed = this._view.getUint8(off) != v;
+        if (changed) this._view.setUint8(off, v);
+        this._touch(i, changed);
+    }
+
+    getI8(i: i32): i8 { return this._view.getInt8(this._schema.fieldOffset(i)); }
+    setI8(i: i32, v: i8): void {
+        let off = this._schema.fieldOffset(i);
+        let changed = this._view.getInt8(off) != v;
+        if (changed) this._view.setInt8(off, v);
+        this._touch(i, changed);
+    }
+
+    getU16(i: i32): u16 { return this._view.getUint16(this._schema.fieldOffset(i), true); }
+    setU16(i: i32, v: u16): void {
+        let off = this._schema.fieldOffset(i);
+        let changed = this._view.getUint16(off, true) != v;
+        if (changed) this._view.setUint16(off, v, true);
+        this._touch(i, changed);
+    }
+
+    getI16(i: i32): i16 { return this._view.getInt16(this._schema.fieldOffset(i), true); }
+    setI16(i: i32, v: i16): void {
+        let off = this._schema.fieldOffset(i);
+        let changed = this._view.getInt16(off, true) != v;
+        if (changed) this._view.setInt16(off, v, true);
+        this._touch(i, changed);
+    }
+
+    getU32(i: i32): u32 { return this._view.getUint32(this._schema.fieldOffset(i), true); }
+    setU32(i: i32, v: u32): void {
+        let off = this._schema.fieldOffset(i);
+        let changed = this._view.getUint32(off, true) != v;
+        if (changed) this._view.setUint32(off, v, true);
+        this._touch(i, changed);
+    }
+
+    getI32(i: i32): i32 { return this._view.getInt32(this._schema.fieldOffset(i), true); }
+    setI32(i: i32, v: i32): void {
+        let off = this._schema.fieldOffset(i);
+        let changed = this._view.getInt32(off, true) != v;
+        if (changed) this._view.setInt32(off, v, true);
+        this._touch(i, changed);
+    }
+
+    getF32(i: i32): f32 { return this._view.getFloat32(this._schema.fieldOffset(i), true); }
+    setF32(i: i32, v: f32): void {
+        let off = this._schema.fieldOffset(i);
+        let changed = this._view.getFloat32(off, true) != v;
+        if (changed) this._view.setFloat32(off, v, true);
+        this._touch(i, changed);
+    }
+
+    getF64(i: i32): f64 { return this._view.getFloat64(this._schema.fieldOffset(i), true); }
+    setF64(i: i32, v: f64): void {
+        let off = this._schema.fieldOffset(i);
+        let changed = this._view.getFloat64(off, true) != v;
+        if (changed) this._view.setFloat64(off, v, true);
+        this._touch(i, changed);
+    }
+
+    getBool(i: i32): bool { return this._view.getUint8(this._schema.fieldOffset(i)) != 0; }
+    setBool(i: i32, v: bool): void {
+        let off = this._schema.fieldOffset(i);
+        let byte: u8 = v ? 1 : 0;
+        let changed = this._view.getUint8(off) != byte;
+        if (changed) this._view.setUint8(off, byte);
+        this._touch(i, changed);
+    }
+
+    getI64(i: i32): i64 { return this._view.getInt64(this._schema.fieldOffset(i), true); }
+    setI64(i: i32, v: i64): void {
+        let off = this._schema.fieldOffset(i);
+        let changed = this._view.getInt64(off, true) != v;
+        if (changed) this._view.setInt64(off, v, true);
+        this._touch(i, changed);
+    }
+
+    getString(i: i32): string { return this._strings[i]; }
+    setString(i: i32, v: string): void {
+        let changed = this._strings[i] != v;
+        if (changed) this._strings[i] = v;
+        this._touch(i, changed);
+    }
+
+    getArray(i: i32): Array<f64> { return this._arrays[i]; }
+    setArray(i: i32, v: Array<f64>): void {
+        let previous = this._arrays[i];
+        let changed = !schemaArraysEqual(previous, v);
+        if (changed) this._arrays[i] = v;
+        this._touch(i, changed);
+    }
+
+    getArrayLength(i: i32): i32 { return this._arrays[i].length; }
+
+    private _mark(index: i32): void {
+        if (this._schema.isFullOnly(index)) return;
+        this._dirty = this._dirty | this._bit(index);
+    }
+
+    private writeStringValue(w: DeltaWriter, index: i32): void {
+        let bytes = String.UTF8.encode(this._strings[index]);
+        let length = bytes.byteLength;
+        if (length > 255) length = 255;
+        w.writeU8(length as u8);
+        if (length > 0) {
+            w.writeBytes(length == bytes.byteLength ? bytes : bytes.slice(0, length));
+        }
+    }
+
+    writeValue(w: DeltaWriter, index: i32): void {
+        if (this._schema.isOptional(index)) {
+            let present = this.hasField(index);
+            w.writeU8(present ? 1 : 0);
+            if (!present) return;
+        }
+        let t = this._schema.fieldType(index);
+        if (t == FieldType.STRING) {
+            this.writeStringValue(w, index);
+            return;
+        }
+        if (t == FieldType.ARRAY) {
+            let element = this._schema.fieldElement(index);
+            let values = this._arrays[index];
+            let count = values.length;
+            if (count > 255) count = 255;
+            w.writeU8(count as u8);
+            for (let j = 0; j < count; j++) writeSchemaNumber(w, element, values[j]);
+            return;
+        }
+        if (t == FieldType.U8) { w.writeU8(this.getU8(index)); }
+        else if (t == FieldType.I8) { w.writeI8(this.getI8(index)); }
+        else if (t == FieldType.U16) { w.writeU16(this.getU16(index)); }
+        else if (t == FieldType.I16) { w.writeI16(this.getI16(index)); }
+        else if (t == FieldType.U32) { w.writeU32(this.getU32(index)); }
+        else if (t == FieldType.I32) { w.writeI32(this.getI32(index)); }
+        else if (t == FieldType.F32) { w.writeF32(this.getF32(index)); }
+        else if (t == FieldType.F64) { w.writeF64(this.getF64(index)); }
+        else if (t == FieldType.BOOL) { w.writeBool(this.getBool(index)); }
+        else { w.writeI64(this.getI64(index)); }
+    }
+
+    writeAll(w: DeltaWriter): void {
+        for (let i = 0; i < this._schema.fieldCount; i++) this.writeValue(w, i);
+    }
+
+    writeDirty(w: DeltaWriter): void {
+        for (let i = 0; i < this._schema.fieldCount; i++) {
+            if (this._schema.isFullOnly(i)) continue;
+            if ((this._dirty & this._bit(i)) != 0) this.writeValue(w, i);
+        }
+    }
+}
+
+function writeSchemaNumber(w: DeltaWriter, type: u8, value: f64): void {
+    if (type == FieldType.U8) { w.writeU8(value as u8); }
+    else if (type == FieldType.I8) { w.writeI8(value as i8); }
+    else if (type == FieldType.U16) { w.writeU16(value as u16); }
+    else if (type == FieldType.I16) { w.writeI16(value as i16); }
+    else if (type == FieldType.U32) { w.writeU32(value as u32); }
+    else if (type == FieldType.I32) { w.writeI32(value as i32); }
+    else if (type == FieldType.F32) { w.writeF32(value as f32); }
+    else if (type == FieldType.BOOL) { w.writeBool(value != 0); }
+    else if (type == FieldType.I64) { w.writeI64(value as i64); }
+    else { w.writeF64(value); }
+}
+
+/**
+ * A map of `id -> SchemaEntity` that emits full snapshots and field patches.
+ *
+ * ```ts
+ * const state = new SchemaState(PlayerSchema);
+ * state.set(id, player);        // add or replace
+ * state.delete(id);             // remove
+ * return state.seal();          // packed pointer for onTick
+ * ```
+ */
+export class SchemaState {
+    private _schema: SchemaDef;
+    private _entities: Map<u32, SchemaEntity> = new Map<u32, SchemaEntity>();
+    private _order: Array<u32> = new Array<u32>();
+    private _added: Array<u32> = new Array<u32>();
+    private _removed: Array<u32> = new Array<u32>();
+    private _full: DeltaWriter = new DeltaWriter(512);
+    private _patch: DeltaWriter = new DeltaWriter(512);
+    private _out: DeltaWriter = new DeltaWriter(1024);
+
+    constructor(schema: SchemaDef) {
+        this._schema = schema;
+    }
+
+    get schemaHash(): u32 { return this._schema.hash; }
+    get size(): i32 { return this._order.length; }
+
+    has(id: u32): bool { return this._entities.has(id); }
+    get(id: u32): SchemaEntity { return this._entities.get(id); }
+
+    set(id: u32, entity: SchemaEntity): void {
+        if (entity.schemaHash != this._schema.hash) return;
+        let removedAt = this._removed.indexOf(id);
+        if (removedAt >= 0) this._removed.splice(removedAt, 1);
+        if (!this._entities.has(id)) {
+            this._order.push(id);
+            this._added.push(id);
+        }
+        entity.id = id;
+        this._entities.set(id, entity);
+    }
+
+    delete(id: u32): void {
+        if (!this._entities.has(id)) return;
+        this._entities.delete(id);
+        let orderAt = this._order.indexOf(id);
+        if (orderAt >= 0) this._order.splice(orderAt, 1);
+        let addedAt = this._added.indexOf(id);
+        if (addedAt >= 0) {
+            this._added.splice(addedAt, 1);
+        } else {
+            this._removed.push(id);
+        }
+    }
+
+    clear(): void {
+        this._entities.clear();
+        this._order.length = 0;
+        this._added.length = 0;
+        this._removed.length = 0;
+    }
+
+    /** Append a complete single-collection full section (kind 1). */
+    writeFull(w: DeltaWriter): void {
+        writeSchemaMagic(w);
+        w.writeU8(1);
+        w.writeU32(this._schema.hash);
+        w.writeU32(this._order.length as u32);
+        for (let i = 0; i < this._order.length; i++) {
+            let id = this._order[i];
+            let e = this._entities.get(id);
+            w.writeU32(id);
+            e.writeAll(w);
+        }
+    }
+
+    /** Number of operations the next patch section will carry. */
+    patchOpCount(): i32 {
+        let updates = 0;
+        for (let i = 0; i < this._order.length; i++) {
+            let id = this._order[i];
+            let e = this._entities.get(id);
+            if (e.dirtyMask != 0 && this._added.indexOf(id) < 0) updates++;
+        }
+        return this._removed.length + this._added.length + updates;
+    }
+
+    /** Append a single-collection patch section (kind 2), even when empty. */
+    writePatch(w: DeltaWriter): void {
+        writeSchemaMagic(w);
+        w.writeU8(2);
+        w.writeU32(this._schema.hash);
+        w.writeU32(this.patchOpCount() as u32);
+
+        for (let i = 0; i < this._removed.length; i++) {
+            w.writeU8(2); // REMOVE
+            w.writeU32(this._removed[i]);
+        }
+        for (let i = 0; i < this._added.length; i++) {
+            let id = this._added[i];
+            let e = this._entities.get(id);
+            w.writeU8(1); // ADD
+            w.writeU32(id);
+            e.writeAll(w);
+        }
+        for (let i = 0; i < this._order.length; i++) {
+            let id = this._order[i];
+            if (this._added.indexOf(id) >= 0) continue;
+            let e = this._entities.get(id);
+            let mask = e.dirtyMask;
+            if (mask == 0) continue;
+            w.writeU8(3); // UPDATE
+            w.writeU32(id);
+            w.writeU32(mask);
+            e.writeDirty(w);
+        }
+    }
+
+    private encodeFull(): void {
+        this._full.reset();
+        this.writeFull(this._full);
+    }
+
+    private encodePatch(): void {
+        this._patch.reset();
+        this.writePatch(this._patch);
+    }
+
+    /** Clear per-tick dirty flags and queued adds/removes. */
+    clearChanges(): void {
+        for (let i = 0; i < this._order.length; i++) {
+            this._entities.get(this._order[i]).clearDirty();
+        }
+        this._added.length = 0;
+        this._removed.length = 0;
+    }
+
+    /**
+     * Encode the current full snapshot and patch into one reusable buffer and
+     * return the packed `(ptr << 32) | len` for `onTick`.
+     */
+    seal(): i64 {
+        this.encodeFull();
+        this.encodePatch();
+
+        let out = this._out;
+        out.reset();
+        writeSchemaMagic(out);
+        out.writeU32(this._full.length as u32);
+        out.writeWriter(this._full);
+        out.writeU32(this._patch.length as u32);
+        out.writeWriter(this._patch);
+
+        this.clearChanges();
+        return out.seal();
+    }
+}
+
+/**
+ * Multi-collection world: root scalar fields plus any number of
+ * `SchemaState` maps, sealed into one full/patch pair.
+ *
+ * ```ts
+ * const world = new GameState();      // generated by `ox-game schema`
+ * world.players.set(id, player);
+ * world.tick = tick;
+ * return world.seal();
+ * ```
+ *
+ * Wire (inside the same envelope as `SchemaState`):
+ *   multi full:  "OXS2" [u8 3] [u32 root hash] [u16 root fields] [values...]
+ *                [u16 collection count] { [u16 id] [u32 hash] [u32 len] [section] }*
+ *   multi patch: "OXS2" [u8 4] [u32 root hash] [u16 root fields]
+ *                [u32 root dirty mask] [dirty values...]
+ *                [u16 collection count] { [u16 id] [u32 hash] [u32 len] [section] }*
+ */
+export class SchemaWorld {
+    root: SchemaEntity;
+    private _collections: Array<SchemaState> = new Array<SchemaState>();
+    private _full: DeltaWriter = new DeltaWriter(1024);
+    private _patch: DeltaWriter = new DeltaWriter(1024);
+    private _section: DeltaWriter = new DeltaWriter(512);
+    private _out: DeltaWriter = new DeltaWriter(2048);
+
+    constructor(root: SchemaEntity) {
+        this.root = root;
+    }
+
+    /** Register a collection; registration order is the wire collection id. */
+    add(state: SchemaState): this {
+        this._collections.push(state);
+        return this;
+    }
+
+    get collectionCount(): i32 { return this._collections.length; }
+
+    private encodeFull(): void {
+        let w = this._full;
+        w.reset();
+        writeSchemaMagic(w);
+        w.writeU8(3);
+        w.writeU32(this.root.schemaHash);
+        w.writeU16(this.root.fieldCount as u16);
+        this.root.writeAll(w);
+        w.writeU16(this._collections.length as u16);
+        for (let i = 0; i < this._collections.length; i++) {
+            let state = this._collections[i];
+            this._section.reset();
+            state.writeFull(this._section);
+            w.writeU16(i as u16);
+            w.writeU32(state.schemaHash);
+            w.writeU32(this._section.length as u32);
+            w.writeWriter(this._section);
+        }
+    }
+
+    private encodePatch(): void {
+        let w = this._patch;
+        w.reset();
+        writeSchemaMagic(w);
+        w.writeU8(4);
+        w.writeU32(this.root.schemaHash);
+        w.writeU16(this.root.fieldCount as u16);
+        w.writeU32(this.root.dirtyMask);
+        this.root.writeDirty(w);
+
+        let changed = 0;
+        for (let i = 0; i < this._collections.length; i++) {
+            if (this._collections[i].patchOpCount() > 0) changed++;
+        }
+        w.writeU16(changed as u16);
+        for (let i = 0; i < this._collections.length; i++) {
+            let state = this._collections[i];
+            if (state.patchOpCount() == 0) continue;
+            this._section.reset();
+            state.writePatch(this._section);
+            w.writeU16(i as u16);
+            w.writeU32(state.schemaHash);
+            w.writeU32(this._section.length as u32);
+            w.writeWriter(this._section);
+        }
+    }
+
+    /** Encode full + patch sections and return the packed pointer/len. */
+    seal(): i64 {
+        this.encodeFull();
+        this.encodePatch();
+
+        let out = this._out;
+        out.reset();
+        writeSchemaMagic(out);
+        out.writeU32(this._full.length as u32);
+        out.writeWriter(this._full);
+        out.writeU32(this._patch.length as u32);
+        out.writeWriter(this._patch);
+
+        this.root.clearDirty();
+        for (let i = 0; i < this._collections.length; i++) {
+            this._collections[i].clearChanges();
+        }
+        return out.seal();
     }
 }
 
@@ -1586,8 +2379,15 @@ export class Steering {
 // --- 15. ABSTRACT ROOM BASE CLASS ---
 // =============================================================================
 
-export type MessageHandlerCallback = (senderId: i64, reader: InputReader) => void;
-export type RoomEventCallback = (id: i64, val0: f64, val1: f64) => void;
+/// `room` is injected by the SDK so callbacks never have to capture `this`
+/// (AssemblyScript's no-GC `stub` runtime cannot allocate closure environments).
+export type MessageHandlerCallback = (senderId: i64, reader: InputReader, room: Room) => void;
+export type RoomEventCallback = (id: i64, val0: f64, val1: f64, room: Room | null) => void;
+
+/// OpenOxide typed app-message opcode. This is our own wire envelope, not
+/// Colyseus/msgpack: [0x05][type_len u8][UTF-8 type][opaque payload].
+const APP_MESSAGE_OPCODE: u8 = 0x05;
+const APP_MESSAGE_MAX_TYPE: i32 = 255;
 
 /**
  * Universal Zero-Overhead Event Emitter for OpenOxide game rooms.
@@ -1595,6 +2395,11 @@ export type RoomEventCallback = (id: i64, val0: f64, val1: f64) => void;
  */
 export class EventEmitter {
     private _handlers: Map<string, Array<RoomEventCallback>> = new Map<string, Array<RoomEventCallback>>();
+    private _owner: Room | null;
+
+    constructor(owner: Room | null = null) {
+        this._owner = owner;
+    }
 
     /** Subscribes a listener callback to a named event */
     on(event: string, callback: RoomEventCallback): void {
@@ -1613,7 +2418,7 @@ export class EventEmitter {
         if (this._handlers.has(event)) {
             let list = this._handlers.get(event);
             for (let i = 0; i < list.length; i++) {
-                list[i](id, val0, val1);
+                list[i](id, val0, val1, this._owner);
             }
         }
     }
@@ -1633,12 +2438,63 @@ export abstract class Room {
     maxPlayers: i32 = 16;
 
     /// Built-in SDK Event Emitter (Zero manual plumbing required by backend)
-    events: EventEmitter = new EventEmitter();
+    events: EventEmitter = new EventEmitter(this);
+    /// Typed app messages from clients, keyed by UTF-8 message name.
+    private _textMessageHandlers: Map<string, MessageHandlerCallback> = new Map<string, MessageHandlerCallback>();
+    /// Legacy numeric-opcode routing for raw binary clients.
     private _messageHandlers: Map<u8, MessageHandlerCallback> = new Map<u8, MessageHandlerCallback>();
 
-    /// Registers a custom network message handler by opcode (Colyseus style).
-    onMessage(opcode: u8, handler: MessageHandlerCallback): void {
+    /// Registers a handler for a named client message:
+    /// `this.onMessage("discard", (clientId, reader, room) => { ... })`.
+    onMessage(type: string, handler: MessageHandlerCallback): void {
+        this._textMessageHandlers.set(type, handler);
+    }
+
+    /// Legacy numeric-opcode handler for existing raw-binary clients.
+    onOpcodeMessage(opcode: u8, handler: MessageHandlerCallback): void {
         this._messageHandlers.set(opcode, handler);
+    }
+
+    /// Broadcast a typed message to every player in the room.
+    /// `payload` is opaque bytes; use a DeltaWriter/ArrayBuffer or `broadcastText`.
+    broadcast(type: string, payload: ArrayBuffer | null = null): bool {
+        return this._sendMessage(0, type, payload);
+    }
+
+    /// Send a typed message to one player id (the value passed to `onJoin`).
+    sendTo(playerId: i64, type: string, payload: ArrayBuffer | null = null): bool {
+        return this._sendMessage(playerId, type, payload);
+    }
+
+    /// Convenience overload for UTF-8 text payloads.
+    broadcastText(type: string, text: string): bool {
+        return this._sendMessage(0, type, String.UTF8.encode(text));
+    }
+
+    /// Convenience overload for a UTF-8 text payload to one player.
+    sendTextTo(playerId: i64, type: string, text: string): bool {
+        return this._sendMessage(playerId, type, String.UTF8.encode(text));
+    }
+
+    private _sendMessage(target: i64, type: string, payload: ArrayBuffer | null): bool {
+        let typeBytes = String.UTF8.encode(type);
+        if (typeBytes.byteLength == 0 || typeBytes.byteLength > APP_MESSAGE_MAX_TYPE) {
+            return false;
+        }
+        let data: ArrayBuffer;
+        if (payload == null) {
+            data = new ArrayBuffer(0);
+        } else {
+            data = payload;
+        }
+        let rc = _host_send(
+            target,
+            changetype<usize>(typeBytes),
+            typeBytes.byteLength,
+            changetype<usize>(data),
+            data.byteLength
+        );
+        return rc == 0;
     }
 
     /// Subscribes a callback to a named room event.
@@ -1661,15 +2517,30 @@ export abstract class Room {
     abstract onLeave(id: i64): void;
 
     /// Called when an authoritative client input packet arrives.
-    /// By default, routes opcodes to registered onMessage handlers, or dispatches to onInputPacket.
+    /// Typed app messages are routed to `onMessage`; legacy opcodes fall through to
+    /// registered `onOpcodeMessage` handlers or `onInputPacket`.
     onInput(id: i64, ptr: usize, len: i32): void {
         if (len <= 0) return;
+
+        // OpenOxide typed app message: [0x05][type_len u8][type][payload].
+        if (len >= 2 && load<u8>(ptr) == APP_MESSAGE_OPCODE) {
+            let typeLen = load<u8>(ptr + 1) as i32;
+            if (typeLen > 0 && 2 + typeLen <= len) {
+                let type = String.UTF8.decodeUnsafe(ptr + 2, typeLen);
+                if (this._textMessageHandlers.has(type)) {
+                    let handler = this._textMessageHandlers.get(type);
+                    handler(id, new InputReader(ptr + 2 + typeLen, len - 2 - typeLen), this);
+                    return;
+                }
+            }
+        }
+
         let reader = new InputReader(ptr, len);
         if (len != 20 && this._messageHandlers.size > 0) {
             let opcode = load<u8>(ptr);
             if (this._messageHandlers.has(opcode)) {
                 let handler = this._messageHandlers.get(opcode);
-                handler(id, reader);
+                handler(id, reader, this);
                 return;
             }
         }
@@ -1709,6 +2580,58 @@ export abstract class Room {
     /// Room fullness check.
     onIsFull(count: i32): bool {
         return count >= this.maxPlayers;
+    }
+
+    /// Minimum milliseconds between state patches; 0 broadcasts every
+    /// simulation tick (the backwards-compatible default). When a patch is
+    /// skipped the next sent frame carries a full snapshot, so no change is
+    /// ever lost.
+    patchRate: i32 = 0;
+
+    /// Minimum milliseconds between simulation ticks; 0 runs every host tick.
+    /// The host calls `onTick` with a fixed `dt` of `simulationInterval / 1000`.
+    simulationInterval: i32 = 0;
+
+    getPatchRate(): i32 {
+        return this.patchRate;
+    }
+
+    getSimulationRate(): i32 {
+        return this.simulationInterval;
+    }
+
+    /// Seat admission. `options` is the raw JSON string the client passed to
+    /// `joinOrCreate(room, options)` (empty when it sent none). Return `false`
+    /// to reject the connection before any player id or state is created.
+    onAuth(clientId: i64, options: string): bool {
+        return true;
+    }
+
+    /// Called when a disconnected client resumes its reserved seat. The player
+    /// id and guest state are unchanged; `onJoin` is NOT called again.
+    onReconnect(clientId: i64): void {
+        // Override to restore per-client UI state
+    }
+
+    /// Called once when the host disposes this room (empty timeout / shutdown).
+    onDispose(): void {
+        // Override to flush scores, release external resources, ...
+    }
+
+    /// Milliseconds a disconnected client may take to reconnect before
+    /// `onLeave` runs. 0 (default) releases the seat immediately.
+    allowReconnection(clientId: i64): i32 {
+        return 0;
+    }
+
+    /// Runs immediately before `onTick` (simulation + serialization).
+    onBeforePatch(dt: f64): void {
+        // Override for pre-serialization bookkeeping
+    }
+
+    /// Runs immediately after `onTick` returned its delta.
+    onAfterPatch(dt: f64): void {
+        // Override for post-serialization bookkeeping
     }
 
     /// Pack linear memory address and length into 64-bit ABI integer.

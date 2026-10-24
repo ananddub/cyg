@@ -5,14 +5,14 @@
 
 use axum::Json;
 
+use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::Empty;
 use crate::dto::account::{
     AccountResponse, GetAccountQuery, UpdateAccountRequest, UpdatePasswordRequest,
 };
-use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::infra::jwt;
-use crate::app::middleware::Authed;
-use crate::ApiState;
 
 impl super::AccountService {
     pub async fn update_account(
@@ -30,7 +30,8 @@ impl super::AccountService {
         let metadata = match req.metadata.as_deref() {
             None => existing.metadata.clone(),
             Some("") => serde_json::json!({}),
-            Some(raw) => serde_json::from_str(raw).map_err(|_| V2Error::invalid_argument("invalid account metadata"))?,
+            Some(raw) => serde_json::from_str(raw)
+                .map_err(|_| V2Error::invalid_argument("invalid account metadata"))?,
         };
         sqlx::query(
             "UPDATE users SET display_name = COALESCE($2, display_name), avatar_url = COALESCE($3, avatar_url), \
@@ -65,7 +66,10 @@ impl super::AccountService {
         }
 
         let user = queries.get_user_by_id(uid).await?;
-        let devices = queries.list_device_push_tokens(uid).await.unwrap_or_default();
+        let devices = queries
+            .list_device_push_tokens(uid)
+            .await
+            .unwrap_or_default();
         Ok(Json(AccountResponse::from_rows(user, devices)))
     }
 
@@ -82,9 +86,13 @@ impl super::AccountService {
             return Err(V2Error::unauthenticated("invalid credentials"));
         }
         if req.password.len() < 8 {
-            return Err(V2Error::invalid_argument("password must be at least 8 characters long"));
+            return Err(V2Error::invalid_argument(
+                "password must be at least 8 characters long",
+            ));
         }
-        queries.update_password(&jwt::hash_password(&req.password)?, user.id).await?;
+        queries
+            .update_password(&jwt::hash_password(&req.password)?, user.id)
+            .await?;
         Ok(Json(Empty {}))
     }
 }

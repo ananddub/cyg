@@ -26,6 +26,10 @@ fn spawn_transport() -> (WsTransport, u16) {
 }
 
 fn poll(transport: &mut WsTransport) -> Vec<TransportEvent> {
+    // Mirror the production host loop: poll + flush every tick. Replies are
+    // written by flush(), never by WRITABLE events (sockets idle at
+    // READABLE-only interest to avoid the level-triggered epoll spin).
+    let _ = transport.flush();
     let mut events = Vec::new();
     transport
         .poll_events(Duration::from_millis(50), &mut events)
@@ -63,14 +67,20 @@ fn read_ws_frame(stream: &mut TcpStream) -> Vec<u8> {
 }
 
 fn ws_upgrade(port: u16, transport: &mut WsTransport) -> TcpStream {
+    ws_upgrade_with_query(port, transport, "sessionId=sess_1")
+}
+
+fn ws_upgrade_with_query(port: u16, transport: &mut WsTransport, query: &str) -> TcpStream {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ok");
     // RFC 6455 section 1.3 example key -> known accept value.
-    let request = "GET /openoxide_1/game_room?sessionId=sess_1 HTTP/1.1\r\n\
-                   Host: localhost\r\n\
-                   Upgrade: websocket\r\n\
-                   Connection: Upgrade\r\n\
-                   Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
-                   Sec-WebSocket-Version: 13\r\n\r\n";
+    let request = format!(
+        "GET /openoxide_1/game_room?{query} HTTP/1.1\r\n\
+         Host: localhost\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+         Sec-WebSocket-Version: 13\r\n\r\n"
+    );
     stream.write_all(request.as_bytes()).expect("upgrade write");
 
     // Server accepts and answers inside poll_events; retry until it does.
@@ -222,5 +232,60 @@ fn test_room_data_reaches_simulation_and_leave_disconnects() {
             .iter()
             .any(|e| matches!(e, TransportEvent::Disconnected { .. })),
         "LEAVE_ROOM must disconnect the client"
+    );
+    assert!(
+        transport.take_consented("sess_1"),
+        "LEAVE_ROOM is an intentional departure: the seat must not be held"
+    );
+}
+
+#[test]
+fn test_socket_drop_is_not_consented() {
+    let (mut transport, port) = spawn_transport();
+    let stream = ws_upgrade(port, &mut transport);
+    // Bare FIN: the client vanished without LEAVE_ROOM or a WS close.
+    drop(stream);
+
+    let mut events = poll(&mut transport);
+    for _ in 0..10 {
+        if events
+            .iter()
+            .any(|e| matches!(e, TransportEvent::Disconnected { .. }))
+        {
+            break;
+        }
+        events = poll(&mut transport);
+    }
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, TransportEvent::Disconnected { .. })),
+        "a dropped socket must surface a disconnect"
+    );
+    assert!(
+        !transport.take_consented("sess_1"),
+        "an unexpected drop must stay eligible for allowReconnection"
+    );
+}
+
+#[test]
+fn test_join_options_are_percent_decoded_for_auth() {
+    let (mut transport, port) = spawn_transport();
+    let _stream = ws_upgrade_with_query(
+        port,
+        &mut transport,
+        "sessionId=sess_opt&options=%7B%22token%22%3A%22a+b%22%7D",
+    );
+
+    assert_eq!(
+        transport.options_of("sess_opt"),
+        Some(r#"{"token":"a b"}"#),
+        "the host must see the same JSON the browser serialized"
+    );
+    assert!(
+        transport
+            .room_of("sess_opt")
+            .is_some_and(|room| room.starts_with("game_room")),
+        "the room id travels with the upgrade URL"
     );
 }

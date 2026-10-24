@@ -46,6 +46,7 @@ fn last_day_of_month(year: i32, month: u32) -> NaiveDate {
     } else {
         (year, month + 1)
     };
-    let first = NaiveDate::from_ymd_opt(next_year, next_month, 1).expect("the 1st of a month exists");
+    let first =
+        NaiveDate::from_ymd_opt(next_year, next_month, 1).expect("the 1st of a month exists");
     first - chrono::Duration::days(1)
 }

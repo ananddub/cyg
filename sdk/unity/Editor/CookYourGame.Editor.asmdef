@@ -2,7 +2,9 @@
     "name": "CookYourGame.Editor",
     "rootNamespace": "CookYourGame",
     "references": [
-        "CookYourGame.Runtime"
+        "CookYourGame.Runtime",
+        "CookYourGame.Sim",
+        "CookYourGame.Sim.Unity"
     ],
     "includePlatforms": [
         "Editor"

@@ -57,7 +57,15 @@ impl StorageService {
         let page = i64::from(limit).min(window);
 
         let mut args = PgArguments::default();
-        let sql = build_query(&def, &terms, &sorts, auth.uid(), page + 1, offset, &mut args);
+        let sql = build_query(
+            &def,
+            &terms,
+            &sorts,
+            auth.uid(),
+            page + 1,
+            offset,
+            &mut args,
+        );
         let rows = sqlx::query_as_with::<_, StorageRow, _>(&sql, args)
             .fetch_all(super::super::pool(state)?)
             .await

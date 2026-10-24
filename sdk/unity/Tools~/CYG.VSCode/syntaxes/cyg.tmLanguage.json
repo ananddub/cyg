@@ -1,0 +1,378 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "CYG",
+  "scopeName": "source.cyg",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#declarations" },
+    { "include": "#invalid-types" },
+    { "include": "#reserved-keywords" },
+    { "include": "#top-level-types" },
+    { "include": "#numbers" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.cyg",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.cyg",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        { "include": "#namespace-decl" },
+        { "include": "#asset-decl" },
+        { "include": "#signal-decl" },
+        { "include": "#component-decl" },
+        { "include": "#struct-decl" },
+        { "include": "#enum-decl" },
+        { "include": "#union-decl" },
+        { "include": "#input-decl" },
+        { "include": "#global-decl" },
+        { "include": "#event-decl" }
+      ]
+    },
+    "namespace-decl": {
+      "match": "\\b(namespace)\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)\\s*(;)",
+      "captures": {
+        "1": { "name": "keyword.declaration.namespace.cyg" },
+        "2": { "name": "entity.name.namespace.cyg" },
+        "3": { "name": "punctuation.terminator.cyg" }
+      }
+    },
+    "asset-decl": {
+      "match": "\\b(asset)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(;)",
+      "captures": {
+        "1": { "name": "keyword.declaration.asset.cyg" },
+        "2": { "name": "entity.name.type.asset.cyg" },
+        "3": { "name": "punctuation.terminator.cyg" }
+      }
+    },
+    "component-decl": {
+      "begin": "\\b(component)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?:(:)\\s*([0-9]+|0[xX][0-9A-Fa-f]+)\\s*)?(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.component.cyg" },
+        "2": { "name": "entity.name.type.component.cyg" },
+        "3": { "name": "punctuation.separator.colon.cyg" },
+        "4": { "name": "constant.numeric.integer.cyg" },
+        "5": { "name": "punctuation.section.block.begin.cyg" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.block.end.cyg" }
+      },
+      "patterns": [{ "include": "#field-block" }]
+    },
+    "struct-decl": {
+      "begin": "\\b(struct)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.struct.cyg" },
+        "2": { "name": "entity.name.type.struct.cyg" },
+        "3": { "name": "punctuation.section.block.begin.cyg" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.block.end.cyg" }
+      },
+      "patterns": [{ "include": "#field-block" }]
+    },
+    "enum-decl": {
+      "begin": "\\b(enum|flags)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?:(:)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*)?(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.enum.cyg" },
+        "2": { "name": "entity.name.type.enum.cyg" },
+        "3": { "name": "punctuation.separator.colon.cyg" },
+        "4": { "name": "support.type.integer.cyg" },
+        "5": { "name": "punctuation.section.block.begin.cyg" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.block.end.cyg" }
+      },
+      "patterns": [{ "include": "#enum-body" }]
+    },
+    "union-decl": {
+      "begin": "\\b(union)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.union.cyg" },
+        "2": { "name": "entity.name.type.union.cyg" },
+        "3": { "name": "punctuation.section.block.begin.cyg" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.block.end.cyg" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#struct-decl" },
+        { "include": "#numbers" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "input-decl": {
+      "begin": "\\b(input)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.input.cyg" },
+        "2": { "name": "punctuation.section.block.begin.cyg" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.block.end.cyg" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#button-decl" },
+        { "include": "#field-block" }
+      ]
+    },
+    "global-decl": {
+      "begin": "\\b(global)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.global.cyg" },
+        "2": { "name": "punctuation.section.block.begin.cyg" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.block.end.cyg" }
+      },
+      "patterns": [{ "include": "#field-block" }]
+    },
+    "event-decl": {
+      "begin": "\\b(event|synced_event)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?:(:)\\s*([0-9]+|0[xX][0-9A-Fa-f]+)\\s*)?(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.event.cyg" },
+        "2": { "name": "entity.name.type.event.cyg" },
+        "3": { "name": "punctuation.separator.colon.cyg" },
+        "4": { "name": "constant.numeric.integer.cyg" },
+        "5": { "name": "punctuation.section.block.begin.cyg" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.block.end.cyg" }
+      },
+      "patterns": [{ "include": "#field-block" }]
+    },
+    "signal-decl": {
+      "begin": "\\b(signal)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.signal.cyg" },
+        "2": { "name": "entity.name.function.signal.cyg" },
+        "3": { "name": "punctuation.section.parens.begin.cyg" }
+      },
+      "end": "(\\))\\s*(;)",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.parens.end.cyg" },
+        "2": { "name": "punctuation.terminator.cyg" }
+      },
+      "patterns": [{ "include": "#signal-parameters" }]
+    },
+    "signal-parameters": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#invalid-types" },
+        {
+          "match": "\\b(asset_ref)\\s*(<)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(>)",
+          "captures": {
+            "1": { "name": "support.type.container.cyg" },
+            "2": { "name": "punctuation.definition.typeparameters.begin.cyg" },
+            "3": { "name": "entity.name.type.asset.cyg" },
+            "4": { "name": "punctuation.definition.typeparameters.end.cyg" }
+          }
+        },
+        {
+          "match": "\\b(FP|Byte|SByte|Int16|UInt16|Int32|UInt32|Int64|UInt64|Boolean|FPVector2|FPVector3|FPQuaternion|FPMatrix4x4|FPAABB|FPBounds|entity_ref|player_ref)\\b",
+          "name": "support.type.cyg"
+        },
+        {
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*[,)])",
+          "name": "variable.parameter.cyg"
+        },
+        {
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+          "name": "entity.name.type.cyg"
+        },
+        { "include": "#numbers" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "button-decl": {
+      "match": "\\b(button)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(;)",
+      "captures": {
+        "1": { "name": "keyword.other.button.cyg" },
+        "2": { "name": "variable.other.member.cyg" },
+        "3": { "name": "punctuation.terminator.cyg" }
+      }
+    },
+    "field-block": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#invalid-types" },
+        { "include": "#container-types" },
+        { "include": "#builtin-fields" },
+        { "include": "#general-fields" },
+        { "include": "#container-member" },
+        { "include": "#top-level-types" },
+        { "include": "#numbers" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "enum-body": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#enum-member" },
+        { "include": "#numbers" },
+        { "include": "#punctuation" }
+      ]
+    },
+    "enum-member": {
+      "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(?:=\\s*(0[xX][0-9A-Fa-f]+|[0-9]+))?(?=\\s*[,}\\r\\n])",
+      "captures": {
+        "1": { "name": "variable.other.enummember.cyg" },
+        "2": { "name": "constant.numeric.integer.cyg" }
+      }
+    },
+    "container-types": {
+      "patterns": [
+        {
+          "match": "\\b(dictionary)\\s*(<)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(,)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(>)\\s*(\\[)\\s*([0-9]+)\\s*(\\])",
+          "captures": {
+            "1": { "name": "support.type.container.cyg" },
+            "2": { "name": "punctuation.definition.typeparameters.begin.cyg" },
+            "3": { "name": "support.type.cyg" },
+            "4": { "name": "punctuation.separator.cyg" },
+            "5": { "name": "support.type.cyg" },
+            "6": { "name": "punctuation.definition.typeparameters.end.cyg" },
+            "7": { "name": "punctuation.section.brackets.begin.cyg" },
+            "8": { "name": "constant.numeric.integer.capacity.cyg" },
+            "9": { "name": "punctuation.section.brackets.end.cyg" }
+          }
+        },
+        {
+          "match": "\\b(array|list)\\s*(<)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(>)\\s*(\\[)\\s*([0-9]+)\\s*(\\])",
+          "captures": {
+            "1": { "name": "support.type.container.cyg" },
+            "2": { "name": "punctuation.definition.typeparameters.begin.cyg" },
+            "3": { "name": "support.type.cyg" },
+            "4": { "name": "punctuation.definition.typeparameters.end.cyg" },
+            "5": { "name": "punctuation.section.brackets.begin.cyg" },
+            "6": { "name": "constant.numeric.integer.capacity.cyg" },
+            "7": { "name": "punctuation.section.brackets.end.cyg" }
+          }
+        },
+        {
+          "match": "\\b(QString)\\s*(<)\\s*([0-9]+)\\s*(>)",
+          "captures": {
+            "1": { "name": "support.type.container.cyg" },
+            "2": { "name": "punctuation.definition.typeparameters.begin.cyg" },
+            "3": { "name": "constant.numeric.integer.capacity.cyg" },
+            "4": { "name": "punctuation.definition.typeparameters.end.cyg" }
+          }
+        },
+        {
+          "match": "\\b(asset_ref)\\s*(<)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(>)",
+          "captures": {
+            "1": { "name": "support.type.container.cyg" },
+            "2": { "name": "punctuation.definition.typeparameters.begin.cyg" },
+            "3": { "name": "entity.name.type.asset.cyg" },
+            "4": { "name": "punctuation.definition.typeparameters.end.cyg" }
+          }
+        }
+      ]
+    },
+    "builtin-fields": {
+      "match": "^\\s*(FP|Byte|SByte|Int16|UInt16|Int32|UInt32|Int64|UInt64|Boolean|FPVector2|FPVector3|FPQuaternion|FPMatrix4x4|FPAABB|FPBounds|entity_ref|player_ref)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(;)",
+      "captures": {
+        "1": { "name": "support.type.cyg" },
+        "2": { "name": "variable.other.member.cyg" },
+        "3": { "name": "punctuation.terminator.cyg" }
+      }
+    },
+    "general-fields": {
+      "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(;)",
+      "captures": {
+        "1": { "name": "entity.name.type.cyg" },
+        "2": { "name": "variable.other.member.cyg" },
+        "3": { "name": "punctuation.terminator.cyg" }
+      }
+    },
+    "container-member": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(;)",
+      "captures": {
+        "1": { "name": "variable.other.member.cyg" },
+        "2": { "name": "punctuation.terminator.cyg" }
+      }
+    },
+    "invalid-types": {
+      "match": "\\b(float|double|decimal|string|String|Vector2|Vector3|Vector4|Quaternion|Matrix4x4|List|Dictionary|HashSet|Queue|Stack)\\b",
+      "name": "invalid.illegal.type.cyg"
+    },
+    "reserved-keywords": {
+      "patterns": [
+        {
+          "match": "\\b(rpc|command)\\b",
+          "name": "keyword.reserved.cyg"
+        },
+        {
+          "match": "\\bbutton\\b",
+          "name": "keyword.other.button.cyg"
+        }
+      ]
+    },
+    "top-level-types": {
+      "patterns": [
+        {
+          "match": "\\b(Boolean)\\b",
+          "name": "support.type.cyg"
+        },
+        {
+          "match": "\\bFP(Vector2|Vector3|Quaternion|Matrix4x4|AABB|Bounds)?\\b|\\b(entity_ref|player_ref)\\b",
+          "name": "support.type.cyg"
+        },
+        {
+          "match": "\\b(Byte|SByte|Int16|UInt16|Int32|UInt32|Int64|UInt64)\\b",
+          "name": "support.type.cyg"
+        },
+        {
+          "match": "\\b(QString|array|list|dictionary|asset_ref)\\b",
+          "name": "support.type.container.cyg"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "match": "\\b0[xX][0-9A-Fa-f]+\\b",
+          "name": "constant.numeric.integer.hexadecimal.cyg"
+        },
+        {
+          "match": "\\b[0-9]+\\b",
+          "name": "constant.numeric.integer.decimal.cyg"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        { "match": ";", "name": "punctuation.terminator.cyg" },
+        { "match": ",", "name": "punctuation.separator.cyg" },
+        { "match": ":", "name": "punctuation.separator.colon.cyg" },
+        { "match": "=", "name": "keyword.operator.assignment.cyg" },
+        { "match": "\\.", "name": "punctuation.accessor.cyg" },
+        { "match": "\\[", "name": "punctuation.section.brackets.begin.cyg" },
+        { "match": "\\]", "name": "punctuation.section.brackets.end.cyg" },
+        { "match": "\\(", "name": "punctuation.section.parens.begin.cyg" },
+        { "match": "\\)", "name": "punctuation.section.parens.end.cyg" },
+        { "match": "<", "name": "punctuation.definition.typeparameters.begin.cyg" },
+        { "match": ">", "name": "punctuation.definition.typeparameters.end.cyg" },
+        { "match": "\\{", "name": "punctuation.section.block.begin.cyg" },
+        { "match": "\\}", "name": "punctuation.section.block.end.cyg" }
+      ]
+    }
+  }
+}

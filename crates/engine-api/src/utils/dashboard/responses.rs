@@ -1,4 +1,3 @@
-
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
@@ -11,7 +10,10 @@ pub fn file_response(body: Vec<u8>, mime: &'static str, cache: &'static str) -> 
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, header::HeaderValue::from_static(mime)),
-            (header::CACHE_CONTROL, header::HeaderValue::from_static(cache)),
+            (
+                header::CACHE_CONTROL,
+                header::HeaderValue::from_static(cache),
+            ),
         ],
         body,
     )
@@ -30,7 +32,10 @@ pub fn not_built(status: StatusCode) -> Response {
 pub fn not_found() -> Response {
     (
         StatusCode::NOT_FOUND,
-        [(header::CONTENT_TYPE, header::HeaderValue::from_static("text/plain; charset=utf-8"))],
+        [(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("text/plain; charset=utf-8"),
+        )],
         "404 not found",
     )
         .into_response()

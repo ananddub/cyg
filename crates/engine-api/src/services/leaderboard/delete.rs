@@ -5,15 +5,17 @@
 
 use axum::Json;
 
-use crate::dto::Empty;
-use crate::utils::leaderboard::types::{AUTH_DELETE, DELETE_FAILED, INVALID_ID, NOT_FOUND, is_tournament};
-use crate::utils::leaderboard::window::record_window;
 use super::load_board;
+use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::Empty;
+use crate::error::V2Error;
 use crate::repositories::leaderboard::DeleteLeaderboardRecordParams;
 use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
-use crate::ApiState;
+use crate::utils::leaderboard::types::{
+    AUTH_DELETE, DELETE_FAILED, INVALID_ID, NOT_FOUND, is_tournament,
+};
+use crate::utils::leaderboard::window::record_window;
 
 impl super::LeaderboardService {
     pub async fn delete_record(

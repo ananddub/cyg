@@ -11,9 +11,9 @@ use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 use serde_json::Value;
 
-use crate::current_state;
 use crate::app::middleware::Authed;
 use crate::app::params::{Body, Params};
+use crate::current_state;
 
 use crate::dto::tournament::{ListQuery, RecordsQuery};
 use crate::services::tournament::TournamentService;
@@ -92,8 +92,7 @@ impl TournamentController {
     async fn list_records_around_owner(
         &self,
         auth: Authed,
-        Path(id): Path<String>,
-        Path(owner_id): Path<String>,
+        Path((id, owner_id)): Path<(String, String)>,
         Params(req): Params<RecordsQuery>,
     ) -> Response {
         let state = current_state();

@@ -23,12 +23,14 @@ pub(super) fn default_matchmake(
     body: &str,
     retained: &AHashMap<String, String>,
     fallback_session: &str,
+    game_port: u16,
+    udp_port: u16,
 ) -> Result<String, MatchMakeError> {
     if method == "reconnect" {
         let token = parse_json_string(body, "reconnectionToken").unwrap_or_default();
         if retained.contains_key(&token) {
             let session = token.split(':').nth(1).unwrap_or(fallback_session);
-            return Ok(seat_json(room, session, &token));
+            return Ok(seat_json(room, session, &token, game_port, udp_port));
         }
         return Err(MatchMakeError::expired(
             "reconnection token expired or unknown",
@@ -44,7 +46,7 @@ pub(super) fn default_matchmake(
 
     let session = next_session_id();
     let token = format!("{}:{}", room, session);
-    Ok(seat_json(room, &session, &token))
+    Ok(seat_json(room, &session, &token, game_port, udp_port))
 }
 
 /// A unique seat id: `sdk_<unix_millis>_<seq>`. Uniqueness holds within a
@@ -56,9 +58,12 @@ fn next_session_id() -> String {
 }
 
 /// `ISeatReservation` JSON consumed by the SDK (`packages/sdk/src/Client.ts`).
-fn seat_json(room: &str, session_id: &str, token: &str) -> String {
+/// `gamePort` must be the port this transport actually bound: the SDK dials it
+/// verbatim, so a hardcoded default silently sends clients to a different
+/// server whenever the game runs on a non-default port.
+fn seat_json(room: &str, session_id: &str, token: &str, game_port: u16, udp_port: u16) -> String {
     format!(
-        "{{\"name\":\"{room}\",\"sessionId\":\"{sid}\",\"roomId\":\"{room}\",\"processId\":\"openoxide_1\",\"reconnectionToken\":\"{token}\",\"gamePort\":7777,\"udpPort\":7778}}",
+        "{{\"name\":\"{room}\",\"sessionId\":\"{sid}\",\"roomId\":\"{room}\",\"processId\":\"openoxide_1\",\"reconnectionToken\":\"{token}\",\"gamePort\":{game_port},\"udpPort\":{udp_port}}}",
         room = room,
         sid = session_id,
         token = token
@@ -120,13 +125,39 @@ mod tests {
         }
     }
 
+    /// Regression: a game on a non-default port used to hand the SDK
+    /// `gamePort: 7777`, so the WebSocket dialed a different server.
+    #[test]
+    fn seat_advertises_the_bound_ports() {
+        let body = default_matchmake(
+            "joinOrCreate",
+            "game_room",
+            "{}",
+            &AHashMap::new(),
+            "fallback",
+            9123,
+            9124,
+        )
+        .expect("seat issued");
+        assert!(body.contains("\"gamePort\":9123"), "{body}");
+        assert!(body.contains("\"udpPort\":9124"), "{body}");
+    }
+
     #[test]
     fn matchmake_issues_distinct_seats() {
         let retained = AHashMap::new();
         let mut seen = std::collections::HashSet::new();
         for _ in 0..1_000 {
-            let body = default_matchmake("joinOrCreate", "game_room", "{}", &retained, "fallback")
-                .expect("seat issued");
+            let body = default_matchmake(
+                "joinOrCreate",
+                "game_room",
+                "{}",
+                &retained,
+                "fallback",
+                7777,
+                7778,
+            )
+            .expect("seat issued");
             let sid = parse_json_string(&body, "sessionId").expect("sessionId in body");
             assert!(seen.insert(sid), "duplicate sessionId across matchmake calls");
         }

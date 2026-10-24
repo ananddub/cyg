@@ -36,7 +36,10 @@ impl ConsoleAuditController {
     #[get("/log/users")]
     async fn list_users(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        self.service.list_audit_log_users(&state).await.into_response()
+        self.service
+            .list_audit_log_users(&state)
+            .await
+            .into_response()
     }
 }
 
@@ -60,11 +63,7 @@ impl ConsoleAclController {
     }
 
     #[post("/template")]
-    async fn create(
-        &self,
-        auth: ConsoleAuthed,
-        Body(body): Body<AclTemplateRequest>,
-    ) -> Response {
+    async fn create(&self, auth: ConsoleAuthed, Body(body): Body<AclTemplateRequest>) -> Response {
         let state = current_state();
         self.service
             .create_acl_template(&state, &auth, body)

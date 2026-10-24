@@ -132,7 +132,10 @@ pub(super) fn module_with_exports(names: &[String]) -> Vec<u8> {
 /// The complete module: every export the host says it calls.
 fn complete_wasm() -> (Vec<u8>, Vec<String>) {
     let names = abi_exports();
-    assert!(!names.is_empty(), "the host declares at least one ABI export");
+    assert!(
+        !names.is_empty(),
+        "the host declares at least one ABI export"
+    );
     (module_with_exports(&names), names)
 }
 
@@ -149,7 +152,10 @@ fn the_upload_gate_requires_exactly_what_the_host_invokes() {
     let mut declared = abi_exports();
     declared.sort();
     declared.dedup();
-    let mut gate: Vec<String> = REQUIRED_EXPORTS.iter().map(|name| (*name).to_owned()).collect();
+    let mut gate: Vec<String> = REQUIRED_EXPORTS
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
     gate.sort();
     assert_eq!(
         declared, gate,
@@ -179,7 +185,10 @@ fn the_required_exports_are_the_ones_the_host_declares() {
         );
     }
     assert_eq!(
-        declared.iter().collect::<std::collections::HashSet<_>>().len(),
+        declared
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
         declared.len(),
         "the host's declaration must not name an export twice: {declared:?}"
     );
@@ -192,10 +201,17 @@ fn the_required_exports_are_the_ones_the_host_declares() {
 fn a_module_built_from_the_declared_abi_is_a_real_module() {
     let (bytes, names) = complete_wasm();
     assert_eq!(&bytes[0..4], b"\0asm", "the magic is the magic");
-    assert_eq!(&bytes[4..8], &[1, 0, 0, 0], "and the version is the one WASM 1 knows");
+    assert_eq!(
+        &bytes[4..8],
+        &[1, 0, 0, 0],
+        "and the version is the one WASM 1 knows"
+    );
 
     let report = WasmService::validate_binary(&bytes);
-    assert!(report.wasm_magic_ok, "the bytes are a WASM module: {names:?}");
+    assert!(
+        report.wasm_magic_ok,
+        "the bytes are a WASM module: {names:?}"
+    );
     assert_eq!(
         report.export_count as usize,
         names.len(),
@@ -357,10 +373,7 @@ fn an_export_of_the_wrong_kind_is_not_a_handler() {
         "a global is not an exported function: {:?}",
         report.exports_found
     );
-    assert!(
-        !report.valid,
-        "so the module is still not a game host"
-    );
+    assert!(!report.valid, "so the module is still not a game host");
 }
 
 /// Two modules that differ only in their export names must not be confused, because the
@@ -595,7 +608,11 @@ fn sha256_of(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-fn params(filename: &str, bytes: &[u8], source: Option<&str>) -> crate::services::wasm::upload::InsertModuleParams {
+fn params(
+    filename: &str,
+    bytes: &[u8],
+    source: Option<&str>,
+) -> crate::services::wasm::upload::InsertModuleParams {
     crate::services::wasm::upload::InsertModuleParams {
         filename: filename.to_owned(),
         binary_bytes: bytes.to_vec(),
@@ -628,16 +645,30 @@ async fn insert_module_versions_monotonically_and_deactivates_the_older() {
         .expect("the first upload is version 1");
     assert_eq!(first.version, 1);
     assert!(first.is_active, "an upload is what the next room boots");
-    assert_eq!(first.size_bytes as usize, bytes.len(), "the size is the row's payload");
-    assert!(!first.has_source, "an upload that sent no source stores none");
+    assert_eq!(
+        first.size_bytes as usize,
+        bytes.len(),
+        "the size is the row's payload"
+    );
+    assert!(
+        !first.has_source,
+        "an upload that sent no source stores none"
+    );
 
     let second = service
-        .insert_module(&state, game.id, params("room-v2.wasm", &bytes, Some("fn on_tick() {}")))
+        .insert_module(
+            &state,
+            game.id,
+            params("room-v2.wasm", &bytes, Some("fn on_tick() {}")),
+        )
         .await
         .expect("the second upload is the next number");
     assert_eq!(second.version, 2, "versions only ever go up, per game");
 
-    let list = service.list_modules(&state, game.id).await.expect("the listing reads");
+    let list = service
+        .list_modules(&state, game.id)
+        .await
+        .expect("the listing reads");
     assert_eq!(list.len(), 2);
     assert_eq!(list[0].version, 2, "newest first");
     assert_eq!(list[1].version, 1);
@@ -648,7 +679,10 @@ async fn insert_module_versions_monotonically_and_deactivates_the_older() {
         1,
         "exactly one version is active"
     );
-    assert!(list[0].has_source, "the source an uploader sent is recorded");
+    assert!(
+        list[0].has_source,
+        "the source an uploader sent is recorded"
+    );
     assert!(
         list.iter().all(|module| module.sha256 == sha256_of(&bytes)),
         "the hash is the bytes' own"
@@ -675,7 +709,10 @@ async fn insert_module_versions_monotonically_and_deactivates_the_older() {
         .insert_module(&state, other.id, params("room.wasm", &bytes, None))
         .await
         .expect("another game's first upload");
-    assert_eq!(foreign.version, 1, "a new tenant starts at version 1: {names:?} exports");
+    assert_eq!(
+        foreign.version, 1,
+        "a new tenant starts at version 1: {names:?} exports"
+    );
 
     db::forget(&pool, game.id).await;
     db::forget(&pool, other.id).await;
@@ -715,17 +752,15 @@ async fn activate_module_moves_the_flag_and_rollback_is_the_same_flip() {
     // Roll back to 1: activation of an older number is the same operation, and the
     // reply is the row that is now active.
     let rolled_back = service
-        .activate_module(
-            &state,
-            game.id,
-            1,
-            engine_bus::ReloadKind::Rollback,
-        )
+        .activate_module(&state, game.id, 1, engine_bus::ReloadKind::Rollback)
         .await
         .expect("an older version can be activated");
     assert_eq!(rolled_back.version, 1);
     assert!(rolled_back.is_active);
-    let list = service.list_modules(&state, game.id).await.expect("listing");
+    let list = service
+        .list_modules(&state, game.id)
+        .await
+        .expect("listing");
     assert_eq!(
         list.iter()
             .filter(|module| module.is_active)
@@ -783,7 +818,10 @@ async fn get_module_bytes_round_trips_what_was_stored() {
         .await
         .expect("the hot-reload fetch reads the version it was told to load");
     assert_eq!(filename, "room-v1.wasm");
-    assert_eq!(stored, bytes, "the database is a faithful store, not a transform");
+    assert_eq!(
+        stored, bytes,
+        "the database is a faithful store, not a transform"
+    );
 
     let err = service
         .get_module_bytes(&state, game.id, 7)
@@ -821,7 +859,10 @@ async fn delete_module_refuses_the_active_version() {
         .delete_module(&state, game.id, 1)
         .await
         .expect("an inactive version is deletable");
-    let list = service.list_modules(&state, game.id).await.expect("listing");
+    let list = service
+        .list_modules(&state, game.id)
+        .await
+        .expect("listing");
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].version, 2);
 
@@ -837,7 +878,11 @@ async fn delete_module_refuses_the_active_version() {
         err.message
     );
     assert_eq!(
-        service.list_modules(&state, game.id).await.expect("listing").len(),
+        service
+            .list_modules(&state, game.id)
+            .await
+            .expect("listing")
+            .len(),
         1,
         "the refusal did not delete anything"
     );
@@ -984,7 +1029,10 @@ async fn a_relay_game_is_refused_by_every_wasm_route_it_could_reach() {
     ];
     for err in refused {
         assert_eq!(err.kind, crate::error::INVALID_ARGUMENT, "{err:?}");
-        assert_eq!(err.message, RELAY_REFUSAL, "the refusal is the plan's sentence");
+        assert_eq!(
+            err.message, RELAY_REFUSAL,
+            "the refusal is the plan's sentence"
+        );
     }
 
     // Refused means refused: the surface stores nothing for a game it will not run.
@@ -1047,8 +1095,7 @@ async fn the_wasm_guard_follows_a_game_across_its_backend_mode() {
         .expect("and the very next upload is accepted");
 
     let back: crate::dto::console::games::UpdateGameRequest =
-        serde_json::from_value(serde_json::json!({"engine_type": "unity"}))
-            .expect("a patch back");
+        serde_json::from_value(serde_json::json!({"engine_type": "unity"})).expect("a patch back");
     crate::services::games::GamesService::update_game(&state, game.id, &back)
         .await
         .expect("the game moves back to the relay");
@@ -1060,4 +1107,3 @@ async fn the_wasm_guard_follows_a_game_across_its_backend_mode() {
 
     db::forget(&pool, game.id).await;
 }
-

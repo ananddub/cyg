@@ -8,25 +8,23 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::load_tournament;
+use super::submit::submit;
+use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::leaderboard::{RecordRequest, RecordResponse};
+use crate::error::V2Error;
+use crate::repositories::db::Queries;
+use crate::repositories::leaderboard::GetLeaderboardRecordParams;
+use crate::repositories::models::Leaderboard;
+use crate::services::auth::q;
+use crate::services::leaderboard::{pool, rank_of};
+use crate::utils::leaderboard::{DB_DECREMENT, at, calculate, parse_metadata, ranks_enabled};
 use crate::utils::tournament::statement::Write;
 use crate::utils::tournament::types::{
     AUTH_WRITE, BAD_RECORD, ID_MISSING_DOT, INACTIVE_WRITE, NOT_FOUND, WRITE_ENDED, WRITE_FAILED,
     db_operator,
 };
-use super::load_tournament;
-use super::submit::submit;
-use crate::repositories::db::Queries;
-use crate::repositories::leaderboard::GetLeaderboardRecordParams;
-use crate::repositories::models::Leaderboard;
-use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::services::leaderboard::{pool, rank_of};
-use crate::dto::leaderboard::{RecordRequest, RecordResponse};
-use crate::utils::leaderboard::{
-    DB_DECREMENT, at, calculate, parse_metadata, ranks_enabled,
-};
-use crate::app::middleware::Authed;
-use crate::ApiState;
 
 /// The gateway binds the request body into the `record` field, so a body that
 /// names nothing is a request with no record at all.
@@ -57,12 +55,10 @@ async fn read_back(
             V2Error::internal(WRITE_FAILED)
         })?;
     let rank = if ranks_enabled(board) {
-        rank_of(queries, board, &record)
-            .await
-            .map_err(|error| {
-                eprintln!("[v2] tournament write rank: {error}");
-                V2Error::internal(WRITE_FAILED)
-            })?
+        rank_of(queries, board, &record).await.map_err(|error| {
+            eprintln!("[v2] tournament write rank: {error}");
+            V2Error::internal(WRITE_FAILED)
+        })?
     } else {
         0
     };

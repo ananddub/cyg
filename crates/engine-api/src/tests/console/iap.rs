@@ -54,10 +54,16 @@ fn an_unknown_vendor_is_refused_before_anything_else_about_the_request() {
     let auth = token_for(ConsoleRole::Admin);
 
     let reply = server.post("/v2/console/iap/nintendo/validate", Some(&auth), RECEIPT);
-    assert_eq!(reply.refusal(INVALID_ARGUMENT), "Unknown IAP vendor: nintendo");
+    assert_eq!(
+        reply.refusal(INVALID_ARGUMENT),
+        "Unknown IAP vendor: nintendo"
+    );
 
     let reply = server.delete("/v2/console/iap/nintendo/reset", Some(&auth));
-    assert_eq!(reply.refusal(INVALID_ARGUMENT), "Unknown IAP vendor: nintendo");
+    assert_eq!(
+        reply.refusal(INVALID_ARGUMENT),
+        "Unknown IAP vendor: nintendo"
+    );
 }
 
 #[test]
@@ -77,7 +83,9 @@ fn an_unpersisted_validation_returns_the_parsed_purchase_with_no_database() {
         .as_array()
         .expect("validated purchases list");
     assert_eq!(purchases.len(), 1);
-    let id = purchases[0]["transaction_id"].as_str().expect("a transaction id");
+    let id = purchases[0]["transaction_id"]
+        .as_str()
+        .expect("a transaction id");
     assert_eq!(id.len(), 32, "the row key is the credential's MD5 digest");
     assert_eq!(purchases[0]["environment"].as_str(), Some("UNKNOWN"));
 

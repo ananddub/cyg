@@ -7,6 +7,7 @@
 use axum::Json;
 use chrono::Utc;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::auth::{MfaCodeRequest, MfaEnrolmentResponse};
@@ -14,7 +15,6 @@ use crate::error::V2Error;
 use crate::repositories::console_mutations::{FindConsoleUserMfaRow, SetConsoleUserMfaParams};
 use crate::repositories::db::Queries;
 use crate::utils::totp;
-use crate::ApiState;
 
 use super::RECOVERY_CODES;
 
@@ -136,7 +136,8 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         let queries = super::queries(state)?;
         let row = self.console_row(&queries, claims).await?;
-        self.verify_second_factor(&queries, &row, &body.code).await?;
+        self.verify_second_factor(&queries, &row, &body.code)
+            .await?;
         queries.clear_console_user_mfa(row.id).await?;
         super::audit(
             state,

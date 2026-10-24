@@ -19,7 +19,11 @@ fn the_new_vendor_routes_demand_a_player_token_in_the_shared_envelope() {
         "/v2/iap/purchase/samsung",
     ] {
         let reply = server.post(path, None, "{}");
-        assert_eq!(reply.refusal(UNAUTHENTICATED), "Auth token required", "{path}");
+        assert_eq!(
+            reply.refusal(UNAUTHENTICATED),
+            "Auth token required",
+            "{path}"
+        );
         let body = reply.json();
         assert_eq!(body["error"]["code"].as_u64(), Some(16));
         assert!(body["error"]["details"].is_array());

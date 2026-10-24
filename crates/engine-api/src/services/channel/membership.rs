@@ -3,8 +3,8 @@
 use uuid::Uuid;
 
 use crate::ApiState;
-use crate::services::auth::q;
 use crate::error::V2Error;
+use crate::services::auth::q;
 
 use crate::utils::channel::{MODE_DM, MODE_GROUP, Stream};
 

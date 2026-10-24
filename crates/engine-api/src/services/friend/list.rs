@@ -5,20 +5,20 @@ use axum::Json;
 use serde_json::{Value, json};
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::friend::{
     FoFQuery, FriendListResponse, FriendResponse, FriendsOfFriendsEntry, FriendsOfFriendsResponse,
     ListQuery,
 };
+use crate::error::V2Error;
 use crate::repositories::friend::{
     ListFriendsOfFriendsParams, ListUserEdgesByStatePagedParams, ListUserEdgesPagedParams,
 };
 use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
 use crate::services::social::{self, limit};
 
-use crate::utils::friend::{STATE_BLOCKED, STATE_FRIENDS};
 use super::FriendService;
+use crate::utils::friend::{STATE_BLOCKED, STATE_FRIENDS};
 
 impl FriendService {
     /// `GET /v2/friend?state=&limit=&cursor=` — the `ListFriends`, paged over
@@ -96,7 +96,11 @@ impl FriendService {
         });
         Ok(Json(FriendListResponse {
             friends,
-            cursor: if has_more { next.unwrap_or_default() } else { String::new() },
+            cursor: if has_more {
+                next.unwrap_or_default()
+            } else {
+                String::new()
+            },
         }))
     }
 

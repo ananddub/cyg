@@ -1,5 +1,5 @@
-use super::*;
 use super::raw_ws::WsClient;
+use super::*;
 use crate::infra::signaling::wire::ServerFrame;
 use crate::utils::signaling::parse_ice;
 
@@ -18,17 +18,23 @@ async fn a_malformed_frame_errors_without_killing_the_session() {
 
     // The session must still be live: a real offer reaches the data plane,
     // and a candidate using the legacy `sdpIndex` alias parses too.
-    ws.send_text(r#"{"type":"offer","sdp":"v=0 still alive"}"#).await;
+    ws.send_text(r#"{"type":"offer","sdp":"v=0 still alive"}"#)
+        .await;
     assert_eq!(
         next_signal(&mut inbound).await,
-        SignalIn::Offer { seat: seat.clone(), sdp: "v=0 still alive".into() }
+        SignalIn::Offer {
+            seat: seat.clone(),
+            sdp: "v=0 still alive".into()
+        }
     );
     ws.send_text(
         r#"{"type":"candidate","candidate":"candidate:3 1 udp 3 h 9 typ host","sdpIndex":1}"#,
     )
     .await;
     match next_signal(&mut inbound).await {
-        SignalIn::Candidate { sdp_mid, sdp_index, .. } => {
+        SignalIn::Candidate {
+            sdp_mid, sdp_index, ..
+        } => {
             assert_eq!(sdp_mid, None);
             assert_eq!(sdp_index, Some(1), "the sdpIndex alias must parse");
         }
@@ -41,7 +47,11 @@ async fn a_malformed_frame_errors_without_killing_the_session() {
 #[test]
 fn parse_ice_is_lenient_because_the_blob_is_operator_supplied() {
     let good = parse_ice(r#"[{"urls":["stun:a"]},{"urls":["turn:b"],"username":"u"}]"#);
-    assert_eq!(good.as_array().unwrap().len(), 2, "a valid list is relayed verbatim");
+    assert_eq!(
+        good.as_array().unwrap().len(),
+        2,
+        "a valid list is relayed verbatim"
+    );
     assert_eq!(parse_ice("{not json"), serde_json::Value::Array(vec![]));
     assert_eq!(parse_ice(""), serde_json::Value::Array(vec![]));
 }
@@ -69,8 +79,10 @@ fn server_frames_match_the_documented_shapes() {
         r#"{"type":"candidate","candidate":"c"}"#
     );
     assert_eq!(
-        serde_json::to_string(&ServerFrame::from(SignalOut::Error { message: "boom".into() }))
-            .unwrap(),
+        serde_json::to_string(&ServerFrame::from(SignalOut::Error {
+            message: "boom".into()
+        }))
+        .unwrap(),
         r#"{"type":"error","message":"boom"}"#
     );
 }

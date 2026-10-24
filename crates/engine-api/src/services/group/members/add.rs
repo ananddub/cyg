@@ -4,11 +4,11 @@ use axum::Json;
 use serde_json::json;
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::group::JoinGroupEdgeParams;
 use crate::services::auth::q;
-use crate::app::middleware::Authed;
 use crate::services::social;
 use crate::utils::group::{ROLE_ADMIN, ROLE_MEMBER, group_id};
 

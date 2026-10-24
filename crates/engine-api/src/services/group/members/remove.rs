@@ -4,12 +4,12 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::group::BanGroupEdgeParams;
 use crate::services::auth::q;
-use crate::app::middleware::Authed;
 use crate::services::social;
 use crate::utils::group::{ROLE_ADMIN, ROLE_MEMBER, group_id};
 

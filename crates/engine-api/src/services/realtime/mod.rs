@@ -59,4 +59,3 @@ mod tests {
         let _ = tree.remove_sync(&10);
     }
 }
-

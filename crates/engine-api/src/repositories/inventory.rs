@@ -1,11 +1,14 @@
 //! Inventory and Room Snapshot queries.
 
-use uuid::Uuid;
-use super::models::*;
 use super::db::Queries;
+use super::models::*;
+use uuid::Uuid;
 
 impl Queries {
-    pub async fn list_inventory(&self, user_id: Uuid) -> Result<Vec<PlayerInventoryItem>, sqlx::Error> {
+    pub async fn list_inventory(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<PlayerInventoryItem>, sqlx::Error> {
         sqlx::query_as::<_, PlayerInventoryItem>(
             "SELECT instance_id, user_id, item_id, quantity, slot_index, metadata, created_at, updated_at \
              FROM player_inventory WHERE user_id = $1 ORDER BY slot_index ASC, created_at ASC"
@@ -15,7 +18,10 @@ impl Queries {
         .await
     }
 
-    pub async fn get_inventory_item(&self, instance_id: Uuid) -> Result<Option<PlayerInventoryItem>, sqlx::Error> {
+    pub async fn get_inventory_item(
+        &self,
+        instance_id: Uuid,
+    ) -> Result<Option<PlayerInventoryItem>, sqlx::Error> {
         sqlx::query_as::<_, PlayerInventoryItem>(
             "SELECT instance_id, user_id, item_id, quantity, slot_index, metadata, created_at, updated_at \
              FROM player_inventory WHERE instance_id = $1"
@@ -25,10 +31,13 @@ impl Queries {
         .await
     }
 
-    pub async fn get_item_definition(&self, item_id: &str) -> Result<Option<ItemDefinition>, sqlx::Error> {
+    pub async fn get_item_definition(
+        &self,
+        item_id: &str,
+    ) -> Result<Option<ItemDefinition>, sqlx::Error> {
         sqlx::query_as::<_, ItemDefinition>(
             "SELECT item_id, name, category, max_stack, rarity, properties, created_at \
-             FROM item_definitions WHERE item_id = $1"
+             FROM item_definitions WHERE item_id = $1",
         )
         .bind(item_id)
         .fetch_optional(&self.pool)
@@ -89,7 +98,11 @@ impl Queries {
         .await
     }
 
-    pub async fn update_inventory_quantity(&self, instance_id: Uuid, quantity: i32) -> Result<(), sqlx::Error> {
+    pub async fn update_inventory_quantity(
+        &self,
+        instance_id: Uuid,
+        quantity: i32,
+    ) -> Result<(), sqlx::Error> {
         if quantity <= 0 {
             sqlx::query("DELETE FROM player_inventory WHERE instance_id = $1")
                 .bind(instance_id)
@@ -105,7 +118,11 @@ impl Queries {
         Ok(())
     }
 
-    pub async fn set_inventory_slot(&self, instance_id: Uuid, slot_index: i32) -> Result<(), sqlx::Error> {
+    pub async fn set_inventory_slot(
+        &self,
+        instance_id: Uuid,
+        slot_index: i32,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE player_inventory SET slot_index = $1, updated_at = NOW() WHERE instance_id = $2")
             .bind(slot_index)
             .bind(instance_id)
@@ -139,10 +156,13 @@ impl Queries {
         Ok(())
     }
 
-    pub async fn load_room_snapshot(&self, room_name: &str) -> Result<Option<RoomPersistentSnapshot>, sqlx::Error> {
+    pub async fn load_room_snapshot(
+        &self,
+        room_name: &str,
+    ) -> Result<Option<RoomPersistentSnapshot>, sqlx::Error> {
         sqlx::query_as::<_, RoomPersistentSnapshot>(
             "SELECT room_name, backend, snapshot_bytes, entity_count, saved_at \
-             FROM room_persistent_snapshots WHERE room_name = $1"
+             FROM room_persistent_snapshots WHERE room_name = $1",
         )
         .bind(room_name)
         .fetch_optional(&self.pool)

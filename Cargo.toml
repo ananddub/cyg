@@ -10,7 +10,9 @@ members = [
     "crates/engine-core",
     "crates/engine-dashboard",
     "crates/engine-net",
+    "crates/engine-nav",
     "crates/engine-physics",
+    "crates/engine-schema",
     "crates/engine-server",
     "crates/engine-spatial",
     "crates/engine-wasm",
@@ -35,15 +37,19 @@ engine-config = { path = "crates/engine-config" }
 engine-control = { path = "crates/engine-control" }
 engine-server = { path = "crates/engine-server" }
 engine-physics = { path = "crates/engine-physics" }
+engine-schema = { path = "crates/engine-schema" }
 engine-spatial = { path = "crates/engine-spatial" }
 engine-wasm = { path = "crates/engine-wasm" }
 wasmtime = "25.0.0"
 hmac = "0.12"
 sha2 = "0.10"
+gltf = "1.4"
 
 [dev-dependencies]
-# `tests/seat_wire_compat.rs` mints control-side tokens and verifies them
-# against the sim plane's registry, so it needs both crates.
 engine-api = { path = "crates/engine-api" }
+engine-core = { path = "crates/engine-core" }
+engine-nav = { path = "crates/engine-nav" }
+bevy_ecs = { version = "0.15", default-features = false }
+rapier3d = "0.36"
 
 

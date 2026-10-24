@@ -2,13 +2,13 @@
 //!
 //! Replaces legacy global `OnceLock<RwLock<Registry>>` with a lock-free `#[singleton]`.
 
+use auto_di::singleton;
 use std::sync::Arc;
 use uuid::Uuid;
-use auto_di::singleton;
 
-use crate::infra::ws::session::Session;
-use crate::infra::ws::envelope::Envelope;
 use super::{FastMap, new_fast_map};
+use crate::infra::ws::envelope::Envelope;
+use crate::infra::ws::session::Session;
 
 pub struct RealtimeSessionHub {
     pub by_sid: &'static FastMap<Uuid, Arc<Session>>,
@@ -18,8 +18,10 @@ pub struct RealtimeSessionHub {
 #[singleton]
 impl RealtimeSessionHub {
     pub fn new() -> Self {
-        static BY_SID: std::sync::OnceLock<FastMap<Uuid, Arc<Session>>> = std::sync::OnceLock::new();
-        static BY_USER: std::sync::OnceLock<FastMap<Uuid, Vec<Arc<Session>>>> = std::sync::OnceLock::new();
+        static BY_SID: std::sync::OnceLock<FastMap<Uuid, Arc<Session>>> =
+            std::sync::OnceLock::new();
+        static BY_USER: std::sync::OnceLock<FastMap<Uuid, Vec<Arc<Session>>>> =
+            std::sync::OnceLock::new();
         Self {
             by_sid: BY_SID.get_or_init(new_fast_map),
             by_user: BY_USER.get_or_init(new_fast_map),
@@ -51,11 +53,15 @@ impl RealtimeSessionHub {
     }
 
     pub fn sessions_of(&self, uid: Uuid) -> Vec<Arc<Session>> {
-        self.by_user.read_sync(&uid, |_, list| list.clone()).unwrap_or_default()
+        self.by_user
+            .read_sync(&uid, |_, list| list.clone())
+            .unwrap_or_default()
     }
 
     pub fn is_online(&self, uid: Uuid) -> bool {
-        self.by_user.read_sync(&uid, |_, list| !list.is_empty()).unwrap_or(false)
+        self.by_user
+            .read_sync(&uid, |_, list| !list.is_empty())
+            .unwrap_or(false)
     }
 
     pub fn online_users(&self) -> Vec<Uuid> {

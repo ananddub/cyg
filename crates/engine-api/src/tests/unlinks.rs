@@ -56,7 +56,12 @@ fn an_unlink_needs_a_session_but_never_a_credential() {
 fn a_supplied_vendor_credential_is_verified_and_a_blank_one_is_not_needed() {
     let server = V2Server::start(v2_state());
     let token = player_token();
-    for (path, label) in [("apple", "Apple"), ("facebook", "Facebook"), ("google", "Google"), ("steam", "Steam")] {
+    for (path, label) in [
+        ("apple", "Apple"),
+        ("facebook", "Facebook"),
+        ("google", "Google"),
+        ("steam", "Steam"),
+    ] {
         let unlink =
             |body: &str| server.post(&format!("/v2/account/unlink/{path}"), Some(&token), body);
         assert_eq!(

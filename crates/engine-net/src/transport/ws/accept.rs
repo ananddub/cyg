@@ -24,11 +24,10 @@ pub(super) fn on_listener_event(
                 *pass.next_token += 1;
                 stream.set_nodelay(true)?;
 
-                pass.poll.registry().register(
-                    &mut stream,
-                    token,
-                    Interest::READABLE | Interest::WRITABLE,
-                )?;
+                // READABLE only: WRITABLE is added on send backpressure
+                // (level-triggered epoll would spin on an always-writable
+                // socket, one busy event per client per poll).
+                pass.poll.registry().register(&mut stream, token, Interest::READABLE)?;
 
                 // Read the client's first bytes (HTTP request) straight into the BytesMut — no stack copy.
                 let mut first_bytes: BytesMut = BytesMut::new();
@@ -55,6 +54,10 @@ pub(super) fn on_listener_event(
                     last_activity: now,
                     ping_sent_at: None,
                     missed_pings: 0,
+                    consented: false,
+                    state_frame_start: None,
+                    state_frame_len: 0,
+                    registered_writable: false,
                 };
 
                 if has_first_bytes {
@@ -65,8 +68,17 @@ pub(super) fn on_listener_event(
                             retained: pass.retained,
                             seat_tokens: &mut *pass.seat_tokens,
                             client_rooms: &mut *pass.client_rooms,
+                            client_options: &mut *pass.client_options,
+                            game_port: pass.game_port,
+                            udp_port: pass.udp_port,
+                            schema_descriptor: pass.schema_descriptor,
                         };
-                        handle_client_greeting(&mut client, &peer.to_string(), &mut *pass.buf, &mut ctx)
+                        handle_client_greeting(
+                            &mut client,
+                            &peer.to_string(),
+                            &mut *pass.buf,
+                            &mut ctx,
+                        )
                     };
                     if close {
                         // HTTP request served; nothing to track.

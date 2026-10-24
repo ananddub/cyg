@@ -9,10 +9,14 @@ impl SeatRegistry {
     pub(super) fn sign(&self, room: &str, expires_at: u64) -> String {
         let payload = format!("{room}:{expires_at}");
         let payload = payload.as_bytes();
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(&self.secret)
-            .expect("hmac accepts any key length");
+        let mut mac =
+            <HmacSha256 as Mac>::new_from_slice(&self.secret).expect("hmac accepts any key length");
         mac.update(payload);
-        format!("{}.{}", b64url(payload), b64url(&mac.finalize().into_bytes()))
+        format!(
+            "{}.{}",
+            b64url(payload),
+            b64url(&mac.finalize().into_bytes())
+        )
     }
 
     /// The seat `token` names, or `None` — counting every refusal.
@@ -41,8 +45,8 @@ impl SeatRegistry {
         }
         let payload = b64url_decode(payload_b64)?;
         let presented = b64url_decode(mac_b64)?;
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(&self.secret)
-            .expect("hmac accepts any key length");
+        let mut mac =
+            <HmacSha256 as Mac>::new_from_slice(&self.secret).expect("hmac accepts any key length");
         mac.update(&payload);
         if mac.verify_slice(&presented).is_err() {
             return None;

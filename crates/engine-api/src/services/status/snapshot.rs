@@ -6,8 +6,8 @@ use serde_json::json;
 
 use crate::ApiState;
 
-use crate::utils::status::age_ms;
 use super::StatusService;
+use crate::utils::status::age_ms;
 
 impl StatusService {
     /// The `/status` body. Plain `&ApiState` (not the `State` extractor) so the

@@ -70,7 +70,11 @@ impl From<Leaderboard> for LeaderboardRow {
             id: l.id,
             title: l.title,
             description: l.description,
-            kind: if l.category == 1 { "tournament" } else { "leaderboard" },
+            kind: if l.category == 1 {
+                "tournament"
+            } else {
+                "leaderboard"
+            },
             category: l.category,
             operator: l.operator,
             sort_order: l.sort_order,

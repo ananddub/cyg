@@ -5,10 +5,11 @@ using UnityEngine;
 namespace CookYourGame.Sim
 {
     /// <summary>
-    /// Captures Unity player input, normalizes it into a deterministic CYGPlayerInput struct,
-    /// injects it into the local CYGRollbackRunner, and transmits it over UDP to OpenOxide
-    /// server using opcode 19 (CYG_WIRE_INPUT_TICK) with triple redundancy.
-    /// Zero GC allocations during runtime tick loops.
+    /// Captures Unity player input, normalizes it into a deterministic
+    /// CYGPlayerInput struct, stores it in the ECS rollback session, and
+    /// transmits it over UDP to the OpenOxide server using opcode 19
+    /// (CYG_WIRE_INPUT_TICK) with triple redundancy. Zero GC allocations
+    /// during runtime tick loops.
     /// </summary>
     [DisallowMultipleComponent]
     [AddComponentMenu("CookYourGame/Sim/CYG Input Collector")]
@@ -30,6 +31,16 @@ namespace CookYourGame.Sim
         [SerializeField] private KeyCode action1KeyAlt = KeyCode.J;
         [SerializeField] private KeyCode action2Key = KeyCode.LeftShift;
         [SerializeField] private KeyCode action2KeyAlt = KeyCode.K;
+
+        /// <summary>
+        /// Optional input override for projects using the new Input System
+        /// package only, touch controls, or scripted tests. When null the
+        /// legacy UnityEngine.Input API is polled; if that API is disabled the
+        /// collector reports neutral input and logs one warning.
+        /// </summary>
+        public Func<int, CYGPlayerInput> InputProvider;
+
+        private static bool _legacyInputMissing;
 
         // Redundancy tracking (last 2 inputs)
         private CYGPlayerInput _prevInput1;
@@ -93,85 +104,112 @@ namespace CookYourGame.Sim
         /// </summary>
         public CYGPlayerInput PollInput(int tick)
         {
-            float h = 0f;
-            float v = 0f;
+            if (InputProvider != null)
+            {
+                CYGPlayerInput provided = InputProvider(tick).Clamped();
+                provided.Tick = tick;
+                return provided;
+            }
 
-            // 1. Try Unity Input Manager axes
+            if (!TryPollLegacyInput(out CYGPlayerInput legacy))
+            {
+                return new CYGPlayerInput(tick, 0, 0, 0);
+            }
+
+            legacy.Tick = tick;
+            return legacy;
+        }
+
+        private bool TryPollLegacyInput(out CYGPlayerInput input)
+        {
+            input = default;
+            if (_legacyInputMissing)
+            {
+                return false;
+            }
+
             try
             {
-                h = Input.GetAxisRaw("Horizontal");
-                v = Input.GetAxisRaw("Vertical");
+                float h = Input.GetAxisRaw("Horizontal");
+                float v = Input.GetAxisRaw("Vertical");
+
+                if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) v += 1f;
+                if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) v -= 1f;
+                if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) h += 1f;
+                if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)) h -= 1f;
+
+                h = Mathf.Clamp(h, -1f, 1f);
+                v = Mathf.Clamp(v, -1f, 1f);
+
+                short moveX = (short)Mathf.Clamp((int)(h * 1000f), -1000, 1000);
+                short moveY = (short)Mathf.Clamp((int)(v * 1000f), -1000, 1000);
+
+                byte buttons = 0;
+                bool jump = false;
+                try { jump = Input.GetButton("Jump"); } catch { }
+                if (jump || Input.GetKey(jumpKey))
+                {
+                    buttons |= CYGPlayerInput.ButtonJump;
+                }
+
+                bool action1 = false;
+                try { action1 = Input.GetButton("Fire1"); } catch { }
+                if (action1 || Input.GetKey(action1Key) || Input.GetKey(action1KeyAlt))
+                {
+                    buttons |= CYGPlayerInput.ButtonAction1;
+                }
+
+                bool action2 = false;
+                try { action2 = Input.GetButton("Fire2"); } catch { }
+                if (action2 || Input.GetKey(action2Key) || Input.GetKey(action2KeyAlt))
+                {
+                    buttons |= CYGPlayerInput.ButtonAction2;
+                }
+
+                input = new CYGPlayerInput(0, buttons, moveX, moveY);
+                return true;
             }
-            catch
+            catch (InvalidOperationException)
             {
-                // If Unity project has Input Manager disabled, fallback gracefully to key polling
+                // Project Settings uses the Input System package only.
+                _legacyInputMissing = true;
+                Debug.LogWarning(
+                    "[CYG] Legacy UnityEngine.Input is disabled. Assign CYGInputCollector.InputProvider " +
+                    "or keep both input backends enabled in Player Settings.");
+                return false;
             }
-
-            // 2. Direct key poll fallback / supplement (WASD + Arrow keys)
-            if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) v += 1f;
-            if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) v -= 1f;
-            if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) h += 1f;
-            if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)) h -= 1f;
-
-            // Clamp normalized axes to [-1.0, +1.0]
-            h = Mathf.Clamp(h, -1f, 1f);
-            v = Mathf.Clamp(v, -1f, 1f);
-
-            // Convert to short fixed range [-1000, +1000]
-            short moveX = (short)Mathf.Clamp((int)(h * 1000f), -1000, 1000);
-            short moveY = (short)Mathf.Clamp((int)(v * 1000f), -1000, 1000);
-
-            // 3. Buttons bitmask
-            byte buttons = 0;
-
-            // Jump (Bit 0)
-            bool jump = false;
-            try { jump = Input.GetButton("Jump"); } catch { }
-            if (jump || Input.GetKey(jumpKey))
-            {
-                buttons |= CYGPlayerInput.ButtonJump;
-            }
-
-            // Action1 (Bit 1)
-            bool action1 = false;
-            try { action1 = Input.GetButton("Fire1"); } catch { }
-            if (action1 || Input.GetKey(action1Key) || Input.GetKey(action1KeyAlt))
-            {
-                buttons |= CYGPlayerInput.ButtonAction1;
-            }
-
-            // Action2 (Bit 2)
-            bool action2 = false;
-            try { action2 = Input.GetButton("Fire2"); } catch { }
-            if (action2 || Input.GetKey(action2Key) || Input.GetKey(action2KeyAlt))
-            {
-                buttons |= CYGPlayerInput.ButtonAction2;
-            }
-
-            return new CYGPlayerInput(tick, buttons, moveX, moveY);
         }
 
         /// <summary>
-        /// Polls current input, injects into local runner, packages redundant UDP packet,
-        /// and sends over CYGNetwork.
+        /// Polls current input, stores it for the local player in the rollback
+        /// session, packages the redundant UDP packet, and sends it over
+        /// CYGNetwork.
         /// </summary>
-        public CYGPlayerInput PollAndDispatch(int tick, CYGRollbackRunner runner)
+        public CYGPlayerInput PollAndDispatch(int tick, CYGWorldRollbackSession session)
         {
             CYGPlayerInput input = PollInput(tick);
 
-            // 1. Hand input to local rollback runner
-            if (runner != null)
+            if (session != null)
             {
-                runner.SetLocalInput(tick, in input);
+                session.SetLocalInput(tick, in input);
             }
 
-            // 2. Transmit to network if enabled
+            DispatchInput(in input, tick);
+            return input;
+        }
+
+        /// <summary>
+        /// Transmits an externally supplied local input (for example from a
+        /// CYGCallbacks override) and updates the redundancy history without
+        /// polling Unity input again.
+        /// </summary>
+        public void DispatchInput(in CYGPlayerInput input, int tick)
+        {
             if (sendToNetwork && CYGNetwork.IsConnected)
             {
                 SendInputPacket(input, tick);
             }
 
-            // 3. Shift redundancy history
             if (enableRedundancy)
             {
                 _prevInput2 = _prevInput1;
@@ -180,8 +218,6 @@ namespace CookYourGame.Sim
                 _prevInput1 = input;
                 _hasPrev1 = true;
             }
-
-            return input;
         }
 
         /// <summary>

@@ -3,13 +3,13 @@
 use axum::Json;
 use axum::http::HeaderMap;
 
+use crate::ApiState;
+use crate::app::middleware::server_key;
 use crate::dto::session::{RefreshRequest, SessionResponse};
-use crate::services::auth::q;
-use crate::utils::auth as rows;
 use crate::error::V2Error;
 use crate::infra::jwt;
-use crate::app::middleware::server_key;
-use crate::ApiState;
+use crate::services::auth::q;
+use crate::utils::auth as rows;
 
 impl super::SessionService {
     pub async fn refresh(
@@ -35,7 +35,9 @@ impl super::SessionService {
 
         let user = match q(state)?.get_user_by_id(uid).await {
             Ok(user) => rows::existing(user)?,
-            Err(sqlx::Error::RowNotFound) => return Err(V2Error::not_found("User account not found.")),
+            Err(sqlx::Error::RowNotFound) => {
+                return Err(V2Error::not_found("User account not found."));
+            }
             Err(e) => return Err(rows::lookup_failed(e)),
         };
 

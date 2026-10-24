@@ -43,7 +43,10 @@ fn a_well_formed_read_reaches_the_database() {
     // A version token narrows the read to that exact state of the object and is
     // otherwise just another well-formed request.
     let reply = server.get(
-        &format!("/v2/storage/save/slot1/{}?version=d41d8cd98f00b204e9800998ecf8427e", Uuid::new_v4()),
+        &format!(
+            "/v2/storage/save/slot1/{}?version=d41d8cd98f00b204e9800998ecf8427e",
+            Uuid::new_v4()
+        ),
         Some(&auth),
     );
     assert_eq!(reply.refusal(UNAVAILABLE), no_db);

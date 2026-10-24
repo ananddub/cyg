@@ -5,9 +5,9 @@
 
 use auto_di::singleton;
 
+use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::Leaderboard;
-use crate::error::V2Error;
 
 use crate::utils::tournament::types::NOT_FOUND;
 

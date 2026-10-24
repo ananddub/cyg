@@ -5,9 +5,9 @@ use axum::Json;
 use axum::http::HeaderMap;
 
 use super::{local, social, validate};
-use crate::dto::auth;
 use crate::ApiState;
 use crate::app::middleware::server_key;
+use crate::dto::auth;
 use crate::dto::auth::AuthQuery;
 use crate::dto::session::SessionResponse;
 use crate::error::V2Error;

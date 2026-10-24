@@ -6,17 +6,17 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::utils::leaderboard::cursor::Cursor;
-use crate::utils::leaderboard::types::HAYSTACK_FAILED;
-use crate::utils::leaderboard::types::ascending;
-use crate::dto::leaderboard::{RecordListResponse, RecordResponse};
 use super::rank::{rank_count, ranks};
+use crate::dto::leaderboard::{RecordListResponse, RecordResponse};
+use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::leaderboard::{
     GetLeaderboardRecordParams, GreaterLeaderboardRecordsAscParams,
 };
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
-use crate::error::V2Error;
+use crate::utils::leaderboard::cursor::Cursor;
+use crate::utils::leaderboard::types::HAYSTACK_FAILED;
+use crate::utils::leaderboard::types::ascending;
 
 pub(super) fn failed(error: sqlx::Error) -> V2Error {
     eprintln!("[v2] leaderboard haystack: {error}");

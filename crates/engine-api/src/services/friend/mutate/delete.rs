@@ -3,17 +3,17 @@
 use axum::Json;
 
 use crate::ApiState;
-use crate::dto::Empty;
-use crate::services::auth::q;
-use crate::error::V2Error;
 use crate::app::middleware::Authed;
+use crate::dto::Empty;
+use crate::error::V2Error;
+use crate::services::auth::q;
 use crate::services::social;
 
 use crate::dto::friend::TargetsQuery;
 use crate::utils::friend::STATE_BLOCKED;
 
-use super::resolve::{edge_state, resolve_targets};
 use super::super::FriendService;
+use super::resolve::{edge_state, resolve_targets};
 
 impl FriendService {
     /// `DELETE /v2/friend?ids=&usernames=` — the `DeleteFriends`: my edge always

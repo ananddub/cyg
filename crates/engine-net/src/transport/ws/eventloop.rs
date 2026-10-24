@@ -8,13 +8,15 @@
 //! observable in the event stream.
 
 use std::io::{self, Write};
+
+use mio::Token;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use bytes::Buf;
 
 use super::accept::on_listener_event;
-use super::client::{WsState, MAX_SEND_QUEUE};
+use super::client::{MAX_SEND_QUEUE, WsState};
 use super::client_io::on_client_event;
 use super::hooks::Pass;
 use super::protocol::wire_opcode_for;
@@ -43,6 +45,7 @@ impl GameTransport for WsTransport {
                 let _ = self.poll.registry().deregister(&mut client.stream);
                 self.client_tokens.remove(&*cid);
                 self.client_rooms.remove(&*cid);
+                self.client_options.remove(&*cid);
                 self.seat_tokens.remove(&*cid);
                 buf.push(TransportEvent::Disconnected { client_id: cid });
             }
@@ -61,6 +64,7 @@ impl GameTransport for WsTransport {
                 clients: &mut clients,
                 client_tokens: &mut self.client_tokens,
                 client_rooms: &mut self.client_rooms,
+                client_options: &mut self.client_options,
                 retained: &self.retained,
                 seat_tokens: &mut self.seat_tokens,
                 matchmake_hook: &mut self.matchmake_hook,
@@ -68,6 +72,9 @@ impl GameTransport for WsTransport {
                 next_token: &mut self.next_token,
                 disconnected: &mut disconnected,
                 buf: &mut buf,
+                game_port: self.bound_addr.port(),
+                udp_port: self.advertised_udp_port,
+                schema_descriptor: &self.schema_descriptor,
             };
             for event in events.iter() {
                 let tok = event.token();
@@ -83,10 +90,14 @@ impl GameTransport for WsTransport {
             if let Some(mut client) = clients.remove(&token) {
                 let cid = client.session_id.clone();
                 // Deliver any queued close frame (e.g. LEAVE_ROOM's `4000 CONSENTED`) before the socket dies.
+                if client.consented {
+                    self.consented.insert(cid.to_string());
+                }
                 let _ = self.poll.registry().deregister(&mut client.stream);
                 finish_close(client);
                 self.client_tokens.remove(&*cid);
                 self.client_rooms.remove(&*cid);
+                self.client_options.remove(&*cid);
                 self.seat_tokens.remove(&*cid);
                 buf.push(TransportEvent::Disconnected { client_id: cid });
             }
@@ -129,6 +140,7 @@ impl GameTransport for WsTransport {
         let mut overflowed = 0u64;
         for client in self.clients.values_mut() {
             if matches!(client.state, WsState::Connected) {
+                client.state_frame_start = None;
                 let cur_len = client.send_queue.len();
                 if cur_len + frame_len > MAX_SEND_QUEUE {
                     overflowed += 1;
@@ -159,17 +171,24 @@ impl GameTransport for WsTransport {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        // Nothing queued: skip the O(clients) pass entirely (idle servers spend
-        // most of their loop here).
+        // Ground truth, not a flag: greeting handshakes and out-of-band
+        // publishes enqueue bytes without going through `queue_message`, so
+        // the gate must be recomputed — otherwise those bytes sit in the
+        // queue forever now that sockets idle at READABLE-only interest.
+        self.flush_dirty = self.clients.values().any(|c| !c.send_queue.is_empty());
         if !self.flush_dirty {
             return Ok(());
         }
         let mut pending = false;
-        for client in self.clients.values_mut() {
+        let mut backpressure: Vec<(Token, bool)> = Vec::new();
+        for (token, client) in self.clients.iter_mut() {
             if !client.send_queue.is_empty() {
                 match client.stream.write(&client.send_queue) {
                     Ok(n) => {
                         client.send_queue.advance(n);
+                        // Bytes left the queue: an earlier state frame can no
+                        // longer be replaced safely.
+                        client.state_frame_start = None;
                     }
                     Err(_) => {}
                 }
@@ -179,6 +198,18 @@ impl GameTransport for WsTransport {
                 if client.send_queue.is_empty() && client.send_queue.capacity() > 64 * 1024 {
                     client.send_queue = bytes::BytesMut::with_capacity(4096);
                 }
+            }
+            // Track interest transitions; reregister after the &mut loop.
+            let want = !client.send_queue.is_empty();
+            if client.registered_writable != want {
+                backpressure.push((*token, want));
+            }
+        }
+        for (token, want) in backpressure {
+            if let Some(client) = self.clients.get_mut(&token) {
+                crate::transport::ws::client_io::sync_writable_interest(
+                    client, &self.poll, token,
+                );
             }
         }
         self.flush_dirty = pending;

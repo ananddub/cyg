@@ -47,6 +47,7 @@ data-encoding = "2"
 scc = "3.8"
 ahash = "0.8"
 arc-swap = "1.9.2"
+rustrict = "0.7.39"
 
 [dev-dependencies]
 # Same version axum's `ws` feature already pins, for the live-socket test.

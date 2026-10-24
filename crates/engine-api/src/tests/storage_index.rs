@@ -19,7 +19,11 @@ fn every_index_route_demands_a_player_token() {
     for (method, path, body) in [
         ("POST", "/v2/storage/index".to_owned(), VALID.to_owned()),
         ("GET", "/v2/storage/index".to_owned(), String::new()),
-        ("DELETE", "/v2/storage/index/rankings".to_owned(), String::new()),
+        (
+            "DELETE",
+            "/v2/storage/index/rankings".to_owned(),
+            String::new(),
+        ),
         (
             "POST",
             "/v2/storage/index/rankings/query".to_owned(),
@@ -27,7 +31,11 @@ fn every_index_route_demands_a_player_token() {
         ),
     ] {
         let reply = server.send(&method, &path, None, &body);
-        assert_eq!(reply.refusal(UNAUTHENTICATED), "Auth token required", "{method} {path}");
+        assert_eq!(
+            reply.refusal(UNAUTHENTICATED),
+            "Auth token required",
+            "{method} {path}"
+        );
 
         // The envelope is the uniform one: code, message and a details list.
         let value = reply.json();
@@ -42,9 +50,18 @@ fn a_definition_that_breaks_the_rules_is_refused_before_the_database() {
     let auth = player_token();
 
     let cases = [
-        (r#"{"collection":"arena","fields":["score"]}"#, "Storage index name must be set."),
-        (r#"{"name":"rankings","fields":["score"]}"#, "Storage index collection must be set."),
-        (r#"{"name":"rankings","collection":"arena","fields":[]}"#, "Storage index fields must name at least one top-level key of the object value."),
+        (
+            r#"{"collection":"arena","fields":["score"]}"#,
+            "Storage index name must be set.",
+        ),
+        (
+            r#"{"name":"rankings","fields":["score"]}"#,
+            "Storage index collection must be set.",
+        ),
+        (
+            r#"{"name":"rankings","collection":"arena","fields":[]}"#,
+            "Storage index fields must name at least one top-level key of the object value.",
+        ),
         (
             r#"{"name":"rankings","collection":"arena","fields":["a","b","c","d","e"]}"#,
             "Storage index fields must name at most four top-level keys.",
@@ -90,7 +107,10 @@ fn a_query_that_makes_no_sense_is_refused_before_the_database() {
         Some(&auth),
         r#"{"query":"","cursor":"not-a-cursor!!"}"#,
     );
-    assert_eq!(reply.refusal(INVALID_ARGUMENT), "Malformed cursor was used.");
+    assert_eq!(
+        reply.refusal(INVALID_ARGUMENT),
+        "Malformed cursor was used."
+    );
 }
 
 #[test]
@@ -101,7 +121,11 @@ fn well_formed_index_requests_reach_the_database() {
     for (method, path, body) in [
         ("POST", "/v2/storage/index".to_owned(), VALID.to_owned()),
         ("GET", "/v2/storage/index".to_owned(), String::new()),
-        ("DELETE", "/v2/storage/index/rankings".to_owned(), String::new()),
+        (
+            "DELETE",
+            "/v2/storage/index/rankings".to_owned(),
+            String::new(),
+        ),
         (
             "POST",
             "/v2/storage/index/rankings/query".to_owned(),

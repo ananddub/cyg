@@ -6,6 +6,8 @@ use std::time::Instant;
 
 use bytes::Buf;
 use mio::event::Event;
+use mio::{Interest, Token};
+use super::client::WsClient;
 
 use super::client::WsState;
 use super::frames::process_ws_frames;
@@ -48,6 +50,10 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                             retained: pass.retained,
                             seat_tokens: &mut *pass.seat_tokens,
                             client_rooms: &mut *pass.client_rooms,
+                            client_options: &mut *pass.client_options,
+                            game_port: pass.game_port,
+                            udp_port: pass.udp_port,
+                            schema_descriptor: pass.schema_descriptor,
                         };
                         handle_client_greeting(client, &peer, &mut *pass.buf, &mut ctx)
                     };
@@ -80,14 +86,39 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
             match client.stream.write(&client.send_queue) {
                 Ok(n) => {
                     client.send_queue.advance(n);
+                    client.state_frame_start = None;
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(_) => conn_dead = true,
             }
         }
+        // Keep the WRITABLE interest only while backpressure exists.
+        sync_writable_interest(client, pass.poll, event.token());
     }
 
     if conn_dead {
         pass.disconnected.push(token);
+    }
+}
+
+/// Align the socket's epoll interest with the send-queue state: WRITABLE only
+/// while there is queued data, READABLE-only once drained. Idempotent — a
+/// no-op when the interest already matches (no syscall per flush).
+pub(super) fn sync_writable_interest(client: &mut WsClient, poll: &mio::Poll, token: Token) {
+    let want = !client.send_queue.is_empty();
+    if client.registered_writable == want {
+        return;
+    }
+    let interest = if want {
+        Interest::READABLE | Interest::WRITABLE
+    } else {
+        Interest::READABLE
+    };
+    if poll
+        .registry()
+        .reregister(&mut client.stream, token, interest)
+        .is_ok()
+    {
+        client.registered_writable = want;
     }
 }

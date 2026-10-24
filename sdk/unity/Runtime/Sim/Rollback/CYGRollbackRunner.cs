@@ -27,6 +27,9 @@ namespace CookYourGame.Sim
 
         private readonly CYGInputRingBuffer _inputRingBuffer;
         private readonly CYGStateRingBuffer _stateRingBuffer;
+        private readonly CYGVerifiedFrameTracker _verifiedFrames;
+        private readonly CYGPlayerInput[] _redundantInputs =
+            new CYGPlayerInput[CYGInputRedundancy.MaxInputs];
 
         private readonly CYGEntityState[] _entities;
         private int _entityCount;
@@ -91,6 +94,9 @@ namespace CookYourGame.Sim
         /// <summary>The internal world state snapshot buffer.</summary>
         public CYGStateRingBuffer StateRingBuffer => _stateRingBuffer;
 
+        /// <summary>Predicted-vs-verified checksum tracker and desync reporter.</summary>
+        public CYGVerifiedFrameTracker VerifiedFrames => _verifiedFrames;
+
         /// <summary>Active entity buffer.</summary>
         public CYGEntityState[] Entities => _entities;
 
@@ -107,6 +113,7 @@ namespace CookYourGame.Sim
         {
             _inputRingBuffer = new CYGInputRingBuffer(inputBufferSize, maxPlayers);
             _stateRingBuffer = new CYGStateRingBuffer(stateBufferSize, maxEntities);
+            _verifiedFrames = new CYGVerifiedFrameTracker(stateBufferSize);
 
             _entities = new CYGEntityState[maxEntities];
             _tickInputs = new CYGPlayerInput[maxPlayers];
@@ -200,6 +207,7 @@ namespace CookYourGame.Sim
             _currentSimTick = tick + 1;
             uint checksum = CYGChecksum.Compute(_currentSimTick, _entities, _entityCount);
             _stateRingBuffer.SaveSnapshot(_currentSimTick, _entities, _entityCount, checksum);
+            _verifiedFrames.MarkPredicted(_currentSimTick, checksum);
 
             UpdateConfirmedTick();
         }
@@ -310,6 +318,7 @@ namespace CookYourGame.Sim
 
                     uint checksum = CYGChecksum.Compute(t + 1, _entities, _entityCount);
                     _stateRingBuffer.SaveSnapshot(t + 1, _entities, _entityCount, checksum);
+                    _verifiedFrames.MarkPredicted(t + 1, checksum);
                 }
 
                 _isResimulating = false;
@@ -323,6 +332,36 @@ namespace CookYourGame.Sim
             // Input is for current or future tick, no rollback needed
             UpdateConfirmedTick();
             return false;
+        }
+
+        /// <summary>
+        /// Applies a redundant input packet, replaying all contained ticks.
+        /// Missing history triggers rollback exactly like single-input receipt.
+        /// </summary>
+        public int ApplyRedundantInputPacket(byte[] buffer, int offset, int length)
+        {
+            int playerId;
+            int count;
+            if (!CYGInputRedundancy.TryReadPacket(
+                    buffer, offset, length, _redundantInputs, out playerId, out count))
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                OnRemoteInputReceived(playerId, _redundantInputs[i]);
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Compares a server checksum with the locally predicted frame. Returns
+        /// false on a mismatch and records it in <see cref="VerifiedFrames"/>.
+        /// </summary>
+        public bool ConfirmFrame(int tick, uint serverChecksum)
+        {
+            return _verifiedFrames.MarkVerified(tick, serverChecksum);
         }
 
         private void UpdateConfirmedTick()
@@ -548,6 +587,7 @@ namespace CookYourGame.Sim
             _confirmedTick = startTick;
             _inputRingBuffer.Clear();
             _stateRingBuffer.Clear();
+            _verifiedFrames.Clear();
             Array.Clear(_entities, 0, _entities.Length);
             _entityCount = 0;
             _nextEntityId = 1;

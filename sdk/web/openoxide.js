@@ -79,6 +79,14 @@
     //   0x56 voice a VoicePacket verbatim, so the relay buffer needs no rewrite
     const MeshOp = { INPUT: 0x01, STATE: 0x02, EVENT: 0x03, VOICE: VOICE_MAGIC };
     const MeshEventKind = { FIRE: 1, HIT: 2, DAMAGE: 3, KILL: 4, RESPAWN: 5, EFFECT: 6 };
+
+    // OpenOxide app messages (typed, reliable, client <-> server):
+    // [0x05][type_len u8][UTF-8 type][opaque payload]
+    // Deliberately independent of Colyseus/msgpack. Input (0x01), mesh events
+    // (0x03), voice (0x56), signaling (0x57) and spectator (0xFF) keep their
+    // existing frames.
+    const AppOp = { MESSAGE: 0x05 };
+    const APP_MESSAGE_MAX_TYPE = 255;
     const MESH_INPUT_LEN = 23;
     const MESH_EVENT_LEN = 14;
     const MESH_STATE_HEADER_LEN = 4;
@@ -396,6 +404,458 @@
         return null;
     }
 
+    // =========================================================================
+    // Schema state sync (own wire format, no msgpack / Colyseus dependency)
+    // =========================================================================
+
+    const SCHEMA_MAGIC = [0x4F, 0x58, 0x53, 0x32]; // "OXS2"
+    const SCHEMA_TYPE_CODE = Object.freeze({
+        u8: 1, u16: 2, u32: 3, i32: 4, f32: 5, f64: 6, bool: 7, i64: 8, i8: 9, i16: 10,
+        string: 11, array: 12
+    });
+    const SCHEMA_FIELD_SIZE = Object.freeze({
+        u8: 1, u16: 2, u32: 4, i32: 4, f32: 4, f64: 8, bool: 1, i64: 8, i8: 1, i16: 2,
+        string: 0, array: 0
+    });
+    const SCHEMA_MAX_FIELDS = 32;
+    const SCHEMA_FIELD_OPTIONAL = 1;
+    const SCHEMA_FIELD_STATIC = 2;
+    const SCHEMA_FIELD_TRANSIENT = 4;
+
+    function schemaFnv1a(hash, text) {
+        let h = hash >>> 0;
+        const bytes = (typeof TextEncoder !== 'undefined')
+            ? new TextEncoder().encode(text)
+            : Uint8Array.from(text, c => c.charCodeAt(0));
+        for (let i = 0; i < bytes.length; i++) {
+            h = (h ^ bytes[i]) >>> 0;
+            h = Math.imul(h, 16777619) >>> 0;
+        }
+        return h >>> 0;
+    }
+
+    /**
+     * Client-side field list. On join the host sends a binary descriptor and
+     * the SDK builds these automatically; hand-writing one is only needed
+     * against a host that does not send a descriptor.
+     *
+     * ```js
+     * const PlayerSchema = new SchemaDef("Player", 1)
+     *   .u32("id").f64("x").f64("y").u32("flags");
+     * room.useSchema(PlayerSchema); // optional
+     * ```
+     */
+    class SchemaDef {
+        constructor(name, version = 1) {
+            this.name = name;
+            this.version = version >>> 0;
+            this.fields = [];
+            this._byName = new Map();
+            this.hash = schemaFnv1a(2166136261, `${name}|${this.version}`);
+        }
+
+        _add(name, type, flags = 0, element = null) {
+            if (this.fields.length >= SCHEMA_MAX_FIELDS) return this;
+            if (this._byName.has(name)) throw new Error(`duplicate schema field '${name}'`);
+            const code = SCHEMA_TYPE_CODE[type];
+            if (!code) throw new Error(`unknown schema field type '${type}'`);
+            const elementCode = element ? SCHEMA_TYPE_CODE[element] : 0;
+            if (element && !elementCode) throw new Error(`unknown array element type '${element}'`);
+            const field = {
+                name,
+                type,
+                code,
+                flags,
+                optional: (flags & SCHEMA_FIELD_OPTIONAL) !== 0,
+                fullOnly: (flags & (SCHEMA_FIELD_STATIC | SCHEMA_FIELD_TRANSIENT)) !== 0,
+                element: element || null,
+                elementCode,
+                size: SCHEMA_FIELD_SIZE[type],
+                offset: this.fields.reduce((n, f) => n + f.size, 0)
+            };
+            this.fields.push(field);
+            this._byName.set(name, field);
+            this._rehash();
+            return this;
+        }
+
+        _rehash() {
+            let hash = schemaFnv1a(2166136261, `${this.name}|${this.version}`);
+            for (const field of this.fields) {
+                let text = `|${field.name}:${field.code}`;
+                if (field.elementCode) text += `.${field.elementCode}`;
+                if (field.flags) text += `:${field.flags}`;
+                hash = schemaFnv1a(hash, text);
+            }
+            this.hash = hash;
+        }
+
+        _last() {
+            return this.fields[this.fields.length - 1] || null;
+        }
+
+        optional() {
+            const field = this._last();
+            if (field) {
+                field.flags |= SCHEMA_FIELD_OPTIONAL;
+                field.optional = true;
+                this._rehash();
+            }
+            return this;
+        }
+
+        static() {
+            const field = this._last();
+            if (field) {
+                field.flags |= SCHEMA_FIELD_STATIC;
+                field.fullOnly = true;
+                this._rehash();
+            }
+            return this;
+        }
+
+        staticField() { return this.static(); }
+
+        transient() {
+            const field = this._last();
+            if (field) {
+                field.flags |= SCHEMA_FIELD_TRANSIENT;
+                field.fullOnly = true;
+                this._rehash();
+            }
+            return this;
+        }
+
+        u8(name) { return this._add(name, 'u8'); }
+        i8(name) { return this._add(name, 'i8'); }
+        u16(name) { return this._add(name, 'u16'); }
+        i16(name) { return this._add(name, 'i16'); }
+        u32(name) { return this._add(name, 'u32'); }
+        i32(name) { return this._add(name, 'i32'); }
+        f32(name) { return this._add(name, 'f32'); }
+        f64(name) { return this._add(name, 'f64'); }
+        bool(name) { return this._add(name, 'bool'); }
+        i64(name) { return this._add(name, 'i64'); }
+        string(name) { return this._add(name, 'string'); }
+        array(name, elementType) { return this._add(name, 'array', 0, elementType); }
+
+        indexOf(name) {
+            const f = this._byName.get(name);
+            return f ? this.fields.indexOf(f) : -1;
+        }
+    }
+
+    // ---- Schema descriptor ("OXSD") ---------------------------------------
+    // Written by `ox-game run` from schema.ts, pushed by the host right after
+    // JOIN_ROOM. The client rebuilds the exact server field list from it, so a
+    // project never ships a second schema file.
+
+    const DESCRIPTOR_MAGIC = [0x4F, 0x58, 0x53, 0x44]; // "OXSD"
+    const DESCRIPTOR_VERSION = 3;
+    const SCHEMA_TYPE_NAME = Object.freeze([
+        null, 'u8', 'u16', 'u32', 'i32', 'f32', 'f64', 'bool', 'i64', 'i8', 'i16',
+        'string', 'array'
+    ]);
+
+    function isSchemaDescriptor(bytes) {
+        return !!bytes && bytes.length >= 8
+            && bytes[0] === DESCRIPTOR_MAGIC[0] && bytes[1] === DESCRIPTOR_MAGIC[1]
+            && bytes[2] === DESCRIPTOR_MAGIC[2] && bytes[3] === DESCRIPTOR_MAGIC[3];
+    }
+
+    function decodeDescriptorString(bytes, view, state) {
+        const len = view.getUint16(state.offset, true);
+        state.offset += 2;
+        const start = state.offset;
+        state.offset += len;
+        if (state.offset > bytes.length) throw new Error('truncated schema descriptor');
+        const slice = bytes.subarray(start, state.offset);
+        return _decoder ? _decoder.decode(slice) : String.fromCharCode.apply(null, slice);
+    }
+
+    /**
+     * Parse an "OXSD" frame. v3 adds per-field flags and array element types;
+     * v2 adds root scalars and multiple collections; v1 (one collection, no
+     * scalars) is still accepted.
+     *
+     * Returns `{ version, schemas, rootName, rootScalars, collections,
+     * root: { name, schema } | null }`, where `collections` is ordered and its
+     * index is the collection id used on the state wire.
+     */
+    function parseSchemaDescriptor(bytes) {
+        if (!isSchemaDescriptor(bytes)) return null;
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const state = { offset: 4 };
+        try {
+            const version = view.getUint8(state.offset++);
+            if (version < 1 || version > DESCRIPTOR_VERSION) return null;
+            state.offset += 1; // flags
+            const schemaCount = view.getUint16(state.offset, true);
+            state.offset += 2;
+            const schemas = [];
+            const readField = (def) => {
+                const fieldName = decodeDescriptorString(bytes, view, state);
+                const typeName = SCHEMA_TYPE_NAME[view.getUint8(state.offset++)];
+                if (!typeName) return false;
+                let flags = 0;
+                let element = null;
+                if (version >= 3) {
+                    flags = view.getUint8(state.offset++);
+                    const elementCode = view.getUint8(state.offset++);
+                    if (elementCode) {
+                        element = SCHEMA_TYPE_NAME[elementCode];
+                        if (!element) return false;
+                    }
+                }
+                def._add(fieldName, typeName, flags, element);
+                return true;
+            };
+            for (let i = 0; i < schemaCount; i++) {
+                const name = decodeDescriptorString(bytes, view, state);
+                const schemaVersion = view.getUint32(state.offset, true);
+                state.offset += 4;
+                state.offset += 4; // hash: recomputed from the fields below
+                const fieldCount = view.getUint16(state.offset, true);
+                state.offset += 2;
+                const def = new SchemaDef(name, schemaVersion);
+                for (let f = 0; f < fieldCount; f++) {
+                    if (!readField(def)) return null;
+                }
+                schemas.push(def);
+            }
+
+            const rootName = decodeDescriptorString(bytes, view, state);
+            const collections = [];
+            let rootScalars = null;
+
+            if (version === 1) {
+                const rootIndex = view.getUint16(state.offset, true);
+                state.offset += 2;
+                const rootSchema = rootIndex === 0xFFFF ? null : (schemas[rootIndex] || null);
+                if (rootSchema && rootName) collections.push({ name: rootName, schema: rootSchema });
+            } else {
+                const rootVersion = view.getUint32(state.offset, true);
+                state.offset += 4;
+                state.offset += 4; // root hash: recomputed from the fields below
+                const scalarCount = view.getUint16(state.offset, true);
+                state.offset += 2;
+                if (scalarCount > 0) {
+                    rootScalars = new SchemaDef(rootName || 'State', rootVersion);
+                    for (let f = 0; f < scalarCount; f++) {
+                        if (!readField(rootScalars)) return null;
+                    }
+                }
+                const collectionCount = view.getUint16(state.offset, true);
+                state.offset += 2;
+                for (let i = 0; i < collectionCount; i++) {
+                    const name = decodeDescriptorString(bytes, view, state);
+                    const index = view.getUint16(state.offset, true);
+                    state.offset += 2;
+                    const schema = index === 0xFFFF ? null : schemas[index];
+                    if (!name || !schema) return null;
+                    collections.push({ name, schema });
+                }
+            }
+
+            if (state.offset !== bytes.length) return null;
+            return {
+                version,
+                schemas,
+                rootName,
+                rootScalars,
+                collections,
+                root: collections.length ? { name: collections[0].name, schema: collections[0].schema } : null
+            };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /**
+     * One root collection — a Map of id -> entity with Colyseus-style hooks.
+     * `room.state` is the first collection; `room.state.<name>` exposes the
+     * others. `room.state` also carries root scalar fields as plain properties.
+     */
+    class SchemaMap extends Map {
+        constructor(room, name = null, schema = null) {
+            super();
+            this._room = room;
+            this._name = name;
+            this._schema = schema;
+            this._onAddHandlers = [];
+            this._onRemoveHandlers = [];
+            this._onChangeHandlers = [];
+            this._ready = false;
+        }
+        onAdd(handler, immediate) {
+            if (typeof handler !== 'function') return () => {};
+            this._onAddHandlers.push(handler);
+            if (immediate !== false && !this._room._isTriggering) {
+                for (const [id, entity] of this) handler(entity, id);
+            }
+            return () => {
+                const index = this._onAddHandlers.indexOf(handler);
+                if (index >= 0) this._onAddHandlers.splice(index, 1);
+            };
+        }
+        onRemove(handler) {
+            if (typeof handler !== 'function') return () => {};
+            this._onRemoveHandlers.push(handler);
+            return () => {
+                const index = this._onRemoveHandlers.indexOf(handler);
+                if (index >= 0) this._onRemoveHandlers.splice(index, 1);
+            };
+        }
+        onChange(handler) {
+            if (typeof handler !== 'function') return () => {};
+            this._onChangeHandlers.push(handler);
+            return () => {
+                const index = this._onChangeHandlers.indexOf(handler);
+                if (index >= 0) this._onChangeHandlers.splice(index, 1);
+            };
+        }
+        toJSON() {
+            const out = {};
+            for (const [id, entity] of this) out[id] = entity;
+            return out;
+        }
+    }
+
+    /**
+     * Colyseus v5 callback API — `getStateCallbacks(room)` (alias:
+     * `Callbacks.get(room)`).
+     *
+     * ```js
+     * const callbacks = getStateCallbacks(room);
+     * callbacks.onAdd("players", (player, id) => {
+     *   callbacks.listen(player, "x", (current, previous) => {});
+     * });
+     * ```
+     */
+    class SchemaCallbacks {
+        constructor(room) {
+            this.room = room;
+        }
+
+        _collectionMap(value) {
+            if (typeof value !== 'string') return null;
+            const room = this.room;
+            if (room._collectionMaps && room._collectionMaps.has(value)) {
+                return room._collectionMaps.get(value);
+            }
+            const root = room._rootCollection;
+            if (root ? value === root : value === 'players') return room.state;
+            return null;
+        }
+
+        listen(instanceOrProperty, propertyOrHandler, handlerMaybe, immediate) {
+            if (typeof instanceOrProperty === 'string') {
+                const map = this._collectionMap(instanceOrProperty);
+                if (!map || typeof propertyOrHandler !== 'function') {
+                    return () => {};
+                }
+                return map.onChange(propertyOrHandler);
+            }
+            const instance = instanceOrProperty;
+            const property = propertyOrHandler;
+            const handler = handlerMaybe;
+            if (typeof handler !== 'function') return () => {};
+            const meta = this.room._entityCallbacks.get(instance);
+            if (!meta) return () => {};
+            if (!meta.fields[property]) meta.fields[property] = [];
+            const list = meta.fields[property];
+            list.push(handler);
+            // Colyseus defaults `immediate` to true, but suppresses it while a
+            // patch/add callback is already dispatching (a listener registered
+            // from inside onAdd must not fire before the handler returns).
+            if (immediate !== false && !this.room._isTriggering) {
+                const current = instance[property];
+                if (current !== undefined && current !== null) handler(current, undefined);
+            }
+            return () => {
+                const index = list.indexOf(handler);
+                if (index >= 0) list.splice(index, 1);
+            };
+        }
+
+        onChange(instanceOrProperty, handler, immediate) {
+            if (typeof instanceOrProperty === 'string') {
+                const map = this._collectionMap(instanceOrProperty);
+                if (!map || typeof handler !== 'function') {
+                    return () => {};
+                }
+                return map.onChange(handler);
+            }
+            const meta = this.room._entityCallbacks.get(instanceOrProperty);
+            if (!meta || typeof handler !== 'function') return () => {};
+            meta.any.push(handler);
+            if (immediate) handler();
+            return () => {
+                const index = meta.any.indexOf(handler);
+                if (index >= 0) meta.any.splice(index, 1);
+            };
+        }
+
+        onAdd(instanceOrProperty, handler, immediate) {
+            const map = this._collectionMap(instanceOrProperty);
+            if (!map) return () => {};
+            return map.onAdd(handler, immediate !== false);
+        }
+
+        onRemove(instanceOrProperty, handler) {
+            const map = this._collectionMap(instanceOrProperty);
+            if (!map) return () => {};
+            return map.onRemove(handler);
+        }
+
+        /** Mirror every property of `from` onto `to`, now and on every change. */
+        bindTo(from, to, properties, immediate) {
+            if (!from || !to) return () => {};
+            const names = Array.isArray(properties) ? properties : Object.keys(from);
+            const copyImmediately = immediate !== false && !this.room._isTriggering;
+            const unsubscribers = [];
+            for (let i = 0; i < names.length; i++) {
+                const name = names[i];
+                if (typeof from[name] === 'function') continue;
+                if (copyImmediately && from[name] !== undefined) to[name] = from[name];
+                // `listen` is registered with immediate=false; the initial copy
+                // above is the single Colyseus `bindTo` immediate action.
+                unsubscribers.push(this.listen(from, name, (current) => { to[name] = current; }, false));
+            }
+            return () => { for (let i = 0; i < unsubscribers.length; i++) unsubscribers[i](); };
+        }
+    }
+
+    const Callbacks = Object.freeze({
+        /** New Colyseus v5 API; accepts a room (or `{ state }`-shaped object). */
+        get(roomOrDecoder) {
+            return new SchemaCallbacks(roomOrDecoder && roomOrDecoder.room ? roomOrDecoder.room : roomOrDecoder);
+        },
+        /** Alias matching Colyseus v5's `getStateCallbacks(room)`. */
+        getStateCallbacks(roomOrDecoder) {
+            return Callbacks.get(roomOrDecoder);
+        },
+        /** Legacy `$(room.state).players.onAdd(...)` proxy, still supported. */
+        getLegacy(room) {
+            const target = room && room.state ? room.state : room;
+            if (!target || typeof Proxy === 'undefined') return target;
+            return new Proxy(target, {
+                get(map, prop, receiver) {
+                    if (typeof prop === 'string' && room && room._collectionMaps
+                        && room._collectionMaps.has(prop)) {
+                        return room._collectionMaps.get(prop);
+                    }
+                    if (typeof prop === 'string' && room
+                        && (prop === room._rootCollection || (!room._rootCollection && prop === 'players'))) {
+                        return map;
+                    }
+                    return Reflect.get(map, prop, receiver);
+                }
+            });
+        },
+        getRawChanges() { return () => {}; }
+    });
+
     class OpenOxideRoom {
         constructor(endpoint, roomName, options = {}) {
             this.endpoint = endpoint.replace(/^http/, 'ws');
@@ -404,10 +864,56 @@
             this.isSpectator = !!options.spectator;
             this.ws = null;
             this.sessionId = null;
+            // Numeric convenience mirror of `sessionId` (which is an i64).
+            this.playerId = null;
             this.isOpen = false;
+            // Transport counters (WebSocket + WebRTC data channels).
+            this.bytesIn = 0;
+            this.bytesOut = 0;
+            this._webrtcEnabled = options.webrtc !== false;
             this.listeners = new Map();
+            /** type -> [callback] for `room.onMessage(type, cb)` */
+            this._messageHandlers = new Map();
             // Attached WebRTC voice mesh, or null when voice is relay-only.
             this.voice = null;
+
+            // Schema state: mirror of the server's `SchemaState`/`SchemaWorld`.
+            this.schema = null;
+            this.schemas = [];
+            /** Primary collection name from the descriptor ("players", ...). */
+            this._rootCollection = null;
+            /** collection name -> SchemaMap. */
+            this._collectionMaps = new Map();
+            /** Ordered descriptor collections: `{ id, name, map, schema }`. */
+            this._collections = [];
+            /** Root scalar SchemaDef from a v2 descriptor, or null. */
+            this._rootScalars = null;
+            /** Root scalar values (`room.state.tick`). */
+            this._rootValues = {};
+            this.state = new SchemaMap(this);
+            this._schemaReady = false;
+            this._schemaError = null;
+            this._onAddHandlers = [];
+            this._onRemoveHandlers = [];
+            this._onChangeHandlers = [];
+            this._onCollectionChangeHandlers = [];
+            this._onStateChangeHandlers = [];
+            /** True while a patch/add dispatch is invoking user callbacks. */
+            this._isTriggering = false;
+            /** entity -> { fields: {name: [cb]}, any: [cb] } */
+            this._entityCallbacks = new WeakMap();
+
+            // Matchmaking / resume. `_seatSessionId` is the id the WebSocket
+            // upgrade URL carries; `sessionId` is confirmed by the first delta.
+            this.seatSessionId = options.sessionId || null;
+            this._seatSessionId = this.seatSessionId;
+            this.reconnectionToken = options.reconnectionToken || null;
+            this._client = options.client || null;
+            this._autoReconnect = options.autoReconnect !== false;
+            this._maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
+            this._reconnectAttempts = 0;
+            this._reconnectTimer = null;
+            this._intentionalClose = false;
 
             // Replay recording state
             this.recording = false;
@@ -774,9 +1280,27 @@
             return new Promise((resolve, reject) => {
                 let cleanUrl = this.endpoint.endsWith('/') ? this.endpoint : `${this.endpoint}/`;
                 let wsUrl = `${cleanUrl}${this.roomName}`;
-                if (this.isSpectator) {
-                    wsUrl += '?spectator=1';
+                const query = [];
+                const seatSession = this._seatSessionId || this.sessionId;
+                if (seatSession) query.push(`sessionId=${encodeURIComponent(seatSession)}`);
+                if (this.isSpectator) query.push('spectator=1');
+                // Join options travel as percent-encoded JSON so the server's
+                // `onAuth(clientId, options)` sees exactly what the game passed.
+                const joinOptions = {};
+                let hasOptions = false;
+                for (const k of Object.keys(this.options || {})) {
+                    if (k === 'client' || k === 'spectator' || k === 'sessionId' ||
+                        k === 'reconnectionToken' || k === 'autoReconnect' ||
+                        k === 'maxReconnectAttempts' || k === 'webrtc') continue;
+                    joinOptions[k] = this.options[k];
+                    hasOptions = true;
                 }
+                if (hasOptions) {
+                    try {
+                        query.push(`options=${encodeURIComponent(JSON.stringify(joinOptions))}`);
+                    } catch (e) { /* non-JSON options are auth-visible only if serializable */ }
+                }
+                if (query.length) wsUrl += `?${query.join('&')}`;
 
                 try {
                     this.ws = new WebSocket(wsUrl);
@@ -787,11 +1311,13 @@
 
                 this.ws.onopen = () => {
                     this.isOpen = true;
+                    this._hasConnected = true;
+                    this._reconnectAttempts = 0;
                     if (this.isSpectator) {
                         this.ws.send(new Uint8Array([0xFF, 0x53, 0x50, 0x45, 0x43]));
                     }
                     this.emit('open');
-                    this.connectServerWebRtc();
+                    if (this._webrtcEnabled) this.connectServerWebRtc();
                     resolve(this);
                 };
 
@@ -815,6 +1341,7 @@
                     if (this._jitterTimer) { clearInterval(this._jitterTimer); this._jitterTimer = null; }
                     if (this._fragmentTimer) { clearInterval(this._fragmentTimer); this._fragmentTimer = null; }
                     this.emit('close', ev);
+                    this._maybeAutoReconnect(ev);
                 };
 
                 this.ws.onmessage = (ev) => {
@@ -961,7 +1488,15 @@
         }
 
         _handleInboundBinary(bytes) {
+            this.bytesIn += bytes.byteLength;
             if (!bytes || bytes.length === 0) return;
+
+            // Schema descriptor ("OXSD"): sent once, right after JOIN_ROOM.
+            // This is the whole client-side schema contract — no project file.
+            if (isSchemaDescriptor(bytes)) {
+                this._attachDescriptor(bytes);
+                return;
+            }
 
             // Stamped server delta on `game-unreliable`:
             // [0x04][seq u16][tick u32][frag_idx u8][frag_total u8][chunk]
@@ -1006,6 +1541,17 @@
                 }
             }
 
+            // OpenOxide typed app message: opcode 0x11 + 0x05, or bare 0x05
+            // on transports that do not prepend the wire opcode.
+            if (bytes.length >= 3 && bytes[0] === 0x11 && bytes[1] === AppOp.MESSAGE) {
+                this._handleAppMessage(bytes.subarray(1));
+                return;
+            }
+            if (bytes.length >= 3 && bytes[0] === AppOp.MESSAGE) {
+                this._handleAppMessage(bytes);
+                return;
+            }
+
             // App-level ping echo from server: [18][seq u32 LE]
             if (bytes.length === 5 && bytes[0] === 18) {
                 const seq = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1, true);
@@ -1027,6 +1573,27 @@
 
             if (offset > 0) {
                 this._processDeltaPayload(bytes.subarray(offset));
+            }
+        }
+
+        /** Decode one OpenOxide typed app message and dispatch its listeners. */
+        _handleAppMessage(frame) {
+            if (!frame || frame.length < 3) return;
+            const typeLen = frame[1];
+            if (typeLen === 0 || 2 + typeLen > frame.length) return;
+            const type = _decoder
+                ? _decoder.decode(frame.subarray(2, 2 + typeLen))
+                : '';
+            const payload = frame.subarray(2 + typeLen);
+
+            // Generic listener first (useful for logging / routing), then the
+            // type-specific handlers registered with onMessage().
+            this.emit('message', type, payload);
+            const handlers = this._messageHandlers.get(type);
+            if (handlers) {
+                for (let i = 0; i < handlers.length; i++) {
+                    handlers[i](payload, this);
+                }
             }
         }
 
@@ -1082,11 +1649,41 @@
          * msgpack header. Both have to reach the game as the same bytes, so the magic
          * is dropped here and `your_id` is the first field on every path.
          */
+        _setSessionId(value) {
+            if (this.sessionId === value) return;
+            this.sessionId = value;
+            this.playerId = value == null ? null : Number(value);
+            this.emit('sessionid', value);
+        }
+
         _processDeltaPayload(raw) {
             let payload = raw;
             if (payload.length >= 14 && payload[0] === 0xA5 && payload[1] === 0x64 && payload[2] === 0x65) {
                 payload = payload.subarray(6); // 0xA5 'd' 'e' 'l' 't' 'a'
             }
+            // Schema frame: [your_id i64]["OXS2"][kind...][acked u16][tick u32]
+            if (payload.length >= 8 + 9 + DELTA_TAIL_LEN
+                && payload[8] === SCHEMA_MAGIC[0] && payload[9] === SCHEMA_MAGIC[1]
+                && payload[10] === SCHEMA_MAGIC[2] && payload[11] === SCHEMA_MAGIC[3]) {
+                const pv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+                const tail = payload.byteLength - DELTA_TAIL_LEN;
+                const acked = pv.getUint16(tail, true);
+                const tick = pv.getUint32(tail + 2, true);
+                this.ackedSeq = acked;
+                this.serverTick = tick;
+                if (tick <= this.lastAppliedTick) return;
+                this.lastAppliedTick = tick;
+                this._setSessionId(pv.getBigInt64(0, true));
+                const arrivalMs = performance.now();
+                this.lastDeltaArrivalMs = arrivalMs;
+                this.timeSync.setTickRate(this.tickRate);
+                this.timeSync.addSample(arrivalMs, tick);
+                this.tickOriginMs = this.timeSync.tickOriginMs;
+                this.clockOffsetMs = this.timeSync.clockOffsetMs(arrivalMs);
+                this._applySchema(payload.subarray(8, tail));
+                return;
+            }
+
             let ackedSeq = -1;
             let serverTick = -1;
             if (payload.length >= 23 && (payload[0] === 0xA5 || payload[8] === 1)) {
@@ -1105,9 +1702,9 @@
             // tick is superseded (out-of-order/late) and must never reach the game.
             if (serverTick >= 0 && serverTick <= this.lastAppliedTick) return;
 
-            if (this.sessionId == null && payload.length >= 8) {
+            if (payload.length >= 8) {
                 const v = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-                this.sessionId = v.getBigInt64(0, true);
+                this._setSessionId(v.getBigInt64(0, true));
             }
 
             if (payload.length >= 15 && payload[0] === VOICE_MAGIC) {
@@ -1319,6 +1916,11 @@
         }
 
         leave() {
+            this._intentionalClose = true;
+            if (this._reconnectTimer) {
+                clearTimeout(this._reconnectTimer);
+                this._reconnectTimer = null;
+            }
             this.serverRtcActive = false;
             if (this._fragmentTimer) {
                 clearInterval(this._fragmentTimer);
@@ -1336,13 +1938,660 @@
             }
         }
 
+        // --- SCHEMA STATE SYNC ---
+
         /**
-         * Generic byte send
+         * Attach a schema definition. After this call the room owns
+         * `room.state` (a Map of id -> entity) and decodes full/patch frames
+         * automatically. The definition must match the server's `SchemaDef`
+         * field-for-field; a hash mismatch is reported through `schemaerror`.
+         *
+         * Not required any more: when the server ships an `openoxide.schema.bin`
+         * descriptor, the client attaches it on join automatically.
          */
-        sendBytes(type, bytes) {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(bytes);
+        useSchema(schema) {
+            this.schema = schema;
+            this.schemas = [schema];
+            this._rootScalars = null;
+            this._rootValues = {};
+            const name = this._rootCollection || 'players';
+            this.state = new SchemaMap(this, name, schema);
+            this._collectionMaps = new Map([[name, this.state]]);
+            this._collections = [{ id: 0, name, map: this.state, schema }];
+            this._entityCallbacks = new WeakMap();
+            this._schemaReady = false;
+            this._schemaAcked = false;
+            this._schemaError = null;
+            this._defineStateProperties();
+            return this;
+        }
+
+        /**
+         * Attach an `openoxide.schema.bin` descriptor locally (benchmarks and
+         * offline clients). Live rooms receive it from the host automatically.
+         */
+        useDescriptor(bytes) {
+            const descriptor = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+            if (!isSchemaDescriptor(descriptor)) {
+                throw new TypeError('[OpenOxide SDK] useDescriptor() expects an OXSD buffer');
             }
+            this._attachDescriptor(descriptor);
+            return this;
+        }
+
+        /** Primary (first) collection name from the descriptor. */
+        get rootCollection() {
+            return this._rootCollection;
+        }
+
+        /** Expose collections and root scalars as properties of `room.state`. */
+        _defineStateProperties() {
+            for (const [name, map] of this._collectionMaps) {
+                Object.defineProperty(this.state, name, {
+                    value: map,
+                    enumerable: false,
+                    configurable: true
+                });
+            }
+            if (this._rootScalars) {
+                for (const field of this._rootScalars.fields) {
+                    Object.defineProperty(this.state, field.name, {
+                        get: () => this._rootValues[field.name],
+                        enumerable: true,
+                        configurable: true
+                    });
+                }
+            }
+        }
+
+        /** Build the client contract from the host's "OXSD" descriptor frame. */
+        _attachDescriptor(bytes) {
+            const parsed = parseSchemaDescriptor(bytes);
+            const first = parsed && parsed.collections[0];
+            if (!parsed || !first) {
+                const message = '[OpenOxide SDK] invalid schema descriptor from server';
+                this._schemaError = message;
+                this.emit('schemaerror', message);
+                return;
+            }
+            this.schemas = parsed.schemas;
+            this._rootCollection = first.name;
+            this._rootScalars = parsed.rootScalars;
+
+            // A manually attached useSchema() with the same single-collection
+            // contract already owns state; just fix up the alias/name.
+            if (this.schema && parsed.collections.length === 1 && !parsed.rootScalars
+                && this.schema.hash === first.schema.hash) {
+                this.schema = first.schema;
+                this.state._name = first.name;
+                this.state._schema = first.schema;
+                this._collectionMaps = new Map([[first.name, this.state]]);
+                this._collections = [{ id: 0, name: first.name, map: this.state, schema: first.schema }];
+                this._defineStateProperties();
+                return;
+            }
+
+            this.schema = first.schema;
+            this.state = new SchemaMap(this, first.name, first.schema);
+            this._entityCallbacks = new WeakMap();
+            this._collectionMaps = new Map();
+            this._collections = [];
+            this._rootValues = {};
+            if (parsed.rootScalars) {
+                for (const field of parsed.rootScalars.fields) {
+                    this._rootValues[field.name] = this._schemaDefaultValue(field);
+                }
+                this._trackEntity(this.state);
+            }
+            for (let i = 0; i < parsed.collections.length; i++) {
+                const entry = parsed.collections[i];
+                const map = i === 0 ? this.state : new SchemaMap(this, entry.name, entry.schema);
+                this._collectionMaps.set(entry.name, map);
+                this._collections.push({ id: i, name: entry.name, map, schema: entry.schema });
+            }
+            this._schemaReady = false;
+            this._schemaAcked = false;
+            this._schemaError = null;
+            this._defineStateProperties();
+        }
+
+        _trackEntity(entity) {
+            this._entityCallbacks.set(entity, {
+                fields: Object.create(null),
+                any: []
+            });
+        }
+
+        _fireAdd(map, entity, id) {
+            const previous = this._isTriggering;
+            this._isTriggering = true;
+            try {
+                for (let i = 0; i < map._onAddHandlers.length; i++) {
+                    try { map._onAddHandlers[i](entity, id); } catch (e) { this.emit('error', e); }
+                }
+                for (let i = 0; i < this._onAddHandlers.length; i++) {
+                    try { this._onAddHandlers[i](entity, id); } catch (e) { this.emit('error', e); }
+                }
+            } finally {
+                this._isTriggering = previous;
+            }
+        }
+
+        _fireRemove(map, entity, id) {
+            const previous = this._isTriggering;
+            this._isTriggering = true;
+            try {
+                for (let i = 0; i < map._onRemoveHandlers.length; i++) {
+                    try { map._onRemoveHandlers[i](entity, id); } catch (e) { this.emit('error', e); }
+                }
+                for (let i = 0; i < this._onRemoveHandlers.length; i++) {
+                    try { this._onRemoveHandlers[i](entity, id); } catch (e) { this.emit('error', e); }
+                }
+            } finally {
+                this._isTriggering = previous;
+            }
+        }
+
+        _fireFieldChange(entity, field, value, previousValue) {
+            const previous = this._isTriggering;
+            this._isTriggering = true;
+            try {
+                const meta = this._entityCallbacks.get(entity);
+                const listeners = meta && meta.fields[field];
+                if (listeners) {
+                    for (let i = 0; i < listeners.length; i++) {
+                        try { listeners[i](value, previousValue); } catch (e) { this.emit('error', e); }
+                    }
+                }
+                for (let i = 0; i < this._onChangeHandlers.length; i++) {
+                    try { this._onChangeHandlers[i](entity, field, value); } catch (e) { this.emit('error', e); }
+                }
+            } finally {
+                this._isTriggering = previous;
+            }
+        }
+
+        /** Entity-level + collection-level change fan-out for one collection. */
+        _fireUpdate(map, entity, id) {
+            const previous = this._isTriggering;
+            this._isTriggering = true;
+            try {
+                const meta = this._entityCallbacks.get(entity);
+                if (meta) {
+                    for (let i = 0; i < meta.any.length; i++) {
+                        try { meta.any[i](); } catch (e) { this.emit('error', e); }
+                    }
+                }
+                for (let i = 0; i < map._onChangeHandlers.length; i++) {
+                    try { map._onChangeHandlers[i](id, entity); } catch (e) { this.emit('error', e); }
+                }
+                for (let i = 0; i < this._onCollectionChangeHandlers.length; i++) {
+                    try { this._onCollectionChangeHandlers[i](id, entity); } catch (e) { this.emit('error', e); }
+                }
+            } finally {
+                this._isTriggering = previous;
+            }
+        }
+
+        /** Called when an entity is added to the schema state. */
+        onAdd(cb) {
+            if (typeof cb === 'function') this._onAddHandlers.push(cb);
+            return this;
+        }
+
+        /** Called when an entity is removed from the schema state. */
+        onRemove(cb) {
+            if (typeof cb === 'function') this._onRemoveHandlers.push(cb);
+            return this;
+        }
+
+        /** Called once per changed field: `(entity, fieldName, value)`. */
+        onChange(cb) {
+            if (typeof cb === 'function') this._onChangeHandlers.push(cb);
+            return this;
+        }
+
+        /** Called after every applied full/patch frame. */
+        onStateChange(cb) {
+            if (typeof cb === 'function') this._onStateChangeHandlers.push(cb);
+            return this;
+        }
+
+        _emitStateChange() {
+            for (let i = 0; i < this._onStateChangeHandlers.length; i++) {
+                try { this._onStateChangeHandlers[i](this.state); } catch (e) { this.emit('error', e); }
+            }
+        }
+
+        _readSchemaElement(view, offset, type) {
+            switch (type) {
+                case 'u8': return [view.getUint8(offset), offset + 1];
+                case 'i8': return [view.getInt8(offset), offset + 1];
+                case 'u16': return [view.getUint16(offset, true), offset + 2];
+                case 'i16': return [view.getInt16(offset, true), offset + 2];
+                case 'u32': return [view.getUint32(offset, true), offset + 4];
+                case 'i32': return [view.getInt32(offset, true), offset + 4];
+                case 'f32': return [view.getFloat32(offset, true), offset + 4];
+                case 'f64': return [view.getFloat64(offset, true), offset + 8];
+                case 'bool': return [view.getUint8(offset) !== 0 ? 1 : 0, offset + 1];
+                default: return [0, offset + 1];
+            }
+        }
+
+        _readSchemaField(view, offset, field) {
+            if (field.optional) {
+                const present = view.getUint8(offset) !== 0;
+                offset += 1;
+                if (!present) return [null, offset];
+            }
+            if (field.type === 'string') {
+                const length = view.getUint8(offset);
+                offset += 1;
+                const slice = new Uint8Array(view.buffer, view.byteOffset + offset, length);
+                offset += length;
+                return [
+                    _decoder ? _decoder.decode(slice) : String.fromCharCode.apply(null, slice),
+                    offset
+                ];
+            }
+            if (field.type === 'array') {
+                const count = view.getUint8(offset);
+                offset += 1;
+                const values = new Array(count);
+                for (let i = 0; i < count; i++) {
+                    const [value, next] = this._readSchemaElement(view, offset, field.element);
+                    values[i] = value;
+                    offset = next;
+                }
+                return [values, offset];
+            }
+            switch (field.type) {
+                case 'u8': return [view.getUint8(offset), offset + 1];
+                case 'i8': return [view.getInt8(offset), offset + 1];
+                case 'u16': return [view.getUint16(offset, true), offset + 2];
+                case 'i16': return [view.getInt16(offset, true), offset + 2];
+                case 'u32': return [view.getUint32(offset, true), offset + 4];
+                case 'i32': return [view.getInt32(offset, true), offset + 4];
+                case 'f32': return [view.getFloat32(offset, true), offset + 4];
+                case 'f64': return [view.getFloat64(offset, true), offset + 8];
+                case 'bool': return [view.getUint8(offset) !== 0, offset + 1];
+                case 'i64': return [Number(view.getBigInt64(offset, true)), offset + 8];
+                default: return [0, offset + field.size];
+            }
+        }
+
+        _schemaDefaultValue(field) {
+            if (field.optional) return null;
+            if (field.type === 'string') return '';
+            if (field.type === 'array') return [];
+            if (field.type === 'bool') return false;
+            return 0;
+        }
+
+        _schemaValueEquals(a, b) {
+            if (Object.is(a, b)) return true;
+            if (Array.isArray(a) && Array.isArray(b)) {
+                if (a.length !== b.length) return false;
+                for (let i = 0; i < a.length; i++) {
+                    if (!Object.is(a[i], b[i])) return false;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        _decodeEntity(view, offset, id, schema) {
+            const entity = { id };
+            for (let i = 0; i < schema.fields.length; i++) {
+                const field = schema.fields[i];
+                const [value, next] = this._readSchemaField(view, offset, field);
+                entity[field.name] = value;
+                offset = next;
+            }
+            return [entity, offset];
+        }
+
+        _applySchema(section) {
+            if (!this.schema || !this._collections.length) return;
+            let applied = false;
+            try {
+                applied = this._applySchemaFrame(section);
+            } catch (e) {
+                const message = `[OpenOxide SDK] bad schema frame: ${e && e.message ? e.message : e}`;
+                this._schemaError = message;
+                this.emit('schemaerror', message);
+                return;
+            }
+            if (!applied) return;
+            this.emit('schema', { kind: section[4], state: this.state });
+            this._emitStateChange();
+        }
+
+        _applySchemaFrame(section) {
+            if (!section || section.length < 5) return false;
+            for (let i = 0; i < 4; i++) {
+                if (section[i] !== SCHEMA_MAGIC[i]) return false;
+            }
+            const kind = section[4];
+            if (kind === 1 || kind === 2) {
+                const entry = this._collections[0];
+                if (!entry) return false;
+                if (!this._applyCollectionSection(entry.map, entry.schema, section, kind)) return false;
+                if (kind === 1) {
+                    entry.map._ready = true;
+                    this._schemaReady = true;
+                    this._ackSchema();
+                }
+                return true;
+            }
+            if (kind === 3 || kind === 4) {
+                return this._applyWorldSection(section, kind);
+            }
+            this.emit('schemaerror', `[OpenOxide SDK] unknown schema frame kind ${kind}`);
+            return false;
+        }
+
+        _ackSchema() {
+            // Every full keyframe is acknowledged, not just the first: a forced
+            // full (patch-rate recovery, reconnect) needs its own baseline ack
+            // before the host resumes field patches.
+            this._schemaAcked = true;
+            this.send('__ox_schema_ready');
+        }
+
+        /** Apply a kind-1 full or kind-2 patch section to one collection. */
+        _applyCollectionSection(map, schema, section, kind) {
+            if (section.length < 13) throw new Error('truncated schema section');
+            for (let i = 0; i < 4; i++) {
+                if (section[i] !== SCHEMA_MAGIC[i]) throw new Error('schema section magic mismatch');
+            }
+            const view = new DataView(section.buffer, section.byteOffset, section.byteLength);
+            const hash = view.getUint32(5, true);
+            if (hash !== schema.hash) {
+                throw new Error(`schema hash mismatch: server ${hash.toString(16)} client ${schema.hash.toString(16)}`);
+            }
+            // Patches are meaningless until a full row has landed. The host
+            // keeps sending the full snapshot until we acknowledge it.
+            if (kind === 2 && !map._ready) return false;
+
+            const count = view.getUint32(9, true);
+            let offset = 13;
+
+            if (kind === 1) { // FULL
+                // Reconcile instead of clear+rebuild. A reconnect full snapshot
+                // must keep entity identity, emit onRemove for entities the
+                // server dropped, and emit field callbacks for changed values.
+                const next = [];
+                for (let i = 0; i < count; i++) {
+                    const id = view.getUint32(offset, true);
+                    offset += 4;
+                    const decoded = this._decodeEntity(view, offset, id, schema);
+                    next.push([id, decoded[0]]);
+                    offset = decoded[1];
+                }
+
+                const incoming = new Set();
+                for (let i = 0; i < next.length; i++) incoming.add(next[i][0]);
+                for (const [id, entity] of Array.from(map)) {
+                    if (!incoming.has(id)) {
+                        map.delete(id);
+                        this._fireRemove(map, entity, id);
+                    }
+                }
+
+                for (let i = 0; i < next.length; i++) {
+                    const id = next[i][0];
+                    const incomingEntity = next[i][1];
+                    const existing = map.get(id);
+                    if (existing === undefined) {
+                        map.set(id, incomingEntity);
+                        this._trackEntity(incomingEntity);
+                        this._fireAdd(map, incomingEntity, id);
+                        continue;
+                    }
+                    let changed = false;
+                    for (let f = 0; f < schema.fields.length; f++) {
+                        const field = schema.fields[f];
+                        const value = incomingEntity[field.name];
+                        const previous = existing[field.name];
+                        if (this._schemaValueEquals(previous, value)) continue;
+                        existing[field.name] = value;
+                        this._fireFieldChange(existing, field.name, value, previous);
+                        changed = true;
+                    }
+                    if (changed) this._fireUpdate(map, existing, id);
+                }
+                map._ready = true;
+            } else { // PATCH
+                for (let i = 0; i < count; i++) {
+                    const op = view.getUint8(offset);
+                    offset += 1;
+                    if (op === 1) { // ADD
+                        const id = view.getUint32(offset, true);
+                        offset += 4;
+                        const decoded = this._decodeEntity(view, offset, id, schema);
+                        const entity = decoded[0];
+                        offset = decoded[1];
+                        map.set(id, entity);
+                        this._trackEntity(entity);
+                        this._fireAdd(map, entity, id);
+                    } else if (op === 2) { // REMOVE
+                        const id = view.getUint32(offset, true);
+                        offset += 4;
+                        const entity = map.get(id);
+                        if (entity !== undefined) {
+                            map.delete(id);
+                            this._fireRemove(map, entity, id);
+                        }
+                    } else if (op === 3) { // UPDATE
+                        const id = view.getUint32(offset, true);
+                        const mask = view.getUint32(offset + 4, true);
+                        offset += 8;
+                        const entity = map.get(id);
+                        let changed = false;
+                        for (let f = 0; f < schema.fields.length; f++) {
+                            if ((mask & (1 << f)) === 0) continue;
+                            const field = schema.fields[f];
+                            const [value, next] = this._readSchemaField(view, offset, field);
+                            offset = next;
+                            if (entity !== undefined) {
+                                const previous = entity[field.name];
+                                entity[field.name] = value;
+                                if (!this._schemaValueEquals(previous, value)) {
+                                    this._fireFieldChange(entity, field.name, value, previous);
+                                    changed = true;
+                                }
+                            }
+                        }
+                        if (changed && entity !== undefined) this._fireUpdate(map, entity, id);
+                    } else {
+                        throw new Error(`unknown schema op ${op}`);
+                    }
+                }
+                map._ready = true;
+            }
+            return true;
+        }
+
+        /** Apply a kind-3 full or kind-4 patch multi-collection world frame. */
+        _applyWorldSection(section, kind) {
+            if (section.length < 11) throw new Error('truncated schema world header');
+            // A world patch before the baseline would be lost; the host keeps
+            // sending full frames until the `__ox_schema_ready` ack.
+            if (kind === 4 && !this._schemaReady) return false;
+
+            const view = new DataView(section.buffer, section.byteOffset, section.byteLength);
+            let offset = 5;
+            const rootHash = view.getUint32(offset, true);
+            offset += 4;
+            const rootCount = view.getUint16(offset, true);
+            offset += 2;
+            const scalars = this._rootScalars;
+            const expected = scalars ? scalars.fields.length : 0;
+            if (rootCount !== expected) {
+                throw new Error(`root field count mismatch: server ${rootCount} client ${expected}`);
+            }
+            if (scalars && rootHash !== scalars.hash) {
+                throw new Error(`root schema hash mismatch: server ${rootHash.toString(16)} client ${scalars.hash.toString(16)}`);
+            }
+
+            let mask = 0;
+            if (kind === 4) {
+                mask = view.getUint32(offset, true);
+                offset += 4;
+            }
+            for (let f = 0; f < rootCount; f++) {
+                if (kind === 4 && (mask & (1 << f)) === 0) continue;
+                const field = scalars.fields[f];
+                const [value, next] = this._readSchemaField(view, offset, field);
+                offset = next;
+                const previous = this._rootValues[field.name];
+                this._rootValues[field.name] = value;
+                if (!this._schemaValueEquals(previous, value)) {
+                    this._fireFieldChange(this.state, field.name, value, previous);
+                }
+            }
+
+            const count = view.getUint16(offset, true);
+            offset += 2;
+            for (let i = 0; i < count; i++) {
+                if (offset + 10 > section.length) throw new Error('truncated collection header');
+                const id = view.getUint16(offset, true);
+                const hash = view.getUint32(offset + 2, true);
+                const length = view.getUint32(offset + 6, true);
+                offset += 10;
+                if (offset + length > section.length) throw new Error('truncated collection section');
+                const entry = this._collections[id];
+                if (!entry) throw new Error(`unknown collection id ${id}`);
+                if (entry.schema.hash !== hash) {
+                    throw new Error(`collection '${entry.name}' schema hash mismatch: server ${hash.toString(16)} client ${entry.schema.hash.toString(16)}`);
+                }
+                this._applyCollectionSection(
+                    entry.map,
+                    entry.schema,
+                    section.subarray(offset, offset + length),
+                    kind === 3 ? 1 : 2
+                );
+                if (kind === 3) entry.map._ready = true;
+                offset += length;
+            }
+            if (offset !== section.length) throw new Error('trailing bytes in schema world section');
+
+            if (kind === 3) {
+                this._schemaReady = true;
+                this._ackSchema();
+            }
+            return true;
+        }
+
+        _maybeAutoReconnect(ev) {
+            if (this._intentionalClose || !this._autoReconnect || !this._hasConnected) return;
+            if (!this.reconnectionToken || !this._client) return;
+            // Server close codes that mean the seat can never resume.
+            if (ev && (ev.code === 4001 || ev.code === 4002 || ev.code === 4003)) return;
+            if (this._reconnectAttempts >= this._maxReconnectAttempts) {
+                this.emit('reconnectfailed');
+                return;
+            }
+            const attempt = ++this._reconnectAttempts;
+            const delay = Math.min(500 * Math.pow(2, attempt - 1), 8000);
+            this.emit('reconnecting', attempt, delay);
+            this._reconnectTimer = setTimeout(async () => {
+                this._reconnectTimer = null;
+                try {
+                    const seat = await this._client._reserve(
+                        'reconnect',
+                        this.roomName,
+                        { reconnectionToken: this.reconnectionToken }
+                    );
+                    this.reconnectionToken = seat.reconnectionToken || this.reconnectionToken;
+                    this._seatSessionId = seat.sessionId || this._seatSessionId;
+                    this.seatSessionId = this._seatSessionId;
+                    this._schemaReady = false;
+                    this._schemaAcked = false;
+                    // Keep the last known state until the resume full snapshot
+                    // arrives; _applySchema reconciles removals and changes, so
+                    // callers still get onRemove/listen events after a resume.
+                    await this.connect();
+                    this.emit('reconnected');
+                } catch (e) {
+                    this.emit('reconnecterror', e);
+                    this._maybeAutoReconnect(null);
+                }
+            }, delay);
+        }
+
+        /**
+         * Send a typed app message to the server.
+         *
+         * `data` may be a Uint8Array/ArrayBuffer (binary), a string (UTF-8), or
+         * a plain object (JSON). The server delivers the same type + payload to
+         * `Room.onMessage(type, ...)`; it is never sent back to other clients
+         * unless the room explicitly calls `broadcast`.
+         */
+        send(type, data = null) {
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+
+            const typeBytes = _encoder ? _encoder.encode(String(type)) : null;
+            if (!typeBytes || typeBytes.length === 0 || typeBytes.length > APP_MESSAGE_MAX_TYPE) {
+                throw new Error('[OpenOxide SDK] message type must be 1..255 UTF-8 bytes');
+            }
+
+            let body;
+            if (data == null) {
+                body = new Uint8Array(0);
+            } else if (typeof data === 'string') {
+                body = _encoder ? _encoder.encode(data) : new Uint8Array(0);
+            } else if (data instanceof Uint8Array) {
+                body = data;
+            } else if (data instanceof ArrayBuffer) {
+                body = new Uint8Array(data);
+            } else if (ArrayBuffer.isView(data)) {
+                body = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+            } else {
+                body = _encoder ? _encoder.encode(JSON.stringify(data)) : new Uint8Array(0);
+            }
+
+            const frame = new Uint8Array(2 + typeBytes.length + body.length);
+            frame[0] = AppOp.MESSAGE;
+            frame[1] = typeBytes.length;
+            frame.set(typeBytes, 2);
+            frame.set(body, 2 + typeBytes.length);
+            this.bytesOut += frame.byteLength;
+            this.ws.send(frame);
+            return true;
+        }
+
+        /** Familiar `sendBytes(type, bytes)` name, now using the typed envelope. */
+        sendBytes(type, bytes) {
+            return this.send(type, bytes);
+        }
+
+        /** Convenience helper for JSON payloads. */
+        sendJSON(type, value) {
+            return this.send(type, JSON.stringify(value));
+        }
+
+        /** Escape hatch for an already-framed/raw transport message. */
+        sendRaw(bytes) {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                const length = bytes && (bytes.byteLength ?? bytes.length) || 0;
+                this.bytesOut += length;
+                this.ws.send(bytes);
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Register a handler for a typed server message.
+         * `room.onMessage('discard', (payload) => { ... })`
+         */
+        onMessage(type, cb) {
+            if (!type || typeof cb !== 'function') return this;
+            if (!this._messageHandlers.has(type)) this._messageHandlers.set(type, []);
+            this._messageHandlers.get(type).push(cb);
+            return this;
         }
 
         // --- REPLAY RECORDER (reference Replay Equivalent) ---
@@ -1386,6 +2635,20 @@
         on(event, cb) {
             if (!this.listeners.has(event)) this.listeners.set(event, []);
             this.listeners.get(event).push(cb);
+            return this;
+        }
+
+        /** Remove one handler, or every handler for `event` when `cb` is omitted. */
+        off(event, cb) {
+            const list = this.listeners.get(event);
+            if (!list) return this;
+            if (typeof cb !== 'function') {
+                this.listeners.delete(event);
+                return this;
+            }
+            const index = list.indexOf(cb);
+            if (index >= 0) list.splice(index, 1);
+            if (list.length === 0) this.listeners.delete(event);
             return this;
         }
 
@@ -2569,25 +3832,239 @@
         }
     }
 
-    class OpenOxideClient {
-        constructor(endpoint) {
-            this.endpoint = endpoint;
+    /**
+     * Floating schema-state inspector for development.
+     *
+     * ```js
+     * const inspector = new OpenOxide.Inspector(room, { intervalMs: 250 });
+     * inspector.attach();
+     * ```
+     */
+    class StateInspector {
+        constructor(room, options = {}) {
+            this.room = room;
+            this.intervalMs = options.intervalMs ?? 250;
+            this.el = null;
+            this.body = null;
+            this.timer = null;
+            this._render = () => this.render();
         }
 
-        async joinOrCreate(roomName, options = {}) {
-            const room = new OpenOxideRoom(this.endpoint, roomName, { ...options, spectator: false });
+        snapshot() {
+            const schema = this.room.schema ? {
+                name: this.room.schema.name,
+                version: this.room.schema.version,
+                hash: '0x' + (this.room.schema.hash >>> 0).toString(16),
+                fields: this.room.schema.fields.map(f => ({ name: f.name, type: f.type }))
+            } : null;
+            let sessionId = null;
+            try { sessionId = this.room.sessionId == null ? null : Number(this.room.sessionId); } catch (_) {}
+            return {
+                schema,
+                sessionId,
+                playerId: this.room.playerId,
+                ready: !!this.room._schemaReady,
+                error: this.room._schemaError || null,
+                entities: [...this.room.state.values()]
+            };
+        }
+
+        attach(target = (typeof document !== 'undefined' ? document.body : null)) {
+            if (!target || typeof document === 'undefined' || this.el) return this;
+            const el = document.createElement('div');
+            el.style.cssText = 'position:fixed;right:12px;bottom:12px;width:360px;max-height:46vh;' +
+                'display:flex;flex-direction:column;background:rgba(9,9,11,.94);color:#e4e4e7;' +
+                'border:1px solid #3f3f46;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.45);' +
+                'font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;z-index:2147483647;overflow:hidden';
+            const head = document.createElement('div');
+            head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;' +
+                'padding:7px 10px;border-bottom:1px solid #27272a;color:#a1a1aa';
+            const title = document.createElement('span');
+            title.textContent = 'OpenOxide state';
+            const close = document.createElement('button');
+            close.textContent = '×';
+            close.style.cssText = 'all:unset;cursor:pointer;padding:0 4px;color:#a1a1aa;font-size:15px';
+            close.onclick = () => this.detach();
+            head.append(title, close);
+            const body = document.createElement('pre');
+            body.style.cssText = 'margin:0;padding:8px 10px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:#d4d4d8';
+            el.append(head, body);
+            target.appendChild(el);
+            this.el = el;
+            this.body = body;
+            this.render();
+            if (!this.timer) this.timer = setInterval(this._render, this.intervalMs);
+            return this;
+        }
+
+        detach() {
+            if (this.timer) { clearInterval(this.timer); this.timer = null; }
+            if (this.el && this.el.parentNode) this.el.parentNode.removeChild(this.el);
+            this.el = null;
+            this.body = null;
+            return this;
+        }
+
+        render() {
+            if (!this.body) return;
+            this.body.textContent = JSON.stringify(this.snapshot(), (key, value) => {
+                return typeof value === 'bigint' ? Number(value) : value;
+            }, 2);
+        }
+    }
+
+    class OpenOxideClient {
+        constructor(endpoint, options = {}) {
+            this.endpoint = endpoint;
+            this.options = options;
+            this._authCallback = null;
+            this._authToken = options.token || null;
+        }
+
+        /** Register an auth hook. May return a token string or `{ token }`. */
+        onAuth(callback) {
+            this._authCallback = callback;
+            return this;
+        }
+
+        _httpBase() {
+            let e = String(this.endpoint || '').replace(/\/+$/, '');
+            if (e.startsWith('ws://')) e = `http://${e.slice(5)}`;
+            else if (e.startsWith('wss://')) e = `https://${e.slice(6)}`;
+            else if (!/^https?:\/\//i.test(e)) e = `http://${e}`;
+            return e;
+        }
+
+        _wsBase(seat) {
+            const base = new URL(this._httpBase());
+            const proto = base.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = base.hostname.startsWith('[') ? base.hostname : base.hostname;
+            const gamePort = seat && Number(seat.gamePort) > 0 ? Number(seat.gamePort) : (base.port || (proto === 'wss:' ? '443' : '80'));
+            const path = base.pathname && base.pathname !== '/' ? base.pathname.replace(/\/$/, '') : '';
+            return `${proto}//${host}:${gamePort}${path}`;
+        }
+
+        async _authBody(options) {
+            const body = { ...options };
+            let token = this._authToken;
+            if (typeof this._authCallback === 'function') {
+                const value = await this._authCallback();
+                if (typeof value === 'string') token = value;
+                else if (value && typeof value === 'object' && value.token) token = value.token;
+            }
+            if (token) body.token = token;
+            return { body, token };
+        }
+
+        async _reserve(method, roomName, options = {}) {
+            if (typeof fetch !== 'function') {
+                throw new Error('[OpenOxide SDK] fetch is required for matchmaking');
+            }
+            const { body, token } = await this._authBody(options);
+            const url = `${this._httpBase()}/matchmake/${encodeURIComponent(method)}/${encodeURIComponent(roomName)}`;
+            const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers,
+                credentials: 'include',
+                body: JSON.stringify(body)
+            });
+            const text = await response.text();
+            if (!response.ok) {
+                let detail = text;
+                try { detail = JSON.parse(text).error || JSON.parse(text).message || text; } catch (_) {}
+                throw new Error(`[OpenOxide SDK] matchmake ${method}/${roomName} failed (${response.status}): ${detail}`);
+            }
+            let seat;
+            try { seat = JSON.parse(text); } catch (_) {
+                throw new Error(`[OpenOxide SDK] matchmake returned invalid JSON: ${text.slice(0, 200)}`);
+            }
+            if (!seat || !seat.sessionId) {
+                throw new Error('[OpenOxide SDK] matchmake reply carried no sessionId');
+            }
+            this.lastSeat = seat;
+            return seat;
+        }
+
+        async _connectSeat(seat, roomName, options = {}) {
+            const room = new OpenOxideRoom(this._wsBase(seat), roomName, {
+                ...options,
+                sessionId: seat.sessionId,
+                reconnectionToken: seat.reconnectionToken || seat.seatToken || null,
+                client: this
+            });
             await room.connect();
             return room;
+        }
+
+        /**
+         * Colyseus-style matchmaking. The server mints a seat, then the room
+         * opens the WebSocket on the game port with that sessionId.
+         */
+        async joinOrCreate(roomName, options = {}) {
+            const seat = await this._reserve('joinOrCreate', roomName, options);
+            return this._connectSeat(seat, roomName, options);
+        }
+
+        async join(roomName, options = {}) {
+            const seat = await this._reserve('join', roomName, options);
+            return this._connectSeat(seat, roomName, options);
+        }
+
+        async create(roomName, options = {}) {
+            const seat = await this._reserve('create', roomName, options);
+            return this._connectSeat(seat, roomName, options);
+        }
+
+        async joinById(roomId, options = {}) {
+            const seat = await this._reserve('joinById', roomId, options);
+            return this._connectSeat(seat, roomId, options);
         }
 
         async spectate(roomName, options = {}) {
-            const room = new OpenOxideRoom(this.endpoint, roomName, { ...options, spectator: true });
-            await room.connect();
-            return room;
+            const seat = await this._reserve('spectate', roomName, options);
+            return this._connectSeat(seat, roomName, { ...options, spectator: true });
         }
 
         async joinSpectator(roomName, options = {}) {
             return this.spectate(roomName, options);
+        }
+
+        /** Resume a seat after a reload or a dropped socket. */
+        async reconnect(reconnectionToken, roomName, options = {}) {
+            const seat = await this._reserve('reconnect', roomName, {
+                ...options,
+                reconnectionToken
+            });
+            return this._connectSeat(seat, roomName, options);
+        }
+
+        /** List joinable rooms. Optionally filter by room name. */
+        async getAvailableRooms(roomName = null) {
+            if (typeof fetch !== 'function') {
+                throw new Error('[OpenOxide SDK] fetch is required for room discovery');
+            }
+            const response = await fetch(`${this._httpBase()}/api/rooms`, {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'include'
+            });
+            if (!response.ok) {
+                throw new Error(`[OpenOxide SDK] room list failed (${response.status})`);
+            }
+            const payload = await response.json();
+            const rooms = Array.isArray(payload) ? payload : (payload.rooms || []);
+            return rooms
+                .filter(r => !roomName || r.name === roomName || r.roomId === roomName)
+                .map(r => ({
+                    ...r,
+                    roomId: r.roomId || r.name,
+                    name: r.name,
+                    clients: r.clients ?? r.players ?? 0,
+                    maxClients: r.maxClients ?? 0,
+                    spectators: r.spectators ?? 0,
+                    metadata: r.metadata ?? null
+                }));
         }
 
         static loadReplay(jsonOrBlob) {
@@ -2677,10 +4154,17 @@
     return {
         Client: OpenOxideClient,
         Room: OpenOxideRoom,
+        SchemaDef: SchemaDef,
+        SchemaMap: SchemaMap,
+        Callbacks: Callbacks,
+        /** Colyseus v5 naming parity: `getStateCallbacks(room)`. */
+        getStateCallbacks: (room) => Callbacks.get(room),
+        Inspector: StateInspector,
         Voice: OpenOxideVoiceMesh,
         SignalKind: SignalKind,
         MeshOp: MeshOp,
         MeshEventKind: MeshEventKind,
+        AppOp: AppOp,
         MESH_MAX_ENTITIES: MESH_MAX_ENTITIES,
         KeyCode: KeyCode,
         KeyCodeHelper: KeyCodeHelper,

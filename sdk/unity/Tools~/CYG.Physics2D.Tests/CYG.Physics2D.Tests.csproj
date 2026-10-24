@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>CYG.Physics2D.Tests</AssemblyName>
+    <RootNamespace>CookYourGame.Sim.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../Runtime/Sim/Core/*.cs" LinkBase="Runtime/Core" />
+    <Compile Include="../../Runtime/Sim/Math/*.cs" LinkBase="Runtime/Math" />
+    <!-- FPBounds.cs and CYGDeterminismProbe.cs reference these 3D primitives. -->
+    <Compile Include="../../Runtime/Sim/Physics3D/FPAABB.cs" LinkBase="Runtime/Physics3D" />
+    <Compile Include="../../Runtime/Sim/Physics3D/FPSphere.cs" LinkBase="Runtime/Physics3D" />
+    <Compile Include="../../Runtime/Sim/Physics3D/FPCapsule.cs" LinkBase="Runtime/Physics3D" />
+    <Compile Include="../../Runtime/Sim/Physics3D/FPRaycast.cs" LinkBase="Runtime/Physics3D" />
+    <Compile Include="../../Runtime/Sim/Physics2D/**/*.cs" LinkBase="Runtime/Physics2D" />
+  </ItemGroup>
+
+</Project>

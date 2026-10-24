@@ -1,0 +1,14 @@
+target
+.git
+.jj
+.delta
+.idea
+.claude
+.agents
+dashboard/node_modules
+dashboard/dist
+examples/**/Library
+examples/**/Temp
+examples/**/obj
+examples/**/bin
+node_modules

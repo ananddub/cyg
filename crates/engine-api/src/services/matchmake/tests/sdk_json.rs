@@ -6,14 +6,29 @@ fn a_reservation_carries_every_field_the_sdk_needs() {
     let seat = reserve_ok(&state, "joinOrCreate", "tank-3d", "{}");
     let json = seat.to_json();
     let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
-    for field in ["name", "sessionId", "roomId", "processId", "reconnectionToken"] {
+    for field in [
+        "name",
+        "sessionId",
+        "roomId",
+        "processId",
+        "reconnectionToken",
+    ] {
         assert!(
             v.get(field).and_then(|f| f.as_str()).is_some(),
             "ISeatReservation is missing {field}: {json}"
         );
     }
-    for field in ["seatToken", "gamePort", "controlPort", "expiresAt", "iceServers"] {
-        assert!(v.get(field).is_some(), "data-plane field {field} missing: {json}");
+    for field in [
+        "seatToken",
+        "gamePort",
+        "controlPort",
+        "expiresAt",
+        "iceServers",
+    ] {
+        assert!(
+            v.get(field).is_some(),
+            "data-plane field {field} missing: {json}"
+        );
     }
     assert_eq!(v["name"].as_str().unwrap(), "tank-3d");
     assert_eq!(v["roomId"].as_str().unwrap(), "tank-3d");
@@ -22,12 +37,18 @@ fn a_reservation_carries_every_field_the_sdk_needs() {
     assert!(v["processId"].as_str().unwrap().starts_with("openoxide_"));
     assert_eq!(v["seatToken"].as_str(), v["reconnectionToken"].as_str());
     assert!(v["expiresAt"].as_u64().unwrap() > now_unix());
-    assert!(!v["sessionId"].as_str().unwrap().is_empty(), "sessionId identifies the seat");
+    assert!(
+        !v["sessionId"].as_str().unwrap().is_empty(),
+        "sessionId identifies the seat"
+    );
     // The ICE blob is a JSON *string* containing JSON — the shape the
     // in-transport matchmake emitted, so a client parses it a second time.
     let ice = v["iceServers"].as_str().expect("iceServers is a string");
     let parsed: serde_json::Value = serde_json::from_str(ice).unwrap();
-    assert_eq!(parsed[0]["urls"][0].as_str().unwrap(), "stun:stun.l.google.com:19302");
+    assert_eq!(
+        parsed[0]["urls"][0].as_str().unwrap(),
+        "stun:stun.l.google.com:19302"
+    );
 }
 
 #[test]
@@ -62,7 +83,10 @@ fn seat_json_is_parseable_and_nests_the_ice_blob_as_text() {
     assert_eq!(outer["udpPort"].as_u64().unwrap(), 7778);
     let ice = outer["iceServers"].as_str().unwrap();
     let inner: serde_json::Value = serde_json::from_str(ice).unwrap();
-    assert_eq!(inner[0]["urls"][0].as_str().unwrap(), "stun:stun.l.google.com:19302");
+    assert_eq!(
+        inner[0]["urls"][0].as_str().unwrap(),
+        "stun:stun.l.google.com:19302"
+    );
 }
 
 #[test]

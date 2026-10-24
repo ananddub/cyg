@@ -23,9 +23,7 @@ use crate::dto::console::games::{
     CreateGameRequest, ENGINE_TYPES, GAME_BACKEND_MODES, GAME_STATUSES, GameConfig,
     UpdateGameRequest,
 };
-use crate::error::{
-    INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED, UNAUTHENTICATED, UNAVAILABLE,
-};
+use crate::error::{INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED, UNAUTHENTICATED, UNAVAILABLE};
 use crate::infra::console::{self, ConsoleRole};
 use crate::services::games::schema::{
     GAMES_KEY_INDEX_DDL, GAMES_TABLE_DDL, ROOM_MODULES_INDEX_DDL, ROOM_MODULES_TABLE_DDL,
@@ -186,10 +184,10 @@ fn json_object_after(definition: &str, keyword: &str) -> Value {
         .find(&keyword.to_lowercase())
         .unwrap_or_else(|| panic!("`{definition}` should carry a `{keyword}`"));
     let quoted = &definition[after + keyword.len()..];
-    let open = quoted.find('{').expect("a JSONB default is a quoted object");
-    let close = quoted[open..]
-        .find('}')
-        .expect("and it closes");
+    let open = quoted
+        .find('{')
+        .expect("a JSONB default is a quoted object");
+    let close = quoted[open..].find('}').expect("and it closes");
     serde_json::from_str(&quoted[open..open + close + 1])
         .unwrap_or_else(|err| panic!("the default document in `{definition}` parses: {err}"))
 }
@@ -246,10 +244,8 @@ fn the_runtime_ddl_mirrors_the_committed_games_sql() {
         "updated_at timestamptz not null default now()",
     ] {
         assert!(
-            games
-                .iter()
-                .any(|item| item.to_lowercase() == column
-                    || item.to_lowercase().starts_with(&format!("{column} "))),
+            games.iter().any(|item| item.to_lowercase() == column
+                || item.to_lowercase().starts_with(&format!("{column} "))),
             "`games` must keep its `{column}` column; found {games:?}"
         );
     }
@@ -305,9 +301,7 @@ fn the_runtime_ddl_mirrors_the_committed_games_sql() {
         "constraint room_modules_game_version unique (game_id, version)",
     ] {
         assert!(
-            modules
-                .iter()
-                .any(|found| found.to_lowercase() == item),
+            modules.iter().any(|found| found.to_lowercase() == item),
             "`room_modules` must keep its `{item}`; found {modules:?}"
         );
     }
@@ -399,7 +393,10 @@ fn the_engine_and_status_whitelists_are_the_frozen_ones() {
         "the whitelist is a whitelist: an engine the plane cannot run is refused"
     );
 
-    assert_eq!(GAME_STATUSES.as_slice(), ["active", "suspended", "archived"]);
+    assert_eq!(
+        GAME_STATUSES.as_slice(),
+        ["active", "suspended", "archived"]
+    );
     assert_eq!(GAME_BACKEND_MODES.as_slice(), ["relay", "wasm"]);
 }
 
@@ -444,7 +441,12 @@ fn the_game_config_document_is_the_room_tuning_of_the_current_plan() {
     };
     assert_eq!(
         keys,
-        ["auto_close_seconds", "max_clients", "persistent_rooms", "tick_rate"],
+        [
+            "auto_close_seconds",
+            "max_clients",
+            "persistent_rooms",
+            "tick_rate"
+        ],
         "the config's field list is the plan's four keys"
     );
 
@@ -456,8 +458,8 @@ fn the_game_config_document_is_the_room_tuning_of_the_current_plan() {
 
     // `#[serde(default)]` is what lets a partial document read as a complete one, so a
     // caller who names only a tick rate still gets a capacity and a close timeout.
-    let partial: GameConfig = serde_json::from_value(json!({"tick_rate": 60}))
-        .expect("a partial config deserializes");
+    let partial: GameConfig =
+        serde_json::from_value(json!({"tick_rate": 60})).expect("a partial config deserializes");
     assert_eq!(partial.tick_rate, 60);
     assert_eq!(partial.max_clients, 16);
     assert_eq!(partial.auto_close_seconds, 30);
@@ -483,7 +485,9 @@ fn a_create_request_takes_the_config_flat_or_nested_and_no_credential() {
     }))
     .expect("the nested spelling deserializes");
     assert_eq!(nested.engine_type.as_deref(), Some("godot"));
-    let config = nested.config.expect("a named config is kept as the caller wrote it");
+    let config = nested
+        .config
+        .expect("a named config is kept as the caller wrote it");
     assert_eq!(config["tick_rate"], json!(64));
 
     // The flat spelling of the product plan, and every one of its fields is held.
@@ -546,7 +550,10 @@ fn an_update_request_is_a_patch_over_optional_fields() {
     let renamed: UpdateGameRequest =
         serde_json::from_value(json!({"name": "Second Name"})).expect("a name-only patch");
     assert_eq!(renamed.name.as_deref(), Some("Second Name"));
-    assert_eq!(renamed.status, None, "an absent status is not a status change");
+    assert_eq!(
+        renamed.status, None,
+        "an absent status is not a status change"
+    );
 
     let hostile: UpdateGameRequest = serde_json::from_value(json!({
         "name": "Second Name",
@@ -591,8 +598,14 @@ fn unity_settings_routes() -> Vec<(&'static str, String)> {
     let id = "00000000-0000-0000-0000-000000000000";
     vec![
         ("GET", format!("/v2/console/games/{id}/unity-settings")),
-        ("GET", format!("/v2/console/games/{id}/unity-settings?format=asset")),
-        ("GET", format!("/v2/console/games/{id}/unity-settings?format=json")),
+        (
+            "GET",
+            format!("/v2/console/games/{id}/unity-settings?format=asset"),
+        ),
+        (
+            "GET",
+            format!("/v2/console/games/{id}/unity-settings?format=json"),
+        ),
     ]
 }
 
@@ -603,10 +616,7 @@ fn unity_settings_routes() -> Vec<(&'static str, String)> {
 #[test]
 fn every_games_route_demands_a_console_token() {
     let server = V2Server::start(v2_state());
-    for (method, path) in games_routes()
-        .into_iter()
-        .chain(unity_settings_routes())
-    {
+    for (method, path) in games_routes().into_iter().chain(unity_settings_routes()) {
         let reply = server.send(&method, &path, None, "{}");
         assert_eq!(
             reply.refusal(UNAUTHENTICATED),
@@ -682,7 +692,11 @@ fn the_unity_settings_route_is_a_read_mounted_in_both_formats() {
     let server = V2Server::start(v2_state());
     let id = Uuid::new_v4();
 
-    for role in [ConsoleRole::Readonly, ConsoleRole::Developer, ConsoleRole::Admin] {
+    for role in [
+        ConsoleRole::Readonly,
+        ConsoleRole::Developer,
+        ConsoleRole::Admin,
+    ] {
         for path in [
             format!("/v2/console/games/{id}/unity-settings"),
             format!("/v2/console/games/{id}/unity-settings?format=asset"),
@@ -785,7 +799,10 @@ fn a_malformed_game_id_is_a_bad_request_naming_the_game() {
         ("GET", "/v2/console/games/not-a-uuid".to_owned()),
         ("PUT", "/v2/console/games/not-a-uuid".to_owned()),
         ("DELETE", "/v2/console/games/not-a-uuid".to_owned()),
-        ("GET", "/v2/console/games/not-a-uuid/unity-settings".to_owned()),
+        (
+            "GET",
+            "/v2/console/games/not-a-uuid/unity-settings".to_owned(),
+        ),
         (
             "GET",
             "/v2/console/games/not-a-uuid/unity-settings?format=json".to_owned(),
@@ -826,7 +843,10 @@ fn an_unknown_game_status_is_refused_before_the_database() {
         r#"{"status":"deleted"}"#,
     );
     let message = reply.refusal(INVALID_ARGUMENT);
-    assert!(message.contains("Unknown game status 'deleted'"), "{message}");
+    assert!(
+        message.contains("Unknown game status 'deleted'"),
+        "{message}"
+    );
     for status in GAME_STATUSES {
         assert!(message.contains(status), "{status} missing from {message}");
     }
@@ -879,7 +899,7 @@ fn sdk_serialized_fields() -> Vec<String> {
             (!name.is_empty()
                 && name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
                 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
-                .then(|| name.to_owned())
+            .then(|| name.to_owned())
         })
         .collect()
 }
@@ -998,7 +1018,14 @@ fn the_asset_template_is_a_scriptable_object_document_of_the_sdk_class() {
     let numeric: u32 = GAMES_CONTROLLER_SOURCE
         .lines()
         .find(|line| line.trim_start().starts_with(&declaration))
-        .and_then(|line| line.split_once('=')?.1.trim().trim_end_matches(';').parse().ok())
+        .and_then(|line| {
+            line.split_once('=')?
+                .1
+                .trim()
+                .trim_end_matches(';')
+                .parse()
+                .ok()
+        })
         .expect("and its value is a number, not an expression");
     assert!(
         numeric <= u32::from(u16::MAX),
@@ -1115,7 +1142,10 @@ pub(crate) mod db {
     /// A fixture as the console would create it: only a name, so every derived field —
     /// the engine, the mode, the config — is the server's answer. A Unity relay game,
     /// which is what a WASM route refuses.
-    pub(crate) async fn create(state: &ApiState, label: &str) -> crate::dto::console::games::GameDto {
+    pub(crate) async fn create(
+        state: &ApiState,
+        label: &str,
+    ) -> crate::dto::console::games::GameDto {
         create_engine(state, label, None).await
     }
 
@@ -1294,7 +1324,10 @@ async fn create_game_mints_the_prefixed_keys_and_defaults_the_config() {
     let explicit = GamesService::create_game(&state, &body)
         .await
         .expect("an explicit engine and config register");
-    assert_eq!(explicit.engine_type, "godot", "the whitelist is matched case-folded");
+    assert_eq!(
+        explicit.engine_type, "godot",
+        "the whitelist is matched case-folded"
+    );
     assert_eq!(explicit.config["tick_rate"], json!(30));
     assert_eq!(explicit.config["custom"], json!("kept"));
     assert_eq!(
@@ -1480,12 +1513,15 @@ async fn the_persisted_config_round_trips_the_room_tuning_fields() {
     // column through `GameConfig` would see.
     let stored: GameConfig =
         serde_json::from_value(game.config.clone()).expect("the stored config is a GameConfig");
-    assert_eq!(stored, GameConfig {
-        tick_rate: 30,
-        max_clients: 4,
-        persistent_rooms: true,
-        auto_close_seconds: 300,
-    });
+    assert_eq!(
+        stored,
+        GameConfig {
+            tick_rate: 30,
+            max_clients: 4,
+            persistent_rooms: true,
+            auto_close_seconds: 300,
+        }
+    );
 
     // A patch replaces the document, and an absent one keeps it.
     let patched: UpdateGameRequest = serde_json::from_value(json!({"config": {
@@ -1505,7 +1541,10 @@ async fn the_persisted_config_round_trips_the_room_tuning_fields() {
     let kept = GamesService::update_game(&state, game.id, &renamed)
         .await
         .expect("a rename is applied");
-    assert_eq!(kept.config, patched.config, "an absent config keeps what was stored");
+    assert_eq!(
+        kept.config, patched.config,
+        "an absent config keeps what was stored"
+    );
 
     db::forget(&pool, game.id).await;
 }
@@ -1518,7 +1557,10 @@ async fn a_game_key_is_unique_and_a_name_is_not() {
         return skipped_without_database();
     };
 
-    let key = format!("{GAME_KEY_PREFIX}unique_probe_{}", &Uuid::new_v4().simple().to_string()[..8]);
+    let key = format!(
+        "{GAME_KEY_PREFIX}unique_probe_{}",
+        &Uuid::new_v4().simple().to_string()[..8]
+    );
     // The two credentials the console mints and the mode it derives are what a hand-
     // written tenant row has to spell out: `client_key` is NOT NULL with no default, so
     // a row that skips it is refused by the schema rather than read as an empty key.
@@ -1549,7 +1591,10 @@ async fn a_game_key_is_unique_and_a_name_is_not() {
     // tenant, and a studio registers the same game twice on purpose.
     for label in ["same-name-a", "same-name-b"] {
         sqlx::query(insert)
-            .bind(format!("{GAME_KEY_PREFIX}name_probe_{}", Uuid::new_v4().simple()))
+            .bind(format!(
+                "{GAME_KEY_PREFIX}name_probe_{}",
+                Uuid::new_v4().simple()
+            ))
             .bind(format!("{TEST_PREFIX} shared name"))
             .bind(format!("{API_KEY_PREFIX}{label}"))
             .bind(format!("{CLIENT_KEY_PREFIX}{label}"))
@@ -1618,7 +1663,10 @@ async fn the_listing_hides_the_secret_and_the_detail_reveals_it_with_counts() {
 
     // The wire shape is the contract: `games` plus `total`, and no secret anywhere in it.
     let wire: Value = serde_json::to_value(&list).expect("the listing serializes");
-    assert!(wire["games"].is_array() && wire["total"].is_number(), "{wire}");
+    assert!(
+        wire["games"].is_array() && wire["total"].is_number(),
+        "{wire}"
+    );
     let text = wire.to_string();
     assert!(
         !text.contains("api_key") && !text.contains(API_KEY_PREFIX),
@@ -1679,7 +1727,10 @@ async fn update_game_changes_only_the_fields_a_patch_names() {
         .expect("a patch that names one field is applied");
 
     assert_eq!(patched.name, "Renamed Arena");
-    assert_eq!(patched.game_key, game.game_key, "the tenant key is not editable");
+    assert_eq!(
+        patched.game_key, game.game_key,
+        "the tenant key is not editable"
+    );
     assert_eq!(
         patched.engine_type, "web",
         "an absent engine keeps what was stored"
@@ -1729,11 +1780,16 @@ async fn archive_game_is_a_soft_delete_that_keeps_the_row_and_its_key() {
         .await
         .expect("the row is still there, which is the whole point of a soft delete");
     assert_eq!(row.status, "archived");
-    assert_eq!(row.game_key, game.game_key, "a retired tenant keeps its identity");
+    assert_eq!(
+        row.game_key, game.game_key,
+        "a retired tenant keeps its identity"
+    );
 
     // It is still listed — an operator retiring a game expects to find it — and its
     // secret is still readable, because the credential is what the history is keyed by.
-    let list = GamesService::list_games(&state).await.expect("the listing reads");
+    let list = GamesService::list_games(&state)
+        .await
+        .expect("the listing reads");
     assert!(
         list.games.iter().any(|row| row.id == game.id),
         "an archived game stays in the listing"
@@ -1745,7 +1801,11 @@ async fn archive_game_is_a_soft_delete_that_keeps_the_row_and_its_key() {
 
     // A second archive is a no-op that still reads as archived, and an unknown id is
     // a refusal rather than a quiet zero.
-    assert!(GamesService::archive_game(&state, game.id).await.expect("idempotent"));
+    assert!(
+        GamesService::archive_game(&state, game.id)
+            .await
+            .expect("idempotent")
+    );
     let err = GamesService::archive_game(&state, Uuid::new_v4())
         .await
         .expect_err("retiring no game is not a success");
@@ -1776,9 +1836,10 @@ async fn verify_api_key_authenticates_the_pair_and_refuses_probing() {
         .await
         .expect("a wrong secret is an authentication answer, not an error");
     assert!(!wrong_secret);
-    let unknown_key = GamesService::verify_api_key(&state, "gm_no_such_game_000000", &detail.api_key)
-        .await
-        .expect("an unknown tenant key is the same kind of answer");
+    let unknown_key =
+        GamesService::verify_api_key(&state, "gm_no_such_game_000000", &detail.api_key)
+            .await
+            .expect("an unknown tenant key is the same kind of answer");
     assert!(
         !unknown_key,
         "an unknown key and a wrong secret must not be distinguishable"
@@ -1856,7 +1917,10 @@ async fn the_module_aggregates_read_the_room_modules_rows() {
         .execute(&pool)
         .await;
     let err = clash.expect_err("(game_id, version) is unique");
-    assert!(crate::error::V2Error::is_any_unique_violation(&err), "{err}");
+    assert!(
+        crate::error::V2Error::is_any_unique_violation(&err),
+        "{err}"
+    );
 
     // v2 arrives and takes the active flag: the uploader's own deactivation, expressed
     // as the two statements it has to be, and then read back through the service.
@@ -1880,7 +1944,9 @@ async fn the_module_aggregates_read_the_room_modules_rows() {
     tx.commit().await.expect("both statements land together");
 
     assert_eq!(
-        GamesService::module_count(&state, game.id).await.expect("count"),
+        GamesService::module_count(&state, game.id)
+            .await
+            .expect("count"),
         2,
         "a newer version adds to the history rather than replacing it"
     );
@@ -1926,12 +1992,13 @@ async fn the_module_aggregates_read_the_room_modules_rows() {
         row.get::<Option<String>, _>("source_code").is_none(),
         "an upload that sent no source stores NULL, not an empty string"
     );
-    let v2 = sqlx::query("SELECT source_code FROM room_modules WHERE game_id = $1 AND version = $2")
-        .bind(game.id)
-        .bind(2i32)
-        .fetch_one(&pool)
-        .await
-        .expect("v2 is readable");
+    let v2 =
+        sqlx::query("SELECT source_code FROM room_modules WHERE game_id = $1 AND version = $2")
+            .bind(game.id)
+            .bind(2i32)
+            .fetch_one(&pool)
+            .await
+            .expect("v2 is readable");
     assert_eq!(
         v2.get::<Option<String>, _>("source_code").as_deref(),
         Some("source kept"),
@@ -1951,7 +2018,11 @@ async fn the_module_aggregates_read_the_room_modules_rows() {
         .fetch_one(&pool)
         .await
         .expect("the module count reads");
-    assert_eq!(left.get::<i64, _>("n"), 0, "room_modules cascades from games");
+    assert_eq!(
+        left.get::<i64, _>("n"),
+        0,
+        "room_modules cascades from games"
+    );
 }
 
 /// The detail view's counts and the service's own reads agree with each other — the
@@ -1963,8 +2034,10 @@ async fn the_detail_view_counts_are_the_service_reads() {
     };
 
     let game = db::create(&state, "agreement").await;
-    sqlx::query("INSERT INTO room_modules (game_id, version, filename, binary_bytes, sha256, is_active)
-                 VALUES ($1, $2, $3, $4, $5, true)")
+    sqlx::query(
+        "INSERT INTO room_modules (game_id, version, filename, binary_bytes, sha256, is_active)
+                 VALUES ($1, $2, $3, $4, $5, true)",
+    )
     .bind(game.id)
     .bind(3i32)
     .bind("room.wasm")
@@ -1977,7 +2050,12 @@ async fn the_detail_view_counts_are_the_service_reads() {
     let detail = GamesService::get_game(&state, game.id)
         .await
         .expect("the detail view reads");
-    assert_eq!(detail.module_count, GamesService::module_count(&state, game.id).await.expect("count"));
+    assert_eq!(
+        detail.module_count,
+        GamesService::module_count(&state, game.id)
+            .await
+            .expect("count")
+    );
     assert_eq!(
         detail.active_module_version,
         Some(3),
@@ -2030,7 +2108,11 @@ async fn fetch_raw(
         .await
         .expect("a body")
         .to_bytes();
-    (status, headers, String::from_utf8_lossy(&bytes).into_owned())
+    (
+        status,
+        headers,
+        String::from_utf8_lossy(&bytes).into_owned(),
+    )
 }
 
 /// One `key: value` line of an emitted YAML document, by name.
@@ -2083,7 +2165,10 @@ async fn the_unity_asset_route_answers_with_the_attached_scriptable_object() {
         "m_Script:",
         "m_Name: CYGServerSettings",
     ] {
-        assert!(body.contains(marker), "an asset carries `{marker}`:\n{body}");
+        assert!(
+            body.contains(marker),
+            "an asset carries `{marker}`:\n{body}"
+        );
     }
 
     // The emitted fields are the SDK's fields, this time read off the wire rather than
@@ -2101,7 +2186,10 @@ async fn the_unity_asset_route_answers_with_the_attached_scriptable_object() {
     };
     let mut declared = sdk_serialized_fields();
     declared.sort();
-    assert_eq!(emitted, declared, "the asset writes exactly the SDK's fields:\n{body}");
+    assert_eq!(
+        emitted, declared,
+        "the asset writes exactly the SDK's fields:\n{body}"
+    );
 
     // And the values are this game's: the room the plan defaults to, the capacity its
     // config names, and a protocol revision that is a number the SDK's `ushort` holds.
@@ -2116,7 +2204,10 @@ async fn the_unity_asset_route_answers_with_the_attached_scriptable_object() {
     let protocol: u32 = yaml_field(&body, "protocolVersion")
         .parse()
         .expect("protocolVersion is a number in the emitted asset");
-    assert!(protocol > 0 && protocol <= u32::from(u16::MAX), "{protocol}");
+    assert!(
+        protocol > 0 && protocol <= u32::from(u16::MAX),
+        "{protocol}"
+    );
     assert!(
         yaml_field(&body, "serverHttpUrl").starts_with("http://"),
         "an asset that points at a non-http origin cannot be opened by the SDK's own \
@@ -2170,13 +2261,8 @@ async fn the_unity_settings_json_carries_the_secret_only_when_revealed() {
     );
 
     // Revealed, it is the detail view's answer, and nothing else changes.
-    let (status, _headers, revealed) = fetch_raw(
-        &pool,
-        "GET",
-        &format!("{path}&reveal=true"),
-        &auth,
-    )
-    .await;
+    let (status, _headers, revealed) =
+        fetch_raw(&pool, "GET", &format!("{path}&reveal=true"), &auth).await;
     assert_eq!(status, 200, "{revealed}");
     let value: Value = serde_json::from_str(&revealed).expect("the revealed answer is json");
     let detail = GamesService::get_game(&state, game.id)
@@ -2185,7 +2271,8 @@ async fn the_unity_settings_json_carries_the_secret_only_when_revealed() {
     assert_eq!(value["apiKey"], json!(detail.api_key));
     assert_eq!(value["clientKey"], json!(game.client_key));
     assert_eq!(
-        value["gameKey"], json!(game.game_key),
+        value["gameKey"],
+        json!(game.game_key),
         "revealing changes the secret's presence and nothing else"
     );
 
@@ -2199,14 +2286,19 @@ async fn the_unity_settings_json_carries_the_secret_only_when_revealed() {
                           "auto_close_seconds": 7}}),
     )
     .await;
-    let connection = GamesService::unity_settings(&state, roomy.id, false, &axum::http::HeaderMap::new())
-        .await
-        .expect("an authoritative game has a connection document too");
+    let connection =
+        GamesService::unity_settings(&state, roomy.id, false, &axum::http::HeaderMap::new())
+            .await
+            .expect("an authoritative game has a connection document too");
     let wire = serde_json::to_value(&connection).expect("the connection serializes");
     assert_eq!(wire["maxPlayers"], json!(255), "{wire}");
     assert_eq!(wire["tickRate"], json!(20));
     assert_eq!(wire["persistentRooms"], json!(true));
-    assert_eq!(wire["backendMode"], json!("wasm"), "and a wasm game is honest about being one");
+    assert_eq!(
+        wire["backendMode"],
+        json!("wasm"),
+        "and a wasm game is honest about being one"
+    );
 
     db::forget(&pool, game.id).await;
     db::forget(&pool, roomy.id).await;
@@ -2239,14 +2331,10 @@ async fn the_unity_settings_of_a_missing_game_are_not_found() {
     let Some((state, _pool)) = db::state().await else {
         return skipped_without_database();
     };
-    let err = GamesService::unity_settings(
-        &state,
-        Uuid::new_v4(),
-        false,
-        &axum::http::HeaderMap::new(),
-    )
-    .await
-    .expect_err("no game, no settings");
+    let err =
+        GamesService::unity_settings(&state, Uuid::new_v4(), false, &axum::http::HeaderMap::new())
+            .await
+            .expect_err("no game, no settings");
     assert_eq!(err.kind, NOT_FOUND, "{err:?}");
 }
 

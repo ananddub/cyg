@@ -31,6 +31,12 @@ pub(super) fn read(server: &StaticServer, path: &Path) -> Option<Arc<Vec<u8>>> {
     // Re-read happens on a changed stamp only; on failure nothing is
     // inserted, so the next request stats again instead of serving stale.
     let body = Arc::new(std::fs::read(path).ok()?);
-    cache.insert(path.to_path_buf(), Cached { stamp, body: body.clone() });
+    cache.insert(
+        path.to_path_buf(),
+        Cached {
+            stamp,
+            body: body.clone(),
+        },
+    );
     Some(body)
 }

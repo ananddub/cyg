@@ -70,6 +70,10 @@ pub struct AbiPermissions {
     pub lag_compensation: bool,
     pub logging: bool,
     pub storage: bool,
+    /// Allows the guest to send typed room messages to clients
+    /// (`host_send`). This is separate from logging: a game can be allowed to
+    /// log without being allowed to push arbitrary traffic.
+    pub messaging: bool,
 }
 
 impl Default for AbiPermissions {
@@ -79,6 +83,7 @@ impl Default for AbiPermissions {
             lag_compensation: true,
             logging: true,
             storage: true,
+            messaging: true,
         }
     }
 }

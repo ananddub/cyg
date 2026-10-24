@@ -27,7 +27,11 @@ impl MatchController {
 
     /// List active realtime matches.
     #[get("/match")]
-    async fn list_matches(&self, _auth: Authed, Params(req): Params<ListMatchesParams>) -> Response {
+    async fn list_matches(
+        &self,
+        _auth: Authed,
+        Params(req): Params<ListMatchesParams>,
+    ) -> Response {
         self.service.list_matches(req).into_response()
     }
 

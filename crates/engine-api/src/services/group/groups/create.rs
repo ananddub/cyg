@@ -4,13 +4,13 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::group::{CreateGroupRequest, GroupEnvelope, GroupResponse};
+use crate::error::V2Error;
 use crate::repositories::group::{CreateGroupParams, JoinGroupEdgeParams};
 use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::utils::group::{ROLE_SUPERADMIN, metadata_of};
-use crate::app::middleware::Authed;
 use crate::services::social;
+use crate::utils::group::{ROLE_SUPERADMIN, metadata_of};
 
 use super::{GROUP_CLOSED, GROUP_OPEN, GroupService};
 

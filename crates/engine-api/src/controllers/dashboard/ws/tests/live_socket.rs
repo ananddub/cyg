@@ -13,15 +13,25 @@ use crate::{ApiState, serve};
 async fn a_live_socket_receives_hello_then_a_snapshot() {
     use tokio_tungstenite::connect_async;
 
-    let game = GameConfig { name: "tank-3d".into(), ..GameConfig::default() };
-    let control = ControlConfig { api_port: 0, ..ControlConfig::default() };
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("ephemeral bind");
+    let game = GameConfig {
+        name: "tank-3d".into(),
+        ..GameConfig::default()
+    };
+    let control = ControlConfig {
+        api_port: 0,
+        ..ControlConfig::default()
+    };
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("ephemeral bind");
     let port = listener.local_addr().expect("bound addr").port();
     let state = ApiState::new(Path::new("."), &game, &control, Bus::new(16, 16), port);
     let server = tokio::spawn(serve(listener, state, std::future::pending()));
 
     let url = format!("ws://127.0.0.1:{port}/ws/dashboard");
-    let (mut ws, _) = connect_async(&url).await.expect("dashboard socket connects");
+    let (mut ws, _) = connect_async(&url)
+        .await
+        .expect("dashboard socket connects");
     let hello = next_json(&mut ws).await;
     assert_eq!(hello["type"].as_str(), Some("hello"));
     let snapshot = next_json(&mut ws).await;

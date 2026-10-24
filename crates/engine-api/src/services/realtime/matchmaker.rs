@@ -3,21 +3,23 @@
 //! All state and methods are fully encapsulated on the `RealtimeMatchmakerService` struct as lock-free `FastMap`s,
 //! injected as a singleton via `auto_di` with zero global statics or free functions.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock};
 use auto_di::singleton;
 use auto_ws::{Conn, Msg};
 use chrono::{DateTime, Utc};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, OnceLock};
 use uuid::Uuid;
 
+use super::{
+    FastMap, FastTree, RealtimeMatchService, RealtimePresenceService, new_fast_map, new_fast_tree,
+};
+use crate::controllers::realtime::messages::*;
+use crate::controllers::realtime::{Dispatched, session_of, unwrap_env_err};
 use crate::error::V2Error;
 use crate::infra::ws::envelope::{
     EnvelopeMessage, ErrorMsg, MatchmakerAdd, MatchmakerMatched, MatchmakerUser, Presence,
 };
 use crate::infra::ws::session::{self, Session};
-use crate::controllers::realtime::messages::*;
-use crate::controllers::realtime::{Dispatched, session_of, unwrap_env_err};
-use super::{FastMap, FastTree, new_fast_map, new_fast_tree, RealtimeMatchService, RealtimePresenceService};
 use scc::Guard;
 
 static TICKER_STARTED: OnceLock<()> = OnceLock::new();
@@ -103,7 +105,14 @@ impl RealtimeMatchmakerService {
         string_props: HashMap<String, String>,
         numeric_props: HashMap<String, f64>,
     ) -> Result<String, EnvelopeMessage> {
-        Self::global().add_ticket_internal(s, min_count, max_count, query, string_props, numeric_props)
+        Self::global().add_ticket_internal(
+            s,
+            min_count,
+            max_count,
+            query,
+            string_props,
+            numeric_props,
+        )
     }
 
     pub fn remove_ticket(s: &Arc<Session>, ticket: &str) -> bool {
@@ -215,8 +224,10 @@ impl RealtimeMatchmakerService {
                     }
                 }
                 TermMatcher::Exact(target_str) => {
-                    let equal = strings.get(&term.key).map(|s| s.as_str()) == Some(target_str.as_str())
-                        || numerics.get(&term.key).map(|n| n.to_string()).as_deref() == Some(target_str.as_str());
+                    let equal = strings.get(&term.key).map(|s| s.as_str())
+                        == Some(target_str.as_str())
+                        || numerics.get(&term.key).map(|n| n.to_string()).as_deref()
+                            == Some(target_str.as_str());
                     if term.negated {
                         if equal {
                             return false;
@@ -256,7 +267,11 @@ impl RealtimeMatchmakerService {
     // --- Indexing & Query Term Language Helpers ---
 
     pub fn extract_mode(&self, ticket: &Ticket) -> String {
-        if let Some(m) = ticket.string_props.get("mode").or_else(|| ticket.string_props.get("game_mode")) {
+        if let Some(m) = ticket
+            .string_props
+            .get("mode")
+            .or_else(|| ticket.string_props.get("game_mode"))
+        {
             if !m.is_empty() {
                 return m.clone();
             }
@@ -288,7 +303,11 @@ impl RealtimeMatchmakerService {
             let _ = self.mode_index.insert_sync(mode, bucket);
         }
 
-        if let Some(rank) = ticket.numeric_props.get("rank").or_else(|| ticket.numeric_props.get("mmr")) {
+        if let Some(rank) = ticket
+            .numeric_props
+            .get("rank")
+            .or_else(|| ticket.numeric_props.get("mmr"))
+        {
             let _ = self.rank_index.insert_sync((*rank as i64, ticket.id), ());
         }
     }
@@ -298,7 +317,11 @@ impl RealtimeMatchmakerService {
         if let Some(bucket) = self.mode_index.get_sync(&mode) {
             bucket.remove_sync(&ticket.id);
         }
-        if let Some(rank) = ticket.numeric_props.get("rank").or_else(|| ticket.numeric_props.get("mmr")) {
+        if let Some(rank) = ticket
+            .numeric_props
+            .get("rank")
+            .or_else(|| ticket.numeric_props.get("mmr"))
+        {
             let _ = self.rank_index.remove_sync(&((*rank as i64), ticket.id));
         }
     }
@@ -396,18 +419,18 @@ impl RealtimeMatchmakerService {
         for ticket in &all {
             let waited = (now - ticket.created_at).num_milliseconds();
             oldest = Some(oldest.map_or(ticket.created_at, |o| o.min(ticket.created_at)));
-            groups
-                .entry(ticket.query.clone())
-                .or_default()
-                .push(waited);
+            groups.entry(ticket.query.clone()).or_default().push(waited);
         }
         let mut matchsets: Vec<MatchsetStats> = groups
             .into_iter()
             .map(|(matchset, waits)| MatchsetStats {
                 matchset,
                 ticket_count: waits.len() as i64,
-                oldest_create_time: now - chrono::Duration::milliseconds(waits.iter().copied().min().unwrap_or(0)),
-                avg_wait_secs: waits.iter().copied().sum::<i64>() as f64 / waits.len() as f64 / 1000.0,
+                oldest_create_time: now
+                    - chrono::Duration::milliseconds(waits.iter().copied().min().unwrap_or(0)),
+                avg_wait_secs: waits.iter().copied().sum::<i64>() as f64
+                    / waits.len() as f64
+                    / 1000.0,
             })
             .collect();
         matchsets.sort_by(|a, b| a.matchset.cmp(&b.matchset));
@@ -437,7 +460,9 @@ impl RealtimeMatchmakerService {
         let mut all_used: HashSet<Uuid> = HashSet::new();
 
         for mode in modes {
-            let Some(bucket) = self.mode_index.get_sync(&mode) else { continue };
+            let Some(bucket) = self.mode_index.get_sync(&mode) else {
+                continue;
+            };
             let mut tickets: Vec<Ticket> = Vec::new();
             bucket.iter_sync(|id, _| {
                 if let Some(t) = self.tickets.read_sync(id, |_, t| t.clone()) {
@@ -468,8 +493,15 @@ impl RealtimeMatchmakerService {
                         continue;
                     }
                     let compatible = group.iter().all(|g| {
-                        self.is_compatible(&g.compiled_terms, &candidate.string_props, &candidate.numeric_props)
-                            && self.is_compatible(&candidate.compiled_terms, &g.string_props, &g.numeric_props)
+                        self.is_compatible(
+                            &g.compiled_terms,
+                            &candidate.string_props,
+                            &candidate.numeric_props,
+                        ) && self.is_compatible(
+                            &candidate.compiled_terms,
+                            &g.string_props,
+                            &g.numeric_props,
+                        )
                     }) && (group.len() as i32 + 1) <= candidate.max_count;
                     if compatible {
                         group.push(candidate.clone());
@@ -640,8 +672,18 @@ mod tests {
         svc.index_ticket(&t2);
 
         // Verify mode bucketing in mode_index
-        assert!(svc.mode_index.get_sync("deathmatch").unwrap().contains_sync(&t1.id));
-        assert!(svc.mode_index.get_sync("battle_royale").unwrap().contains_sync(&t2.id));
+        assert!(
+            svc.mode_index
+                .get_sync("deathmatch")
+                .unwrap()
+                .contains_sync(&t1.id)
+        );
+        assert!(
+            svc.mode_index
+                .get_sync("battle_royale")
+                .unwrap()
+                .contains_sync(&t2.id)
+        );
 
         // Verify lock-free range queries via scc::TreeIndex
         let low_rank = svc.find_tickets_in_rank_range(20, 30);
@@ -657,7 +699,12 @@ mod tests {
 
         // Unindex clears both indices
         svc.unindex_ticket(&t1);
-        assert!(!svc.mode_index.get_sync("deathmatch").unwrap().contains_sync(&t1.id));
+        assert!(
+            !svc.mode_index
+                .get_sync("deathmatch")
+                .unwrap()
+                .contains_sync(&t1.id)
+        );
         assert!(svc.find_tickets_in_rank_range(20, 30).is_empty());
     }
 
@@ -681,8 +728,10 @@ mod tests {
         assert!(!svc.is_compatible(&terms, &valid_strings, &high_numerics));
 
         // Banned
-        let banned_strings = HashMap::from([("mode".into(), "ranked".into()), ("banned".into(), "true".into())]);
+        let banned_strings = HashMap::from([
+            ("mode".into(), "ranked".into()),
+            ("banned".into(), "true".into()),
+        ]);
         assert!(!svc.is_compatible(&terms, &banned_strings, &valid_numerics));
     }
 }
-

@@ -6,9 +6,9 @@
 use auto_di::singleton;
 
 use crate::ApiState;
+use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::Leaderboard;
-use crate::error::V2Error;
 
 use crate::utils::leaderboard::types::NOT_FOUND;
 

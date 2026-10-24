@@ -42,4 +42,3 @@ impl Claims {
             .map_err(|_| V2Error::unauthenticated("session token carries an invalid user id"))
     }
 }
-

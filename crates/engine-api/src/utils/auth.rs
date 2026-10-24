@@ -6,10 +6,10 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use crate::repositories::models::Users;
+use crate::dto::session::SessionResponse;
 use crate::error::V2Error;
 use crate::infra::jwt;
-use crate::dto::session::SessionResponse;
+use crate::repositories::models::Users;
 
 /// the entire ban test: a non-zero `disable_time` runs before any
 /// credential check, so a banned account never learns whether its password was right.

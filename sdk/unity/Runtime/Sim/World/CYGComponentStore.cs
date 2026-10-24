@@ -21,6 +21,9 @@ namespace CookYourGame.Sim
         /// <summary>Number of entity slots the store can hold without growing.</summary>
         int Capacity { get; }
 
+        /// <summary>Wire size in bytes of one component value.</summary>
+        int ComponentSize { get; }
+
         /// <summary>Grows the backing arrays so at least <paramref name="capacity"/> slots fit.</summary>
         void EnsureCapacity(int capacity);
 
@@ -29,6 +32,16 @@ namespace CookYourGame.Sim
 
         /// <summary>Removes the component from an entity slot. Returns false if it was absent.</summary>
         bool Remove(int entityIndex);
+
+        /// <summary>
+        /// Reads a component from <paramref name="buffer"/> and adds or replaces
+        /// it on the entity slot. Used by the deferred command buffer so queued
+        /// commands never box their payloads.
+        /// </summary>
+        void SetFromBuffer(int entityIndex, byte[] buffer, int offset);
+
+        /// <summary>Writes the component at a present slot using its generated wire codec.</summary>
+        void CopyComponentToBuffer(int entityIndex, byte[] buffer, int offset);
 
         /// <summary>Replaces this store's contents with a copy of <paramref name="source"/>.</summary>
         void CopyFrom(ICYGComponentStore source);
@@ -123,6 +136,12 @@ namespace CookYourGame.Sim
             get { return _capacity; }
         }
 
+        public int ComponentSize
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get { return default(T).WireSize; }
+        }
+
         public void EnsureCapacity(int capacity)
         {
             if (capacity <= _capacity)
@@ -172,6 +191,48 @@ namespace CookYourGame.Sim
 
             value = default;
             return false;
+        }
+
+        /// <summary>
+        /// Returns a reference to the stored component. The reference is valid
+        /// only while the component is present and the store is not resized.
+        /// </summary>
+        public ref T GetRef(int entityIndex)
+        {
+            if ((uint)entityIndex >= (uint)_capacity || !_present[entityIndex])
+            {
+                throw new InvalidOperationException(
+                    "Entity slot " + entityIndex + " does not have component type " + _typeId + ".");
+            }
+
+            return ref _values[entityIndex];
+        }
+
+        public void SetFromBuffer(int entityIndex, byte[] buffer, int offset)
+        {
+            if (buffer == null)
+            {
+                throw new ArgumentNullException(nameof(buffer));
+            }
+
+            T value = default(T);
+            value.ReadFrom(buffer, offset);
+            Set(entityIndex, value);
+        }
+
+        public void CopyComponentToBuffer(int entityIndex, byte[] buffer, int offset)
+        {
+            if (buffer == null)
+            {
+                throw new ArgumentNullException(nameof(buffer));
+            }
+            if ((uint)entityIndex >= (uint)_capacity || !_present[entityIndex])
+            {
+                throw new InvalidOperationException(
+                    "Entity slot " + entityIndex + " does not have component type " + _typeId + ".");
+            }
+
+            _values[entityIndex].WriteTo(buffer, offset);
         }
 
         /// <summary>Removes the component from an entity slot. Returns false if it was absent.</summary>

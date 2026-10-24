@@ -5,3 +5,7 @@ edition = "2024"
 description = "Core game loop, room lifecycle, sessions, and state management traits"
 
 [dependencies]
+bevy_ecs = { version = "0.15", default-features = false }
+rand = { version = "0.8", default-features = false }
+rand_chacha = "0.3"
+rand_seeder = "0.3"

@@ -11,8 +11,8 @@ use axum::Json;
 use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 
-use crate::current_state;
 use crate::app::middleware::Authed;
+use crate::current_state;
 
 use crate::dto::storage_index::{CreateIndexRequest, IndexQueryRequest};
 use crate::services::storage::StorageService;
@@ -32,7 +32,11 @@ impl StorageIndexController {
     }
 
     #[post("")]
-    async fn create_index(&self, auth: Authed, Json(body): JsonBody<CreateIndexRequest>) -> Response {
+    async fn create_index(
+        &self,
+        auth: Authed,
+        Json(body): JsonBody<CreateIndexRequest>,
+    ) -> Response {
         let state = current_state();
         self.service
             .create_index(&state, &auth, body)
@@ -43,13 +47,19 @@ impl StorageIndexController {
     #[get("")]
     async fn list_indexes(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service.list_indexes(&state, &auth).await.into_response()
+        self.service
+            .list_indexes(&state, &auth)
+            .await
+            .into_response()
     }
 
     #[delete("/{name}")]
     async fn delete_index(&self, auth: Authed, Path(name): Path<String>) -> Response {
         let state = current_state();
-        self.service.delete_index(&state, &auth, &name).await.into_response()
+        self.service
+            .delete_index(&state, &auth, &name)
+            .await
+            .into_response()
     }
 
     #[post("/{name}/query")]

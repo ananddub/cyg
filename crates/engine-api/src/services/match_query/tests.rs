@@ -79,7 +79,10 @@ fn a_limit_out_of_range_is_a_bad_request_before_any_read() {
             })
             .unwrap_err();
         assert_eq!(err.kind, INVALID_ARGUMENT);
-        assert_eq!(err.message, "Invalid limit - limit must be between 1 and 100.");
+        assert_eq!(
+            err.message,
+            "Invalid limit - limit must be between 1 and 100."
+        );
     }
 }
 
@@ -136,7 +139,10 @@ fn a_created_match_is_listed_by_id_and_a_terminated_match_is_gone() {
 
     assert!(RealtimeMatchService::terminate_match(id));
     assert!(RealtimeMatchService::get_snapshot(id).is_none());
-    assert!(!RealtimeMatchService::terminate_match(id), "terminating a gone match is a second no-op");
+    assert!(
+        !RealtimeMatchService::terminate_match(id),
+        "terminating a gone match is a second no-op"
+    );
 }
 
 #[test]

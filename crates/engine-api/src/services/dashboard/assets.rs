@@ -1,4 +1,3 @@
-
 use std::path::Path;
 
 use axum::http::StatusCode;
@@ -25,8 +24,8 @@ pub fn serve_index(root: Option<&Path>) -> axum::response::Response {
 pub fn serve_asset(root: Option<&Path>, rest: &str) -> axum::response::Response {
     const IMMUTABLE: &str = "public, max-age=31536000, immutable";
     if let Some(dist_dir) = root {
-        let path =
-            path_guard::child_under(dist_dir, rest).or_else(|| path_guard::child_under(dist_dir, &format!("assets/{rest}")));
+        let path = path_guard::child_under(dist_dir, rest)
+            .or_else(|| path_guard::child_under(dist_dir, &format!("assets/{rest}")));
         if let Some(path) = path
             && let Ok(body) = std::fs::read(&path)
         {
@@ -35,7 +34,9 @@ pub fn serve_asset(root: Option<&Path>, rest: &str) -> axum::response::Response 
         }
     }
     let clean_rest = rest.trim_start_matches('/');
-    if let Some(file) = EmbeddedDashboard::get(clean_rest).or_else(|| EmbeddedDashboard::get(&format!("assets/{clean_rest}"))) {
+    if let Some(file) = EmbeddedDashboard::get(clean_rest)
+        .or_else(|| EmbeddedDashboard::get(&format!("assets/{clean_rest}")))
+    {
         let mime = crate::utils::static_routes::content_type_for(clean_rest);
         return responses::file_response(file.data.into_owned(), mime, IMMUTABLE);
     }

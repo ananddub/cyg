@@ -4,9 +4,10 @@ using UnityEngine;
 namespace CookYourGame.Sim
 {
     /// <summary>
-    /// Quick test harness component for testing deterministic quantum simulation and view interpolation.
-    /// Can be dropped into any empty Unity scene to test local movement, remote input replication,
-    /// and rollback prediction without running an external server.
+    /// Quick test harness for the ECS simulation and view interpolation.
+    /// Drop it into an empty scene to exercise local movement, a scripted
+    /// remote player, redundant input packets and rollback resimulation
+    /// without an external server.
     /// </summary>
     [AddComponentMenu("CookYourGame/Sim/CYG Sim Test Harness")]
     public class CYGSimTestHarness : MonoBehaviour
@@ -15,21 +16,18 @@ namespace CookYourGame.Sim
         [Tooltip("Automatically spawns a ground visual plane if missing in scene.")]
         [SerializeField] private bool createGroundPlane = true;
 
-        [Tooltip("Prefab for spawned player entities (leave null to use default cubes).")]
-        [SerializeField] private GameObject playerPrefab;
+        [Tooltip("Remote bot player id used by this harness.")]
+        [SerializeField] private int botPlayerId = 2;
 
         [Header("Test Controls")]
         [SerializeField] private bool showTestGUI = true;
 
         private CYGDeterministicRunner _runner;
-        private int _dummyRemotePlayerId = 2;
-        private float _remoteBotMoveTimer = 0f;
+        private float _remoteBotMoveTimer;
         private bool _botMovingRight = true;
 
         private void Start()
         {
-            // 1. Locate or create CYGDeterministicRunner. FindFirstObjectByType
-            // is Unity 2022.2+ but the package declares 2021.3 support.
 #if UNITY_2022_2_OR_NEWER
             _runner = FindFirstObjectByType<CYGDeterministicRunner>();
 #else
@@ -41,7 +39,6 @@ namespace CookYourGame.Sim
                 _runner = runnerGo.AddComponent<CYGDeterministicRunner>();
             }
 
-            // 2. Optionally create visual ground plane at Y = 0
             if (createGroundPlane && GameObject.Find("Sim_GroundPlane") == null)
             {
                 GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
@@ -49,56 +46,62 @@ namespace CookYourGame.Sim
                 ground.transform.position = Vector3.zero;
                 ground.transform.localScale = new Vector3(3f, 1f, 3f);
 
-                // Give it a dark grid-like material if available
-                Renderer rend = ground.GetComponent<Renderer>();
-                if (rend != null)
+                Renderer renderer = ground.GetComponent<Renderer>();
+                if (renderer != null)
                 {
-                    rend.material.color = new Color(0.2f, 0.22f, 0.25f);
+                    renderer.material.color = new Color(0.2f, 0.22f, 0.25f);
                 }
             }
         }
 
-        private void Update()
+        private void LateUpdate()
         {
-            // Simulate bot input if remote dummy player is active
-            if (_runner != null && _runner.RollbackRunner != null)
+            if (_runner == null || _runner.Session == null)
             {
-                if (_runner.RollbackRunner.TryGetEntityState(_dummyRemotePlayerId, out _))
-                {
-                    _remoteBotMoveTimer += Time.deltaTime;
-                    if (_remoteBotMoveTimer > 1.5f)
-                    {
-                        _remoteBotMoveTimer = 0f;
-                        _botMovingRight = !_botMovingRight;
-                    }
-
-                    short botX = (short)(_botMovingRight ? 600 : -600);
-                    CYGPlayerInput botInput = new CYGPlayerInput(_runner.CurrentSimTick, 0, botX, 0);
-                    _runner.RollbackRunner.OnRemoteInputReceived(_dummyRemotePlayerId, botInput);
-                }
+                return;
             }
+
+            if (!_runner.TryFindEntityByPlayerId(botPlayerId, out _))
+            {
+                return;
+            }
+
+            _remoteBotMoveTimer += Time.deltaTime;
+            if (_remoteBotMoveTimer > 1.5f)
+            {
+                _remoteBotMoveTimer = 0f;
+                _botMovingRight = !_botMovingRight;
+            }
+
+            short botX = (short)(_botMovingRight ? 600 : -600);
+            CYGPlayerInput botInput = new CYGPlayerInput(
+                _runner.CurrentSimTick,
+                0,
+                botX,
+                0);
+            _runner.InjectPlayerInput(botPlayerId, in botInput);
         }
 
         private void OnGUI()
         {
             if (!showTestGUI || _runner == null) return;
 
-            GUILayout.BeginArea(new Rect(Screen.width - 240, 10, 230, 200), GUI.skin.box);
-            GUILayout.Label("<b>reference Sim Test Harness</b>");
+            GUILayout.BeginArea(new Rect(Screen.width - 250, 10, 240, 220), GUI.skin.box);
+            GUILayout.Label("<b>ECS Sim Test Harness</b>");
 
             if (GUILayout.Button("Spawn Remote Dummy Player"))
             {
                 SpawnRemoteDummy();
             }
 
-            if (GUILayout.Button("Simulate Rollback (-5 ticks)"))
+            if (GUILayout.Button("Late Input (-5 ticks, rollback)"))
             {
                 InjectSimulatedRollback();
             }
 
-            if (GUILayout.Button("Reset Simulation"))
+            if (GUILayout.Button("Teleport Local Player"))
             {
-                _runner.RollbackRunner.Reset(0);
+                TeleportLocalPlayer();
             }
 
             GUILayout.Space(10);
@@ -108,23 +111,40 @@ namespace CookYourGame.Sim
 
         private void SpawnRemoteDummy()
         {
-            if (_runner == null || _runner.RollbackRunner == null) return;
+            if (_runner == null || _runner.Session == null) return;
 
-            if (!_runner.RollbackRunner.TryGetEntityState(_dummyRemotePlayerId, out _))
+            if (_runner.TryFindEntityByPlayerId(botPlayerId, out _))
             {
-                FPVector3 spawnPos = new FPVector3(FP.FromInt(3), FP.FromInt(1), FP.Zero);
-                _runner.RollbackRunner.SetEntityState(new CYGEntityState(_dummyRemotePlayerId, spawnPos));
+                return;
             }
+
+            _runner.SpawnPlayer(botPlayerId, new Vector3(3f, 1f, 0f));
         }
 
         private void InjectSimulatedRollback()
         {
-            if (_runner == null || _runner.RollbackRunner == null) return;
+            if (_runner == null || _runner.Session == null) return;
 
             int pastTick = Math.Max(0, _runner.CurrentSimTick - 5);
-            // Send dummy player jump input at a past tick to trigger resimulation
-            CYGPlayerInput lateInput = new CYGPlayerInput(pastTick, CYGPlayerInput.ButtonJump, 0, 0);
-            _runner.RollbackRunner.OnRemoteInputReceived(_dummyRemotePlayerId, lateInput);
+            CYGPlayerInput lateInput = new CYGPlayerInput(
+                pastTick,
+                CYGPlayerInput.ButtonJump,
+                0,
+                0);
+            _runner.InjectPlayerInput(botPlayerId, in lateInput);
+        }
+
+        private void TeleportLocalPlayer()
+        {
+            if (_runner == null || _runner.World == null) return;
+
+            CYGSimAgent agent;
+            if (_runner.World.TryGet(_runner.LocalEntity, out agent))
+            {
+                agent.Position = new FPVector3(FP.Zero, FP.FromInt(3), FP.Zero);
+                agent.Velocity = FPVector3.Zero;
+                _runner.World.Set(_runner.LocalEntity, agent);
+            }
         }
     }
 }

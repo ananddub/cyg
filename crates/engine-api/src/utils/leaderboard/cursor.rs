@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::types::BAD_CURSOR;
-use crate::repositories::models::LeaderboardRecord;
 use crate::error::V2Error;
+use crate::repositories::models::LeaderboardRecord;
 use crate::services::social::{cursor_decode, cursor_encode, uid};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

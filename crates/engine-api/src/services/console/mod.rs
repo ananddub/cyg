@@ -9,11 +9,11 @@ use auto_di::singleton;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::error::V2Error;
 use crate::repositories::console_mutations::InsertAuditLogParams;
 use crate::repositories::db::Queries;
-use crate::ApiState;
 
 pub mod account;
 pub mod audit;
@@ -22,9 +22,9 @@ pub mod board;
 pub mod group;
 pub mod iap;
 pub mod leaderboard;
+pub mod manual;
 #[path = "match.rs"]
 pub mod matches;
-pub mod manual;
 pub mod mfa;
 pub mod notification;
 pub mod setting;

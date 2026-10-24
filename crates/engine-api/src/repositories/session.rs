@@ -4,17 +4,14 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use super::models::*;
 use super::db::Queries;
+use super::models::*;
 
 impl Queries {
     /// GetUserTombstone
-    pub async fn get_user_tombstone(
-        &self,
-        user_id: Uuid,
-    ) -> Result<UserTombstone, sqlx::Error> {
+    pub async fn get_user_tombstone(&self, user_id: Uuid) -> Result<UserTombstone, sqlx::Error> {
         sqlx::query_as::<_, UserTombstone>(
-            "SELECT user_id, create_time FROM user_tombstone WHERE user_id = $1;"
+            "SELECT user_id, create_time FROM user_tombstone WHERE user_id = $1;",
         )
         .bind(user_id)
         .fetch_one(&self.pool)
@@ -22,17 +19,11 @@ impl Queries {
     }
 
     /// DeleteUserTombstone
-    pub async fn delete_user_tombstone(
-        &self,
-        user_id: Uuid,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM user_tombstone WHERE user_id = $1;"
-        )
-        .bind(user_id)
-        .execute(&self.pool)
-        .await?;
+    pub async fn delete_user_tombstone(&self, user_id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM user_tombstone WHERE user_id = $1;")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
-
 }

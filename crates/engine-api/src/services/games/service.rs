@@ -17,13 +17,13 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::dto::console::games::{
-    CreateGameRequest, ENGINE_TYPES, GAME_STATUSES, GameConfig, GameDto, GameDetailDto,
-    GameListDto, GameRow, UpdateGameRequest, UnityConnectionDto,
+    CreateGameRequest, ENGINE_TYPES, GAME_STATUSES, GameConfig, GameDetailDto, GameDto,
+    GameListDto, GameRow, UnityConnectionDto, UpdateGameRequest,
 };
 use crate::error::V2Error;
 use crate::utils::status::client_host;
-use crate::ApiState;
 
 use super::schema::DEFAULT_GAME_CONFIG_JSON;
 
@@ -78,11 +78,11 @@ RETURNING id, game_key, name, client_key, engine_type, backend_mode, status, con
 
 /// `DELETE /v2/console/games/{gameId}` — a soft delete. The row and, through it, its
 /// modules survive, so a game's history is still readable after it is retired.
-const ARCHIVE_GAME: &str = "UPDATE games SET status = 'archived', updated_at = NOW() WHERE id = $1;";
+const ARCHIVE_GAME: &str =
+    "UPDATE games SET status = 'archived', updated_at = NOW() WHERE id = $1;";
 
 /// The version a room should boot at: the newest one flagged active.
-const SELECT_ACTIVE_MODULE_VERSION: &str =
-    "SELECT version FROM room_modules WHERE game_id = $1 AND is_active ORDER BY version DESC LIMIT 1;";
+const SELECT_ACTIVE_MODULE_VERSION: &str = "SELECT version FROM room_modules WHERE game_id = $1 AND is_active ORDER BY version DESC LIMIT 1;";
 
 const SELECT_MODULE_COUNT: &str =
     "SELECT COUNT(*)::BIGINT AS total FROM room_modules WHERE game_id = $1;";
@@ -206,8 +206,8 @@ impl GamesService {
         headers: &HeaderMap,
     ) -> Result<UnityConnectionDto, V2Error> {
         let detail = Self::get_game(state, game_id).await?;
-        let config = serde_json::from_value::<GameConfig>(detail.config.clone())
-            .unwrap_or_default();
+        let config =
+            serde_json::from_value::<GameConfig>(detail.config.clone()).unwrap_or_default();
         Ok(UnityConnectionDto {
             game_key: detail.game_key,
             client_key: detail.client_key,
@@ -229,24 +229,12 @@ impl GamesService {
         game_id: Uuid,
         body: &UpdateGameRequest,
     ) -> Result<GameDto, V2Error> {
-        let name = body
-            .name
-            .as_deref()
-            .map(game_name)
-            .transpose()?;
-        let engine = body
-            .engine_type
-            .as_deref()
-            .map(engine_type)
-            .transpose()?;
+        let name = body.name.as_deref().map(game_name).transpose()?;
+        let engine = body.engine_type.as_deref().map(engine_type).transpose()?;
         // A patch that changes the engine moves the game between the relay and the
         // WASM planes, so the mode rides along with it; every other patch leaves it.
         let backend = engine.as_deref().map(backend_mode_for_engine);
-        let status = body
-            .status
-            .as_deref()
-            .map(game_status)
-            .transpose()?;
+        let status = body.status.as_deref().map(game_status).transpose()?;
         let config = config_value(body.config.as_ref())?;
         if name.is_none() && engine.is_none() && status.is_none() && config.is_none() {
             return Err(V2Error::invalid_argument(
@@ -297,7 +285,10 @@ impl GamesService {
 
     /// A game by its tenant key, if it has one. `None` is not an error: an unknown key
     /// is an authentication failure, not a missing row a client could go look up.
-    pub async fn find_game_by_key(state: &ApiState, game_key: &str) -> Result<Option<GameRow>, V2Error> {
+    pub async fn find_game_by_key(
+        state: &ApiState,
+        game_key: &str,
+    ) -> Result<Option<GameRow>, V2Error> {
         sqlx::query_as::<_, GameRow>(SELECT_GAME_BY_KEY)
             .bind(game_key)
             .fetch_optional(pool(state)?)
@@ -440,7 +431,13 @@ fn config_value(raw: Option<&serde_json::Value>) -> Result<Option<serde_json::Va
 fn game_key(name: &str) -> String {
     let slug: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
         .take(50)
         .collect();
@@ -499,8 +496,16 @@ fn advertised_base_url(state: &ApiState, headers: &HeaderMap) -> String {
         .get("x-forwarded-proto")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    let scheme = if forwarded.trim().eq_ignore_ascii_case("https") { "https" } else { "http" };
-    format!("{scheme}://{}:{}", client_host(headers), state.control_port())
+    let scheme = if forwarded.trim().eq_ignore_ascii_case("https") {
+        "https"
+    } else {
+        "http"
+    };
+    format!(
+        "{scheme}://{}:{}",
+        client_host(headers),
+        state.control_port()
+    )
 }
 
 /// What a create writes into `config`: the document the caller named, or the column's

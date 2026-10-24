@@ -2,11 +2,11 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 use serde_json::Value;
+use uuid::Uuid;
 
-use super::models::*;
 use super::db::Queries;
+use super::models::*;
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct ListUserEdgesByStateRow {
@@ -113,10 +113,7 @@ pub struct IncrementPairEdgeCountParams {
 
 impl Queries {
     /// AddFriendEdge
-    pub async fn add_friend_edge(
-        &self,
-        params: &AddFriendEdgeParams,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn add_friend_edge(&self, params: &AddFriendEdgeParams) -> Result<(), sqlx::Error> {
         sqlx::query(
             "INSERT INTO user_edge (source_id, destination_id, state, position, metadata) VALUES ($1, $2, $3, $4, '{}'::jsonb) ON CONFLICT (source_id, destination_id) DO UPDATE SET state = $3, update_time = now();"
         )
@@ -146,10 +143,7 @@ impl Queries {
     }
 
     /// BlockUserEdges
-    pub async fn block_user_edges(
-        &self,
-        params: &BlockUserEdgesParams,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn block_user_edges(&self, params: &BlockUserEdgesParams) -> Result<(), sqlx::Error> {
         sqlx::query(
             "INSERT INTO user_edge (source_id, destination_id, state, position, metadata) VALUES ($1, $2, 3, $3, '{}'::jsonb) ON CONFLICT (source_id, destination_id) DO UPDATE SET state = 3, update_time = now();"
         )
@@ -199,7 +193,7 @@ impl Queries {
         destination_id: Uuid,
     ) -> Result<i16, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, i16>(
-            "SELECT state FROM user_edge WHERE source_id = $1 AND destination_id = $2;"
+            "SELECT state FROM user_edge WHERE source_id = $1 AND destination_id = $2;",
         )
         .bind(source_id)
         .bind(destination_id)
@@ -214,7 +208,7 @@ impl Queries {
         id: Uuid,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE users SET edge_count = edge_count + $1, update_time = now() WHERE id = $2;"
+            "UPDATE users SET edge_count = edge_count + $1, update_time = now() WHERE id = $2;",
         )
         .bind(edge_count_delta)
         .bind(id)
@@ -296,7 +290,7 @@ impl Queries {
         destination_id: Uuid,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "DELETE FROM user_edge WHERE source_id = $1 AND destination_id = $2 AND state <> 3;"
+            "DELETE FROM user_edge WHERE source_id = $1 AND destination_id = $2 AND state <> 3;",
         )
         .bind(source_id)
         .bind(destination_id)
@@ -391,14 +385,11 @@ impl Queries {
         source_id: Uuid,
         destination_id: Uuid,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM user_edge WHERE source_id = $1 AND destination_id = $2;"
-        )
-        .bind(source_id)
-        .bind(destination_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("DELETE FROM user_edge WHERE source_id = $1 AND destination_id = $2;")
+            .bind(source_id)
+            .bind(destination_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
-
 }

@@ -4,12 +4,12 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::services::auth::q;
+use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::user::{GetUsersQuery, UserListResponse};
 use crate::error::V2Error;
-use crate::app::middleware::Authed;
+use crate::services::auth::q;
 use crate::services::social::tokens;
-use crate::ApiState;
 
 use crate::utils::user::{public_view, push_found};
 
@@ -37,7 +37,11 @@ impl super::UserService {
         let usernames = tokens(req.usernames.as_ref());
         let facebook_ids = tokens(req.facebook_ids.as_ref());
         let custom_ids = tokens(req.custom_ids.as_ref());
-        if ids.is_empty() && usernames.is_empty() && facebook_ids.is_empty() && custom_ids.is_empty() {
+        if ids.is_empty()
+            && usernames.is_empty()
+            && facebook_ids.is_empty()
+            && custom_ids.is_empty()
+        {
             return Ok(Json(UserListResponse { users: Vec::new() }));
         }
 
@@ -81,8 +85,8 @@ impl super::UserService {
             sqlx::Error::RowNotFound => V2Error::not_found("User account not found."),
             other => V2Error::from_sqlx(other),
         })?;
-        let view = public_view(&user)
-            .ok_or_else(|| V2Error::not_found("User account not found."))?;
+        let view =
+            public_view(&user).ok_or_else(|| V2Error::not_found("User account not found."))?;
         Ok(Json(UserListResponse { users: vec![view] }))
     }
 }

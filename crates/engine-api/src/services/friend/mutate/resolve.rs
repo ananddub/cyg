@@ -3,8 +3,8 @@
 use uuid::Uuid;
 
 use crate::dto::friend::TargetsQuery;
-use crate::repositories::db::Queries;
 use crate::error::V2Error;
+use crate::repositories::db::Queries;
 use crate::services::social::{self, tokens};
 
 /// `None` is the "nothing was asked for, answer empty success"; an empty `Vec` is

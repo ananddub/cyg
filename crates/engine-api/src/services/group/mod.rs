@@ -5,9 +5,9 @@
 
 use uuid::Uuid;
 
+use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::Groups;
-use crate::error::V2Error;
 
 pub mod groups;
 pub mod members;

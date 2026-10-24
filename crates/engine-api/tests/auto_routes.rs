@@ -28,8 +28,12 @@ fn state() -> engine_api::ApiState {
         game: Arc::new(game),
         control: Arc::new(control),
         signals: engine_api::infra::signaling::SignalHub::new("[]".into()),
-        seats: Arc::new(Mutex::new(engine_api::infra::seats::SeatRegistry::new("test-secret"))),
-        limiter: Arc::new(Mutex::new(engine_api::infra::rate_limit::IpRateLimiter::new(20, 40))),
+        seats: Arc::new(Mutex::new(engine_api::infra::seats::SeatRegistry::new(
+            "test-secret",
+        ))),
+        limiter: Arc::new(Mutex::new(
+            engine_api::infra::rate_limit::IpRateLimiter::new(20, 40),
+        )),
         port: 8124,
         status_rx: Arc::new(engine_api::OnceReceiver::new(bus.status_rx.clone())),
         latest_status: Arc::new(Mutex::new(None)),
@@ -37,7 +41,9 @@ fn state() -> engine_api::ApiState {
         started: Instant::now(),
         db: None,
         q: None,
-        sessions: Arc::new(engine_api::infra::session_cache::SessionCache::new(60, 3600)),
+        sessions: Arc::new(engine_api::infra::session_cache::SessionCache::new(
+            60, 3600,
+        )),
     }
 }
 
@@ -54,7 +60,13 @@ async fn auto_registered_health_route_dispatches() {
 
     // The migrated surface: same paths as before, now registered by
     // `#[controller]` instead of a hand-written router per group.
-    for path in ["/status", "/api/rooms", "/health", "/v2/user", "/v2/inventory"] {
+    for path in [
+        "/status",
+        "/api/rooms",
+        "/health",
+        "/v2/user",
+        "/v2/inventory",
+    ] {
         let response = app
             .clone()
             .oneshot(Request::get(path).body(Body::empty()).unwrap())
@@ -160,8 +172,14 @@ async fn every_migrated_path_is_still_registered() {
         ("POST", "/v2/storage"),
         ("PUT", "/v2/storage/delete"),
         ("GET", "/v2/storage/collection"),
-        ("GET", "/v2/storage/collection/00000000-0000-0000-0000-000000000000"),
-        ("GET", "/v2/storage/collection/key/00000000-0000-0000-0000-000000000000"),
+        (
+            "GET",
+            "/v2/storage/collection/00000000-0000-0000-0000-000000000000",
+        ),
+        (
+            "GET",
+            "/v2/storage/collection/key/00000000-0000-0000-0000-000000000000",
+        ),
         // v2 inventory
         ("GET", "/v2/inventory"),
         ("POST", "/v2/inventory/equip"),
@@ -240,9 +258,18 @@ async fn every_migrated_path_is_still_registered() {
         ("POST", "/v2/console/authenticate"),
         ("POST", "/v2/console/authenticate/logout"),
         ("GET", "/v2/console/account"),
-        ("GET", "/v2/console/account/00000000-0000-0000-0000-000000000000"),
-        ("GET", "/v2/console/account/00000000-0000-0000-0000-000000000000/note"),
-        ("GET", "/v2/console/account/00000000-0000-0000-0000-000000000000/wallet"),
+        (
+            "GET",
+            "/v2/console/account/00000000-0000-0000-0000-000000000000",
+        ),
+        (
+            "GET",
+            "/v2/console/account/00000000-0000-0000-0000-000000000000/note",
+        ),
+        (
+            "GET",
+            "/v2/console/account/00000000-0000-0000-0000-000000000000/wallet",
+        ),
         ("GET", "/v2/console/user"),
         ("GET", "/v2/console/group"),
         ("GET", "/v2/console/group/g"),
@@ -271,39 +298,87 @@ async fn every_migrated_path_is_still_registered() {
         ("DELETE", "/v2/console/mfa"),
         // v2 console (mutations)
         ("POST", "/v2/console/account/import"),
-        ("DELETE", "/v2/console/account/00000000-0000-0000-0000-000000000000"),
-        ("GET", "/v2/console/account/00000000-0000-0000-0000-000000000000/export"),
-        ("POST", "/v2/console/account/00000000-0000-0000-0000-000000000000/ban"),
-        ("POST", "/v2/console/account/00000000-0000-0000-0000-000000000000/unban"),
-        ("POST", "/v2/console/account/00000000-0000-0000-0000-000000000000/note"),
+        (
+            "DELETE",
+            "/v2/console/account/00000000-0000-0000-0000-000000000000",
+        ),
+        (
+            "GET",
+            "/v2/console/account/00000000-0000-0000-0000-000000000000/export",
+        ),
+        (
+            "POST",
+            "/v2/console/account/00000000-0000-0000-0000-000000000000/ban",
+        ),
+        (
+            "POST",
+            "/v2/console/account/00000000-0000-0000-0000-000000000000/unban",
+        ),
+        (
+            "POST",
+            "/v2/console/account/00000000-0000-0000-0000-000000000000/note",
+        ),
         (
             "DELETE",
             "/v2/console/account/00000000-0000-0000-0000-000000000000/note/00000000-0000-0000-0000-000000000000",
         ),
-        ("POST", "/v2/console/account/00000000-0000-0000-0000-000000000000/wallet"),
+        (
+            "POST",
+            "/v2/console/account/00000000-0000-0000-0000-000000000000/wallet",
+        ),
         ("POST", "/v2/console/user"),
-        ("PUT", "/v2/console/user/00000000-0000-0000-0000-000000000000"),
-        ("DELETE", "/v2/console/user/00000000-0000-0000-0000-000000000000"),
-        ("POST", "/v2/console/user/00000000-0000-0000-0000-000000000000/password"),
-        ("POST", "/v2/console/user/00000000-0000-0000-0000-000000000000/disable"),
-        ("POST", "/v2/console/user/00000000-0000-0000-0000-000000000000/enable"),
-        ("DELETE", "/v2/console/user/00000000-0000-0000-0000-000000000000/mfa"),
-        ("DELETE", "/v2/console/group/00000000-0000-0000-0000-000000000000"),
+        (
+            "PUT",
+            "/v2/console/user/00000000-0000-0000-0000-000000000000",
+        ),
+        (
+            "DELETE",
+            "/v2/console/user/00000000-0000-0000-0000-000000000000",
+        ),
+        (
+            "POST",
+            "/v2/console/user/00000000-0000-0000-0000-000000000000/password",
+        ),
+        (
+            "POST",
+            "/v2/console/user/00000000-0000-0000-0000-000000000000/disable",
+        ),
+        (
+            "POST",
+            "/v2/console/user/00000000-0000-0000-0000-000000000000/enable",
+        ),
+        (
+            "DELETE",
+            "/v2/console/user/00000000-0000-0000-0000-000000000000/mfa",
+        ),
+        (
+            "DELETE",
+            "/v2/console/group/00000000-0000-0000-0000-000000000000",
+        ),
         (
             "DELETE",
             "/v2/console/storage/object/c/k/00000000-0000-0000-0000-000000000000",
         ),
         ("DELETE", "/v2/console/storage/collection/c"),
         ("POST", "/v2/console/notification"),
-        ("DELETE", "/v2/console/notification/00000000-0000-0000-0000-000000000000"),
+        (
+            "DELETE",
+            "/v2/console/notification/00000000-0000-0000-0000-000000000000",
+        ),
         ("POST", "/v2/console/iap/apple/validate"),
         ("DELETE", "/v2/console/iap/apple/reset"),
         ("DELETE", "/v2/console/subscription/season-pass"),
         ("PUT", "/v2/console/setting"),
         ("DELETE", "/v2/console/setting/example"),
         ("POST", "/v2/console/acl/template"),
-        ("PUT", "/v2/console/acl/template/00000000-0000-0000-0000-000000000000"),
-        ("DELETE", "/v2/console/acl/template/00000000-0000-0000-0000-000000000000"),
+        (
+            "PUT",
+            "/v2/console/acl/template/00000000-0000-0000-0000-000000000000",
+        ),
+        (
+            "DELETE",
+            "/v2/console/acl/template/00000000-0000-0000-0000-000000000000",
+        ),
     ];
 
     let mut paths: Vec<&str> = routes.iter().map(|(_, path)| *path).collect();

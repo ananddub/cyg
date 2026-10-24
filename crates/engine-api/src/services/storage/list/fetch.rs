@@ -3,13 +3,13 @@
 
 use uuid::Uuid;
 
-use crate::utils::storage::StorageRow;
 use crate::error::V2Error;
+use crate::utils::storage::StorageRow;
 
+use super::cursor::Resumed;
 use super::statements::{
     OWN_FIRST, OWN_NEXT, PUBLIC_ALL_FIRST, PUBLIC_ALL_NEXT, PUBLIC_USER_FIRST, PUBLIC_USER_NEXT,
 };
-use super::cursor::Resumed;
 
 #[derive(Clone, Copy)]
 pub(super) enum Listing {

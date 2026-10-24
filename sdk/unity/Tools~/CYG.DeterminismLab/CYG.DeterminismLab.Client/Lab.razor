@@ -1,0 +1,373 @@
+@using System.Diagnostics
+@using System.Runtime.InteropServices
+@inject HttpClient Http
+@inject IJSRuntime JS
+@implements IDisposable
+
+<main class="shell">
+    <header class="hero">
+        <div class="hero-copy">
+            <p class="eyebrow">CookYourGame / Sim</p>
+            <h1>Determinism Lab</h1>
+            <p class="sub">
+                Same fixed-point math, different devices. Ye page browser ke andar 10,000 operations
+                chalata hai aur result server par report karta hai.
+            </p>
+            <p class="hint">Dusre device par yehi URL kholo (same network): <code>@_origin</code></p>
+        </div>
+        <div class="verdict @VerdictClass">
+            <span class="dot"></span>
+            <span>@VerdictText</span>
+        </div>
+    </header>
+
+    <section class="grid">
+        <article class="card">
+            <div class="card-head">
+                <h2>This browser</h2>
+                <span class="tag">WASM</span>
+            </div>
+
+            @if (_running && _local is null)
+            {
+                <p class="muted">Running the golden vector...</p>
+            }
+            else if (_local is null)
+            {
+                <p class="error">@(_localError ?? "Probe did not run.")</p>
+            }
+            else
+            {
+                <dl class="stats">
+                    <div><dt>Runtime</dt><dd>@_local.Runtime / @_local.Architecture</dd></div>
+                    <div><dt>Platform</dt><dd>@_local.Platform / @_local.Language</dd></div>
+                    <div><dt>CRC-32</dt><dd class="mono">@_local.CrcHex</dd></div>
+                    <div><dt>FNV-1a 64</dt><dd class="mono">@_local.FnvHex</dd></div>
+                    <div><dt>Expected</dt><dd class="mono">@ExpectedCrcHex / @ExpectedFnvHex</dd></div>
+                    <div><dt>Elapsed</dt><dd>@_local.ElapsedMs ms</dd></div>
+                </dl>
+                <p class="status @(_local.Ok ? "ok" : "bad")">
+                    @(_local.Ok
+                        ? "PASS - this build matches the pinned golden vector"
+                        : "FAIL - this build differs from the golden vector")
+                </p>
+            }
+        </article>
+
+        <article class="card">
+            <div class="card-head">
+                <h2>Report this device</h2>
+            </div>
+
+            <label class="field-label" for="device-label">Device label</label>
+            <div class="row">
+                <input id="device-label" @bind="_label" @bind:event="oninput" maxlength="64" />
+                <button class="primary" @onclick="RunAndReportAsync" disabled="@_running">
+                    @(_running ? "Running..." : "Run again")
+                </button>
+            </div>
+            <p class="muted">
+                Label is saved in this browser. Re-running replaces this browser's report;
+                other devices are untouched.
+            </p>
+            @if (_postError is not null)
+            {
+                <p class="error">@_postError</p>
+            }
+        </article>
+    </section>
+
+    <section class="card table-card">
+        <div class="card-head">
+            <h2>Collected devices</h2>
+            <span class="muted">@(_summary?.Count ?? 0) reported / auto-refresh 2s</span>
+        </div>
+
+        @if (_reports.Count == 0)
+        {
+            <p class="empty">Abhi koi report nahi aayi. Phone ya tablet par yehi page kholo.</p>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>Runtime / platform</th>
+                            <th>CRC-32</th>
+                            <th>FNV-1a 64</th>
+                            <th>Status</th>
+                            <th>Last seen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (DeviceReport report in _reports)
+                        {
+                            <tr class="@(report.Ok ? "" : "row-bad")">
+                                <td class="device-name">@report.Label</td>
+                                <td>
+                                    <div>@report.Runtime</div>
+                                    <div class="muted small">@report.Platform</div>
+                                    <div class="ua" title="@report.UserAgent">@ShortUa(report.UserAgent)</div>
+                                </td>
+                                <td class="mono">@report.CrcHex</td>
+                                <td class="mono">@report.FnvHex</td>
+                                <td>
+                                    <span class="pill @(report.Ok ? "pill-ok" : "pill-bad")">
+                                        @(report.Ok ? "MATCH" : "MISMATCH")
+                                    </span>
+                                </td>
+                                <td>@(report.LastSeenUtc.ToLocalTime().ToString("HH:mm:ss"))</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <footer class="footer">
+        <span>Same CRC + FNV on every row = bit-identical fixed-point math on those devices.</span>
+        <span class="muted">Expected: @ExpectedCrcHex / @ExpectedFnvHex / @Iterations ops / seed @Seed</span>
+    </footer>
+</main>
+
+@code {
+    private const int Iterations = CYGDeterminismProbe.DefaultIterations;
+    private const uint Seed = CYGDeterminismProbe.DefaultSeed;
+    private const uint ExpectedCrc32 = CYGDeterminismProbe.GoldenCrc32;
+    private const ulong ExpectedFnv1a64 = CYGDeterminismProbe.GoldenFnv1a64;
+    private const string ExpectedCrcHex = "0xE9D6E0FF";
+    private const string ExpectedFnvHex = "0x76E67011297DCBA1";
+
+    private bool _started;
+    private bool _running;
+    private bool _disposed;
+    private string _deviceId = "";
+    private string _label = "";
+    private string _origin = "";
+    private string? _localError;
+    private string? _postError;
+    private LocalReport? _local;
+    private List<DeviceReport> _reports = new();
+    private ReportSummary? _summary;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _started)
+        {
+            return;
+        }
+        _started = true;
+
+        _origin = await JS.InvokeAsync<string>("cygLab.origin");
+
+        string? storedId = await JS.InvokeAsync<string?>("cygLab.getItem", "cyg.deviceId");
+        if (string.IsNullOrWhiteSpace(storedId))
+        {
+            _deviceId = Guid.NewGuid().ToString("N");
+            await JS.InvokeVoidAsync("cygLab.setItem", "cyg.deviceId", _deviceId);
+        }
+        else
+        {
+            _deviceId = storedId;
+        }
+
+        string? storedLabel = await JS.InvokeAsync<string?>("cygLab.getItem", "cyg.label");
+        _label = storedLabel ?? "";
+        StateHasChanged();
+
+        await RunAndReportAsync();
+        _ = PollAsync();
+    }
+
+    private async Task RunAndReportAsync()
+    {
+        if (_running)
+        {
+            return;
+        }
+
+        _running = true;
+        _postError = null;
+        StateHasChanged();
+        await Task.Yield();
+
+        LocalReport local;
+        try
+        {
+            var stopwatch = Stopwatch.StartNew();
+            CYGDeterminismReport report = CYGDeterminismProbe.Run(Iterations, Seed);
+            stopwatch.Stop();
+
+            string userAgent = await JS.InvokeAsync<string>("cygLab.userAgent");
+            string platform = await JS.InvokeAsync<string>("cygLab.platform");
+            string language = await JS.InvokeAsync<string>("cygLab.language");
+
+            local = new LocalReport
+            {
+                Runtime = RuntimeInformation.FrameworkDescription,
+                Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+                Platform = platform,
+                Language = language,
+                Crc32 = report.Crc32,
+                Fnv1a64 = report.Fnv1a64,
+                CrcHex = $"0x{report.Crc32:X8}",
+                FnvHex = $"0x{report.Fnv1a64:X16}",
+                Ok = report.Crc32 == ExpectedCrc32 && report.Fnv1a64 == ExpectedFnv1a64,
+                ElapsedMs = stopwatch.ElapsedMilliseconds
+            };
+        }
+        catch (Exception ex)
+        {
+            _localError = ex.Message;
+            _running = false;
+            StateHasChanged();
+            return;
+        }
+
+        _local = local;
+        _localError = null;
+        StateHasChanged();
+
+        try
+        {
+            string label = _label.Trim();
+            if (label.Length == 0)
+            {
+                string userAgent = await JS.InvokeAsync<string>("cygLab.userAgent");
+                label = DetectLabel(userAgent);
+                _label = label;
+            }
+
+            ReportRequest request = new()
+            {
+                DeviceId = _deviceId,
+                Label = label,
+                Runtime = $"{local.Runtime} / {local.Architecture}",
+                Platform = $"{local.Platform} / {local.Language}",
+                Language = local.Language,
+                Crc32 = local.Crc32,
+                Fnv1a64 = local.Fnv1a64,
+                Iterations = Iterations,
+                Seed = Seed,
+                Ok = local.Ok,
+                ElapsedMs = local.ElapsedMs
+            };
+
+            using HttpResponseMessage response = await Http.PostAsJsonAsync("/api/reports", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _postError = $"Server rejected the report: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}";
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("cygLab.setItem", "cyg.label", label);
+                await RefreshReportsAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _postError = ex.Message;
+        }
+        finally
+        {
+            _running = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PollAsync()
+    {
+        while (!_disposed)
+        {
+            await Task.Delay(2000);
+            if (_disposed)
+            {
+                break;
+            }
+
+            await RefreshReportsAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RefreshReportsAsync()
+    {
+        try
+        {
+            ReportsResponse? response = await Http.GetFromJsonAsync<ReportsResponse>("/api/reports");
+            if (response is null)
+            {
+                return;
+            }
+
+            _reports = response.Reports.OrderByDescending(r => r.LastSeenUtc).ToList();
+            _summary = response.Summary;
+        }
+        catch (Exception ex)
+        {
+            _postError = $"Reports API: {ex.Message}";
+        }
+    }
+
+    private string DetectLabel(string userAgent)
+    {
+        string os =
+            userAgent.Contains("Android", StringComparison.OrdinalIgnoreCase) ? "Android" :
+            userAgent.Contains("iPhone", StringComparison.OrdinalIgnoreCase) ||
+            userAgent.Contains("iPad", StringComparison.OrdinalIgnoreCase) ? "iOS" :
+            userAgent.Contains("Windows", StringComparison.OrdinalIgnoreCase) ? "Windows" :
+            userAgent.Contains("Mac OS X", StringComparison.OrdinalIgnoreCase) ? "macOS" :
+            userAgent.Contains("Linux", StringComparison.OrdinalIgnoreCase) ? "Linux" :
+            "Browser";
+
+        string browser =
+            userAgent.Contains("Edg/", StringComparison.OrdinalIgnoreCase) ? "Edge" :
+            userAgent.Contains("Chrome/", StringComparison.OrdinalIgnoreCase) ? "Chrome" :
+            userAgent.Contains("Firefox/", StringComparison.OrdinalIgnoreCase) ? "Firefox" :
+            userAgent.Contains("Safari/", StringComparison.OrdinalIgnoreCase) ? "Safari" :
+            "Web";
+
+        string suffix = _deviceId.Length >= 4 ? _deviceId[..4].ToUpperInvariant() : "DEV";
+        return $"{os} {browser} {suffix}";
+    }
+
+    private static string ShortUa(string userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent))
+        {
+            return "";
+        }
+
+        return userAgent.Length <= 96 ? userAgent : userAgent[..96] + "...";
+    }
+
+    private string VerdictText
+    {
+        get
+        {
+            if (_summary is null || _summary.Count == 0)
+            {
+                return "WAITING FOR REPORTS";
+            }
+
+            if (!_summary.AllMatch)
+            {
+                return "MISMATCH DETECTED";
+            }
+
+            return _summary.Count == 1 ? "1 DEVICE MATCHES" : $"{_summary.Count} DEVICES MATCH";
+        }
+    }
+
+    private string VerdictClass =>
+        _summary is null || _summary.Count == 0 ? "idle" :
+        _summary.AllMatch ? "ok" : "bad";
+
+    public void Dispose()
+    {
+        _disposed = true;
+    }
+}

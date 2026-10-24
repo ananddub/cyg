@@ -3,8 +3,8 @@
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::repositories::models::Leaderboard;
 use crate::error::V2Error;
+use crate::repositories::models::Leaderboard;
 
 pub const INVALID_ID: &str = "Invalid leaderboard ID.";
 pub const NOT_FOUND: &str = "Leaderboard not found.";

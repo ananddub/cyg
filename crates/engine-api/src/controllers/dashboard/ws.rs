@@ -37,7 +37,11 @@ pub(crate) async fn upgrade(ws: WebSocketUpgrade, State(state): State<ApiState>)
 async fn serve(socket: WebSocket, state: ApiState) {
     let (mut sink, mut stream) = socket.split();
 
-    if sink.send(text_frame(&frames::hello_frame(&state))).await.is_err() {
+    if sink
+        .send(text_frame(&frames::hello_frame(&state)))
+        .await
+        .is_err()
+    {
         return;
     }
 
@@ -75,12 +79,18 @@ async fn serve(socket: WebSocket, state: ApiState) {
     drop(tx);
     writer.abort();
     if dropped > 0 {
-        eprintln!("[dashboard-ws] socket closed after dropping {dropped} frame(s) for a client that fell behind");
+        eprintln!(
+            "[dashboard-ws] socket closed after dropping {dropped} frame(s) for a client that fell behind"
+        );
     }
 }
 
 fn text_frame(frame: &WsFrame) -> Message {
-    Message::Text(serde_json::to_string(frame).expect("dashboard frame serialises").into())
+    Message::Text(
+        serde_json::to_string(frame)
+            .expect("dashboard frame serialises")
+            .into(),
+    )
 }
 
 #[cfg(test)]

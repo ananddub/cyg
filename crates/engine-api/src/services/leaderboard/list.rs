@@ -6,23 +6,23 @@ use axum::Json;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::utils::leaderboard::cursor::Cursor;
-use crate::utils::leaderboard::types::{
-    BAD_EXPIRY, BAD_OWNERS, INVALID_ID, LIST_FAILED, LIST_LIMIT, MAX_LIST_LIMIT, ascending,
-    number, owner_ids,
-};
-use crate::utils::leaderboard::window::query_window;
-use crate::dto::leaderboard::{ListQuery, RecordListResponse, RecordResponse};
+use super::load_board;
 use super::page::{Page, record_page};
 use super::rank::{rank_count, wires};
-use super::load_board;
+use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::leaderboard::{ListQuery, RecordListResponse, RecordResponse};
+use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::leaderboard::ListLeaderboardRecordsForOwnerParams;
 use crate::repositories::models::Leaderboard;
 use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
-use crate::ApiState;
+use crate::utils::leaderboard::cursor::Cursor;
+use crate::utils::leaderboard::types::{
+    BAD_EXPIRY, BAD_OWNERS, INVALID_ID, LIST_FAILED, LIST_LIMIT, MAX_LIST_LIMIT, ascending, number,
+    owner_ids,
+};
+use crate::utils::leaderboard::window::query_window;
 
 /// The gateway's page size: absent means one record, unless the caller named
 /// owners without paging, which asks for owner records only.

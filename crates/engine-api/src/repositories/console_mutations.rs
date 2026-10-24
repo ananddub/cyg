@@ -2,13 +2,13 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 use serde_json::Value;
+use uuid::Uuid;
 
-use super::models::*;
-use super::db::Queries;
 use super::console::FindConsoleUserRow;
 use super::console::ListStorageRow;
+use super::db::Queries;
+use super::models::*;
 
 pub type FindConsoleUserByIdRow = FindConsoleUserRow;
 
@@ -130,14 +130,10 @@ pub struct InsertAuditLogParams {
 
 impl Queries {
     /// CountConsoleUsers
-    pub async fn count_console_users(
-        &self,
-    ) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<sqlx::Postgres, i64>(
-            "SELECT COUNT(id) FROM console_user;"
-        )
-        .fetch_one(&self.pool)
-        .await
+    pub async fn count_console_users(&self) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<sqlx::Postgres, i64>("SELECT COUNT(id) FROM console_user;")
+            .fetch_one(&self.pool)
+            .await
     }
 
     /// FindConsoleUserById
@@ -241,13 +237,11 @@ impl Queries {
         d: &[u8],
         id: Uuid,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE console_user SET password = $1, update_time = now() WHERE id = $2;"
-        )
-        .bind(d)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE console_user SET password = $1, update_time = now() WHERE id = $2;")
+            .bind(d)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -257,13 +251,11 @@ impl Queries {
         disable_time: DateTime<Utc>,
         id: Uuid,
     ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
-        sqlx::query(
-            "UPDATE console_user SET disable_time = $1, update_time = now() WHERE id = $2;"
-        )
-        .bind(disable_time)
-        .bind(id)
-        .execute(&self.pool)
-        .await
+        sqlx::query("UPDATE console_user SET disable_time = $1, update_time = now() WHERE id = $2;")
+            .bind(disable_time)
+            .bind(id)
+            .execute(&self.pool)
+            .await
     }
 
     /// SetConsoleUserMfa
@@ -302,7 +294,7 @@ impl Queries {
         id: Uuid,
     ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
         sqlx::query(
-            "UPDATE console_user SET mfa_recovery_codes = $1, update_time = now() WHERE id = $2;"
+            "UPDATE console_user SET mfa_recovery_codes = $1, update_time = now() WHERE id = $2;",
         )
         .bind(mfa_recovery_codes)
         .bind(id)
@@ -311,16 +303,11 @@ impl Queries {
     }
 
     /// DeleteConsoleUser
-    pub async fn delete_console_user(
-        &self,
-        id: Uuid,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM console_user WHERE id = $1;"
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+    pub async fn delete_console_user(&self, id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM console_user WHERE id = $1;")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -330,22 +317,17 @@ impl Queries {
         disable_time: DateTime<Utc>,
         id: Uuid,
     ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
-        sqlx::query(
-            "UPDATE users SET disable_time = $1, update_time = now() WHERE id = $2;"
-        )
-        .bind(disable_time)
-        .bind(id)
-        .execute(&self.pool)
-        .await
+        sqlx::query("UPDATE users SET disable_time = $1, update_time = now() WHERE id = $2;")
+            .bind(disable_time)
+            .bind(id)
+            .execute(&self.pool)
+            .await
     }
 
     /// InsertUserNote
-    pub async fn insert_user_note(
-        &self,
-        params: &InsertUserNoteParams,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn insert_user_note(&self, params: &InsertUserNoteParams) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT INTO users_notes (id, user_id, note, create_id) VALUES ($1, $2, $3, $4);"
+            "INSERT INTO users_notes (id, user_id, note, create_id) VALUES ($1, $2, $3, $4);",
         )
         .bind(&params.id)
         .bind(&params.user_id)
@@ -361,14 +343,12 @@ impl Queries {
         &self,
         params: &InsertUserNoteAnonymousParams,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO users_notes (id, user_id, note) VALUES ($1, $2, $3);"
-        )
-        .bind(&params.id)
-        .bind(&params.user_id)
-        .bind(&params.note)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("INSERT INTO users_notes (id, user_id, note) VALUES ($1, $2, $3);")
+            .bind(&params.id)
+            .bind(&params.user_id)
+            .bind(&params.note)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -378,13 +358,11 @@ impl Queries {
         id: Uuid,
         user_id: Uuid,
     ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM users_notes WHERE id = $1 AND user_id = $2;"
-        )
-        .bind(id)
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
+        sqlx::query("DELETE FROM users_notes WHERE id = $1 AND user_id = $2;")
+            .bind(id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
     }
 
     /// DeleteStorageCollection
@@ -392,12 +370,10 @@ impl Queries {
         &self,
         collection: &str,
     ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM storage WHERE collection = $1;"
-        )
-        .bind(collection)
-        .execute(&self.pool)
-        .await
+        sqlx::query("DELETE FROM storage WHERE collection = $1;")
+            .bind(collection)
+            .execute(&self.pool)
+            .await
     }
 
     /// ListStorageForUser
@@ -466,12 +442,10 @@ impl Queries {
         &self,
         name: &str,
     ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM setting WHERE name = $1;"
-        )
-        .bind(name)
-        .execute(&self.pool)
-        .await
+        sqlx::query("DELETE FROM setting WHERE name = $1;")
+            .bind(name)
+            .execute(&self.pool)
+            .await
     }
 
     /// InsertAclTemplate
@@ -508,10 +482,7 @@ impl Queries {
     }
 
     /// FindAclTemplate
-    pub async fn find_acl_template(
-        &self,
-        id: Uuid,
-    ) -> Result<ConsoleAclTemplate, sqlx::Error> {
+    pub async fn find_acl_template(&self, id: Uuid) -> Result<ConsoleAclTemplate, sqlx::Error> {
         sqlx::query_as::<_, ConsoleAclTemplate>(
             "SELECT id, name, description, acl, create_time, update_time FROM console_acl_template WHERE id = $1;"
         )
@@ -525,12 +496,10 @@ impl Queries {
         &self,
         id: Uuid,
     ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM console_acl_template WHERE id = $1;"
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await
+        sqlx::query("DELETE FROM console_acl_template WHERE id = $1;")
+            .bind(id)
+            .execute(&self.pool)
+            .await
     }
 
     /// ListAuditLogsFiltered
@@ -553,10 +522,7 @@ impl Queries {
     }
 
     /// InsertAuditLog
-    pub async fn insert_audit_log(
-        &self,
-        params: &InsertAuditLogParams,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn insert_audit_log(&self, params: &InsertAuditLogParams) -> Result<(), sqlx::Error> {
         sqlx::query(
             "INSERT INTO console_audit_log (id, console_user_id, console_username, email, action, resource, message, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);"
         )
@@ -572,5 +538,4 @@ impl Queries {
         .await?;
         Ok(())
     }
-
 }

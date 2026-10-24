@@ -17,10 +17,18 @@ fn the_player_match_routes_gate_on_a_session() {
     for path in ["/v2/match", "/v2/matchmaker/stats"] {
         // With no credential at all the gate refuses and names what is missing.
         let reply = server.get(path, None);
-        assert_eq!(reply.refusal(UNAUTHENTICATED), "Auth token required", "{path}");
+        assert_eq!(
+            reply.refusal(UNAUTHENTICATED),
+            "Auth token required",
+            "{path}"
+        );
         // A malformed bearer is an invalid session, not a missing one.
         let reply = server.get(path, Some("Bearer not.a.jwt"));
-        assert_eq!(reply.refusal(UNAUTHENTICATED), "Auth token invalid", "{path}");
+        assert_eq!(
+            reply.refusal(UNAUTHENTICATED),
+            "Auth token invalid",
+            "{path}"
+        );
     }
 }
 
@@ -85,7 +93,10 @@ fn the_console_lists_running_matches_without_a_database() {
 fn reading_a_match_state_names_the_missing_match() {
     let server = V2Server::start(v2_state());
     let auth = format!("Bearer {}", login(&server, ADMIN, PASSWORD));
-    let reply = server.get(&format!("/v2/console/match/{}/state", Uuid::new_v4()), Some(&auth));
+    let reply = server.get(
+        &format!("/v2/console/match/{}/state", Uuid::new_v4()),
+        Some(&auth),
+    );
     assert_eq!(
         reply.refusal(INVALID_ARGUMENT),
         "Match not found, or match handler already stopped."

@@ -1,0 +1,33 @@
+<idea-plugin>
+    <id>dev.cookyourgame.cyg</id>
+    <name>CYG</name>
+    <version>0.1.0</version>
+    <vendor>CookYourGame</vendor>
+
+    <description><![CDATA[
+        CYG deterministic simulation schema support:
+        syntax highlighting, comments, brace matching, and the CYG language server
+        (completion, hover, diagnostics, go to definition, references, rename, symbols).
+    ]]></description>
+
+    <idea-version since-build="262"/>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType name="CYG"
+                  language="CYG"
+                  implementationClass="dev.cookyourgame.cyg.CygFileType"
+                  fieldName="INSTANCE"
+                  extensions="cyg"/>
+        <lang.parserDefinition language="CYG"
+                               implementationClass="dev.cookyourgame.cyg.CygParserDefinition"/>
+        <lang.syntaxHighlighterFactory language="CYG"
+                                       implementationClass="dev.cookyourgame.cyg.CygSyntaxHighlighterFactory"/>
+        <lang.commenter language="CYG"
+                        implementationClass="dev.cookyourgame.cyg.CygCommenter"/>
+        <lang.braceMatcher language="CYG"
+                           implementationClass="dev.cookyourgame.cyg.CygBraceMatcher"/>
+        <platform.lsp.serverSupportProvider implementation="dev.cookyourgame.cyg.CygLspServerSupportProvider"/>
+    </extensions>
+</idea-plugin>

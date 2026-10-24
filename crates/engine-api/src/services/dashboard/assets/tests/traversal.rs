@@ -24,10 +24,17 @@ async fn no_spelling_of_a_parent_directory_escapes_the_dist_root() {
         "app.js/%25",
         "app.js/%",
     ] {
-        assert_eq!(child_under(tree.dist(), probe), None, "{probe:?} was not refused");
+        assert_eq!(
+            child_under(tree.dist(), probe),
+            None,
+            "{probe:?} was not refused"
+        );
         let (status, _, _, body) = parts(assets::serve_asset(Some(tree.dist()), probe)).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{probe:?} served something");
         let text = String::from_utf8_lossy(&body);
-        assert!(!text.contains("root:") && !text.contains("passwd:"), "{probe:?} leaked: {text}");
+        assert!(
+            !text.contains("root:") && !text.contains("passwd:"),
+            "{probe:?} leaked: {text}"
+        );
     }
 }

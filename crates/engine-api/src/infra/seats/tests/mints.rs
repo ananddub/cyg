@@ -7,10 +7,16 @@ fn two_clients_in_the_same_second_get_different_seats() {
     let mut r = SeatRegistry::new("secret");
     let a = r.mint("tank-3d", 300).unwrap();
     let b = r.mint("tank-3d", 300).unwrap();
-    assert_ne!(a.token, b.token, "the token is the identity; it cannot repeat");
+    assert_ne!(
+        a.token, b.token,
+        "the token is the identity; it cannot repeat"
+    );
     assert_ne!(a.id, b.id);
     assert_eq!(r.outstanding(), 2);
-    assert!(b.expires_at >= a.expires_at, "the bump only lengthens the TTL");
+    assert!(
+        b.expires_at >= a.expires_at,
+        "the bump only lengthens the TTL"
+    );
     assert_eq!(r.verify(&a.token).unwrap().id, a.id);
     assert_eq!(r.verify(&b.token).unwrap().id, b.id);
 }

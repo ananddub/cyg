@@ -266,11 +266,89 @@ export declare class DeltaWriter {
     writeU8(val: number): this;
     writeU16(val: number): this;
     writeU32(val: number): this;
+    writeI32(val: number): this;
     writeI64(val: bigint): this;
     writeF32(val: number): this;
     writeF64(val: number): this;
+    writeBool(val: boolean): this;
+    writeBytes(src: ArrayBuffer): this;
+    writeWriter(src: DeltaWriter): this;
+    readonly length: number;
+    readonly buffer: ArrayBuffer;
     writeVec2(v: Vec2): this;
     writeVec3(v: Vec3): this;
+    seal(): bigint;
+}
+
+export declare enum FieldType {
+    U8 = 1,
+    U16 = 2,
+    U32 = 3,
+    I32 = 4,
+    F32 = 5,
+    F64 = 6,
+    BOOL = 7,
+    I64 = 8
+}
+
+export declare class SchemaDef {
+    constructor(name: string, version?: number);
+    readonly name: string;
+    readonly version: number;
+    readonly hash: number;
+    readonly fieldCount: number;
+    readonly byteSize: number;
+    u8(name: string): this;
+    u16(name: string): this;
+    u32(name: string): this;
+    i32(name: string): this;
+    f32(name: string): this;
+    f64(name: string): this;
+    bool(name: string): this;
+    i64(name: string): this;
+    fieldName(index: number): string;
+    fieldType(index: number): FieldType;
+    fieldOffset(index: number): number;
+    fieldSize(index: number): number;
+    indexOf(name: string): number;
+}
+
+export declare class SchemaEntity {
+    constructor(schema: SchemaDef);
+    readonly schemaHash: number;
+    readonly dirtyMask: number;
+    id: number;
+    clearDirty(): void;
+    getU8(index: number): number;
+    setU8(index: number, value: number): void;
+    getU16(index: number): number;
+    setU16(index: number, value: number): void;
+    getU32(index: number): number;
+    setU32(index: number, value: number): void;
+    getI32(index: number): number;
+    setI32(index: number, value: number): void;
+    getF32(index: number): number;
+    setF32(index: number, value: number): void;
+    getF64(index: number): number;
+    setF64(index: number, value: number): void;
+    getBool(index: number): boolean;
+    setBool(index: number, value: boolean): void;
+    getI64(index: number): bigint;
+    setI64(index: number, value: bigint): void;
+    writeValue(writer: DeltaWriter, index: number): void;
+    writeAll(writer: DeltaWriter): void;
+    writeDirty(writer: DeltaWriter): void;
+}
+
+export declare class SchemaState {
+    constructor(schema: SchemaDef);
+    readonly schemaHash: number;
+    readonly size: number;
+    has(id: number): boolean;
+    get(id: number): SchemaEntity;
+    set(id: number, entity: SchemaEntity): void;
+    delete(id: number): void;
+    clear(): void;
     seal(): bigint;
 }
 
@@ -561,10 +639,11 @@ export declare class Steering {
     static arriveRaw(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number, slowingDistance: number): Vec3;
 }
 
-export type MessageHandlerCallback = (senderId: bigint, reader: InputReader) => void;
-export type RoomEventCallback = (id: bigint, val0: number, val1: number) => void;
+export type MessageHandlerCallback = (senderId: bigint, reader: InputReader, room: Room) => void;
+export type RoomEventCallback = (id: bigint, val0: number, val1: number, room: Room | null) => void;
 
 export declare class EventEmitter {
+    constructor(owner?: Room | null);
     on(event: string, callback: RoomEventCallback): void;
     emit(event: string, id?: bigint, val0?: number, val1?: number): void;
     clear(): void;
@@ -573,7 +652,12 @@ export declare class EventEmitter {
 export declare abstract class Room {
     maxPlayers: number;
     events: EventEmitter;
-    onMessage(opcode: number, handler: MessageHandlerCallback): void;
+    onMessage(type: string, handler: MessageHandlerCallback): void;
+    onOpcodeMessage(opcode: number, handler: MessageHandlerCallback): void;
+    broadcast(type: string, payload?: ArrayBuffer | null): boolean;
+    sendTo(playerId: bigint, type: string, payload?: ArrayBuffer | null): boolean;
+    broadcastText(type: string, text: string): boolean;
+    sendTextTo(playerId: bigint, type: string, text: string): boolean;
     on(event: string, callback: RoomEventCallback): void;
     emit(event: string, id?: bigint, val0?: number, val1?: number): void;
     abstract onCreate(max: number): void;

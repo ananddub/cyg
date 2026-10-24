@@ -25,7 +25,10 @@ impl ConsoleAuthController {
     #[post("")]
     async fn authenticate(&self, Body(body): Body<AuthenticateRequest>) -> Response {
         let state = current_state();
-        self.service.authenticate(&state, body).await.into_response()
+        self.service
+            .authenticate(&state, body)
+            .await
+            .into_response()
     }
 
     #[post("/logout")]

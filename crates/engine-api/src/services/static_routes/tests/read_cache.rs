@@ -6,7 +6,9 @@ use super::{TempDir, server};
 /// Set both times so a rewrite lands on a stamp the cache has not seen;
 /// `atime` is irrelevant to the cache, `mtime` is the whole check.
 fn filetime(path: &std::path::Path, when: SystemTime) {
-    let ft = std::fs::FileTimes::new().set_accessed(when).set_modified(when);
+    let ft = std::fs::FileTimes::new()
+        .set_accessed(when)
+        .set_modified(when);
     std::fs::OpenOptions::new()
         .write(true)
         .open(path)
@@ -20,7 +22,11 @@ fn reads_a_file_then_notices_a_rewrite() {
     let s = server(dir.path());
     let file = dir.path().join("page.html");
 
-    assert_eq!(s.read(&file), None, "a missing file is not a cached empty body");
+    assert_eq!(
+        s.read(&file),
+        None,
+        "a missing file is not a cached empty body"
+    );
 
     std::fs::write(&file, b"<html>first</html>").unwrap();
     assert_eq!(&*s.read(&file).unwrap(), b"<html>first</html>");

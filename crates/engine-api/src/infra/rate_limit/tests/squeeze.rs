@@ -24,7 +24,10 @@ fn the_ceiling_drops_refilled_buckets_rather_than_exhausted_ones() {
     assert!(!l.allow(first), "first is exhausted");
     flood_exhausted(&mut l);
     assert_eq!(l.tracked(), MAX_BUCKETS);
-    assert!(!l.allow(first), "an exhausted source must not be handed a fresh bucket by eviction");
+    assert!(
+        !l.allow(first),
+        "an exhausted source must not be handed a fresh bucket by eviction"
+    );
     assert_eq!(l.order.len(), l.tracked(), "the queue tracks the map");
     assert_eq!(l.squeezed(), 0, "first had a bucket, it was just empty");
 }
@@ -38,7 +41,10 @@ fn a_new_source_at_a_full_ceiling_is_refused_and_counted_apart() {
     assert!(!l.allow(latecomer), "no room, no bucket created");
     assert_eq!(l.tracked(), MAX_BUCKETS, "the ceiling holds");
     assert_eq!(l.squeezed(), 1);
-    assert!(l.retry_after(latecomer) >= 1, "and it is not told to go now");
+    assert!(
+        l.retry_after(latecomer) >= 1,
+        "and it is not told to go now"
+    );
 }
 
 /// The squeeze must be self-healing: refilled buckets make room again on their own.

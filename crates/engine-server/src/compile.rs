@@ -14,6 +14,20 @@ fn mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).ok()?.modified().ok()
 }
 
+/// The generated schema and SDK copies participate in the freshness check:
+/// editing `schema.ts` must rebuild the room even when `room.ts` is untouched.
+fn newest_input_mtime(project_dir: &Path, src: &Path) -> Option<SystemTime> {
+    [
+        src.to_path_buf(),
+        project_dir.join("schema.ts"),
+        project_dir.join("openoxide.schema.ts"),
+        project_dir.join("openoxide.ts"),
+    ]
+    .iter()
+    .filter_map(|path| mtime(path))
+    .max()
+}
+
 /// Compile the room source if needed. Returns the wasm path.
 pub fn build(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<std::path::PathBuf> {
     let src = project_dir.join(&cfg.source);
@@ -26,8 +40,8 @@ pub fn build(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<std::path:
         ));
     }
 
-    // Skip when the wasm is newer than the source.
-    if let (Some(src_t), Some(out_t)) = (mtime(&src), mtime(&out)) {
+    // Skip when the wasm is newer than every input that shapes the room.
+    if let (Some(src_t), Some(out_t)) = (newest_input_mtime(project_dir, &src), mtime(&out)) {
         if out_t >= src_t {
             eprintln!("[build] ✓ {} is up to date (skipped)", cfg.out.display());
             return Ok(out);
@@ -73,16 +87,24 @@ pub fn aot_precompile(wasm_path: &Path) -> std::io::Result<std::path::PathBuf> {
     let runtime = engine_wasm::WasmRuntime::new()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
     let bytes = std::fs::read(wasm_path)?;
-    runtime.precompile_to_file(&bytes, &cwasm_path)
+    runtime
+        .precompile_to_file(&bytes, &cwasm_path)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    eprintln!("[aot] ✓ AOT precompiled {} -> {}", wasm_path.display(), cwasm_path.display());
+    eprintln!(
+        "[aot] ✓ AOT precompiled {} -> {}",
+        wasm_path.display(),
+        cwasm_path.display()
+    );
     Ok(cwasm_path)
 }
 
 use engine_config::Runtime;
 
 fn compile_lua(src: &Path, out: &Path) -> std::io::Result<()> {
-    eprintln!("[build] 🌙 validating Lua room script '{}' ...", src.display());
+    eprintln!(
+        "[build] 🌙 validating Lua room script '{}' ...",
+        src.display()
+    );
 
     // 1. Syntax validation via luajit if installed
     if which("luajit") {
@@ -144,8 +166,8 @@ fn compile_asc(src: &Path, out: &Path) -> std::io::Result<()> {
     let content = std::fs::read_to_string(src)?;
 
     // Check if room source already has manual flat on_* exports (e.g., procedural/raw rooms)
-    let has_manual_flat_bridge = content.contains("export function on_tick")
-        || content.contains("export function tick");
+    let has_manual_flat_bridge =
+        content.contains("export function on_tick") || content.contains("export function tick");
 
     let (entry_to_compile, temp_entry_path) = if !has_manual_flat_bridge {
         if let Some(class_name) = detect_room_class(&content) {
@@ -177,7 +199,10 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
 }}
 
 export function on_tick(dt: f64): i64 {{
-    return __room_instance.onTick(dt);
+    __room_instance.onBeforePatch(dt);
+    const packed = __room_instance.onTick(dt);
+    __room_instance.onAfterPatch(dt);
+    return packed;
 }}
 
 export function on_save(): i64 {{
@@ -195,11 +220,38 @@ export function on_alloc(len: i32): i32 {{
 export function on_is_full(count: i32): bool {{
     return __room_instance.onIsFull(count);
 }}
+
+export function on_auth(id: i64, ptr: i32, len: i32): i32 {{
+    const options = len > 0 ? String.UTF8.decodeUnsafe(ptr as usize, len) : "";
+    return __room_instance.onAuth(id, options) ? 1 : 0;
+}}
+
+export function on_reconnect(id: i64): void {{
+    __room_instance.onReconnect(id);
+}}
+
+export function on_dispose(): void {{
+    __room_instance.onDispose();
+}}
+
+export function on_allow_reconnection(id: i64): i32 {{
+    return __room_instance.allowReconnection(id);
+}}
+
+export function on_patch_rate(): i32 {{
+    return __room_instance.getPatchRate();
+}}
+
+export function on_simulation_rate(): i32 {{
+    return __room_instance.getSimulationRate();
+}}
 "#
             );
 
             std::fs::write(&temp_entry, bridge_code)?;
-            eprintln!("[build] 🪄 auto-generating WebAssembly Flat ABI bridge for '{class_name}'...");
+            eprintln!(
+                "[build] 🪄 auto-generating WebAssembly Flat ABI bridge for '{class_name}'..."
+            );
             (temp_entry.clone(), Some(temp_entry))
         } else {
             (src.to_path_buf(), None)

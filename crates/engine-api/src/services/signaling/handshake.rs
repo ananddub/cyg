@@ -7,10 +7,10 @@ use axum::extract::ws::WebSocketUpgrade;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::dto::signaling::SignalQuery;
-use crate::infra::signaling::socket::run_socket;
 use super::SignalingService;
 use crate::ApiState;
+use crate::dto::signaling::SignalQuery;
+use crate::infra::signaling::socket::run_socket;
 
 impl SignalingService {
     /// `GET /ws/signal?seat=<seatToken>`: the seat check, then the upgrade.

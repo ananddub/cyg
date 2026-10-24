@@ -171,7 +171,10 @@ mod tests {
         let response = UserGroupResponse::new(&group(), 0);
         assert_eq!(
             serde_json::to_string(&response).unwrap(),
-            format!(r#"{{"group":{},"state":0}}"#, serde_json::to_string(&GroupResponse::from_row(&group())).unwrap())
+            format!(
+                r#"{{"group":{},"state":0}}"#,
+                serde_json::to_string(&GroupResponse::from_row(&group())).unwrap()
+            )
         );
     }
 }

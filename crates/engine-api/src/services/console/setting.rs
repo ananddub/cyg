@@ -2,11 +2,11 @@
 
 use axum::Json;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::setting::{SettingRow, UpdateSettingRequest};
 use crate::error::V2Error;
-use crate::ApiState;
 
 impl super::ConsoleService {
     pub async fn list_settings(&self, state: &ApiState) -> Result<Json<Vec<SettingRow>>, V2Error> {

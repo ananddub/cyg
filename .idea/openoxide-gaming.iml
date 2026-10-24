@@ -53,6 +53,12 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-api/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/test-datafusion/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-server/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-nav/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-nav/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-physics/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-schema/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-schema/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-schema/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

@@ -17,6 +17,7 @@ namespace CookYourGame.Dsl.Core
         private const int MaxStringLength = 256;
         private const int MaxButtons = 64;
         private const int MaxDepth = 32;
+        private const int MaxSchemaFields = 32;
 
         private static readonly HashSet<string> BuiltinTypeNames = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -89,6 +90,20 @@ namespace CookYourGame.Dsl.Core
                 Claim(declared, eventDecl.Name, eventDecl.Span, "event", diagnostics);
             }
 
+            foreach (CygCommandDecl command in module.Commands)
+            {
+                if (CygNames.IsReservedTypeName(command.Name))
+                {
+                    diagnostics.Error(CygDiagnosticIds.ReservedName,
+                        $"Command name '{command.Name}' is reserved for generated support types.",
+                        command.Span);
+                }
+
+                RejectBuiltinName("Command", command.Name, command.Span, diagnostics);
+                Claim(declared, command.Name, command.Span, "command", diagnostics);
+                Claim(declared, command.Name + "Command", command.Span, "command adapter", diagnostics);
+            }
+
             foreach (CygSignalDecl signal in module.Signals)
             {
                 if (CygNames.IsReservedTypeName(signal.Name))
@@ -114,6 +129,19 @@ namespace CookYourGame.Dsl.Core
 
                 RejectBuiltinName("Asset", asset.Name, asset.Span, diagnostics);
                 Claim(assets, asset.Name, asset.Span, "asset", diagnostics);
+            }
+
+            foreach (CygSchemaDecl schema in module.Schemas)
+            {
+                if (CygNames.IsReservedTypeName(schema.Name))
+                {
+                    diagnostics.Error(CygDiagnosticIds.ReservedName,
+                        $"Schema name '{schema.Name}' is reserved for generated support types.",
+                        schema.Span);
+                }
+
+                RejectBuiltinName("Schema", schema.Name, schema.Span, diagnostics);
+                Claim(declared, schema.Name, schema.Span, "schema", diagnostics);
             }
         }
 
@@ -194,6 +222,11 @@ namespace CookYourGame.Dsl.Core
                 RequireSize(module, module.Global.Fields, module.Global.Span, diagnostics);
             }
 
+            foreach (CygSchemaDecl schema in module.Schemas)
+            {
+                ValidateSchema(module, schema, diagnostics);
+            }
+
             foreach (CygEventDecl eventDecl in module.Events)
             {
                 ValidateFields(module, eventDecl.Fields, eventDecl.Name, diagnostics, 0);
@@ -204,6 +237,21 @@ namespace CookYourGame.Dsl.Core
                     {
                         diagnostics.Error(CygDiagnosticIds.ReservedName,
                             $"Event field '{field.Name}' collides with a generated event constant.",
+                            field.Span);
+                    }
+                }
+            }
+
+            foreach (CygCommandDecl command in module.Commands)
+            {
+                ValidateFields(module, command.Fields, command.Name, diagnostics, 0);
+                RequireSize(module, command.Fields, command.Span, diagnostics);
+                foreach (CygField field in command.Fields)
+                {
+                    if (field.Name == "CommandId" || field.Name == "CommandTypeId")
+                    {
+                        diagnostics.Error(CygDiagnosticIds.ReservedName,
+                            $"Command field '{field.Name}' collides with a generated command constant.",
                             field.Span);
                     }
                 }
@@ -279,6 +327,127 @@ namespace CookYourGame.Dsl.Core
                 }
 
                 ValidateType(module, field.Type, field.Span, diagnostics, depth);
+            }
+        }
+
+        private static void ValidateSchema(
+            CygModule module,
+            CygSchemaDecl schema,
+            CygDiagnosticBag diagnostics)
+        {
+            if (schema.Version == 0)
+            {
+                diagnostics.Error(CygDiagnosticIds.Schema,
+                    $"Schema '{schema.Name}' version must be at least 1.",
+                    schema.Span);
+            }
+
+            if (schema.Fields.Count == 0)
+            {
+                diagnostics.Error(CygDiagnosticIds.Schema,
+                    $"Schema '{schema.Name}' must declare at least one field.",
+                    schema.Span);
+            }
+
+            if (schema.Fields.Count > MaxSchemaFields)
+            {
+                diagnostics.Error(CygDiagnosticIds.Schema,
+                    $"Schema '{schema.Name}' has {schema.Fields.Count} fields; the sync wire format allows at most {MaxSchemaFields}.",
+                    schema.Span);
+            }
+
+            HashSet<string> names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (CygField field in schema.Fields)
+            {
+                if (IsReservedSchemaField(field.Name))
+                {
+                    diagnostics.Error(CygDiagnosticIds.ReservedName,
+                        $"Schema field '{field.Name}' is reserved by SchemaEntity or the generated code.",
+                        field.Span);
+                }
+
+                if (!names.Add(field.Name))
+                {
+                    diagnostics.Error(CygDiagnosticIds.DuplicateField,
+                        $"Schema '{schema.Name}' declares field '{field.Name}' more than once.",
+                        field.Span);
+                }
+
+                if (!TryMapSchemaWireType(module, field.Type, out string? reason))
+                {
+                    diagnostics.Error(CygDiagnosticIds.Schema,
+                        $"Schema field '{field.Name}' in '{schema.Name}': {reason}",
+                        field.Span);
+                }
+            }
+        }
+
+        private static bool IsReservedSchemaField(string name)
+        {
+            return name == "id"
+                || name == "schemaHash"
+                || name == "dirtyMask"
+                || name == "clearDirty"
+                || name == "schema"
+                || CygReserved.IsFieldName(name);
+        }
+
+        /// <summary>
+        /// Mirror of engine-schema's wire table. Keep enum/flags support in sync:
+        /// only underlying types with a SchemaDef builder method are allowed.
+        /// </summary>
+        private static bool TryMapSchemaWireType(CygModule module, CygTypeRef? type, out string? reason)
+        {
+            reason = null;
+            if (type == null)
+            {
+                reason = "missing type reference.";
+                return false;
+            }
+
+            switch (type.Kind)
+            {
+                case CygTypeKind.FP:
+                case CygTypeKind.Byte:
+                case CygTypeKind.UInt16:
+                case CygTypeKind.Int32:
+                case CygTypeKind.UInt32:
+                case CygTypeKind.Int64:
+                case CygTypeKind.Boolean:
+                case CygTypeKind.EntityRef:
+                case CygTypeKind.PlayerRef:
+                    return true;
+
+                case CygTypeKind.SByte:
+                case CygTypeKind.Int16:
+                case CygTypeKind.UInt64:
+                    reason = $"type '{type.Display()}' has no schema wire encoding; use Byte, UInt16, Int32, UInt32, Int64, FP or Boolean.";
+                    return false;
+
+                case CygTypeKind.Named:
+                    CygTypeDecl? declaration = module.FindType(type.Name ?? string.Empty);
+                    if (declaration is CygEnumDecl enumDecl)
+                    {
+                        switch (enumDecl.Underlying)
+                        {
+                            case CygPrimitive.Byte:
+                            case CygPrimitive.UInt16:
+                            case CygPrimitive.Int32:
+                            case CygPrimitive.UInt32:
+                            case CygPrimitive.Int64:
+                                return true;
+                            default:
+                                reason = $"enum '{enumDecl.Name}' uses underlying type '{enumDecl.Underlying}', which has no schema wire encoding.";
+                                return false;
+                        }
+                    }
+
+                    reason = $"type '{type.Name}' cannot be synced as a schema field; use numeric, Boolean, entity_ref, player_ref or an enum/flags.";
+                    return false;
+
+                default:
+                    reason = $"type '{type.Display()}' cannot be synced as one schema field; split it into numeric/Boolean fields.";
+                    return false;
             }
         }
 
@@ -712,6 +881,63 @@ namespace CookYourGame.Dsl.Core
                     $"Event '{eventDecl.Name}' has no explicit id; derived {id}. Set ': {id}' explicitly before shipping.",
                     eventDecl.Span);
             }
+
+            Dictionary<int, string> usedCommands = new Dictionary<int, string>();
+            foreach (CygCommandDecl command in module.Commands)
+            {
+                if (!command.Id.HasValue)
+                {
+                    continue;
+                }
+
+                int id = command.Id.Value;
+                if (!CygIds.IsCommand(id))
+                {
+                    diagnostics.Error(CygDiagnosticIds.CommandId,
+                        $"Command '{command.Name}' id {id} is outside the command range {CygIds.FirstCommand}..{CygIds.LastCommand}.",
+                        command.Span);
+                    continue;
+                }
+
+                if (usedCommands.TryGetValue(id, out string? previous))
+                {
+                    diagnostics.Error(CygDiagnosticIds.CommandId,
+                        $"Command id {id} for '{command.Name}' is already used by '{previous}'.",
+                        command.Span);
+                    continue;
+                }
+
+                usedCommands.Add(id, command.Name);
+            }
+
+            foreach (CygCommandDecl command in module.Commands
+                .Where(c => !c.Id.HasValue)
+                .OrderBy(c => c.Name, StringComparer.Ordinal))
+            {
+                int id = DeriveId(command.Name, CygIds.FirstCommand, CygIds.LastCommand);
+                int origin = id;
+                while (usedCommands.ContainsKey(id))
+                {
+                    id++;
+                    if (id > CygIds.LastCommand)
+                    {
+                        id = CygIds.FirstCommand;
+                    }
+                    if (id == origin)
+                    {
+                        diagnostics.Error(CygDiagnosticIds.CommandId,
+                            $"No free command id remains for '{command.Name}'.",
+                            command.Span);
+                        break;
+                    }
+                }
+
+                command.Id = id;
+                usedCommands[id] = command.Name;
+                diagnostics.Warning(CygDiagnosticIds.MissingExplicitId,
+                    $"Command '{command.Name}' has no explicit id; derived {id}. Set ': {id}' explicitly before shipping.",
+                    command.Span);
+            }
         }
 
         private static void CheckCycle(
@@ -842,6 +1068,12 @@ namespace CookYourGame.Dsl.Core
                 ClaimEmitted(CygNames.SanitizeIdentifier(eventDecl.Name), eventDecl.Span, "an event");
             }
 
+            foreach (CygCommandDecl command in module.Commands)
+            {
+                ClaimEmitted(CygNames.SanitizeIdentifier(command.Name), command.Span, "a command payload");
+                ClaimEmitted(CygNames.SanitizeIdentifier(command.Name + "Command"), command.Span, "a command adapter");
+            }
+
             foreach (CygSignalDecl signal in module.Signals)
             {
                 ClaimEmitted(CygNames.SanitizeIdentifier(signal.Name), signal.Span, "a signal");
@@ -928,6 +1160,11 @@ namespace CookYourGame.Dsl.Core
             foreach (CygEventDecl eventDecl in module.Events)
             {
                 foreach (CygField field in eventDecl.Fields) Collect(field.Type, field.Span);
+            }
+
+            foreach (CygCommandDecl command in module.Commands)
+            {
+                foreach (CygField field in command.Fields) Collect(field.Type, field.Span);
             }
 
             foreach (CygSignalDecl signal in module.Signals)

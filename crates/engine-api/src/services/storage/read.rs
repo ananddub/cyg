@@ -6,14 +6,14 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::dto::storage::{ObjectIdsRequest, ReadQuery, StorageObject, StorageObjects};
-use crate::utils::storage::{
-    check_id, read_owner, INVALID_OBJECT_MESSAGE, INVALID_USER_MESSAGE, StorageRow,
-};
 use super::pool;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
 use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::storage::{ObjectIdsRequest, ReadQuery, StorageObject, StorageObjects};
+use crate::error::V2Error;
+use crate::utils::storage::{
+    INVALID_OBJECT_MESSAGE, INVALID_USER_MESSAGE, StorageRow, check_id, read_owner,
+};
 
 const READ_SQL: &str = "
 SELECT storage.collection, storage.key, storage.user_id,
@@ -96,9 +96,13 @@ impl super::StorageService {
             return Err(V2Error::invalid_argument(INVALID_OBJECT_MESSAGE));
         }
         let caller = auth.0.uuid()?;
-        let parsed =
-            Uuid::parse_str(user_id).map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
-        let owner = if parsed == Uuid::nil() { caller } else { parsed };
+        let parsed = Uuid::parse_str(user_id)
+            .map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
+        let owner = if parsed == Uuid::nil() {
+            caller
+        } else {
+            parsed
+        };
         let version = req.version.filter(|v| !v.is_empty());
 
         let row = sqlx::query_as::<_, StorageRow>(READ_ONE_SQL)

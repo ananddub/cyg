@@ -16,21 +16,20 @@ pub async fn set_mfa_required(
     id: Uuid,
     required: bool,
 ) -> Result<bool, sqlx::Error> {
-    let done = sqlx::query("UPDATE console_user SET mfa_required = $1, update_time = now() WHERE id = $2;")
-        .bind(required)
-        .bind(id)
-        .execute(pool)
-        .await?;
+    let done = sqlx::query(
+        "UPDATE console_user SET mfa_required = $1, update_time = now() WHERE id = $2;",
+    )
+    .bind(required)
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(done.rows_affected() > 0)
 }
 
 /// Clear an operator's second factor: the secret and the recovery codes go, the
 /// `mfa_required` flag stays. The enrolment is reset, not revoked — the account is
 /// still expected to have one and must re-enrol at its next sign-in.
-pub async fn reset_mfa_factor(
-    pool: &sqlx::PgPool,
-    id: Uuid,
-) -> Result<bool, sqlx::Error> {
+pub async fn reset_mfa_factor(pool: &sqlx::PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
     let done = sqlx::query(
         "UPDATE console_user SET mfa_secret = NULL, mfa_recovery_codes = NULL, update_time = now() WHERE id = $2;",
     )

@@ -23,7 +23,12 @@ fn client_rows_map_the_newest_sessions_in_order_and_cap() {
     for _ in 0..3 {
         h.clear();
         h.push(
-            StatusSnapshot { seq: 9500, players: total as u32, sessions: sessions.clone(), ..Default::default() },
+            StatusSnapshot {
+                seq: 9500,
+                players: total as u32,
+                sessions: sessions.clone(),
+                ..Default::default()
+            },
             engine_bus::clock::mono_ns() / 1_000_000,
         );
         rows = build_clients(&s);
@@ -31,8 +36,19 @@ fn client_rows_map_the_newest_sessions_in_order_and_cap() {
             break;
         }
     }
-    assert_eq!(rows.len(), MAX_CLIENT_ROWS, "a runaway registry cannot size the response");
+    assert_eq!(
+        rows.len(),
+        MAX_CLIENT_ROWS,
+        "a runaway registry cannot size the response"
+    );
     assert_eq!(rows[0].session, "cap-0");
-    assert_eq!(rows.last().unwrap().session, format!("cap-{}", MAX_CLIENT_ROWS - 1), "in order");
-    assert!(rows.iter().all(|r| r.room == "tank-3d" && r.transport == "websocket" && r.idle_ms.is_some()));
+    assert_eq!(
+        rows.last().unwrap().session,
+        format!("cap-{}", MAX_CLIENT_ROWS - 1),
+        "in order"
+    );
+    assert!(
+        rows.iter()
+            .all(|r| r.room == "tank-3d" && r.transport == "websocket" && r.idle_ms.is_some())
+    );
 }

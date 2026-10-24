@@ -15,4 +15,4 @@ pub use game::{DEV_SEAT_SECRET, GameConfig, Runtime};
 pub use netcode::{AoiConfig, RollbackConfig};
 pub use parse::{load_config, parse_config};
 pub use session::SessionConfig;
-pub use templates::{CONFIG_TEMPLATE, ROOM_TEMPLATE};
+pub use templates::{CONFIG_TEMPLATE, ROOM_TEMPLATE, SCHEMA_TS_TEMPLATE};

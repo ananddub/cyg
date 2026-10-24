@@ -7,12 +7,12 @@ use axum::Json;
 use axum::http::HeaderMap;
 
 use super::bearer;
-use crate::dto::Empty;
-use crate::utils::unlink::{last_account, refused};
 use crate::ApiState;
-use crate::services::auth::q;
+use crate::dto::Empty;
 use crate::dto::auth;
 use crate::error::V2Error;
+use crate::services::auth::q;
+use crate::utils::unlink::{last_account, refused};
 
 impl super::UnlinkService {
     /// `POST /v2/account/unlink/email`. Detaching an email also drops the password column;
@@ -54,7 +54,10 @@ impl super::UnlinkService {
                 return Err(last_account());
             }
         }
-        queries.unlink_custom_id(uid).await.map_err(refused(FAILED))?;
+        queries
+            .unlink_custom_id(uid)
+            .await
+            .map_err(refused(FAILED))?;
         Ok(Json(Empty {}))
     }
 }

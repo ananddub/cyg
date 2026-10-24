@@ -12,8 +12,22 @@ fn a_skipped_sample_reads_as_a_gap_not_a_flat_line() {
     let mut series = services::build_ticks();
     for _ in 0..3 {
         h.clear();
-        h.push(StatusSnapshot { seq: 9101, tick_budget_p50_us: 100, ..Default::default() }, t0);
-        h.push(StatusSnapshot { seq: 9102, tick_budget_p50_us: 200, ..Default::default() }, t0 + 1_000);
+        h.push(
+            StatusSnapshot {
+                seq: 9101,
+                tick_budget_p50_us: 100,
+                ..Default::default()
+            },
+            t0,
+        );
+        h.push(
+            StatusSnapshot {
+                seq: 9102,
+                tick_budget_p50_us: 200,
+                ..Default::default()
+            },
+            t0 + 1_000,
+        );
         h.push(
             StatusSnapshot {
                 seq: 9103,
@@ -31,9 +45,18 @@ fn a_skipped_sample_reads_as_a_gap_not_a_flat_line() {
     assert_eq!(series.points.len(), 3, "one point per ring entry");
     assert_eq!(series.interval_sec, 1);
     assert_eq!(series.bucket_edges_us, engine_dashboard::bucket_edges_us());
-    assert_eq!(series.histogram, [1; TICK_HISTOGRAM_BUCKETS], "newest window");
-    assert_eq!(series.points.iter().map(|p| p.seq).collect::<Vec<_>>(), vec![9101, 9102, 9103]);
-    assert_eq!(series.points.iter().map(|p| p.gap).collect::<Vec<_>>(), vec![false, false, true]);
+    assert_eq!(
+        series.histogram, [1; TICK_HISTOGRAM_BUCKETS],
+        "newest window"
+    );
+    assert_eq!(
+        series.points.iter().map(|p| p.seq).collect::<Vec<_>>(),
+        vec![9101, 9102, 9103]
+    );
+    assert_eq!(
+        series.points.iter().map(|p| p.gap).collect::<Vec<_>>(),
+        vec![false, false, true]
+    );
     assert_eq!(series.points[1].at_ms, t0 + 1_000);
     assert_eq!(series.points[1].p50_us, 200);
 }

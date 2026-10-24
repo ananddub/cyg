@@ -9,8 +9,8 @@
 //! method call reborrows the whole struct and would clash with the client borrow
 //! the caller is already holding.
 
-use std::borrow::Cow;
 use ahash::AHashMap;
+use std::borrow::Cow;
 
 use bytes::Bytes;
 use mio::net::TcpListener;
@@ -39,6 +39,15 @@ pub(super) struct ServerCtx<'a> {
     pub(super) retained: &'a AHashMap<String, String>,
     pub(super) seat_tokens: &'a mut AHashMap<String, String>,
     pub(super) client_rooms: &'a mut AHashMap<String, String>,
+    /// session id -> raw join options JSON from the upgrade URL.
+    pub(super) client_options: &'a mut AHashMap<String, String>,
+    /// Port the SDK must dial for the game WebSocket.
+    pub(super) game_port: u16,
+    /// UDP port advertised to native clients.
+    pub(super) udp_port: u16,
+    /// Compact schema descriptor pushed right after the JOIN_ROOM handshake.
+    /// Empty when the project has no generated schema.
+    pub(super) schema_descriptor: &'a [u8],
 }
 
 /// Everything one `poll_events` pass mutates: field borrows of the transport
@@ -51,9 +60,13 @@ pub(super) struct Pass<'a> {
     pub(super) client_rooms: &'a mut AHashMap<String, String>,
     pub(super) retained: &'a AHashMap<String, String>,
     pub(super) seat_tokens: &'a mut AHashMap<String, String>,
+    pub(super) client_options: &'a mut AHashMap<String, String>,
     pub(super) matchmake_hook: &'a mut Option<MatchmakeHook>,
     pub(super) http_hook: &'a mut Option<HttpHook>,
     pub(super) next_token: &'a mut usize,
     pub(super) disconnected: &'a mut Vec<Token>,
     pub(super) buf: &'a mut Vec<TransportEvent>,
+    pub(super) game_port: u16,
+    pub(super) udp_port: u16,
+    pub(super) schema_descriptor: &'a [u8],
 }

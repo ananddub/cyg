@@ -7,30 +7,26 @@ use axum::Json;
 use chrono::Utc;
 use uuid::Uuid;
 
+use super::load_tournament;
+use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::leaderboard::RecordListResponse;
 use crate::dto::tournament::RecordsQuery;
+use crate::error::V2Error;
+use crate::repositories::db::Queries;
+use crate::repositories::models::Leaderboard;
+use crate::services::auth::q;
+use crate::services::leaderboard::records_list;
+use crate::utils::leaderboard::{number, query_window};
 use crate::utils::tournament::types::limit as bounded;
 use crate::utils::tournament::types::{
     BAD_EXPIRY, BAD_LIMIT, BAD_OWNERS, DEFAULT_RECORD_LIMIT, ENDED, ID_MISSING, LIST_FAILED,
     list_failure, owners,
 };
-use super::load_tournament;
-use crate::repositories::db::Queries;
-use crate::repositories::models::Leaderboard;
-use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::services::leaderboard::records_list;
-use crate::dto::leaderboard::RecordListResponse;
-use crate::utils::leaderboard::{number, query_window};
-use crate::app::middleware::Authed;
-use crate::ApiState;
 
 /// Absent means ten, except when the caller named owners and handed back a
 /// cursor: then only the owner records are wanted and the page is not read.
-fn requested_limit(
-    raw: Option<&str>,
-    cursor: &str,
-    owners: usize,
-) -> Result<Option<i64>, V2Error> {
+fn requested_limit(raw: Option<&str>, cursor: &str, owners: usize) -> Result<Option<i64>, V2Error> {
     match raw {
         Some(text) => Ok(Some(bounded(Some(text), DEFAULT_RECORD_LIMIT, BAD_LIMIT)?)),
         None if owners == 0 || cursor.is_empty() => Ok(Some(DEFAULT_RECORD_LIMIT)),
@@ -60,9 +56,16 @@ impl super::TournamentService {
             return Err(V2Error::not_found(ENDED));
         }
 
-        let listed = listed_records(&queries, &board, override_expiry, limit, &req.cursor, &owners)
-            .await
-            .map_err(|error| list_failure(error, LIST_FAILED))?;
+        let listed = listed_records(
+            &queries,
+            &board,
+            override_expiry,
+            limit,
+            &req.cursor,
+            &owners,
+        )
+        .await
+        .map_err(|error| list_failure(error, LIST_FAILED))?;
         Ok(Json(listed))
     }
 }

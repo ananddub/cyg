@@ -32,13 +32,21 @@ fn a_read_only_operator_cannot_write_boards_or_delete_rows() {
     let id = Uuid::new_v4();
 
     for (method, path, body) in [
-        ("POST", "/v2/console/tournament".to_owned(), VALID.to_owned()),
+        (
+            "POST",
+            "/v2/console/tournament".to_owned(),
+            VALID.to_owned(),
+        ),
         (
             "PUT",
             "/v2/console/tournament/weekly-arena".to_owned(),
             VALID.to_owned(),
         ),
-        ("DELETE", "/v2/console/tournament/weekly-arena".to_owned(), String::new()),
+        (
+            "DELETE",
+            "/v2/console/tournament/weekly-arena".to_owned(),
+            String::new(),
+        ),
         (
             "DELETE",
             format!("/v2/console/leaderboard/{id}"),
@@ -65,7 +73,10 @@ fn a_bad_tournament_definition_is_refused_before_the_database() {
     let auth = token_for(ConsoleRole::Maintainer);
 
     let reply = server.post("/v2/console/tournament", Some(&auth), "{}");
-    assert_eq!(reply.refusal(INVALID_ARGUMENT), "Tournament ID must be provided.");
+    assert_eq!(
+        reply.refusal(INVALID_ARGUMENT),
+        "Tournament ID must be provided."
+    );
 
     // A board without a round length is a leaderboard, not a tournament.
     let reply = server.post(
@@ -99,13 +110,21 @@ fn a_write_role_passes_the_board_gates_and_reaches_the_database() {
     let no_db = "The database is not configured, set [control.session] database_url.";
 
     for (method, path, body) in [
-        ("POST", "/v2/console/tournament".to_owned(), VALID.to_owned()),
+        (
+            "POST",
+            "/v2/console/tournament".to_owned(),
+            VALID.to_owned(),
+        ),
         (
             "PUT",
             "/v2/console/tournament/weekly-arena".to_owned(),
             VALID.to_owned(),
         ),
-        ("DELETE", "/v2/console/tournament/weekly-arena".to_owned(), String::new()),
+        (
+            "DELETE",
+            "/v2/console/tournament/weekly-arena".to_owned(),
+            String::new(),
+        ),
         (
             "DELETE",
             "/v2/console/leaderboard/weekly-arena".to_owned(),
@@ -118,6 +137,10 @@ fn a_write_role_passes_the_board_gates_and_reaches_the_database() {
         ),
     ] {
         let reply = server.send(method, &path, Some(&auth), &body);
-        assert_eq!(reply.refusal(crate::error::UNAVAILABLE), no_db, "{method} {path}");
+        assert_eq!(
+            reply.refusal(crate::error::UNAVAILABLE),
+            no_db,
+            "{method} {path}"
+        );
     }
 }

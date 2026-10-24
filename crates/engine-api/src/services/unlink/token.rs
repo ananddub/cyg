@@ -8,13 +8,13 @@ use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use super::bearer;
-use crate::dto::Empty;
-use crate::utils::unlink::{failed, refused};
 use crate::ApiState;
-use crate::repositories::db::Queries;
-use crate::services::auth::q;
+use crate::dto::Empty;
 use crate::dto::auth;
 use crate::error::V2Error;
+use crate::repositories::db::Queries;
+use crate::services::auth::q;
+use crate::utils::unlink::{failed, refused};
 use crate::utils::vendor;
 
 /// The four columns an access token refines.
@@ -58,7 +58,10 @@ async fn by_token(
     }
     let queries = q(state)?;
     let failed = failed(column.provider());
-    column.clear(&queries, uid).await.map_err(refused(&failed))?;
+    column
+        .clear(&queries, uid)
+        .await
+        .map_err(refused(&failed))?;
     Ok(Json(Empty {}))
 }
 
@@ -117,7 +120,10 @@ impl super::UnlinkService {
         }
         let queries = q(state)?;
         let failed = failed("Facebook Instant Game");
-        queries.unlink_facebook_instant(uid).await.map_err(refused(&failed))?;
+        queries
+            .unlink_facebook_instant(uid)
+            .await
+            .map_err(refused(&failed))?;
         Ok(Json(Empty {}))
     }
 
@@ -141,7 +147,10 @@ impl super::UnlinkService {
         }
         let queries = q(state)?;
         let failed = failed("GameCenter");
-        queries.unlink_gamecenter(uid).await.map_err(refused(&failed))?;
+        queries
+            .unlink_gamecenter(uid)
+            .await
+            .map_err(refused(&failed))?;
         Ok(Json(Empty {}))
     }
 }

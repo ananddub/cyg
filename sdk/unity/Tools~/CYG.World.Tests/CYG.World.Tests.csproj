@@ -12,7 +12,13 @@
     <Compile Include="../../Runtime/Sim/World/**/*.cs" LinkBase="Runtime/World" />
     <Compile Include="../../Runtime/Sim/Core/*.cs" LinkBase="Runtime/Core" />
     <Compile Include="../../Runtime/Sim/Math/*.cs" LinkBase="Runtime/Math" />
-    <Compile Include="../../Runtime/Sim/Physics3D/*.cs" LinkBase="Runtime/Physics3D" />
+    <Compile Include="../../Runtime/Sim/Physics3D/**/*.cs" LinkBase="Runtime/Physics3D" />
+    <Compile Include="../../Runtime/Sim/Physics2D/**/*.cs" LinkBase="Runtime/Physics2D" />
+    <Compile Include="../../Runtime/Sim/Navigation/**/*.cs" LinkBase="Runtime/Navigation" />
+    <Compile Include="../../Runtime/Sim/Netcode/*.cs" LinkBase="Runtime/Netcode" />
+    <Compile Include="../../Runtime/Sim/Replay/*.cs" LinkBase="Runtime/Replay" />
+    <Compile Include="../../Runtime/Sim/Rollback/*.cs" LinkBase="Runtime/Rollback" />
+    <Compile Include="../../Runtime/Sim/TwoBox/**/*.cs" LinkBase="Runtime/TwoBox" />
     <ProjectReference Include="../CYG.CodeGen/CYG.CodeGen.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />

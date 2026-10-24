@@ -7,9 +7,9 @@
 
 use axum::Json;
 
+use crate::ApiState;
 use crate::dto::console::status::{RouteRow, StatusResponse};
 use crate::error::V2Error;
-use crate::ApiState;
 
 /// The methods an OpenAPI path object can carry, in a fixed order so the explorer's
 /// list does not reshuffle between calls.

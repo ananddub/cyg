@@ -10,8 +10,8 @@ use auto_route::controller;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 
-use crate::current_state;
 use crate::app::params::{Body, Params};
+use crate::current_state;
 
 use crate::dto::auth::{self, AuthQuery};
 use crate::services::auth::AuthService;

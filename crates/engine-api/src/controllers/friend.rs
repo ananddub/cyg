@@ -5,9 +5,9 @@ use std::sync::Arc;
 use auto_route::controller;
 use axum::response::{IntoResponse, Response};
 
-use crate::current_state;
 use crate::app::middleware::Authed;
 use crate::app::params::Params;
+use crate::current_state;
 
 use crate::dto::friend::{FoFQuery, ListQuery, TargetsQuery};
 use crate::services::friend::FriendService;
@@ -23,43 +23,39 @@ impl FriendController {
     }
 
     #[get("")]
-    async fn list_friends(
-        &self,
-        auth: Authed,
-        Params(req): Params<ListQuery>,
-    ) -> Response {
+    async fn list_friends(&self, auth: Authed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
-        self.service.list_friends(&state, &auth, req).await.into_response()
+        self.service
+            .list_friends(&state, &auth, req)
+            .await
+            .into_response()
     }
 
     #[post("")]
-    async fn add_friends(
-        &self,
-        auth: Authed,
-        Params(req): Params<TargetsQuery>,
-    ) -> Response {
+    async fn add_friends(&self, auth: Authed, Params(req): Params<TargetsQuery>) -> Response {
         let state = current_state();
-        self.service.add_friends(&state, &auth, req).await.into_response()
+        self.service
+            .add_friends(&state, &auth, req)
+            .await
+            .into_response()
     }
 
     #[delete("")]
-    async fn delete_friends(
-        &self,
-        auth: Authed,
-        Params(req): Params<TargetsQuery>,
-    ) -> Response {
+    async fn delete_friends(&self, auth: Authed, Params(req): Params<TargetsQuery>) -> Response {
         let state = current_state();
-        self.service.delete_friends(&state, &auth, req).await.into_response()
+        self.service
+            .delete_friends(&state, &auth, req)
+            .await
+            .into_response()
     }
 
     #[post("/block")]
-    async fn block_friends(
-        &self,
-        auth: Authed,
-        Params(req): Params<TargetsQuery>,
-    ) -> Response {
+    async fn block_friends(&self, auth: Authed, Params(req): Params<TargetsQuery>) -> Response {
         let state = current_state();
-        self.service.block_friends(&state, &auth, req).await.into_response()
+        self.service
+            .block_friends(&state, &auth, req)
+            .await
+            .into_response()
     }
 
     #[get("/friends")]

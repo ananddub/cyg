@@ -12,6 +12,7 @@ mod definition;
 use axum::Json;
 use chrono::Utc;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::leaderboard::TournamentWriteRequest;
@@ -20,7 +21,6 @@ use crate::error::V2Error;
 use crate::repositories::models::Leaderboard;
 use crate::utils::leaderboard::types::{NOT_FOUND as BOARD_NOT_FOUND, is_tournament};
 use crate::utils::tournament::types::NOT_FOUND;
-use crate::ApiState;
 
 use definition::{BoardWrite, ID_MISSING, ID_TAKEN};
 
@@ -62,7 +62,14 @@ impl super::ConsoleService {
                     V2Error::from_sqlx(e)
                 }
             })?;
-        audit_board(state, claims, "tournament.create", &board.id, "Created a tournament.").await;
+        audit_board(
+            state,
+            claims,
+            "tournament.create",
+            &board.id,
+            "Created a tournament.",
+        )
+        .await;
         answer(&board)
     }
 
@@ -95,7 +102,14 @@ impl super::ConsoleService {
             .fetch_one(super::pool(state)?)
             .await
             .map_err(V2Error::from_sqlx)?;
-        audit_board(state, claims, "tournament.update", id, "Updated a tournament.").await;
+        audit_board(
+            state,
+            claims,
+            "tournament.update",
+            id,
+            "Updated a tournament.",
+        )
+        .await;
         answer(&board)
     }
 
@@ -108,7 +122,14 @@ impl super::ConsoleService {
         claims.require_write()?;
         tournament_row(state, id).await?;
         remove_board(state, id).await?;
-        audit_board(state, claims, "tournament.delete", id, "Deleted a tournament.").await;
+        audit_board(
+            state,
+            claims,
+            "tournament.delete",
+            id,
+            "Deleted a tournament.",
+        )
+        .await;
         Ok(Json(Empty {}))
     }
 
@@ -132,7 +153,14 @@ impl super::ConsoleService {
             return Err(V2Error::not_found(BOARD_NOT_FOUND));
         }
         remove_board(state, id).await?;
-        audit_board(state, claims, "leaderboard.delete", id, "Deleted a leaderboard.").await;
+        audit_board(
+            state,
+            claims,
+            "leaderboard.delete",
+            id,
+            "Deleted a leaderboard.",
+        )
+        .await;
         Ok(Json(Empty {}))
     }
 }
@@ -185,5 +213,13 @@ async fn audit_board(
     id: &str,
     message: &str,
 ) {
-    super::audit(state, claims, action, "leaderboard", None, &format!("{message} {id}")).await;
+    super::audit(
+        state,
+        claims,
+        action,
+        "leaderboard",
+        None,
+        &format!("{message} {id}"),
+    )
+    .await;
 }

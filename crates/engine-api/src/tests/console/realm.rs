@@ -82,7 +82,9 @@ fn logout_revokes_exactly_the_token_it_was_given() {
     // A fresh login is a different token, and is not caught by the revocation.
     let second = login(&server, ADMIN, PASSWORD);
     assert_eq!(
-        server.get("/v2/console/setting", Some(&format!("Bearer {second}"))).status,
+        server
+            .get("/v2/console/setting", Some(&format!("Bearer {second}")))
+            .status,
         503
     );
 }

@@ -99,10 +99,16 @@ fn clause(operator: i16, descending: bool) -> String {
 
 /// The path for a board anyone may enter: insert, or update the row there, answering with the attempt counters.
 pub(crate) fn accept(write: &Write<'_>, descending: bool) -> String {
-    format!("{INSERT_HEAD}{}{INSERT_TAIL}", clause(write.operator, descending))
+    format!(
+        "{INSERT_HEAD}{}{INSERT_TAIL}",
+        clause(write.operator, descending)
+    )
 }
 
 /// The path for a board requiring a join: only a row the join already put there is written; no size counter moves.
 pub(crate) fn accept_joined(write: &Write<'_>, descending: bool) -> String {
-    format!("{UPDATE_HEAD}{}{UPDATE_TAIL}", clause(write.operator, descending))
+    format!(
+        "{UPDATE_HEAD}{}{UPDATE_TAIL}",
+        clause(write.operator, descending)
+    )
 }

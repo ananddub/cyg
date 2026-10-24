@@ -12,7 +12,12 @@ fn both_paths_serve_a_seat_over_http() {
         assert_eq!(v["roomId"].as_str().unwrap(), "tank-3d");
         assert!(!v["sessionId"].as_str().unwrap().is_empty());
         assert!(v["seatToken"].as_str().unwrap().contains('.'));
-        assert!(v["reconnectionToken"].as_str().unwrap().starts_with("dGFuay0z"));
+        assert!(
+            v["reconnectionToken"]
+                .as_str()
+                .unwrap()
+                .starts_with("dGFuay0z")
+        );
     }
 }
 
@@ -47,7 +52,12 @@ fn http_over_the_burst_is_a_429_with_retry_after() {
     assert!((1..=2).contains(&secs), "honest wait, got {secs}");
     let v: serde_json::Value = serde_json::from_str(&body).expect("error body is JSON");
     assert_eq!(v["error"]["code"], 8, "429 maps to RESOURCE_EXHAUSTED");
-    assert!(v["error"]["message"].as_str().unwrap().contains("rate limit"));
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("rate limit")
+    );
 }
 
 /// `evil"`, `evil/`, `evil\n` — percent-encoded so the router still sees

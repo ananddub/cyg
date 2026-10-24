@@ -2,10 +2,16 @@
 
 use bytes::{Buf, Bytes, BytesMut};
 
+/// Hard cap on any single inbound frame. A client declaring more than this in
+/// a 64-bit length header is malicious or broken: reject instead of
+/// overflowing `usize` (remote panic) or buffering 4 GB (OOM).
+pub const MAX_INBOUND_FRAME_SIZE: usize = 1024 * 1024;
+
 /// Take one frame off the front of `buf`. `None` when the buffer holds an
-/// incomplete frame. Unmasks the payload in place and hands out a refcounted
-/// `Bytes` view — no per-frame copy.
-pub fn next_ws_frame(buf: &mut BytesMut) -> Option<(u8, bool, Bytes)> {
+/// incomplete frame. `Err(())` when the peer declared an oversized frame —
+/// the connection must be closed (close code 1009). Unmasks the payload in
+/// place and hands out a refcounted `Bytes` view — no per-frame copy.
+pub fn next_ws_frame(buf: &mut BytesMut) -> Option<Result<(u8, bool, Bytes), ()>> {
     if buf.len() < 2 {
         return None;
     }
@@ -30,6 +36,13 @@ pub fn next_ws_frame(buf: &mut BytesMut) -> Option<(u8, bool, Bytes)> {
         }
         payload_len = u64::from_be_bytes(buf[2..10].try_into().unwrap()) as usize;
         header_len = 10;
+        // Reject BEFORE any arithmetic on the attacker-controlled length: the
+        // raw u64 cast to usize could otherwise wrap `total_len` into a small
+        // number and panic on the slice below (one packet = process death).
+        if payload_len > MAX_INBOUND_FRAME_SIZE {
+            buf.clear();
+            return Some(Err(()));
+        }
     }
 
     let mask_len = if is_masked { 4 } else { 0 };
@@ -66,7 +79,7 @@ pub fn next_ws_frame(buf: &mut BytesMut) -> Option<(u8, bool, Bytes)> {
     // Detach only the payload: advance past the header/mask and split the payload
     buf.advance(payload_start);
     let payload = buf.split_to(payload_len).freeze();
-    Some((ws_opcode, fin, payload))
+    Some(Ok((ws_opcode, fin, payload)))
 }
 
 #[cfg(test)]
@@ -128,7 +141,7 @@ mod decode_boundary_tests {
             let original: Vec<u8> = (0..len).map(|i| (i * 7 + 3) as u8).collect();
             let mut buf = build_frame(0x2, true, Some(mask), &original);
 
-            let (op, fin, decoded) = next_ws_frame(&mut buf).expect("frame must decode");
+            let (op, fin, decoded) = next_ws_frame(&mut buf).expect("frame must decode").expect("not oversize");
             assert_eq!(op, 0x2);
             assert!(fin);
             assert_eq!(&decoded[..], &original[..], "failed for len {}", len);
@@ -140,7 +153,7 @@ mod decode_boundary_tests {
     fn test_decode_unmasked_frames() {
         let original = vec![42u8; 100];
         let mut buf = build_frame(0x2, true, None, &original);
-        let (op, fin, decoded) = next_ws_frame(&mut buf).expect("unmasked frame decode");
+        let (op, fin, decoded) = next_ws_frame(&mut buf).expect("unmasked frame decode").expect("not oversize");
         assert_eq!(op, 0x2);
         assert!(fin);
         assert_eq!(&decoded[..], &original[..]);

@@ -38,10 +38,21 @@ pub(super) fn complete_upgrade(
         ctx.client_rooms
             .insert(client.session_id.to_string(), req.url_room.clone());
     }
+    if let Some(options) = &req.url_options {
+        ctx.client_options
+            .insert(client.session_id.to_string(), options.clone());
+    }
 
     // In this protocol the SERVER initiates the join: the SDK client connects, then waits for the JOIN_ROOM handshake before `onJoin`.
     let reply = build_join_reply(&client.session_id, &client.room_id, ctx.seat_tokens);
     encode_ws_frame(&reply, &mut client.send_queue);
+
+    // The schema descriptor travels in its own frame right after JOIN_ROOM.
+    // It is self-describing ("OXSD"), so clients can build their state
+    // contract before the first snapshot without any project-side schema file.
+    if !ctx.schema_descriptor.is_empty() {
+        encode_ws_frame(ctx.schema_descriptor, &mut client.send_queue);
+    }
 
     if let Ok(peer_addr) = client.stream.peer_addr() {
         events_out.push(TransportEvent::Connected {

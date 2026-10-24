@@ -72,6 +72,9 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = boolean("allow_storage") {
         cfg.permissions.storage = v;
     }
+    if let Some(v) = boolean("allow_messaging") {
+        cfg.permissions.messaging = v;
+    }
     if let Some(v) = table.get("voice_ice_servers") {
         cfg.voice_ice_servers = v.to_string();
     }

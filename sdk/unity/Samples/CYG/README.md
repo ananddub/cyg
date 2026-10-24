@@ -22,7 +22,7 @@ dotnet sdk/unity/Tools~/CYG.Dsl.Cli/bin/Release/net10.0/CYG.Dsl.Cli.dll \
 ```
 
 The emitted file contains partial struct declarations only. The
-`CYG.CodeGen` Roslyn generator (bundled at `Runtime/CodeGen/CYG.CodeGen.dll`)
+`CYG.CodeGen` Roslyn generator (bundled at `Runtime/Sim/CodeGen/CYG.CodeGen.dll`)
 adds `SizeInBytes`, `TypeId`, `SchemaHash`, `WriteTo`, `ReadFrom`,
 `ComputeChecksum` and `CopyTo` when Unity compiles the generated source.
 

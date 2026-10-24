@@ -60,7 +60,9 @@ impl SignalHub {
     /// microsecond later already has somewhere to go.
     pub fn attach(&self, seat: &str) -> SeatReplies {
         let (tx, rx) = mpsc_channel(super::consts::PER_SEAT_QUEUE);
-        let attach_id = self.next_attach.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let attach_id = self
+            .next_attach
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if let Ok(mut routes) = self.routes.lock() {
             routes.insert(seat.to_string(), RoutedQueue { attach_id, tx });
         }

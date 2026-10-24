@@ -1,5 +1,5 @@
-use super::*;
 use super::raw_ws::WsClient;
+use super::*;
 use serde_json::json;
 
 #[tokio::test]
@@ -16,15 +16,27 @@ async fn relays_offer_and_answer_over_a_real_socket() {
     );
 
     // Offer → data plane, seat stamped by the handler, not by the body.
-    ws.send_text(r#"{"type":"offer","sdp":"v=0 fake offer"}"#).await;
+    ws.send_text(r#"{"type":"offer","sdp":"v=0 fake offer"}"#)
+        .await;
     assert_eq!(
         next_signal(&mut inbound).await,
-        SignalIn::Offer { seat: seat.clone(), sdp: "v=0 fake offer".into() }
+        SignalIn::Offer {
+            seat: seat.clone(),
+            sdp: "v=0 fake offer".into()
+        }
     );
 
     // Answer → browser, through the hub exactly as a data plane would.
-    assert!(state.signals.publish(&seat.id, SignalOut::Answer { sdp: "v=0 fake answer".into() }));
-    assert_eq!(ws.recv_json().await, json!({ "type": "answer", "sdp": "v=0 fake answer" }));
+    assert!(state.signals.publish(
+        &seat.id,
+        SignalOut::Answer {
+            sdp: "v=0 fake answer".into()
+        }
+    ));
+    assert_eq!(
+        ws.recv_json().await,
+        json!({ "type": "answer", "sdp": "v=0 fake answer" })
+    );
 
     // Candidates both ways; the alias `sdpIndex` maps to the same field as
     // `sdpMLineIndex`.
@@ -53,15 +65,27 @@ async fn relays_offer_and_answer_over_a_real_socket() {
         ws.recv().await.unwrap(),
         r#"{"type":"candidate","candidate":"candidate:2 1 udp 2 10.0.0.2 5001 typ host","sdpMid":"0","sdpMLineIndex":0}"#
     );
-    assert_eq!(state.signals.counts(), (3, 0), "ice, answer and candidate all arrived");
+    assert_eq!(
+        state.signals.counts(),
+        (3, 0),
+        "ice, answer and candidate all arrived"
+    );
 
     // A client `{"type":"close"}` costs the data plane exactly one Close.
     ws.send_text(r#"{"type":"close"}"#).await;
-    assert_eq!(next_signal(&mut inbound).await, SignalIn::Close { seat: seat.clone() });
+    assert_eq!(
+        next_signal(&mut inbound).await,
+        SignalIn::Close { seat: seat.clone() }
+    );
     expect_quiet(&mut inbound).await;
     wait_peers(&state.signals, 0).await;
     assert!(
-        !state.signals.publish(&seat.id, SignalOut::Error { message: "gone".into() }),
+        !state.signals.publish(
+            &seat.id,
+            SignalOut::Error {
+                message: "gone".into()
+            }
+        ),
         "a seat whose socket closed must have no route left"
     );
 }

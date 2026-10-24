@@ -49,7 +49,10 @@ impl SignalHub {
     /// one message hub must attempt even then: only an attempt tells "the data plane
     /// started and this socket went away" from "no data plane ever started".
     fn inbound_unowned(&self) -> bool {
-        self.inbound_rx.lock().map(|slot| slot.is_some()).unwrap_or(false)
+        self.inbound_rx
+            .lock()
+            .map(|slot| slot.is_some())
+            .unwrap_or(false)
     }
 
     /// Attempt a `Close` regardless of who owns the queue: a notice dropped into a
@@ -63,6 +66,9 @@ impl SignalHub {
     }
 
     pub fn counts(&self) -> (u64, u64) {
-        (self.delivered.load(Relaxed), self.dropped_full.load(Relaxed))
+        (
+            self.delivered.load(Relaxed),
+            self.dropped_full.load(Relaxed),
+        )
     }
 }

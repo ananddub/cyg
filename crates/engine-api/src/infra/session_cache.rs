@@ -36,13 +36,17 @@ impl SessionCache {
 
     pub fn is_valid_session(&self, uid: Uuid, exp: i64, token_id: &str) -> bool {
         self.users
-            .read_sync(&uid, |_, entry| valid(entry, exp, token_id, self.token_expiry_secs, true))
+            .read_sync(&uid, |_, entry| {
+                valid(entry, exp, token_id, self.token_expiry_secs, true)
+            })
             .unwrap_or(true)
     }
 
     pub fn is_valid_refresh(&self, uid: Uuid, exp: i64, token_id: &str) -> bool {
         self.users
-            .read_sync(&uid, |_, entry| valid(entry, exp, token_id, self.refresh_expiry_secs, false))
+            .read_sync(&uid, |_, entry| {
+                valid(entry, exp, token_id, self.refresh_expiry_secs, false)
+            })
             .unwrap_or(true)
     }
 
@@ -92,7 +96,9 @@ impl SessionCache {
             let stamped = entry.last_invalidation > 0;
             let aged = entry.last_invalidation < ts.saturating_sub(token_expiry)
                 && entry.last_invalidation < ts.saturating_sub(refresh_expiry);
-            !(entry.session_tokens.is_empty() && entry.refresh_tokens.is_empty() && (!stamped || aged))
+            !(entry.session_tokens.is_empty()
+                && entry.refresh_tokens.is_empty()
+                && (!stamped || aged))
         });
     }
 }

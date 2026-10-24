@@ -9,6 +9,55 @@ use engine_net::transport::WebRtcServer;
 
 use crate::rooms::{GameRoom, JournalInput};
 
+/// Schema state payload magic. Kept in sync with
+/// `sdk/interfaces/assemblyscript/openoxide.ts` and `sdk/web/openoxide.js`.
+pub const SCHEMA_MAGIC: &[u8; 4] = b"OXS2";
+/// Per-tick schema envelope: magic + fullLen + full + patchLen + patch.
+pub const SCHEMA_ENVELOPE_HEADER: usize = 8;
+/// Full/patch section: magic + kind + schema hash + count.
+pub const SCHEMA_SECTION_HEADER: usize = 9;
+
+/// The two halves of a guest schema `onTick` payload.
+pub struct SchemaSections<'a> {
+    /// Complete row for a viewer that has never seen this state.
+    pub full: &'a [u8],
+    /// Field-level changes for a viewer that already applied `full`.
+    pub patch: &'a [u8],
+}
+
+/// Split the guest's schema envelope into its full and patch sections.
+///
+/// Returns `None` for legacy `DeltaWriter` payloads and for malformed
+/// envelopes, so a bad guest buffer is broadcast as-is rather than panicking
+/// the host loop.
+pub fn split_schema(buf: &[u8]) -> Option<SchemaSections<'_>> {
+    if buf.len() < SCHEMA_ENVELOPE_HEADER || &buf[0..4] != SCHEMA_MAGIC {
+        return None;
+    }
+    let full_len = u32::from_le_bytes(buf[4..8].try_into().ok()?) as usize;
+    let full_start = SCHEMA_ENVELOPE_HEADER;
+    let full_end = full_start.checked_add(full_len)?;
+    if full_end + 4 > buf.len() {
+        return None;
+    }
+    let patch_len = u32::from_le_bytes(buf[full_end..full_end + 4].try_into().ok()?) as usize;
+    let patch_start = full_end + 4;
+    let patch_end = patch_start.checked_add(patch_len)?;
+    if patch_end != buf.len() {
+        return None;
+    }
+    let full = &buf[full_start..full_end];
+    let patch = &buf[patch_start..patch_end];
+    if full.len() < SCHEMA_SECTION_HEADER
+        || patch.len() < SCHEMA_SECTION_HEADER
+        || &full[0..4] != SCHEMA_MAGIC
+        || &patch[0..4] != SCHEMA_MAGIC
+    {
+        return None;
+    }
+    Some(SchemaSections { full, patch })
+}
+
 /// Wrap a raw delta buffer into a ROOM_DATA_BYTES frame payload:
 /// [msgpack fixstr "delta"][i64 recipient_player_id][raw bytes...].
 /// Frames into a caller-owned buffer so a 128 Hz broadcast allocates nothing.
@@ -83,7 +132,11 @@ pub fn apply_input(
         return; // legacy newest-wins drop or pure unity relay mode
     }
     // Duplicate resend — it is already in the journal.
-    if room.input_journal.iter().any(|j| j.session == session && j.seq == seq) {
+    if room
+        .input_journal
+        .iter()
+        .any(|j| j.session == session && j.seq == seq)
+    {
         return;
     }
     // The input slots in right after its predecessor. No predecessor inside the
@@ -113,13 +166,22 @@ pub fn apply_input(
     let Some(ref mut wasm) = room.wasm else {
         return;
     };
-    let load_ptr = wasm
-        .on_alloc(ckpt.len() as i32)
-        .expect("wasm alloc ckpt") as u32 as usize;
-    wasm.write_memory(load_ptr as u32, ckpt).expect("write ckpt");
-    wasm
-        .on_load(load_ptr as i32, ckpt.len() as i32)
-        .expect("wasm on_load");
+    // Rule 5 (fault isolation): this path is client-reachable (any out-of-order
+    // seq can trigger a rewind), so a guest trap here must drop the replay,
+    // never kill the host loop.
+    let Ok(load_ptr_i32) = wasm.on_alloc(ckpt.len() as i32) else {
+        eprintln!("[server] ⚠️ rollback replay dropped: guest on_alloc failed");
+        return;
+    };
+    let load_ptr = load_ptr_i32 as u32 as usize;
+    if let Err(e) = wasm.write_memory(load_ptr as u32, ckpt) {
+        eprintln!("[server] ⚠️ rollback replay dropped: checkpoint write failed: {e}");
+        return;
+    }
+    if let Err(e) = wasm.on_load(load_ptr as i32, ckpt.len() as i32) {
+        eprintln!("[server] ⚠️ rollback replay dropped: guest trap in on_load: {e}");
+        return;
+    }
 
     // Insert the late input right behind its predecessor, keeping the journal
     // ordered by arrival tick.
@@ -190,11 +252,8 @@ pub use engine_spatial::aoi::DeltaEntity;
 /// Thin wrapper over [`engine_spatial::aoi::parse_delta`] — that is the one
 /// implementation; this flattens the bullets range into the tuple the host
 /// plane consumes.
-pub fn parse_delta_sections(
-    delta: &[u8],
-) -> Option<(u32, Vec<DeltaEntity>, u32, usize, usize)> {
-    let (ver, entities, bullets, (bc_off, bullet_end)) =
-        engine_spatial::aoi::parse_delta(delta)?;
+pub fn parse_delta_sections(delta: &[u8]) -> Option<(u32, Vec<DeltaEntity>, u32, usize, usize)> {
+    let (ver, entities, bullets, (bc_off, bullet_end)) = engine_spatial::aoi::parse_delta(delta)?;
     Some((ver, entities, bullets, bc_off, bullet_end))
 }
 
@@ -272,7 +331,10 @@ pub fn send_delta_framed(
 /// old ack, so the high-water mark is what a resync would resume from, not the
 /// last number that arrived.
 pub fn record_channel_ack(room: &mut GameRoom, client_id: &str, ack: engine_webrtc_protocol::Ack) {
-    let slot = room.acked_event_seq.entry(client_id.to_string()).or_insert(ack.seq);
+    let slot = room
+        .acked_event_seq
+        .entry(client_id.to_string())
+        .or_insert(ack.seq);
     if engine_webrtc_protocol::is_newer(*slot, ack.seq) {
         *slot = ack.seq;
     }
@@ -432,7 +494,13 @@ impl<'a> WireInputTick<'a> {
         input_payload: &[u8],
     ) -> Vec<u8> {
         let mut pkt = Vec::with_capacity(Self::HEADER_LEN + input_payload.len().min(255));
-        Self::encode(room_id, client_tick, player_actor_id, input_payload, &mut pkt);
+        Self::encode(
+            room_id,
+            client_tick,
+            player_actor_id,
+            input_payload,
+            &mut pkt,
+        );
         pkt
     }
 
@@ -704,7 +772,8 @@ pub fn handle_unity_relay_packet(
                         if let Some(ref unity) = room.unity {
                             if let Some(ent) = unity.entities.get(&view_id) {
                                 target = Some(ent.owner_session.clone());
-                            } else if let Some((_, owner, _)) = unity.spawned_prefabs.get(&view_id) {
+                            } else if let Some((_, owner, _)) = unity.spawned_prefabs.get(&view_id)
+                            {
                                 // Production relay records ownership at spawn
                                 // time; `entities` is only populated when a full
                                 // snapshot is restored. Without this fallback an
@@ -809,15 +878,36 @@ mod tests {
     #[test]
     fn tunnel_layout_is_magic_first_and_round_trips() {
         let pkt = tunnel(CYG_OP_DESPAWN_OBJECT, &[9, 9]);
-        assert_eq!(pkt[0], CYG_TUNNEL_MAGIC, "0x43 must be the payload's first byte");
-        assert_eq!(u16::from_be_bytes([pkt[1], pkt[2]]), 3, "len counts op + body");
+        assert_eq!(
+            pkt[0], CYG_TUNNEL_MAGIC,
+            "0x43 must be the payload's first byte"
+        );
+        assert_eq!(
+            u16::from_be_bytes([pkt[1], pkt[2]]),
+            3,
+            "len counts op + body"
+        );
         assert_eq!(pkt[3], CYG_OP_DESPAWN_OBJECT);
-        assert_eq!(parse_tunnel(&pkt), Some((CYG_OP_DESPAWN_OBJECT, &[9u8, 9][..])));
+        assert_eq!(
+            parse_tunnel(&pkt),
+            Some((CYG_OP_DESPAWN_OBJECT, &[9u8, 9][..]))
+        );
     }
 
     #[test]
     fn varint_matches_sdk_bitpacker() {
-        for v in [0i32, 1, -1, 42, 300, -300, 65_535, -65_536, i32::MAX, i32::MIN] {
+        for v in [
+            0i32,
+            1,
+            -1,
+            42,
+            300,
+            -300,
+            65_535,
+            -65_536,
+            i32::MAX,
+            i32::MIN,
+        ] {
             let mut buf = Vec::new();
             put_varint(&mut buf, v);
             let (got, used) = read_varint_i32(&buf).expect("decodes");
@@ -908,10 +998,14 @@ mod tests {
         spawn_body.extend_from_slice(&[1, 2, 3, 4]);
         let spawn_packet = tunnel(CYG_OP_SPAWN_OBJECT, &spawn_body);
 
-        let act = handle_unity_relay_packet(&mut room, "sess_spawner", &spawn_packet).expect("handled");
+        let act =
+            handle_unity_relay_packet(&mut room, "sess_spawner", &spawn_packet).expect("handled");
         assert!(act.target.is_none());
         assert_eq!(act.wire_code, CYG_WIRE_ROOM_DATA_BYTES);
-        assert_eq!(act.wire_payload, spawn_packet, "peers get the tunnel verbatim");
+        assert_eq!(
+            act.wire_payload, spawn_packet,
+            "peers get the tunnel verbatim"
+        );
 
         let unity = room.unity.as_ref().unwrap();
         assert!(unity.spawned_prefabs.contains_key(&200));
@@ -924,11 +1018,18 @@ mod tests {
         put_varint(&mut despawn_body, 200);
         let despawn_packet = tunnel(CYG_OP_DESPAWN_OBJECT, &despawn_body);
 
-        assert!(handle_unity_relay_packet(&mut room, "sess_spawner", &despawn_packet)
-            .expect("handled")
-            .target
-            .is_none());
-        assert!(!room.unity.as_ref().unwrap().spawned_prefabs.contains_key(&200));
+        assert!(
+            handle_unity_relay_packet(&mut room, "sess_spawner", &despawn_packet)
+                .expect("handled")
+                .target
+                .is_none()
+        );
+        assert!(!room
+            .unity
+            .as_ref()
+            .unwrap()
+            .spawned_prefabs
+            .contains_key(&200));
     }
 
     #[test]
@@ -943,7 +1044,11 @@ mod tests {
         let action = handle_unity_relay_packet(&mut room, "sess_mover", &pkt).expect("handled");
         assert!(action.target.is_none());
         assert_eq!(action.wire_code, CYG_WIRE_ROOM_STATE_PATCH);
-        assert_eq!(action.wire_payload, pkt[1..], "the 15 header byte is stripped");
+        assert_eq!(
+            action.wire_payload,
+            pkt[1..],
+            "the 15 header byte is stripped"
+        );
         assert!(room.unity.as_ref().unwrap().dirty_entities.contains(&300));
     }
 
@@ -955,11 +1060,21 @@ mod tests {
         assert!(handle_unity_relay_packet(&mut room, "s", &[CYG_WIRE_PING, 1, 2, 3]).is_none());
         // A short input-tick packet is not a relay message. A complete one is
         // consumed by the input-hub path before relay dispatch.
-        assert!(handle_unity_relay_packet(&mut room, "s", &[CYG_WIRE_INPUT_TICK, 0, 0, 0, 0, 0, 0, 0]).is_none());
+        assert!(handle_unity_relay_packet(
+            &mut room,
+            "s",
+            &[CYG_WIRE_INPUT_TICK, 0, 0, 0, 0, 0, 0, 0]
+        )
+        .is_none());
         assert!(handle_unity_relay_packet(&mut room, "s", &[20, 0, 0, 0, 0, 0]).is_none());
-        assert!(handle_unity_relay_packet(&mut room, "s", &[CYG_WIRE_ROOM_REQUEST, 0, 0, 0, 0]).is_none());
+        assert!(
+            handle_unity_relay_packet(&mut room, "s", &[CYG_WIRE_ROOM_REQUEST, 0, 0, 0, 0])
+                .is_none()
+        );
         // A bare 17 with no magic is an opaque room blob, not a canonical packet.
-        assert!(handle_unity_relay_packet(&mut room, "s", &[CYG_WIRE_ROOM_DATA_BYTES, 9, 9]).is_none());
+        assert!(
+            handle_unity_relay_packet(&mut room, "s", &[CYG_WIRE_ROOM_DATA_BYTES, 9, 9]).is_none()
+        );
         assert!(parse_tunnel(&[CYG_WIRE_ROOM_DATA_BYTES, CYG_TUNNEL_MAGIC, 0, 1, 6]).is_none());
     }
 
@@ -979,7 +1094,10 @@ mod tests {
         assert_eq!(u32::from_le_bytes(out[14..18].try_into().unwrap()), 1);
 
         let tail = out.len() - 6;
-        assert_eq!(u16::from_le_bytes(out[tail..tail + 2].try_into().unwrap()), 7);
+        assert_eq!(
+            u16::from_le_bytes(out[tail..tail + 2].try_into().unwrap()),
+            7
+        );
         assert_eq!(u32::from_le_bytes(out[tail + 2..].try_into().unwrap()), 99);
     }
 
@@ -1006,14 +1124,27 @@ mod tests {
         assert_eq!(parsed.input_len, 4);
         assert_eq!(parsed.input_payload, &[0xAA, 0xBB, 0xCC, 0xDD]);
         assert_eq!(parsed.room_id_str().unwrap(), "room1234");
-        assert!(!parsed.has_valid_input_payload(), "4-byte payload is not a Unity input frame");
-        assert_ne!(CYG_WIRE_INPUT_TICK, CYG_WIRE_PING, "input tick must never collide with PING");
+        assert!(
+            !parsed.has_valid_input_payload(),
+            "4-byte payload is not a Unity input frame"
+        );
+        assert_ne!(
+            CYG_WIRE_INPUT_TICK, CYG_WIRE_PING,
+            "input tick must never collide with PING"
+        );
     }
 
     #[test]
     fn input_hub_accepts_only_unity_input_frames() {
         let room_id = *b"room1234";
-        for (len, ok) in [(0usize, false), (4, false), (9, true), (18, true), (27, true), (36, false)] {
+        for (len, ok) in [
+            (0usize, false),
+            (4, false),
+            (9, true),
+            (18, true),
+            (27, true),
+            (36, false),
+        ] {
             let payload = vec![0u8; len];
             let pkt = WireInputTick::to_packet_vec(room_id, 1, 1, &payload);
             let parsed = WireInputTick::parse(&pkt).expect("parse");
@@ -1116,5 +1247,91 @@ mod tests {
         assert_eq!(redundant.current, &[1, 2, 3, 4]);
         assert_eq!(redundant.prev_1, Some(&[5u8, 6, 7, 8] as &[u8]));
         assert_eq!(redundant.prev_2, Some(&[9u8, 10, 11, 12] as &[u8]));
+    }
+
+    fn schema_section(kind: u8, hash: u32, body: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(SCHEMA_MAGIC);
+        out.push(kind);
+        out.extend_from_slice(&hash.to_le_bytes());
+        out.extend_from_slice(body);
+        out
+    }
+
+    fn schema_envelope(full: &[u8], patch: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(SCHEMA_MAGIC);
+        out.extend_from_slice(&(full.len() as u32).to_le_bytes());
+        out.extend_from_slice(full);
+        out.extend_from_slice(&(patch.len() as u32).to_le_bytes());
+        out.extend_from_slice(patch);
+        out
+    }
+
+    #[test]
+    fn schema_envelope_splits_full_and_patch() {
+        let full = schema_section(1, 0xC737_1660, &[1, 0, 0, 0]);
+        let patch = schema_section(2, 0xC737_1660, &[0, 0, 0, 0]);
+        let env = schema_envelope(&full, &patch);
+        let sections = split_schema(&env).expect("valid envelope");
+        assert_eq!(sections.full, full.as_slice());
+        assert_eq!(sections.patch, patch.as_slice());
+    }
+
+    #[test]
+    fn legacy_delta_and_truncated_schema_are_not_split() {
+        assert!(split_schema(&[0, 0, 0, 0]).is_none());
+        let full = schema_section(1, 7, &[0, 0, 0, 0]);
+        let patch = schema_section(2, 7, &[0, 0, 0, 0]);
+        let mut env = schema_envelope(&full, &patch);
+        env.pop();
+        assert!(
+            split_schema(&env).is_none(),
+            "truncated envelope must fall back"
+        );
+    }
+
+    #[test]
+    fn schema_envelope_never_panics_on_malformed_input() {
+        let full = schema_section(3, 0xC737_1660, &[1, 0, 0, 0]);
+        let patch = schema_section(4, 0xC737_1660, &[2, 0, 0, 0]);
+        let env = schema_envelope(&full, &patch);
+
+        for end in 0..env.len() {
+            assert!(
+                split_schema(&env[..end]).is_none(),
+                "prefix {end} must not split"
+            );
+        }
+
+        let mut overflow = env.clone();
+        overflow[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(split_schema(&overflow).is_none());
+
+        let mut trailing = env.clone();
+        trailing.push(0);
+        assert!(split_schema(&trailing).is_none());
+
+        // Deterministic mutation sweep: the splitter must reject or accept,
+        // never index out of bounds.
+        let mut state = 0x9E37_79B9u32;
+        for _ in 0..2_000 {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let mut mutated = env.clone();
+            let position = (state as usize) % mutated.len();
+            mutated[position] ^= (state >> 24) as u8 | 1;
+            let _ = split_schema(&mutated);
+        }
+
+        let mut random = Vec::new();
+        for length in 0..=512 {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            random.clear();
+            for _ in 0..length {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                random.push((state >> 16) as u8);
+            }
+            let _ = split_schema(&random);
+        }
     }
 }

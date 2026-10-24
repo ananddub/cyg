@@ -4,12 +4,12 @@
 
 use axum::Json;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::storage::{DeletedCount, StorageObjectRow};
 use crate::error::V2Error;
-use crate::ApiState;
 
 /// One collection's page; a browser cannot usefully render more.
 const MAX_IN_COLLECTION: i64 = 500;
@@ -30,7 +30,9 @@ impl super::ConsoleService {
         &self,
         state: &ApiState,
     ) -> Result<Json<Vec<String>>, V2Error> {
-        Ok(Json(super::queries(state)?.list_storage_collections().await?))
+        Ok(Json(
+            super::queries(state)?.list_storage_collections().await?,
+        ))
     }
 
     pub async fn list_storage_in_collection(

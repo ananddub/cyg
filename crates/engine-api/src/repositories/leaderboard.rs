@@ -2,11 +2,11 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 use serde_json::Value;
+use uuid::Uuid;
 
-use super::models::*;
 use super::db::Queries;
+use super::models::*;
 
 pub struct DefineLeaderboardParams {
     pub id: String,
@@ -66,16 +66,11 @@ pub type DeleteLeaderboardRecordParams = GetLeaderboardRecordParams;
 
 impl Queries {
     /// GetLeaderboard
-    pub async fn get_leaderboard(
-        &self,
-        id: &str,
-    ) -> Result<Leaderboard, sqlx::Error> {
-        sqlx::query_as::<_, Leaderboard>(
-            "SELECT * FROM leaderboard WHERE id = $1;"
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await
+    pub async fn get_leaderboard(&self, id: &str) -> Result<Leaderboard, sqlx::Error> {
+        sqlx::query_as::<_, Leaderboard>("SELECT * FROM leaderboard WHERE id = $1;")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
     }
 
     /// DefineLeaderboard
@@ -260,5 +255,4 @@ impl Queries {
         .await?;
         Ok(())
     }
-
 }

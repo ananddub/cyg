@@ -1,6 +1,6 @@
 use super::{SourceWalk, flood_to_ceiling};
-use crate::infra::rate_limit::*;
 use crate::infra::rate_limit::bucket::MAKEROOM_SCAN_BUDGET;
+use crate::infra::rate_limit::*;
 
 #[test]
 fn bucket_count_and_queue_are_both_bounded() {
@@ -37,7 +37,11 @@ fn a_flood_at_the_ceiling_costs_bounded_work_per_request() {
         per_request <= MAKEROOM_SCAN_BUDGET as u64,
         "an admitted spoof cost {per_request} bucket reads, budget is {MAKEROOM_SCAN_BUDGET}"
     );
-    assert_eq!(l.tracked(), MAX_BUCKETS, "and nobody's bucket was displaced");
+    assert_eq!(
+        l.tracked(),
+        MAX_BUCKETS,
+        "and nobody's bucket was displaced"
+    );
 }
 
 /// The budget must not turn the ceiling into a latch: one refilled bucket is
@@ -57,7 +61,10 @@ fn a_reclaimable_slot_is_found_even_at_the_back_of_the_rotation() {
         l.allow(walk.next());
     }
     assert!(l.tracked() <= MAX_BUCKETS, "the ceiling held throughout");
-    assert!(admissions > 1, "the ring had to walk to it, not trip over it");
+    assert!(
+        admissions > 1,
+        "the ring had to walk to it, not trip over it"
+    );
     // Every call before the reclaim was a counted capacity refusal, never a
     // silent eviction of someone still over budget.
     assert_eq!(l.squeezed(), u64::from(admissions - 1));

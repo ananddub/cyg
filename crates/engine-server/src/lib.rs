@@ -8,10 +8,12 @@
 //! * [`telemetry`] — the sim-side latency/tick recorder that publishes `StatusSnapshot`
 
 pub mod compile;
+pub mod ecs_room;
 pub mod host;
 pub mod netcode;
 pub mod plane;
 pub mod rooms;
+pub mod schema_view;
 pub mod telemetry;
 
 pub use netcode::{CYG_WIRE_INPUT_TICK, RedundantInputs, WireInputTick, WIRE_INPUT_TICK_HEADER_LEN};

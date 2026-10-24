@@ -8,10 +8,10 @@
 
 pub mod upload;
 
-pub use upload::{WasmService, REQUIRED_EXPORTS};
+pub use upload::{REQUIRED_EXPORTS, WasmService};
 
-use crate::error::V2Error;
 use crate::ApiState;
+use crate::error::V2Error;
 
 /// The pool `room_modules` lives on; 503 when the database is not configured.
 pub(super) fn pool(state: &ApiState) -> Result<&sqlx::PgPool, V2Error> {

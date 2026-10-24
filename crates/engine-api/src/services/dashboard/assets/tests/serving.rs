@@ -9,19 +9,32 @@ async fn a_built_tree_serves_its_shell_and_a_hashed_asset() {
     let (status, mime, cache, body) = parts(assets::serve_index(Some(tree.dist()))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(mime.as_deref(), Some("text/html; charset=utf-8"));
-    assert_eq!(cache.as_deref(), Some("no-store"), "a rebuilt shell must not be cached");
+    assert_eq!(
+        cache.as_deref(),
+        Some("no-store"),
+        "a rebuilt shell must not be cached"
+    );
     assert!(body.starts_with(b"<!doctype html>"));
 
-    let (status, mime, cache, body) = parts(assets::serve_asset(Some(tree.dist()), "assets/app-9a7c.js")).await;
+    let (status, mime, cache, body) =
+        parts(assets::serve_asset(Some(tree.dist()), "assets/app-9a7c.js")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(mime.as_deref(), Some("text/javascript; charset=utf-8"));
-    assert_eq!(cache.as_deref(), Some("public, max-age=31536000, immutable"));
+    assert_eq!(
+        cache.as_deref(),
+        Some("public, max-age=31536000, immutable")
+    );
     assert_eq!(body, b"console.log(1)");
 
-    let (status, _, _, _) = parts(assets::serve_asset(Some(tree.dist()), "assets/missing.js")).await;
+    let (status, _, _, _) =
+        parts(assets::serve_asset(Some(tree.dist()), "assets/missing.js")).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _, _) = parts(assets::serve_asset(Some(tree.dist()), "assets")).await;
-    assert_eq!(status, StatusCode::NOT_FOUND, "the assets directory is not a file");
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the assets directory is not a file"
+    );
 }
 
 #[tokio::test]
@@ -30,7 +43,10 @@ async fn embedded_dashboard_serves_when_no_dist_dir_passed() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(mime.as_deref(), Some("text/html; charset=utf-8"));
     let text = String::from_utf8_lossy(&body);
-    assert!(text.contains("<!doctype html>") || text.contains("<html"), "{text}");
+    assert!(
+        text.contains("<!doctype html>") || text.contains("<html"),
+        "{text}"
+    );
 
     let resp = assets::serve_asset(None, "assets/definitely-missing-nonexistent-9a7c.js");
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);

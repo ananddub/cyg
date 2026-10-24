@@ -3,19 +3,19 @@
 //! All state and methods are fully encapsulated on the `RealtimePresenceService` struct as lock-free `FastMap`s,
 //! injected as a singleton via `auto_di` with zero global statics or free functions.
 
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
 use auto_di::singleton;
 use auto_ws::{Conn, Msg};
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 use uuid::Uuid;
 
+use super::{FastMap, new_fast_map};
 use crate::ApiState;
+use crate::controllers::realtime::messages::*;
+use crate::controllers::realtime::{Dispatched, state_of};
 use crate::error::V2Error;
 use crate::infra::ws::envelope::{Envelope, EnvelopeMessage, Presence, StatusPresence};
 use crate::infra::ws::session::{self, Session};
-use crate::controllers::realtime::messages::*;
-use crate::controllers::realtime::{Dispatched, state_of};
-use super::{FastMap, new_fast_map};
 
 pub struct RealtimePresenceService {
     /// Online presences: uid -> (sid -> (username, status))
@@ -52,7 +52,13 @@ impl RealtimePresenceService {
 impl RealtimePresenceService {
     // --- Private Helper Methods ---
 
-    fn to_status_presence(&self, uid: Uuid, sid: Uuid, username: &str, status: &str) -> StatusPresence {
+    fn to_status_presence(
+        &self,
+        uid: Uuid,
+        sid: Uuid,
+        username: &str,
+        status: &str,
+    ) -> StatusPresence {
         StatusPresence {
             user_id: uid.simple().to_string(),
             session_id: sid.simple().to_string(),
@@ -78,11 +84,13 @@ impl RealtimePresenceService {
     pub fn online_for(&self, uids: &[Uuid]) -> Vec<StatusPresence> {
         uids.iter()
             .filter_map(|uid| {
-                self.presences.read_sync(uid, |_, by_sid| {
-                    by_sid.iter().next().map(|(sid, (username, status))| {
-                        self.to_status_presence(*uid, *sid, username, status)
+                self.presences
+                    .read_sync(uid, |_, by_sid| {
+                        by_sid.iter().next().map(|(sid, (username, status))| {
+                            self.to_status_presence(*uid, *sid, username, status)
+                        })
                     })
-                }).flatten()
+                    .flatten()
             })
             .collect()
     }
@@ -116,7 +124,8 @@ impl RealtimePresenceService {
             }
         };
         if gone {
-            let leaves = vec![self.to_status_presence(session.uid, session.sid, &session.username, "")];
+            let leaves =
+                vec![self.to_status_presence(session.uid, session.sid, &session.username, "")];
             for f in self.followers_of(session.uid) {
                 f.send(&Envelope {
                     cid: None,
@@ -185,7 +194,9 @@ impl RealtimePresenceService {
         }
         session.send_message(
             cid,
-            EnvelopeMessage::StatusFollowed { user_ids: Vec::new() },
+            EnvelopeMessage::StatusFollowed {
+                user_ids: Vec::new(),
+            },
         );
     }
 
@@ -195,10 +206,13 @@ impl RealtimePresenceService {
         };
         {
             let mut entry = self.presences.entry_sync(session.uid).or_default();
-            entry.get_mut().insert(session.sid, (session.username.clone(), status.clone()));
+            entry
+                .get_mut()
+                .insert(session.sid, (session.username.clone(), status.clone()));
         }
         let followers = self.followers_of(session.uid);
-        let presence = self.to_status_presence(session.uid, session.sid, &session.username, &status);
+        let presence =
+            self.to_status_presence(session.uid, session.sid, &session.username, &status);
         for f in followers {
             if f.sid == sid {
                 continue;
@@ -207,7 +221,10 @@ impl RealtimePresenceService {
                 joins: vec![presence.clone()],
                 leaves: Vec::new(),
             };
-            f.send(&Envelope { cid: cid.clone(), message });
+            f.send(&Envelope {
+                cid: cid.clone(),
+                message,
+            });
         }
         for own in session::sessions_of(session.uid) {
             if own.sid != sid {

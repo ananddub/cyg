@@ -47,7 +47,11 @@ struct ErrorDetails {
 
 impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<Cow<'static, str>>) -> ApiError {
-        ApiError { status, message: message.into(), retry_after: None }
+        ApiError {
+            status,
+            message: message.into(),
+            retry_after: None,
+        }
     }
     /// 429 with the `Retry-After` the bucket computed, so a well-behaved page
     /// backs off instead of retrying in a tight loop.
@@ -87,7 +91,9 @@ impl IntoResponse for ApiError {
         if let Some(secs) = self.retry_after {
             headers.insert(
                 axum::http::header::RETRY_AFTER,
-                secs.to_string().parse().expect("seconds are a valid header"),
+                secs.to_string()
+                    .parse()
+                    .expect("seconds are a valid header"),
             );
         }
         (self.status, headers, body).into_response()

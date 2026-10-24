@@ -2,20 +2,17 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 use serde_json::Value;
+use uuid::Uuid;
 
-use super::models::*;
 use super::db::Queries;
+use super::models::*;
 
 impl Queries {
     /// GetUserByUsernameSingle
-    pub async fn get_user_by_username_single(
-        &self,
-        username: &str,
-    ) -> Result<Users, sqlx::Error> {
+    pub async fn get_user_by_username_single(&self, username: &str) -> Result<Users, sqlx::Error> {
         sqlx::query_as::<_, Users>(
-            "SELECT * FROM users WHERE username = $1 AND disable_time = '1970-01-01 00:00:00+00';"
+            "SELECT * FROM users WHERE username = $1 AND disable_time = '1970-01-01 00:00:00+00';",
         )
         .bind(username)
         .fetch_one(&self.pool)
@@ -36,5 +33,4 @@ impl Queries {
         .fetch_all(&self.pool)
         .await
     }
-
 }

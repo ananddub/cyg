@@ -13,15 +13,18 @@ runtime = "assemblyscript"
 source = "room.ts"
 out = "room_logic.wasm"
 
-# Where the @colyseus/sdk + @colyseus/schema bundles live.
-sdk_dir = "/mnt/SSD/Devloper/pannel/colyseus"
+# Legacy Colyseus bundle directory. New projects should use the bundled
+# OpenOxide web SDK (`openoxide.js`) and can leave this empty.
+sdk_dir = ""
 
 # Your website (canvas page). Served at http://localhost:<web_port>/
 website = "website.html"
 
 port = 7777
 web_port = 8090
-tick_rate = 128
+# 30 Hz is the easy-mode default; use 20 for slower/casual rooms or 60/128 for
+# competitive/rollback games.
+tick_rate = 30
 max_clients = 16
 max_rooms = 1024
 # Opt-in: deterministic client-side input hub (no server physics). Leave false
@@ -39,6 +42,7 @@ allow_physics = true
 allow_lag_compensation = true
 allow_logging = true
 allow_storage = true
+allow_messaging = true
 
 # Control plane (Tokio/Axum): matchmake, WS signaling, /status, statics.
 # `api_port` is its own port so the game WebSocket (`port`) and the website
@@ -85,9 +89,11 @@ signing_key = "defaultconsolesigningkey"
 token_expires_sec = 3600
 "#;
 
-/// Starter room source `ox-game init` writes — the same contract as the
-/// engine expects: on_create / on_join / on_leave / on_input / update.
-pub const ROOM_TEMPLATE: &str = r#"// Room movement logic — compiled to WebAssembly, run by the Rust host
+/// Historical flat-source template, kept for reference only. New projects use
+/// [`ROOM_TEMPLATE`], which is a real `Room` class with the generated ABI
+/// bridge, typed messages and an own-SDK website.
+#[allow(dead_code)]
+pub const LEGACY_ROOM_TEMPLATE: &str = r#"// Room movement logic — compiled to WebAssembly, run by the Rust host
 // through the engine-wasm crate (server-authoritative simulation).
 //
 // Host -> guest ABI (all numeric so the wrapper stays trivial):
@@ -176,3 +182,58 @@ export function get_y(i: i32): f64 {
     return unchecked(players[i]).y;
 }
 "#;
+
+/// Easy-mode AssemblyScript room used by `ox-game init`.
+///
+/// Three independent channels, deliberately:
+/// - `this.on` / `this.emit` — local, in-process room events. Free and not
+///   automatically networked.
+/// - `onMessage` / `broadcast` / `sendTo` — typed, reliable network messages.
+/// - `SchemaState` — continuous state, automatically full-synced then patched.
+pub const ROOM_TEMPLATE: &str = include_str!("templates/easy_room.ts");
+
+/// The state-sync schema `ox-game init` writes. Colyseus v5 `schema()`/`t.*`
+/// syntax; `ox-game` compiles it into the typed AssemblyScript class plus the
+/// browser descriptor, so the website needs no schema import at all.
+pub const SCHEMA_TS_TEMPLATE: &str = include_str!("templates/easy_schema.ts");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn easy_mode_defaults_to_30hz_and_20hz_remains_available() {
+        let cfg = crate::parse_config(CONFIG_TEMPLATE);
+        assert_eq!(
+            cfg.tick_rate, 30,
+            "the generated project is easy-mode 30 Hz"
+        );
+        assert!(
+            cfg.permissions.messaging,
+            "typed messages are on by default"
+        );
+
+        let twenty = crate::parse_config("tick_rate = 20\n");
+        assert_eq!(twenty.tick_rate, 20, "20 Hz is still a supported choice");
+    }
+
+    #[test]
+    fn room_template_is_a_class_with_all_three_channels() {
+        assert!(ROOM_TEMPLATE.contains("export class GameRoom extends Room"));
+        assert!(ROOM_TEMPLATE.contains("this.on(\"discard\""));
+        assert!(ROOM_TEMPLATE.contains("this.onMessage(\"input\""));
+        assert!(ROOM_TEMPLATE.contains("broadcastText("));
+        assert!(ROOM_TEMPLATE.contains("room.sendTo("));
+        assert!(ROOM_TEMPLATE.contains("from \"./openoxide.schema\""));
+        assert!(ROOM_TEMPLATE.contains("new SchemaState(PlayerSchema)"));
+        assert!(!ROOM_TEMPLATE.contains("new SchemaDef("));
+        assert!(ROOM_TEMPLATE.contains("return this.state.seal();"));
+    }
+
+    #[test]
+    fn ts_schema_template_uses_colyseus_v5_syntax() {
+        assert!(SCHEMA_TS_TEMPLATE.contains("from \"@colyseus/schema\""));
+        assert!(SCHEMA_TS_TEMPLATE.contains("const Player = schema({"));
+        assert!(SCHEMA_TS_TEMPLATE.contains("players: t.map(Player)"));
+    }
+}

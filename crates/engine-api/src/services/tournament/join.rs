@@ -8,17 +8,17 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::dto::Empty;
-use crate::utils::tournament::statement::{JOIN_SIZE_SQL, JOIN_SQL};
-use crate::utils::tournament::types::{INACTIVE_JOIN, JOIN_FAILED, MAX_SIZE_JOIN};
 use super::load_tournament;
+use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::Empty;
+use crate::error::V2Error;
 use crate::repositories::models::Leaderboard;
 use crate::services::auth::q;
-use crate::error::V2Error;
 use crate::services::leaderboard::pool;
 use crate::utils::leaderboard::{at, calculate};
-use crate::app::middleware::Authed;
-use crate::ApiState;
+use crate::utils::tournament::statement::{JOIN_SIZE_SQL, JOIN_SQL};
+use crate::utils::tournament::types::{INACTIVE_JOIN, JOIN_FAILED, MAX_SIZE_JOIN};
 
 impl super::TournamentService {
     pub async fn join_tournament(

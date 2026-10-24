@@ -7,8 +7,8 @@ use serde_json::json;
 
 use crate::ApiState;
 
-use crate::utils::status::{age_ms, client_host};
 use super::StatusService;
+use crate::utils::status::{age_ms, client_host};
 
 impl StatusService {
     /// The `/api/rooms` body. Plain `&ApiState` (not the `State` extractor) so the

@@ -3,11 +3,11 @@
 
 use axum::Json;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::user::{ChangeConsolePasswordRequest, SetConsolePasswordRequest};
 use crate::error::V2Error;
-use crate::ApiState;
 
 use super::check_password;
 
@@ -102,9 +102,10 @@ impl super::ConsoleService {
             .find_console_user_mfa_by_id(id)
             .await
             .map_err(|_| V2Error::not_found("Console user not found."))?;
-        let stored = row.password.as_deref().ok_or_else(|| {
-            V2Error::failed_precondition("No password is set for this account.")
-        })?;
+        let stored = row
+            .password
+            .as_deref()
+            .ok_or_else(|| V2Error::failed_precondition("No password is set for this account."))?;
         if !crate::infra::jwt::verify_password(&body.current_password, stored) {
             return Err(V2Error::unauthenticated("Current password is incorrect."));
         }

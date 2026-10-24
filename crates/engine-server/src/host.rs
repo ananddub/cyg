@@ -22,13 +22,13 @@ use engine_bus::{Bus, SessionTelemetry};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc::contract::Inbound;
 use engine_net::transport::{
-    WsTransport, GameTransport, TransportEvent, WebRtcServer, WebRtcServerEvent,
+    GameTransport, TransportEvent, WebRtcServer, WebRtcServerEvent, WsTransport,
 };
 use engine_physics::PhysicsWorld3D;
 use engine_wasm::WasmRuntime;
 
 use crate::netcode;
-use crate::rooms::{self, GameServer};
+use crate::rooms::{self, GameRoom, GameServer};
 use crate::telemetry::{PublishReport, Recorder};
 
 /// Upper bound on per-source UDP rate-limit entries. UDP source addresses are
@@ -44,6 +44,14 @@ const SPECTATOR_CONFIRM: &[u8] = &[0xA5, b'd', b'e', b'l', b't', b'a', 0, 0, 0, 
 /// share a thread: without this cap one burst delays the fixed tick until the
 /// whole batch is relayed.
 const MAX_FRAMES_PER_LOOP: usize = 256;
+
+/// OpenOxide app-message opcode (client <-> server, typed).
+///
+/// Wire shape: `[0x05][type_len u8][UTF-8 type][opaque payload]`.
+/// This is our own envelope, deliberately independent of Colyseus/msgpack.
+/// `sendInput` (0x01), mesh events (0x03), voice (0x56), signals (0x57) and the
+/// spectator handshake (0xFF) keep their existing frames.
+const APP_MESSAGE_OPCODE: u8 = 0x05;
 
 /// The game loop's view of the WebSocket transport.
 ///
@@ -72,6 +80,23 @@ impl LoopTransport {
         self.client_rooms.read_sync(client_id, |_, r| r.clone())
     }
 
+    /// Raw JSON join options the client sent on its upgrade URL.
+    pub fn options_of(&self, client_id: &str) -> Option<String> {
+        self.ws.options_of(client_id).map(str::to_string)
+    }
+
+    /// Whether the session's disconnect was intentional (client leave or a
+    /// server-initiated close). Such seats skip `allowReconnection` holds.
+    pub fn take_consented(&mut self, client_id: &str) -> bool {
+        self.ws.take_consented(client_id)
+    }
+
+    /// Keep this session's reconnection token valid so the SDK can resume it
+    /// with `POST /matchmake/reconnect/<room>`.
+    pub fn retain_session(&mut self, room_id: &str, session_id: &str) {
+        self.ws.retain_session(room_id, session_id);
+    }
+
     pub fn take_room_of(&self, client_id: &str) -> Option<String> {
         self.client_rooms.remove_sync(client_id).map(|(_, r)| r)
     }
@@ -81,11 +106,27 @@ impl LoopTransport {
         0
     }
 
-    pub fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
+    pub fn send_to(
+        &mut self,
+        client_id: &str,
+        opcode: OpCode,
+        payload: &[u8],
+    ) -> std::io::Result<()> {
         self.ws.send_to(client_id, opcode, payload)
     }
 
-    pub fn send_to_many(&mut self, client_ids: &[&str], opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
+    /// Queue a schema state frame on the latest-wins lane (unflushed state
+    /// frames are replaced, not appended).
+    pub fn send_state(&mut self, client_id: &str, payload: &[u8]) -> std::io::Result<()> {
+        self.ws.send_state(client_id, payload)
+    }
+
+    pub fn send_to_many(
+        &mut self,
+        client_ids: &[&str],
+        opcode: OpCode,
+        payload: &[u8],
+    ) -> std::io::Result<()> {
         for &cid in client_ids {
             let _ = self.ws.send_to(cid, opcode, payload);
         }
@@ -94,7 +135,11 @@ impl LoopTransport {
 }
 
 impl GameTransport for LoopTransport {
-    fn poll_events(&mut self, timeout: Duration, events: &mut Vec<TransportEvent>) -> std::io::Result<()> {
+    fn poll_events(
+        &mut self,
+        timeout: Duration,
+        events: &mut Vec<TransportEvent>,
+    ) -> std::io::Result<()> {
         self.ws.poll_events(timeout, events)?;
         // Mirror newly connected sessions so `room_of` stays a cheap lookup.
         for ev in events.iter() {
@@ -134,8 +179,9 @@ impl GameTransport for LoopTransport {
     }
 
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        self.local_addr
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no local addr"))
+        self.local_addr.ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no local addr")
+        })
     }
 
     fn transport_name(&self) -> &'static str {
@@ -162,6 +208,47 @@ fn strip_type_header(payload: &[u8]) -> Option<&[u8]> {
     } else {
         // Direct raw binary input from OpenOxide SDK without msgpack overhead
         Some(payload)
+    }
+}
+
+/// Frame and route everything the guest queued through `host_send`.
+///
+/// The guest names a player id (or 0 for broadcast); the host maps that to
+/// transport session ids here. Messages are queued and drained after the tick,
+/// so a guest can never write to a socket from inside a Wasm call.
+fn flush_room_outbox(room: &mut GameRoom, transport: &mut impl GameTransport) {
+    let messages = room.drain_outbox();
+    if messages.is_empty() {
+        return;
+    }
+
+    let mut frame = Vec::with_capacity(64);
+    for message in messages {
+        if message.event.is_empty() || message.event.len() > 255 {
+            continue;
+        }
+        frame.clear();
+        frame.push(APP_MESSAGE_OPCODE);
+        frame.push(message.event.len() as u8);
+        frame.extend_from_slice(message.event.as_bytes());
+        frame.extend_from_slice(&message.payload);
+
+        if message.target > 0 {
+            if let Some(session) = room
+                .sessions
+                .iter()
+                .find_map(|(session, id)| (*id == message.target).then_some(session.as_str()))
+            {
+                let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
+            }
+        } else if message.target == 0 {
+            for session in room.sessions.keys() {
+                let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
+            }
+            for spectator in &room.spectators {
+                let _ = transport.send_to(spectator, OpCode::RoomDataBytes, &frame);
+            }
+        }
     }
 }
 
@@ -222,8 +309,7 @@ impl FileCache {
             }
         }
         let body = bytes::Bytes::from(std::fs::read(path).ok()?);
-        self.files
-            .insert(path.to_path_buf(), (mtime, body.clone()));
+        self.files.insert(path.to_path_buf(), (mtime, body.clone()));
         Some(body)
     }
 }
@@ -256,11 +342,7 @@ fn safe_relative(sub: &str) -> Option<&Path> {
             _ => return None,
         }
     }
-    if depth == 0 {
-        None
-    } else {
-        Some(p)
-    }
+    if depth == 0 { None } else { Some(p) }
 }
 
 /// Answer a rejected join: ERROR(4002) with a JSON body, then a `WITH_ERROR`
@@ -293,8 +375,8 @@ pub fn run(
     } else {
         Vec::new()
     };
-    let sdk_js = std::fs::read(cfg.sdk_dir.join("packages/sdk/dist/colyseus.js"))
-        .unwrap_or_default();
+    let sdk_js =
+        std::fs::read(cfg.sdk_dir.join("packages/sdk/dist/colyseus.js")).unwrap_or_default();
     let schema_mjs = std::fs::read(
         cfg.sdk_dir
             .join("node_modules/@colyseus/schema/build/index.mjs"),
@@ -306,8 +388,6 @@ pub fn run(
     } else {
         Vec::new()
     };
-
-
 
     // ------------------------------------------------------------------
     // WASM runtime — the room logic module (hot-swappable).
@@ -337,11 +417,39 @@ pub fn run(
     let control_owns_web = cfg.control.enabled && cfg.control.api_port == cfg.web_port;
 
     let mut addrs = vec![
-        format!("0.0.0.0:{}", cfg.port).parse::<SocketAddr>().unwrap()
+        format!("0.0.0.0:{}", cfg.port)
+            .parse::<SocketAddr>()
+            .unwrap(),
     ];
     if cfg.web_port != cfg.port && !control_owns_web {
-        addrs.push(format!("0.0.0.0:{}", cfg.web_port).parse::<SocketAddr>().unwrap());
+        addrs.push(
+            format!("0.0.0.0:{}", cfg.web_port)
+                .parse::<SocketAddr>()
+                .unwrap(),
+        );
     }
+
+    // Prefer the cooked OXCL arena (ox-game cook <map.glb> arena.oxcl): it
+    // feeds both the WASM host-data physics template and the native ECS rooms.
+    let oxcl_path = project_dir.join("arena.oxcl");
+    let arena_mesh: Option<engine_physics::oxcl::CookedMesh> =
+        match std::fs::read(&oxcl_path) {
+            Ok(bytes) => match engine_physics::oxcl::CookedMesh::from_oxcl_bytes(&bytes) {
+                Ok(mesh) => {
+                    eprintln!(
+                        "[server] 🗺️  loaded arena.oxcl ({} verts, {} indices)",
+                        mesh.vertices.len(),
+                        mesh.indices.len()
+                    );
+                    Some(mesh)
+                }
+                Err(e) => {
+                    eprintln!("[server] failed to parse arena.oxcl: {e}");
+                    None
+                }
+            },
+            Err(_) => None,
+        };
 
     let map_path = project_dir.join("arena_map.json");
     let physics = if map_path.exists() {
@@ -365,8 +473,34 @@ pub fn run(
         PhysicsWorld3D::default()
     };
 
-    let mut raw_transport = WsTransport::new_multi(&addrs)
-        .expect("bind transport ports");
+    let mut raw_transport = WsTransport::new_multi(&addrs).expect("bind transport ports");
+
+    // Generated by `ox-game run` from schema.ts. Clients receive it right
+    // after JOIN_ROOM and build their state contract from it.
+    let descriptor_path = project_dir.join("openoxide.schema.bin");
+    let schema_descriptor = std::fs::read(&descriptor_path).unwrap_or_default();
+    if !schema_descriptor.is_empty() {
+        eprintln!(
+            "[server] 📋 schema descriptor loaded ({} bytes) from {}",
+            schema_descriptor.len(),
+            descriptor_path.display()
+        );
+        raw_transport.set_schema_descriptor(schema_descriptor.clone());
+    }
+
+    // Host-side schema views: the same descriptor clients receive also tells
+    // the host how to walk entity rows, so AOI needs no guest cooperation.
+    let schema_aoi = if cfg.aoi.enabled && !schema_descriptor.is_empty() {
+        let parsed = crate::schema_view::SchemaAoi::from_descriptor(&schema_descriptor);
+        if parsed.is_none() {
+            eprintln!(
+                "[server] ⚠️ [aoi] enabled but the schema has no x/y fields — schema state stays global"
+            );
+        }
+        parsed
+    } else {
+        None
+    };
 
     let webgl_dir = project_dir
         .parent()
@@ -387,7 +521,10 @@ pub fn run(
     let sdk_hook = sdk_js.clone();
     let schema_hook = schema_mjs.clone();
 
-    let rooms_meta = std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(Vec::<(String, usize, usize)>::new()));
+    let rooms_meta =
+        std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+            Vec::<(String, usize, usize)>::new(),
+        ));
     let rooms_meta_http = rooms_meta.clone();
 
     let http_hook = move |raw_path: &str| {
@@ -478,22 +615,22 @@ pub fn run(
         );
     }
 
-    // One thread: transport I/O and the simulation share this loop. An idle
-    // wait below blocks inside `poll`, so network work is still serviced while
-    // the sim waits for its next tick.
-    let mut transport = LoopTransport::new(raw_transport);
-
     // Direct UDP Listener for Unity / Unreal / Godot native clients. The bind
     // address follows the same `OX_UDP_ADDR` knob as the pinned sim plane, so a
     // second instance (or a container) can move it off the default :7778.
+    // Bound before the transport enters the loop so the default seat
+    // reservation advertises the port that was actually opened.
     let udp_addr = std::env::var("OX_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into());
     let udp_socket = std::net::UdpSocket::bind(&udp_addr).ok();
     if let Some(ref s) = udp_socket {
         let _ = s.set_nonblocking(true);
         match s.local_addr() {
-            Ok(addr) => eprintln!(
-                "[server] listening on udp://{addr} (Unity / Unreal / Godot Native Engine)"
-            ),
+            Ok(addr) => {
+                raw_transport.set_udp_port(addr.port());
+                eprintln!(
+                    "[server] listening on udp://{addr} (Unity / Unreal / Godot Native Engine)"
+                );
+            }
             Err(_) => eprintln!(
                 "[server] listening on udp://{udp_addr} (Unity / Unreal / Godot Native Engine)"
             ),
@@ -501,11 +638,20 @@ pub fn run(
     } else {
         eprintln!("[server] ⚠️ udp bind {udp_addr} failed — native UDP clients disabled");
     }
+
+    // One thread: transport I/O and the simulation share this loop. An idle
+    // wait below blocks inside `poll`, so network work is still serviced while
+    // the sim waits for its next tick.
+    let mut transport = LoopTransport::new(raw_transport);
     let mut udp_peers: HashMap<SocketAddr, (i64, String, Instant)> = HashMap::new();
     // Input-hub flood control: one token bucket per transport identity. These
     // are created lazily and dropped with the session/peer.
     let mut ws_input_rates: HashMap<String, netcode::InputRateLimiter> = HashMap::new();
     let mut udp_input_rates: HashMap<SocketAddr, netcode::InputRateLimiter> = HashMap::new();
+    // Join-path bucket: creating a player runs guest `on_join` AND replies
+    // with the full schema descriptor — a spoofed-source flood must not mint
+    // players or amplify traffic. Reuses the same limiter type (5/s refill).
+    let mut udp_join_rates: HashMap<SocketAddr, netcode::InputRateLimiter> = HashMap::new();
 
     // Direct WebRTC DataChannel UDP Server (Client-to-Server Star Topology via str0m)
     let webrtc_port = 7779;
@@ -575,10 +721,16 @@ pub fn run(
         eprintln!(
             "[server] ⚡ room module loaded in {:.2?} (mode: {})",
             wasm_load_start.elapsed(),
-            if is_aot { "AOT precompiled (.cwasm)" } else { "JIT compiled (.wasm)" }
+            if is_aot {
+                "AOT precompiled (.cwasm)"
+            } else {
+                "JIT compiled (.wasm)"
+            }
         );
     } else {
-        eprintln!("[server] 🧩 no room module — running Unity-relay rooms only (WASM rooms disabled)");
+        eprintln!(
+            "[server] 🧩 no room module — running Unity-relay rooms only (WASM rooms disabled)"
+        );
     }
     let mut server = GameServer::new(pre, cfg.max_clients, physics, cfg.permissions);
 
@@ -588,17 +740,23 @@ pub fn run(
     let mut tick_stat_start = Instant::now();
     let mut last_wasm_check = Instant::now();
     let mut loaded_wasm_time: Option<std::time::SystemTime> = if wasm_available {
-        std::fs::metadata(wasm_path).ok().and_then(|m| m.modified().ok())
+        std::fs::metadata(wasm_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
     } else {
         None
     };
     let source_path = project_dir.join(&cfg.source);
-    let mut loaded_src_time: Option<std::time::SystemTime> =
-        std::fs::metadata(&source_path).ok().and_then(|m| m.modified().ok());
+    let mut loaded_src_time: Option<std::time::SystemTime> = std::fs::metadata(&source_path)
+        .ok()
+        .and_then(|m| m.modified().ok());
     let mut last_meta_update = Instant::now();
     let mut events = Vec::new();
     // Tick scratch: the delta read and the framed broadcast reuse these.
     let mut delta_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
+    // Per-viewer AOI output; reused across viewers (the caller copies each
+    // body into the outgoing delta before the next viewer).
+    let mut view_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
     let mut frame_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
     // The WebRTC path writes one stamped frame per chunk, so the delta body needs
     // a buffer of its own; `frame_buf` holds only the current chunk.
@@ -643,6 +801,9 @@ pub fn run(
                     let raw_room = raw_room_str.as_deref().unwrap_or(&cfg.name);
                     let is_spectator = raw_room.contains("spectator");
                     let is_unity = raw_room.contains("unity") || raw_room.contains("cyg");
+                    // Native bevy_ecs rooms: room names containing "ecs" run the
+                    // Rust-native 7-pillar simulation (no WASM guest).
+                    let is_ecs = raw_room.contains("ecs");
                     let room_name = sanitize_room_name(raw_room);
 
                     // DoS guard: an unauthenticated client can name any room, so
@@ -658,7 +819,9 @@ pub fn run(
                         continue;
                     }
 
-                    let room = if is_unity || !server.has_room_module() {
+                    let room = if is_ecs {
+                        server.get_or_create_ecs(room_name, arena_mesh.as_ref())
+                    } else if is_unity || !server.has_room_module() {
                         server.get_or_create_unity(room_name)
                     } else {
                         match server.get_or_create(room_name) {
@@ -680,10 +843,20 @@ pub fn run(
                         room.enable_input_hub();
                     }
                     room.empty_since = None;
+                    let join_options = transport.options_of(&client_id).unwrap_or_default();
 
                     if is_spectator {
                         room.spectators.insert(client_id.to_string());
-                        eprintln!("[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'");
+                        eprintln!(
+                            "[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'"
+                        );
+                    } else if let Some(id) = room.rejoin(&client_id) {
+                        // The seat was held by `allowReconnection`: keep the
+                        // player id and guest state, skip auth/join.
+                        eprintln!(
+                            "[server] 🔁 {client_id} reconnected to room '{room_name}' (player id {id})"
+                        );
+                        flush_room_outbox(room, &mut transport);
                     } else if room.is_full(cfg.max_clients) {
                         // WASM rooms may override the ceiling via their
                         // `on_is_full` export; relay rooms (no guest) fall back to
@@ -695,6 +868,14 @@ pub fn run(
                         );
                         reject_room(&mut transport, &client_id, "room is full");
                         continue;
+                    } else if !room.authorize(room.next_player_id, &join_options) {
+                        // Guest `onAuth` declined before a player id or state
+                        // entry existed, so nothing needs unwinding.
+                        eprintln!(
+                            "[server] ⛔ room '{room_name}' rejected {client_id} in onAuth"
+                        );
+                        reject_room(&mut transport, &client_id, "not authorized");
+                        continue;
                     } else {
                         let (x, y) = {
                             let n = room.sessions.len();
@@ -704,18 +885,29 @@ pub fn run(
                             )
                         };
                         let id = room.join(&client_id, x, y);
-                        eprintln!("[server] {client_id} joined room '{room_name}' (player id {id})");
+                        eprintln!(
+                            "[server] {client_id} joined room '{room_name}' (player id {id})"
+                        );
+                        // Deliver onJoin() messages in this same loop, not one
+                        // tick later, while the client is still connected.
+                        flush_room_outbox(room, &mut transport);
 
                         // For Unity Netcode rooms, catch up the newly joined client with any spawned prefabs
                         if let Some(ref unity) = room.unity {
                             let mut wire_spawn = Vec::new();
-                            for (_view_id, (_prefab_id, _owner, spawn_bytes)) in &unity.spawned_prefabs {
+                            for (_view_id, (_prefab_id, _owner, spawn_bytes)) in
+                                &unity.spawned_prefabs
+                            {
                                 netcode::write_tunnel(
                                     &mut wire_spawn,
                                     netcode::CYG_OP_SPAWN_OBJECT,
                                     spawn_bytes,
                                 );
-                                let _ = transport.send_to(&client_id, OpCode::RoomDataBytes, &wire_spawn);
+                                let _ = transport.send_to(
+                                    &client_id,
+                                    OpCode::RoomDataBytes,
+                                    &wire_spawn,
+                                );
                             }
                         }
                     }
@@ -732,20 +924,34 @@ pub fn run(
                         // Resilient fallback: locate which room holds this session
                         let mut found = None;
                         for (rname, r) in &server.rooms {
-                            if r.sessions.contains_key(&*client_id) || r.spectators.contains(&*client_id) {
+                            if r.sessions.contains_key(&*client_id)
+                                || r.spectators.contains(&*client_id)
+                            {
                                 found = Some(rname.clone());
                                 break;
                             }
                         }
                         found.unwrap_or_else(|| cfg.name.clone())
                     };
+                    // Keep the token valid for the SDK's auto-reconnect. The
+                    // transport's retained map is keyed by `room:session` and
+                    // is consulted by `matchmake/reconnect`.
+                    transport.retain_session(&room_name, &client_id);
                     let Some(room) = server.rooms.get_mut(&room_name) else {
                         continue;
                     };
                     // A WebRTC peer that vanishes with its socket has to be
                     // announced, otherwise the rest of the mesh keeps
                     // re-negotiating with an id nobody answers.
-                    if let Some(gone) = room.handle_disconnect(&client_id) {
+                    // Intentional leaves release the seat immediately; only
+                    // unexpected drops may be held for `allowReconnection`.
+                    let consented = transport.take_consented(&client_id);
+                    let gone = if consented {
+                        room.handle_disconnect(&client_id)
+                    } else {
+                        room.handle_unexpected_disconnect(&client_id)
+                    };
+                    if let Some(gone) = gone {
                         announce_voice_peer_change(
                             &mut transport,
                             &mut room.voice_mesh,
@@ -753,6 +959,8 @@ pub fn run(
                             gone,
                         );
                     }
+                    // onLeave() may have queued a roster/chat message.
+                    flush_room_outbox(room, &mut transport);
                     if let Some(ref mut unity) = room.unity {
                         let to_remove: Vec<u32> = unity
                             .spawned_prefabs
@@ -775,9 +983,14 @@ pub fn run(
                                 netcode::CYG_OP_DESPAWN_OBJECT,
                                 &despawn_body,
                             );
-                            let targets: Vec<&str> = room.sessions.keys().map(String::as_str).collect();
+                            let targets: Vec<&str> =
+                                room.sessions.keys().map(String::as_str).collect();
                             if !targets.is_empty() {
-                                let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, &wire_despawn);
+                                let _ = transport.send_to_many(
+                                    &targets,
+                                    OpCode::RoomDataBytes,
+                                    &wire_despawn,
+                                );
                             }
                         }
                     }
@@ -785,7 +998,9 @@ pub fn run(
                         srv.remove_session(&client_id);
                     }
                     if room.is_hibernating() {
-                        eprintln!("[server] ⏸️ Room '{room_name}' is now empty -> hibernating (0% CPU, 30s auto-close timer started)");
+                        eprintln!(
+                            "[server] ⏸️ Room '{room_name}' is now empty -> hibernating (0% CPU, 30s auto-close timer started)"
+                        );
                     }
                 }
                 TransportEvent::Packet {
@@ -816,9 +1031,28 @@ pub fn run(
                     // Spectator Upgrade Handshake: [0xFF, 'S', 'P', 'E', 'C']
                     if data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC" {
                         room.make_spectator(&client_id);
-                        eprintln!("[server] 👁️  {client_id} upgraded to SPECTATOR in room '{room_name}'");
-                        let _ = transport.send_to(&client_id, OpCode::RoomDataBytes, SPECTATOR_CONFIRM);
+                        eprintln!(
+                            "[server] 👁️  {client_id} upgraded to SPECTATOR in room '{room_name}'"
+                        );
+                        let _ =
+                            transport.send_to(&client_id, OpCode::RoomDataBytes, SPECTATOR_CONFIRM);
                         continue;
+                    }
+
+                    // Schema readiness ack: the host keeps sending the full row
+                    // until the client confirms it applied one. Without this,
+                    // a patch racing the full snapshot over a different
+                    // transport (WS vs WebRTC) could arrive first and leave
+                    // the client without the baseline entities.
+                    if data.len() >= 2 && data[0] == 0x05 {
+                        let type_len = data[1] as usize;
+                        if type_len > 0
+                            && 2 + type_len <= data.len()
+                            && &data[2..2 + type_len] == b"__ox_schema_ready"
+                        {
+                            room.schema_sent.insert(client_id.to_string());
+                            continue;
+                        }
                     }
 
                     let Some(&id) = room.sessions.get(&*client_id) else {
@@ -866,8 +1100,8 @@ pub fn run(
                                     bytes::Bytes::from(body),
                                 )
                                 .encode();
-                                let _ = transport
-                                    .send_to(&client_id, OpCode::RoomDataBytes, &hello);
+                                let _ =
+                                    transport.send_to(&client_id, OpCode::RoomDataBytes, &hello);
 
                                 if room.voice_mesh.join(from, &client_id) {
                                     announce_voice_peer_change(
@@ -892,10 +1126,17 @@ pub fn run(
                                 if let Some(ref mut webrtc) = webrtc_server {
                                     match signal.kind {
                                         engine_voice::SignalKind::Offer => {
-                                            let sdp_str = if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&signal.payload) {
-                                                v.get("sdp").and_then(|s| s.as_str()).map(|s| s.to_string())
+                                            let sdp_str = if let Ok(v) =
+                                                serde_json::from_slice::<serde_json::Value>(
+                                                    &signal.payload,
+                                                ) {
+                                                v.get("sdp")
+                                                    .and_then(|s| s.as_str())
+                                                    .map(|s| s.to_string())
                                             } else {
-                                                std::str::from_utf8(&signal.payload).ok().map(|s| s.to_string())
+                                                std::str::from_utf8(&signal.payload)
+                                                    .ok()
+                                                    .map(|s| s.to_string())
                                             };
                                             if let Some(sdp) = sdp_str {
                                                 match webrtc.handle_offer(&client_id, &sdp) {
@@ -903,28 +1144,48 @@ pub fn run(
                                                         let answer_body = serde_json::json!({
                                                             "sdp": answer_sdp,
                                                             "type": "answer"
-                                                        }).to_string();
-                                                        let ans_frame = engine_voice::SignalFrame::new(
-                                                            engine_voice::SignalKind::Answer,
-                                                            engine_voice::SERVER_SENDER,
-                                                            from,
-                                                            bytes::Bytes::from(answer_body),
-                                                        ).encode();
-                                                        let _ = transport.send_to(&client_id, OpCode::RoomDataBytes, &ans_frame);
-                                                        eprintln!("[server] ⚡ WebRTC Client-Server offer accepted for {client_id}, SDP answer returned");
+                                                        })
+                                                        .to_string();
+                                                        let ans_frame =
+                                                            engine_voice::SignalFrame::new(
+                                                                engine_voice::SignalKind::Answer,
+                                                                engine_voice::SERVER_SENDER,
+                                                                from,
+                                                                bytes::Bytes::from(answer_body),
+                                                            )
+                                                            .encode();
+                                                        let _ = transport.send_to(
+                                                            &client_id,
+                                                            OpCode::RoomDataBytes,
+                                                            &ans_frame,
+                                                        );
+                                                        eprintln!(
+                                                            "[server] ⚡ WebRTC Client-Server offer accepted for {client_id}, SDP answer returned"
+                                                        );
                                                     }
                                                     Err(e) => {
-                                                        eprintln!("[server] ⚠️ WebRTC handle_offer error for client {client_id}: {e}");
+                                                        eprintln!(
+                                                            "[server] ⚠️ WebRTC handle_offer error for client {client_id}: {e}"
+                                                        );
                                                     }
                                                 }
                                             }
                                         }
                                         engine_voice::SignalKind::Ice => {
-                                            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&signal.payload) {
-                                                if let Some(cand) = v.get("candidate").and_then(|c| c.as_str()) {
-                                                    match webrtc.handle_candidate(&client_id, cand) {
-                                                        Ok(_) => eprintln!("[server] 🧊 Client {client_id} added ICE candidate: {cand}"),
-                                                        Err(e) => eprintln!("[server] ⚠️ Client {client_id} candidate error: {e} ({cand})"),
+                                            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(
+                                                &signal.payload,
+                                            ) {
+                                                if let Some(cand) =
+                                                    v.get("candidate").and_then(|c| c.as_str())
+                                                {
+                                                    match webrtc.handle_candidate(&client_id, cand)
+                                                    {
+                                                        Ok(_) => eprintln!(
+                                                            "[server] 🧊 Client {client_id} added ICE candidate: {cand}"
+                                                        ),
+                                                        Err(e) => eprintln!(
+                                                            "[server] ⚠️ Client {client_id} candidate error: {e} ({cand})"
+                                                        ),
                                                     }
                                                 }
                                             }
@@ -968,7 +1229,9 @@ pub fn run(
                     }
 
                     // Voice Packet Dispatch: [0x56, ...]
-                    if data.len() >= engine_voice::HEADER_LEN && data[0] == engine_voice::VOICE_MAGIC {
+                    if data.len() >= engine_voice::HEADER_LEN
+                        && data[0] == engine_voice::VOICE_MAGIC
+                    {
                         let bytes = bytes::Bytes::copy_from_slice(data);
                         if let Ok(mut packet) = engine_voice::VoicePacket::decode(&bytes) {
                             packet.speaker_id = id as u32;
@@ -981,7 +1244,11 @@ pub fn run(
                                         continue; // NEVER echo voice packets back to the originating speaker
                                     }
                                     if pid as u32 == frame.listener_id {
-                                        let _ = transport.send_to(cid, OpCode::RoomDataBytes, &wire_packet);
+                                        let _ = transport.send_to(
+                                            cid,
+                                            OpCode::RoomDataBytes,
+                                            &wire_packet,
+                                        );
                                     }
                                 }
                             }
@@ -1032,24 +1299,29 @@ pub fn run(
                     }
 
                     // QUIC-Style Ordered Event Frame: [0x03, seq_u16, kind_u8, from_u16, target_u16, tick_u16, value_f32] (14 bytes)
-                    if data.len() == engine_webrtc_protocol::EVENT_WIRE_LEN && data[0] == engine_webrtc_protocol::OP_EVENT {
+                    if data.len() == engine_webrtc_protocol::EVENT_WIRE_LEN
+                        && data[0] == engine_webrtc_protocol::OP_EVENT
+                    {
                         if let Ok(mut event) = engine_webrtc_protocol::EventFrame::decode(data) {
                             room.event_seq = room.event_seq.wrapping_add(1);
                             event.seq = room.event_seq;
                             event.from = id as u16; // Server-authoritative sender stamp (Anti-spoofing)
 
-                            let mut wire_event = Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
+                            let mut wire_event =
+                                Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
                             engine_webrtc_protocol::encode_event(&event, &mut wire_event);
 
                             // SFU Multicast: forward guaranteed event to all other clients in the room
                             for (cid, &pid) in &room.sessions {
                                 if pid != id {
-                                    let _ = transport.send_to(cid, OpCode::RoomDataBytes, &wire_event);
+                                    let _ =
+                                        transport.send_to(cid, OpCode::RoomDataBytes, &wire_event);
                                 }
                             }
                             if !room.spectators.is_empty() {
                                 for spec in &room.spectators {
-                                    let _ = transport.send_to(spec, OpCode::RoomDataBytes, &wire_event);
+                                    let _ =
+                                        transport.send_to(spec, OpCode::RoomDataBytes, &wire_event);
                                 }
                             }
                         }
@@ -1057,12 +1329,17 @@ pub fn run(
                     }
 
                     // QUIC-Style Unordered Movement Frame: [0x01, seq_u16, flags_u32, yaw_f32, pitch_f32, mx_f32, mz_f32] (23 bytes)
-                    if data.len() == engine_webrtc_protocol::INPUT_WIRE_LEN && data[0] == engine_webrtc_protocol::OP_INPUT {
+                    if data.len() == engine_webrtc_protocol::INPUT_WIRE_LEN
+                        && data[0] == engine_webrtc_protocol::OP_INPUT
+                    {
                         if let Ok(input) = engine_webrtc_protocol::InputFrame::decode(data) {
                             last_input_at.insert(client_id.to_string(), Instant::now());
                             if let Some(ref srv) = webrtc_server {
                                 if srv.is_connected(&client_id) && input.seq % 120 == 1 {
-                                    eprintln!("[server] ℹ️ Player {id} sent input over WebSocket fallback (seq {})", input.seq);
+                                    eprintln!(
+                                        "[server] ℹ️ Player {id} sent input over WebSocket fallback (seq {})",
+                                        input.seq
+                                    );
                                 }
                             }
                             // Newest-Wins auto-sync rule (QUIC datagram behavior: drop stale packets, zero HOL blocking).
@@ -1167,11 +1444,7 @@ pub fn run(
                                 .filter(|cid| *cid != &*client_id),
                         );
                         if !targets.is_empty() {
-                            let _ = transport.send_to_many(
-                                &targets,
-                                OpCode::RoomDataBytes,
-                                data,
-                            );
+                            let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, data);
                         }
 
                         // Also forward to UDP peers with zero serialization overhead.
@@ -1188,12 +1461,18 @@ pub fn run(
                     // Unity C# Netcode relay handler (tunneled RPCs/Spawns,
                     // state patches). Peers get the packet back under the same
                     // wire header the sender used.
-                    if let Some(relay_action) = netcode::handle_unity_relay_packet(room, &client_id, data) {
+                    if let Some(relay_action) =
+                        netcode::handle_unity_relay_packet(room, &client_id, data)
+                    {
                         let relay_op = OpCode::from_wire(relay_action.wire_code)
                             .unwrap_or(OpCode::RoomDataBytes);
                         if let Some(ref target_session) = relay_action.target {
                             if !target_session.is_empty() {
-                                let _ = transport.send_to(target_session, relay_op, &relay_action.wire_payload);
+                                let _ = transport.send_to(
+                                    target_session,
+                                    relay_op,
+                                    &relay_action.wire_payload,
+                                );
                             }
                         } else {
                             // Multicast to all other sessions in the room (sender
@@ -1217,7 +1496,8 @@ pub fn run(
 
                             // Also multicast to UDP peers
                             if let Some(ref udp_sock) = udp_socket {
-                                let mut wire_pkt = Vec::with_capacity(1 + relay_action.wire_payload.len());
+                                let mut wire_pkt =
+                                    Vec::with_capacity(1 + relay_action.wire_payload.len());
                                 wire_pkt.push(relay_action.wire_code);
                                 wire_pkt.extend_from_slice(&relay_action.wire_payload);
                                 for (&peer_addr, (_id, peer_sess, _)) in &udp_peers {
@@ -1230,6 +1510,13 @@ pub fn run(
                         continue;
                     }
 
+                    if room.is_ecs() {
+                        // Native ECS backend: raw bytes are the WASD flags.
+                        room.ecs_input(&client_id, data);
+                        flush_room_outbox(room, &mut transport);
+                        continue;
+                    }
+
                     // Rule 3 (Ownership) & Rule 5 (Fault isolation):
                     // Guest allocates memory; host writes and invokes on_input safely without panicking.
                     if let Some(ref mut wasm) = room.wasm {
@@ -1237,9 +1524,14 @@ pub fn run(
                             Ok(ptr_i32) => {
                                 let ptr = ptr_i32 as u32;
                                 if let Err(e) = wasm.write_memory(ptr, data) {
-                                    eprintln!("[server] ⚠️ failed to write memory for player {id}: {e}");
-                                } else if let Err(e) = wasm.on_input(id, ptr_i32, data.len() as i32) {
-                                    eprintln!("[server] ⚠️ guest trap in on_input for player {id}: {e}");
+                                    eprintln!(
+                                        "[server] ⚠️ failed to write memory for player {id}: {e}"
+                                    );
+                                } else if let Err(e) = wasm.on_input(id, ptr_i32, data.len() as i32)
+                                {
+                                    eprintln!(
+                                        "[server] ⚠️ guest trap in on_input for player {id}: {e}"
+                                    );
                                 }
                             }
                             Err(e) => {
@@ -1247,6 +1539,10 @@ pub fn run(
                             }
                         }
                     }
+                    // Reply now instead of waiting for the next tick: typed
+                    // messages from onMessage() are low-latency and independent
+                    // of the continuous delta.
+                    flush_room_outbox(room, &mut transport);
                 }
             }
         }
@@ -1276,14 +1572,18 @@ pub fn run(
                     room.enable_input_hub();
                 }
 
-                let is_spec_handshake = data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC";
+                let is_spec_handshake =
+                    data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC";
                 let mut session_id = if let Some((_, sess, _)) = udp_peers.get(&peer_addr) {
                     sess.clone()
                 } else {
                     format!("udp_{}_{}", peer_addr.ip(), peer_addr.port())
                 };
 
-                if !data.is_empty() && (data[0] == netcode::CYG_WIRE_LEAVE_ROOM || data[0] == netcode::CYG_OP_LEAVE_ROOM) {
+                if !data.is_empty()
+                    && (data[0] == netcode::CYG_WIRE_LEAVE_ROOM
+                        || data[0] == netcode::CYG_OP_LEAVE_ROOM)
+                {
                     if let Some((id, sess, _)) = udp_peers.remove(&peer_addr) {
                         eprintln!("[server-udp] {peer_addr} left room via UDP (session {sess})");
                         udp_input_rates.remove(&peer_addr);
@@ -1292,6 +1592,7 @@ pub fn run(
                         // stale entry would keep the room awake and keep
                         // forwarding to a peer that is gone.
                         room.sessions.remove(&sess);
+                        room.schema_sent.remove(&sess);
                         if id > 0 {
                             room.remove_raw_player(id);
                         }
@@ -1323,9 +1624,14 @@ pub fn run(
                                 for (&other_addr, _) in &udp_peers {
                                     let _ = udp_sock.send_to(&wire_pkt, other_addr);
                                 }
-                                let targets: Vec<&str> = room.sessions.keys().map(String::as_str).collect();
+                                let targets: Vec<&str> =
+                                    room.sessions.keys().map(String::as_str).collect();
                                 if !targets.is_empty() {
-                                    let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, &wire_despawn);
+                                    let _ = transport.send_to_many(
+                                        &targets,
+                                        OpCode::RoomDataBytes,
+                                        &wire_despawn,
+                                    );
                                 }
                             }
                         }
@@ -1352,10 +1658,7 @@ pub fn run(
                         continue;
                     }
                     let now = Instant::now();
-                    let allowed = udp_input_rates
-                        .entry(peer_addr)
-                        .or_default()
-                        .allow(now);
+                    let allowed = udp_input_rates.entry(peer_addr).or_insert_with(|| netcode::InputRateLimiter::new(5, 5.0)).allow(Instant::now());
                     if !allowed {
                         continue;
                     }
@@ -1402,10 +1705,7 @@ pub fn run(
                     room.sessions.insert(session_id.clone(), actor as i64);
 
                     if previous.is_none() {
-                        udp_peers.insert(
-                            peer_addr,
-                            (actor as i64, session_id.clone(), now),
-                        );
+                        udp_peers.insert(peer_addr, (actor as i64, session_id.clone(), now));
                         eprintln!(
                             "[server-udp] 🕹️ Peer {peer_addr} registered to input hub (actor_id: {actor}, session: {session_id})"
                         );
@@ -1444,6 +1744,16 @@ pub fn run(
                         eprintln!("[server-udp] 👁️  {peer_addr} connected as SPECTATOR via UDP");
                         let _ = udp_sock.send_to(SPECTATOR_CONFIRM, peer_addr);
                     } else {
+                        // Join amplification guard: max 5 joins/sec per source
+                        // address. The join path is the only unauthenticated
+                        // allocation (guest on_join + descriptor-sized reply).
+                        if udp_join_rates.len() >= 4096 && !udp_join_rates.contains_key(&peer_addr) {
+                            continue;
+                        }
+                        if !udp_join_rates.entry(peer_addr).or_insert_with(|| netcode::InputRateLimiter::new(5, 5.0)).allow(Instant::now()) {
+                            eprintln!("[server-udp] ⛔ join rate-limit hit by {peer_addr}");
+                            continue;
+                        }
                         let n = room.sessions.len() + udp_peers.len();
                         let (x, y) = (
                             60.0 + ((n as f64) * 97.0) % (cfg.width - 120.0),
@@ -1452,7 +1762,9 @@ pub fn run(
                         let id = room.add_raw_player(x, y);
                         session_id = format!("p{}_{}_{}", id, peer_addr.ip(), peer_addr.port());
                         udp_peers.insert(peer_addr, (id, session_id.clone(), Instant::now()));
-                        eprintln!("[server-udp] {peer_addr} joined room via UDP (player id {id}, session {session_id})");
+                        eprintln!(
+                            "[server-udp] {peer_addr} joined room via UDP (player id {id}, session {session_id})"
+                        );
 
                         // 1. Send JOIN_ROOM handshake reply to the joining client so SDK marks room as joined
                         let rt = format!("{}:{}", cfg.name, session_id);
@@ -1464,10 +1776,15 @@ pub fn run(
                         join_reply.extend_from_slice(b"schema");
                         join_reply.push(0x00); // msgpack 0
                         let _ = udp_sock.send_to(&join_reply, peer_addr);
+                        if !schema_descriptor.is_empty() {
+                            let _ = udp_sock.send_to(&schema_descriptor, peer_addr);
+                        }
 
                         // 2. Initial catch-up spawns for Unity Netcode
                         if let Some(ref unity) = room.unity {
-                            for (_view_id, (_prefab_id, _owner, spawn_bytes)) in &unity.spawned_prefabs {
+                            for (_view_id, (_prefab_id, _owner, spawn_bytes)) in
+                                &unity.spawned_prefabs
+                            {
                                 let mut tunnel_buf = Vec::new();
                                 netcode::write_tunnel(
                                     &mut tunnel_buf,
@@ -1497,7 +1814,10 @@ pub fn run(
                         *id = 0;
                         eprintln!("[server-udp] 👁️  {peer_addr} upgraded to SPECTATOR via UDP");
                     } else if *id > 0 && !data.is_empty() {
-                        if data.len() >= 1 && (data[0] == netcode::CYG_WIRE_PING || data[0] == netcode::CYG_OP_PING) {
+                        if data.len() >= 1
+                            && (data[0] == netcode::CYG_WIRE_PING
+                                || data[0] == netcode::CYG_OP_PING)
+                        {
                             let _ = udp_sock.send_to(data, peer_addr);
                             continue;
                         }
@@ -1514,13 +1834,18 @@ pub fn run(
 
                 // Unity CYG Netcode packet processing over UDP:
                 // Tunnel packets arrive as [CYG_WIRE_ROOM_DATA_BYTES (17)][CYG_TUNNEL_MAGIC (0x43)][len BE][op][body...]
-                let payload_slice = if data.len() >= 2 && data[0] == netcode::CYG_WIRE_ROOM_DATA_BYTES && data[1] == netcode::CYG_TUNNEL_MAGIC {
+                let payload_slice = if data.len() >= 2
+                    && data[0] == netcode::CYG_WIRE_ROOM_DATA_BYTES
+                    && data[1] == netcode::CYG_TUNNEL_MAGIC
+                {
                     &data[1..]
                 } else {
                     data
                 };
 
-                if let Some(relay_action) = netcode::handle_unity_relay_packet(room, &session_id, payload_slice) {
+                if let Some(relay_action) =
+                    netcode::handle_unity_relay_packet(room, &session_id, payload_slice)
+                {
                     let mut wire_pkt = Vec::with_capacity(1 + relay_action.wire_payload.len());
                     wire_pkt.push(relay_action.wire_code);
                     wire_pkt.extend_from_slice(&relay_action.wire_payload);
@@ -1535,8 +1860,13 @@ pub fn run(
                                 }
                             }
                             // Also send to WebSocket if target is a WS session
-                            let relay_op = OpCode::from_wire(relay_action.wire_code).unwrap_or(OpCode::RoomDataBytes);
-                            let _ = transport.send_to(target_session, relay_op, &relay_action.wire_payload);
+                            let relay_op = OpCode::from_wire(relay_action.wire_code)
+                                .unwrap_or(OpCode::RoomDataBytes);
+                            let _ = transport.send_to(
+                                target_session,
+                                relay_op,
+                                &relay_action.wire_payload,
+                            );
                         }
                     } else {
                         // Multicast to all other UDP peers!
@@ -1547,10 +1877,16 @@ pub fn run(
                         }
 
                         // Also multicast to any WebSocket clients in the room
-                        let relay_op = OpCode::from_wire(relay_action.wire_code).unwrap_or(OpCode::RoomDataBytes);
-                        let ws_targets: Vec<&str> = room.sessions.keys().map(String::as_str).collect();
+                        let relay_op = OpCode::from_wire(relay_action.wire_code)
+                            .unwrap_or(OpCode::RoomDataBytes);
+                        let ws_targets: Vec<&str> =
+                            room.sessions.keys().map(String::as_str).collect();
                         if !ws_targets.is_empty() {
-                            let _ = transport.send_to_many(&ws_targets, relay_op, &relay_action.wire_payload);
+                            let _ = transport.send_to_many(
+                                &ws_targets,
+                                relay_op,
+                                &relay_action.wire_payload,
+                            );
                         }
                     }
                 }
@@ -1560,7 +1896,9 @@ pub fn run(
         // Poll WebRTC UDP socket for Client-to-Server DataChannel traffic (str0m)
         if let Some(ref sock) = webrtc_udp {
             let mut buf = [0u8; 2048];
-            let local_addr = sock.local_addr().unwrap_or_else(|_| "0.0.0.0:7779".parse().unwrap());
+            let local_addr = sock
+                .local_addr()
+                .unwrap_or_else(|_| "0.0.0.0:7779".parse().unwrap());
             while let Ok((amt, peer_addr)) = sock.recv_from(&mut buf) {
                 if let Some(ref mut srv) = webrtc_server {
                     srv.handle_udp(peer_addr, local_addr, &buf[..amt]);
@@ -1582,10 +1920,14 @@ pub fn run(
             for ev in srv.poll_events() {
                 match ev {
                     WebRtcServerEvent::Connected { client_id } => {
-                        eprintln!("[server] 🚀 Client {client_id} established WebRTC UDP DataChannel with Server!");
+                        eprintln!(
+                            "[server] 🚀 Client {client_id} established WebRTC UDP DataChannel with Server!"
+                        );
                     }
                     WebRtcServerEvent::ChannelOpen { client_id, label } => {
-                        eprintln!("[server] ⚡ WebRTC DataChannel '{label}' open for client {client_id}");
+                        eprintln!(
+                            "[server] ⚡ WebRTC DataChannel '{label}' open for client {client_id}"
+                        );
                     }
                     // Bytes arrive classified against their lane from
                     // `poll_inbound` below; this event still fires for hosts that
@@ -1609,14 +1951,30 @@ pub fn run(
                         continue;
                     }
                 };
-                let Some(&id) = room.sessions.get(&*client_id) else { continue; };
+                let Some(&id) = room.sessions.get(&*client_id) else {
+                    continue;
+                };
                 match msg {
-                    Inbound::Input { seq, payload, resupplied } => {
+                    Inbound::Input {
+                        seq,
+                        payload,
+                        resupplied,
+                    } => {
                         last_input_at.insert(client_id.clone(), Instant::now());
                         if !resupplied && seq % 120 == 1 {
-                            eprintln!("[server] ⚡ WebRTC UDP input stream active for player {id} (seq {seq})");
+                            eprintln!(
+                                "[server] ⚡ WebRTC UDP input stream active for player {id} (seq {seq})"
+                            );
                         }
-                        netcode::apply_input(room, cfg, tick_interval.as_secs_f64(), &client_id, id, seq, &payload);
+                        netcode::apply_input(
+                            room,
+                            cfg,
+                            tick_interval.as_secs_f64(),
+                            &client_id,
+                            id,
+                            seq,
+                            &payload,
+                        );
                     }
                     Inbound::Event { raw } => {
                         let Ok(mut event) = engine_webrtc_protocol::EventFrame::decode(&raw) else {
@@ -1626,7 +1984,8 @@ pub fn run(
                         event.seq = room.event_seq;
                         event.from = id as u16;
 
-                        let mut wire_event = Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
+                        let mut wire_event =
+                            Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
                         engine_webrtc_protocol::encode_event(&event, &mut wire_event);
 
                         if event.kind == engine_webrtc_protocol::EventKind::Fire {
@@ -1687,7 +2046,9 @@ pub fn run(
                 // Auto-close evaluation for hibernating rooms
                 if room.is_hibernating() {
                     let is_default = name == &cfg.name;
-                    if (!is_default || udp_peers.is_empty()) && room.reap_check(Duration::from_secs(30)) {
+                    if (!is_default || udp_peers.is_empty())
+                        && room.reap_check(Duration::from_secs(30))
+                    {
                         dead_rooms.push(name.clone());
                     }
                 }
@@ -1700,18 +2061,40 @@ pub fn run(
                         continue;
                     }
 
+                    // Held seats (allowReconnection) expire on wall-clock time;
+                    // only then does the guest see `onLeave`.
+                    if room.expire_pending_leaves(Instant::now()) {
+                        flush_room_outbox(room, &mut transport);
+                    }
+
+                    // Native ECS backend: single-threaded bevy_ecs + Rapier
+                    // schedule; the delta rides the same outbox as a guest's.
+                    if room.is_ecs() {
+                        room.tick_ecs(dt);
+                        flush_room_outbox(room, &mut transport);
+                        continue;
+                    }
+
                     // Rule 5: Fault-isolated simulation tick (a guest trap does
                     // not crash the server); the rollback checkpoint rides
                     // inside `GameRoom::tick`.
                     let packed = match room.tick(dt, cfg.rollback.enabled) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!("[server] ⚠️ guest trap during on_tick in room '{name}': {e}");
+                            eprintln!(
+                                "[server] ⚠️ guest trap during on_tick in room '{name}': {e}"
+                            );
+                            flush_room_outbox(room, &mut transport);
                             continue;
                         }
                     };
                     let ptr = ((packed >> 32) as u32) as usize;
                     let len = (packed as u32) as usize;
+
+                    // Typed app messages are independent of the delta buffer.
+                    // Flush even when `on_tick` returned no delta, and before
+                    // the delta-size guards can skip the rest of this tick.
+                    flush_room_outbox(room, &mut transport);
 
                     if room.is_input_hub() {
                         // In Input-Hub mode, the server NEVER runs game physics.
@@ -1731,119 +2114,302 @@ pub fn run(
                     let is_last_tick = tick_idx + 1 == ticks_to_run;
                     if len > 0 && is_last_tick {
                         if let Some(ref mut wasm) = room.wasm {
-                            if let Err(e) = wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf) {
-                                eprintln!("[server] ⚠️ failed to read delta memory in room '{name}': {e}");
+                            if let Err(e) =
+                                wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf)
+                            {
+                                eprintln!(
+                                    "[server] ⚠️ failed to read delta memory in room '{name}': {e}"
+                                );
                                 continue;
                             }
                         }
                         let delta = &delta_buf[..];
 
-                    // Interest management: parse the delta once per tick.
-                    // When the layout is recognized and AOI is on, every player
-                    // gets a per-viewer culled body; otherwise everyone shares the
-                    // raw multicast buffer.
-                    let server_tick_u32 = room.current_tick as u32;
-                    room.delta_seq = room.delta_seq.wrapping_add(1);
-                    let delta_seq = room.delta_seq;
-                    let aoi_sections = if cfg.aoi.enabled {
-                        netcode::parse_delta_sections(delta)
-                    } else {
-                        None
-                    };
-
-                    // SFU Spatial Audio: Synchronize authoritative 3D positions into KD-Tree
-                    if let Some((_, ref entities, _, _, _)) = aoi_sections {
-                        for e in entities {
-                            room.voice_room.update_position(e.id as u32, e.pos);
-                        }
-                    } else if delta.len() >= 4 {
-                        let count = u32::from_le_bytes(delta[0..4].try_into().unwrap_or([0; 4])) as usize;
-
-                        for i in 0..count {
-                            let base = 4 + i * 72;
-                            if base + 32 <= delta.len() {
-                                let pid = i64::from_le_bytes(delta[base..base + 8].try_into().unwrap_or([0; 8]));
-                                let px = f64::from_le_bytes(delta[base + 8..base + 16].try_into().unwrap_or([0; 8]));
-                                let py = f64::from_le_bytes(delta[base + 16..base + 24].try_into().unwrap_or([0; 8]));
-                                let pz = f64::from_le_bytes(delta[base + 24..base + 32].try_into().unwrap_or([0; 8]));
-                                room.voice_room.update_position(pid as u32, [px, py, pz]);
+                        // ---- schema state: full row once, field patches after ----
+                        if let Some(schema) = netcode::split_schema(delta) {
+                            // Patch-rate gate: when a window is skipped the
+                            // delta is dropped, so the next due frame must be
+                            // the envelope's full snapshot to recover it.
+                            if !room.should_send_patch(Instant::now()) {
+                                continue;
                             }
-                        }
-                    }
+                            let force_full = room.take_patch_skipped();
+                            if force_full {
+                                // Keep sending the forced keyframe until every
+                                // client acknowledges it, then resume patches.
+                                room.schema_sent.clear();
+                            }
+                            let server_tick_u32 = room.current_tick as u32;
+                            room.delta_seq = room.delta_seq.wrapping_add(1);
+                            let delta_seq = room.delta_seq;
 
-                    // 1. Broadcast to active players with their player ID
-                    for (session, id) in &room.sessions {
-                        if let Some((_, entities, bullet_count, bc_off, bullet_end)) = &aoi_sections {
-                            let viewer_pos = entities.iter().find(|e| e.id == *id).map(|e| e.pos);
-                            netcode::filter_delta_for_viewer(
-                                entities,
-                                *bullet_count,
-                                (*bc_off + 4, *bullet_end),
-                                delta,
-                                *id,
-                                viewer_pos,
-                                room.current_tick,
-                                &cfg.aoi,
-                                &mut filtered_buf,
-                            );
-                            let acked_seq = room.last_input_seq.get(session).copied().unwrap_or(0);
-                            netcode::wrap_delta_into(&mut delta_body, *id, &filtered_buf, acked_seq, server_tick_u32);
+                            // Schema views: decode the guest full once per tick.
+                            // A viewer with a culled view gets its own filtered
+                            // full; otherwise the guest full/patch is sent as-is.
+                            let aoi_view = schema_aoi
+                                .as_ref()
+                                .and_then(|layout| layout.view(schema.full));
+
+                            let sessions: Vec<(String, i64)> = room
+                                .sessions
+                                .iter()
+                                .map(|(s, &id)| (s.clone(), id))
+                                .collect();
+                            for (session, id) in sessions {
+                                let culled = match (schema_aoi.as_ref(), aoi_view.as_ref()) {
+                                    (Some(layout), Some(view)) => layout.filter_culled(
+                                        view,
+                                        id as u32,
+                                        room.current_tick,
+                                        &cfg.aoi,
+                                        &mut view_buf,
+                                    ),
+                                    _ => false,
+                                };
+                                // Stay on the full snapshot until the client acks
+                                // (`__ox_schema_ready`); a patch that races the
+                                // baseline over another transport would be lost.
+                                let is_full =
+                                    force_full || !room.schema_sent.contains(&session);
+                                let body = if culled {
+                                    &view_buf[..]
+                                } else if is_full {
+                                    schema.full
+                                } else {
+                                    schema.patch
+                                };
+                                let acked_seq =
+                                    room.last_input_seq.get(&session).copied().unwrap_or(0);
+                                netcode::wrap_delta_into(
+                                    &mut delta_body,
+                                    id,
+                                    body,
+                                    acked_seq,
+                                    server_tick_u32,
+                                );
+                                let framed = netcode::send_delta_framed(
+                                    &mut webrtc_server,
+                                    &session,
+                                    delta_seq,
+                                    server_tick_u32,
+                                    &delta_body,
+                                );
+                                if framed == 0 {
+                                    if is_full || culled {
+                                        // Full snapshots are idempotent: the
+                                        // latest one supersedes unflushed ones.
+                                        let _ = transport.send_state(&session, &delta_body);
+                                    } else {
+                                        let _ = transport.send_to(
+                                            &session,
+                                            OpCode::RoomDataBytes,
+                                            &delta_body,
+                                        );
+                                    }
+                                }
+                            }
+
+                            let spectators: Vec<String> = room.spectators.iter().cloned().collect();
+                            for spec in spectators {
+                                let is_full = force_full || !room.schema_sent.contains(&spec);
+                                let body = if is_full { schema.full } else { schema.patch };
+                                netcode::wrap_delta_into(
+                                    &mut delta_body,
+                                    0,
+                                    body,
+                                    0,
+                                    server_tick_u32,
+                                );
+                                let framed = netcode::send_delta_framed(
+                                    &mut webrtc_server,
+                                    &spec,
+                                    delta_seq,
+                                    server_tick_u32,
+                                    &delta_body,
+                                );
+                                if framed == 0 {
+                                    if is_full {
+                                        let _ = transport.send_state(&spec, &delta_body);
+                                    } else {
+                                        let _ = transport.send_to(
+                                            &spec,
+                                            OpCode::RoomDataBytes,
+                                            &delta_body,
+                                        );
+                                    }
+                                }
+                            }
+
+                            if let Some(ref mut srv) = webrtc_server {
+                                if let Some(ref sock) = webrtc_udp {
+                                    for (dest, data) in srv.poll_transmits() {
+                                        let _ = sock.send_to(&data, dest);
+                                    }
+                                }
+                            }
                         } else {
-                            let acked_seq = room.last_input_seq.get(session).copied().unwrap_or(0);
-                            netcode::wrap_delta_into(&mut delta_body, *id, delta, acked_seq, server_tick_u32);
-                        }
-                        let framed =
-                            netcode::send_delta_framed(&mut webrtc_server, session, delta_seq, server_tick_u32, &delta_body);
-                        if framed == 0 {
-                            let _ = transport.send_to(session, OpCode::RoomDataBytes, &delta_body);
-                        }
-                    }
+                            // Interest management: parse the delta once per tick.
+                            // When the layout is recognized and AOI is on, every player
+                            // gets a per-viewer culled body; otherwise everyone shares the
+                            // raw multicast buffer.
+                            let server_tick_u32 = room.current_tick as u32;
+                            room.delta_seq = room.delta_seq.wrapping_add(1);
+                            let delta_seq = room.delta_seq;
+                            let aoi_sections = if cfg.aoi.enabled {
+                                netcode::parse_delta_sections(delta)
+                            } else {
+                                None
+                            };
 
-                    // Flush outbound WebRTC UDP packets
-                    if let Some(ref mut srv) = webrtc_server {
-                        if let Some(ref sock) = webrtc_udp {
-                            for (dest, data) in srv.poll_transmits() {
-                                let _ = sock.send_to(&data, dest);
+                            // SFU Spatial Audio: Synchronize authoritative 3D positions into KD-Tree
+                            if let Some((_, ref entities, _, _, _)) = aoi_sections {
+                                for e in entities {
+                                    room.voice_room.update_position(e.id as u32, e.pos);
+                                }
+                            } else if delta.len() >= 4 {
+                                let count =
+                                    u32::from_le_bytes(delta[0..4].try_into().unwrap_or([0; 4]))
+                                        as usize;
+
+                                for i in 0..count {
+                                    let base = 4 + i * 72;
+                                    if base + 32 <= delta.len() {
+                                        let pid = i64::from_le_bytes(
+                                            delta[base..base + 8].try_into().unwrap_or([0; 8]),
+                                        );
+                                        let px = f64::from_le_bytes(
+                                            delta[base + 8..base + 16].try_into().unwrap_or([0; 8]),
+                                        );
+                                        let py = f64::from_le_bytes(
+                                            delta[base + 16..base + 24]
+                                                .try_into()
+                                                .unwrap_or([0; 8]),
+                                        );
+                                        let pz = f64::from_le_bytes(
+                                            delta[base + 24..base + 32]
+                                                .try_into()
+                                                .unwrap_or([0; 8]),
+                                        );
+                                        room.voice_room.update_position(pid as u32, [px, py, pz]);
+                                    }
+                                }
                             }
-                        }
-                    }
 
-                    // 2. Broadcast to spectators with ID 0 (Observer mode). They
-                    // ride the same stamped channel as players, so a spectator
-                    // also drops superseded frames instead of drawing them.
-                    if !room.spectators.is_empty() {
-                        netcode::wrap_delta_into(&mut delta_body, 0, delta, 0, server_tick_u32);
-                        for spec_session in &room.spectators {
-                            let framed = netcode::send_delta_framed(
-                                &mut webrtc_server,
-                                spec_session,
-                                delta_seq,
-                                server_tick_u32,
-                                &delta_body,
-                            );
-                            if framed == 0 {
-                                let _ =
-                                    transport.send_to(spec_session, OpCode::RoomDataBytes, &delta_body);
+                            // 1. Broadcast to active players with their player ID
+                            for (session, id) in &room.sessions {
+                                if let Some((_, entities, bullet_count, bc_off, bullet_end)) =
+                                    &aoi_sections
+                                {
+                                    let viewer_pos =
+                                        entities.iter().find(|e| e.id == *id).map(|e| e.pos);
+                                    netcode::filter_delta_for_viewer(
+                                        entities,
+                                        *bullet_count,
+                                        (*bc_off + 4, *bullet_end),
+                                        delta,
+                                        *id,
+                                        viewer_pos,
+                                        room.current_tick,
+                                        &cfg.aoi,
+                                        &mut filtered_buf,
+                                    );
+                                    let acked_seq =
+                                        room.last_input_seq.get(session).copied().unwrap_or(0);
+                                    netcode::wrap_delta_into(
+                                        &mut delta_body,
+                                        *id,
+                                        &filtered_buf,
+                                        acked_seq,
+                                        server_tick_u32,
+                                    );
+                                } else {
+                                    let acked_seq =
+                                        room.last_input_seq.get(session).copied().unwrap_or(0);
+                                    netcode::wrap_delta_into(
+                                        &mut delta_body,
+                                        *id,
+                                        delta,
+                                        acked_seq,
+                                        server_tick_u32,
+                                    );
+                                }
+                                let framed = netcode::send_delta_framed(
+                                    &mut webrtc_server,
+                                    session,
+                                    delta_seq,
+                                    server_tick_u32,
+                                    &delta_body,
+                                );
+                                if framed == 0 {
+                                    let _ = transport.send_to(
+                                        session,
+                                        OpCode::RoomDataBytes,
+                                        &delta_body,
+                                    );
+                                }
                             }
-                        }
-                    }
 
-                    // 3. Broadcast to UDP Unity / Unreal / Godot peers. One
-                    // datagram, no stamp: those clients parse the delta body
-                    // directly and the channel layer is WebRTC-only for now.
-                    if let Some(ref udp_sock) = udp_socket {
-                        for (&peer_addr, &(id, _, _)) in &udp_peers {
-                            netcode::wrap_delta_into(&mut frame_buf, id, delta, 0, server_tick_u32);
-                            let _ = udp_sock.send_to(&frame_buf, peer_addr);
-                        }
+                            // Flush outbound WebRTC UDP packets
+                            if let Some(ref mut srv) = webrtc_server {
+                                if let Some(ref sock) = webrtc_udp {
+                                    for (dest, data) in srv.poll_transmits() {
+                                        let _ = sock.send_to(&data, dest);
+                                    }
+                                }
+                            }
+
+                            // 2. Broadcast to spectators with ID 0 (Observer mode). They
+                            // ride the same stamped channel as players, so a spectator
+                            // also drops superseded frames instead of drawing them.
+                            if !room.spectators.is_empty() {
+                                netcode::wrap_delta_into(
+                                    &mut delta_body,
+                                    0,
+                                    delta,
+                                    0,
+                                    server_tick_u32,
+                                );
+                                for spec_session in &room.spectators {
+                                    let framed = netcode::send_delta_framed(
+                                        &mut webrtc_server,
+                                        spec_session,
+                                        delta_seq,
+                                        server_tick_u32,
+                                        &delta_body,
+                                    );
+                                    if framed == 0 {
+                                        let _ = transport.send_to(
+                                            spec_session,
+                                            OpCode::RoomDataBytes,
+                                            &delta_body,
+                                        );
+                                    }
+                                }
+                            }
+
+                            // 3. Broadcast to UDP Unity / Unreal / Godot peers. One
+                            // datagram, no stamp: those clients parse the delta body
+                            // directly and the channel layer is WebRTC-only for now.
+                            if let Some(ref udp_sock) = udp_socket {
+                                for (&peer_addr, &(id, _, _)) in &udp_peers {
+                                    netcode::wrap_delta_into(
+                                        &mut frame_buf,
+                                        id,
+                                        delta,
+                                        0,
+                                        server_tick_u32,
+                                    );
+                                    let _ = udp_sock.send_to(&frame_buf, peer_addr);
+                                }
+                            }
+                        } // legacy delta layout
                     }
                 }
+                // One sample per batch, as the pinned sim plane does: this is the
+                // wall cost of keeping the room's ticks and broadcast current.
+                recorder.note_tick(tick_start.elapsed());
+                window_ticks += ticks_to_run as u64;
             }
-            // One sample per batch, as the pinned sim plane does: this is the
-            // wall cost of keeping the room's ticks and broadcast current.
-            recorder.note_tick(tick_start.elapsed());
-            window_ticks += ticks_to_run as u64;
-        }
 
             // Cleanup inactive UDP peers
             let now = Instant::now();
@@ -1862,6 +2428,7 @@ pub fn run(
                 if let Some(room) = server.rooms.get_mut(&cfg.name) {
                     room.release_input_actor(&sess);
                     room.sessions.remove(&sess);
+                    room.schema_sent.remove(&sess);
                     if id > 0 {
                         room.remove_raw_player(id);
                     }
@@ -1895,9 +2462,14 @@ pub fn run(
                                     let _ = udp_sock.send_to(&wire_pkt, other_addr);
                                 }
                             }
-                            let targets: Vec<&str> = room.sessions.keys().map(String::as_str).collect();
+                            let targets: Vec<&str> =
+                                room.sessions.keys().map(String::as_str).collect();
                             if !targets.is_empty() {
-                                let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, &wire_despawn);
+                                let _ = transport.send_to_many(
+                                    &targets,
+                                    OpCode::RoomDataBytes,
+                                    &wire_despawn,
+                                );
                             }
                         }
                     }
@@ -1909,6 +2481,8 @@ pub fn run(
                     if let Some(snapshot) = room.export_snapshot() {
                         server.save_snapshot(&name, snapshot);
                     }
+                    // Last guest callback: flush scores / release resources.
+                    room.dispose();
                     eprintln!("[server] room '{name}' disposed and state saved (empty 30s)");
                 }
             }
@@ -1939,14 +2513,18 @@ pub fn run(
                     // One session, one transport: the browser that negotiated a
                     // data channel is counted on WebRTC, where its packets
                     // actually arrive, not on the socket it joined through.
-                    let live = webrtc_server.as_ref().is_some_and(|srv| srv.is_connected(session));
+                    let live = webrtc_server
+                        .as_ref()
+                        .is_some_and(|srv| srv.is_connected(session));
                     webrtc_live += live as u32;
                     sessions.push(SessionTelemetry {
                         session: session.clone(),
                         transport: if live { "webrtc" } else { "websocket" }.to_string(),
                         player_id,
                         acked_seq: room.last_input_seq.get(session).map(|&seq| seq as u32),
-                        idle_ms: last_input_at.get(session).map(|t| t.elapsed().as_millis() as u64),
+                        idle_ms: last_input_at
+                            .get(session)
+                            .map(|t| t.elapsed().as_millis() as u64),
                     });
                 }
             }
@@ -2026,7 +2604,10 @@ pub fn run(
                             recompilation_triggered = true;
                         }
                         Err(e) => {
-                            eprintln!("[server] ⚠️ Compilation error in {}: {e}", cfg.source.display());
+                            eprintln!(
+                                "[server] ⚠️ Compilation error in {}: {e}",
+                                cfg.source.display()
+                            );
                             // Record mtime so we don't spam compile errors every 500ms
                             loaded_src_time = Some(src_current);
                         }
@@ -2040,7 +2621,10 @@ pub fn run(
             // path even when the file mtime is unchanged.
             if wasm_available {
                 if let Ok(current) = std::fs::metadata(wasm_path).and_then(|m| m.modified()) {
-                    if console_reload || loaded_wasm_time != Some(current) || recompilation_triggered {
+                    if console_reload
+                        || loaded_wasm_time != Some(current)
+                        || recompilation_triggered
+                    {
                         match runtime
                             .load_or_compile_cached(wasm_path)
                             .and_then(|module| {
@@ -2049,9 +2633,7 @@ pub fn run(
                             }) {
                             Ok(pre) => {
                                 loaded_wasm_time = Some(current);
-                                eprintln!(
-                                    "[server] 🔥 DEV HOT-RELOAD: room logic updated!"
-                                );
+                                eprintln!("[server] 🔥 DEV HOT-RELOAD: room logic updated!");
 
                                 // 🔥 Hot-swap all actively running rooms without
                                 // disconnecting players (`GameRoom::reload_wasm`

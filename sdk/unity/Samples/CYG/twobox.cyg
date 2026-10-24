@@ -1,0 +1,24 @@
+namespace CookYourGame.TwoBox;
+
+component BoxPlayer : 1010 {
+    player_ref Player;
+    Int32 Score;
+}
+
+component BoxMovement : 1011 {
+    FP Speed;
+    FPVector3 Velocity;
+}
+
+component GemTarget : 1012 {
+    FP Radius;
+    FPVector3 Position;
+    Boolean IsActive;
+}
+
+event GemCollected : 1000001 {
+    entity_ref Collector;
+    player_ref Player;
+    FPVector3 Position;
+    Int32 NewScore;
+}

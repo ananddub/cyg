@@ -7,8 +7,8 @@ use axum::Json;
 use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 
-use crate::current_state;
 use crate::app::middleware::Authed;
+use crate::current_state;
 
 use crate::dto::iap::{ListQuery, PurchaseRequest, PurchaseTokenRequest, SubscriptionRequest};
 use crate::services::iap::IapService;
@@ -42,7 +42,11 @@ impl IapController {
     }
 
     #[post("/purchase/apple")]
-    async fn purchase_apple(&self, auth: Authed, Json(body): JsonBody<PurchaseRequest>) -> Response {
+    async fn purchase_apple(
+        &self,
+        auth: Authed,
+        Json(body): JsonBody<PurchaseRequest>,
+    ) -> Response {
         let state = current_state();
         self.service
             .purchase_apple(&state, &auth, body)
@@ -51,7 +55,11 @@ impl IapController {
     }
 
     #[post("/purchase/google")]
-    async fn purchase_google(&self, auth: Authed, Json(body): JsonBody<PurchaseTokenRequest>) -> Response {
+    async fn purchase_google(
+        &self,
+        auth: Authed,
+        Json(body): JsonBody<PurchaseTokenRequest>,
+    ) -> Response {
         let state = current_state();
         self.service
             .purchase_google(&state, &auth, body)
@@ -60,7 +68,11 @@ impl IapController {
     }
 
     #[post("/purchase/huawei")]
-    async fn purchase_huawei(&self, auth: Authed, Json(body): JsonBody<PurchaseTokenRequest>) -> Response {
+    async fn purchase_huawei(
+        &self,
+        auth: Authed,
+        Json(body): JsonBody<PurchaseTokenRequest>,
+    ) -> Response {
         let state = current_state();
         self.service
             .purchase_huawei(&state, &auth, body)
@@ -82,7 +94,11 @@ impl IapController {
     }
 
     #[post("/purchase/samsung")]
-    async fn purchase_samsung(&self, auth: Authed, Json(body): JsonBody<PurchaseTokenRequest>) -> Response {
+    async fn purchase_samsung(
+        &self,
+        auth: Authed,
+        Json(body): JsonBody<PurchaseTokenRequest>,
+    ) -> Response {
         let state = current_state();
         self.service
             .purchase_samsung(&state, &auth, body)

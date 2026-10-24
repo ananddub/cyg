@@ -8,14 +8,14 @@ use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use super::bearer;
-use crate::dto::Empty;
-use crate::utils::link::{failure, guarded};
 use crate::ApiState;
-use crate::repositories::link::LinkEmailParams;
+use crate::dto::Empty;
 use crate::dto::auth;
-use crate::services::auth::{q, validate};
 use crate::error::V2Error;
 use crate::infra::jwt;
+use crate::repositories::link::LinkEmailParams;
+use crate::services::auth::{q, validate};
+use crate::utils::link::{failure, guarded};
 
 /// `LinkDevice` is a transaction rather than a statement: the id may already belong to
 /// *this* account (a no-op that still bumps `update_time`), or clash with another (conflict).

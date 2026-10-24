@@ -115,9 +115,8 @@ fn parse_range(field: &str, value: &str) -> Result<Term, V2Error> {
             inclusive,
         })
     };
-    let both_empty = |lower: &Option<Bound>, upper: &Option<Bound>| {
-        lower.is_none() && upper.is_none()
-    };
+    let both_empty =
+        |lower: &Option<Bound>, upper: &Option<Bound>| lower.is_none() && upper.is_none();
 
     let lower = bound(low, lower_inclusive);
     let upper = bound(high, upper_inclusive);

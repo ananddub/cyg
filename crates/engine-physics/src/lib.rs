@@ -6,8 +6,10 @@
 
 pub mod collision;
 pub mod fixed;
+pub mod oxcl;
 pub mod rapier;
 
 pub use collision::*;
 pub use fixed::*;
+pub use oxcl::*;
 pub use rapier::*;

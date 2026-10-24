@@ -8,10 +8,16 @@ fn a_replayed_reconnect_resumes_the_same_session() {
     let body = format!("{{\"reconnectionToken\":\"{}\"}}", first.seat_token);
     let again = reserve_ok(&state, "reconnect", "tank-3d", &body);
     let third = reserve_ok(&state, "reconnect", "tank-3d", &body);
-    assert_eq!(again.session_id, first.session_id, "sessionId must be stable");
+    assert_eq!(
+        again.session_id, first.session_id,
+        "sessionId must be stable"
+    );
     assert_eq!(third.session_id, first.session_id);
     assert_eq!(again.room_id, first.room_id);
-    assert_eq!(again.seat_token, first.seat_token, "no token churn on resume");
+    assert_eq!(
+        again.seat_token, first.seat_token,
+        "no token churn on resume"
+    );
     assert_eq!(minted(&state), 1, "reconnect mints nothing");
 }
 
@@ -58,7 +64,12 @@ fn an_expired_or_tampered_token_is_refused() {
         let mut r = SeatRegistry::new(DEV_SEAT_SECRET);
         r.mint("tank-3d", 0).unwrap().token // ttl 0 => already expired
     };
-    for token in [tampered, expired, format!("{payload}AAAA.{mac}"), "a.b".to_string()] {
+    for token in [
+        tampered,
+        expired,
+        format!("{payload}AAAA.{mac}"),
+        "a.b".to_string(),
+    ] {
         let e = err(
             &state,
             ip(1),

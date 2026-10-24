@@ -44,10 +44,14 @@ impl MatchQueryService {
             Some(value) => value,
         };
         if req.min_size.is_some_and(|value| value < 0) {
-            return Err(V2Error::invalid_argument("Minimum size must be 0 or above."));
+            return Err(V2Error::invalid_argument(
+                "Minimum size must be 0 or above.",
+            ));
         }
         if req.max_size.is_some_and(|value| value < 0) {
-            return Err(V2Error::invalid_argument("Maximum size must be 0 or above."));
+            return Err(V2Error::invalid_argument(
+                "Maximum size must be 0 or above.",
+            ));
         }
         if let (Some(min), Some(max)) = (req.min_size, req.max_size) {
             if min > max {

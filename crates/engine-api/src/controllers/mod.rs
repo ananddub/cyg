@@ -13,6 +13,7 @@ pub mod friend;
 pub mod group;
 pub mod health;
 pub mod iap;
+pub mod inventory;
 pub mod leaderboard;
 pub mod link;
 #[path = "match.rs"]
@@ -29,5 +30,3 @@ pub mod storage_index;
 pub mod tournament;
 pub mod unlink;
 pub mod user;
-pub mod inventory;
-

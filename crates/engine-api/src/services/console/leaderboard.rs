@@ -3,6 +3,7 @@
 
 use axum::Json;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::Page;
@@ -12,7 +13,6 @@ use crate::repositories::console::ListLeaderboardsByCategoryParams;
 use crate::repositories::leaderboard::DeleteLeaderboardRecordParams;
 use crate::utils::leaderboard::types::is_tournament;
 use crate::utils::leaderboard::window::record_window;
-use crate::ApiState;
 use uuid::Uuid;
 
 /// A board's page of records; the player API caps a listing at 100 the same way.
@@ -68,7 +68,9 @@ impl super::ConsoleService {
         let rows = super::queries(state)?
             .list_all_leaderboard_records(id, MAX_RECORDS)
             .await?;
-        Ok(Json(rows.into_iter().map(LeaderboardRecordRow::from).collect()))
+        Ok(Json(
+            rows.into_iter().map(LeaderboardRecordRow::from).collect(),
+        ))
     }
 
     /// Delete one owner's record from a plain leaderboard, the way the console's
@@ -91,13 +93,10 @@ impl super::ConsoleService {
         let owner = Uuid::parse_str(owner_id)
             .map_err(|_| V2Error::invalid_argument("Invalid owner ID."))?;
         let queries = super::queries(state)?;
-        let board = queries
-            .get_leaderboard(id)
-            .await
-            .map_err(|e| match e {
-                sqlx::Error::RowNotFound => V2Error::not_found("Leaderboard not found."),
-                other => V2Error::from_sqlx(other),
-            })?;
+        let board = queries.get_leaderboard(id).await.map_err(|e| match e {
+            sqlx::Error::RowNotFound => V2Error::not_found("Leaderboard not found."),
+            other => V2Error::from_sqlx(other),
+        })?;
         if is_tournament(&board) {
             return Err(V2Error::not_found("Leaderboard not found."));
         }

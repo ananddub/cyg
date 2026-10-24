@@ -4,13 +4,13 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::channel::{ListQuery, MessageListResponse, MessageResponse};
+use crate::error::V2Error;
 use crate::repositories::channel::{
     ListChannelMessagesBackwardParams, ListChannelMessagesForwardParams,
 };
 use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
 use crate::services::social::{ts_head, ts_tail};
 
 use crate::utils::channel::{

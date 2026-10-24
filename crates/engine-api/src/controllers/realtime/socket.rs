@@ -12,8 +12,7 @@ use crate::infra::ws::session;
 use super::Dispatched;
 use crate::services::realtime::{
     RealtimeChatService, RealtimeMatchService, RealtimeMatchmakerService,
-    RealtimeNotificationService, RealtimePartyService, RealtimePresenceService,
-    RealtimeSessionHub,
+    RealtimeNotificationService, RealtimePartyService, RealtimePresenceService, RealtimeSessionHub,
 };
 
 struct RealtimeSocket {

@@ -38,10 +38,10 @@ compatibility. It is outside Unity's import path because of the `~` suffix.
 ```bash
 cd sdk/unity/Tools~/CYG.CodeGen
 dotnet build -c Release
-cp bin/Release/netstandard2.0/CYG.CodeGen.dll ../../Runtime/CodeGen/CYG.CodeGen.dll
+cp bin/Release/netstandard2.0/CYG.CodeGen.dll ../../Runtime/Sim/CodeGen/CYG.CodeGen.dll
 ```
 
-`Runtime/CodeGen/CYG.CodeGen.dll.meta` is labelled `RoslynAnalyzer`. Unity must
+`Runtime/Sim/CodeGen/CYG.CodeGen.dll.meta` is labelled `RoslynAnalyzer`. Unity must
 reimport the DLL after it changes.
 
 ## Test

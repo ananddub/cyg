@@ -4,11 +4,11 @@ use axum::Json;
 use serde_json::{Value, json};
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::group::{GroupUserListResponse, GroupUserResponse};
 use crate::error::V2Error;
 use crate::repositories::group::{ListGroupUsersByStatePagedParams, ListGroupUsersPagedParams};
 use crate::services::auth::q;
-use crate::app::middleware::Authed;
 use crate::services::social::{self, limit};
 use crate::utils::group::{ROLE_BANNED, ROLE_SUPERADMIN, group_id};
 
@@ -88,7 +88,11 @@ impl GroupMemberService {
             .map(|last| social::cursor_encode(&json!({ "state": i64::from(last.state.unwrap_or(0)), "position": last.edge_position.unwrap_or(-1) })));
         Ok(Json(GroupUserListResponse {
             group_users,
-            cursor: if has_more { next.unwrap_or_default() } else { String::new() },
+            cursor: if has_more {
+                next.unwrap_or_default()
+            } else {
+                String::new()
+            },
         }))
     }
 }

@@ -8,17 +8,17 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::Empty;
-use crate::utils::tournament::statement::{DELETE_SQL, RELEASE_SIZE_SQL};
-use crate::utils::tournament::types::{BAD_ID, DELETE_FAILED};
+use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::Leaderboard;
 use crate::services::auth::q;
-use crate::error::V2Error;
 use crate::services::leaderboard::pool;
 use crate::utils::leaderboard::tournament_window;
-use crate::app::middleware::Authed;
-use crate::ApiState;
+use crate::utils::tournament::statement::{DELETE_SQL, RELEASE_SIZE_SQL};
+use crate::utils::tournament::types::{BAD_ID, DELETE_FAILED};
 
 impl super::TournamentService {
     pub async fn delete_record(
@@ -45,13 +45,10 @@ impl super::TournamentService {
 /// A board that is absent, or is not a tournament, is the same internal error
 /// here as a database failure; only an unmatched error value says otherwise.
 async fn load(queries: &Queries, id: &str) -> Result<Leaderboard, V2Error> {
-    queries
-        .get_tournament(id)
-        .await
-        .map_err(|error| {
-            eprintln!("[v2] tournament delete load: {error}");
-            V2Error::internal(DELETE_FAILED)
-        })
+    queries.get_tournament(id).await.map_err(|error| {
+        eprintln!("[v2] tournament delete load: {error}");
+        V2Error::internal(DELETE_FAILED)
+    })
 }
 
 async fn remove(

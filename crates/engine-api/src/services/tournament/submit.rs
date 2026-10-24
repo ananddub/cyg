@@ -5,11 +5,13 @@
 
 use sqlx::PgPool;
 
-use crate::utils::tournament::statement::{EXISTS_SQL, JOIN_SIZE_SQL, Write, accept, accept_joined};
-use crate::utils::tournament::types::{JOIN_REQUIRED, MAX_ATTEMPTS, MAX_SIZE, WRITE_FAILED};
-use crate::repositories::models::Leaderboard;
 use crate::error::V2Error;
+use crate::repositories::models::Leaderboard;
 use crate::utils::leaderboard::ascending;
+use crate::utils::tournament::statement::{
+    EXISTS_SQL, JOIN_SIZE_SQL, Write, accept, accept_joined,
+};
+use crate::utils::tournament::types::{JOIN_REQUIRED, MAX_ATTEMPTS, MAX_SIZE, WRITE_FAILED};
 
 /// Apply one write to the round, by the way the board admits its entrants.
 pub(super) async fn submit(
@@ -41,7 +43,7 @@ async fn joined(db: &PgPool, board: &Leaderboard, write: &Write<'_>) -> Result<(
         return Err(V2Error::failed_precondition(JOIN_REQUIRED));
     }
 
-    sqlx::query(&accept_joined(write, ascending(board)))
+    sqlx::query(&accept_joined(write, !ascending(board)))
         .bind(write.leaderboard_id)
         .bind(write.owner_id)
         .bind(write.username)
@@ -59,7 +61,7 @@ async fn joined(db: &PgPool, board: &Leaderboard, write: &Write<'_>) -> Result<(
 /// answers with its own default, and an update with what it moved to.
 async fn entered(db: &PgPool, board: &Leaderboard, write: &Write<'_>) -> Result<(), V2Error> {
     let mut tx = db.begin().await.map_err(write_failure)?;
-    let counters = sqlx::query_as::<_, (i32, i32)>(&accept(write, ascending(board)))
+    let counters = sqlx::query_as::<_, (i32, i32)>(&accept(write, !ascending(board)))
         .bind(write.leaderboard_id)
         .bind(write.owner_id)
         .bind(write.username)

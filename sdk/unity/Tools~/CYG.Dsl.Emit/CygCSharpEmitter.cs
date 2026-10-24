@@ -158,6 +158,12 @@ namespace CookYourGame.Dsl.Emit
                     _sb.AppendLine();
                 }
 
+                foreach (CygCommandDecl command in _module.Commands)
+                {
+                    EmitCommand(indent, command);
+                    _sb.AppendLine();
+                }
+
                 int signalIndex = 1;
                 foreach (CygSignalDecl signal in _module.Signals)
                 {
@@ -482,6 +488,63 @@ namespace CookYourGame.Dsl.Emit
                 _sb.Append(indent).AppendLine("}");
             }
 
+            private void EmitCommand(string indent, CygCommandDecl command)
+            {
+                if (!command.Id.HasValue)
+                {
+                    _diagnostics.Add(new CygDiagnostic(
+                        CygDiagnosticIds.Emit,
+                        CygSeverity.Error,
+                        $"Command '{command.Name}' reached the emitter without an id.",
+                        command.Span));
+                    return;
+                }
+
+                string payloadName = Identifier(command.Name);
+                string adapterName = Identifier(command.Name + "Command");
+                string body = indent + Indent;
+
+                _sb.Append(indent).AppendLine("[CYGValue]");
+                _sb.Append(indent).Append("public partial struct ").Append(payloadName).AppendLine();
+                _sb.Append(indent).AppendLine("{");
+                _sb.Append(body).Append("public const int CommandId = ").Append(command.Id.Value).AppendLine(";");
+                EmitFields(body, command.Fields);
+                _sb.Append(indent).AppendLine("}");
+                _sb.AppendLine();
+
+                _sb.Append(indent).Append("public partial class ").Append(adapterName).AppendLine(" : CYGCommand");
+                _sb.Append(indent).AppendLine("{");
+                _sb.Append(body).Append("public const int CommandTypeId = ").Append(payloadName).AppendLine(".CommandId;");
+                _sb.Append(body).Append("public ").Append(payloadName).AppendLine(" Payload;");
+                _sb.AppendLine();
+                _sb.Append(body).AppendLine("public override int TypeId");
+                _sb.Append(body).AppendLine("{");
+                _sb.Append(body).AppendLine("    get { return CommandTypeId; }");
+                _sb.Append(body).AppendLine("}");
+                _sb.AppendLine();
+                _sb.Append(body).AppendLine("public override int PayloadSize");
+                _sb.Append(body).AppendLine("{");
+                _sb.Append(body).Append("    get { return ").Append(payloadName).AppendLine(".SizeInBytes; }");
+                _sb.Append(body).AppendLine("}");
+                _sb.AppendLine();
+                _sb.Append(body).AppendLine("public override int WritePayload(byte[] buffer, int offset)");
+                _sb.Append(body).AppendLine("{");
+                _sb.Append(body).AppendLine("    return Payload.WriteTo(buffer, offset);");
+                _sb.Append(body).AppendLine("}");
+                _sb.AppendLine();
+                _sb.Append(body).AppendLine("public override void ReadPayload(byte[] buffer, int offset, int length)");
+                _sb.Append(body).AppendLine("{");
+                _sb.Append(body).Append("    if (length != ").Append(payloadName).AppendLine(".SizeInBytes)");
+                _sb.Append(body).AppendLine("    {");
+                _sb.Append(body).Append("        throw new System.InvalidOperationException(\"").Append(payloadName)
+                    .Append(" command payload must be \" + ").Append(payloadName)
+                    .AppendLine(".SizeInBytes + \" bytes, got \" + length + \".\");");
+                _sb.Append(body).AppendLine("    }");
+                _sb.Append(body).AppendLine("    Payload.ReadFrom(buffer, offset);");
+                _sb.Append(body).AppendLine("}");
+                _sb.Append(indent).AppendLine("}");
+            }
+
             private void EmitSignal(string indent, CygSignalDecl signal, int index)
             {
                 _sb.Append(indent).AppendLine("[CYGValue]");
@@ -535,6 +598,11 @@ namespace CookYourGame.Dsl.Emit
                 foreach (CygEventDecl eventDecl in _module.Events)
                 {
                     CollectSupport(eventDecl.Fields, support);
+                }
+
+                foreach (CygCommandDecl command in _module.Commands)
+                {
+                    CollectSupport(command.Fields, support);
                 }
 
                 foreach (CygSignalDecl signal in _module.Signals)

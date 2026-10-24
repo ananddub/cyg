@@ -9,8 +9,8 @@ use axum::Json;
 use axum::extract::{Path, Query};
 use axum::response::{IntoResponse, Response};
 
-use crate::current_state;
 use crate::app::middleware::Authed;
+use crate::current_state;
 
 use crate::dto::storage::{ListQuery, ObjectIdsRequest, ReadQuery, WriteRequest};
 use crate::services::storage::StorageService;
@@ -49,7 +49,11 @@ impl StorageController {
     }
 
     #[put("/delete")]
-    async fn delete_objects(&self, auth: Authed, Json(body): JsonBody<ObjectIdsRequest>) -> Response {
+    async fn delete_objects(
+        &self,
+        auth: Authed,
+        Json(body): JsonBody<ObjectIdsRequest>,
+    ) -> Response {
         let state = current_state();
         self.service
             .delete_objects(&state, &auth, body)

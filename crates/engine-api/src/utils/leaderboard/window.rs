@@ -5,8 +5,8 @@ use chrono::{DateTime, Utc};
 
 use super::cron::Schedule;
 use super::deadlines::at;
-use crate::repositories::models::Leaderboard;
 use crate::error::V2Error;
+use crate::repositories::models::Leaderboard;
 
 pub fn epoch() -> DateTime<Utc> {
     DateTime::from_timestamp(0, 0).expect("the epoch is a valid timestamp")
@@ -51,9 +51,7 @@ pub fn record_window(board: &Leaderboard) -> Result<DateTime<Utc>, V2Error> {
 /// BaaS `calculateTournamentDeadlines`' expiry: when the round the caller is
 /// in stops taking scores.
 pub fn tournament_window(board: &Leaderboard) -> Result<DateTime<Utc>, V2Error> {
-    Ok(at(
-        super::deadlines::calculate(board, Utc::now())?.expiry,
-    ))
+    Ok(at(super::deadlines::calculate(board, Utc::now())?.expiry))
 }
 
 /// BaaS `calculateExpiryOverride`. `None` means the window has already

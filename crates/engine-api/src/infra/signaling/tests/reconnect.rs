@@ -1,5 +1,5 @@
-use super::*;
 use super::raw_ws::WsClient;
+use super::*;
 use serde_json::json;
 
 #[tokio::test]
@@ -19,16 +19,30 @@ async fn a_reconnect_supersedes_the_old_socket_without_losing_its_route() {
     // The old socket tears down — its stale-generation detach must NOT delete
     // the second socket's route.
     first.send_text(r#"{"type":"close"}"#).await;
-    assert_eq!(next_signal(&mut inbound).await, SignalIn::Close { seat: seat.clone() });
+    assert_eq!(
+        next_signal(&mut inbound).await,
+        SignalIn::Close { seat: seat.clone() }
+    );
     assert!(
-        state.signals.publish(&seat.id, SignalOut::Answer { sdp: "still here".into() }),
+        state.signals.publish(
+            &seat.id,
+            SignalOut::Answer {
+                sdp: "still here".into()
+            }
+        ),
         "the stale socket's teardown deleted the live route"
     );
-    assert_eq!(second.recv_json().await, json!({ "type": "answer", "sdp": "still here" }));
+    assert_eq!(
+        second.recv_json().await,
+        json!({ "type": "answer", "sdp": "still here" })
+    );
 
     // And the replacement socket is owed its own single Close.
     second.send_text(r#"{"type":"close"}"#).await;
-    assert_eq!(next_signal(&mut inbound).await, SignalIn::Close { seat: seat.clone() });
+    assert_eq!(
+        next_signal(&mut inbound).await,
+        SignalIn::Close { seat: seat.clone() }
+    );
     expect_quiet(&mut inbound).await;
     wait_peers(&state.signals, 0).await;
 }

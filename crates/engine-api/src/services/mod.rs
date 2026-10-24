@@ -11,6 +11,7 @@ pub mod friend;
 pub mod games;
 pub mod group;
 pub mod iap;
+pub mod inventory;
 pub mod leaderboard;
 pub mod link;
 pub mod match_query;
@@ -26,6 +27,4 @@ pub mod storage;
 pub mod tournament;
 pub mod unlink;
 pub mod user;
-pub mod inventory;
 pub mod wasm;
-

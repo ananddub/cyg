@@ -20,7 +20,10 @@ pub(super) enum Sort {
 
 /// `-field` sorts descending; a plain name or a `value.`-prefixed one is a sortable
 /// field of the index; anything the index never declared for sorting is refused.
-pub(super) fn resolve_order(def: &IndexRow, order: &[String]) -> Result<Vec<(Sort, bool)>, V2Error> {
+pub(super) fn resolve_order(
+    def: &IndexRow,
+    order: &[String],
+) -> Result<Vec<(Sort, bool)>, V2Error> {
     let sortable = IndexRow::strings(&def.sortable_fields);
     let mut sorts = Vec::with_capacity(order.len());
     for raw in order {
@@ -120,7 +123,11 @@ fn push_direction(direction: &str, sql: &mut String) {
 /// range ride a `CASE` so a non-number in the column never reaches a cast.
 fn term_sql(term: &Term, args: &mut PgArguments, sql: &mut String) {
     match term {
-        Term::Eq { field, text, number } => {
+        Term::Eq {
+            field,
+            text,
+            number,
+        } => {
             sql.push_str("(s.value ->> ");
             bind(field.clone(), args, sql);
             sql.push_str(" = ");
@@ -134,7 +141,11 @@ fn term_sql(term: &Term, args: &mut PgArguments, sql: &mut String) {
             }
             sql.push(')');
         }
-        Term::Range { field, lower, upper } => {
+        Term::Range {
+            field,
+            lower,
+            upper,
+        } => {
             let bounds: Vec<(&Bound, bool)> = lower
                 .iter()
                 .map(|b| (b, true))

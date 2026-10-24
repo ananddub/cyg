@@ -2,10 +2,10 @@
 
 use axum::Json;
 
+use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::error::V2Error;
-use crate::app::middleware::Authed;
-use crate::ApiState;
 
 impl super::AccountService {
     /// The `user_tombstone` is written first, so a later credential for an identifier

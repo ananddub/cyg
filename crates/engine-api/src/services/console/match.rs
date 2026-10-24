@@ -8,13 +8,13 @@
 use axum::Json;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::matches::{ConsoleMatchList, ConsoleMatchRow, ConsoleMatchState};
 use crate::error::V2Error;
 use crate::services::realtime::RealtimeMatchService;
-use crate::ApiState;
 
 impl super::ConsoleService {
     /// Page the running matches. The registry is a hash map, so the rows are sorted

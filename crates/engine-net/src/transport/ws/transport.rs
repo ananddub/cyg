@@ -1,7 +1,7 @@
 //! Transport lifecycle: the `mio` poll, the listening sockets it owns and the
 //! maps that name every live session.
 
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use std::borrow::Cow;
 use std::io;
 use std::net::SocketAddr;
@@ -26,6 +26,11 @@ pub struct WsTransport {
     pub(super) client_tokens: AHashMap<String, Token>,
     /// session id -> room id (from the upgrade URL path).
     pub(super) client_rooms: AHashMap<String, String>,
+    /// session id -> raw join options JSON (percent-decoded `options=` query).
+    pub(super) client_options: AHashMap<String, String>,
+    /// Sessions whose disconnect was intentional (client `LEAVE_ROOM`/WS close
+    /// or a server `disconnect_with`). Drained by `take_consented`.
+    pub(super) consented: AHashSet<String>,
     /// Abnormally-disconnected sessions kept alive for reconnection:
     /// reconnectionToken ("roomId:sessionId") -> session id.
     pub(super) retained: AHashMap<String, String>,
@@ -55,8 +60,12 @@ pub struct WsTransport {
     /// Actual kernel-assigned bound address (resolves port 0).
     pub(super) bound_addr: SocketAddr,
     pub bound_addrs: Vec<SocketAddr>,
+    /// UDP port advertised in default seat reservations for native clients.
+    pub(super) advertised_udp_port: u16,
     pub(super) matchmake_hook: Option<MatchmakeHook>,
     pub(super) http_hook: Option<HttpHook>,
+    /// `openoxide.schema.bin` bytes sent to each client after JOIN_ROOM.
+    pub(super) schema_descriptor: Bytes,
 }
 
 impl WsTransport {
@@ -108,6 +117,8 @@ impl WsTransport {
             clients: AHashMap::new(),
             client_tokens: AHashMap::new(),
             client_rooms: AHashMap::new(),
+            client_options: AHashMap::new(),
+            consented: AHashSet::new(),
             retained: AHashMap::new(),
             seat_tokens: AHashMap::new(),
             pending_events: Vec::new(),
@@ -122,9 +133,22 @@ impl WsTransport {
             last_drop_log: Instant::now(),
             bound_addr,
             bound_addrs: resolved_addrs,
+            advertised_udp_port: 7778,
             matchmake_hook: None,
             http_hook: None,
+            schema_descriptor: Bytes::new(),
         })
+    }
+
+    /// Set the `openoxide.schema.bin` descriptor pushed to every client right
+    /// after JOIN_ROOM. Cheap to call once at boot; each join clones a `Bytes`.
+    pub fn set_schema_descriptor(&mut self, descriptor: impl Into<Bytes>) {
+        self.schema_descriptor = descriptor.into();
+    }
+
+    /// Port advertised in default seat reservations for native UDP clients.
+    pub fn set_udp_port(&mut self, port: u16) {
+        self.advertised_udp_port = port;
     }
 
     /// Override the unresponsive-client heartbeat (see [`HeartbeatConfig`]).
@@ -153,6 +177,18 @@ impl WsTransport {
     /// Which room a connected session belongs to.
     pub fn room_of(&self, client_id: &str) -> Option<&str> {
         self.client_rooms.get(client_id).map(String::as_str)
+    }
+
+    /// Raw JSON join options the client sent on its upgrade URL.
+    pub fn options_of(&self, client_id: &str) -> Option<&str> {
+        self.client_options.get(client_id).map(String::as_str)
+    }
+
+    /// Consume the "intentional leave" marker for a session. `true` when the
+    /// client sent `LEAVE_ROOM`/a WS close or the server closed the socket —
+    /// in both cases the seat must not be held for reconnection.
+    pub fn take_consented(&mut self, client_id: &str) -> bool {
+        self.consented.remove(client_id)
     }
 
     /// Frames dropped so far because a peer's send queue hit the cap.

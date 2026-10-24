@@ -29,6 +29,7 @@ namespace CookYourGame.Dsl.Tests
 
                 TestArena(arena);
                 TestAllTypes(types);
+                TestSchemaSample();
                 TestDiagnostics();
 
                 Console.WriteLine(
@@ -62,7 +63,9 @@ namespace CookYourGame.Dsl.Tests
             TestUnion(assembly, fp);
             TestGlobals(assembly, fp, entityRef);
             TestEventConstants(assembly, fp);
+            TestCommand(assembly, fp, playerRef);
             TestGeneratedWorld(assembly);
+            TestGlobalsHostedInWorld(assembly);
         }
 
         private static void TestArenaMetadata(Assembly assembly)
@@ -280,13 +283,71 @@ namespace CookYourGame.Dsl.Tests
             ReflectionHelpers.Roundtrip(payload, 0);
         }
 
+        private static void TestCommand(Assembly assembly, Type fp, Type playerRef)
+        {
+            Type payloadType = Require(assembly, "SpawnCharacter");
+            Type adapterType = Require(assembly, "SpawnCharacterCommand");
+            TestAssert.Equal(34, ReflectionHelpers.ReadSize(payloadType), "SpawnCharacter.SizeInBytes");
+            TestAssert.Equal(2000001, ReflectionHelpers.TryReadStaticInt(payloadType, "CommandId"), "SpawnCharacter.CommandId");
+            TestAssert.Equal(2000001, ReflectionHelpers.TryReadStaticInt(adapterType, "CommandTypeId"), "SpawnCharacterCommand.CommandTypeId");
+
+            object payload = ReflectionHelpers.New(payloadType);
+            ReflectionHelpers.SetValue(payload, "Owner",
+                playerRef.GetConstructor(new[] { typeof(ushort) })!.Invoke(new object[] { (ushort)7 }));
+            ReflectionHelpers.SetValue(payload, "Position",
+                ReflectionHelpers.NewVector3(Require(assembly, "FPVector3"), fp, 1, 2, 3));
+            ReflectionHelpers.SetValue(payload, "Rotation", ReflectionHelpers.NewFP(fp, 90));
+
+            object adapter = ReflectionHelpers.New(adapterType);
+            ReflectionHelpers.SetValue(adapter, "Payload", payload);
+            TestAssert.Equal(2000001,
+                Convert.ToInt32(adapterType.GetProperty("TypeId")!.GetValue(adapter), System.Globalization.CultureInfo.InvariantCulture),
+                "SpawnCharacterCommand.TypeId");
+            TestAssert.Equal(34,
+                Convert.ToInt32(adapterType.GetProperty("PayloadSize")!.GetValue(adapter), System.Globalization.CultureInfo.InvariantCulture),
+                "SpawnCharacterCommand.PayloadSize");
+
+            byte[] buffer = new byte[34];
+            int written = Convert.ToInt32(
+                adapterType.GetMethod("WritePayload")!.Invoke(adapter, new object[] { buffer, 0 }),
+                System.Globalization.CultureInfo.InvariantCulture);
+            TestAssert.Equal(34, written, "SpawnCharacterCommand.WritePayload length");
+
+            object copy = ReflectionHelpers.New(adapterType);
+            adapterType.GetMethod("ReadPayload")!.Invoke(copy, new object[] { buffer, 0, 34 });
+            object restored = ReflectionHelpers.GetValue(copy, "Payload")!;
+            TestAssert.Equal(7,
+                Convert.ToInt32(ReflectionHelpers.GetValue(ReflectionHelpers.GetValue(restored, "Owner"), "Value"), System.Globalization.CultureInfo.InvariantCulture),
+                "SpawnCharacter.Owner");
+            object position = ReflectionHelpers.GetValue(restored, "Position")!;
+            TestAssert.Equal(RawOfInt(fp, 3), ReflectionHelpers.ReadFPRaw(ReflectionHelpers.GetValue(position, "z")!),
+                "SpawnCharacter.Position.z");
+            TestAssert.Equal(RawOfInt(fp, 90), ReflectionHelpers.ReadFPRaw(ReflectionHelpers.GetValue(restored, "Rotation")!),
+                "SpawnCharacter.Rotation");
+
+            MethodInfo readPayload = adapterType.GetMethod("ReadPayload")!;
+            bool rejected = false;
+            try
+            {
+                readPayload.Invoke(copy, new object[] { buffer, 0, 33 });
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException is InvalidOperationException)
+            {
+                rejected = true;
+            }
+
+            TestAssert.Require(rejected, "SpawnCharacterCommand.ReadPayload must reject a truncated payload");
+        }
+
         private static void TestGeneratedWorld(Assembly assembly)
         {
             Type fp = Require(assembly, "FP");
             Type worldType = Require(assembly, "CYGWorld");
             Type characterType = Require(assembly, "Character");
             Type transformType = Require(assembly, "Transform");
-            object world = Activator.CreateInstance(worldType)!;
+            object world = worldType.GetConstructor(Type.EmptyTypes) != null
+                ? Activator.CreateInstance(worldType)!
+                : Activator.CreateInstance(worldType, 0UL, 0UL, 2, 60, 600)!;
 
             MethodInfo register = worldType.GetMethod("Register", Type.EmptyTypes)!;
             register.MakeGenericMethod(characterType).Invoke(world, null);
@@ -358,6 +419,87 @@ namespace CookYourGame.Dsl.Tests
             TestAssert.Equal(RawOfInt(fp, 5),
                 ReflectionHelpers.ReadFPRaw(ReflectionHelpers.GetValue(restoredPosition, "Z")!),
                 "world Transform.Position.Z restored");
+        }
+
+        private static void TestGlobalsHostedInWorld(Assembly assembly)
+        {
+            Type worldType = Require(assembly, "CYGWorld");
+            Type globalsType = Require(assembly, "CYGGlobals");
+            Type fp = Require(assembly, "FP");
+            Type entityRef = Require(assembly, "CYGEntityRef");
+
+            TestAssert.Require(
+                globalsType.GetInterfaces().Any(i => i.Name == "ICYGValue"),
+                "generated CYGGlobals must implement ICYGValue");
+
+            object globals = ReflectionHelpers.New(globalsType);
+            ReflectionHelpers.SetValue(globals, "MatchTimer", ReflectionHelpers.NewFP(fp, 30));
+            ReflectionHelpers.SetValue(globals, "RedTeamScore", 2);
+            ReflectionHelpers.SetValue(globals, "BlueTeamScore", 3);
+            ReflectionHelpers.SetValue(globals, "Flag", NewEntityRef(entityRef, 9, 1));
+            ReflectionHelpers.SetValue(globals, "IsMatchStarted", true);
+
+            object world = Activator.CreateInstance(worldType, 0UL, 0UL, 2, 60, 600)!;
+            MethodInfo setGlobals = worldType.GetMethods()
+                .First(m => m.Name == "SetGlobals" && m.IsGenericMethodDefinition)
+                .MakeGenericMethod(globalsType);
+            setGlobals.Invoke(world, new[] { globals });
+
+            TestAssert.Require(
+                Convert.ToBoolean(worldType.GetProperty("HasGlobals")!.GetValue(world), System.Globalization.CultureInfo.InvariantCulture),
+                "world.HasGlobals after SetGlobals");
+            TestAssert.Equal(25, ReadIntProperty(world, "GlobalsSize"), "world.GlobalsSize");
+            TestAssert.Require((Type?)worldType.GetProperty("GlobalsType")!.GetValue(world) == globalsType,
+                "world.GlobalsType must be the generated CYGGlobals");
+
+            MethodInfo tryGetGlobals = worldType.GetMethod("TryGetGlobals")!.MakeGenericMethod(globalsType);
+            MethodInfo checksum = worldType.GetMethod("ComputeChecksum", Type.EmptyTypes)!;
+            object?[] hostedArgs = { null };
+            TestAssert.Require((bool)tryGetGlobals.Invoke(world, hostedArgs)!, "world.TryGetGlobals");
+            TestAssert.Equal(3,
+                Convert.ToInt32(ReflectionHelpers.GetValue(hostedArgs[0]!, "BlueTeamScore"), System.Globalization.CultureInfo.InvariantCulture),
+                "hosted CYGGlobals.BlueTeamScore");
+            TestAssert.Equal(9,
+                Convert.ToInt32(ReflectionHelpers.GetValue(ReflectionHelpers.GetValue(hostedArgs[0]!, "Flag"), "Index"), System.Globalization.CultureInfo.InvariantCulture),
+                "hosted CYGGlobals.Flag.Index");
+            uint initialChecksum = (uint)checksum.Invoke(world, null)!;
+
+            object twin = Activator.CreateInstance(worldType, 0UL, 0UL, 2, 60, 600)!;
+            setGlobals.Invoke(twin, new[] { globals });
+            TestAssert.Equal(initialChecksum, (uint)checksum.Invoke(twin, null)!,
+                "worlds hosting identical globals must checksum equal");
+
+            object snapshot = worldType.GetMethod("CreateSnapshot", Type.EmptyTypes)!.Invoke(world, null)!;
+            object changed = ReflectionHelpers.New(globalsType);
+            CopyViaCodec(globals, changed);
+            ReflectionHelpers.SetValue(changed, "BlueTeamScore", 7);
+            setGlobals.Invoke(world, new[] { changed });
+            TestAssert.Require((uint)checksum.Invoke(world, null)! != initialChecksum,
+                "hosted globals must participate in the world checksum");
+
+            worldType.GetMethod("Restore")!.Invoke(world, new[] { snapshot });
+            TestAssert.Equal(initialChecksum, (uint)checksum.Invoke(world, null)!,
+                "snapshot restore must restore globals");
+            hostedArgs[0] = null;
+            TestAssert.Require((bool)tryGetGlobals.Invoke(world, hostedArgs)!, "world.TryGetGlobals after restore");
+            TestAssert.Equal(3,
+                Convert.ToInt32(ReflectionHelpers.GetValue(hostedArgs[0]!, "BlueTeamScore"), System.Globalization.CultureInfo.InvariantCulture),
+                "snapshot restore must roll score back");
+            TestAssert.Equal(RawOfInt(fp, 30),
+                ReflectionHelpers.ReadFPRaw(ReflectionHelpers.GetValue(hostedArgs[0]!, "MatchTimer")!),
+                "snapshot restore must preserve MatchTimer");
+
+            worldType.GetMethod("ClearGlobals", Type.EmptyTypes)!.Invoke(world, null);
+            TestAssert.Require(
+                Convert.ToBoolean(worldType.GetProperty("HasGlobals")!.GetValue(world), System.Globalization.CultureInfo.InvariantCulture),
+                "ClearGlobals keeps the store hosted");
+            hostedArgs[0] = null;
+            TestAssert.Require((bool)tryGetGlobals.Invoke(world, hostedArgs)!, "world.TryGetGlobals after clear");
+            TestAssert.Equal(0,
+                Convert.ToInt32(ReflectionHelpers.GetValue(hostedArgs[0]!, "BlueTeamScore"), System.Globalization.CultureInfo.InvariantCulture),
+                "ClearGlobals resets the hosted value");
+            TestAssert.Require((uint)checksum.Invoke(world, null)! != initialChecksum,
+                "checksum changes when globals are cleared");
         }
 
         private static int ReadIntProperty(object instance, string name)
@@ -653,6 +795,41 @@ namespace CookYourGame.Dsl.Tests
             TestAssert.Equal(typeof(ushort), Enum.GetUnderlyingType(bits), "Bits underlying type");
         }
 
+        private static void TestSchemaSample()
+        {
+            string path = Path.Combine(_repoRoot, "sdk/unity/Samples/CYG/schema.cyg");
+            CygModule module = ParseFile(path);
+            TestAssert.Require(!module.HasErrors,
+                "schema.cyg must parse cleanly, got: " + string.Join(" | ", module.Diagnostics.Select(d => d.ToString())));
+            TestAssert.Equal(1, module.Schemas.Count, "schema.cyg schema count");
+
+            CygSchemaDecl schema = module.Schemas[0];
+            TestAssert.Equal("PlayerState", schema.Name, "schema name");
+            TestAssert.Equal(1u, schema.Version, "schema version");
+            TestAssert.Equal(8, schema.Fields.Count, "schema field count");
+            TestAssert.Equal(CygTypeKind.FP, schema.Fields[0].Type.Kind, "FP field kind");
+            TestAssert.Equal(CygTypeKind.Named, schema.Fields[3].Type.Kind, "enum field kind");
+            TestAssert.Equal(CygTypeKind.EntityRef, schema.Fields[7].Type.Kind, "entity_ref field kind");
+
+            CygModule vector = ParseSource("namespace Test; schema Bad { FPVector3 position; }");
+            ExpectError(vector, CygDiagnosticIds.Schema);
+
+            CygModule reserved = ParseSource("namespace Test; schema Bad { FP id; }");
+            ExpectError(reserved, CygDiagnosticIds.ReservedName);
+
+            StringBuilder many = new StringBuilder("namespace Test; schema Big {");
+            for (int i = 0; i < 33; i++)
+            {
+                many.Append(" FP v").Append(i).Append(';');
+            }
+            many.Append(" }");
+            ExpectError(ParseSource(many.ToString()), CygDiagnosticIds.Schema);
+
+            ExpectError(ParseSource("namespace Test; schema Bad : 0 { FP x; }"), CygDiagnosticIds.Schema);
+            ExpectError(ParseSource("namespace Test; schema Bad { }"), CygDiagnosticIds.Schema);
+            ExpectError(ParseSource("namespace Test; schema Bad { SByte x; }"), CygDiagnosticIds.Schema);
+        }
+
         private static void TestDiagnostics()
         {
             string samples = Path.Combine(_repoRoot, "sdk/unity/Samples/CYG");
@@ -687,12 +864,27 @@ namespace CookYourGame.Dsl.Tests
             CygModule badEventId = ParseSource("namespace Test; event E : 1000001 { Int32 A; } event F : 999 { Int32 B; }");
             ExpectError(badEventId, CygDiagnosticIds.EventId);
 
-            const string derivedSource = "namespace Test; component Derived { Int32 A; } synced_event Changed { Int32 B; }";
+            CygModule badCommandId = ParseSource("namespace Test; command C : 1000001 { Int32 A; }");
+            ExpectError(badCommandId, CygDiagnosticIds.CommandId);
+
+            CygModule duplicateCommandId = ParseSource(
+                "namespace Test; command C : 2000001 { Int32 A; } command D : 2000001 { Int32 B; }");
+            ExpectError(duplicateCommandId, CygDiagnosticIds.CommandId);
+
+            CygModule commandReserved = ParseSource("namespace Test; command C : 2000001 { Int32 CommandId; }");
+            ExpectError(commandReserved, CygDiagnosticIds.ReservedName);
+
+            CygModule commandAdapterCollision = ParseSource(
+                "namespace Test; command C : 2000001 { Int32 A; } struct CCommand { Int32 B; }");
+            ExpectError(commandAdapterCollision, CygDiagnosticIds.DuplicateType);
+
+            const string derivedSource = "namespace Test; component Derived { Int32 A; } synced_event Changed { Int32 B; } command DerivedCommand { Int32 C; }";
             CygModule first = ParseSource(derivedSource);
             CygModule second = ParseSource(derivedSource);
             TestAssert.Require(!first.HasErrors, "derived ids source must not have errors");
             TestAssert.Equal(first.Components.First().Id, second.Components.First().Id, "derived component id stability");
             TestAssert.Equal(first.Events.First().Id, second.Events.First().Id, "derived event id stability");
+            TestAssert.Equal(first.Commands.First().Id, second.Commands.First().Id, "derived command id stability");
             TestAssert.Require(first.Diagnostics.Any(d => d.Id == CygDiagnosticIds.MissingExplicitId && d.Severity == CygSeverity.Warning),
                 "derived ids must warn with CYGD116");
 
@@ -793,20 +985,25 @@ namespace CookYourGame.Dsl.Tests
             {
                 Path.Combine(runtime, "Core"),
                 Path.Combine(runtime, "Math"),
-                Path.Combine(runtime, "Physics3D")
+                Path.Combine(runtime, "Physics3D"),
+                Path.Combine(runtime, "Physics2D"),
+                Path.Combine(runtime, "Navigation"),
+                Path.Combine(runtime, "Netcode")
             };
 
             var trees = new List<SyntaxTree>();
             foreach (string directory in directories)
             {
-                foreach (string file in Directory.GetFiles(directory, "*.cs").OrderBy(f => f, StringComparer.Ordinal))
+                foreach (string file in Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories)
+                    .OrderBy(f => f, StringComparer.Ordinal))
                 {
                     trees.Add(CSharpSyntaxTree.ParseText(File.ReadAllText(file), parseOptions, path: file));
                 }
             }
 
             string world = Path.Combine(runtime, "World");
-            foreach (string file in Directory.GetFiles(world, "*.cs").OrderBy(f => f, StringComparer.Ordinal))
+            foreach (string file in Directory.GetFiles(world, "*.cs", SearchOption.AllDirectories)
+                .OrderBy(f => f, StringComparer.Ordinal))
             {
                 trees.Add(CSharpSyntaxTree.ParseText(File.ReadAllText(file), parseOptions, path: file));
             }

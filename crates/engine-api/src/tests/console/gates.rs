@@ -6,9 +6,7 @@ use uuid::Uuid;
 use crate::error::{FAILED_PRECONDITION, PERMISSION_DENIED, UNAUTHENTICATED};
 use crate::infra::console::{self, ConsoleRole};
 
-use super::helpers::{
-    ADMIN, NOBODY, PASSWORD, V2Server, login, player_token, token_for, v2_state,
-};
+use super::helpers::{ADMIN, NOBODY, PASSWORD, V2Server, login, player_token, token_for, v2_state};
 
 #[test]
 fn a_write_needs_a_console_token() {
@@ -71,7 +69,11 @@ fn only_an_admin_manages_operators_settings_and_templates() {
         // `null` rather than `{}`: an export document has no optional top-level
         // field, so a body that is not there is the one legal empty spelling.
         ("POST", "/v2/console/account/import".to_owned(), "null"),
-        ("DELETE", "/v2/console/storage/collection/example".to_owned(), ""),
+        (
+            "DELETE",
+            "/v2/console/storage/collection/example".to_owned(),
+            "",
+        ),
     ] {
         let reply = server.send(method, &path, Some(&auth), body);
         assert_eq!(

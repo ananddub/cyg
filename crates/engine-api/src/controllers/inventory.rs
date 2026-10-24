@@ -1,13 +1,15 @@
 //! Auto-registered bindings for `/v2/inventory`.
 
-use std::sync::Arc;
 use auto_route::controller;
 use axum::extract::Json;
 use axum::response::{IntoResponse, Response};
+use std::sync::Arc;
 
-use crate::current_state;
 use crate::app::middleware::Authed;
-use crate::dto::inventory::{EquipItemRequest, ConsumeItemRequest, GrantItemRequest, DefineItemRequest};
+use crate::current_state;
+use crate::dto::inventory::{
+    ConsumeItemRequest, DefineItemRequest, EquipItemRequest, GrantItemRequest,
+};
 use crate::services::inventory::InventoryService;
 
 type JsonBody<T> = axum::extract::Json<T>;
@@ -61,9 +63,6 @@ impl InventoryController {
     #[post("/define")]
     async fn define(&self, Json(body): JsonBody<DefineItemRequest>) -> Response {
         let state = current_state();
-        self.service
-            .define_item(&state, body)
-            .await
-            .into_response()
+        self.service.define_item(&state, body).await.into_response()
     }
 }

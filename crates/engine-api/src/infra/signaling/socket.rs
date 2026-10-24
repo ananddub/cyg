@@ -20,7 +20,9 @@ struct CloseGuard {
 
 impl Drop for CloseGuard {
     fn drop(&mut self) {
-        let _ = self.hub.try_post(SignalIn::Close { seat: self.seat.clone() });
+        let _ = self.hub.try_post(SignalIn::Close {
+            seat: self.seat.clone(),
+        });
     }
 }
 
@@ -28,14 +30,19 @@ pub(crate) async fn run_socket(mut socket: WebSocket, state: ApiState, seat: Sea
     let mut replies = state.signals.attach(&seat.id);
     // Declared after `replies`, so it drops first: the data plane sees the seat
     // close while its reply route is still addressable.
-    let _close_guard = CloseGuard { hub: state.signals.clone(), seat: seat.clone() };
+    let _close_guard = CloseGuard {
+        hub: state.signals.clone(),
+        seat: seat.clone(),
+    };
 
     // The client cannot gather relay candidates without the ICE list, so it is
     // published to the seat before anything else can reach the socket; the queue
     // is freshly attached and empty, so this cannot fail while owned.
     let _ = state.signals.publish(
         &seat.id,
-        SignalOut::IceServers { config: state.signals.ice_config().to_string() },
+        SignalOut::IceServers {
+            config: state.signals.ice_config().to_string(),
+        },
     );
 
     loop {

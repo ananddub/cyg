@@ -3,18 +3,18 @@
 use axum::Json;
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::Empty;
+use crate::error::V2Error;
 use crate::repositories::friend::BlockUserEdgesParams;
 use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
 use crate::services::social;
 
 use crate::dto::friend::TargetsQuery;
 use crate::utils::friend::STATE_BLOCKED;
 
-use super::resolve::{edge_state, resolve_targets};
 use super::super::FriendService;
+use super::resolve::{edge_state, resolve_targets};
 
 impl FriendService {
     /// `POST /v2/friend/block?ids=&usernames=` — the `BlockFriends`: a block is

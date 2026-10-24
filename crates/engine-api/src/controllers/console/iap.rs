@@ -27,7 +27,10 @@ impl ConsolePurchaseController {
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service.list_purchases(&state, page).await.into_response()
+        self.service
+            .list_purchases(&state, page)
+            .await
+            .into_response()
     }
 }
 
@@ -51,7 +54,11 @@ impl ConsoleSubscriptionController {
     }
 
     #[delete("/{product_id}")]
-    async fn delete_by_product(&self, auth: ConsoleAuthed, Path(product_id): Path<String>) -> Response {
+    async fn delete_by_product(
+        &self,
+        auth: ConsoleAuthed,
+        Path(product_id): Path<String>,
+    ) -> Response {
         let state = current_state();
         self.service
             .delete_subscription_product(&state, &auth, &product_id)

@@ -11,9 +11,9 @@ use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 use serde_json::Value;
 
-use crate::current_state;
 use crate::app::middleware::Authed;
 use crate::app::params::{Body, Params};
+use crate::current_state;
 
 use crate::dto::leaderboard::{HaystackQuery, ListQuery};
 use crate::services::leaderboard::LeaderboardService;
@@ -69,8 +69,7 @@ impl LeaderboardController {
     async fn list_records_around_owner(
         &self,
         auth: Authed,
-        Path(id): Path<String>,
-        Path(owner_id): Path<String>,
+        Path((id, owner_id)): Path<(String, String)>,
         Params(req): Params<HaystackQuery>,
     ) -> Response {
         let state = current_state();

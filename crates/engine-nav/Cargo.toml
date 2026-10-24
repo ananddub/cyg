@@ -1,0 +1,11 @@
+[package]
+name = "engine-nav"
+version = "0.1.0"
+edition = "2024"
+description = "High-performance 2D and 3D navigation mesh pathfinding for OpenOxide"
+
+[dependencies]
+polyanya = "0.17.1"
+rerecast = "0.4.0"
+glam = "0.32"
+serde = { version = "1.0", features = ["derive"], optional = true }

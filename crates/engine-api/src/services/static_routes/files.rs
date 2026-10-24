@@ -7,9 +7,9 @@ use axum::response::{IntoResponse, Response};
 
 use crate::ApiState;
 
+use super::StaticRoutesService;
 use crate::utils::static_routes::responses::{file_response, not_found};
 use crate::utils::static_routes::unity::unity_subpath;
-use super::StaticRoutesService;
 
 impl StaticRoutesService {
     /// `/health` — the liveness probe, kept out of the fallback because it must

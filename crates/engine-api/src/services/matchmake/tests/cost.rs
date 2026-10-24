@@ -13,7 +13,10 @@ fn the_n_plus_oneth_request_from_one_ip_is_denied_but_another_ip_passes() {
     }
     let e = err(&state, ip(1), "joinOrCreate", "tank-3d", "{}");
     assert_eq!(e.status, StatusCode::TOO_MANY_REQUESTS);
-    assert!(e.retry_after.unwrap() >= 1, "the denial says when to return");
+    assert!(
+        e.retry_after.unwrap() >= 1,
+        "the denial says when to return"
+    );
     // A different source is untouched by that bucket.
     assert!(reserve(&state, ip(2), "joinOrCreate", "tank-3d", "{}").is_ok());
 }

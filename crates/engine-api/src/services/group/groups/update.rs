@@ -3,13 +3,13 @@
 use axum::Json;
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::dto::group::UpdateGroupRequest;
+use crate::error::V2Error;
 use crate::repositories::group::UpdateGroupParams;
 use crate::services::auth::q;
-use crate::error::V2Error;
 use crate::utils::group::{ROLE_SUPERADMIN, group_id, metadata_of};
-use crate::app::middleware::Authed;
 
 use super::super::{fetch_group, require_role};
 use super::{GROUP_CLOSED, GROUP_OPEN, GroupService};

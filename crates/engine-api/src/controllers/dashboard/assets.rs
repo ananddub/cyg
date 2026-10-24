@@ -62,7 +62,10 @@ pub(crate) async fn asset(OriginalUri(uri): OriginalUri) -> Response {
     let Some(rest) = uri.path().strip_prefix(path_guard::ASSET_PREFIX) else {
         return responses::not_found();
     };
-    dashboard::assets::serve_asset(path_guard::dist_root().as_deref(), &format!("assets/{rest}"))
+    dashboard::assets::serve_asset(
+        path_guard::dist_root().as_deref(),
+        &format!("assets/{rest}"),
+    )
 }
 
 // `/dashboard/` is the same page as `/dashboard`, but `auto_route` trims a
@@ -75,9 +78,7 @@ fn __auto_route_factory_dashboard_index_slash<'a>(
     'a,
     Result<Router<()>, auto_route::__private::auto_di::DiError>,
 > {
-    Box::pin(async move {
-        Ok(Router::new().route("/dashboard/", axum::routing::get(index)))
-    })
+    Box::pin(async move { Ok(Router::new().route("/dashboard/", axum::routing::get(index))) })
 }
 
 auto_route::__private::inventory::submit! {

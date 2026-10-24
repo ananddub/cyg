@@ -123,17 +123,22 @@ Runtime/
   Pooling/         CYGObjectPool
   Profiler/        CYGNetworkProfiler
   Sim/             optional fixed-point ECS world, snapshots, rollback and input hub
-  CodeGen/         Roslyn source generator for deterministic components
+  Sim/CodeGen/     Roslyn source generator for deterministic components
+  Sim/Physics3D/   deterministic rigid bodies, character controller, static meshes
+  Sim/UnityAdapter/ runners, views, countdowns, asset database, anim/desync adapters
   BaaS/            CYGAuth, CYGHttp, CYGStorage, CYGInventory, CYGLeaderboard,
                    CYGChat
 Samples/CYG/       arena.cyg and types.cyg DSL samples
+Samples/SportsArenaCyg/  CYG-native playable port of the reference Sports Arena Brawler sample
 Editor/
   CookYourGame.Editor.asmdef
   CYGProfilerWindow.cs
+  CYGMultiClientWindow.cs
 ```
 
 ### What each area gives you
 
+* **`Samples/SportsArenaCyg/`** — a playable, CYG-native port of the reference Sports Arena Brawler sample. It reuses the original art but does not use reference. This is a port, not a drop-in compatibility layer; see its `README.md` for the supported feature set and setup script.
 * **`Core/`** — session and identity. `CYGNetwork` (connect, rooms, master client, spawn/destroy), `CYGView` + `CYGBehaviour` (ownership via `IsMine`, spawn/despawn/owner-changed hooks, the 8-slot delta pump).
 * **`Transport/`** — `[len u16 BE][op u8][payload]` framing over a thread-safe WebSocket client. Install `CYGProfilingTransport` through `CYGNetwork.TransportFactory` to instrument bytes without touching the core.
 * **`Serialization/`** — `CYGBitWriter`/`CYGBitReader` (varint, half-float, packed vector, smallest-three quaternion), plus `CYGDeltaPacker` for binary diff/patch of state snapshots.
@@ -192,13 +197,29 @@ Every device must log the same `crc` and `fnv`. Enable `Dump Stream` to write
 `cyg_determinism_stream.bin` under `persistentDataPath`; a byte diff
 (`cmp` or `fc /b`) reports the first diverging operation.
 
-Verified so far: .NET 8 (Linux x64) and Unity 6000.6.2f1 Mono (Linux x64).
-Android, iOS, WebGL and IL2CPP still need one run per target; the harness makes
-that a log line instead of an assumption.
+Verified so far: .NET 8 (Linux x64), Unity 6000.6.2f1 Mono (Linux x64),
+browser .NET WASM, Android IL2CPP `arm64-v8a` (x86_64 emulator with ARM
+translation) and WebGL IL2CPP (headless Chrome). iOS and a physical ARM64
+phone still need one run each; the harness makes that a log line instead of an
+assumption.
 
 The probe covers the primitives. For a concrete game, also log
 `CYGWorld.ComputeChecksum()` at the same tick on each device; the first
-mismatching tick points at the system that diverged.
+mismatching tick points at the system that diverged. The per-target sign-off
+procedure and recorded results live in
+[`docs/cleanroom/platform-probe.md`](../../docs/cleanroom/platform-probe.md).
+
+The automated rollback path has its own two-client harness: an authoritative
+server plus two predicting clients exchange redundant inputs over a simulated
+lossy/jittery link, repair gaps in both directions, and compare every per-frame
+checksum in a final report.
+
+```bash
+dotnet run -c Release --project "Tools~/CYG.Headless.Match" -- --mode all
+```
+
+It covers kinematic movement, 3D physics, 2D physics and navigation, and fails
+on a desync, a rejected rollback or an unverified frame.
 
 This proves math and build parity, not input parity: every peer must simulate
 the same integer `CYGPlayerInput` bytes for the same tick. A float sampled from
@@ -211,7 +232,152 @@ server-driven tick epoch. Treat all peers as starting together at tick 0
 without a game-level resync. The current mode is a lockstep prototype, not a
 drop-in replacement for a server-simulated reference room.
 
-### Generated component serialization
+### Entity view lifecycle
+
+`CYGEntityView` is the presentation root for a deterministic entity. The
+simulation owns prefab identity through the `CYGViewBinding` ECS component
+(not the network `CookYourGame.CYGView` identity component). `CYGViewBinding`
+stores a stable prefab asset id, so a view can be recreated after a snapshot
+restore or by a simulation system on every client:
+
+```csharp
+CYGViewBinding binding = CYGViewBinding.Create(
+    new CYGAssetId(prefabAsset.AssetId),
+    CYGViewBinding.BindVerified,
+    CYGViewBinding.FlagPool | CYGViewBinding.FlagVisible);
+
+world.Set(entity, binding); // raw CYGWorld: call world.Register<CYGViewBinding>() first
+// or: runner.SetEntityView(entity, prefabKey); // runner registers the store for you
+```
+
+The lifecycle is `OnInitialize` once, `OnActivate`/`OnDeactivate` per
+spawn/pool cycle, `OnUpdateView` during the visual frame, and
+`OnLateUpdateView` after transform/camera work. Disabled view components and
+inactive views are skipped. `CYGDeterministicRunner` is not auto-created by
+view scripts: add one to the scene or call `runner.Initialize()` explicitly.
+
+Input can use the existing `CYGCallbacks` override or the reference-style poll
+event:
+
+```csharp
+callbacks.InputPoll += poll =>
+{
+    if (!poll.IsInputSet)
+    {
+        poll.SetInput(new CYGPlayerInput(poll.Tick, 0, moveX, moveY));
+    }
+};
+```
+
+### Countdown timers
+
+`CYGCountdownTimer` is a fixed-point timer for dash cooldowns, ability
+charges, respawn delays and match phases. It is deterministic and stores only
+simulation state, so it rolls back with the world. Register the companion
+component and let the built-in system tick it:
+
+```csharp
+CYGCountdown dash = CYGCountdown.Create(FP.FromFraction(3, 2)); // 1.5s
+world.Set(entity, dash); // caller registers CYGCountdown and adds CYGCountdownSystem
+```
+
+`CYGDeterministicRunner` adds `CYGCountdownSystem` automatically
+(`enableCountdownTimers`, on by default). Subscribe to
+`CYGCountdownSystem.OnExpired` for the expiry edge, or read
+`timer.Progress` / `timer.Normalized` for fill bars. `Tick` returns true only
+on the expiry tick; looping timers wrap without firing every frame.
+
+### Static mesh colliders for level maps
+
+`CYGStaticMeshAuthoring` bakes Unity `MeshCollider` geometry (ramps, slopes,
+walls, tunnels) into world-space fixed-point triangles at startup. Baked meshes
+are registered by a stable id and can be queried without UnityEngine:
+
+```csharp
+CYGStaticMesh mesh = CYGMeshRegistry.Get(meshId);
+mesh.Raycast(ray, maxDistance, out FPRaycastHit hit);
+mesh.CapsuleCast(capsule, direction, maxDistance, out hit);
+```
+
+For character movement, feed the baked meshes into the deterministic collision
+world and use `FPCharacterController`:
+
+```csharp
+SimpleCollisionWorld collision = new SimpleCollisionWorld();
+runner.PopulateCollisionWorld(collision); // baked level meshes
+controller.Move(displacement, collision);
+```
+
+The runner exposes `StaticMeshes` and `CollisionWorld`. In `Physics3D` mode the
+runner automatically registers every baked mesh as a static triangle body, so
+dynamic spheres, capsules and boxes collide with level geometry as well as
+with primitive colliders. Box and capsule bodies are fully oriented: their
+rotation feeds SAT, mesh contacts, ray/shape queries and torque through a
+diagonal local inertia tensor. You can also wire meshes manually:
+
+```csharp
+CYGPhysics3DSystem physics = new CYGPhysics3DSystem();
+foreach (CYGStaticMesh mesh in runner.StaticMeshes)
+{
+    physics.AddStaticMesh(mesh);
+}
+```
+
+Mesh bodies are static-only immutable content and stay outside world snapshots;
+dynamic bodies, contacts, queries, character movement and CCD all resolve them
+by stable mesh id. Imported meshes must have **Read/Write** enabled in their
+model import settings so the baker can read their vertices.
+
+### Asset database
+
+`CYGAssetDatabase` maps a stable integer id (or FNV-1a key) to a Unity asset.
+At startup the runner copies it into `CYGAssetRegistry.Shared`, so ECS systems
+read balance data without touching Unity objects:
+
+```csharp
+// Edit-time: one row per ScriptableObject, id derived from the key.
+if (CYGAssetRegistry.Shared.TryGet(weaponId, out WeaponStatsAsset stats))
+{
+    damage = stats.Damage;
+}
+```
+
+Lookups work in the Unity player, headless tools and tests. The registry is
+static content and is deliberately excluded from snapshots; do not mutate an
+asset during a match.
+
+### Simulation-driven animation
+
+`CYGSimAnimationDriver` is a `CYGEntityViewComponent` that reads
+`CYGSimAgent` every visual frame and writes `Speed`, `Grounded`,
+`VerticalSpeed` and an `Attack` trigger to a Unity `Animator`. The movement
+system stores the primary action button in `CYGSimAgent.Attacking`, so the
+driver fires the attack trigger once on the rising edge without any per-game
+button wiring. `TriggerAttack()` remains available for scripted or custom
+attacks. The driver is presentation-only and does not affect determinism. Use
+it instead of `CYGAnimatorSync` for local sim presentation; the latter mirrors
+Animator parameters over the network for remote peers.
+
+### Desync frame differ overlay
+
+Add `CYGDesyncOverlay` next to the runner (F8 toggles it). While enabled it
+keeps a short ring of world snapshots, subscribes to
+`CYGVerifiedFrameTracker.OnDesync`, and prints the first divergent
+entity/component/RNG state from `CYGDesyncDiagnostics` on screen. Custom
+network code can call `SetReferenceSnapshot(tick, snapshot)` to diff against a
+server-provided snapshot, or `ReportDesync(tick, local, remote)`. Snapshot
+capture allocates, so disable it in shipping builds.
+
+### In-editor multi-client runner
+
+Open `CookYourGame > Sim > Multi-Client Runner`. The window steps two to four
+independent `CYGWorld` instances in lockstep with the same bot input stream and
+reports each client's checksum, entity count, position and the first divergent
+tick. This catches determinism regressions without launching a server. The same
+window can launch N standalone player instances from a build path for a real
+network test.
+
+
 
 Hand-written `WriteTo`/`ReadFrom`/checksum code is easy to get wrong. The
 `CookYourGame.Sim` source generator (`Tools~/CYG.CodeGen`) lets you declare only

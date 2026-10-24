@@ -9,5 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../CYG.Dsl.Contracts/CYG.Dsl.Contracts.csproj" />
+    <InternalsVisibleTo Include="CYG.Lsp" />
+    <InternalsVisibleTo Include="CYG.Lsp.Tests" />
   </ItemGroup>
 </Project>

@@ -69,7 +69,10 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     }
     for (name, field) in [
         ("OX_SIGNING_KEY", &mut cfg.control.session.signing_key),
-        ("OX_REFRESH_SIGNING_KEY", &mut cfg.control.session.refresh_signing_key),
+        (
+            "OX_REFRESH_SIGNING_KEY",
+            &mut cfg.control.session.refresh_signing_key,
+        ),
         ("OX_SERVER_KEY", &mut cfg.control.session.server_key),
     ] {
         if let Ok(v) = std::env::var(name)
@@ -81,7 +84,10 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     for (name, field) in [
         ("OX_CONSOLE_USERNAME", &mut cfg.control.console.username),
         ("OX_CONSOLE_PASSWORD", &mut cfg.control.console.password),
-        ("OX_CONSOLE_SIGNING_KEY", &mut cfg.control.console.signing_key),
+        (
+            "OX_CONSOLE_SIGNING_KEY",
+            &mut cfg.control.console.signing_key,
+        ),
     ] {
         if let Ok(v) = std::env::var(name)
             && !v.is_empty()

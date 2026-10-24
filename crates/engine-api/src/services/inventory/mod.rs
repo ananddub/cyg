@@ -1,8 +1,8 @@
 //! Inventory & Item Management Service (`/v2/inventory/*`).
 
+use auto_di::singleton;
 use axum::Json;
 use uuid::Uuid;
-use auto_di::singleton;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
@@ -36,14 +36,18 @@ impl InventoryService {
         req: EquipItemRequest,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
         let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
-        let item = queries.get_inventory_item(req.instance_id).await?
+        let item = queries
+            .get_inventory_item(req.instance_id)
+            .await?
             .ok_or_else(|| V2Error::not_found("inventory item not found"))?;
 
         if item.user_id != auth.uid() {
             return Err(V2Error::permission_denied("you do not own this item"));
         }
 
-        queries.set_inventory_slot(req.instance_id, req.slot_index).await?;
+        queries
+            .set_inventory_slot(req.instance_id, req.slot_index)
+            .await?;
         let updated = queries.get_inventory_item(req.instance_id).await?;
 
         Ok(Json(InventoryOperationResponse {
@@ -60,11 +64,15 @@ impl InventoryService {
         req: ConsumeItemRequest,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
         if req.quantity <= 0 {
-            return Err(V2Error::invalid_argument("quantity to consume must be at least 1"));
+            return Err(V2Error::invalid_argument(
+                "quantity to consume must be at least 1",
+            ));
         }
 
         let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
-        let item = queries.get_inventory_item(req.instance_id).await?
+        let item = queries
+            .get_inventory_item(req.instance_id)
+            .await?
             .ok_or_else(|| V2Error::not_found("inventory item not found"))?;
 
         if item.user_id != auth.uid() {
@@ -79,7 +87,9 @@ impl InventoryService {
         }
 
         let new_qty = item.quantity - req.quantity;
-        queries.update_inventory_quantity(req.instance_id, new_qty).await?;
+        queries
+            .update_inventory_quantity(req.instance_id, new_qty)
+            .await?;
         let updated = queries.get_inventory_item(req.instance_id).await?;
 
         Ok(Json(InventoryOperationResponse {
@@ -99,22 +109,21 @@ impl InventoryService {
         let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
 
         // Ensure item definition exists
-        let def = queries.get_item_definition(&req.item_id).await?
-            .ok_or_else(|| V2Error::not_found(format!("item definition '{}' not found", req.item_id)))?;
+        let def = queries
+            .get_item_definition(&req.item_id)
+            .await?
+            .ok_or_else(|| {
+                V2Error::not_found(format!("item definition '{}' not found", req.item_id))
+            })?;
 
         let qty = req.quantity.unwrap_or(1).clamp(1, def.max_stack);
         let slot = req.slot_index.unwrap_or(-1);
         let metadata = req.metadata.unwrap_or_else(|| serde_json::json!({}));
 
         let instance_id = Uuid::new_v4();
-        let item = queries.grant_inventory_item(
-            instance_id,
-            target_user,
-            &req.item_id,
-            qty,
-            slot,
-            &metadata,
-        ).await?;
+        let item = queries
+            .grant_inventory_item(instance_id, target_user, &req.item_id, qty, slot, &metadata)
+            .await?;
 
         Ok(Json(InventoryOperationResponse {
             success: true,
@@ -133,14 +142,16 @@ impl InventoryService {
         let rarity = req.rarity.unwrap_or_else(|| "common".to_string());
         let properties = req.properties.unwrap_or_else(|| serde_json::json!({}));
 
-        queries.upsert_item_definition(
-            &req.item_id,
-            &req.name,
-            &req.category,
-            max_stack,
-            &rarity,
-            &properties,
-        ).await?;
+        queries
+            .upsert_item_definition(
+                &req.item_id,
+                &req.name,
+                &req.category,
+                max_stack,
+                &rarity,
+                &properties,
+            )
+            .await?;
 
         Ok(Json(InventoryOperationResponse {
             success: true,

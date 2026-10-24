@@ -1,8 +1,7 @@
-
 use engine_dashboard::WsFrame;
 
-use crate::ApiState;
 use super::{build_overview, build_ticks};
+use crate::ApiState;
 
 pub(crate) fn hello_frame(state: &ApiState) -> WsFrame {
     WsFrame::Hello {

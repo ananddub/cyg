@@ -13,15 +13,15 @@ mod write;
 use axum::Json;
 use uuid::Uuid;
 
+use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::console::Page;
 use crate::dto::console::user::ConsoleUserView;
 use crate::error::V2Error;
 use crate::infra::console::ConsoleRole;
 use crate::repositories::db::Queries;
-use crate::ApiState;
 
-pub(super) use super::{manual, pool, ConsoleService, audit, id, never, queries};
+pub(super) use super::{ConsoleService, audit, id, manual, never, pool, queries};
 
 /// The shortest password the console accepts. A console credential reaches every
 /// account on the server, so it is held to more than a player's is.
@@ -51,12 +51,7 @@ impl super::ConsoleService {
     /// Refuse an operator turning an operation on itself. A token outlives the row
     /// it names, so self-deletion would revoke nothing while leaving the console one
     /// admin short — and self-disabling would lock the caller out on the next login.
-    fn must_be_another(
-        &self,
-        claims: &ConsoleAuthed,
-        id: Uuid,
-        verb: &str,
-    ) -> Result<(), V2Error> {
+    fn must_be_another(&self, claims: &ConsoleAuthed, id: Uuid, verb: &str) -> Result<(), V2Error> {
         if claims.0.uuid() == Some(id) {
             return Err(V2Error::failed_precondition(format!(
                 "A console user cannot {verb} itself."

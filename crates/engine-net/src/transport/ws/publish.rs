@@ -54,6 +54,9 @@ impl WsTransport {
     pub(super) fn queue_to(&mut self, client_id: &str, colyseus_opcode: u8, payload: &[u8]) {
         if let Some(&token) = self.client_tokens.get(client_id) {
             if let Some(client) = self.clients.get_mut(&token) {
+                // Any frame queued after a state frame makes the tail marker
+                // stale: the state frame can no longer be replaced safely.
+                client.state_frame_start = None;
                 let required = payload.len() + 16;
                 if client.send_queue.len() + required > MAX_SEND_QUEUE {
                     // Peer stopped reading: drop the frame instead of growing
@@ -94,6 +97,7 @@ impl WsTransport {
             let Some(client) = self.clients.get_mut(&token) else {
                 continue;
             };
+            client.state_frame_start = None;
             let cur_len = client.send_queue.len();
             if cur_len + frame_len > MAX_SEND_QUEUE {
                 self.dropped_frames = self.dropped_frames.saturating_add(1);
@@ -118,6 +122,42 @@ impl WsTransport {
         }
     }
 
+    /// Queue a schema-state frame that may be superseded. When the client's
+    /// send queue still ends with an unflushed state frame, that frame is
+    /// replaced instead of appended: full snapshots are idempotent, so a
+    /// stalled peer only ever carries the newest one (an "unreliable" state
+    /// lane on top of TCP). Patches must keep using `send_to` — they are
+    /// deltas and dropping one loses fields.
+    pub fn send_state(&mut self, client_id: &str, payload: &[u8]) -> io::Result<()> {
+        let Some(&token) = self.client_tokens.get(client_id) else {
+            return Ok(());
+        };
+        let Some(client) = self.clients.get_mut(&token) else {
+            return Ok(());
+        };
+        let opcode = super::protocol::wire_opcode_for(crate::framing::OpCode::RoomDataBytes);
+        if let Some(start) = client.state_frame_start {
+            if start + client.state_frame_len == client.send_queue.len() {
+                client.send_queue.truncate(start);
+                encode_wire_frame(opcode, payload, &mut client.send_queue);
+                client.state_frame_len = client.send_queue.len() - start;
+                self.flush_dirty = true;
+                return Ok(());
+            }
+            client.state_frame_start = None;
+        }
+        if client.send_queue.len() + payload.len() + 16 > MAX_SEND_QUEUE {
+            self.dropped_frames = self.dropped_frames.saturating_add(1);
+            return Ok(());
+        }
+        let start = client.send_queue.len();
+        encode_wire_frame(opcode, payload, &mut client.send_queue);
+        client.state_frame_start = Some(start);
+        client.state_frame_len = client.send_queue.len() - start;
+        self.flush_dirty = true;
+        Ok(())
+    }
+
     /// Drop a client immediately: sends the WS close frame (`4000 CONSENTED`)
     /// and surfaces a `Disconnected` event on the next `poll_events`.
     pub fn disconnect(&mut self, client_id: &str) -> io::Result<()> {
@@ -135,7 +175,11 @@ impl WsTransport {
             }
             self.client_tokens.remove(client_id);
             self.client_rooms.remove(client_id);
+            self.client_options.remove(client_id);
             self.seat_tokens.remove(client_id);
+            // A server-initiated close is deliberate: do not hold the seat for
+            // `allowReconnection` (the client is not coming back on purpose).
+            self.consented.insert(client_id.to_string());
             self.pending_events.push(TransportEvent::Disconnected {
                 client_id: Arc::from(client_id),
             });

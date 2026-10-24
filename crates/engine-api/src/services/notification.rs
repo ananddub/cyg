@@ -8,17 +8,17 @@ use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
+use crate::app::middleware::Authed;
+use crate::dto::Empty;
 use crate::dto::notification::{
     DeleteRequest, ListQuery, NotificationListResponse, NotificationResponse,
 };
-use crate::dto::Empty;
+use crate::error::V2Error;
 use crate::repositories::notification::{
     ListNotificationsByCodePagedParams, ListNotificationsBySenderPagedParams,
     ListNotificationsPagedParams,
 };
 use crate::services::auth::q;
-use crate::error::V2Error;
-use crate::app::middleware::Authed;
 use crate::services::social::ts_head;
 
 use crate::utils::notification::{
@@ -135,8 +135,8 @@ impl NotificationService {
         auth: &Authed,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
-        let id =
-            Uuid::parse_str(id).map_err(|_| V2Error::invalid_argument("Invalid notification ID."))?;
+        let id = Uuid::parse_str(id)
+            .map_err(|_| V2Error::invalid_argument("Invalid notification ID."))?;
         let queries = q(state)?;
         delete_one(&queries, auth.0.uuid()?, id).await?;
         Ok(Json(Empty {}))
