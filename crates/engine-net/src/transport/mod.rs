@@ -26,7 +26,7 @@ use bytes::Bytes;
 use crate::framing::OpCode;
 
 pub use udp::UdpTransport;
-pub use webrtc::{WebRtcServer, WebRtcServerEvent};
+pub use webrtc::{WebRtcServer, WebRtcServerEvent, WebRtcTransport};
 pub use ws::WsTransport;
 
 /// Supported transport implementations that sit behind [`GameTransport`].

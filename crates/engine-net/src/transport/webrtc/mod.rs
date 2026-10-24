@@ -36,6 +36,7 @@
 //! - `status` — read-only per-client and per-transport queries
 
 pub mod contract;
+pub mod game_transport;
 
 mod events;
 mod send;
@@ -49,5 +50,6 @@ mod write;
 #[cfg(test)]
 mod tests;
 
+pub use game_transport::WebRtcTransport;
 pub use server::WebRtcServer;
 pub use types::{DeltaSendReport, TransportStats, WebRtcServerEvent};
