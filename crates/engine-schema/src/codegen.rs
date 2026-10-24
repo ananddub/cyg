@@ -1699,7 +1699,8 @@ pub fn emit_as(schemas: &[crate::SchemaDef], root: Option<&crate::RootState>, _s
     }
 
     // State: collections as AS Maps + root scalars as a grouped row.
-    out.push_str(&format!("export class {} {{\n", root.name));
+    out.push_str("import { DeltaWriter, SchemaStateBase } from \"../openoxide\";\n\n");
+    out.push_str(&format!("export class {} extends SchemaStateBase {{\n", root.name));
     for c in &root.collections {
         out.push_str(&format!(
             "    {}: Map<u64, {}> = new Map();\n",
@@ -1708,10 +1709,10 @@ pub fn emit_as(schemas: &[crate::SchemaDef], root: Option<&crate::RootState>, _s
     }
     // root scalars block
     if !root.scalars.is_empty() {
-        for f in &root.scalars {
+        for (ri, f) in root.scalars.iter().enumerate() {
             out.push_str(&format!(
                 "    {}: {} = 0;\n    private _rs{}: {} = 0;\n",
-                f.name, as_type(&f.kind), 0, as_type(&f.kind)
+                f.name, as_type(&f.kind), ri, as_type(&f.kind)
             ));
         }
     }
@@ -1729,9 +1730,10 @@ pub fn emit_as(schemas: &[crate::SchemaDef], root: Option<&crate::RootState>, _s
         out.push_str(&format!("            w.beginEntity(0x10, {fb}, 0);\n"));
         for f in &root.scalars {
             out.push_str(&format!(
-                "            w.{}(this.{} as {});\n",
+                "            w.{}(this.{} as {});\n            w.{}(this._rs0 as {});\n",
                 as_writer(&f.kind), f.name,
-                if f.kind == crate::WireKind::F64 { "f64" } else { as_type(&f.kind) }
+                if f.kind == crate::WireKind::F64 { "f64" } else { as_type(&f.kind) },
+                as_writer(&f.kind), as_type(&f.kind)
             ));
         }
         out.push_str("        }\n");

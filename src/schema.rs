@@ -97,11 +97,28 @@ pub fn write_codegen(
     contract: &SchemaContract,
     language: codegen::Language,
 ) -> io::Result<(PathBuf, bool)> {
-    let contents = codegen_contents(contract, language);
+    let mut contents = codegen_contents(contract, language);
+    // AS output imports the SDK relatively; with the conventional src/ layout
+    // the SDK lives in src/ beside room.ts — rewrite so the SDK is loaded once
+    // (two copies in one compile = duplicate-class conflicts).
+    if language == codegen::Language::As && dir_has_src(out_dir) {
+        contents = contents.replace(
+            "from \"../openoxide\"",
+            "from \"../src/openoxide\"",
+        );
+    }
     std::fs::create_dir_all(out_dir)?;
     let path = out_dir.join(language.file_name());
     let changed = write_bytes_if_changed(&path, contents.as_bytes())?;
     Ok((path, changed))
+}
+
+fn dir_has_src(out_dir: &Path) -> bool {
+    // out_dir is <project>/generated -> project root is its parent.
+    out_dir
+        .parent()
+        .map(|p| p.join("src").exists())
+        .unwrap_or(false)
 }
 
 fn missing_source(dir: &Path) -> io::Error {
@@ -147,6 +164,17 @@ fn generate_file(dir: &Path, source_path: &Path) -> io::Result<SchemaOutput> {
     let client_dts = dir.join(CLIENT_DTS_FILE);
     if write_bytes_if_changed(&client_dts, generated.client_dts.as_bytes())? {
         wrote.push(client_dts.clone());
+    }
+
+    // AS output imports the SDK relatively; with the conventional src/ layout
+    // the SDK lives in src/ beside room.ts — rewrite so the SDK is loaded once.
+    if server.exists() {
+        let fixed = std::fs::read_to_string(&server)
+            .map(|t| t.replace("from \"../openoxide\"", "from \"../src/openoxide\""))
+            .unwrap_or_default();
+        if fixed.contains("from \"../src/openoxide\"") {
+            let _ = std::fs::write(&server, fixed);
+        }
     }
 
     Ok(SchemaOutput {

@@ -2691,19 +2691,17 @@ export abstract class Room {
     /// Wire the generated schema state (`ox-game schema-codegen --lang as`):
     /// `this.setState(new State())` then `onTick` returns `this.commitState()`.
     /// Only dirty rows are encoded — developer never touches bytes.
-    protected _schemaState: SchemaStateBase | null = null;
+    /// Non-null by default: setState() swaps in the generated state; without
+    /// one, commitState() emits nothing.
+    protected schemaState: SchemaStateBase = new SchemaStateBase();
 
     setState(state: SchemaStateBase): void {
-        this._schemaState = state;
-    }
-
-    get state(): SchemaStateBase | null {
-        return this._schemaState;
+        this.schemaState = state;
     }
 
     /** Call at the end of onTick: `return this.commitState();` */
     commitState(): i64 {
-        return this._schemaState !== null ? this._schemaState.commit() : 0;
+        return this.schemaState.commit();
     }
 
     setPatchRate(ms: i32): void {
