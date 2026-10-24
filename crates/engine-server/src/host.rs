@@ -203,7 +203,7 @@ impl GameTransport for LoopTransport {
         events.retain(|ev| {
             !matches!(ev, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. })
         });
-        self.inbound.extend(self.rtc.server_mut().poll_inbound());
+        self.inbound.extend(self.rtc.poll_inbound());
         Ok(())
     }
 
