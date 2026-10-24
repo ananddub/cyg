@@ -82,7 +82,7 @@ impl SpatialIndex2D {
         if let Some(old) = self.last_pos.insert(entity_id, pos) {
             self.tree.remove(&old, entity_id);
         }
-        self.tree.add(&pos, entity_id);
+        let _ = self.tree.add(&pos, entity_id);
     }
 
     pub fn update(&mut self, entity_id: u32, old_pos: [f64; 2], new_pos: [f64; 2]) {

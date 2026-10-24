@@ -124,13 +124,16 @@ impl EcsRoomState {
         // Input -> ECS, ECS -> Rapier, simulate, Rapier -> ECS: one ordered,
         // single-threaded schedule. Changed<Position3D> tracking then limits
         // the delta to entities that actually moved.
-        runner.add_system((
-            apply_inputs,
-            sync_ecs_to_rapier_3d,
-            sync_velocity_to_rapier_3d,
-            step_rapier_3d,
-            sync_rapier_to_ecs_3d,
-        ));
+        runner.add_system(
+            (
+                apply_inputs,
+                sync_ecs_to_rapier_3d,
+                sync_velocity_to_rapier_3d,
+                step_rapier_3d,
+                sync_rapier_to_ecs_3d,
+            )
+                .chain(),
+        );
 
         Self {
             runner,

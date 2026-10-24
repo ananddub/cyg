@@ -1572,8 +1572,6 @@ mod tests {
 // declaration order; the root's scalar block is one row tagged 0x10.
 // =============================================================================
 
-use crate::RootCollection;
-
 fn as_type(kind: &WireKind) -> &'static str {
     match kind {
         WireKind::U8 => "u8",
@@ -1724,17 +1722,35 @@ pub fn emit_as(schemas: &[crate::SchemaDef], root: Option<&crate::RootState>, _s
         ));
     }
     if !root.scalars.is_empty() {
-        out.push_str("        { // root scalars — one row, tag 0x10\n            const w = this._w;\n");
+        let dirty_cond: Vec<String> = root
+            .scalars
+            .iter()
+            .enumerate()
+            .map(|(ri, f)| format!("this.{} !== this._rs{}", f.name, ri))
+            .collect();
+        out.push_str(&format!(
+            "        if ({}) {{\n            const w = this._w;\n",
+            dirty_cond.join(" || ")
+        ));
         let mut fb = 0usize;
-        for f in &root.scalars { fb += as_field_size(&f.kind); }
+        for f in &root.scalars {
+            fb += as_field_size(&f.kind);
+        }
         out.push_str(&format!("            w.beginEntity(0x10, {fb}, 0);\n"));
         for f in &root.scalars {
             out.push_str(&format!(
-                "            w.{}(this.{} as {});\n            w.{}(this._rs0 as {});\n",
-                as_writer(&f.kind), f.name,
-                if f.kind == crate::WireKind::F64 { "f64" } else { as_type(&f.kind) },
-                as_writer(&f.kind), as_type(&f.kind)
+                "            w.{}(this.{} as {});\n",
+                as_writer(&f.kind),
+                f.name,
+                if f.kind == crate::WireKind::F64 {
+                    "f64"
+                } else {
+                    as_type(&f.kind)
+                }
             ));
+        }
+        for (ri, f) in root.scalars.iter().enumerate() {
+            out.push_str(&format!("            this._rs{} = this.{};\n", ri, f.name));
         }
         out.push_str("        }\n");
     }
@@ -1777,7 +1793,7 @@ mod as_codegen_tests {
         assert!(out.contains("w.writeF64(this.x as f64);"));
 
         // state: collection map + grouped root-scalar row + commit()
-        assert!(out.contains("export class State {"));
+        assert!(out.contains("export class State extends SchemaStateBase {"));
         assert!(out.contains("    players: Map<u64, Player> = new Map();"));
         assert!(out.contains("e1.dirty()) { e1.emit(this._w, 1, ids1[i]); e1.keep(); }"), "dirty-only emit, tag 1");
         assert!(out.contains("w.beginEntity(0x10, 8, 0);"), "root scalars one row, tag 0x10");
