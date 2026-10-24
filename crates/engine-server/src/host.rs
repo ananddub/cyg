@@ -711,7 +711,6 @@ pub fn run(
                     let raw_room_str = transport.room_of(&client_id);
                     let raw_room = raw_room_str.as_deref().unwrap_or(&cfg.name);
                     let is_spectator = raw_room.contains("spectator");
-                    let is_unity = raw_room.contains("unity") || raw_room.contains("cyg");
                     // Native bevy_ecs rooms: room names containing "ecs" run the
                     // Rust-native 7-pillar simulation (no WASM guest).
                     let is_ecs = raw_room.contains("ecs");
@@ -732,8 +731,6 @@ pub fn run(
 
                     let room = if is_ecs {
                         server.get_or_create_ecs(room_name, arena_mesh.as_ref())
-                    } else if is_unity || !server.has_room_module() {
-                        server.get_or_create_unity(room_name)
                     } else {
                         match server.get_or_create(room_name) {
                             Ok(room) => room,
@@ -802,25 +799,6 @@ pub fn run(
                         // Deliver onJoin() messages in this same loop, not one
                         // tick later, while the client is still connected.
                         flush_room_outbox(room, &mut transport);
-
-                        // For Unity Netcode rooms, catch up the newly joined client with any spawned prefabs
-                        if let Some(ref unity) = room.unity {
-                            let mut wire_spawn = Vec::new();
-                            for (_view_id, (_prefab_id, _owner, spawn_bytes)) in
-                                &unity.spawned_prefabs
-                            {
-                                netcode::write_tunnel(
-                                    &mut wire_spawn,
-                                    netcode::CYG_OP_SPAWN_OBJECT,
-                                    spawn_bytes,
-                                );
-                                let _ = transport.send_to(
-                                    &client_id,
-                                    OpCode::RoomDataBytes,
-                                    &wire_spawn,
-                                );
-                            }
-                        }
                     }
                     let _ = transport.flush();
                 }
@@ -872,39 +850,6 @@ pub fn run(
                     }
                     // onLeave() may have queued a roster/chat message.
                     flush_room_outbox(room, &mut transport);
-                    if let Some(ref mut unity) = room.unity {
-                        let to_remove: Vec<u32> = unity
-                            .spawned_prefabs
-                            .iter()
-                            .filter(|(_, (_, owner, _))| owner == &*client_id)
-                            .map(|(&vid, _)| vid)
-                            .collect();
-
-                        for vid in to_remove {
-                            unity.spawned_prefabs.remove(&vid);
-                            unity.entities.remove(&vid);
-                            unity.sync_vars.remove(&vid);
-                            unity.dirty_entities.remove(&vid);
-
-                            let mut despawn_body = Vec::new();
-                            netcode::put_varint(&mut despawn_body, vid as i32);
-                            let mut wire_despawn = Vec::new();
-                            netcode::write_tunnel(
-                                &mut wire_despawn,
-                                netcode::CYG_OP_DESPAWN_OBJECT,
-                                &despawn_body,
-                            );
-                            let targets: Vec<&str> =
-                                room.sessions.keys().map(String::as_str).collect();
-                            if !targets.is_empty() {
-                                let _ = transport.send_to_many(
-                                    &targets,
-                                    OpCode::RoomDataBytes,
-                                    &wire_despawn,
-                                );
-                            }
-                        }
-                    }
                     transport.rtc_server().remove_session(&client_id);
                     if room.is_hibernating() {
                         eprintln!(
@@ -1366,58 +1311,6 @@ pub fn run(
                         continue;
                     }
 
-                    // Unity C# Netcode relay handler (tunneled RPCs/Spawns,
-                    // state patches). Peers get the packet back under the same
-                    // wire header the sender used.
-                    if let Some(relay_action) =
-                        netcode::handle_unity_relay_packet(room, &client_id, data)
-                    {
-                        let relay_op = OpCode::from_wire(relay_action.wire_code)
-                            .unwrap_or(OpCode::RoomDataBytes);
-                        if let Some(ref target_session) = relay_action.target {
-                            if !target_session.is_empty() {
-                                let _ = transport.send_to(
-                                    target_session,
-                                    relay_op,
-                                    &relay_action.wire_payload,
-                                );
-                            }
-                        } else {
-                            // Multicast to all other sessions in the room (sender
-                            // excluded). Encode once, queue to every recipient.
-                            let mut targets: Vec<&str> =
-                                Vec::with_capacity(room.sessions.len() + room.spectators.len());
-                            targets.extend(
-                                room.sessions
-                                    .keys()
-                                    .map(String::as_str)
-                                    .filter(|cid| *cid != &*client_id),
-                            );
-                            targets.extend(room.spectators.iter().map(String::as_str));
-                            if !targets.is_empty() {
-                                let _ = transport.send_to_many(
-                                    &targets,
-                                    relay_op,
-                                    &relay_action.wire_payload,
-                                );
-                            }
-
-                            // Also multicast to UDP peers
-                            if let Some(ref udp_sock) = udp_socket {
-                                let mut wire_pkt =
-                                    Vec::with_capacity(1 + relay_action.wire_payload.len());
-                                wire_pkt.push(relay_action.wire_code);
-                                wire_pkt.extend_from_slice(&relay_action.wire_payload);
-                                for (&peer_addr, (_id, peer_sess, _)) in &udp_peers {
-                                    if peer_sess != &*client_id {
-                                        let _ = udp_sock.send_to(&wire_pkt, peer_addr);
-                                    }
-                                }
-                            }
-                        }
-                        continue;
-                    }
-
                     if room.is_ecs() {
                         // Native ECS backend: raw bytes are the WASD flags.
                         room.ecs_input(&client_id, data);
@@ -1503,45 +1396,6 @@ pub fn run(
                         room.schema_sent.remove(&sess);
                         if id > 0 {
                             room.remove_raw_player(id);
-                        }
-                        if let Some(ref mut unity) = room.unity {
-                            let to_remove: Vec<u32> = unity
-                                .spawned_prefabs
-                                .iter()
-                                .filter(|(_, (_, owner, _))| owner == &sess)
-                                .map(|(&vid, _)| vid)
-                                .collect();
-
-                            for vid in to_remove {
-                                unity.spawned_prefabs.remove(&vid);
-                                unity.entities.remove(&vid);
-                                unity.sync_vars.remove(&vid);
-                                unity.dirty_entities.remove(&vid);
-
-                                let mut despawn_body = Vec::new();
-                                netcode::put_varint(&mut despawn_body, vid as i32);
-                                let mut wire_despawn = Vec::new();
-                                netcode::write_tunnel(
-                                    &mut wire_despawn,
-                                    netcode::CYG_OP_DESPAWN_OBJECT,
-                                    &despawn_body,
-                                );
-                                let mut wire_pkt = Vec::with_capacity(1 + wire_despawn.len());
-                                wire_pkt.push(netcode::CYG_WIRE_ROOM_DATA_BYTES);
-                                wire_pkt.extend_from_slice(&wire_despawn);
-                                for (&other_addr, _) in &udp_peers {
-                                    let _ = udp_sock.send_to(&wire_pkt, other_addr);
-                                }
-                                let targets: Vec<&str> =
-                                    room.sessions.keys().map(String::as_str).collect();
-                                if !targets.is_empty() {
-                                    let _ = transport.send_to_many(
-                                        &targets,
-                                        OpCode::RoomDataBytes,
-                                        &wire_despawn,
-                                    );
-                                }
-                            }
                         }
                     }
                     continue;
@@ -1688,24 +1542,6 @@ pub fn run(
                             let _ = udp_sock.send_to(&schema_descriptor, peer_addr);
                         }
 
-                        // 2. Initial catch-up spawns for Unity Netcode
-                        if let Some(ref unity) = room.unity {
-                            for (_view_id, (_prefab_id, _owner, spawn_bytes)) in
-                                &unity.spawned_prefabs
-                            {
-                                let mut tunnel_buf = Vec::new();
-                                netcode::write_tunnel(
-                                    &mut tunnel_buf,
-                                    netcode::CYG_OP_SPAWN_OBJECT,
-                                    spawn_bytes,
-                                );
-                                let mut wire_pkt = Vec::with_capacity(1 + tunnel_buf.len());
-                                wire_pkt.push(netcode::CYG_WIRE_ROOM_DATA_BYTES);
-                                wire_pkt.extend_from_slice(&tunnel_buf);
-                                let _ = udp_sock.send_to(&wire_pkt, peer_addr);
-                            }
-                        }
-
                         if data.len() == 20 {
                             if let Some(ref mut wasm) = room.wasm {
                                 if let Ok(ptr) = wasm.on_alloc(data.len() as i32) {
@@ -1722,10 +1558,7 @@ pub fn run(
                         *id = 0;
                         eprintln!("[server-udp] 👁️  {peer_addr} upgraded to SPECTATOR via UDP");
                     } else if *id > 0 && !data.is_empty() {
-                        if data.len() >= 1
-                            && (data[0] == netcode::CYG_WIRE_PING
-                                || data[0] == netcode::CYG_OP_PING)
-                        {
+                        if data[0] == netcode::CYG_WIRE_PING {
                             let _ = udp_sock.send_to(data, peer_addr);
                             continue;
                         }
@@ -1736,65 +1569,6 @@ pub fn run(
                                     let _ = wasm.on_input(*id, ptr, data.len() as i32);
                                 }
                             }
-                        }
-                    }
-                }
-
-                // Unity CYG Netcode packet processing over UDP:
-                // Tunnel packets arrive as [CYG_WIRE_ROOM_DATA_BYTES (17)][CYG_TUNNEL_MAGIC (0x43)][len BE][op][body...]
-                let payload_slice = if data.len() >= 2
-                    && data[0] == netcode::CYG_WIRE_ROOM_DATA_BYTES
-                    && data[1] == netcode::CYG_TUNNEL_MAGIC
-                {
-                    &data[1..]
-                } else {
-                    data
-                };
-
-                if let Some(relay_action) =
-                    netcode::handle_unity_relay_packet(room, &session_id, payload_slice)
-                {
-                    let mut wire_pkt = Vec::with_capacity(1 + relay_action.wire_payload.len());
-                    wire_pkt.push(relay_action.wire_code);
-                    wire_pkt.extend_from_slice(&relay_action.wire_payload);
-
-                    if let Some(ref target_session) = relay_action.target {
-                        if !target_session.is_empty() {
-                            // Point-to-point to specific UDP peer
-                            for (&target_addr, (_id, sess, _)) in &udp_peers {
-                                if sess == target_session {
-                                    let _ = udp_sock.send_to(&wire_pkt, target_addr);
-                                    break;
-                                }
-                            }
-                            // Also send to WebSocket if target is a WS session
-                            let relay_op = OpCode::from_wire(relay_action.wire_code)
-                                .unwrap_or(OpCode::RoomDataBytes);
-                            let _ = transport.send_to(
-                                target_session,
-                                relay_op,
-                                &relay_action.wire_payload,
-                            );
-                        }
-                    } else {
-                        // Multicast to all other UDP peers!
-                        for (&other_addr, (_id, _other_sess, _)) in &udp_peers {
-                            if other_addr != peer_addr {
-                                let _ = udp_sock.send_to(&wire_pkt, other_addr);
-                            }
-                        }
-
-                        // Also multicast to any WebSocket clients in the room
-                        let relay_op = OpCode::from_wire(relay_action.wire_code)
-                            .unwrap_or(OpCode::RoomDataBytes);
-                        let ws_targets: Vec<&str> =
-                            room.sessions.keys().map(String::as_str).collect();
-                        if !ws_targets.is_empty() {
-                            let _ = transport.send_to_many(
-                                &ws_targets,
-                                relay_op,
-                                &relay_action.wire_payload,
-                            );
                         }
                     }
                 }
@@ -2275,47 +2049,6 @@ pub fn run(
                     room.schema_sent.remove(&sess);
                     if id > 0 {
                         room.remove_raw_player(id);
-                    }
-                    if let Some(ref mut unity) = room.unity {
-                        let to_remove: Vec<u32> = unity
-                            .spawned_prefabs
-                            .iter()
-                            .filter(|(_, (_, owner, _))| owner == &sess)
-                            .map(|(&vid, _)| vid)
-                            .collect();
-
-                        for vid in to_remove {
-                            unity.spawned_prefabs.remove(&vid);
-                            unity.entities.remove(&vid);
-                            unity.sync_vars.remove(&vid);
-                            unity.dirty_entities.remove(&vid);
-
-                            let mut despawn_body = Vec::new();
-                            netcode::put_varint(&mut despawn_body, vid as i32);
-                            let mut wire_despawn = Vec::new();
-                            netcode::write_tunnel(
-                                &mut wire_despawn,
-                                netcode::CYG_OP_DESPAWN_OBJECT,
-                                &despawn_body,
-                            );
-                            let mut wire_pkt = Vec::with_capacity(1 + wire_despawn.len());
-                            wire_pkt.push(netcode::CYG_WIRE_ROOM_DATA_BYTES);
-                            wire_pkt.extend_from_slice(&wire_despawn);
-                            if let Some(ref udp_sock) = udp_socket {
-                                for (&other_addr, _) in &udp_peers {
-                                    let _ = udp_sock.send_to(&wire_pkt, other_addr);
-                                }
-                            }
-                            let targets: Vec<&str> =
-                                room.sessions.keys().map(String::as_str).collect();
-                            if !targets.is_empty() {
-                                let _ = transport.send_to_many(
-                                    &targets,
-                                    OpCode::RoomDataBytes,
-                                    &wire_despawn,
-                                );
-                            }
-                        }
                     }
                 }
             }
