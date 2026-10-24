@@ -2514,6 +2514,12 @@ export class EventEmitter {
  * Extend this class and implement the abstract lifecycle hooks.
  * The OpenOxide compiler automatically creates the Flat WASM ABI bridge!
  */
+/// Base for generated schema states (`schema-codegen --lang as`): the Room
+/// stores the reference; subclasses override commit() with dirty encoding.
+export class SchemaStateBase {
+    commit(): i64 { return 0; }
+}
+
 export abstract class Room {
     maxPlayers: i32 = 16;
 
@@ -2685,13 +2691,13 @@ export abstract class Room {
     /// Wire the generated schema state (`ox-game schema-codegen --lang as`):
     /// `this.setState(new State())` then `onTick` returns `this.commitState()`.
     /// Only dirty rows are encoded — developer never touches bytes.
-    protected _schemaState: { commit(): i64 } | null = null;
+    protected _schemaState: SchemaStateBase | null = null;
 
-    setState(state: { commit(): i64 }): void {
+    setState(state: SchemaStateBase): void {
         this._schemaState = state;
     }
 
-    get state(): { commit(): i64 } | null {
+    get state(): SchemaStateBase | null {
         return this._schemaState;
     }
 
