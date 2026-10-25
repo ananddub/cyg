@@ -381,12 +381,50 @@ pub fn encode_reliable_ack(seq: u16, out: &mut Vec<u8>) {
     out.extend_from_slice(&seq.to_le_bytes());
 }
 
-/// Decode a reliable ack. `None` for any other shape.
-pub fn decode_reliable_ack(data: &[u8]) -> Option<u16> {
-    if data.len() != 3 || data[0] != CYG_WIRE_RELIABLE_ACK {
+/// Extended (SACK) ack: `[31][cum u16][count u8]([start u16][end u16])*` —
+/// "everything ≤ cum arrived, PLUS these disjoint ranges above cum". The
+/// sender resends only what neither covers; already-delivered frames above a
+/// gap are never resent. A 3-byte ack (no count byte) remains valid — old
+/// clients keep working, no ranges.
+pub fn encode_reliable_ack_sack(
+    cum: u16,
+    ranges: &[(u16, u16)],
+    out: &mut Vec<u8>,
+) {
+    out.clear();
+    out.push(CYG_WIRE_RELIABLE_ACK);
+    out.extend_from_slice(&cum.to_le_bytes());
+    out.push(ranges.len().min(255) as u8);
+    for &(s, e) in ranges.iter().take(255) {
+        out.extend_from_slice(&s.to_le_bytes());
+        out.extend_from_slice(&e.to_le_bytes());
+    }
+}
+
+/// Decode a reliable ack (both shapes). Returns `(cumulative, ranges)`.
+/// `None` for any other opcode/shape.
+pub fn decode_reliable_ack(data: &[u8]) -> Option<(u16, Vec<(u16, u16)>)> {
+    if data.len() < 3 || data[0] != CYG_WIRE_RELIABLE_ACK {
         return None;
     }
-    Some(u16::from_le_bytes([data[1], data[2]]))
+    let cum = u16::from_le_bytes([data[1], data[2]]);
+    if data.len() == 3 {
+        return Some((cum, Vec::new()));
+    }
+    let Some(&count) = data.get(3) else {
+        return Some((cum, Vec::new()));
+    };
+    let mut ranges = Vec::with_capacity(count as usize);
+    for i in 0..count as usize {
+        let base = 4 + i * 4;
+        let Some(start) = data.get(base..base + 2) else { break };
+        let Some(end) = data.get(base + 2..base + 4) else { break };
+        ranges.push((
+            u16::from_le_bytes([start[0], start[1]]),
+            u16::from_le_bytes([end[0], end[1]]),
+        ));
+    }
+    Some((cum, ranges))
 }
 
 /// Small token bucket used to cap packets per peer/session. It is
@@ -551,7 +589,7 @@ mod rudp_tests {
         }
         // ack roundtrip
         encode_reliable_ack(1247, &mut out);
-        assert_eq!(decode_reliable_ack(&out), Some(1247));
+        assert_eq!(decode_reliable_ack(&out), Some((1247, vec![])));
         // non-matches
         assert!(decode_reliable_msg(&[0x05, 1, 0, 9]).is_none(), "wrong op");
         assert!(decode_reliable_ack(&[0x05, 1, 0]).is_none(), "wrong op");
@@ -629,5 +667,74 @@ mod quic_semantics_tests {
         // network me hai — 5 turant deliver.
         recv(5, &mut seen, &mut delivered);
         assert_eq!(delivered.len(), 4);
+    }
+}
+
+#[cfg(test)]
+mod sack_tests {
+    use super::*;
+    use crate::plane::reliable::ReliableLane;
+
+    fn frame(seq: u16) -> Vec<u8> {
+        let mut f = Vec::new();
+        encode_reliable_msg(seq, &[seq as u8; 16], &mut f);
+        f
+    }
+
+    /// THE SACK payoff: 1 lost, 2 & 3 delivered -> sender window me sirf 1
+    /// bachta hai (2,3 release) — resend sirf 1 ka, mila-hua dobara nahi.
+    #[test]
+    fn sack_releases_delivered_frames_above_the_gap() {
+        let mut lane = ReliableLane::new();
+        for seq in 1..=3u16 {
+            lane.queue(seq, frame(seq), 0).expect("queues");
+        }
+        // t=0 pe sab ek baar gaye; frame 1 network me gayab.
+        lane.pump(0, |_| true);
+
+        // Client SACK: cum=0 (1 missing hai), ranges=[(2,3)].
+        let released = lane.ack_selective(0, &[(2, 3)], 100);
+        assert_eq!(released, 2, "2 aur 3 release hue");
+        assert_eq!(lane.inflight(), 1, "sirf genuinely-missing 1 window me");
+
+        // Resend pump: SIRF frame 1 jaata hai.
+        let mut sent_seqs = Vec::new();
+        lane.pump(5000, |wire| {
+            if let Some((seq, _)) = decode_reliable_msg(wire) {
+                sent_seqs.push(seq);
+            }
+            true
+        });
+        assert_eq!(sent_seqs, vec![1], "sirf missing frame resend, 2/3 nahi");
+    }
+
+    /// Wire roundtrip teeno shapes: 3-byte legacy, SACK multi-range, decode
+    /// robustness (truncated range tail).
+    #[test]
+    fn sack_wire_roundtrip_and_backcompat() {
+        let mut out = Vec::new();
+        // legacy
+        encode_reliable_ack(9, &mut out);
+        assert_eq!(decode_reliable_ack(&out), Some((9, vec![])));
+        // sack: cum=1, ranges [(3,4),(8,8)]
+        encode_reliable_ack_sack(1, &[(3, 4), (8, 8)], &mut out);
+        assert_eq!(decode_reliable_ack(&out), Some((1, vec![(3, 4), (8, 8)])));
+        // count zyada, bytes kam (truncated tail) — jo mile uthe, crash nahi
+        let mut bad = vec![CYG_WIRE_RELIABLE_ACK, 1, 0, 2, 3, 0, 4, 0];
+        assert_eq!(decode_reliable_ack(&bad), Some((1, vec![(3, 4)])));
+        bad.truncate(5);
+        assert_eq!(decode_reliable_ack(&bad), Some((1, vec![])));
+    }
+
+    /// rxd_summary host-side compute: {1,2,4,5,9} -> cum=2, ranges [(4,5),(9,9)].
+    #[test]
+    fn rxd_summary_builds_frontier_and_islands() {
+        let mut seen = std::collections::HashSet::new();
+        for s in [1u16, 2, 4, 5, 9] {
+            seen.insert(s);
+        }
+        let (cum, ranges) = crate::host::rxd_summary_for_test(&seen);
+        assert_eq!(cum, 2);
+        assert_eq!(ranges, vec![(4, 5), (9, 9)]);
     }
 }

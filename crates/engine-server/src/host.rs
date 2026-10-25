@@ -298,6 +298,44 @@ fn udp_send_reliable(
     }
 }
 
+/// Received-seq set -> `(cumulative_frontier, ranges_above_it)` for a SACK
+/// ack. Serial-arithmetic safe: `base` anchors the walk so wraps behave.
+fn rxd_summary(seen: &std::collections::HashSet<u16>) -> (u16, Vec<(u16, u16)>) {
+    if seen.is_empty() {
+        return (0, Vec::new());
+    }
+    let mut seqs: Vec<u16> = seen.iter().copied().collect();
+    let base = *seqs.iter().min().expect("checked non-empty");
+    seqs.sort_by_key(|s| s.wrapping_sub(base));
+    // contiguous frontier from the smallest
+    let mut cum = seqs[0];
+    for &s in seqs.iter().skip(1) {
+        if s.wrapping_sub(cum) == 1 {
+            cum = s;
+        } else {
+            break;
+        }
+    }
+    // islands above cum
+    let mut ranges: Vec<(u16, u16)> = Vec::new();
+    for &s in seqs.iter().skip(1) {
+        if engine_webrtc_protocol::is_newer(cum, s) {
+            match ranges.last_mut() {
+                Some(last) if s.wrapping_sub(last.1) == 1 => last.1 = s,
+                _ => ranges.push((s, s)),
+            }
+        }
+    }
+    (cum, ranges)
+}
+
+/// Test-visible alias for the SACK summary helper.
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn rxd_summary_for_test(seen: &std::collections::HashSet<u16>) -> (u16, Vec<(u16, u16)>) {
+    rxd_summary(seen)
+}
+
 /// Frame and route everything the guest queued through `host_send`.
 ///
 /// The guest names a player id (or 0 for broadcast); the host maps that to
@@ -1351,9 +1389,9 @@ pub fn run(
 
                 // ---- RUDP control/data (kisi bhi join state me valid) ----
                 if data.len() >= 3 && data[0] == netcode::CYG_WIRE_RELIABLE_ACK {
-                    if let Some(seq) = netcode::decode_reliable_ack(data) {
+                    if let Some((cum, ranges)) = netcode::decode_reliable_ack(data) {
                         if let Some(lane) = udp_reliable.get_mut(&peer_addr) {
-                            lane.ack(seq, mono_ms());
+                            lane.ack_selective(cum, &ranges, mono_ms());
                         }
                     }
                     continue;
@@ -1363,13 +1401,18 @@ pub fn run(
                     // room ko. QUIC semantics: har frame APNE seq ke saath
                     // aate hi deliver — reordering pe koi drop nahi, koi
                     // block nahi; sirf resend-duplicates suppress hote hain.
-                    netcode::encode_reliable_ack(seq, &mut rudp_scratch);
-                    let _ = udp_sock.send_to(&rudp_scratch, peer_addr);
                     let seen = udp_rxd_seq.entry(peer_addr).or_default();
-                    if seen.insert(seq) {
-                        if seen.len() > RUDP_DEDUPE_SPAN {
-                            seen.retain(|s| engine_webrtc_protocol::is_newer(seq, *s) || *s == seq);
-                        }
+                    let fresh = seen.insert(seq);
+                    if seen.len() > RUDP_DEDUPE_SPAN {
+                        seen.retain(|s| engine_webrtc_protocol::is_newer(seq, *s) || *s == seq);
+                    }
+                    // Extended ACK (SACK): cum = highest CONTIGUOUS received,
+                    // ranges = received islands above the gap — sender phir
+                    // sirf genuinely-missing frames resend karega.
+                    let (cum, ranges) = rxd_summary(seen);
+                    netcode::encode_reliable_ack_sack(cum, &ranges, &mut rudp_scratch);
+                    let _ = udp_sock.send_to(&rudp_scratch, peer_addr);
+                    if fresh {
                         let server_guard = &mut server;
                         if let Ok(room) = server_guard.get_or_create(&cfg.name) {
                             room.empty_since = None;

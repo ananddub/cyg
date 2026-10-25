@@ -269,26 +269,49 @@ impl ReliableLane {
     /// is not waiting for (a duplicate, or a seq from a peer that never got it),
     /// which is counted rather than fatal.
     pub fn ack(&mut self, seq: u16, now_ms: u64) -> usize {
-        let mut released: usize = 0;
-        while let Some(front) = self.window.front() {
-            if is_newer(seq, front.seq) {
-                break;
+        self.ack_selective(seq, &[], now_ms)
+    }
+
+    /// QUIC-style selective ack (SACK): release everything at or behind `cum`
+    /// AND every event inside `ranges` (disjoint pairs, above cum). Only
+    /// genuinely-missing frames stay in the window — already-delivered frames
+    /// above a gap are never retransmitted.
+    pub fn ack_selective(&mut self, cum: u16, ranges: &[(u16, u16)], now_ms: u64) -> usize {
+        let covered = |seq: u16| -> bool {
+            // is_newer(last, tick): "tick is newer than last". seq at-or-behind
+            // cum == NOT (seq newer than cum) == !is_newer(cum, seq).
+            if !is_newer(cum, seq) {
+                return true;
             }
-            let done = self.window.pop_front().expect("front checked above");
-            released += 1;
-            // Karn's rule: only an ack of the *first* transmission measures the
-            // round trip. After a resend the ack is ambiguous, so it is ignored
-            // for the estimate rather than folded in as a lying sample.
-            if done.attempts == 0 {
-                let sample = now_ms.saturating_sub(done.last_tx) as f64;
-                if sample > 0.0 {
-                    if self.srtt_ms == 0.0 {
-                        self.srtt_ms = sample;
-                    } else {
-                        self.srtt_ms = self.srtt_ms * 0.875 + sample * 0.125;
-                    }
-                    self.rto = Self::rto_from(self.srtt_ms);
+            ranges.iter().any(|&(s, e)| {
+                let off = seq.wrapping_sub(s);
+                let len = e.wrapping_sub(s);
+                off <= len
+            })
+        };
+        let mut released: usize = 0;
+        let mut rtt_samples: Vec<u64> = Vec::new();
+        self.window.retain(|pending| {
+            if covered(pending.seq) {
+                released += 1;
+                // Karn's rule: only first-transmission releases measure RTT.
+                if pending.attempts == 0 {
+                    rtt_samples.push(pending.last_tx);
                 }
+                false
+            } else {
+                true
+            }
+        });
+        for last_tx in rtt_samples {
+            let sample = now_ms.saturating_sub(last_tx) as f64;
+            if sample > 0.0 {
+                if self.srtt_ms == 0.0 {
+                    self.srtt_ms = sample;
+                } else {
+                    self.srtt_ms = self.srtt_ms * 0.875 + sample * 0.125;
+                }
+                self.rto = Self::rto_from(self.srtt_ms);
             }
         }
         self.counts.acked += released as u64;
