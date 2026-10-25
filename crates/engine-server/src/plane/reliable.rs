@@ -72,7 +72,14 @@ pub const EVENT_LIFETIME: u64 = 10_000;
 /// The reliable lane carries exactly one event frame per datagram: an event is
 /// fixed-size, so a resend is a single `send_to` and a lost datagram loses
 /// precisely one event.
+/// Historical cap: the plane's event frames are exactly this long. The lane
+/// itself accepts ANY payload size now — this constant stays for the plane's
+/// own frame assertions and metrics only.
 pub const MAX_EVENT_BYTES: usize = EVENT_WIRE_LEN;
+
+/// Largest single reliable payload the lane will buffer (2 KiB — comfortably
+/// above a datagram and small enough that 32 inflight fit any rcvbuf).
+pub const MAX_RELIABLE_BYTES: usize = 2048;
 
 /// The lane refused an event. The counters behind each variant are what an
 /// operator reads to tell a flood from a stalled client.
@@ -80,8 +87,8 @@ pub const MAX_EVENT_BYTES: usize = EVENT_WIRE_LEN;
 pub enum QueueError {
     /// `MAX_INFLIGHT_EVENTS` are already waiting for an ack.
     WindowFull { inflight: usize },
-    /// Not one event frame: the producer framed something else as reliable.
-    NotAnEvent { bytes: usize },
+    /// Payload above `MAX_RELIABLE_BYTES` — the producer must chunk.
+    TooBig { bytes: usize },
     /// `seq` is not newer than the last seq this lane queued.
     NotNewer { seq: u16, last: u16 },
 }
@@ -93,9 +100,9 @@ impl fmt::Display for QueueError {
                 f,
                 "reliable window is full ({inflight}/{MAX_INFLIGHT_EVENTS} events await an ack)"
             ),
-            QueueError::NotAnEvent { bytes } => write!(
+            QueueError::TooBig { bytes } => write!(
                 f,
-                "a reliable frame must be one {MAX_EVENT_BYTES}-byte event frame, got {bytes} bytes"
+                "a reliable payload exceeds {MAX_RELIABLE_BYTES} bytes, got {bytes}"
             ),
             QueueError::NotNewer { seq, last } => {
                 write!(f, "event seq {seq} is not newer than the queued {last}")
@@ -200,9 +207,9 @@ impl ReliableLane {
     /// client read out of the frame. `now_ms` is a monotonic millisecond stamp
     /// (`mono_ns() / 1_000_000`).
     pub fn queue(&mut self, seq: u16, wire: Vec<u8>, now_ms: u64) -> Result<(), QueueError> {
-        if wire.len() != MAX_EVENT_BYTES {
+        if wire.is_empty() || wire.len() > MAX_RELIABLE_BYTES {
             self.counts.rejected += 1;
-            return Err(QueueError::NotAnEvent { bytes: wire.len() });
+            return Err(QueueError::TooBig { bytes: wire.len() });
         }
         if let Some(last) = self.last_seq
             && !is_newer(last, seq)
@@ -549,17 +556,25 @@ mod tests {
     }
 
     #[test]
-    fn only_a_single_event_frame_is_accepted_as_reliable() {
+    fn arbitrary_payload_sizes_are_reliable_and_oversize_is_refused() {
         let mut lane = ReliableLane::new();
-        // A delta chunk, an ack, a truncated frame and an empty one are all
-        // producer bugs, and each is refused with the count to prove it.
-        for bad in [vec![0u8; 0], vec![0u8; 1], vec![0u8; MAX_EVENT_BYTES - 1], vec![0u8; MAX_EVENT_BYTES + 1]] {
-            let len = bad.len();
-            assert_eq!(lane.queue(1, bad, 0), Err(QueueError::NotAnEvent { bytes: len }));
+        // Any size 1..=MAX_RELIABLE_BYTES is a legal payload now — event
+        // frames, chat, JSON blobs, chunked files.
+        let mut seq = 1u16;
+        for size in [1usize, 9, 14, 64, 512, 1024, MAX_RELIABLE_BYTES] {
+            assert!(
+                lane.queue(seq, vec![7u8; size], 0).is_ok(),
+                "size {size} must queue"
+            );
+            seq = seq.wrapping_add(1);
         }
-        assert_eq!(lane.counts().rejected, 4);
-        assert_eq!(lane.inflight(), 0);
-        assert_eq!(lane.counts().queued, 0);
+        // Empty and oversize are producer bugs, refused with the count.
+        for bad in [vec![0u8; 0], vec![0u8; MAX_RELIABLE_BYTES + 1]] {
+            let len = bad.len();
+            assert_eq!(lane.queue(seq, bad, 0), Err(QueueError::TooBig { bytes: len }));
+        }
+        assert_eq!(lane.counts().rejected, 2);
+        assert_eq!(lane.inflight(), 7);
     }
 
     #[test]

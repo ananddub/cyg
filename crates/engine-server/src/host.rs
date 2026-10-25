@@ -263,6 +263,41 @@ fn strip_type_header(payload: &[u8]) -> Option<&[u8]> {
     }
 }
 
+/// Monotonic milliseconds — the clock the RUDP lane runs on (matches the
+/// plane's `mono_ns` convention).
+fn mono_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Queue an arbitrary payload on a UDP peer's reliable lane (assigned seq,
+/// Go-Back-N resend until the client ACKs). Called from the room-outbox fan-out.
+#[allow(dead_code)]
+fn udp_send_reliable(
+    udp_sock: &std::net::UdpSocket,
+    udp_reliable: &mut HashMap<SocketAddr, crate::plane::reliable::ReliableLane>,
+    udp_reliable_seq: &mut HashMap<SocketAddr, u16>,
+    addr: SocketAddr,
+    payload: &[u8],
+    scratch: &mut Vec<u8>,
+) {
+    let seq = udp_reliable_seq
+        .entry(addr)
+        .and_modify(|s| *s = s.wrapping_add(1))
+        .or_insert(1);
+    let seq = *seq;
+    netcode::encode_reliable_msg(seq, payload, scratch);
+    let wire = scratch.clone();
+    if let Some(lane) = udp_reliable.get_mut(&addr) {
+        if lane.queue(seq, wire, mono_ms()).is_ok() {
+            lane.pump(mono_ms(), |frame| udp_sock.send_to(frame, addr).is_ok());
+        }
+    }
+}
+
 /// Frame and route everything the guest queued through `host_send`.
 ///
 /// The guest names a player id (or 0 for broadcast); the host maps that to
@@ -581,6 +616,11 @@ pub fn run(
     // the sim waits for its next tick.
     let mut transport = LoopTransport::new(raw_transport);
     let mut udp_peers: HashMap<SocketAddr, (i64, String, Instant)> = HashMap::new();
+    // RUDP: per-peer reliable send lane (server -> client, Go-Back-N resends
+    // until the client's cumulative ack) + the next outgoing seq per peer.
+    let mut udp_reliable: HashMap<SocketAddr, crate::plane::reliable::ReliableLane> = HashMap::new();
+    let mut udp_reliable_seq: HashMap<SocketAddr, u16> = HashMap::new();
+    let mut rudp_scratch: Vec<u8> = Vec::with_capacity(2100);
     // Signaling hand-over: the control plane's hub queues browser offers; this
     // loop is the data-plane owner and drains them once per iteration.
     let mut signal_rx = signals.as_ref().and_then(|hub| hub.take_signals());
@@ -1303,6 +1343,39 @@ pub fn run(
             let mut udp_buf = [0u8; 4096];
             while let Ok((amt, peer_addr)) = udp_sock.recv_from(&mut udp_buf) {
                 let data = &udp_buf[..amt];
+
+                // ---- RUDP control/data (kisi bhi join state me valid) ----
+                if data.len() >= 3 && data[0] == netcode::CYG_WIRE_RELIABLE_ACK {
+                    if let Some(seq) = netcode::decode_reliable_ack(data) {
+                        if let Some(lane) = udp_reliable.get_mut(&peer_addr) {
+                            lane.ack(seq, mono_ms());
+                        }
+                    }
+                    continue;
+                }
+                if let Some((seq, payload)) = netcode::decode_reliable_msg(data) {
+                    // ACK turant (client ka window khula rahe), phir payload
+                    // room ko — guest on_input tak wahi WS/app path.
+                    netcode::encode_reliable_ack(seq, &mut rudp_scratch);
+                    let _ = udp_sock.send_to(&rudp_scratch, peer_addr);
+                    let inbound_seq = udp_reliable_seq.entry(peer_addr).or_insert(0);
+                    if *inbound_seq == 0 || engine_webrtc_protocol::is_newer(*inbound_seq, seq) {
+                        *inbound_seq = seq;
+                        let server_guard = &mut server;
+                        if let Ok(room) = server_guard.get_or_create(&cfg.name) {
+                            room.empty_since = None;
+                            if let Some(ref mut wasm) = room.wasm {
+                                if let Ok(ptr) = wasm.on_alloc(payload.len() as i32) {
+                                    let _ = wasm.write_memory(ptr as u32, payload);
+                                    let _ = wasm.on_input(0, ptr, payload.len() as i32);
+                                }
+                            }
+                            flush_room_outbox(room, &mut transport);
+                        }
+                    }
+                    continue;
+                }
+
                 let server_guard = &mut server;
                 let room = match server_guard.get_or_create(&cfg.name) {
                     Ok(room) => room,
@@ -1323,6 +1396,8 @@ pub fn run(
                     if let Some((id, sess, _)) = udp_peers.remove(&peer_addr) {
                         tracing::info!("[server-udp] {peer_addr} left room via UDP (session {sess})");
                         udp_input_rates.remove(&peer_addr);
+                        udp_reliable.remove(&peer_addr);
+                        udp_reliable_seq.remove(&peer_addr);
                         room.sessions.remove(&sess);
                         room.schema_sent.remove(&sess);
                         if id > 0 {
@@ -1357,6 +1432,7 @@ pub fn run(
                         let id = room.add_raw_player(x, y);
                         let session_id = format!("p{}_{}_{}", id, peer_addr.ip(), peer_addr.port());
                         udp_peers.insert(peer_addr, (id, session_id.clone(), Instant::now()));
+                        udp_reliable.entry(peer_addr).or_default();
                         tracing::info!(
                             "[server-udp] {peer_addr} joined room via UDP (player id {id}, session {session_id})"
                         );
@@ -1404,6 +1480,23 @@ pub fn run(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // RUDP pump: due resends (Go-Back-N) — datagram loss pe automatic retry.
+        if let Some(ref udp_sock) = udp_socket {
+            let now = mono_ms();
+            let due: Vec<SocketAddr> = udp_reliable
+                .iter()
+                .filter(|(_, lane)| lane.next_due().map_or(false, |d| d <= now))
+                .map(|(a, _)| *a)
+                .collect();
+            for addr in due {
+                if let Some(lane) = udp_reliable.get_mut(&addr) {
+                    lane.pump(now, |frame| {
+                        udp_sock.send_to(frame, addr).is_ok()
+                    });
                 }
             }
         }

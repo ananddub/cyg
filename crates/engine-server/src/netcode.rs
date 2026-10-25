@@ -350,6 +350,45 @@ pub const CYG_WIRE_JOIN_ROOM: u8 = 10;
 pub const CYG_WIRE_LEAVE_ROOM: u8 = 12;
 pub const CYG_WIRE_PING: u8 = 18;
 
+/// Reliable-message wire op (native UDP RUDP): arbitrary payload, guaranteed
+/// delivery (Go-Back-N resends until ACKed). Frame `[30][seq u16 LE][payload]`
+/// — same shape both directions (client chat/shoot/spell AND server events).
+pub const CYG_WIRE_RELIABLE_MSG: u8 = 30;
+/// Reliable ack: `[31][seq u16 LE]` — cumulative ("everything ≤ seq arrived").
+pub const CYG_WIRE_RELIABLE_ACK: u8 = 31;
+
+/// Encode one reliable frame: `[30][seq][payload]`.
+pub fn encode_reliable_msg(seq: u16, payload: &[u8], out: &mut Vec<u8>) {
+    out.clear();
+    out.push(CYG_WIRE_RELIABLE_MSG);
+    out.extend_from_slice(&seq.to_le_bytes());
+    out.extend_from_slice(payload);
+}
+
+/// Decode a reliable frame. `None` for any other shape.
+pub fn decode_reliable_msg(data: &[u8]) -> Option<(u16, &[u8])> {
+    if data.len() < 4 || data[0] != CYG_WIRE_RELIABLE_MSG {
+        return None;
+    }
+    let seq = u16::from_le_bytes([data[1], data[2]]);
+    Some((seq, &data[3..]))
+}
+
+/// Encode one reliable ack: `[31][seq]`.
+pub fn encode_reliable_ack(seq: u16, out: &mut Vec<u8>) {
+    out.clear();
+    out.push(CYG_WIRE_RELIABLE_ACK);
+    out.extend_from_slice(&seq.to_le_bytes());
+}
+
+/// Decode a reliable ack. `None` for any other shape.
+pub fn decode_reliable_ack(data: &[u8]) -> Option<u16> {
+    if data.len() != 3 || data[0] != CYG_WIRE_RELIABLE_ACK {
+        return None;
+    }
+    Some(u16::from_le_bytes([data[1], data[2]]))
+}
+
 /// Small token bucket used to cap packets per peer/session. It is
 /// deliberately tiny and allocation-free after construction.
 #[derive(Clone, Debug)]
@@ -490,5 +529,70 @@ mod tests {
             }
             let _ = split_schema(&random);
         }
+    }
+}
+
+#[cfg(test)]
+mod rudp_tests {
+    use super::*;
+    use crate::plane::reliable::{ReliableLane, MAX_RELIABLE_BYTES};
+
+    /// Wire roundtrip: encode → decode byte-identical, arbitrary sizes.
+    #[test]
+    fn reliable_msg_wire_roundtrip_arbitrary_sizes() {
+        let mut out = Vec::new();
+        for size in [1usize, 9, 64, 512, MAX_RELIABLE_BYTES] {
+            let payload: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+            encode_reliable_msg(0xBEEF, &payload, &mut out);
+            assert_eq!(out[0], CYG_WIRE_RELIABLE_MSG);
+            let (seq, got) = decode_reliable_msg(&out).expect("decodes");
+            assert_eq!(seq, 0xBEEF);
+            assert_eq!(got, payload.as_slice());
+        }
+        // ack roundtrip
+        encode_reliable_ack(1247, &mut out);
+        assert_eq!(decode_reliable_ack(&out), Some(1247));
+        // non-matches
+        assert!(decode_reliable_msg(&[0x05, 1, 0, 9]).is_none(), "wrong op");
+        assert!(decode_reliable_ack(&[0x05, 1, 0]).is_none(), "wrong op");
+        assert!(decode_reliable_ack(&[0x1F, 1]).is_none(), "short ack");
+        assert!(decode_reliable_msg(&[0x1E, 1]).is_none(), "empty payload");
+    }
+
+    /// The delivery guarantee: a datagram that "never arrives" (send returns
+    /// false = drop) is resent on the next pump, and a cumulative ack retires
+    /// the whole window.
+    #[test]
+    fn lane_resends_on_loss_and_acks_cumulatively() {
+        let mut lane = ReliableLane::new();
+        let mut seq = 1u16;
+        for i in 0..3 {
+            let payload = format!("chat-{i}");
+            let mut frame = Vec::new();
+            encode_reliable_msg(seq, payload.as_bytes(), &mut frame);
+            lane.queue(seq, frame, 0).expect("queues");
+            seq += 1;
+        }
+        // pump 1: sab sent_once
+        let mut sent = 0;
+        lane.pump(0, |_| {
+            sent += 1;
+            true
+        });
+        assert_eq!(sent, 3);
+
+        // pump 2 @ t=5000 (RTO ke baad): pehla send fail (drop) — baaki bhi
+        // attempt hote hain Go-Back-N me; simulate only first delivered
+        let mut attempts = 0;
+        lane.pump(5000, |_| {
+            attempts += 1;
+            attempts == 1 // first goes out, "rest fail"
+        });
+        assert!(attempts >= 1, "resend happened after loss");
+
+        // cumulative ack(3): poori window release
+        let released = lane.ack(3, 6000);
+        assert_eq!(released, 3);
+        assert_eq!(lane.inflight(), 0);
     }
 }
