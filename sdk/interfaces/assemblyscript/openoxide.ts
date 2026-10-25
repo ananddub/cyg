@@ -204,6 +204,10 @@ export class Vec2 {
         this.y = y;
     }
 
+    /** Named constructor — reads better at call sites than `new Vec2(..)`. */
+    static make(x: f64 = 0.0, y: f64 = 0.0): Vec2 { return new Vec2(x, y); }
+
+
     set(x: f64, y: f64): this {
         this.x = x;
         this.y = y;
