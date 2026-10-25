@@ -174,9 +174,8 @@ impl GameTransport for UdpTransport {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        for (peer, data) in self.send_queue.drain(..) {
-            let _ = self.socket.send_to(&data, peer);
-        }
+        let batch: Vec<(SocketAddr, bytes::Bytes)> = self.send_queue.drain(..).collect();
+        super::send_datagram_batch(&self.socket, &batch);
         Ok(())
     }
 

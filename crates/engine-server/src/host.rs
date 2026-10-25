@@ -628,6 +628,9 @@ pub fn run(
     let mut recorder = Recorder::new();
     let mut publish_start = Instant::now();
     let mut window_ticks: u64 = 0;
+    // Native-UDP fan-out batch: one reusable buffer so the per-tick delta
+    // broadcast costs one sendmmsg instead of one sendto per peer.
+    let mut udp_batch: Vec<(SocketAddr, Vec<u8>)> = Vec::new();
     // Session → wall time its last inbound input was handed to the guest. This
     // is the only place `idle_ms` can come from: the transport keeps no
     // per-session arrival clock. Entries are dropped with the session itself.
@@ -2010,7 +2013,9 @@ pub fn run(
                             // 3. Broadcast to UDP Unity / Unreal / Godot peers. One
                             // datagram, no stamp: those clients parse the delta body
                             // directly and the channel layer is WebRTC-only for now.
+                            // Sent as one sendmmsg batch per tick.
                             if let Some(ref udp_sock) = udp_socket {
+                                udp_batch.clear();
                                 for (&peer_addr, &(id, _, _)) in &udp_peers {
                                     netcode::wrap_delta_into(
                                         &mut frame_buf,
@@ -2019,8 +2024,9 @@ pub fn run(
                                         0,
                                         server_tick_u32,
                                     );
-                                    let _ = udp_sock.send_to(&frame_buf, peer_addr);
+                                    udp_batch.push((peer_addr, frame_buf.clone()));
                                 }
+                                engine_net::transport::send_datagram_batch(udp_sock, &udp_batch);
                             }
                         } // legacy delta layout
                     }

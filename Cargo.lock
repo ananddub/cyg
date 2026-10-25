@@ -2976,6 +2976,7 @@ dependencies = [
  "engine-core",
  "engine-wasm",
  "engine-webrtc-protocol",
+ "libc",
  "mio",
  "scc",
  "socket2",

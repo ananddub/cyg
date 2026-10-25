@@ -241,9 +241,8 @@ impl GameTransport for WebRtcTransport {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        for (dest, data) in self.server.poll_transmits() {
-            let _ = self.sock.send_to(&data, dest);
-        }
+        let batch = self.server.poll_transmits();
+        super::super::send_datagram_batch(&self.sock, &batch);
         Ok(())
     }
 
