@@ -55,3 +55,6 @@ sdk/godot/.godot/
 sdk/unity/Tools~/CYG.VSCode/node_modules/
 sdk/unity/Tools~/CYG.VSCode/server/
 sdk/unity/Tools~/CYG.VSCode/*.vsix
+
+# per-project build artifacts (ox-game build)
+examples/*/out/

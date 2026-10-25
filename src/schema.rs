@@ -15,6 +15,9 @@ pub const TS_SOURCE_FILE: &str = "schema.ts";
 pub const SERVER_FILE: &str = "openoxide.schema.ts";
 pub const CLIENT_DTS_FILE: &str = "openoxide.schema.d.ts";
 pub const DESCRIPTOR_FILE: &str = "openoxide.schema.bin";
+/// Build artifacts directory: everything a tool generates, so the project
+/// root stays clean (config.toml + src/ + website.html + openoxide.js only).
+pub const OUT_DIR: &str = "out";
 
 #[derive(Debug)]
 pub struct SchemaOutput {
@@ -49,6 +52,15 @@ pub fn generate_project(dir: &Path) -> io::Result<Option<SchemaOutput>> {
 pub fn require_project(dir: &Path) -> io::Result<SchemaOutput> {
     let source = find_source(dir).ok_or_else(|| missing_source(dir))?;
     generate_file(dir, &source)
+}
+
+/// The descriptor lives in `out/` in the conventional layout; older projects
+/// may still have it at the root — both are valid read locations.
+pub fn descriptor_candidates(dir: &Path) -> Vec<PathBuf> {
+    vec![
+        dir.join(OUT_DIR).join(DESCRIPTOR_FILE),
+        dir.join(DESCRIPTOR_FILE),
+    ]
 }
 
 /// The parsed contract, without generating server-side files. Used by
@@ -151,33 +163,33 @@ fn generate_file(dir: &Path, source_path: &Path) -> io::Result<SchemaOutput> {
     let root = parsed.root.ok_or_else(|| missing_root(source_path))?;
     let generated = engine_schema::generate_with_root(&parsed.schemas, Some(&root), TS_SOURCE_FILE);
 
-    let server = dir.join(SERVER_FILE);
-    let descriptor = dir.join(DESCRIPTOR_FILE);
+    // Conventional src/ layout: room.ts imports "./openoxide.schema", so the
+    // server binding lives beside it in src/ — and its SDK import becomes
+    // same-dir ("./openoxide") instead of the root copy's ("../openoxide").
+    // The descriptor and the typed browser contract are build artifacts and
+    // go to out/.
+    let src = dir.join("src");
+    let in_src = src.exists();
+    let server_dir = if in_src { src.as_path() } else { dir };
+    let mut server_ts = generated.server_ts;
+    if in_src {
+        server_ts = server_ts.replace("from \"../openoxide\"", "from \"./openoxide\"");
+    }
+    let server = server_dir.join(SERVER_FILE);
+    let descriptor_dir = dir.join(OUT_DIR);
+    let _ = std::fs::create_dir_all(&descriptor_dir);
+    let descriptor = descriptor_dir.join(DESCRIPTOR_FILE);
     let mut wrote = Vec::new();
-    if write_bytes_if_changed(&server, generated.server_ts.as_bytes())? {
+    if write_bytes_if_changed(&server, server_ts.as_bytes())? {
         wrote.push(server.clone());
     }
     if write_bytes_if_changed(&descriptor, &generated.descriptor)? {
         wrote.push(descriptor.clone());
     }
 
-    let client_dts = dir.join(CLIENT_DTS_FILE);
+    let client_dts = descriptor_dir.join(CLIENT_DTS_FILE);
     if write_bytes_if_changed(&client_dts, generated.client_dts.as_bytes())? {
         wrote.push(client_dts.clone());
-    }
-
-    // AS output imports the SDK relatively; with the conventional src/ layout
-    // the SDK lives in src/ beside room.ts — rewrite root copy to point to src/
-    // and provide a copy inside src/ so either import path resolves cleanly.
-    if dir.join("src").is_dir() {
-        let nested_server = dir.join("src").join(SERVER_FILE);
-        if write_bytes_if_changed(&nested_server, generated.server_ts.as_bytes())? {
-            wrote.push(nested_server);
-        }
-        let fixed = generated.server_ts.replace("from \"./openoxide\"", "from \"./src/openoxide\"");
-        if write_bytes_if_changed(&server, fixed.as_bytes())? {
-            // updated root copy
-        }
     }
 
     Ok(SchemaOutput {
