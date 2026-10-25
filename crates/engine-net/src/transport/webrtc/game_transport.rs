@@ -242,7 +242,33 @@ impl GameTransport for WebRtcTransport {
 
     fn flush(&mut self) -> io::Result<()> {
         let batch = self.server.poll_transmits();
-        super::super::send_datagram_batch(&self.sock, &batch);
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        // Tier the queue: same-destination equal-size runs (str0m's fragment
+        // chunks) go out as one UDP-GSO sendmsg; everything else rides the
+        // sendmmsg batch. GSO refusal falls back per-run.
+        let mut i = 0usize;
+        let mut plain = Vec::new();
+        while i < batch.len() {
+            let run = super::super::gso_run_len(&batch, i);
+            if run >= 3 {
+                let (dest, _) = &batch[i];
+                let seg = batch[i].1.len();
+                let slices: Vec<&[u8]> =
+                    batch[i..i + run].iter().map(|(_, d)| d.as_ref()).collect();
+                if super::super::send_gso(&self.sock, dest, &slices, seg).is_err() {
+                    super::super::send_datagram_batch(&self.sock, &batch[i..i + run]);
+                }
+            } else {
+                plain.extend_from_slice(&batch[i..i + run]);
+            }
+            i += run;
+        }
+        if !plain.is_empty() {
+            super::super::send_datagram_batch(&self.sock, &plain);
+        }
         Ok(())
     }
 

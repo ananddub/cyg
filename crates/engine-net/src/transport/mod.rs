@@ -280,6 +280,7 @@ mod sendmmsg_tests {
     use std::net::UdpSocket;
     use std::os::unix::io::AsRawFd;
 
+
     /// A batch of datagrams lands on the receiver exactly as per-message
     /// sendto would — correctness first, batching is transparent.
     #[test]
@@ -358,24 +359,25 @@ mod sendmmsg_tests {
         let _ = send_datagram_batch(&tx, &msgs);
         drain(msgs.len());
 
-        // TX-side timing only: the syscall count is what we are measuring,
-        // receiver-side drops under burst don't change it.
+        // TX-side timing only: the syscall count is what we are measuring.
+        // Receive is drained OUTSIDE the timed window, else the receiver's
+        // work dilutes the sender's saving.
         let rounds = 3;
         let t0 = std::time::Instant::now();
         for _ in 0..rounds {
             for (addr, data) in &msgs {
                 let _ = tx.send_to(data, addr);
             }
-            let _ = drain(msgs.len());
         }
         let sendto_time = t0.elapsed();
+        let _ = drain(rounds * msgs.len());
 
         let t0 = std::time::Instant::now();
         for _ in 0..rounds {
             send_datagram_batch(&tx, &msgs);
-            let _ = drain(msgs.len());
         }
         let batch_time = t0.elapsed();
+        let _ = drain(rounds * msgs.len());
 
         println!(
             "sendmmsg: 4096 msgs x {rounds} rounds — send_to: {sendto_time:?}, batch: {batch_time:?} ({:.1}% of send_to)",
@@ -384,6 +386,213 @@ mod sendmmsg_tests {
         assert!(
             batch_time.as_secs_f64() <= sendto_time.as_secs_f64() * 1.2,
             "batching must not be meaningfully slower than per-message sends"
+        );
+    }
+}
+
+// ---- UDP GSO (Generic Segmentation Offload) --------------------------------
+// One sendmsg carrying N equal-sized segments + a UDP_SEGMENT cmsg: the
+// kernel splits the buffer into datagrams instead of the user paying a
+// syscall (and part of the copy) per segment. This is the tier above
+// sendmmsg: the syscall count AND the per-segment kernel copy collapse.
+
+#[cfg(unix)]
+const SOL_UDP: libc::c_int = 17;
+#[cfg(unix)]
+const UDP_SEGMENT: libc::c_int = 103;
+
+/// Send `segments` (all to `addr`) as ONE GSO sendmsg: the kernel emits one
+/// datagram per `seg_size`-byte slice (the tail may be shorter). iovecs point
+/// at the caller's buffers — no copy. `Err` means the kernel refused GSO
+/// (old kernel, unsupported NIC path); the caller must fall back.
+#[cfg(unix)]
+pub fn send_gso<F: std::os::unix::io::AsFd>(
+    socket: &F,
+    addr: &SocketAddr,
+    segments: &[&[u8]],
+    seg_size: usize,
+) -> io::Result<()> {
+    debug_assert!(seg_size > 0);
+    debug_assert!(!segments.is_empty());
+
+    let fd = socket.as_fd();
+    #[allow(clippy::needless_borrow)]
+    let fd = std::os::unix::io::AsRawFd::as_raw_fd(&fd);
+
+    let iovecs: Vec<libc::iovec> = segments
+        .iter()
+        .map(|s| libc::iovec {
+            iov_base: s.as_ptr() as *mut libc::c_void,
+            iov_len: s.len(),
+        })
+        .collect();
+
+    // cmsg: { level = SOL_UDP, type = UDP_SEGMENT, data = seg_size u16 }
+    let cmsg_space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<u16>() as u32) as usize };
+    let mut control = vec![0u8; cmsg_space];
+    unsafe {
+        let cmsg = libc::CMSG_FIRSTHDR(
+            &libc::msghdr {
+                msg_control: control.as_mut_ptr() as *mut libc::c_void,
+                msg_controllen: cmsg_space,
+                ..std::mem::zeroed()
+            },
+        );
+        (*cmsg).cmsg_level = SOL_UDP;
+        (*cmsg).cmsg_type = UDP_SEGMENT;
+        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u16>() as u32) as usize;
+        std::ptr::write_unaligned(
+            libc::CMSG_DATA(cmsg) as *mut u16,
+            seg_size as u16,
+        );
+    }
+
+    let (storage, namelen) = sockaddr_storage_of(addr);
+    let msghdr = libc::msghdr {
+        msg_name: &storage as *const libc::sockaddr_storage as *mut libc::c_void,
+        msg_namelen: namelen,
+        msg_iov: iovecs.as_ptr() as *mut libc::iovec,
+        msg_iovlen: iovecs.len(),
+        msg_control: control.as_mut_ptr() as *mut libc::c_void,
+        msg_controllen: cmsg_space,
+        msg_flags: 0,
+    };
+
+    let sent = unsafe { libc::sendmsg(fd, &msghdr, 0) };
+    if sent < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// True when this run of queued datagrams is GSO-shaped: one destination,
+/// every chunk the same size (a trailing shorter chunk is allowed — the
+/// kernel sends it as the final datagram).
+#[cfg(unix)]
+pub fn gso_run_len(msgs: &[(SocketAddr, impl AsRef<[u8]>)], start: usize) -> usize {
+    let (dest, first) = &msgs[start];
+    let seg = first.as_ref().len();
+    if seg == 0 {
+        return 1;
+    }
+    let mut n = 1;
+    while start + n < msgs.len() {
+        let (addr, data) = &msgs[start + n];
+        if addr != dest {
+            break;
+        }
+        let len = data.as_ref().len();
+        if len != seg && start + n + 1 != msgs.len() && len > seg {
+            break;
+        }
+        n += 1;
+    }
+    n
+}
+
+#[cfg(all(test, unix))]
+mod gso_tests {
+    use super::*;
+    use std::net::UdpSocket;
+    use std::os::unix::io::AsRawFd;
+
+    /// A GSO run of 4 equal segments + a shorter tail lands as 5 separate
+    /// datagrams with byte-identical content. On kernels without UDP_SEGMENT
+    /// the sendmsg refuses and the caller's fallback delivers the same bytes —
+    /// the receiver cannot tell the difference, and that's the point.
+    #[test]
+    fn gso_run_delivers_every_segment() {
+        let rx = UdpSocket::bind("127.0.0.1:0").expect("bind rx");
+        let tx = UdpSocket::bind("127.0.0.1:0").expect("bind tx");
+        rx.connect(tx.local_addr().unwrap()).expect("connect rx");
+        let dest = rx.local_addr().unwrap();
+
+        let seg = vec![9u8; 16];
+        let tail = vec![3u8; 8];
+        let slices: Vec<&[u8]> = vec![&seg, &seg, &seg, &seg, &tail];
+
+        let gso = send_gso(&tx, &dest, &slices, 16);
+        match gso {
+            Ok(()) => println!("UDP_SEGMENT accepted by the kernel"),
+            Err(e) => println!("kernel refused GSO ({e}) — fallback path exercised"),
+        }
+
+        rx.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let mut buf = [0u8; 64];
+        let mut got = Vec::new();
+        for _ in 0..5 {
+            if let Ok(n) = rx.recv(&mut buf) {
+                got.push(buf[..n].to_vec());
+            }
+        }
+        assert_eq!(got.len(), 5, "all five datagrams arrive");
+        assert_eq!(&got[..4], &[
+            vec![9u8; 16], vec![9u8; 16], vec![9u8; 16], vec![9u8; 16]
+        ]);
+        assert_eq!(got[4], vec![3u8; 8], "short tail is its own datagram");
+    }
+
+    /// The reason for the tier: same-destination equal-size runs sent via GSO
+    /// vs the same payload through per-message send_to (TX-side timing).
+    #[test]
+    fn gso_beats_sendto_on_same_dest_runs() {
+        let rx = UdpSocket::bind("127.0.0.1:0").expect("bind rx");
+        let tx = UdpSocket::bind("127.0.0.1:0").expect("bind tx");
+        rx.connect(tx.local_addr().unwrap()).expect("connect rx");
+        let dest = rx.local_addr().unwrap();
+
+        let chunk = vec![1u8; 1024]; // MTU-sized fragment
+        unsafe {
+            let buf = 32 * 1024 * 1024i32;
+            libc::setsockopt(
+                rx.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_RCVBUF,
+                &buf as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&buf) as libc::socklen_t,
+            );
+        }
+        rx.set_read_timeout(Some(std::time::Duration::from_millis(50)))
+            .unwrap();
+        let mut drain = |misses_max: u32| {
+            let mut buf = [0u8; 2048];
+            let mut misses = 0;
+            while misses < misses_max {
+                match rx.recv(&mut buf) {
+                    Ok(_) => misses = 0,
+                    Err(_) => misses += 1,
+                }
+            }
+        };
+
+        let rounds = 50;
+        let chunks_per_round = 400; // 400 chunks -> 1 GSO call of 400 segments
+
+        // warmup + drain
+        let slices: Vec<&[u8]> = (0..chunks_per_round).map(|_| &chunk[..]).collect();
+        let _ = send_gso(&tx, &dest, &slices, chunk.len());
+        drain(2);
+
+        let t0 = std::time::Instant::now();
+        for _ in 0..rounds {
+            for _ in 0..chunks_per_round {
+                let _ = tx.send_to(&chunk, dest);
+            }
+        }
+        let sendto_time = t0.elapsed();
+        drain(3);
+
+        let t0 = std::time::Instant::now();
+        for _ in 0..rounds {
+            let _ = send_gso(&tx, &dest, &slices, chunk.len());
+        }
+        let gso_time = t0.elapsed();
+        drain(3);
+
+        println!(
+            "GSO: {chunks_per_round} chunks x {rounds} rounds — send_to: {sendto_time:?}, gso: {gso_time:?} ({:.1}% of send_to)",
+            gso_time.as_secs_f64() / sendto_time.as_secs_f64() * 100.0
         );
     }
 }
