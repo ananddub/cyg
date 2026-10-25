@@ -485,7 +485,7 @@ pub(crate) struct JournalInput {
 /// are identical for every room, so building them per spawn was pure waste;
 /// pre-instantiating against this linker makes each new room a single
 /// `InstancePre::instantiate`.
-pub(crate) fn build_host_linker(
+pub fn build_host_linker(
     runtime: &engine_wasm::WasmRuntime,
     permissions: engine_wasm::AbiPermissions,
 ) -> wasmtime::Linker<RoomHostData> {
