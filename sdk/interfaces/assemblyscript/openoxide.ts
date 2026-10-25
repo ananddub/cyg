@@ -286,6 +286,9 @@ export class Vec3 {
         this.z = z;
     }
 
+    /** Named constructor — reads better at call sites than `new Vec3(..)`. */
+    static make(x: f64 = 0.0, y: f64 = 0.0, z: f64 = 0.0): Vec3 { return new Vec3(x, y, z); }
+
     set(x: f64, y: f64, z: f64): this {
         this.x = x;
         this.y = y;
