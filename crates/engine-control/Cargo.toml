@@ -5,6 +5,7 @@ edition = "2024"
 description = "Control plane runtime: the Tokio runtime, the bound listener, background tasks and the Agones lifecycle"
 
 [dependencies]
+tracing = "0.1"
 engine-agones = { path = "../engine-agones" }
 engine-api = { path = "../engine-api" }
 engine-bus = { path = "../engine-bus" }

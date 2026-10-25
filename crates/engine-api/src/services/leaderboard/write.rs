@@ -56,7 +56,7 @@ async fn upsert(
             read_existing(queries, existing).await
         }
         Err(error) => {
-            eprintln!("[v2] leaderboard write: {error}");
+            tracing::error!("[v2] leaderboard write: {error}");
             Err(V2Error::internal(WRITE_FAILED))
         }
     }
@@ -70,7 +70,7 @@ async fn read_existing(
         .get_leaderboard_record(&params)
         .await
         .map_err(|error| {
-            eprintln!("[v2] leaderboard write read-back: {error}");
+            tracing::error!("[v2] leaderboard write read-back: {error}");
             V2Error::internal(WRITE_FAILED)
         })
 }

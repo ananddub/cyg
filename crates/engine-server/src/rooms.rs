@@ -531,7 +531,7 @@ pub(crate) fn build_host_linker(
                         let offset = ptr as usize;
                         if offset + len <= data.len() {
                             if let Ok(msg) = std::str::from_utf8(&data[offset..offset + len]) {
-                                eprintln!("[wasm-log] {msg}");
+                                tracing::info!("[wasm-log] {msg}");
                                 return engine_wasm::ABI_OK;
                             } else {
                                 return engine_wasm::ABI_ERR_INVALID_UTF8;
@@ -1502,7 +1502,7 @@ impl GameRoom {
         host_data.navmesh = navmesh.clone();
         let mut wasm = RoomLogic::from_pre(pre, host_data)?;
         if let Err(e) = wasm.on_create(max_clients) {
-            eprintln!("[server] ⚠️ guest on_create error: {e}");
+            tracing::error!("[server] ⚠️ guest on_create error: {e}");
         }
         Ok(Self {
             backend: RoomBackend::Wasm,
@@ -1937,7 +1937,7 @@ impl GameRoom {
         }
         if let Some(ref mut wasm) = self.wasm {
             if let Err(e) = wasm.on_join(id, x, y) {
-                eprintln!("[server] ⚠️ guest on_join error for player {id}: {e}");
+                tracing::error!("[server] ⚠️ guest on_join error for player {id}: {e}");
             }
         }
         self.voice_room
@@ -2210,12 +2210,12 @@ impl GameServer {
         // Capability gate: a project that disables `storage` cannot persist
         // anything, however the snapshot was produced.
         if !self.permissions.storage {
-            eprintln!(
+            tracing::info!(
                 "[server] 🚫 storage disabled by manifest — dropping snapshot for room '{room_name}'"
             );
             return;
         }
-        eprintln!(
+        tracing::info!(
             "[server] 💾 Saved persistent snapshot for room '{room_name}' ({} bytes)",
             snapshot.len()
         );
@@ -2264,13 +2264,13 @@ impl GameServer {
                 if let Some(w) = room.wasm.as_mut() {
                     w.data_mut().seed_rng(name);
                 }
-                eprintln!(
+                tracing::info!(
                     "[server] room '{name}' created with 2D/3D physics world (ABI v{})",
                     engine_wasm::CURRENT_ABI_VERSION
                 );
                 room
             } else {
-                eprintln!(
+                tracing::info!(
                     "[server] room '{name}' created in relay mode (no room module linked)"
                 );
                 GameRoom::new_relay()
@@ -2281,11 +2281,11 @@ impl GameServer {
             // Auto-restore persistent snapshot if available
             if let Some(snap_bytes) = self.persistent_snapshots.get(name) {
                 if let Err(e) = room.import_snapshot(snap_bytes) {
-                    eprintln!(
+                    tracing::error!(
                         "[server] ⚠️ Failed to restore persistent snapshot for '{name}': {e}"
                     );
                 } else {
-                    eprintln!("[server] 🔄 Restored persistent snapshot for room '{name}'");
+                    tracing::info!("[server] 🔄 Restored persistent snapshot for room '{name}'");
                 }
             }
 
@@ -2303,7 +2303,7 @@ impl GameServer {
     ) -> &mut GameRoom {
         if !self.rooms.contains_key(name) {
             let mut room = GameRoom::new_ecs(name, arena);
-            eprintln!(
+            tracing::info!(
                 "[server] room '{name}' created with native bevy_ecs backend (Rapier3D + RoomRng{})",
                 if arena.is_some() { " + OXCL arena" } else { "" }
             );
@@ -2327,12 +2327,12 @@ impl GameServer {
         for (room_name, room) in &mut self.rooms {
             match room.reload_wasm(pre, self.max_clients, width, height) {
                 Ok(players) => {
-                    eprintln!(
+                    tracing::info!(
                         "[server] 🔄 Room '{room_name}' hot-reloaded with {players} active players!"
                     );
                 }
                 Err(e) => {
-                    eprintln!("[server] ⚠️ Failed to re-instantiate room '{room_name}': {e}");
+                    tracing::error!("[server] ⚠️ Failed to re-instantiate room '{room_name}': {e}");
                 }
             }
         }
@@ -2946,7 +2946,7 @@ mod host_extras_tests {
             host.rapier3d_get_position(a).unwrap()[1],
             host.rapier3d_get_position(b).unwrap()[1],
         );
-        eprintln!("DEBUG ay={ay} by={by} contact={}", host.rapier3d_check_contact(a, b));
+        tracing::info!("DEBUG ay={ay} by={by} contact={}", host.rapier3d_check_contact(a, b));
         host.rapier3d_remove_body(b);
         assert!(!host.rapier3d_check_contact(a, b));
     }

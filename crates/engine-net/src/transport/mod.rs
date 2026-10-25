@@ -379,7 +379,7 @@ mod sendmmsg_tests {
         let batch_time = t0.elapsed();
         let _ = drain(rounds * msgs.len());
 
-        println!(
+        tracing::info!(
             "sendmmsg: 4096 msgs x {rounds} rounds — send_to: {sendto_time:?}, batch: {batch_time:?} ({:.1}% of send_to)",
             batch_time.as_secs_f64() / sendto_time.as_secs_f64() * 100.0
         );
@@ -513,8 +513,8 @@ mod gso_tests {
 
         let gso = send_gso(&tx, &dest, &slices, 16);
         match gso {
-            Ok(()) => println!("UDP_SEGMENT accepted by the kernel"),
-            Err(e) => println!("kernel refused GSO ({e}) — fallback path exercised"),
+            Ok(()) => tracing::info!("UDP_SEGMENT accepted by the kernel"),
+            Err(e) => tracing::error!("kernel refused GSO ({e}) — fallback path exercised"),
         }
 
         rx.set_read_timeout(Some(std::time::Duration::from_secs(2)))
@@ -590,7 +590,7 @@ mod gso_tests {
         let gso_time = t0.elapsed();
         drain(3);
 
-        println!(
+        tracing::debug!(
             "GSO: {chunks_per_round} chunks x {rounds} rounds — send_to: {sendto_time:?}, gso: {gso_time:?} ({:.1}% of send_to)",
             gso_time.as_secs_f64() / sendto_time.as_secs_f64() * 100.0
         );

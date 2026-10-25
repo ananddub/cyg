@@ -73,7 +73,7 @@ pub fn spawn_sim_plane(bus: Arc<Bus>, cfg: PlaneConfig) -> std::io::Result<std::
         .name("ox-sim".into())
         .spawn(move || {
             if let Err(e) = pin::pin_current_thread(cfg.sim_core) {
-                eprintln!("[sim] ⚠️ core pinning to {} failed: {e} (continuing unpinned)", cfg.sim_core);
+                tracing::error!("[sim] ⚠️ core pinning to {} failed: {e} (continuing unpinned)", cfg.sim_core);
             }
             sim::run(bus, cfg);
         })

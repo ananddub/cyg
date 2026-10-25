@@ -64,7 +64,7 @@ impl WsTransport {
                     // stall can recover.
                     self.dropped_frames = self.dropped_frames.saturating_add(1);
                     if self.last_drop_log.elapsed().as_secs() >= 1 {
-                        eprintln!(
+                        tracing::info!(
                             "[ws] peer {client_id} not draining ({} KB queued) — {} frames dropped",
                             client.send_queue.len() / 1024,
                             self.dropped_frames

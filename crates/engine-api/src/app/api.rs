@@ -32,18 +32,18 @@ pub async fn app(state: ApiState) -> Router {
     // boot must not stop the API from coming up.
     if let Some(pool) = state.db.as_ref() {
         if let Err(err) = crate::services::games::ensure_schema(pool).await {
-            eprintln!("games: schema bootstrap failed: {err}");
+            tracing::error!("games: schema bootstrap failed: {err}");
         }
     }
     let mut router = router(&state);
     if let Ok(container) = auto_di::Container::new() {
         match auto_route::build_routes(&container).await {
             Ok(auto) => router = router.merge(auto),
-            Err(err) => eprintln!("auto_route: skipping auto-registered routes: {err}"),
+            Err(err) => tracing::info!("auto_route: skipping auto-registered routes: {err}"),
         }
         match auto_ws::mount::<crate::infra::ws::WsProtocol>(&container, Router::new()).await {
             Ok(sockets) => router = router.merge(sockets),
-            Err(err) => eprintln!("auto_ws: skipping auto-registered sockets: {err}"),
+            Err(err) => tracing::info!("auto_ws: skipping auto-registered sockets: {err}"),
         }
     }
     state::with_plane_state(router, state)

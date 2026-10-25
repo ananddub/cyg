@@ -36,7 +36,7 @@ async fn joined(db: &PgPool, board: &Leaderboard, write: &Write<'_>) -> Result<(
         .fetch_optional(db)
         .await
         .map_err(|error| {
-            eprintln!("[v2] tournament write lookup: {error}");
+            tracing::error!("[v2] tournament write lookup: {error}");
             V2Error::internal(WRITE_FAILED)
         })?;
     if exists.is_none() {
@@ -104,7 +104,7 @@ async fn entered(db: &PgPool, board: &Leaderboard, write: &Write<'_>) -> Result<
 }
 
 fn write_failure(error: sqlx::Error) -> V2Error {
-    eprintln!("[v2] tournament write: {error}");
+    tracing::error!("[v2] tournament write: {error}");
     V2Error::internal(WRITE_FAILED)
 }
 

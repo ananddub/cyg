@@ -65,7 +65,7 @@ fn bind_peer(
     room.next_player_id += 1;
     if let Some(ref mut wasm) = room.wasm {
         if let Err(e) = wasm.on_join(id, x, y) {
-            eprintln!("[sim] ⚠️ guest on_join error for player {id}: {e}");
+            tracing::error!("[sim] ⚠️ guest on_join error for player {id}: {e}");
         }
     }
     room.sessions.insert(peer_id.clone(), id);
@@ -138,19 +138,19 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     let mut udp = match plane::udp::UdpPlane::new(&cfg.udp_addr, Arc::clone(&bus), Arc::clone(&seats)) {
         Ok(u) => u,
         Err(e) => {
-            eprintln!("[sim] ✖️ UDP plane bind {} failed: {e} — sim thread exiting", cfg.udp_addr);
+            tracing::error!("[sim] ✖️ UDP plane bind {} failed: {e} — sim thread exiting", cfg.udp_addr);
             return;
         }
     };
     let mut poll = match Poll::new() {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("[sim] ✖️ mio poll creation failed: {e} — sim thread exiting");
+            tracing::error!("[sim] ✖️ mio poll creation failed: {e} — sim thread exiting");
             return;
         }
     };
     if let Err(e) = udp.register(&poll) {
-        eprintln!("[sim] ✖️ UDP socket registration failed: {e} — sim thread exiting");
+        tracing::error!("[sim] ✖️ UDP socket registration failed: {e} — sim thread exiting");
         return;
     }
     udp.set_tick_hz(cfg.tick_hz);
@@ -162,14 +162,14 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     }) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("[sim] ✖️ wasm runtime init failed: {e} — sim thread exiting");
+            tracing::error!("[sim] ✖️ wasm runtime init failed: {e} — sim thread exiting");
             return;
         }
     };
     let module = match runtime.load_or_compile_cached(&cfg.wasm_path) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("[sim] ✖️ wasm module load failed: {e} — sim thread exiting");
+            tracing::error!("[sim] ✖️ wasm module load failed: {e} — sim thread exiting");
             return;
         }
     };
@@ -177,7 +177,7 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     let pre = match runtime.prepare(&linker, &module) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("[sim] ✖️ pre-instantiation failed: {e} — sim thread exiting");
+            tracing::error!("[sim] ✖️ pre-instantiation failed: {e} — sim thread exiting");
             return;
         }
     };
@@ -188,12 +188,12 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     let mut room = match GameRoom::new(&pre, cfg.max_players, physics) {
         Ok(room) => room,
         Err(e) => {
-            eprintln!("[sim] ✖️ room instantiation failed: {e} — sim thread exiting");
+            tracing::error!("[sim] ✖️ room instantiation failed: {e} — sim thread exiting");
             return;
         }
     };
 
-    println!(
+    tracing::info!(
         "[sim] running on core {} tick_hz={} wasm={}",
         plane::current_core(),
         cfg.tick_hz,
@@ -242,7 +242,7 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     loop {
         let timeout = period.saturating_sub(last_tick.elapsed());
         if let Err(e) = poll.poll(&mut events, Some(timeout)) {
-            eprintln!("[sim] ⚠️ mio poll error: {e}");
+            tracing::error!("[sim] ⚠️ mio poll error: {e}");
         }
         for ev in events.iter() {
             if ev.token() == plane::udp::UDP_TOKEN && ev.is_readable() {
@@ -257,9 +257,9 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                     let id = bind_peer(&mut room, peer_id.clone(), &wanted, &cfg.room_name, cfg.max_players, &mut session_of);
                     let _ = reply.send(id);
                     if id >= 0 {
-                        eprintln!("[sim] {peer_id} bound to room '{}' as player {id}", cfg.room_name);
+                        tracing::info!("[sim] {peer_id} bound to room '{}' as player {id}", cfg.room_name);
                     } else {
-                        eprintln!("[sim] bind rejected for {peer_id}: room mismatch or full");
+                        tracing::info!("[sim] bind rejected for {peer_id}: room mismatch or full");
                     }
                 }
                 SimCommand::DropPeer { peer_id } => {
@@ -365,13 +365,13 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                         // packed = (ptr << 32) | len into the guest's linear memory.
                         let (ptr, len) = decode_packed(packed);
                         if len > engine_wasm::MAX_OUTBOUND_DELTA_SIZE {
-                            eprintln!("[sim] ⚠️ delta size {len} exceeds ABI max — skipped dispatch");
+                            tracing::warn!("[sim] ⚠️ delta size {len} exceeds ABI max — skipped dispatch");
                             trap = true; // don't read stale/oversized memory this tick
                             break;
                         }
                         if len > 0 {
                             if let Err(e) = wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf) {
-                                eprintln!("[sim] ⚠️ delta read failed: {e}");
+                                tracing::error!("[sim] ⚠️ delta read failed: {e}");
                                 trap = true;
                                 break;
                             }
@@ -380,7 +380,7 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                         }
                     }
                     Err(e) => {
-                        eprintln!("[sim] ⚠️ guest trap in on_tick at room tick {}: {e}", room.current_tick);
+                        tracing::warn!("[sim] ⚠️ guest trap in on_tick at room tick {}: {e}", room.current_tick);
                         trap = true;
                         break;
                     }

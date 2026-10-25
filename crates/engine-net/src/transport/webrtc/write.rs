@@ -14,7 +14,7 @@ impl WebRtcServer {
     pub(super) fn send_frame(&mut self, lane: Lane, client_id: &str, data: &[u8]) -> bool {
         if data.len() > FRAME_MAX_WIRE_LEN {
             self.sink.stats.frames_refused_oversize += 1;
-            eprintln!(
+            tracing::error!(
                 "[webrtc] ⚠️ refused {} B on {} — MTU budget is {} B, split it (send_delta)",
                 data.len(),
                 lane.label(),

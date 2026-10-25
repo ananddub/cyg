@@ -116,7 +116,7 @@ async fn owner_records(
         })
         .await
         .map_err(|error| {
-            eprintln!("[v2] leaderboard owner records: {error}");
+            tracing::error!("[v2] leaderboard owner records: {error}");
             V2Error::internal(LIST_FAILED)
         })?;
     let ascending = ascending(board);

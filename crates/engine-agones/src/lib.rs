@@ -69,8 +69,8 @@
 //! // On a thread of your own: pings forever until `stop`, retrying `/ready` if a
 //! // heartbeat proves the sidecar came up after us.
 //! lifecycle.run_until_stopped(|event| match event {
-//!     LifecycleEvent::Ping(outcome) => eprintln!("ping ok={} {outcome:?}", outcome.ok),
-//!     LifecycleEvent::ReadyRetried(error) => eprintln!("ready retried: {error:?}"),
+//!     LifecycleEvent::Ping(outcome) => tracing::info!("ping ok={} {outcome:?}", outcome.ok),
+//!     LifecycleEvent::ReadyRetried(error) => tracing::error!("ready retried: {error:?}"),
 //! });
 //! // The operator's stop path:
 //! let _ = lifecycle.shutdown();

@@ -74,7 +74,7 @@ async fn touch_ignoring_absent(
 ) -> Result<(), V2Error> {
     if let Err(e) = queries.touch_user(uid).await {
         if !matches!(e, sqlx::Error::RowNotFound) {
-            eprintln!("[v2] {failed}: {e}");
+            tracing::error!("[v2] {failed}: {e}");
             return Err(V2Error::internal(failed));
         }
     }

@@ -5,6 +5,7 @@ edition = "2024"
 description = "Browser-facing HTTP and WebSocket surface: matchmake, signaling, telemetry routes, dashboard, static website"
 
 [dependencies]
+tracing = "0.1"
 engine-agones = { path = "../engine-agones" }
 engine-bus = { path = "../engine-bus" }
 engine-config = { path = "../engine-config" }

@@ -148,7 +148,7 @@ impl RapierWorld3D {
         // Degenerate triangles (zero-area) are rejected by parry; an arena
         // with none of them always builds.
         let Ok(collider) = r3d::ColliderBuilder::trimesh(points, indices) else {
-            eprintln!("[physics] ⚠️ OXCL mesh has degenerate triangles — arena skipped");
+            tracing::warn!("[physics] ⚠️ OXCL mesh has degenerate triangles — arena skipped");
             return;
         };
         let body = r3d::RigidBodyBuilder::fixed().build();

@@ -93,7 +93,7 @@ impl super::TournamentService {
                     return Ok(Json(TournamentListResponse::default()));
                 }
                 Err(error) => {
-                    eprintln!("[v2] tournament cursor: {error}");
+                    tracing::error!("[v2] tournament cursor: {error}");
                     return Err(V2Error::internal(PAGE_FAILED));
                 }
             },
@@ -115,7 +115,7 @@ impl super::TournamentService {
             .fetch_all(pool(state)?)
             .await
             .map_err(|error| {
-                eprintln!("[v2] tournament list: {error}");
+                tracing::error!("[v2] tournament list: {error}");
                 V2Error::internal(PAGE_FAILED)
             })?;
 

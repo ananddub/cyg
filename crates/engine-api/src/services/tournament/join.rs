@@ -89,7 +89,7 @@ async fn enter(
 }
 
 fn failure(error: sqlx::Error) -> V2Error {
-    eprintln!("[v2] tournament join: {error}");
+    tracing::error!("[v2] tournament join: {error}");
     V2Error::internal(JOIN_FAILED)
 }
 

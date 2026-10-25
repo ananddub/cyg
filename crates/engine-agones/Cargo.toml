@@ -10,5 +10,6 @@ description = "Agones Kubernetes lifecycle integration (Ready, Health ping, Shut
 # with a blocking socket cannot stall an Axum worker, which is the whole point
 # of `src/control/agones.rs`.
 [dependencies]
+tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

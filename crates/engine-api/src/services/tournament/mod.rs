@@ -34,7 +34,7 @@ pub(crate) async fn load_tournament(queries: &Queries, id: &str) -> Result<Leade
     queries.get_tournament(id).await.map_err(|e| match e {
         sqlx::Error::RowNotFound => V2Error::not_found(NOT_FOUND),
         other => {
-            eprintln!("[v2] tournament load: {other}");
+            tracing::info!("[v2] tournament load: {other}");
             V2Error::not_found(NOT_FOUND)
         }
     })

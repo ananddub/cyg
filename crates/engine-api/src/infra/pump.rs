@@ -12,7 +12,7 @@ const PUMP_INTERVAL: Duration = Duration::from_millis(250);
 /// leaving `/status` to keep reporting the last sample rather than failing.
 pub async fn pump(state: ApiState) {
     let Some(rx) = state.status_rx.try_take() else {
-        eprintln!("[control] status queue already owned; /status serves the last sample");
+        tracing::info!("[control] status queue already owned; /status serves the last sample");
         return;
     };
     // `crossbeam_channel::Receiver` is not awaitable, so this polls on a

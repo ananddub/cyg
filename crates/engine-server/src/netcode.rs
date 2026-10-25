@@ -146,7 +146,7 @@ pub fn apply_input(
         .iter()
         .rposition(|j| j.session == session && j.seq == seq.wrapping_sub(1))
     else {
-        eprintln!(
+        tracing::debug!(
             "[dbg] late seq {seq}: no predecessor in journal ({} entries)",
             room.input_journal.len()
         );
@@ -170,16 +170,16 @@ pub fn apply_input(
     // seq can trigger a rewind), so a guest trap here must drop the replay,
     // never kill the host loop.
     let Ok(load_ptr_i32) = wasm.on_alloc(ckpt.len() as i32) else {
-        eprintln!("[server] ⚠️ rollback replay dropped: guest on_alloc failed");
+        tracing::error!("[server] ⚠️ rollback replay dropped: guest on_alloc failed");
         return;
     };
     let load_ptr = load_ptr_i32 as u32 as usize;
     if let Err(e) = wasm.write_memory(load_ptr as u32, ckpt) {
-        eprintln!("[server] ⚠️ rollback replay dropped: checkpoint write failed: {e}");
+        tracing::error!("[server] ⚠️ rollback replay dropped: checkpoint write failed: {e}");
         return;
     }
     if let Err(e) = wasm.on_load(load_ptr as i32, ckpt.len() as i32) {
-        eprintln!("[server] ⚠️ rollback replay dropped: guest trap in on_load: {e}");
+        tracing::warn!("[server] ⚠️ rollback replay dropped: guest trap in on_load: {e}");
         return;
     }
 
@@ -231,7 +231,7 @@ pub fn apply_input(
         }
     }
 
-    eprintln!(
+    tracing::debug!(
         "[server] ⏪ late input seq {seq} (player {id}): rewound {} ticks, re-delivered {redelivered} inputs, resimulated to tick {cur}",
         target - pred_tick
     );
@@ -316,7 +316,7 @@ pub fn send_delta_framed(
             }
         }
         Err(e) => {
-            eprintln!("[server] ⚠️ delta refused for {session}: {e} — dropped");
+            tracing::error!("[server] ⚠️ delta refused for {session}: {e} — dropped");
             0
         }
     }

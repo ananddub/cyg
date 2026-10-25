@@ -5,6 +5,7 @@ edition = "2024"
 description = "Raw mio thread-per-core high-performance network transport layer"
 
 [dependencies]
+tracing = "0.1"
 bytes = "1.12.1"
 engine-core = { path = "../engine-core" }
 # The WebRTC transport enforces the channel contract, so it must use the one

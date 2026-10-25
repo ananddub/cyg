@@ -44,7 +44,7 @@ impl super::LeaderboardService {
             })
             .await
             .map_err(|error| {
-                eprintln!("[v2] leaderboard record delete: {error}");
+                tracing::error!("[v2] leaderboard record delete: {error}");
                 V2Error::internal(DELETE_FAILED)
             })?;
         Ok(Json(Empty {}))

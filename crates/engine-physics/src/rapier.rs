@@ -672,21 +672,21 @@ mod tests {
         world.step();
 
         let hit = world.check_intersection(player, coin);
-        println!("check_intersection result: {hit}");
+        tracing::info!("check_intersection result: {hit}");
         assert!(hit, "Player and coin at same position must intersect!");
 
         // Move coin to (100, 100)
         world.set_position(coin, 100.0, 100.0);
         world.step();
         let hit_far = world.check_intersection(player, coin);
-        println!("after move coin far: {hit_far}");
+        tracing::info!("after move coin far: {hit_far}");
         assert!(!hit_far, "Should not intersect when far");
 
         // Move player to (100, 100)
         world.set_position(player, 100.0, 100.0);
         world.step();
         let hit_moved = world.check_intersection(player, coin);
-        println!("after move player to coin: {hit_moved}");
+        tracing::info!("after move player to coin: {hit_moved}");
         assert!(hit_moved, "Should intersect after moving both to (100, 100)");
     }
 }

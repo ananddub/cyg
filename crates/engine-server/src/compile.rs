@@ -43,12 +43,12 @@ pub fn build(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<std::path:
     // Skip when the wasm is newer than every input that shapes the room.
     if let (Some(src_t), Some(out_t)) = (newest_input_mtime(project_dir, &src), mtime(&out)) {
         if out_t >= src_t {
-            eprintln!("[build] ✓ {} is up to date (skipped)", cfg.out.display());
+            tracing::warn!("[build] ✓ {} is up to date (skipped)", cfg.out.display());
             return Ok(out);
         }
     }
 
-    eprintln!(
+    tracing::info!(
         "[build] compiling {} ({:?}) -> {} ...",
         cfg.source.display(),
         cfg.runtime,
@@ -66,14 +66,14 @@ pub fn build(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<std::path:
             "compiler finished but output was not produced",
         ));
     }
-    eprintln!("[build] ✓ compiled {}", out.display());
+    tracing::info!("[build] ✓ compiled {}", out.display());
 
     // AOT precompilation: compile .wasm -> .cwasm ahead of time so server boots in < 1ms
     let cwasm_path = out.with_extension("cwasm");
     if let Ok(runtime) = engine_wasm::WasmRuntime::new() {
         if let Ok(bytes) = std::fs::read(&out) {
             if let Ok(()) = runtime.precompile_to_file(&bytes, &cwasm_path) {
-                eprintln!("[build] ⚡ AOT precompiled -> {}", cwasm_path.display());
+                tracing::info!("[build] ⚡ AOT precompiled -> {}", cwasm_path.display());
             }
         }
     }
@@ -90,7 +90,7 @@ pub fn aot_precompile(wasm_path: &Path) -> std::io::Result<std::path::PathBuf> {
     runtime
         .precompile_to_file(&bytes, &cwasm_path)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    eprintln!(
+    tracing::info!(
         "[aot] ✓ AOT precompiled {} -> {}",
         wasm_path.display(),
         cwasm_path.display()
@@ -101,7 +101,7 @@ pub fn aot_precompile(wasm_path: &Path) -> std::io::Result<std::path::PathBuf> {
 use engine_config::Runtime;
 
 fn compile_lua(src: &Path, out: &Path) -> std::io::Result<()> {
-    eprintln!(
+    tracing::info!(
         "[build] 🌙 validating Lua room script '{}' ...",
         src.display()
     );
@@ -116,7 +116,7 @@ fn compile_lua(src: &Path, out: &Path) -> std::io::Result<()> {
                 format!("Lua syntax check failed: {stderr}"),
             ));
         }
-        eprintln!("[build] ✓ Lua syntax verified with LuaJIT");
+        tracing::info!("[build] ✓ Lua syntax verified with LuaJIT");
     }
 
     // 2. Ensure wasm output binary is available
@@ -249,7 +249,7 @@ export function on_simulation_rate(): i32 {{
             );
 
             std::fs::write(&temp_entry, bridge_code)?;
-            eprintln!(
+            tracing::info!(
                 "[build] 🪄 auto-generating WebAssembly Flat ABI bridge for '{class_name}'..."
             );
             (temp_entry.clone(), Some(temp_entry))
@@ -275,7 +275,7 @@ export function on_simulation_rate(): i32 {{
         run("asc", &args)
     } else {
         // 2. npx fallback (downloads once, then cached)
-        eprintln!("[build] asc not on PATH — using npx assemblyscript (first run downloads)...");
+        tracing::info!("[build] asc not on PATH — using npx assemblyscript (first run downloads)...");
         let mut npx_args = vec![
             "-y".into(),
             "-p".into(),

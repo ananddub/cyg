@@ -109,7 +109,7 @@ impl super::ConsoleService {
             })
             .await
             .map_err(|error| {
-                eprintln!("[console] leaderboard record delete: {error}");
+                tracing::error!("[console] leaderboard record delete: {error}");
                 V2Error::internal("Error deleting score from leaderboard.")
             })?;
         super::audit(

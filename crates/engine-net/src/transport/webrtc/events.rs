@@ -46,7 +46,7 @@ impl WebRtcServer {
                             sink.stats.legacy_alias_channels += 1;
                             if !session.legacy_alias_warned {
                                 session.legacy_alias_warned = true;
-                                eprintln!(
+                                tracing::warn!(
                                     "[webrtc] ⚠️ client {} opened '{label}': not a contract label, mapped to {} as a legacy alias",
                                     session.client_id,
                                     lane.label()
@@ -61,7 +61,7 @@ impl WebRtcServer {
                             .and_then(|config| contract_mismatch(lane, &config));
                         if let Some(reason) = mismatch {
                             sink.stats.contract_violations += 1;
-                            eprintln!("[webrtc] ⚠️ channel '{label}' on {}: {reason}", session.client_id);
+                            tracing::warn!("[webrtc] ⚠️ channel '{label}' on {}: {reason}", session.client_id);
                         }
                     }
                     // Anything else stays unmapped: neither writable as a game lane nor believable as a source of game frames.

@@ -5,6 +5,7 @@ edition = "2024"
 description = "Gaming-grade 3D Spatial Proximity Voice Engine with zero-copy Opus routing and Jitter Buffer"
 
 [dependencies]
+tracing = "0.1"
 bytes = "1.10"
 engine-spatial = { path = "../engine-spatial" }
 serde = { version = "1.0", features = ["derive"] }

@@ -1108,7 +1108,7 @@ pub(crate) mod db {
         {
             Ok(pool) => pool,
             Err(err) => {
-                eprintln!("skipping: `{dsn}` is not a reachable Postgres ({err})");
+                tracing::info!("skipping: `{dsn}` is not a reachable Postgres ({err})");
                 return None;
             }
         };
@@ -1202,7 +1202,7 @@ pub(crate) mod db {
 /// A skipped database test says so, because a green run that silently tested nothing
 /// is the failure mode worth narrating.
 fn skipped_without_database() {
-    eprintln!(
+    tracing::info!(
         "skipping: no Postgres configured — set OX_DATABASE_URL or DATABASE_URL to run the \
          games integration tests"
     );

@@ -631,7 +631,7 @@ fn params(
 }
 
 fn skipped_without_database() {
-    eprintln!(
+    tracing::info!(
         "skipping: no Postgres configured — set OX_DATABASE_URL or DATABASE_URL to run the \
          WASM upload integration tests"
     );

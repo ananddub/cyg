@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tracing = "0.1"
 bevy_ecs = { version = "0.15", default-features = false }
 engine-core = { path = "../engine-core" }
 engine-bus = { path = "../engine-bus" }

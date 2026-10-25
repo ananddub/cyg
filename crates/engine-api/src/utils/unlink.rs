@@ -22,7 +22,7 @@ pub(crate) fn refused(failed: &str) -> impl Fn(sqlx::Error) -> V2Error + '_ {
     move |e| match e {
         sqlx::Error::RowNotFound => last_account(),
         other => {
-            eprintln!("[v2] {failed}: {other}");
+            tracing::error!("[v2] {failed}: {other}");
             V2Error::internal(failed)
         }
     }

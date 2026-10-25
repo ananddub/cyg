@@ -27,10 +27,10 @@ pub fn spawn(state: &ApiState) {
     if install(Arc::clone(&lifecycle)).is_err() {
         // A second control plane in one process (tests, a rebind) must not start a
         // second beat for the same pod.
-        eprintln!("[agones] 🛰️  lifecycle already running at {}; reusing it", lifecycle.addr());
+        tracing::info!("[agones] 🛰️  lifecycle already running at {}; reusing it", lifecycle.addr());
         return;
     }
-    eprintln!(
+    tracing::info!(
         "[agones] 🛰️  sidecar at {}, health every {} ms ({} ms budget)",
         lifecycle.addr(),
         interval.as_millis(),
@@ -42,7 +42,7 @@ pub fn spawn(state: &ApiState) {
         std::thread::Builder::new().name("ox-agones".into()).spawn(move || run(lifecycle))
     };
     if let Err(e) = thread {
-        eprintln!("[agones] ✖ could not start the health thread: {e}; this pod will never be Ready");
+        tracing::error!("[agones] ✖ could not start the health thread: {e}; this pod will never be Ready");
     }
 }
 
@@ -55,10 +55,10 @@ fn run(lifecycle: Arc<Lifecycle>) {
     // beat loop takes over, retrying once a heartbeat proves a sidecar exists.
     match lifecycle.mark_ready() {
         Ok(()) => match lifecycle.refresh_state() {
-            Ok(state) => eprintln!("[agones] ✅ GameServer is {}", state.display()),
-            Err(e) => eprintln!("[agones] /state after /ready failed: {e}"),
+            Ok(state) => tracing::info!("[agones] ✅ GameServer is {}", state.display()),
+            Err(e) => tracing::error!("[agones] /state after /ready failed: {e}"),
         },
-        Err(e) => eprintln!("[agones] ✖ /ready not accepted: {e}"),
+        Err(e) => tracing::error!("[agones] ✖ /ready not accepted: {e}"),
     }
 
     let mut loud = Loudness::default();
@@ -66,20 +66,20 @@ fn run(lifecycle: Arc<Lifecycle>) {
         LifecycleEvent::Ping(outcome) => {
             if loud.should_log(&outcome) {
                 match (&outcome.error, outcome.ok) {
-                    (Some(e), false) => eprintln!(
+                    (Some(e), false) => tracing::info!(
                         "[agones] 🩺 ping {} in a row: [{kind}] {e}",
                         outcome.consecutive_failures,
                         kind = e.kind()
                     ),
-                    _ => eprintln!("[agones] 🩺 heartbeats recovered after a failure streak"),
+                    _ => tracing::debug!("[agones] 🩺 heartbeats recovered after a failure streak"),
                 }
             }
         }
         LifecycleEvent::ReadyRetried(error) => match error {
-            None => eprintln!("[agones] ✅ /ready accepted on retry; in the allocation pool"),
-            Some(e) => eprintln!("[agones] ✖ /ready retry refused: {e}"),
+            None => tracing::warn!("[agones] ✅ /ready accepted on retry; in the allocation pool"),
+            Some(e) => tracing::error!("[agones] ✖ /ready retry refused: {e}"),
         },
     });
     let stats = lifecycle.stats();
-    eprintln!("[agones] beat loop stopped; {} pings, {} failures", stats.pings, stats.failures);
+    tracing::info!("[agones] beat loop stopped; {} pings, {} failures", stats.pings, stats.failures);
 }

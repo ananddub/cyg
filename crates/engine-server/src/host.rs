@@ -378,11 +378,11 @@ pub fn run(
     // happens below and is allowed to fail into Unity-relay-only mode. A missing
     // file here must not take the whole process down.
     match std::fs::metadata(wasm_path) {
-        Ok(m) => eprintln!(
+        Ok(m) => tracing::info!(
             "[server] room logic loaded ({} bytes) — generic byte pipeline active",
             m.len()
         ),
-        Err(_) => eprintln!(
+        Err(_) => tracing::info!(
             "[server] no room logic file at {} — Unity-relay rooms only",
             wasm_path.display()
         ),
@@ -399,7 +399,7 @@ pub fn run(
         .ok();
     let mut raw_transport = if let Some(sock) = webrtc_udp {
         let actual_port = sock.local_addr().map(|a| a.port()).unwrap_or(webrtc_port);
-        eprintln!(
+        tracing::info!(
             "[server] ⚡ WebRTC DataChannel server listening on udp://0.0.0.0:{actual_port}"
         );
         let local_addr: SocketAddr = format!("127.0.0.1:{actual_port}").parse().unwrap();
@@ -413,7 +413,7 @@ pub fn run(
             let lan_addr = SocketAddr::new(ip, actual_port);
             if lan_addr != local_addr {
                 announced.push(lan_addr);
-                eprintln!("[server] ⚡ WebRTC announced LAN candidate: {lan_addr}");
+                tracing::info!("[server] ⚡ WebRTC announced LAN candidate: {lan_addr}");
             }
         }
         if let Ok(ip) = std::env::var("PUBLIC_IP")
@@ -423,7 +423,7 @@ pub fn run(
         }
         WebRtcTransport::from_socket(sock, announced).expect("webrtc transport")
     } else {
-        eprintln!("[server] ⚠️ webrtc bind :{webrtc_port} failed — WebRTC data plane disabled");
+        tracing::error!("[server] ⚠️ webrtc bind :{webrtc_port} failed — WebRTC data plane disabled");
         WebRtcTransport::from_socket(
             std::net::UdpSocket::bind("127.0.0.1:0").expect("ephemeral udp bind"),
             Vec::new(),
@@ -438,7 +438,7 @@ pub fn run(
         match std::fs::read(&oxcl_path) {
             Ok(bytes) => match engine_physics::oxcl::CookedMesh::from_oxcl_bytes(&bytes) {
                 Ok(mesh) => {
-                    eprintln!(
+                    tracing::info!(
                         "[server] 🗺️  loaded arena.oxcl ({} verts, {} indices)",
                         mesh.vertices.len(),
                         mesh.indices.len()
@@ -446,7 +446,7 @@ pub fn run(
                     Some(mesh)
                 }
                 Err(e) => {
-                    eprintln!("[server] failed to parse arena.oxcl: {e}");
+                    tracing::error!("[server] failed to parse arena.oxcl: {e}");
                     None
                 }
             },
@@ -460,7 +460,7 @@ pub fn run(
         match std::fs::read_to_string(&arena_2d_path) {
             Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
                 Ok(m) => {
-                    eprintln!(
+                    tracing::info!(
                         "[server] 🗺️  loaded arena_2d.json with {} static colliders ({}x{})",
                         m.obstacles.len(),
                         m.arena_width,
@@ -469,7 +469,7 @@ pub fn run(
                     Some(m)
                 }
                 Err(e) => {
-                    eprintln!("[server] failed to parse arena_2d.json: {e}");
+                    tracing::error!("[server] failed to parse arena_2d.json: {e}");
                     None
                 }
             },
@@ -479,7 +479,7 @@ pub fn run(
         match std::fs::read_to_string(&map_path) {
             Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
                 Ok(m) => {
-                    eprintln!(
+                    tracing::info!(
                         "[server] 🗺️  loaded arena_map.json as 2D map with {} static colliders ({}x{})",
                         m.obstacles.len(),
                         m.arena_width,
@@ -499,14 +499,14 @@ pub fn run(
         match std::fs::read_to_string(&map_path) {
             Ok(json_str) => match PhysicsWorld3D::from_json(&json_str) {
                 Ok(w) => {
-                    eprintln!(
+                    tracing::info!(
                         "[server] 🗺️  loaded arena_map.json with {} static colliders",
                         w.obstacles.len()
                     );
                     w
                 }
                 Err(e) => {
-                    eprintln!("[server] failed to parse arena_map.json: {e}, using default world");
+                    tracing::error!("[server] failed to parse arena_map.json: {e}, using default world");
                     PhysicsWorld3D::default()
                 }
             },
@@ -521,7 +521,7 @@ pub fn run(
     let descriptor_path = project_dir.join("openoxide.schema.bin");
     let schema_descriptor = std::fs::read(&descriptor_path).unwrap_or_default();
     if !schema_descriptor.is_empty() {
-        eprintln!(
+        tracing::info!(
             "[server] 📋 schema descriptor loaded ({} bytes) from {}",
             schema_descriptor.len(),
             descriptor_path.display()
@@ -534,7 +534,7 @@ pub fn run(
     let schema_aoi = if cfg.aoi.enabled && !schema_descriptor.is_empty() {
         let parsed = crate::schema_view::SchemaAoi::from_descriptor(&schema_descriptor);
         if parsed.is_none() {
-            eprintln!(
+            tracing::warn!(
                 "[server] ⚠️ [aoi] enabled but the schema has no x/y fields — schema state stays global"
             );
         }
@@ -554,16 +554,16 @@ pub fn run(
         let _ = s.set_nonblocking(true);
         match s.local_addr() {
             Ok(addr) => {
-                eprintln!(
+                tracing::info!(
                     "[server] listening on udp://{addr} (Unity / Unreal / Godot Native Engine)"
                 );
             }
-            Err(_) => eprintln!(
+            Err(_) => tracing::info!(
                 "[server] listening on udp://{udp_addr} (Unity / Unreal / Godot Native Engine)"
             ),
         }
     } else {
-        eprintln!("[server] ⚠️ udp bind {udp_addr} failed — native UDP clients disabled");
+        tracing::error!("[server] ⚠️ udp bind {udp_addr} failed — native UDP clients disabled");
     }
 
     // One thread: transport I/O and the simulation share this loop. An idle
@@ -583,13 +583,13 @@ pub fn run(
     // players or amplify traffic. Reuses the same limiter type (5/s refill).
     let mut udp_join_rates: HashMap<SocketAddr, netcode::InputRateLimiter> = HashMap::new();
 
-    eprintln!(
+    tracing::info!(
         "[server] ABI contract: host v{} (manifest requested: v{})",
         engine_wasm::CURRENT_ABI_VERSION,
         cfg.abi_version
     );
     if cfg.abi_version > engine_wasm::CURRENT_ABI_VERSION {
-        eprintln!(
+        tracing::warn!(
             "[server] ⚠️  Warning: manifest requests ABI version {}, but server only supports up to v{}",
             cfg.abi_version,
             engine_wasm::CURRENT_ABI_VERSION
@@ -609,12 +609,12 @@ pub fn run(
             let linker = rooms::build_host_linker(&runtime, cfg.permissions);
             runtime.prepare(&linker, &module)
         })
-        .map_err(|e| eprintln!("[server] load room module: {e}"))
+        .map_err(|e| tracing::info!("[server] load room module: {e}"))
         .ok();
     let wasm_available = pre.is_some();
     if wasm_available {
         let is_aot = wasm_path.with_extension("cwasm").exists();
-        eprintln!(
+        tracing::info!(
             "[server] ⚡ room module loaded in {:.2?} (mode: {})",
             wasm_load_start.elapsed(),
             if is_aot {
@@ -624,7 +624,7 @@ pub fn run(
             }
         );
     } else {
-        eprintln!(
+        tracing::info!(
             "[server] 🧩 no room module — running Unity-relay rooms only (WASM rooms disabled)"
         );
     }
@@ -692,7 +692,7 @@ pub fn run(
                                         sdp: answer,
                                     },
                                 );
-                                eprintln!(
+                                tracing::info!(
                                     "[server] ⚡ WebRTC offer accepted for seat {} (room '{}'), SDP answer returned",
                                     seat.id, seat.room
                                 );
@@ -709,7 +709,7 @@ pub fn run(
                     }
                     engine_api::infra::signaling::SignalIn::Candidate { seat, candidate, .. } => {
                         if let Err(e) = transport.rtc_server().handle_candidate(&seat.id, &candidate) {
-                            eprintln!(
+                            tracing::error!(
                                 "[server] ⚠️ seat {} candidate error: {e} ({candidate})",
                                 seat.id
                             );
@@ -718,7 +718,7 @@ pub fn run(
                     // The signaling socket went away. Clean up the transport session immediately
                     // so the seat is released and `on_leave` runs without waiting for idle timeout.
                     engine_api::infra::signaling::SignalIn::Close { seat } => {
-                        eprintln!("[server] signaling socket closed for seat {}", seat.id);
+                        tracing::info!("[server] signaling socket closed for seat {}", seat.id);
                         let _ = transport.disconnect_with(&seat.id, 1000, "signaling socket closed");
                     }
                 }
@@ -759,7 +759,7 @@ pub fn run(
                     // cap how many distinct rooms an open name space can allocate
                     // (each may be a WASM instance). Live rooms keep working.
                     if server.would_exceed_room_limit(room_name, cfg.max_rooms) {
-                        eprintln!(
+                        tracing::error!(
                             "[server] ⛔ room limit reached ({}/{}): rejecting {client_id} for '{room_name}'",
                             server.rooms.len(),
                             cfg.max_rooms
@@ -776,7 +776,7 @@ pub fn run(
                             Err(e) => {
                                 // A guest that predates the ABI (or a broken
                                 // module) must cost one client, never the process.
-                                eprintln!(
+                                tracing::error!(
                                     "[server] ⛔ room '{room_name}' unavailable: {e} — rejecting {client_id}"
                                 );
                                 reject_room(&mut transport, &client_id, "room unavailable");
@@ -789,7 +789,7 @@ pub fn run(
 
                     if is_spectator {
                         room.spectators.insert(client_id.to_string());
-                        eprintln!(
+                        tracing::info!(
                             "[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'"
                         );
                     } else if room.sessions.contains_key(&*client_id) {
@@ -798,7 +798,7 @@ pub fn run(
                     } else if let Some(id) = room.rejoin(&client_id) {
                         // The seat was held by `allowReconnection`: keep the
                         // player id and guest state, skip auth/join.
-                        eprintln!(
+                        tracing::info!(
                             "[server] 🔁 {client_id} reconnected to room '{room_name}' (player id {id})"
                         );
                         flush_room_outbox(room, &mut transport);
@@ -806,7 +806,7 @@ pub fn run(
                         // WASM rooms may override the ceiling via their
                         // `on_is_full` export; relay rooms (no guest) fall back to
                         // the host's `max_clients` so they cannot silently overfill.
-                        eprintln!(
+                        tracing::error!(
                             "[server] ⛔ room '{room_name}' is full ({}/{}): rejecting {client_id}",
                             room.sessions.len(),
                             cfg.max_clients
@@ -816,7 +816,7 @@ pub fn run(
                     } else if !room.authorize(room.next_player_id, &join_options) {
                         // Guest `onAuth` declined before a player id or state
                         // entry existed, so nothing needs unwinding.
-                        eprintln!(
+                        tracing::error!(
                             "[server] ⛔ room '{room_name}' rejected {client_id} in onAuth"
                         );
                         reject_room(&mut transport, &client_id, "not authorized");
@@ -830,7 +830,7 @@ pub fn run(
                             )
                         };
                         let id = room.join(&client_id, x, y);
-                        eprintln!(
+                        tracing::info!(
                             "[server] {client_id} joined room '{room_name}' (player id {id})"
                         );
                         // Deliver onJoin() messages in this same loop, not one
@@ -840,7 +840,7 @@ pub fn run(
                     let _ = transport.flush();
                 }
                 TransportEvent::Disconnected { client_id } => {
-                    eprintln!("[server] disconnected: {client_id}");
+                    tracing::info!("[server] disconnected: {client_id}");
                     last_input_at.remove(&*client_id);
                     rtc_input_rates.remove(&*client_id);
                     let raw_room_str = transport.take_room_of(&client_id);
@@ -889,7 +889,7 @@ pub fn run(
                     flush_room_outbox(room, &mut transport);
                     transport.rtc_server().remove_session(&client_id);
                     if room.is_hibernating() {
-                        eprintln!(
+                        tracing::info!(
                             "[server] ⏸️ Room '{room_name}' is now empty -> hibernating (0% CPU, 30s auto-close timer started)"
                         );
                     }
@@ -904,7 +904,7 @@ pub fn run(
                     };
                     // Rule 4: Bounds validation on inbound payload
                     if data.len() > engine_wasm::MAX_INBOUND_PAYLOAD_SIZE {
-                        eprintln!(
+                        tracing::warn!(
                             "[server] ⚠️ rejected payload from {client_id}: size {} exceeds max {}",
                             data.len(),
                             engine_wasm::MAX_INBOUND_PAYLOAD_SIZE
@@ -922,7 +922,7 @@ pub fn run(
                     // Spectator Upgrade Handshake: [0xFF, 'S', 'P', 'E', 'C']
                     if data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC" {
                         room.make_spectator(&client_id);
-                        eprintln!(
+                        tracing::info!(
                             "[server] 👁️  {client_id} upgraded to SPECTATOR in room '{room_name}'"
                         );
                         let _ =
@@ -958,7 +958,7 @@ pub fn run(
                         // Zero-copy view of the bytes the frame actually arrived in.
                         let wire = payload.slice(payload.len() - data.len()..);
                         let Ok(signal) = engine_voice::SignalFrame::decode(&wire) else {
-                            eprintln!("[server] ⚠️ dropped malformed signal from {client_id}");
+                            tracing::warn!("[server] ⚠️ dropped malformed signal from {client_id}");
                             continue;
                         };
                         let from = id as u32;
@@ -1051,12 +1051,12 @@ pub fn run(
                                                             OpCode::RoomDataBytes,
                                                             &ans_frame,
                                                         );
-                                                        eprintln!(
+                                                        tracing::info!(
                                                             "[server] ⚡ WebRTC Client-Server offer accepted for {client_id}, SDP answer returned"
                                                         );
                                                     }
                                                     Err(e) => {
-                                                        eprintln!(
+                                                        tracing::error!(
                                                             "[server] ⚠️ WebRTC handle_offer error for client {client_id}: {e}"
                                                         );
                                                     }
@@ -1072,10 +1072,10 @@ pub fn run(
                                                 {
                                                     match webrtc.handle_candidate(&client_id, cand)
                                                     {
-                                                        Ok(_) => eprintln!(
+                                                        Ok(_) => tracing::info!(
                                                             "[server] 🧊 Client {client_id} added ICE candidate: {cand}"
                                                         ),
-                                                        Err(e) => eprintln!(
+                                                        Err(e) => tracing::error!(
                                                             "[server] ⚠️ Client {client_id} candidate error: {e} ({cand})"
                                                         ),
                                                     }
@@ -1112,7 +1112,7 @@ pub fn run(
                                 });
                             }
                             other => {
-                                eprintln!(
+                                tracing::warn!(
                                     "[server] ⚠️ {client_id} sent a server-only signal ({other:?})"
                                 );
                             }
@@ -1153,11 +1153,11 @@ pub fn run(
                         if data[1] == b'T' {
                             let team_id = data[2] as u16;
                             room.voice_room.set_team(id as u32, Some(team_id));
-                            eprintln!("[server] 🛡️ Player {id} switched to Squad {team_id}");
+                            tracing::info!("[server] 🛡️ Player {id} switched to Squad {team_id}");
                         } else if data[1] == b'M' {
                             let muted = data[2] == 1;
                             room.voice_room.set_muted(id as u32, muted);
-                            eprintln!("[server] 🎙️ Player {id} mic muted={muted}");
+                            tracing::info!("[server] 🎙️ Player {id} mic muted={muted}");
                             if room.voice_mesh.peer_count() > 1 {
                                 let note = engine_voice::SignalFrame::new(
                                     engine_voice::SignalKind::Muted,
@@ -1177,7 +1177,7 @@ pub fn run(
                         } else if data[1] == b'D' {
                             let deafened = data[2] == 1;
                             room.voice_room.set_deafened(id as u32, deafened);
-                            eprintln!("[server] 🎧 Player {id} deafened={deafened}");
+                            tracing::info!("[server] 🎧 Player {id} deafened={deafened}");
                         }
                         continue;
                     }
@@ -1227,7 +1227,7 @@ pub fn run(
                         if let Ok(input) = engine_webrtc_protocol::InputFrame::decode(data) {
                             last_input_at.insert(client_id.to_string(), Instant::now());
                             if transport.is_rtc_connected(&client_id) && input.seq % 120 == 1 {
-                                eprintln!(
+                                tracing::debug!(
                                     "[server] ℹ️ Player {id} sent a stamped input frame (seq {})",
                                     input.seq
                                 );
@@ -1265,18 +1265,18 @@ pub fn run(
                             Ok(ptr_i32) => {
                                 let ptr = ptr_i32 as u32;
                                 if let Err(e) = wasm.write_memory(ptr, data) {
-                                    eprintln!(
+                                    tracing::error!(
                                         "[server] ⚠️ failed to write memory for player {id}: {e}"
                                     );
                                 } else if let Err(e) = wasm.on_input(id, ptr_i32, data.len() as i32)
                                 {
-                                    eprintln!(
+                                    tracing::warn!(
                                         "[server] ⚠️ guest trap in on_input for player {id}: {e}"
                                     );
                                 }
                             }
                             Err(e) => {
-                                eprintln!("[server] ⚠️ guest on_alloc failed for player {id}: {e}");
+                                tracing::error!("[server] ⚠️ guest on_alloc failed for player {id}: {e}");
                             }
                         }
                     }
@@ -1297,7 +1297,7 @@ pub fn run(
                 let room = match server_guard.get_or_create(&cfg.name) {
                     Ok(room) => room,
                     Err(e) => {
-                        eprintln!("[server-udp] ⛔ room '{}' unavailable: {e}", cfg.name);
+                        tracing::error!("[server-udp] ⛔ room '{}' unavailable: {e}", cfg.name);
                         continue;
                     }
                 };
@@ -1311,7 +1311,7 @@ pub fn run(
                         || data[0] == netcode::CYG_OP_LEAVE_ROOM)
                 {
                     if let Some((id, sess, _)) = udp_peers.remove(&peer_addr) {
-                        eprintln!("[server-udp] {peer_addr} left room via UDP (session {sess})");
+                        tracing::info!("[server-udp] {peer_addr} left room via UDP (session {sess})");
                         udp_input_rates.remove(&peer_addr);
                         room.sessions.remove(&sess);
                         room.schema_sent.remove(&sess);
@@ -1326,7 +1326,7 @@ pub fn run(
                     if is_spec_handshake {
                         let session_id = format!("spec_{}_{}", peer_addr.ip(), peer_addr.port());
                         udp_peers.insert(peer_addr, (0, session_id.clone(), Instant::now())); // 0 = spectator
-                        eprintln!("[server-udp] 👁️  {peer_addr} connected as SPECTATOR via UDP");
+                        tracing::info!("[server-udp] 👁️  {peer_addr} connected as SPECTATOR via UDP");
                         let _ = udp_sock.send_to(SPECTATOR_CONFIRM, peer_addr);
                     } else {
                         // Join amplification guard: max 5 joins/sec per source
@@ -1336,7 +1336,7 @@ pub fn run(
                             continue;
                         }
                         if !udp_join_rates.entry(peer_addr).or_insert_with(|| netcode::InputRateLimiter::new(5, 5.0)).allow(Instant::now()) {
-                            eprintln!("[server-udp] ⛔ join rate-limit hit by {peer_addr}");
+                            tracing::error!("[server-udp] ⛔ join rate-limit hit by {peer_addr}");
                             continue;
                         }
                         let n = room.sessions.len() + udp_peers.len();
@@ -1347,7 +1347,7 @@ pub fn run(
                         let id = room.add_raw_player(x, y);
                         let session_id = format!("p{}_{}_{}", id, peer_addr.ip(), peer_addr.port());
                         udp_peers.insert(peer_addr, (id, session_id.clone(), Instant::now()));
-                        eprintln!(
+                        tracing::info!(
                             "[server-udp] {peer_addr} joined room via UDP (player id {id}, session {session_id})"
                         );
 
@@ -1379,7 +1379,7 @@ pub fn run(
                     if is_spec_handshake && *id != 0 {
                         room.remove_raw_player(*id);
                         *id = 0;
-                        eprintln!("[server-udp] 👁️  {peer_addr} upgraded to SPECTATOR via UDP");
+                        tracing::info!("[server-udp] 👁️  {peer_addr} upgraded to SPECTATOR via UDP");
                     } else if *id > 0 && !data.is_empty() {
                         if data[0] == netcode::CYG_WIRE_PING {
                             let _ = udp_sock.send_to(data, peer_addr);
@@ -1421,7 +1421,7 @@ pub fn run(
                 } => {
                     last_input_at.insert(client_id.clone(), Instant::now());
                     if !resupplied && seq % 120 == 1 {
-                        eprintln!(
+                        tracing::debug!(
                             "[server] ⚡ WebRTC UDP input stream active for player {id} (seq {seq})"
                         );
                     }
@@ -1488,7 +1488,7 @@ pub fn run(
             if tick_counter >= 300 && tick_stat_start.elapsed() >= Duration::from_secs(5) {
                 let stat_dur = tick_stat_start.elapsed().as_secs_f64();
                 let measured_hz = (tick_counter as f64) / stat_dur;
-                eprintln!(
+                tracing::debug!(
                     "[server] ⏱️ Steady Fixed Tickrate: {:.2} Hz (target: {} Hz, dt: {:.2}ms, 300 samples in {:.2}s)",
                     measured_hz,
                     cfg.tick_rate,
@@ -1540,7 +1540,7 @@ pub fn run(
                     let packed = match room.tick(dt, cfg.rollback.enabled) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!(
+                            tracing::warn!(
                                 "[server] ⚠️ guest trap during on_tick in room '{name}': {e}"
                             );
                             flush_room_outbox(room, &mut transport);
@@ -1557,7 +1557,7 @@ pub fn run(
 
                     // Rule 4: Bounds check outbound delta size
                     if len > engine_wasm::MAX_OUTBOUND_DELTA_SIZE {
-                        eprintln!(
+                        tracing::warn!(
                             "[server] ⚠️ delta buffer size {len} exceeded max limit {} in room '{name}'",
                             engine_wasm::MAX_OUTBOUND_DELTA_SIZE
                         );
@@ -1570,7 +1570,7 @@ pub fn run(
                             if let Err(e) =
                                 wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf)
                             {
-                                eprintln!(
+                                tracing::error!(
                                     "[server] ⚠️ failed to read delta memory in room '{name}': {e}"
                                 );
                                 continue;
@@ -1861,7 +1861,7 @@ pub fn run(
                 }
             });
             for (addr, id, sess) in timed_out_udp.drain(..) {
-                eprintln!("[server-udp] disconnected (timeout): {addr}");
+                tracing::info!("[server-udp] disconnected (timeout): {addr}");
                 udp_input_rates.remove(&addr);
                 if let Some(room) = server.rooms.get_mut(&cfg.name) {
                     room.sessions.remove(&sess);
@@ -1879,7 +1879,7 @@ pub fn run(
                     }
                     // Last guest callback: flush scores / release resources.
                     room.dispose();
-                    eprintln!("[server] room '{name}' disposed and state saved (empty 30s)");
+                    tracing::info!("[server] room '{name}' disposed and state saved (empty 30s)");
                 }
             }
             transport.flush().expect("flush");
@@ -1956,7 +1956,7 @@ pub fn run(
             let mut console_reload = false;
             while let Ok(reload) = bus.reloads_rx.try_recv() {
                 console_reload = true;
-                eprintln!(
+                tracing::info!(
                     "[server] 📦 console wasm reload: game '{}' {} v{} (sha256 {}…)",
                     reload.game_key,
                     match reload.kind {
@@ -1968,7 +1968,7 @@ pub fn run(
                 );
             }
             if console_reload && !wasm_available {
-                eprintln!(
+                tracing::warn!(
                     "[server] ⚠️ console reload ignored: this plane booted without a \
                      room module at {} — nothing to hot-swap onto yet",
                     wasm_path.display()
@@ -1978,7 +1978,7 @@ pub fn run(
             // 1. Detect changes in the TypeScript room source (room.ts)
             if let Ok(src_current) = std::fs::metadata(&source_path).and_then(|m| m.modified()) {
                 if loaded_src_time != Some(src_current) {
-                    eprintln!(
+                    tracing::info!(
                         "[server] 📝 Detected change in {} — recompiling room logic...",
                         cfg.source.display()
                     );
@@ -1988,7 +1988,7 @@ pub fn run(
                             recompilation_triggered = true;
                         }
                         Err(e) => {
-                            eprintln!(
+                            tracing::error!(
                                 "[server] ⚠️ Compilation error in {}: {e}",
                                 cfg.source.display()
                             );
@@ -2017,7 +2017,7 @@ pub fn run(
                             }) {
                             Ok(pre) => {
                                 loaded_wasm_time = Some(current);
-                                eprintln!("[server] 🔥 DEV HOT-RELOAD: room logic updated!");
+                                tracing::info!("[server] 🔥 DEV HOT-RELOAD: room logic updated!");
 
                                 // 🔥 Hot-swap all actively running rooms without
                                 // disconnecting players (`GameRoom::reload_wasm`
@@ -2025,7 +2025,7 @@ pub fn run(
                                 server.hot_reload(pre, cfg.width, cfg.height);
                             }
                             Err(e) => {
-                                eprintln!("[server] ⚠️ hot-reload compilation failed: {e}");
+                                tracing::error!("[server] ⚠️ hot-reload compilation failed: {e}");
                             }
                         }
                     }

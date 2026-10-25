@@ -37,7 +37,7 @@ where
         let handle = thread::Builder::new()
             .name(format!("mio-worker-{}", worker_id))
             .spawn(move || {
-                println!(
+                tracing::info!(
                     "⚡ [Worker {}] Thread started & listening on {} (SO_REUSEPORT)",
                     worker_id, config.bind_addr
                 );
@@ -49,12 +49,12 @@ where
                     });
 
                     if let Err(e) = res {
-                        eprintln!("[Worker {}] Error during step: {}", worker_id, e);
+                        tracing::error!("[Worker {}] Error during step: {}", worker_id, e);
                         break;
                     }
                 }
 
-                println!("✓ [Worker {}] Thread gracefully terminated", worker_id);
+                tracing::info!("✓ [Worker {}] Thread gracefully terminated", worker_id);
             })?;
 
         threads.push(handle);

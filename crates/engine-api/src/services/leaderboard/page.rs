@@ -62,7 +62,7 @@ async fn fetch(
         }
     };
     query.map_err(|error| {
-        eprintln!("[v2] leaderboard records page: {error}");
+        tracing::error!("[v2] leaderboard records page: {error}");
         V2Error::internal(LIST_FAILED)
     })
 }

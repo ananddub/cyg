@@ -46,7 +46,7 @@ impl super::TournamentService {
 /// here as a database failure; only an unmatched error value says otherwise.
 async fn load(queries: &Queries, id: &str) -> Result<Leaderboard, V2Error> {
     queries.get_tournament(id).await.map_err(|error| {
-        eprintln!("[v2] tournament delete load: {error}");
+        tracing::error!("[v2] tournament delete load: {error}");
         V2Error::internal(DELETE_FAILED)
     })
 }
@@ -79,6 +79,6 @@ async fn remove(
 }
 
 fn delete_failure(error: sqlx::Error) -> V2Error {
-    eprintln!("[v2] tournament delete: {error}");
+    tracing::error!("[v2] tournament delete: {error}");
     V2Error::internal(DELETE_FAILED)
 }

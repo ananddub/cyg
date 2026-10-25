@@ -72,7 +72,7 @@ mod benches {
         let elapsed = start.elapsed();
         let per_packet = elapsed / iterations;
 
-        println!(
+        tracing::info!(
             "Spatial Voice Fanout: 1,000 packets dispatched across 100 players in {:?} ({:?} per packet, total frames routed: {})",
             elapsed, per_packet, total_routed
         );

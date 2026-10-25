@@ -51,12 +51,12 @@ async fn read_back(
         })
         .await
         .map_err(|error| {
-            eprintln!("[v2] tournament write read-back: {error}");
+            tracing::error!("[v2] tournament write read-back: {error}");
             V2Error::internal(WRITE_FAILED)
         })?;
     let rank = if ranks_enabled(board) {
         rank_of(queries, board, &record).await.map_err(|error| {
-            eprintln!("[v2] tournament write rank: {error}");
+            tracing::error!("[v2] tournament write rank: {error}");
             V2Error::internal(WRITE_FAILED)
         })?
     } else {

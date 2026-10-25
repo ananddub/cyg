@@ -436,7 +436,7 @@ mod bench {
             ticks.push(t.elapsed().as_secs_f64() * 1000.0);
         }
         black_box(&ticks);
-        println!("[A] 1 room / 1000 players: spawn {:.0}ms, tick mean {:.3}ms p50 {:.3} p95 {:.3} p99 {:.3}, delta/tick {}B, RSS+{:.1}MB",
+        tracing::info!("[A] 1 room / 1000 players: spawn {:.0}ms, tick mean {:.3}ms p50 {:.3} p95 {:.3} p99 {:.3}, delta/tick {}B, RSS+{:.1}MB",
             spawn_s * 1000.0,
             ticks.iter().sum::<f64>() / ticks.len() as f64,
             pctl(ticks.clone(), 0.5), pctl(ticks.clone(), 0.95), pctl(ticks.clone(), 0.99),
@@ -463,7 +463,7 @@ mod bench {
             frame.push(t.elapsed().as_secs_f64() * 1000.0);
         }
         black_box(&frame);
-        println!("[B] 100 rooms / 10000 players total: frame mean {:.3}ms p50 {:.3} p95 {:.3} p99 {:.3}, deltas/frame {:.0}KB, RSS+{:.1}MB",
+        tracing::info!("[B] 100 rooms / 10000 players total: frame mean {:.3}ms p50 {:.3} p95 {:.3} p99 {:.3}, deltas/frame {:.0}KB, RSS+{:.1}MB",
             frame.iter().sum::<f64>() / frame.len() as f64,
             pctl(frame.clone(), 0.5), pctl(frame.clone(), 0.95), pctl(frame.clone(), 0.99),
             bytes as f64 / 120.0 / 1024.0, rss_mb());

@@ -121,7 +121,7 @@ fn accept_pending(
                 *next_token += 1;
 
                 if let Err(e) = stream.set_nodelay(true) {
-                    eprintln!("Failed to set nodelay: {}", e);
+                    tracing::error!("Failed to set nodelay: {}", e);
                 }
 
                 if let Err(e) = poll.registry().register(
@@ -129,7 +129,7 @@ fn accept_pending(
                     token,
                     Interest::READABLE | Interest::WRITABLE,
                 ) {
-                    eprintln!("Failed to register client: {}", e);
+                    tracing::error!("Failed to register client: {}", e);
                     continue;
                 }
 
@@ -139,7 +139,7 @@ fn accept_pending(
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
             Err(e) => {
-                eprintln!("Accept error: {}", e);
+                tracing::error!("Accept error: {}", e);
                 break;
             }
         }
@@ -172,7 +172,7 @@ fn service_client(
                 }
             }
             Err(e) => {
-                eprintln!("Socket read error: {}", e);
+                tracing::error!("Socket read error: {}", e);
                 conn_disconnected = true;
             }
         }
@@ -180,7 +180,7 @@ fn service_client(
 
     if event.is_writable() && conn.has_pending_writes() {
         if let Err(e) = conn.do_write() {
-            eprintln!("Socket write error: {}", e);
+            tracing::error!("Socket write error: {}", e);
             conn_disconnected = true;
         }
     }

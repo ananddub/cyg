@@ -26,7 +26,20 @@ use std::path::{Path, PathBuf};
 mod cook;
 mod schema;
 
+fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .compact()
+        .init();
+}
+
 fn main() {
+    init_logging();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("run");
     let dir = args
@@ -37,32 +50,32 @@ fn main() {
     match cmd {
         "init" => {
             if let Err(e) = init(&dir) {
-                eprintln!("✗ init failed: {e}");
+                tracing::error!("✗ init failed: {e}");
                 std::process::exit(1);
             }
         }
         "run" => {
             if let Err(e) = run(&dir) {
-                eprintln!("✗ run failed: {e}");
+                tracing::error!("✗ run failed: {e}");
                 std::process::exit(1);
             }
         }
         "aot" | "build" => {
             if let Err(e) = aot(&dir) {
-                eprintln!("✗ aot build failed: {e}");
+                tracing::error!("✗ aot build failed: {e}");
                 std::process::exit(1);
             }
         }
         "gen-interface" | "interfaces" | "sdk" => {
             if let Err(e) = generate_interfaces(&dir) {
-                eprintln!("✗ gen-interface failed: {e}");
+                tracing::error!("✗ gen-interface failed: {e}");
                 std::process::exit(1);
             }
         }
         "schema" | "gen-schema" => schema_command(&args[1..]),
         "doctor" => {
             if let Err(e) = doctor(&dir) {
-                eprintln!("✗ doctor found problems");
+                tracing::info!("✗ doctor found problems");
                 std::process::exit(1);
             }
         }
@@ -70,19 +83,19 @@ fn main() {
         "schema-debug" | "schema-inspect" => schema_debug_command(&args[1..]),
         "cook" => {
             if args.len() < 3 {
-                eprintln!("Usage: ox-game cook <input.glb> <output.bin>");
+                tracing::info!("Usage: ox-game cook <input.glb> <output.bin>");
                 std::process::exit(1);
             }
             let input = Path::new(&args[1]);
             let output = Path::new(&args[2]);
             if let Err(e) = cook::cook_glb(input, output) {
-                eprintln!("✗ cook failed: {e}");
+                tracing::error!("✗ cook failed: {e}");
                 std::process::exit(1);
             }
         }
         "--help" | "-h" | "help" => print_help(),
         other => {
-            eprintln!("unknown command: {other}");
+            tracing::info!("unknown command: {other}");
             print_help();
             std::process::exit(1);
         }
@@ -95,16 +108,16 @@ fn main() {
 /// `on_tick()`) in seconds instead of at room-join time.
 fn doctor(dir: &Path) -> std::io::Result<()> {
     let mut problems = 0usize;
-    println!("🩺 ox-game doctor — {}\n", dir.display());
+    tracing::info!("🩺 ox-game doctor — {}\n", dir.display());
 
     // 1. config
     let cfg = match engine_config::load_config(dir) {
         Ok(cfg) => {
-            println!("✓ config.toml parses (name '{}', tick {}Hz)", cfg.name, cfg.tick_rate);
+            tracing::info!("✓ config.toml parses (name '{}', tick {}Hz)", cfg.name, cfg.tick_rate);
             Some(cfg)
         }
         Err(e) => {
-            println!("✗ config.toml: {e}");
+            tracing::info!("✗ config.toml: {e}");
             problems += 1;
             None
         }
@@ -112,13 +125,13 @@ fn doctor(dir: &Path) -> std::io::Result<()> {
 
     // 2. schema
     match schema::load_contract(dir) {
-        Ok(contract) => println!(
+        Ok(contract) => tracing::info!(
             "✓ schema.ts parses ({} schemas, root '{}')",
             contract.schemas.len(),
             contract.root.name
         ),
         Err(e) => {
-            println!("✗ schema: {e}");
+            tracing::info!("✗ schema: {e}");
             problems += 1;
         }
     }
@@ -140,9 +153,9 @@ fn doctor(dir: &Path) -> std::io::Result<()> {
                     let exports: Vec<String> = module.exports().map(|e| e.name().to_string()).collect();
                     let missing: Vec<&str> = required.iter().filter(|r| !exports.contains(&r.to_string())).copied().collect();
                     if missing.is_empty() {
-                        println!("✓ room wasm exports the full host ABI ({} exports)", exports.len());
+                        tracing::info!("✓ room wasm exports the full host ABI ({} exports)", exports.len());
                     } else {
-                        println!(
+                        tracing::info!(
                             "✗ room wasm is missing host exports: {}. The host looks up exactly these names (see sdk/interfaces). Got: {}",
                             missing.join(", "),
                             exports.join(", ")
@@ -151,24 +164,24 @@ fn doctor(dir: &Path) -> std::io::Result<()> {
                     }
                 }
                 Err(e) => {
-                    println!("✗ room wasm does not compile: {e}");
+                    tracing::info!("✗ room wasm does not compile: {e}");
                     problems += 1;
                 }
             }
         }
-        None => println!("• room wasm not built yet (run: ox-game run {})", dir.display()),
+        None => tracing::info!("• room wasm not built yet (run: ox-game run {})", dir.display()),
     }
 
     if problems > 0 {
         Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{problems} problem(s)")))
     } else {
-        println!("\n✓ project looks healthy");
+        tracing::info!("\n✓ project looks healthy");
         Ok(())
     }
 }
 
 fn print_help() {
-    println!(
+    tracing::info!(
         "ox-game — OpenOxide game server
 
 USAGE:
@@ -200,7 +213,7 @@ fn schema_command(args: &[String]) {
             "--dump" => dump = true,
             "--json" => json = true,
             "--help" | "-h" => {
-                println!(
+                tracing::info!(
                     "usage: ox-game schema [dir] [--dump] [--json]\n\
                      \x20 --dump   print the binary descriptor as lowercase hex\n\
                      \x20 --json   print paths, byte count and descriptor hex as JSON"
@@ -208,12 +221,12 @@ fn schema_command(args: &[String]) {
                 return;
             }
             other if other.starts_with('-') => {
-                eprintln!("✗ unknown schema option: {other}");
+                tracing::info!("✗ unknown schema option: {other}");
                 std::process::exit(1);
             }
             other if dir == Path::new(".") => dir = PathBuf::from(other),
             other => {
-                eprintln!("✗ unexpected schema argument: {other}");
+                tracing::info!("✗ unexpected schema argument: {other}");
                 std::process::exit(1);
             }
         }
@@ -222,12 +235,12 @@ fn schema_command(args: &[String]) {
     match schema::require_project(&dir) {
         Ok(output) => {
             if let Err(e) = print_schema_output(&output, dump, json) {
-                eprintln!("✗ schema report failed: {e}");
+                tracing::error!("✗ schema report failed: {e}");
                 std::process::exit(1);
             }
         }
         Err(e) => {
-            eprintln!("✗ schema generation failed: {e}");
+            tracing::error!("✗ schema generation failed: {e}");
             std::process::exit(1);
         }
     }
@@ -246,7 +259,7 @@ fn schema_codegen_command(args: &[String]) {
                 match args.get(index) {
                     Some(value) => lang = value.clone(),
                     None => {
-                        eprintln!("✗ --lang needs a value (cs, gdscript, cpp, lua or all)");
+                        tracing::info!("✗ --lang needs a value (cs, gdscript, cpp, lua or all)");
                         std::process::exit(1);
                     }
                 }
@@ -256,14 +269,14 @@ fn schema_codegen_command(args: &[String]) {
                 match args.get(index) {
                     Some(value) => out = Some(PathBuf::from(value)),
                     None => {
-                        eprintln!("✗ --out needs a directory");
+                        tracing::info!("✗ --out needs a directory");
                         std::process::exit(1);
                     }
                 }
             }
             "--check" => check = true,
             "--help" | "-h" => {
-                println!(
+                tracing::info!(
                     "usage: ox-game schema-codegen [dir] [--lang <cs|gdscript|cpp|lua|all>] [--out DIR] [--check]\n\
                      \x20 --lang    target language; defaults to all\n\
                      \x20 --out     output directory; defaults to <dir>/generated\n\
@@ -272,12 +285,12 @@ fn schema_codegen_command(args: &[String]) {
                 return;
             }
             other if other.starts_with('-') => {
-                eprintln!("✗ unknown schema-codegen option: {other}");
+                tracing::info!("✗ unknown schema-codegen option: {other}");
                 std::process::exit(1);
             }
             other if dir == Path::new(".") => dir = PathBuf::from(other),
             other => {
-                eprintln!("✗ unexpected schema-codegen argument: {other}");
+                tracing::info!("✗ unexpected schema-codegen argument: {other}");
                 std::process::exit(1);
             }
         }
@@ -290,7 +303,7 @@ fn schema_codegen_command(args: &[String]) {
         match Language::parse(&lang) {
             Some(language) => vec![language],
             None => {
-                eprintln!("✗ unknown language '{lang}'; use cs, gdscript, cpp, lua or all");
+                tracing::info!("✗ unknown language '{lang}'; use cs, gdscript, cpp, lua or all");
                 std::process::exit(1);
             }
         }
@@ -299,7 +312,7 @@ fn schema_codegen_command(args: &[String]) {
     let contract = match schema::load_contract(&dir) {
         Ok(contract) => contract,
         Err(e) => {
-            eprintln!("✗ schema-codegen failed: {e}");
+            tracing::error!("✗ schema-codegen failed: {e}");
             std::process::exit(1);
         }
     };
@@ -314,7 +327,7 @@ fn schema_codegen_command(args: &[String]) {
             if current.as_deref() != Some(expected.as_str()) {
                 stale.push(path);
             } else {
-                println!(
+                tracing::info!(
                     "✓ {} up to date {}",
                     language.display_name(),
                     path.display()
@@ -323,9 +336,9 @@ fn schema_codegen_command(args: &[String]) {
         }
         if !stale.is_empty() {
             for path in stale {
-                eprintln!("✗ stale {}", path.display());
+                tracing::info!("✗ stale {}", path.display());
             }
-            eprintln!(
+            tracing::info!(
                 "run `ox-game schema-codegen {} --out {}` to regenerate",
                 dir.display(),
                 out_dir.display()
@@ -337,14 +350,14 @@ fn schema_codegen_command(args: &[String]) {
 
     for language in languages {
         match schema::write_codegen(&out_dir, &contract, language) {
-            Ok((path, changed)) => println!(
+            Ok((path, changed)) => tracing::info!(
                 "✓ {} {} {}",
                 language.display_name(),
                 if changed { "wrote" } else { "unchanged" },
                 path.display()
             ),
             Err(e) => {
-                eprintln!("✗ schema-codegen failed: {e}");
+                tracing::error!("✗ schema-codegen failed: {e}");
                 std::process::exit(1);
             }
         }
@@ -358,7 +371,7 @@ fn schema_debug_command(args: &[String]) {
         match arg.as_str() {
             "--json" => json = true,
             "--help" | "-h" => {
-                println!(
+                tracing::info!(
                     "usage: ox-game schema-debug [dir|file] [--json]\n\
                      \x20 Reads openoxide.schema.bin (or the given file) and prints the\n\
                      \x20 root, collections, schemas, fields and recomputed hashes."
@@ -366,12 +379,12 @@ fn schema_debug_command(args: &[String]) {
                 return;
             }
             other if other.starts_with('-') => {
-                eprintln!("✗ unknown schema-debug option: {other}");
+                tracing::info!("✗ unknown schema-debug option: {other}");
                 std::process::exit(1);
             }
             other if path == Path::new(".") => path = PathBuf::from(other),
             other => {
-                eprintln!("✗ unexpected schema-debug argument: {other}");
+                tracing::info!("✗ unexpected schema-debug argument: {other}");
                 std::process::exit(1);
             }
         }
@@ -385,12 +398,12 @@ fn schema_debug_command(args: &[String]) {
     let bytes = match std::fs::read(&descriptor_path) {
         Ok(bytes) => bytes,
         Err(e) => {
-            eprintln!("✗ cannot read {}: {e}", descriptor_path.display());
+            tracing::info!("✗ cannot read {}: {e}", descriptor_path.display());
             std::process::exit(1);
         }
     };
     let Some(descriptor) = parse_descriptor(&bytes) else {
-        eprintln!(
+        tracing::info!(
             "✗ {} is not a valid OXSD descriptor ({} bytes)",
             descriptor_path.display(),
             bytes.len()
@@ -416,13 +429,13 @@ fn schema_debug_command(args: &[String]) {
         return;
     }
 
-    println!(
+    tracing::info!(
         "descriptor  {} ({} bytes)",
         descriptor_path.display(),
         bytes.len()
     );
-    println!("format      v{}", descriptor.version);
-    println!(
+    tracing::info!("format      v{}", descriptor.version);
+    tracing::info!(
         "root        {} (v{}, hash {})",
         if descriptor.root.name.is_empty() {
             "(none)"
@@ -433,14 +446,14 @@ fn schema_debug_command(args: &[String]) {
         debug_hash(root_hash)
     );
     if !descriptor.root.scalars.is_empty() {
-        println!("root fields ({})", descriptor.root.scalars.len());
+        tracing::info!("root fields ({})", descriptor.root.scalars.len());
         for field in &descriptor.root.scalars {
             print_debug_field(field, 2);
         }
     }
-    println!("schemas ({})", descriptor.schemas.len());
+    tracing::info!("schemas ({})", descriptor.schemas.len());
     for schema in &descriptor.schemas {
-        println!(
+        tracing::info!(
             "  {} (v{}, hash {}, {} fields)",
             schema.name,
             schema.version,
@@ -451,14 +464,14 @@ fn schema_debug_command(args: &[String]) {
             print_debug_field(field, 4);
         }
     }
-    println!("collections ({})", descriptor.collections.len());
+    tracing::info!("collections ({})", descriptor.collections.len());
     for (index, (name, schema_index)) in descriptor.collections.iter().enumerate() {
         let schema_name = descriptor
             .schemas
             .get(*schema_index)
             .map(|schema| schema.name.as_str())
             .unwrap_or("?");
-        println!("  {index} {name} -> {schema_name}");
+        tracing::info!("  {index} {name} -> {schema_name}");
     }
 }
 
@@ -498,7 +511,7 @@ fn print_debug_field(field: &SchemaField, indent: usize) {
     } else {
         format!(" [{}]", flags.join(","))
     };
-    println!(
+    tracing::info!(
         "{}{:<20} {}{suffix}",
         " ".repeat(indent),
         field.name,
@@ -549,7 +562,7 @@ fn print_schema_debug_json(
             )
         })
         .collect();
-    println!(
+    tracing::info!(
         "{{\"path\":\"{}\",\"bytes\":{},\"formatVersion\":{},\
          \"root\":{{\"name\":\"{}\",\"version\":{},\"hash\":{},\"fields\":[{}]}},\
          \"schemas\":[{}],\"collections\":[{}]}}",
@@ -599,7 +612,7 @@ fn print_schema_output(
         .collect();
 
     if dump {
-        println!("{hex}");
+        tracing::info!("{hex}");
         return Ok(());
     }
 
@@ -609,7 +622,7 @@ fn print_schema_output(
             .iter()
             .map(|path| format!("\"{}\"", json_escape(&path.display().to_string())))
             .collect();
-        println!(
+        tracing::info!(
             "{{\"source\":\"{}\",\"server\":\"{}\",\"descriptor\":\"{}\",\
              \"descriptorBytes\":{},\"descriptorHex\":\"{}\",\
              \"clientDts\":\"{}\",\"wrote\":[{}]}}",
@@ -625,13 +638,13 @@ fn print_schema_output(
     }
 
     if output.wrote.is_empty() {
-        println!("✓ schema outputs are up to date");
+        tracing::info!("✓ schema outputs are up to date");
         return Ok(());
     }
-    println!("✓ schema generated from {}:", output.source.display());
-    println!("  • {} (AssemblyScript server)", output.server.display());
-    println!("  • {} (browser descriptor)", output.descriptor.display());
-    println!("  • {} (browser types)", output.client_dts.display());
+    tracing::info!("✓ schema generated from {}:", output.source.display());
+    tracing::info!("  • {} (AssemblyScript server)", output.server.display());
+    tracing::info!("  • {} (browser descriptor)", output.descriptor.display());
+    tracing::info!("  • {} (browser types)", output.client_dts.display());
     Ok(())
 }
 
@@ -668,9 +681,9 @@ fn aot(dir: &Path) -> std::io::Result<()> {
 
     let wasm_path = engine_server::compile::build(dir, &cfg)?;
     let cwasm_path = engine_server::compile::aot_precompile(&wasm_path)?;
-    println!("✓ Successfully AOT precompiled room to native machine code:");
-    println!("  • WASM bytecode:       {}", wasm_path.display());
-    println!("  • Native AOT (.cwasm): {}", cwasm_path.display());
+    tracing::info!("✓ Successfully AOT precompiled room to native machine code:");
+    tracing::info!("  • WASM bytecode:       {}", wasm_path.display());
+    tracing::info!("  • Native AOT (.cwasm): {}", cwasm_path.display());
     Ok(())
 }
 
@@ -721,41 +734,41 @@ fn init(dir: &Path) -> std::io::Result<()> {
     // means the room template's generated import resolves immediately.
     let generated = schema::require_project(dir)?;
 
-    println!("✓ game project created in {}", dir.display());
-    println!();
-    println!(
+    tracing::info!("✓ game project created in {}", dir.display());
+    tracing::info!("");
+    tracing::info!(
         "  {}/config.toml     — runtime, ports, tick rate",
         dir.display()
     );
-    println!(
+    tracing::info!(
         "  {}/room.ts        — your room logic (edit me!)",
         dir.display()
     );
-    println!("  {}/website.html   — the canvas page", dir.display());
-    println!(
+    tracing::info!("  {}/website.html   — the canvas page", dir.display());
+    tracing::info!(
         "  {}/schema.ts      — network state (Colyseus v5 syntax, edit me!)",
         dir.display()
     );
-    println!(
+    tracing::info!(
         "  {}/openoxide.ts   — server SDK (Room, messages, SchemaState)",
         dir.display()
     );
-    println!(
+    tracing::info!(
         "  {}/openoxide.js   — browser SDK (Client, schema, messages)",
         dir.display()
     );
-    println!(
+    tracing::info!(
         "  {}/openoxide-client.d.ts — browser SDK types",
         dir.display()
     );
-    println!(
+    tracing::info!(
         "  {}/.gitignore      — ignores regenerable client bindings",
         dir.display()
     );
-    println!();
+    tracing::info!("");
     print_schema_output(&generated, false, false)?;
-    println!();
-    println!("next: ox-game run {}", dir.display());
+    tracing::info!("");
+    tracing::info!("next: ox-game run {}", dir.display());
     Ok(())
 }
 
@@ -769,7 +782,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
             && !Path::new("config.yml").exists()
         {
             // No project here: run the built-in demo (example room + website).
-            eprintln!("[run] no config.toml found — running the built-in demo");
+            tracing::info!("[run] no config.toml found — running the built-in demo");
             GameConfig {
                 name: "game_room".into(),
                 source: PathBuf::from("crates/engine-net/examples/e2e/room.ts"),
@@ -797,7 +810,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
 
     if let Some(output) = schema::generate_project(&project_dir)? {
         if !output.wrote.is_empty() {
-            eprintln!(
+            tracing::info!(
                 "[schema] generated {} file(s) from {}",
                 output.wrote.len(),
                 output.source.display()
@@ -805,7 +818,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
         }
     }
 
-    println!("🧩 room runtime: {:?}", cfg.runtime);
+    tracing::info!("🧩 room runtime: {:?}", cfg.runtime);
     // A project that ships only Unity C# gameplay has no room source at all.
     // That is not fatal — the server boots in Unity-relay mode. Only a genuine
     // build failure (source present but uncompilable) is reported.
@@ -813,7 +826,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
     let wasm_path = match engine_server::compile::build(&project_dir, &cfg) {
         Ok(path) => path,
         Err(_) if !src_path.exists() => {
-            eprintln!(
+            tracing::info!(
                 "[main] 🧩 no room source ({}) — running Unity-relay rooms only",
                 cfg.source.display()
             );
@@ -835,8 +848,8 @@ fn run(dir: &Path) -> std::io::Result<()> {
     if plane_cfg.enabled {
         let udp_addr = plane_cfg.udp_addr.clone();
         match engine_server::plane::spawn_sim_plane(bus.clone(), plane_cfg) {
-            Ok(_) => eprintln!("[main] 🧵 sim plane spawned (OX_PLANES=1, udp {udp_addr})"),
-            Err(e) => eprintln!("[main] ✖ sim plane spawn failed: {e}"),
+            Ok(_) => tracing::info!("[main] 🧵 sim plane spawned (OX_PLANES=1, udp {udp_addr})"),
+            Err(e) => tracing::error!("[main] ✖ sim plane spawn failed: {e}"),
         }
     }
 
@@ -847,14 +860,14 @@ fn run(dir: &Path) -> std::io::Result<()> {
     let _control = if cfg.control.enabled {
         match engine_control::spawn(&project_dir, &cfg, &cfg.control, bus.clone()) {
             Ok(plane) => {
-                eprintln!(
+                tracing::info!(
                     "[main] 🏛️  control plane on http://{}:{} (matchmake, /ws/signal, /status, statics)",
                     cfg.control.bind_addr, plane.port
                 );
                 Some(plane)
             }
             Err(e) => {
-                eprintln!(
+                tracing::error!(
                     "[main] ✖ control plane on port {} failed to start: {e}",
                     cfg.control.api_port
                 );
@@ -862,7 +875,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
             }
         }
     } else {
-        eprintln!("[main] control plane disabled ([control] enabled = false)");
+        tracing::info!("[main] control plane disabled ([control] enabled = false)");
         None
     };
 
@@ -910,17 +923,17 @@ fn generate_interfaces(dir: &Path) -> std::io::Result<()> {
     )?;
     std::fs::write(&readme_path, include_str!("../sdk/interfaces/README.md"))?;
 
-    println!(
+    tracing::info!(
         "✓ Successfully auto-generated OpenOxide Room Interfaces in {}:",
         dir.display()
     );
-    println!("  • {} (Lua Room SDK & Class)", lua_path.display());
-    println!("  • {} (Pure C Procedural Header)", c_path.display());
-    println!("  • {} (C++ Class & Macro Header)", cpp_path.display());
-    println!("  • {} (Rust Guest Trait)", rust_path.display());
-    println!("  • {} (C# .NET 8 Room Class)", csharp_path.display());
-    println!("  • {} (AssemblyScript Room Base Class)", as_path.display());
-    println!("  • {} (TypeScript Lifecycle Contract)", ts_path.display());
-    println!("  • {} (Quick Start Guide)", readme_path.display());
+    tracing::info!("  • {} (Lua Room SDK & Class)", lua_path.display());
+    tracing::info!("  • {} (Pure C Procedural Header)", c_path.display());
+    tracing::info!("  • {} (C++ Class & Macro Header)", cpp_path.display());
+    tracing::info!("  • {} (Rust Guest Trait)", rust_path.display());
+    tracing::info!("  • {} (C# .NET 8 Room Class)", csharp_path.display());
+    tracing::info!("  • {} (AssemblyScript Room Base Class)", as_path.display());
+    tracing::info!("  • {} (TypeScript Lifecycle Contract)", ts_path.display());
+    tracing::info!("  • {} (Quick Start Guide)", readme_path.display());
     Ok(())
 }

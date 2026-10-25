@@ -117,7 +117,7 @@ impl V2Error {
             sqlx::Error::RowNotFound => V2Error::not_found("Entity not found."),
             other => {
                 // The detail is logged only; the client gets the opaque body BaaS returns for a database error.
-                eprintln!("[v2] database error: {other}");
+                tracing::error!("[v2] database error: {other}");
                 V2Error::internal("Internal server error.")
             }
         }

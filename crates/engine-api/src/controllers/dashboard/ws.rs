@@ -79,7 +79,7 @@ async fn serve(socket: WebSocket, state: ApiState) {
     drop(tx);
     writer.abort();
     if dropped > 0 {
-        eprintln!(
+        tracing::info!(
             "[dashboard-ws] socket closed after dropping {dropped} frame(s) for a client that fell behind"
         );
     }

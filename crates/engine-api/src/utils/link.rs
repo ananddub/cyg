@@ -13,6 +13,6 @@ pub(crate) fn guarded(in_use: &str, failed: &str) -> impl Fn(sqlx::Error) -> V2E
 
 /// The Internal every link route has, with the real failure logged rather than sent.
 pub(crate) fn failure(failed: &str, e: sqlx::Error) -> V2Error {
-    eprintln!("[v2] {failed}: {e}");
+    tracing::error!("[v2] {failed}: {e}");
     V2Error::internal(failed)
 }

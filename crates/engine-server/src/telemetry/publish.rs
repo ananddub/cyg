@@ -55,7 +55,7 @@ impl Recorder {
         snap.sessions = sessions;
         self.publish_seq = self.publish_seq.saturating_add(1);
         snap.seq = self.publish_seq;
-        eprintln!("[status] {}", serde_json::json!(&snap));
+        tracing::info!("[status] {}", serde_json::json!(&snap));
 
         // Send-or-drop. `bus.status_rx` belongs to `status::pump`, which claims
         // it exactly once, so a full queue means the consumer stopped, not that

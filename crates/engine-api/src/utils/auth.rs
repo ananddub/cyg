@@ -21,7 +21,7 @@ pub fn existing(user: Users) -> Result<Users, V2Error> {
 }
 
 pub fn lookup_failed(e: sqlx::Error) -> V2Error {
-    eprintln!("[v2] user lookup failed: {e}");
+    tracing::error!("[v2] user lookup failed: {e}");
     V2Error::internal("Error finding user account.")
 }
 
@@ -30,7 +30,7 @@ pub fn insert_failed(e: sqlx::Error) -> V2Error {
     if V2Error::is_unique_violation(&e, "users_username_key") {
         return V2Error::already_exists("Username is already in use.");
     }
-    eprintln!("[v2] user insert failed: {e}");
+    tracing::error!("[v2] user insert failed: {e}");
     V2Error::internal("Error finding or creating user account.")
 }
 

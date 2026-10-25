@@ -19,7 +19,7 @@ use crate::utils::leaderboard::types::HAYSTACK_FAILED;
 use crate::utils::leaderboard::types::ascending;
 
 pub(super) fn failed(error: sqlx::Error) -> V2Error {
-    eprintln!("[v2] leaderboard haystack: {error}");
+    tracing::error!("[v2] leaderboard haystack: {error}");
     V2Error::internal(HAYSTACK_FAILED)
 }
 

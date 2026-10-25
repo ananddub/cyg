@@ -59,11 +59,11 @@ pub fn spawn(
         runtime.spawn(async {
             shutdown_signal().await;
             match crate::agones::shutdown() {
-                Ok(sent) => eprintln!(
+                Ok(sent) => tracing::info!(
                     "[agones] 🛑 {} shutdown sent; this pod leaves the pool",
                     if sent { "first" } else { "repeat" }
                 ),
-                Err(e) => eprintln!("[agones] ✖ could not retire the pod: {e}"),
+                Err(e) => tracing::error!("[agones] ✖ could not retire the pod: {e}"),
             }
         });
     }
@@ -77,7 +77,7 @@ pub fn spawn(
 /// is the explicit dev-only escape hatch.
 fn refuse_default_secrets(game: &GameConfig, control: &ControlConfig) -> std::io::Result<()> {
     if std::env::var("OX_ALLOW_DEFAULT_SECRETS").as_deref() == Ok("1") {
-        eprintln!("[control] ⚠️  OX_ALLOW_DEFAULT_SECRETS=1 — booting with default secrets (DEV ONLY)");
+        tracing::warn!("[control] ⚠️  OX_ALLOW_DEFAULT_SECRETS=1 — booting with default secrets (DEV ONLY)");
         return Ok(());
     }
     let mut defaults: Vec<&str> = Vec::new();
