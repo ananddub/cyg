@@ -616,10 +616,15 @@ pub fn run(
     // the sim waits for its next tick.
     let mut transport = LoopTransport::new(raw_transport);
     let mut udp_peers: HashMap<SocketAddr, (i64, String, Instant)> = HashMap::new();
-    // RUDP: per-peer reliable send lane (server -> client, Go-Back-N resends
-    // until the client's cumulative ack) + the next outgoing seq per peer.
+    // RUDP: per-peer reliable send lane (server -> client, per-frame resend
+    // timers until the client's cumulative ack) + the next outgoing seq per
+    // peer, and a received-seq ring for inbound dedupe (QUIC-style: every
+    // frame is delivered on arrival, reordering is fine — only resend
+    // duplicates are suppressed, nothing ever blocks anything).
     let mut udp_reliable: HashMap<SocketAddr, crate::plane::reliable::ReliableLane> = HashMap::new();
     let mut udp_reliable_seq: HashMap<SocketAddr, u16> = HashMap::new();
+    let mut udp_rxd_seq: HashMap<SocketAddr, std::collections::HashSet<u16>> = HashMap::new();
+    const RUDP_DEDUPE_SPAN: usize = 256;
     let mut rudp_scratch: Vec<u8> = Vec::with_capacity(2100);
     // Signaling hand-over: the control plane's hub queues browser offers; this
     // loop is the data-plane owner and drains them once per iteration.
@@ -1355,12 +1360,16 @@ pub fn run(
                 }
                 if let Some((seq, payload)) = netcode::decode_reliable_msg(data) {
                     // ACK turant (client ka window khula rahe), phir payload
-                    // room ko — guest on_input tak wahi WS/app path.
+                    // room ko. QUIC semantics: har frame APNE seq ke saath
+                    // aate hi deliver — reordering pe koi drop nahi, koi
+                    // block nahi; sirf resend-duplicates suppress hote hain.
                     netcode::encode_reliable_ack(seq, &mut rudp_scratch);
                     let _ = udp_sock.send_to(&rudp_scratch, peer_addr);
-                    let inbound_seq = udp_reliable_seq.entry(peer_addr).or_insert(0);
-                    if *inbound_seq == 0 || engine_webrtc_protocol::is_newer(*inbound_seq, seq) {
-                        *inbound_seq = seq;
+                    let seen = udp_rxd_seq.entry(peer_addr).or_default();
+                    if seen.insert(seq) {
+                        if seen.len() > RUDP_DEDUPE_SPAN {
+                            seen.retain(|s| engine_webrtc_protocol::is_newer(seq, *s) || *s == seq);
+                        }
                         let server_guard = &mut server;
                         if let Ok(room) = server_guard.get_or_create(&cfg.name) {
                             room.empty_since = None;
@@ -1398,6 +1407,7 @@ pub fn run(
                         udp_input_rates.remove(&peer_addr);
                         udp_reliable.remove(&peer_addr);
                         udp_reliable_seq.remove(&peer_addr);
+                        udp_rxd_seq.remove(&peer_addr);
                         room.sessions.remove(&sess);
                         room.schema_sent.remove(&sess);
                         if id > 0 {

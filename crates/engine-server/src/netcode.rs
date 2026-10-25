@@ -596,3 +596,38 @@ mod rudp_tests {
         assert_eq!(lane.inflight(), 0);
     }
 }
+
+#[cfg(test)]
+mod quic_semantics_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// QUIC-style receive semantics the host now uses: frames deliver
+    /// immediately whatever their order; only resend-duplicates are dropped.
+    /// (Symmetric simulation of the host's dedupe ring.)
+    #[test]
+    fn reordered_frames_all_deliver_and_duplicates_suppress() {
+        let mut seen: HashSet<u16> = HashSet::new();
+        let mut delivered: Vec<u16> = Vec::new();
+        let recv = |seq: u16, seen: &mut HashSet<u16>, delivered: &mut Vec<u16>| {
+            if seen.insert(seq) {
+                delivered.push(seq);
+            }
+        };
+
+        // Network reordering: 3 arrives before 1 and 2 — QUIC me koi block nahi.
+        recv(3, &mut seen, &mut delivered);
+        recv(1, &mut seen, &mut delivered);
+        recv(2, &mut seen, &mut delivered);
+        assert_eq!(delivered, vec![3, 1, 2], "sab deliver, order-of-arrival me");
+
+        // Sender ka resend (1 dobara aaya) — duplicate, suppress.
+        recv(1, &mut seen, &mut delivered);
+        assert_eq!(delivered.len(), 3, "duplicate nahi deliver hua");
+
+        // Ek missing frame bhi doosron ko block nahi karta: 5 aaya, 4 abhi
+        // network me hai — 5 turant deliver.
+        recv(5, &mut seen, &mut delivered);
+        assert_eq!(delivered.len(), 4);
+    }
+}
