@@ -459,7 +459,48 @@ pub fn run(
         };
 
     let map_path = project_dir.join("arena_map.json");
-    let physics = if map_path.exists() {
+    let arena_2d_path = project_dir.join("arena_2d.json");
+
+    let arena_2d: Option<engine_physics::MapConfig2D> = if arena_2d_path.exists() {
+        match std::fs::read_to_string(&arena_2d_path) {
+            Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
+                Ok(m) => {
+                    eprintln!(
+                        "[server] 🗺️  loaded arena_2d.json with {} static colliders ({}x{})",
+                        m.obstacles.len(),
+                        m.arena_width,
+                        m.arena_height
+                    );
+                    Some(m)
+                }
+                Err(e) => {
+                    eprintln!("[server] failed to parse arena_2d.json: {e}");
+                    None
+                }
+            },
+            Err(_) => None,
+        }
+    } else if map_path.exists() {
+        match std::fs::read_to_string(&map_path) {
+            Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
+                Ok(m) => {
+                    eprintln!(
+                        "[server] 🗺️  loaded arena_map.json as 2D map with {} static colliders ({}x{})",
+                        m.obstacles.len(),
+                        m.arena_width,
+                        m.arena_height
+                    );
+                    Some(m)
+                }
+                Err(_) => None,
+            },
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    let physics = if map_path.exists() && arena_2d.is_none() {
         match std::fs::read_to_string(&map_path) {
             Ok(json_str) => match PhysicsWorld3D::from_json(&json_str) {
                 Ok(w) => {
@@ -593,6 +634,7 @@ pub fn run(
         );
     }
     let mut server = GameServer::new(pre, cfg.max_clients, physics, cfg.permissions);
+    server.arena_2d = arena_2d;
 
     let mut last_tick = Instant::now();
     let tick_interval = Duration::from_secs_f64(1.0 / cfg.tick_rate.max(1) as f64);

@@ -153,6 +153,10 @@ impl RoomHostData {
     }
 
     pub fn init_rapier2d(&mut self, gx: f32, gy: f32) {
+        if self.rapier2d.arena_width > 0.0 || self.rapier2d.collider_set.len() > 0 {
+            self.rapier2d.gravity = r2d::Vector::new(gx, gy);
+            return;
+        }
         self.rapier2d = RapierWorld2D::new(gx, gy);
         self.rapier2d_bodies.clear();
         self.rapier2d_colliders.clear();
@@ -1501,16 +1505,31 @@ impl GameRoom {
         max_clients: i32,
         physics: PhysicsWorld3D,
     ) -> Result<Self, engine_wasm::WasmError> {
+        Self::new_with_extras(pre, max_clients, physics, None, None)
+    }
+
+    pub(crate) fn new_with_extras(
+        pre: &engine_wasm::WasmPreInstance<RoomHostData>,
+        max_clients: i32,
+        physics: PhysicsWorld3D,
+        arena_2d: Option<&engine_physics::MapConfig2D>,
+        navmesh: Option<std::sync::Arc<NavMesh2D>>,
+    ) -> Result<Self, engine_wasm::WasmError> {
         // A guest that predates the ABI (e.g. missing `on_alloc`) must fail the
         // one room, not abort the whole process — the caller rejects the client.
-        let mut wasm = RoomLogic::from_pre(pre, RoomHostData::new(physics))?;
+        let mut host_data = RoomHostData::new(physics);
+        if let Some(map) = arena_2d {
+            host_data.load_arena_2d(map);
+        }
+        host_data.navmesh = navmesh.clone();
+        let mut wasm = RoomLogic::from_pre(pre, host_data)?;
         if let Err(e) = wasm.on_create(max_clients) {
             eprintln!("[server] ⚠️ guest on_create error: {e}");
         }
         Ok(Self {
             backend: RoomBackend::Wasm,
-            arena_2d: None,
-            navmesh: None,
+            arena_2d: arena_2d.cloned(),
+            navmesh,
             // Default on; `GameServer::get_or_create` overrides it from the
             // manifest permissions for every spawned room.
             storage_enabled: true,
@@ -2390,24 +2409,18 @@ impl GameServer {
         // Hot path for an existing room borrows the key: no String per packet.
         if !self.rooms.contains_key(name) {
             let mut room = if let Some(pre) = &self.pre {
-                let mut room = GameRoom::new(pre, self.max_clients, self.physics.clone())?;
-                room.arena_2d = self.arena_2d.clone();
-                room.navmesh = self.navmesh.clone();
-                if let Some(map) = &room.arena_2d {
-                    if let Some(wasm) = room.wasm.as_mut() {
-                        wasm.data_mut().load_arena_2d(map);
-                    }
-                }
-                if let Some(nav) = &room.navmesh {
-                    if let Some(wasm) = room.wasm.as_mut() {
-                        wasm.data_mut().navmesh = Some(nav.clone());
-                    }
-                }
+                let mut room = GameRoom::new_with_extras(
+                    pre,
+                    self.max_clients,
+                    self.physics.clone(),
+                    self.arena_2d.as_ref(),
+                    self.navmesh.clone(),
+                )?;
                 if let Some(w) = room.wasm.as_mut() {
                     w.data_mut().seed_rng(name);
                 }
                 eprintln!(
-                    "[server] room '{name}' created with 3D physics world (ABI v{})",
+                    "[server] room '{name}' created with 2D/3D physics world (ABI v{})",
                     engine_wasm::CURRENT_ABI_VERSION
                 );
                 room
