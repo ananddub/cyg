@@ -1478,6 +1478,39 @@ pub fn run(
                     }
                 }
                 Inbound::Ack(ack) => netcode::record_channel_ack(room, &client_id, ack),
+                // SDK `sendBytes` app messages: envelope strip karke guest
+                // `on_input` ko raw payload do (schema/relay rooms, vector
+                // games ka input yahi hai).
+                Inbound::App { data } => {
+                    let type_len = data[1] as usize;
+                    let Some(payload) = data.get(2 + type_len..) else {
+                        continue;
+                    };
+                    if let Some(ref mut wasm) = room.wasm {
+                        match wasm.on_alloc(payload.len() as i32) {
+                            Ok(ptr_i32) => {
+                                let ptr = ptr_i32 as u32;
+                                if let Err(e) = wasm.write_memory(ptr, payload) {
+                                    tracing::error!(
+                                        "[server] ⚠️ app payload write failed for player {id}: {e}"
+                                    );
+                                } else if let Err(e) =
+                                    wasm.on_input(id, ptr_i32, payload.len() as i32)
+                                {
+                                    tracing::warn!(
+                                        "[server] ⚠️ guest trap in on_input (app msg) for player {id}: {e}"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "[server] ⚠️ guest on_alloc failed for player {id}: {e}"
+                                );
+                            }
+                        }
+                    }
+                    flush_room_outbox(room, &mut transport);
+                }
                 Inbound::Other { .. } | Inbound::Refused(_) => {}
             }
         }

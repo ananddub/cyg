@@ -45,6 +45,10 @@ pub enum Inbound {
     Ack(Ack),
     /// A frame the transport understands the lane for but does not model.
     Other { op: u8, len: usize },
+    /// A typed app message (SDK `sendBytes`): the FULL wire frame
+    /// `[0x05][type_len u8][type][payload]` — the host strips the envelope
+    /// before handing bytes to the guest's `on_input`.
+    App { data: Vec<u8> },
     /// Refused, with the reason counted by the caller.
     Refused(RejectReason),
 }
@@ -102,6 +106,16 @@ pub fn classify_inbound(lane: Option<Lane>, data: &[u8]) -> Inbound {
         }
         // A client echoing a server delta back is never valid input.
         OP_DELTA => malformed(op, data.len(), INPUT_WIRE_LEN),
+        // SDK `sendBytes` typed app messages ride the reliable lane as
+        // [0x05][type_len][type][payload] — hand the full envelope to the
+        // host, which strips the envelope per game.
+        0x05 => {
+            if data.len() < 2 {
+                malformed(op, data.len(), 2)
+            } else {
+                Inbound::App { data: data.to_vec() }
+            }
+        }
         other => Inbound::Other { op: other, len: data.len() },
     }
 }
