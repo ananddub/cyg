@@ -1458,10 +1458,12 @@
             chReliable.onopen = () => {
                 this.emit('server-webrtc-reliable-open');
                 if (!this.isOpen) {
+                    const isReconnect = this._hasConnected && this._reconnectAttempts > 0;
                     this.isOpen = true;
                     this._hasConnected = true;
                     this._reconnectAttempts = 0;
                     this.emit('open');
+                    if (isReconnect) this.emit('reconnect');
                     const resolve = this._connectResolve;
                     this._connectResolve = null;
                     this._connectReject = null;
@@ -2347,6 +2349,24 @@
             if (typeof cb !== 'function') return this;
             return this.on('error', (err) => {
                 cb((err && err.code) || 0, (err && err.message) || String(err));
+            });
+        }
+
+        /** Colyseus parity: `room.onReconnect(() => ...)` — fires when the
+         *  auto-reconnect lands a fresh session after a drop. */
+        onReconnect(cb) {
+            if (typeof cb !== 'function') return this;
+            return this.on('reconnect', () => cb());
+        }
+
+        /** Colyseus parity: `room.onDrop((code, reason) => ...)` — fires when
+         *  the connection is lost but a reconnection attempt is coming. */
+        onDrop(cb) {
+            if (typeof cb !== 'function') return this;
+            return this.on('close', (ev) => {
+                if (this._autoReconnect && !this._intentionalClose) {
+                    cb((ev && ev.code) ?? this._leaveCode ?? 1006, ev && ev.reason);
+                }
             });
         }
 
