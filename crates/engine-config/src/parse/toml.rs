@@ -45,9 +45,6 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = int("max_rooms") {
         cfg.max_rooms = v as u32;
     }
-    if let Some(v) = boolean("input_hub") {
-        cfg.input_hub = v;
-    }
     if let Some(v) = float("width") {
         cfg.width = v;
     }

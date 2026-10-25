@@ -43,9 +43,6 @@ pub enum RoomBackend {
     /// Native bevy_ecs mode: TickRunner + ECS-synced Rapier3D + RoomRng +
     /// OXCL arena. No WASM guest — the simulation is Rust-native.
     Ecs,
-    /// reference-Style Deterministic Tick Input-Hub: Server never runs physics,
-    /// collects player inputs, bundles them by tick, and forwards them.
-    InputHub,
 }
 
 /// Encapsulates snapshot data across backends.
@@ -470,25 +467,6 @@ pub struct GameRoom {
     pub(crate) sim_accum: Duration,
     pub(crate) acked_event_seq: HashMap<String, u16>,
     pub(crate) input_journal: VecDeque<JournalInput>,
-    pub(crate) input_hub_records: VecDeque<InputHubTickRecord>,
-    /// Session -> authoritative actor id. The first valid input packet claims
-    /// an actor for a session; later packets from that session cannot change
-    /// it, and another session cannot claim the same actor.
-    pub(crate) input_hub_actors: HashMap<String, u16>,
-    /// Reverse index used to reject duplicate actor claims.
-    pub(crate) input_hub_sessions: HashMap<u16, String>,
-    /// Last accepted client tick per actor, used to drop duplicate/replayed
-    /// datagrams before they reach the room history.
-    pub(crate) input_hub_last_tick: HashMap<u16, u32>,
-}
-
-/// Recorded player input frame in the Input-Hub for bundling/history.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InputHubTickRecord {
-    pub player_actor_id: u16,
-    pub client_tick: u32,
-    pub payload: Vec<u8>,
-    pub received_at: Instant,
 }
 
 /// One journaled input: everything needed to re-deliver it to the guest after a
@@ -1558,10 +1536,6 @@ impl GameRoom {
             sim_accum: Duration::ZERO,
             acked_event_seq: HashMap::new(),
             input_journal: VecDeque::new(),
-            input_hub_records: VecDeque::new(),
-            input_hub_actors: HashMap::new(),
-            input_hub_sessions: HashMap::new(),
-            input_hub_last_tick: HashMap::new(),
         })
     }
 
@@ -1598,10 +1572,6 @@ impl GameRoom {
             sim_accum: Duration::ZERO,
             acked_event_seq: HashMap::new(),
             input_journal: VecDeque::new(),
-            input_hub_records: VecDeque::new(),
-            input_hub_actors: HashMap::new(),
-            input_hub_sessions: HashMap::new(),
-            input_hub_last_tick: HashMap::new(),
         }
     }
 
@@ -1613,113 +1583,6 @@ impl GameRoom {
         room.backend = RoomBackend::Ecs;
         room.ecs = Some(crate::ecs_room::EcsRoomState::new(name, arena));
         room
-    }
-
-    /// Spawn a reference-inspired Deterministic Input-Hub room (zero-physics
-    /// mode). The WASM guest is not retained: an input hub must never run
-    /// server physics, even if the room was first created from a WASM template.
-    pub fn new_input_hub() -> Self {
-        let mut room = Self::new_relay();
-        room.enable_input_hub();
-        room
-    }
-
-    /// Switch an existing room to input-hub mode. This is explicit and
-    /// idempotent; it is never triggered by an unauthenticated packet.
-    pub fn enable_input_hub(&mut self) {
-        self.backend = RoomBackend::InputHub;
-        self.wasm = None;
-    }
-
-    /// Number of distinct actors currently claimed in this input hub.
-    #[inline]
-    pub fn input_hub_actor_count(&self) -> usize {
-        self.input_hub_actors.len()
-    }
-
-    /// Claim an actor id for a session. Returns false when the session tries
-    /// to change actors or another session already owns the id.
-    pub fn claim_input_actor(&mut self, session: &str, actor: u16) -> bool {
-        if actor == 0 {
-            return false;
-        }
-        if let Some(existing) = self.input_hub_actors.get(session) {
-            return *existing == actor;
-        }
-        if self.input_hub_sessions.contains_key(&actor) {
-            return false;
-        }
-        self.input_hub_actors.insert(session.to_string(), actor);
-        self.input_hub_sessions.insert(actor, session.to_string());
-        true
-    }
-
-    /// Release a session's input-hub actor on disconnect/timeout.
-    pub fn release_input_actor(&mut self, session: &str) {
-        if let Some(actor) = self.input_hub_actors.remove(session) {
-            self.input_hub_sessions.remove(&actor);
-            self.input_hub_last_tick.remove(&actor);
-        }
-    }
-
-    /// Append a validated, monotonically increasing input frame. Returns false
-    /// for a duplicate/replayed tick or a payload that is not 9/18/27 bytes.
-    pub fn record_input_tick_checked(
-        &mut self,
-        session: &str,
-        player_actor_id: u16,
-        client_tick: u32,
-        payload: &[u8],
-    ) -> bool {
-        let len = payload.len();
-        if !(crate::netcode::INPUT_HUB_INPUT_SIZE
-            ..=crate::netcode::INPUT_HUB_INPUT_SIZE * crate::netcode::INPUT_HUB_MAX_REDUNDANCY)
-            .contains(&len)
-            || !len.is_multiple_of(crate::netcode::INPUT_HUB_INPUT_SIZE)
-        {
-            return false;
-        }
-        if !self.claim_input_actor(session, player_actor_id) {
-            return false;
-        }
-        if let Some(last) = self.input_hub_last_tick.get(&player_actor_id) {
-            if client_tick <= *last {
-                return false;
-            }
-        }
-        self.input_hub_last_tick
-            .insert(player_actor_id, client_tick);
-        if self.input_hub_records.len() >= 256 {
-            self.input_hub_records.pop_front();
-        }
-        self.input_hub_records.push_back(InputHubTickRecord {
-            player_actor_id,
-            client_tick,
-            payload: payload.to_vec(),
-            received_at: Instant::now(),
-        });
-        true
-    }
-
-    /// Record a received input tick from a player actor for bundling/history.
-    pub fn record_input_tick(&mut self, player_actor_id: u16, client_tick: u32, payload: &[u8]) {
-        if self.input_hub_records.len() >= 256 {
-            self.input_hub_records.pop_front();
-        }
-        self.input_hub_records.push_back(InputHubTickRecord {
-            player_actor_id,
-            client_tick,
-            payload: payload.to_vec(),
-            received_at: Instant::now(),
-        });
-    }
-
-    /// Retrieve the latest recorded input for a given player actor.
-    pub fn latest_input_tick(&self, player_actor_id: u16) -> Option<&InputHubTickRecord> {
-        self.input_hub_records
-            .iter()
-            .rev()
-            .find(|rec| rec.player_actor_id == player_actor_id)
     }
 
     /// Whether the room has 0 players and is currently hibernating (0% CPU).
@@ -1778,12 +1641,6 @@ impl GameRoom {
         }
     }
 
-    /// Whether this room operates in deterministic Input-Hub mode.
-    #[inline]
-    pub fn is_input_hub(&self) -> bool {
-        self.backend == RoomBackend::InputHub
-    }
-
     /// Export the room's serializable persistent snapshot.
     ///
     /// A room without the `storage` capability returns `None` without ever
@@ -1793,7 +1650,7 @@ impl GameRoom {
             return None;
         }
         match self.backend {
-            RoomBackend::Relay | RoomBackend::InputHub => None,
+            RoomBackend::Relay => None,
             RoomBackend::Wasm => {
                 if let Some(ref mut wasm) = self.wasm {
                     if let Ok(packed) = wasm.on_save() {
@@ -1859,7 +1716,7 @@ impl GameRoom {
     /// [`Self::is_full`], which lets the guest override the policy.
     #[inline]
     pub(crate) fn is_at_capacity(&self, max_clients: i32) -> bool {
-        (self.is_relay() || self.is_input_hub())
+        self.is_relay()
             && max_clients > 0
             && self.sessions.len() as i32 >= max_clients
     }
@@ -2045,7 +1902,6 @@ impl GameRoom {
 
     /// Drop one player's guest slot and its per-session bookkeeping.
     pub(crate) fn release_player(&mut self, session: &str, id: i64) {
-        self.release_input_actor(session);
         if let Some(ref mut ecs) = self.ecs {
             ecs.remove_player(session);
         }
@@ -2156,12 +2012,8 @@ impl GameRoom {
     pub(crate) fn handle_disconnect(&mut self, session: &str) -> Option<u32> {
         let gone = self.detach_session(session);
         self.pending_leaves.remove(session);
-        match self.sessions.get(session).copied() {
-            Some(id) => {
-                self.sessions.remove(session);
-                self.release_player(session, id);
-            }
-            None => self.release_input_actor(session),
+        if let Some(id) = self.sessions.remove(session) {
+            self.release_player(session, id);
         }
         self.arm_empty_timer();
         gone
@@ -2172,20 +2024,17 @@ impl GameRoom {
     /// the deadline; otherwise the player is released immediately.
     pub(crate) fn handle_unexpected_disconnect(&mut self, session: &str) -> Option<u32> {
         let gone = self.detach_session(session);
-        match self.sessions.get(session).copied() {
-            Some(id) => {
-                // A seat may be held for reconnection; the player id and guest
-                // state are untouched until the deadline expires.
-                let hold = self.guest_allow_reconnection(id).unwrap_or(0);
-                if hold > 0 {
-                    let deadline = Instant::now() + Duration::from_millis(hold as u64);
-                    self.pending_leaves.insert(session.to_string(), (id, deadline));
-                } else {
-                    self.sessions.remove(session);
-                    self.release_player(session, id);
-                }
+        if let Some(id) = self.sessions.get(session).copied() {
+            // A seat may be held for reconnection; the player id and guest
+            // state are untouched until the deadline expires.
+            let hold = self.guest_allow_reconnection(id).unwrap_or(0);
+            if hold > 0 {
+                let deadline = Instant::now() + Duration::from_millis(hold as u64);
+                self.pending_leaves.insert(session.to_string(), (id, deadline));
+            } else {
+                self.sessions.remove(session);
+                self.release_player(session, id);
             }
-            None => self.release_input_actor(session),
         }
         self.arm_empty_timer();
         gone
@@ -2228,10 +2077,6 @@ impl GameRoom {
         rollback_enabled: bool,
     ) -> Result<i64, engine_wasm::WasmError> {
         self.current_tick += 1;
-        if self.backend == RoomBackend::InputHub {
-            // reference-style Input Hub: zero server physics.
-            return Ok(0);
-        }
         // Simulation cadence: the guest may ask the host to run `onTick`
         // less often than the network tick. Each run still receives a
         // fixed dt (the configured interval), so the simulation stays
@@ -3043,83 +2888,6 @@ mod tests {
         // itself needs a guest; the relay room keeps them for the next swap).
         assert!(has_snapshot);
         assert!(restored_wasm);
-    }
-
-    #[test]
-    fn test_input_hub_mode() {
-        let mut room = GameRoom::new_input_hub();
-        assert!(room.is_input_hub());
-        assert!(!room.is_wasm());
-
-        // In InputHub mode, tick advances tick count and returns Ok(0) (zero physics)
-        let res = room.tick(1.0 / 128.0, false);
-        assert_eq!(res.unwrap(), 0);
-        assert_eq!(room.current_tick, 1);
-
-        // Record inputs from player actors
-        room.record_input_tick(1, 10, &[1, 2, 3, 4]);
-        room.record_input_tick(2, 10, &[5, 6, 7, 8]);
-        room.record_input_tick(1, 11, &[9, 10, 11, 12]);
-
-        let p1_latest = room.latest_input_tick(1).expect("p1 latest");
-        assert_eq!(p1_latest.client_tick, 11);
-        assert_eq!(p1_latest.payload, vec![9, 10, 11, 12]);
-
-        let p2_latest = room.latest_input_tick(2).expect("p2 latest");
-        assert_eq!(p2_latest.client_tick, 10);
-        assert_eq!(p2_latest.payload, vec![5, 6, 7, 8]);
-    }
-
-    #[test]
-    fn input_hub_claims_are_owned_and_monotonic() {
-        let mut room = GameRoom::new_input_hub();
-        let payload = [0u8; 9];
-
-        assert!(room.claim_input_actor("session-a", 7));
-        assert!(
-            !room.claim_input_actor("session-a", 8),
-            "session cannot change actors"
-        );
-        assert!(
-            !room.claim_input_actor("session-b", 7),
-            "actor is owned by session-a"
-        );
-        assert!(room.claim_input_actor("session-b", 8));
-
-        assert!(room.record_input_tick_checked("session-a", 7, 10, &payload));
-        assert!(
-            !room.record_input_tick_checked("session-a", 7, 10, &payload),
-            "duplicate tick is dropped"
-        );
-        assert!(
-            !room.record_input_tick_checked("session-a", 7, 9, &payload),
-            "replayed older tick is dropped"
-        );
-        assert!(
-            !room.record_input_tick_checked("session-b", 8, 11, &[0u8; 8]),
-            "wrong payload length is rejected"
-        );
-
-        room.release_input_actor("session-a");
-        assert!(
-            room.claim_input_actor("session-c", 7),
-            "released actor can be claimed by a new session"
-        );
-        assert_eq!(room.input_hub_actor_count(), 2);
-    }
-
-    #[test]
-    fn enabling_input_hub_drops_wasm_and_is_not_packet_driven() {
-        let mut room = wat_room();
-        assert!(room.is_wasm());
-        room.enable_input_hub();
-        assert!(room.is_input_hub());
-        assert!(
-            room.wasm.is_none(),
-            "input hub must never keep a physics guest"
-        );
-        room.enable_input_hub();
-        assert!(room.is_input_hub());
     }
 }
 

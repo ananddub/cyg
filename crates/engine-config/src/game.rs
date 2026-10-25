@@ -52,11 +52,6 @@ pub struct GameConfig {
     /// Hard ceiling on concurrently live rooms: a join that would create a new
     /// room past this is rejected instead of allocating one. `0` = unlimited.
     pub max_rooms: u32,
-    /// Opt-in deterministic input-hub rooms. Disabled by default because it
-    /// changes the room from server-authoritative simulation to client-side
-    /// lockstep; enabling it is a deployment decision, never a packet-triggered
-    /// side effect.
-    pub input_hub: bool,
     pub width: f64,
     pub height: f64,
     pub speed: f64,
@@ -84,7 +79,6 @@ impl Default for GameConfig {
             tick_rate: 30,
             max_clients: 16,
             max_rooms: 1024,
-            input_hub: false,
             width: 800.0,
             height: 500.0,
             speed: 240.0,

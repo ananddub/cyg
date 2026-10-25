@@ -27,9 +27,6 @@ web_port = 8090
 tick_rate = 30
 max_clients = 16
 max_rooms = 1024
-# Opt-in: deterministic client-side input hub (no server physics). Leave false
-# for authoritative rooms; setting true changes the room's trust model.
-input_hub = false
 
 # Playfield
 width = 800.0

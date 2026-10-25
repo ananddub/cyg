@@ -28,11 +28,6 @@ use crate::netcode;
 use crate::rooms::{self, GameRoom, GameServer};
 use crate::telemetry::{PublishReport, Recorder};
 
-/// Upper bound on per-source UDP rate-limit entries. UDP source addresses are
-/// unauthenticated, so an attacker could otherwise grow this map without bound
-/// by spraying spoofed ports. Real peers are reaped on timeout/leave.
-const MAX_UDP_RATE_ENTRIES: usize = 4096;
-
 /// Pre-framed spectator "you are watching" confirm: `["delta"]` with id 0.
 const SPECTATOR_CONFIRM: &[u8] = &[0xA5, b'd', b'e', b'l', b't', b'a', 0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -789,11 +784,6 @@ pub fn run(
                             }
                         }
                     };
-                    if cfg.input_hub {
-                        // Explicit deployment mode. Do this before `join` so a
-                        // WASM room does not run `on_join`/physics even once.
-                        room.enable_input_hub();
-                    }
                     room.empty_since = None;
                     let join_options = transport.options_of(&client_id).unwrap_or_default();
 
@@ -1261,103 +1251,6 @@ pub fn run(
 
                     last_input_at.insert(client_id.to_string(), Instant::now());
 
-                    // Deterministic input-hub handling over WebSocket (opcode 19).
-                    // This path is opt-in per deployment via `input_hub = true`.
-                    // A packet never switches the room backend: that would let an
-                    // unauthenticated client disable the authoritative simulation.
-                    if data.len() >= netcode::WIRE_INPUT_TICK_HEADER_LEN
-                        && data[0] == netcode::CYG_WIRE_INPUT_TICK
-                    {
-                        if !cfg.input_hub {
-                            continue;
-                        }
-                        let Some(input_tick) = netcode::WireInputTick::parse(data) else {
-                            continue;
-                        };
-                        if !input_tick.has_valid_input_payload() {
-                            continue;
-                        }
-
-                        // Scope to the room this WebSocket actually joined. The
-                        // room_id in the packet is client-controlled, so it is
-                        // only accepted when it matches the authenticated route.
-                        // The session must already be joined to a real room;
-                        // never fall back to the configured default room, which
-                        // would let a half-joined socket inject into it.
-                        let Some(connected_room) = transport.room_of(&client_id) else {
-                            continue;
-                        };
-                        // Match the same sanitized name used to select `room`
-                        // above: the upgrade URL may still carry a query string
-                        // or a stray session parameter.
-                        if !netcode::room_id_matches(
-                            sanitize_room_name(&connected_room),
-                            &input_tick.room_id,
-                        ) {
-                            continue;
-                        }
-
-                        let now = Instant::now();
-                        let allowed = rtc_input_rates
-                            .entry(client_id.to_string())
-                            .or_default()
-                            .allow(now);
-                        if !allowed {
-                            continue;
-                        }
-
-                        let actor = input_tick.player_actor_id;
-                        // The actor is a function of the authenticated session.
-                        // Without this check a client could claim somebody
-                        // else's actor before that peer joins, then inject
-                        // inputs as them to every other client.
-                        if actor != netcode::derive_input_actor(&client_id) {
-                            continue;
-                        }
-                        let already_claimed = room.input_hub_actors.contains_key(&*client_id);
-                        if !already_claimed
-                            && cfg.max_clients > 0
-                            && room.input_hub_actor_count() >= cfg.max_clients as usize
-                        {
-                            continue;
-                        }
-                        if !room.claim_input_actor(&client_id, actor) {
-                            // Actor changed or another session owns it: drop.
-                            continue;
-                        }
-                        if !room.record_input_tick_checked(
-                            &client_id,
-                            actor,
-                            input_tick.client_tick,
-                            input_tick.input_payload,
-                        ) {
-                            continue;
-                        }
-                        room.enable_input_hub();
-
-                        // Multicast to other WebSocket sessions in room.
-                        let mut targets: Vec<&str> = Vec::with_capacity(room.sessions.len());
-                        targets.extend(
-                            room.sessions
-                                .keys()
-                                .map(String::as_str)
-                                .filter(|cid| *cid != &*client_id),
-                        );
-                        if !targets.is_empty() {
-                            let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, data);
-                        }
-
-                        // Also forward to UDP peers with zero serialization overhead.
-                        if let Some(ref udp_sock) = udp_socket {
-                            for (&peer_addr, (peer_id, peer_sess, _)) in &udp_peers {
-                                if *peer_id > 0 && peer_sess != &*client_id {
-                                    let _ = udp_sock.send_to(data, peer_addr);
-                                }
-                            }
-                        }
-                        continue;
-                    }
-
                     if room.is_ecs() {
                         // Native ECS backend: raw bytes are the WASD flags.
                         room.ecs_input(&client_id, data);
@@ -1400,13 +1293,6 @@ pub fn run(
             let mut udp_buf = [0u8; 4096];
             while let Ok((amt, peer_addr)) = udp_sock.recv_from(&mut udp_buf) {
                 let data = &udp_buf[..amt];
-                let is_input_tick = data.len() >= netcode::WIRE_INPUT_TICK_HEADER_LEN
-                    && data[0] == netcode::CYG_WIRE_INPUT_TICK;
-                if is_input_tick && !cfg.input_hub {
-                    // Never auto-enable lockstep from a datagram. Dropping here
-                    // also keeps a disabled input hub from being probed.
-                    continue;
-                }
                 let server_guard = &mut server;
                 let room = match server_guard.get_or_create(&cfg.name) {
                     Ok(room) => room,
@@ -1416,17 +1302,9 @@ pub fn run(
                     }
                 };
                 room.empty_since = None;
-                if cfg.input_hub {
-                    room.enable_input_hub();
-                }
 
                 let is_spec_handshake =
                     data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC";
-                let mut session_id = if let Some((_, sess, _)) = udp_peers.get(&peer_addr) {
-                    sess.clone()
-                } else {
-                    format!("udp_{}_{}", peer_addr.ip(), peer_addr.port())
-                };
 
                 if !data.is_empty()
                     && (data[0] == netcode::CYG_WIRE_LEAVE_ROOM
@@ -1435,10 +1313,6 @@ pub fn run(
                     if let Some((id, sess, _)) = udp_peers.remove(&peer_addr) {
                         eprintln!("[server-udp] {peer_addr} left room via UDP (session {sess})");
                         udp_input_rates.remove(&peer_addr);
-                        room.release_input_actor(&sess);
-                        // Input-hub peers are also present in `sessions`; a
-                        // stale entry would keep the room awake and keep
-                        // forwarding to a peer that is gone.
                         room.sessions.remove(&sess);
                         room.schema_sent.remove(&sess);
                         if id > 0 {
@@ -1448,107 +1322,9 @@ pub fn run(
                     continue;
                 }
 
-                // Deterministic input-hub handling over UDP (opcode 19).
-                // Framing: [opcode: 19 (1B)] [room_id: 8B] [client_tick: 4B u32] [player_actor_id: 2B u16] [input_len: 1B] [input_payload: NB]
-                if is_input_tick {
-                    let Some(input_tick) = netcode::WireInputTick::parse(data) else {
-                        continue;
-                    };
-                    if !input_tick.has_valid_input_payload() {
-                        continue;
-                    }
-                    if !netcode::room_id_matches(&cfg.name, &input_tick.room_id) {
-                        continue;
-                    }
-
-                    if !udp_input_rates.contains_key(&peer_addr)
-                        && udp_input_rates.len() >= MAX_UDP_RATE_ENTRIES
-                    {
-                        continue;
-                    }
-                    let now = Instant::now();
-                    let allowed = udp_input_rates.entry(peer_addr).or_insert_with(|| netcode::InputRateLimiter::new(5, 5.0)).allow(Instant::now());
-                    if !allowed {
-                        continue;
-                    }
-
-                    let previous = udp_peers
-                        .get(&peer_addr)
-                        .map(|(id, sess, _)| (*id, sess.clone()));
-                    if let Some((0, _)) = previous {
-                        // Spectators observe; they do not publish inputs.
-                        continue;
-                    }
-                    let session_id = match previous.as_ref() {
-                        Some((_, sess)) if !sess.is_empty() => sess.clone(),
-                        _ => format!("udp_{}_{}", peer_addr.ip(), peer_addr.port()),
-                    };
-                    let actor = input_tick.player_actor_id;
-                    // The standard SDK joins over UDP first and adopts the
-                    // server-assigned `p{id}` session, so a joined peer's actor
-                    // must be exactly that id. Reject impersonation attempts.
-                    if let Some((id, _)) = previous.as_ref() {
-                        if *id > 0 && actor as i64 != *id {
-                            continue;
-                        }
-                    }
-                    let already_claimed = room.input_hub_actors.contains_key(&session_id);
-                    if !already_claimed
-                        && cfg.max_clients > 0
-                        && room.input_hub_actor_count() >= cfg.max_clients as usize
-                    {
-                        continue;
-                    }
-                    if !room.claim_input_actor(&session_id, actor) {
-                        continue;
-                    }
-                    if !room.record_input_tick_checked(
-                        &session_id,
-                        actor,
-                        input_tick.client_tick,
-                        input_tick.input_payload,
-                    ) {
-                        continue;
-                    }
-                    room.enable_input_hub();
-                    room.sessions.insert(session_id.clone(), actor as i64);
-
-                    if previous.is_none() {
-                        udp_peers.insert(peer_addr, (actor as i64, session_id.clone(), now));
-                        eprintln!(
-                            "[server-udp] 🕹️ Peer {peer_addr} registered to input hub (actor_id: {actor}, session: {session_id})"
-                        );
-                    } else if let Some((id, sess, last_seen)) = udp_peers.get_mut(&peer_addr) {
-                        *id = actor as i64;
-                        *last_seen = now;
-                        if sess.is_empty() {
-                            *sess = session_id.clone();
-                        }
-                    }
-
-                    // Forward the already-serialized frame to other UDP peers.
-                    for (&other_addr, (peer_id, _, _)) in &udp_peers {
-                        if *peer_id > 0 && other_addr != peer_addr {
-                            let _ = udp_sock.send_to(data, other_addr);
-                        }
-                    }
-
-                    // ...and to WebSocket clients in the same room.
-                    let ws_targets: Vec<&str> = room
-                        .sessions
-                        .keys()
-                        .map(String::as_str)
-                        .filter(|sess| *sess != session_id.as_str())
-                        .collect();
-                    if !ws_targets.is_empty() {
-                        let _ = transport.send_to_many(&ws_targets, OpCode::RoomDataBytes, data);
-                    }
-                    continue;
-                }
-
                 if !udp_peers.contains_key(&peer_addr) {
                     if is_spec_handshake {
-                        session_id = format!("spec_{}_{}", peer_addr.ip(), peer_addr.port());
+                        let session_id = format!("spec_{}_{}", peer_addr.ip(), peer_addr.port());
                         udp_peers.insert(peer_addr, (0, session_id.clone(), Instant::now())); // 0 = spectator
                         eprintln!("[server-udp] 👁️  {peer_addr} connected as SPECTATOR via UDP");
                         let _ = udp_sock.send_to(SPECTATOR_CONFIRM, peer_addr);
@@ -1569,7 +1345,7 @@ pub fn run(
                             60.0 + ((n as f64) * 61.0) % (cfg.height - 120.0),
                         );
                         let id = room.add_raw_player(x, y);
-                        session_id = format!("p{}_{}_{}", id, peer_addr.ip(), peer_addr.port());
+                        let session_id = format!("p{}_{}_{}", id, peer_addr.ip(), peer_addr.port());
                         udp_peers.insert(peer_addr, (id, session_id.clone(), Instant::now()));
                         eprintln!(
                             "[server-udp] {peer_addr} joined room via UDP (player id {id}, session {session_id})"
@@ -1778,12 +1554,6 @@ pub fn run(
                     // Flush even when `on_tick` returned no delta, and before
                     // the delta-size guards can skip the rest of this tick.
                     flush_room_outbox(room, &mut transport);
-
-                    if room.is_input_hub() {
-                        // In Input-Hub mode, the server NEVER runs game physics.
-                        // Inputs are collected and forwarded directly with zero serialization delay.
-                        continue;
-                    }
 
                     // Rule 4: Bounds check outbound delta size
                     if len > engine_wasm::MAX_OUTBOUND_DELTA_SIZE {
@@ -2094,7 +1864,6 @@ pub fn run(
                 eprintln!("[server-udp] disconnected (timeout): {addr}");
                 udp_input_rates.remove(&addr);
                 if let Some(room) = server.rooms.get_mut(&cfg.name) {
-                    room.release_input_actor(&sess);
                     room.sessions.remove(&sess);
                     room.schema_sent.remove(&sess);
                     if id > 0 {

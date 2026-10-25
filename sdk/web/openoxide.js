@@ -2879,7 +2879,7 @@
             return this;
         }
 
-        // --- REPLAY RECORDER (reference Replay Equivalent) ---
+        // --- REPLAY RECORDER ---
 
         startRecording() {
             this.recording = true;
@@ -3634,7 +3634,7 @@
     }
 
     /**
-     * GGPO / reference reference-Style Client Predict & Rollback Engine.
+     * GGPO-Style Client Predict & Rollback Engine.
      * Manages client-side inputs, instant zero-latency local prediction,
      * historical frame snapshots, and authoritative state reconciliations.
      */

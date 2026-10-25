@@ -1,7 +1,7 @@
 //! # Deterministic Memory Snapshotting & Rollback Engine
 //!
 //! Provides sub-millisecond memory snapshotting, rolling ring-buffer history,
-//! and instant rewinds for WebAssembly game rooms. Enables GGPO / reference reference-style
+//! and instant rewinds for WebAssembly game rooms. Enables GGPO-style
 //! client-side prediction, rollback, and frame checksum desync verification.
 
 use std::collections::HashMap;

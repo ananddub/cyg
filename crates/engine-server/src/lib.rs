@@ -15,5 +15,3 @@ pub mod plane;
 pub mod rooms;
 pub mod schema_view;
 pub mod telemetry;
-
-pub use netcode::{CYG_WIRE_INPUT_TICK, RedundantInputs, WireInputTick, WIRE_INPUT_TICK_HEADER_LEN};
