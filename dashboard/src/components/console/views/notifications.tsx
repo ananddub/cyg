@@ -132,11 +132,7 @@ export function NotificationsView() {
         )}
       </div>
 
-      <Panel
-        title="Notifications"
-        description={userId === null ? "Enter an account id" : shortId(userId)}
-        fill
-      >
+      <Panel fill>
         {userId === null ? (
           <p className="flex flex-1 items-center justify-center px-4 py-6 text-center text-sm text-muted-foreground">
             Notifications are per account. Enter an id to list them.

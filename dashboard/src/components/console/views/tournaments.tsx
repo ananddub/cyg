@@ -126,7 +126,7 @@ export function TournamentsView() {
         />
       </div>
 
-      <Panel title="Tournaments" fill>
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}

@@ -43,8 +43,6 @@ export function RecordsPanel({
       </Panel>
 
       <Panel
-        title="Records"
-        description={`${records.data?.length ?? 0} listed`}
         actions={
           <Button size="sm" variant="destructive" onClick={onRequestDelete}>
             Delete board

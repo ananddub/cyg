@@ -113,11 +113,7 @@ export function AuditLogView() {
         </div>
       </div>
 
-      <Panel
-        title="Entries"
-        description={username === "" ? "All operators" : `Filtered to ${username}`}
-        fill
-      >
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}

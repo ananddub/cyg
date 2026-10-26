@@ -118,7 +118,7 @@ export function ConsoleUsersView() {
         />
       </div>
 
-      <Panel title="Operators" fill>
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}

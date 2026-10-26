@@ -70,7 +70,7 @@ export function SettingsView() {
         label="Search settings"
       />
 
-      <Panel title="Keys" fill>
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}

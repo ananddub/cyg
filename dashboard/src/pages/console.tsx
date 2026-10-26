@@ -39,7 +39,6 @@ import { NotificationsView } from "@/components/console/views/notifications"
 import { SecurityView } from "@/components/console/views/security"
 import { StorageView } from "@/components/console/views/storage"
 import { TournamentsView } from "@/components/console/views/tournaments"
-import { WasmUploadView } from "@/components/console/views/wasm-upload"
 import { CoreDetailsSidebar } from "@/components/core-details-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { OfflineBanner } from "@/components/offline-banner"
@@ -237,7 +236,6 @@ function GameConsole({
         <div className="flex h-16 shrink-0 items-center border-b border-border/60 bg-background/80 px-4 backdrop-blur-md lg:px-8">
           <SidebarTrigger className="-ml-2 mr-2" />
           <DashboardHeader
-            overview={data.overview ?? undefined}
             source={data.source}
             connected={hosted && data.ws.status === "open"}
             lastFrameAtMs={data.ws.lastFrameAtMs ?? undefined}
@@ -380,8 +378,6 @@ function GameAreaView({
       return <GroupsView />
     case "notifications":
       return <NotificationsView />
-    case "wasm":
-      return <WasmUploadView gameId={gameId} />
     case "leaderboards":
       return <LeaderboardsView />
     case "tournaments":

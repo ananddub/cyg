@@ -35,16 +35,21 @@ pub struct MatchSnapshot {
 }
 
 pub struct RealtimeMatchService {
-    pub matches: FastMap<Uuid, Match>,
-    pub tokens_to_match: FastMap<String, Uuid>,
+    /// The maps are process-wide: the socket plane reaches this service through
+    /// `auto_di`, the REST and console read sides through [`Self::global`], and both
+    /// handles must see one registry.
+    pub matches: &'static FastMap<Uuid, Match>,
+    pub tokens_to_match: &'static FastMap<String, Uuid>,
 }
 
 #[singleton]
 impl RealtimeMatchService {
     pub fn new() -> Self {
+        static MATCHES: OnceLock<FastMap<Uuid, Match>> = OnceLock::new();
+        static TOKENS: OnceLock<FastMap<String, Uuid>> = OnceLock::new();
         Self {
-            matches: new_fast_map(),
-            tokens_to_match: new_fast_map(),
+            matches: MATCHES.get_or_init(new_fast_map),
+            tokens_to_match: TOKENS.get_or_init(new_fast_map),
         }
     }
 
@@ -245,7 +250,13 @@ impl RealtimeMatchService {
         let mine = self.presence_of(s);
         let others: Vec<Presence> = match_ref.members.values().cloned().collect();
         match_ref.members.insert(sid, mine.clone());
-        let member_ids: Vec<Uuid> = match_ref.members.keys().copied().collect();
+        // Presence fan-out is addressed by user id, like every other `notify` here:
+        // the map keys are session ids, so the ids come out of the presences.
+        let member_ids: Vec<Uuid> = match_ref
+            .members
+            .values()
+            .filter_map(|p| Uuid::parse_str(&p.user_id).ok())
+            .collect();
         drop(match_ref);
 
         let _ = s.matches.insert_sync(target);
@@ -284,7 +295,11 @@ impl RealtimeMatchService {
                 return Ok(());
             };
             let gone = m.members.remove(&s.sid);
-            let member_ids: Vec<Uuid> = m.members.keys().copied().collect();
+            let member_ids: Vec<Uuid> = m
+                .members
+                .values()
+                .filter_map(|p| Uuid::parse_str(&p.user_id).ok())
+                .collect();
             let empty = m.members.is_empty() && (m.ephemeral || m.tokens.is_empty());
             drop(m);
             if empty {

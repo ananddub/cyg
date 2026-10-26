@@ -19,14 +19,20 @@ use crate::infra::ws::session::{self, Session};
 
 pub struct RealtimePresenceService {
     /// Online presences: uid -> (sid -> (username, status))
-    pub presences: FastMap<Uuid, HashMap<Uuid, (String, String)>>,
+    ///
+    /// Process-wide, because the socket plane follows through `auto_di` while
+    /// teardown and the read routes reach the same state through
+    /// [`Self::global`].
+    pub presences: &'static FastMap<Uuid, HashMap<Uuid, (String, String)>>,
 }
 
 #[singleton]
 impl RealtimePresenceService {
     pub fn new() -> Self {
+        static PRESENCES: OnceLock<FastMap<Uuid, HashMap<Uuid, (String, String)>>> =
+            OnceLock::new();
         Self {
-            presences: new_fast_map(),
+            presences: PRESENCES.get_or_init(new_fast_map),
         }
     }
 
@@ -200,7 +206,7 @@ impl RealtimePresenceService {
         );
     }
 
-    pub fn update_status(&self, sid: Uuid, status: String, cid: Option<String>) {
+    pub fn update_status(&self, sid: Uuid, status: String) {
         let Some(session) = session::find(sid) else {
             return;
         };
@@ -221,15 +227,14 @@ impl RealtimePresenceService {
                 joins: vec![presence.clone()],
                 leaves: Vec::new(),
             };
-            f.send(&Envelope {
-                cid: cid.clone(),
-                message,
-            });
+            // The caller's cid belongs to its own request: a fan-out to other
+            // sockets carries no correlation id, like every other event here.
+            f.send(&Envelope { cid: None, message });
         }
         for own in session::sessions_of(session.uid) {
             if own.sid != sid {
                 own.send_message(
-                    cid.clone(),
+                    None,
                     EnvelopeMessage::StatusPresenceEvent {
                         joins: vec![presence.clone()],
                         leaves: Vec::new(),
@@ -262,7 +267,7 @@ impl RealtimePresenceService {
 
     pub async fn update(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: StatusUpdate = msg.payload()?;
-        self.update_status(conn.id(), req.status, msg.cid().map(str::to_string));
+        self.update_status(conn.id(), req.status);
         Ok(None)
     }
 }

@@ -31,7 +31,7 @@ pub async fn set_mfa_required(
 /// still expected to have one and must re-enrol at its next sign-in.
 pub async fn reset_mfa_factor(pool: &sqlx::PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
     let done = sqlx::query(
-        "UPDATE console_user SET mfa_secret = NULL, mfa_recovery_codes = NULL, update_time = now() WHERE id = $2;",
+        "UPDATE console_user SET mfa_secret = NULL, mfa_recovery_codes = NULL, update_time = now() WHERE id = $1;",
     )
     .bind(id)
     .execute(pool)

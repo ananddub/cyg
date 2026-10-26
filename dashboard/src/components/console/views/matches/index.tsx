@@ -123,11 +123,7 @@ export function MatchesView() {
         />
       </div>
 
-      <Panel
-        title="Running matches"
-        description={`page ${Math.floor(offset / PAGE_SIZE) + 1}`}
-        fill
-      >
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}

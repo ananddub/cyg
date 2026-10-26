@@ -116,11 +116,7 @@ export function AccountsView() {
         />
       </div>
 
-      <Panel
-        title="All accounts"
-        description={`page ${Math.floor(offset / PAGE_SIZE) + 1}`}
-        fill
-      >
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}

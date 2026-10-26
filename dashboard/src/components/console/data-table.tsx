@@ -200,7 +200,9 @@ export function DataTable<T>({
   )
 }
 
-/** A titled section: the console's card, with an optional right-hand action. */
+/** A titled section: the console's card, with an optional right-hand action.
+ * Omit the title when the section is the page's only content and a heading
+ * would just repeat the page heading. */
 export function Panel({
   title,
   description,
@@ -209,7 +211,7 @@ export function Panel({
   className,
   fill = false,
 }: {
-  title: string
+  title?: string
   description?: string
   actions?: ReactNode
   children: ReactNode
@@ -218,6 +220,7 @@ export function Panel({
    * (a DataTable) scroll inside the card instead of growing the page. */
   fill?: boolean
 }) {
+  const hasHeader = title !== undefined || actions !== undefined
   return (
     <section
       className={cn(
@@ -226,15 +229,19 @@ export function Panel({
         className,
       )}
     >
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
-        <div className="min-w-0">
-          <h3 className="font-heading text-sm font-semibold text-foreground">{title}</h3>
-          {description !== undefined && (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
-          )}
-        </div>
-        {actions}
-      </header>
+      {hasHeader && (
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
+          <div className="min-w-0">
+            {title !== undefined && (
+              <h3 className="font-heading text-sm font-semibold text-foreground">{title}</h3>
+            )}
+            {description !== undefined && (
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
+            )}
+          </div>
+          {actions}
+        </header>
+      )}
       <div className={cn("overflow-hidden", fill && "flex min-h-0 flex-1 flex-col")}>
         {children}
       </div>

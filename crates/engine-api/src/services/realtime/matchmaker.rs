@@ -76,18 +76,24 @@ pub struct MatchmakerStatsSnapshot {
 }
 
 pub struct RealtimeMatchmakerService {
-    pub tickets: FastMap<Uuid, Ticket>,
-    pub mode_index: FastMap<String, FastMap<Uuid, ()>>,
-    pub rank_index: FastTree<(i64, Uuid), ()>,
+    /// One process-wide set of indexes: the socket adds tickets through `auto_di`
+    /// and the ticker, the REST stats route and the party plane read them through
+    /// [`Self::global`].
+    pub tickets: &'static FastMap<Uuid, Ticket>,
+    pub mode_index: &'static FastMap<String, FastMap<Uuid, ()>>,
+    pub rank_index: &'static FastTree<(i64, Uuid), ()>,
 }
 
 #[singleton]
 impl RealtimeMatchmakerService {
     pub fn new() -> Self {
+        static TICKETS: OnceLock<FastMap<Uuid, Ticket>> = OnceLock::new();
+        static MODE_INDEX: OnceLock<FastMap<String, FastMap<Uuid, ()>>> = OnceLock::new();
+        static RANK_INDEX: OnceLock<FastTree<(i64, Uuid), ()>> = OnceLock::new();
         Self {
-            tickets: new_fast_map(),
-            mode_index: new_fast_map(),
-            rank_index: new_fast_tree(),
+            tickets: TICKETS.get_or_init(new_fast_map),
+            mode_index: MODE_INDEX.get_or_init(new_fast_map),
+            rank_index: RANK_INDEX.get_or_init(new_fast_tree),
         }
     }
 

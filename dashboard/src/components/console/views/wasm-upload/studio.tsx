@@ -1,10 +1,10 @@
-// The WASM Studio's two halves, extracted so the standalone view and the per-game
-// detail tabs share one implementation: the upload + live ABI checklist, and the
-// deployment timeline with activate / roll-back / delete.
+// A wasm game's two module panels, rendered by the per-game detail tabs: the
+// upload + live ABI checklist, and the deployment timeline with activate /
+// roll-back / delete.
 //
 // The upload is `POST /v2/console/games/{id}/wasm/upload` as multipart form data
 // (`file`, optional `source_code`), which the console's JSON mutation hook cannot
-// carry, so this does the one raw request the studio needs — same bearer token,
+// carry, so this does the one raw request the modules need — same bearer token,
 // same rule that a refusal shows the server's own message. A 400 comes back with
 // the ABI report and the missing export names; the checklist renders them red
 // rather than hiding them in a toast.
@@ -369,13 +369,7 @@ export function DeploymentHistory({ gameId, disabled = false }: { gameId: string
 
   return (
     <>
-      <Panel
-        title="Deployment timeline"
-        description={
-          modules.data === undefined ? undefined : `${modules.data.length} versions · newest first`
-        }
-        fill
-      >
+      <Panel fill>
         <div className="shrink-0 border-b border-border/60 p-3">
           <SearchField
             value={query}

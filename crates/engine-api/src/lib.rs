@@ -11,7 +11,7 @@
 //! bound, hands it to [`serve`], and spawns the status pump and [`gc_seats`] on
 //! that runtime. Every bus touch is a `try_send`; every queue is bounded and drops
 //! instead of stalling a client's socket task.
-
+//! tests
 pub mod app;
 pub mod controllers;
 pub mod dto;

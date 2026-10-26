@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react"
 
 import logoUrl from "@/assets/logo.png"
-import type { Overview } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export interface DashboardHeaderProps {
-  overview?: Overview
   /** "ws" while the dashboard socket drives updates, "poll" on the REST fallback. */
   source: "ws" | "poll"
   connected: boolean
@@ -33,21 +31,13 @@ function resolvePill(source: string, connected: boolean, ageMs: number | null): 
 }
 
 const pillStyle: Record<PillState, { label: string; dot: string; text: string }> = {
-  live: { label: "LIVE", dot: "bg-primary", text: "text-primary" },
+  live: { label: "LIVE", dot: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
   reconnecting: { label: "RECONNECTING", dot: "bg-warning", text: "text-warning" },
   offline: { label: "OFFLINE", dot: "bg-destructive", text: "text-destructive" },
   poll: { label: "POLL", dot: "bg-muted-foreground", text: "text-muted-foreground" },
 }
 
-function formatSampleAge(ms: number | null | undefined): string {
-  if (ms == null || !Number.isFinite(ms)) return "—"
-  if (ms < 1000) return `${Math.round(ms)} ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`
-  return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`
-}
-
 export function DashboardHeader({
-  overview,
   source,
   connected,
   lastFrameAtMs,
@@ -58,8 +48,7 @@ export function DashboardHeader({
 }: DashboardHeaderProps) {
   const [now, setNow] = useState(() => Date.now())
 
-  // One shared per-second tick drives both the staleness cut-off and the clock,
-  // so the pill and the displayed time can never disagree.
+  // One shared per-second tick keeps the freshness cut-off honest.
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(id)
@@ -67,8 +56,6 @@ export function DashboardHeader({
 
   const frameAgeMs = lastFrameAtMs == null ? null : Math.max(0, now - lastFrameAtMs)
   const pill = pillStyle[resolvePill(source, connected, frameAgeMs)]
-  const server = overview?.server
-  const sampleAge = overview?.sampleAgeMs
 
   return (
     <header className="flex w-full items-center justify-between gap-x-4">
@@ -102,45 +89,26 @@ export function DashboardHeader({
         </div>
       </div>
 
-      {/* Right side: Pill, Server info, Sample age, Time */}
+      {/* Right side: feed status only */}
       <div className="flex items-center gap-3">
         {showFeed && (
-          <>
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 text-xs font-medium">
-              <span className="relative flex size-1.5 shrink-0 items-center justify-center">
-                {pill.label === "LIVE" && (
-                  // A ping ring, not an opacity throb: it reads as "a frame just
-                  // landed" without making the label itself flicker.
-                  <span
-                    className={cn(
-                      "absolute inline-flex size-full rounded-full opacity-50 motion-safe:animate-ping motion-safe:[animation-duration:1.8s]",
-                      pill.dot,
-                    )}
-                  />
-                )}
-                <span className={cn("relative inline-flex size-1.5 rounded-full", pill.dot)} />
-              </span>
-              <span className={pill.text}>{pill.label}</span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 text-xs font-medium">
+            <span className="relative flex size-1.5 shrink-0 items-center justify-center">
+              {pill.label === "LIVE" && (
+                // A ping ring, not an opacity throb: it reads as "a frame just
+                // landed" without making the label itself flicker.
+                <span
+                  className={cn(
+                    "absolute inline-flex size-full rounded-full opacity-50 motion-safe:animate-ping motion-safe:[animation-duration:1.8s]",
+                    pill.dot,
+                  )}
+                />
+              )}
+              <span className={cn("relative inline-flex size-1.5 rounded-full", pill.dot)} />
             </span>
-
-            {server && (
-              <span className="hidden sm:inline text-xs text-muted-foreground tabular-nums shrink-0">
-                {server.name || "room"} <span className="text-foreground font-mono">:{server.controlPort}</span>
-              </span>
-            )}
-
-            <span
-              className="hidden md:inline text-xs text-muted-foreground tabular-nums shrink-0"
-              title="Age of the newest sim sample on this control plane"
-            >
-              sample {formatSampleAge(sampleAge)} ago
-            </span>
-          </>
+            <span className={pill.text}>{pill.label}</span>
+          </span>
         )}
-
-        <time className="hidden lg:inline text-xs text-muted-foreground tabular-nums shrink-0">
-          {new Date(now).toLocaleTimeString()}
-        </time>
       </div>
     </header>
   )

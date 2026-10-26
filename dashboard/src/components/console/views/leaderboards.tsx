@@ -89,7 +89,7 @@ export function LeaderboardsView() {
         label="Search leaderboards"
       />
 
-      <Panel title="Leaderboard definitions" fill>
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}

@@ -74,7 +74,7 @@ export function AclTemplatesView() {
         label="Search ACL templates"
       />
 
-      <Panel title="Templates" fill>
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}

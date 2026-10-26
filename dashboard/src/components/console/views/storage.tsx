@@ -152,7 +152,7 @@ export function StorageView() {
           success="Collection deleted."
         />
 
-        <Panel title={selected ?? "All objects"} className="min-h-0" fill>
+        <Panel className="min-h-0" fill>
           <DataTable
             columns={columns}
             rows={filtered}

@@ -1,6 +1,4 @@
-// The WASM Studio & Deployments view, exported the way `administration/index.ts`
-// exports its area modules. The two panels are also re-exported so the Games
-// detail tabs render the same upload + history the studio page does.
+// The WASM module panels, exported the way `administration/index.ts` exports
+// its area modules, so the Games detail tabs render one upload + history pair.
 
-export { WasmUploadView } from "./index.tsx"
 export { DeploymentHistory, WasmUploadPanel } from "./studio"

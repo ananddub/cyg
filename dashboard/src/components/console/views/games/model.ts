@@ -1,6 +1,6 @@
 // The Games Catalog's wire shapes. One home for them keeps the view, the register
-// modal, the detail sheet and the WASM Studio reading the same contract without a
-// component->component import cycle.
+// modal, the detail sheet and the module panels reading the same contract without
+// a component->component import cycle.
 
 import type { BackendMode } from "./routes"
 

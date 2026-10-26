@@ -78,7 +78,7 @@ function EngineCard({
 
 const MODE_SUMMARY: Record<BackendMode, string> = {
   relay: "Zero Server Code — Pure C# Relay & BaaS. No WASM module is used for this game.",
-  wasm: "Server-Side WASM Simulation. Upload a room module in the WASM Studio before players join.",
+  wasm: "Server-Side WASM Simulation. Upload a room module from the game's project settings before players join.",
 }
 
 export function CreateGameDialog({

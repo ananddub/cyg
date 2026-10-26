@@ -120,7 +120,7 @@ export function PurchasesView() {
             />
           </div>
 
-          <Panel title="Purchases" fill>
+          <Panel fill>
             <DataTable
               columns={columns}
               rows={filtered}
@@ -222,7 +222,7 @@ export function SubscriptionsView() {
         />
       </div>
 
-      <Panel title="Subscriptions" fill>
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}

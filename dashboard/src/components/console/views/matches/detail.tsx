@@ -68,10 +68,7 @@ export function MatchDetail({ match, onDeleted }: { match: ConsoleMatch; onDelet
         </div>
       </Panel>
 
-      <Panel
-        title="Live state"
-        description={state.isPending ? "Loading…" : `${state.data?.presences.length ?? 0} present`}
-      >
+      <Panel>
         <div className="px-4 py-2">
           <Field label="Tick">{num(state.data?.tick ?? 0)}</Field>
           <Field label="Handler state">{state.data?.state === "" || state.data === undefined ? "—" : "reported"}</Field>

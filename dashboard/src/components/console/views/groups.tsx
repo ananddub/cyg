@@ -122,7 +122,7 @@ export function GroupsView() {
         />
       </div>
 
-      <Panel title="All groups" fill>
+      <Panel fill>
         <DataTable
           columns={columns}
           rows={filtered}
@@ -214,7 +214,7 @@ function GroupDetail({ group, onDeleted }: { group: ConsoleGroup; onDeleted: () 
         </div>
       </Panel>
 
-      <Panel title="Members" description={`${members.data?.length ?? 0} listed`}>
+      <Panel>
         <DataTable
           columns={columns}
           rows={members.data}

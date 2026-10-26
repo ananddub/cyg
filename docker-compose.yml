@@ -1,12 +1,12 @@
 services:
   postgres:
     image: orioledb/orioledb:latest-pg17
-    container_name: cyg_postgres
+    container_name: openoxide_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: cyg
-      POSTGRES_PASSWORD: change-me
-      POSTGRES_DB: cyg_db
+      POSTGRES_USER: openoxide
+      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: openoxide_db
     ports:
       - "5432:5432"
     shm_size: 1gb
@@ -15,14 +15,37 @@ services:
 
   redis:
     image: redis:7
-    container_name: cyg_redis
+    container_name: openoxide_redis
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
 
+  server:
+    image: fedora:latest
+    container_name: openoxide_gaming
+    restart: unless-stopped
+    stop_signal: SIGINT
+    working_dir: /app
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "19224:19224"       # Control Plane: HTTP API, WebSockets (/ws/signal), Dashboard (/dashboard/), Matchmaking
+      - "7977:7977/udp"     # WebRTC DataChannel (Fast UDP game state & inputs)
+      - "7778:7778/udp"     # Native Engine (Unity / Unreal / Godot UDP datagrams)
+    environment:
+      - DATABASE_URL=postgresql://openoxide:mysecretpassword@postgres:5432/openoxide_db
+      - OX_ALLOW_DEFAULT_SECRETS=1
+      - RUST_LOG=info
+      - GAME_DIR=${GAME_DIR:-examples/sky3d}
+    volumes:
+      - .:/app
+    entrypoint: ["/bin/bash", "/app/deploy/entrypoint.sh"]
+
 volumes:
   pg_data:
     driver: local
   redis_data:
+    driver: local
