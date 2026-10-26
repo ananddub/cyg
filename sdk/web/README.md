@@ -68,6 +68,3 @@ npm test
 Runs the byte-level schema decoder tests. They cover hash parity with the
 AssemblyScript encoder, full snapshots, adds/removes/updates, patches that race
 the baseline, and mismatched schemas.
-
-See [`docs/SCHEMA.md`](../../docs/SCHEMA.md) and
-[`docs/MATCHMAKING.md`](../../docs/MATCHMAKING.md) for the full contract.

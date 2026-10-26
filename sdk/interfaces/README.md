@@ -103,10 +103,6 @@ room.onStateChange((state) => render(state.players.values()));
 The descriptor is the only schema source: the browser builds its declarations
 from it on join, and `schema.ts` is the only file you edit.
 
-See [`docs/SCHEMA.md`](../../docs/SCHEMA.md) for the wire format, limits, and
-migration notes, and [`docs/MATCHMAKING.md`](../../docs/MATCHMAKING.md) for
-`joinOrCreate`, auth hooks, room listing, and reconnect.
-
 
 > [!TIP]
 > **🏆 Recommended for Maximum Performance: WebAssembly (Rust / Pure C / C++)**
