@@ -10,7 +10,6 @@ on:
       - "sdk/native/**"
       - "sdk/godot/**"
       - "sdk/unity/Runtime/Schema/**"
-      - "tests/e2e/schema_flow.mjs"
       - "bench/loadtest.mjs"
       - ".github/workflows/schema.yml"
   pull_request:
@@ -22,7 +21,6 @@ on:
       - "sdk/native/**"
       - "sdk/godot/**"
       - "sdk/unity/Runtime/Schema/**"
-      - "tests/e2e/schema_flow.mjs"
       - "bench/loadtest.mjs"
       - ".github/workflows/schema.yml"
 
@@ -53,9 +51,6 @@ jobs:
 
       - name: Browser schema tests
         run: node sdk/web/test/schema.test.mjs
-
-      - name: End-to-end descriptor and generated types
-        run: node tests/e2e/schema_flow.mjs
 
       - name: Schema benchmark compiles and runs
         run: cargo run -q -p engine-schema --release --example schema_bench

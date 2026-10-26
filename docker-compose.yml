@@ -12,7 +12,6 @@ services:
     shm_size: 1gb
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./init-oriole.sql:/docker-entrypoint-initdb.d/init-oriole.sql:ro
 
   redis:
     image: redis:7

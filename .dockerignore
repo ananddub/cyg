@@ -7,8 +7,4 @@ target
 .agents
 dashboard/node_modules
 dashboard/dist
-examples/**/Library
-examples/**/Temp
-examples/**/obj
-examples/**/bin
 node_modules

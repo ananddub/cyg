@@ -56,10 +56,19 @@ sdk/unity/Tools~/CYG.VSCode/node_modules/
 sdk/unity/Tools~/CYG.VSCode/server/
 sdk/unity/Tools~/CYG.VSCode/*.vsix
 
-# per-project build artifacts (ox-game build)
-examples/*/out/
-
 # local TLS material
 cert.key
 cert.crt
 *.pem
+
+# local-only working assets (kept on disk, not published)
+/examples/
+/deploy/
+/scratch/
+/test-client/
+/tests/
+/architecture/
+/init-oriole.sql
+/reference_schema.sql
+/run_website.sh
+/ROADMAP-DX.md
