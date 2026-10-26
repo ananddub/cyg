@@ -87,6 +87,12 @@ pub struct CreateGameRequest {
 /// `PUT /v2/console/games/{gameId}` — a patch: an absent field keeps its stored
 /// value. `game_key` and `api_key` are absent by construction; the identity of a
 /// tenant is not editable, and rotating its secret is its own (future) action.
+///
+/// The four config fields ride flat exactly as registration accepts them (the
+/// "flat fields win server-side" contract the dashboard's register sheet
+/// documents); they merge into the stored config the same way `create_config`
+/// does. Without them, a patch that only names `config` would be the sole way
+/// to move a tick rate — and the dashboard's configure sheet does not speak it.
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdateGameRequest {
     #[serde(default)]
@@ -98,6 +104,14 @@ pub struct UpdateGameRequest {
     pub status: Option<String>,
     #[serde(default)]
     pub config: Option<Value>,
+    #[serde(default)]
+    pub tick_rate: Option<u32>,
+    #[serde(default)]
+    pub max_clients: Option<u32>,
+    #[serde(default)]
+    pub persistent_rooms: Option<bool>,
+    #[serde(default)]
+    pub auto_close_seconds: Option<u32>,
 }
 
 /// The columns of a game row, secret excluded. This is the shape every service query

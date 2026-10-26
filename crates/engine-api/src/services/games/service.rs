@@ -235,7 +235,42 @@ impl GamesService {
         // WASM planes, so the mode rides along with it; every other patch leaves it.
         let backend = engine.as_deref().map(backend_mode_for_engine);
         let status = body.status.as_deref().map(game_status).transpose()?;
-        let config = config_value(body.config.as_ref())?;
+
+        // The flat config fields patch the stored document one key at a time —
+        // the same "flat wins over nested" merge registration uses — so a
+        // sync-rate change never needs the caller to resend the whole config. A
+        // nested `config` object alone still replaces the document outright.
+        let config = if body.tick_rate.is_none()
+            && body.max_clients.is_none()
+            && body.persistent_rooms.is_none()
+            && body.auto_close_seconds.is_none()
+        {
+            config_value(body.config.as_ref())?
+        } else {
+            let current = Self::find_game(state, game_id).await?.config;
+            let mut map = current.as_object().cloned().unwrap_or_default();
+            if let Some(patch) = config_value(body.config.as_ref())? {
+                if let Some(patch_map) = patch.as_object() {
+                    for (key, value) in patch_map {
+                        map.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+            if let Some(v) = body.tick_rate {
+                map.insert("tick_rate".to_owned(), json!(v));
+            }
+            if let Some(v) = body.max_clients {
+                map.insert("max_clients".to_owned(), json!(v));
+            }
+            if let Some(v) = body.persistent_rooms {
+                map.insert("persistent_rooms".to_owned(), json!(v));
+            }
+            if let Some(v) = body.auto_close_seconds {
+                map.insert("auto_close_seconds".to_owned(), json!(v));
+            }
+            Some(serde_json::Value::Object(map))
+        };
+
         if name.is_none() && engine.is_none() && status.is_none() && config.is_none() {
             return Err(V2Error::invalid_argument(
                 "A game update has to change at least one field.",
