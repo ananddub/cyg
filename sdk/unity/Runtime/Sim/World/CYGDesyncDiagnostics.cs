@@ -113,12 +113,53 @@ namespace CookYourGame.Sim
                 int slot = expectedStore.FindFirstDifference(actualStore);
                 if (slot >= 0)
                 {
-                    return prefix + $": component {expectedStore.TypeId} first differs at slot {slot}";
+                    return prefix + ": " + DescribeSlot(expectedStore, actualStore, slot);
                 }
                 return prefix + $": component {expectedStore.TypeId} checksum differs (value checksums collided)";
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Names the first divergent wire byte inside a mismatching slot. The
+        /// generator emits the wire layout in declaration order, so the offset
+        /// identifies the field that diverged even for nested values.
+        /// </summary>
+        private static string DescribeSlot(
+            CYGComponentStoreSnapshot expected,
+            CYGComponentStoreSnapshot actual,
+            int slot)
+        {
+            string label = expected.ComponentTypeName + "#" + expected.TypeId;
+            bool expectedPresent = expected.IsPresent(slot);
+            bool actualPresent = actual.IsPresent(slot);
+            if (expectedPresent != actualPresent)
+            {
+                return $"component {label} presence differs at slot {slot} "
+                    + $"(expected {expectedPresent}, actual {actualPresent})";
+            }
+            if (!expectedPresent)
+            {
+                return $"component {label} differs at slot {slot}";
+            }
+
+            int size = expected.ComponentSize;
+            byte[] left = new byte[size];
+            byte[] right = new byte[size];
+            expected.CopyComponentToBuffer(slot, left, 0);
+            actual.CopyComponentToBuffer(slot, right, 0);
+
+            for (int i = 0; i < size; i++)
+            {
+                if (left[i] != right[i])
+                {
+                    return $"component {label} first differs at slot {slot}, wire byte {i}/{size} "
+                        + $"(expected 0x{left[i]:X2}, actual 0x{right[i]:X2})";
+                }
+            }
+
+            return $"component {label} first differs at slot {slot} (component checksum mismatch only)";
         }
     }
 }

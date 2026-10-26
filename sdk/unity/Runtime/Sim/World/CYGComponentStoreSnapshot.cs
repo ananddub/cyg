@@ -26,6 +26,9 @@ namespace CookYourGame.Sim
         /// <summary>Wire size in bytes of one component value.</summary>
         internal abstract int ComponentSize { get; }
 
+        /// <summary>Managed component type name, used only by desync diagnostics.</summary>
+        internal abstract string ComponentTypeName { get; }
+
         internal abstract void EnsureCapacity(int capacity);
 
         /// <summary>Writes a present slot's value using the generated wire codec.</summary>
@@ -111,6 +114,11 @@ namespace CookYourGame.Sim
         internal override int ComponentSize
         {
             get { return default(T).WireSize; }
+        }
+
+        internal override string ComponentTypeName
+        {
+            get { return typeof(T).Name; }
         }
 
         internal override void CopyComponentToBuffer(int index, byte[] buffer, int offset)

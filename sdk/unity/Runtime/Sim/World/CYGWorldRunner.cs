@@ -20,6 +20,9 @@ namespace CookYourGame.Sim
         private readonly CYGWorld _world;
         private readonly CYGDeterminismConfig _config;
         private readonly FrameSnapshot[] _ring;
+        private readonly List<ICYGSnapshotParticipant> _participants = new List<ICYGSnapshotParticipant>();
+        private ICYGSnapshotParticipant[] _sortedParticipants = Array.Empty<ICYGSnapshotParticipant>();
+        private bool _participantsDirty;
         private int _next;
         private int _frame;
         private bool _hasInitialFrame;
@@ -86,9 +89,98 @@ namespace CookYourGame.Sim
             get { return _ring.Length; }
         }
 
+        /// <summary>
+        /// World checksum folded together with every registered participant in
+        /// ascending participant-id order. With no participants this is exactly
+        /// <see cref="CYGWorld.ComputeChecksum"/>.
+        /// </summary>
         public uint Checksum
         {
-            get { return _world.ComputeChecksum(); }
+            get
+            {
+                uint world = _world.ComputeChecksum();
+                EnsureParticipantsSorted();
+                if (_sortedParticipants.Length == 0)
+                {
+                    return world;
+                }
+
+                uint crc = 0xFFFFFFFFu;
+                CYGChecksum.HashUInt(ref crc, world);
+                CYGChecksum.HashInt(ref crc, _sortedParticipants.Length);
+                for (int i = 0; i < _sortedParticipants.Length; i++)
+                {
+                    ICYGSnapshotParticipant participant = _sortedParticipants[i];
+                    CYGChecksum.HashUInt(ref crc, participant.ParticipantId);
+                    CYGChecksum.HashUInt(ref crc, participant.ComputeChecksum());
+                }
+                return crc ^ 0xFFFFFFFFu;
+            }
+        }
+
+        /// <summary>
+        /// Session fingerprint: the config contract plus the participant ids
+        /// that affect the run. Exchange it before the first tick.
+        /// </summary>
+        public uint ComputeFingerprint()
+        {
+            EnsureParticipantsSorted();
+            uint crc = 0xFFFFFFFFu;
+            CYGChecksum.HashUInt(ref crc, _config.ComputeFingerprint());
+            CYGChecksum.HashInt(ref crc, _sortedParticipants.Length);
+            for (int i = 0; i < _sortedParticipants.Length; i++)
+            {
+                CYGChecksum.HashUInt(ref crc, _sortedParticipants[i].ParticipantId);
+            }
+            return crc ^ 0xFFFFFFFFu;
+        }
+
+        /// <summary>
+        /// Adds deterministic state that must be captured, restored and hashed
+        /// with the world. Registration must happen before the first tick so
+        /// every snapshot in the ring covers the same participant set.
+        /// </summary>
+        public void RegisterParticipant(ICYGSnapshotParticipant participant)
+        {
+            if (participant == null)
+            {
+                throw new ArgumentNullException(nameof(participant));
+            }
+            if (_frame != 0 || _hasInitialFrame)
+            {
+                throw new InvalidOperationException(
+                    "Participants must be registered before the first tick (current frame " + _frame + ").");
+            }
+            for (int i = 0; i < _participants.Count; i++)
+            {
+                if (_participants[i].ParticipantId == participant.ParticipantId)
+                {
+                    throw new InvalidOperationException(
+                        "Participant id " + participant.ParticipantId + " is already registered.");
+                }
+            }
+
+            int capacity = participant.SnapshotCapacity;
+            if (capacity != 0 && capacity < _ring.Length)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(participant),
+                    "Participant '" + participant.ParticipantName + "' snapshots " + capacity
+                    + " ticks but the runner rollback capacity is " + _ring.Length + ".");
+            }
+
+            _participants.Add(participant);
+            _participantsDirty = true;
+        }
+
+        /// <summary>Registered participants in ascending id order.</summary>
+        public IReadOnlyList<ICYGSnapshotParticipant> Participants
+        {
+            get
+            {
+                EnsureParticipantsSorted();
+                return _sortedParticipants;
+            }
         }
 
         /// <summary>
@@ -205,6 +297,13 @@ namespace CookYourGame.Sim
             _world.Events.RollbackTo(target);
             _world.Signals.Clear();
 
+            EnsureParticipantsSorted();
+            for (int i = 0; i < _sortedParticipants.Length; i++)
+            {
+                _sortedParticipants[i].RestoreSnapshot(target);
+                _sortedParticipants[i].DiscardSnapshotsAfter(target);
+            }
+
             // Everything after the restore point (and duplicate snapshots of
             // the restore point itself) is superseded by the resimulation that
             // follows. Dropping them keeps later rollbacks from finding a
@@ -227,6 +326,12 @@ namespace CookYourGame.Sim
                 _ring[i].Valid = false;
             }
 
+            EnsureParticipantsSorted();
+            for (int i = 0; i < _sortedParticipants.Length; i++)
+            {
+                _sortedParticipants[i].DiscardSnapshotsAfter(-1);
+            }
+
             _hasInitialFrame = false;
         }
 
@@ -244,6 +349,7 @@ namespace CookYourGame.Sim
             }
 
             SaveFrame(0);
+            CaptureParticipants(0);
             _hasInitialFrame = true;
         }
 
@@ -288,6 +394,39 @@ namespace CookYourGame.Sim
         {
             _frame++;
             SaveFrame(_frame);
+            CaptureParticipants(_frame);
+        }
+
+        private void CaptureParticipants(int tick)
+        {
+            EnsureParticipantsSorted();
+            for (int i = 0; i < _sortedParticipants.Length; i++)
+            {
+                _sortedParticipants[i].CaptureSnapshot(tick);
+            }
+        }
+
+        private void EnsureParticipantsSorted()
+        {
+            if (!_participantsDirty)
+            {
+                return;
+            }
+
+            _participantsDirty = false;
+            if (_participants.Count == 0)
+            {
+                _sortedParticipants = Array.Empty<ICYGSnapshotParticipant>();
+                return;
+            }
+
+            _sortedParticipants = _participants.ToArray();
+            Array.Sort(_sortedParticipants, CompareParticipants);
+        }
+
+        private static int CompareParticipants(ICYGSnapshotParticipant left, ICYGSnapshotParticipant right)
+        {
+            return left.ParticipantId.CompareTo(right.ParticipantId);
         }
 
         private void SaveFrame(int frame)

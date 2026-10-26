@@ -210,9 +210,25 @@ namespace CookYourGame.Sim
             get { return _runner.Frame - _confirmedTick; }
         }
 
+        /// <summary>World and participant state hash for the current frame.</summary>
         public uint Checksum
         {
-            get { return _world.ComputeChecksum(); }
+            get { return _runner.Checksum; }
+        }
+
+        /// <summary>Config-plus-participant contract id exchanged before the first tick.</summary>
+        public uint Fingerprint
+        {
+            get { return _runner.ComputeFingerprint(); }
+        }
+
+        /// <summary>
+        /// Adds deterministic state outside the ECS world to the rollback ring
+        /// and checksums. Must be called before the first tick.
+        /// </summary>
+        public void RegisterParticipant(ICYGSnapshotParticipant participant)
+        {
+            _runner.RegisterParticipant(participant);
         }
 
         /// <summary>
@@ -443,7 +459,7 @@ namespace CookYourGame.Sim
                     "No simulation step configured. Enable default character movement, call SetSystems, or subscribe OnSimulateStep.");
             }
 
-            _verified.MarkPredicted(_runner.Frame, _world.ComputeChecksum());
+            _verified.MarkPredicted(_runner.Frame, _runner.Checksum);
         }
 
         private void RunEventStep(CYGWorld world, int frameTick)

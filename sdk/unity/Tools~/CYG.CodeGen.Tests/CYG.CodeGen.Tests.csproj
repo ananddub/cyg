@@ -10,6 +10,7 @@
     <Compile Include="../../Runtime/Sim/Core/*.cs" LinkBase="Runtime/Core" />
     <Compile Include="../../Runtime/Sim/Math/*.cs" LinkBase="Runtime/Math" />
     <Compile Include="../../Runtime/Sim/Physics3D/*.cs" LinkBase="Runtime/Physics3D" />
+    <Compile Include="../../Runtime/Sim/Physics3D/Dynamics/*.cs" LinkBase="Runtime/Physics3D/Dynamics" />
     <ProjectReference Include="../CYG.CodeGen/CYG.CodeGen.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />

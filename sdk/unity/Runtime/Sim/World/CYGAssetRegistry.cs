@@ -15,8 +15,9 @@ namespace CookYourGame.Sim
     /// </summary>
     public sealed class CYGAssetRegistry
     {
-        private readonly Dictionary<int, object> _byId = new Dictionary<int, object>();
-        private readonly Dictionary<string, int> _byKey = new Dictionary<string, int>(StringComparer.Ordinal);
+        // Sorted so Remove and the exposed Ids walk a stable order.
+        private readonly SortedDictionary<int, object> _byId = new SortedDictionary<int, object>();
+        private readonly SortedDictionary<string, int> _byKey = new SortedDictionary<string, int>(StringComparer.Ordinal);
 
         /// <summary>Process-wide registry used by Unity adapters and systems.</summary>
         public static CYGAssetRegistry Shared { get; } = new CYGAssetRegistry();

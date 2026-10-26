@@ -42,6 +42,9 @@ namespace CookYourGame.Sim.Tests
                 WorldRollbackSessionTests.RunAll();
                 PhysicsNavigationBridgeTests.RunAll();
                 DesyncDiagnosticsTests.RunAll();
+                SnapshotParticipantTests.RunAll();
+                DeterminismSoakTests.RunAll();
+                AssemblyRulesTests.RunAll();
                 SystemsTests.RunAll();
                 EventsSignalsCommandsTests.RunAll();
                 KccTests.RunAll();

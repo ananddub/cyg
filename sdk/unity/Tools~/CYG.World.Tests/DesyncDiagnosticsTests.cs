@@ -32,8 +32,9 @@ namespace CookYourGame.Sim.Tests
 
             string report = CYGDesyncDiagnostics.Compare(10, left.CreateSnapshot(), 10, right.CreateSnapshot());
             Require(report != null, "component difference must report a desync");
-            Require(report.Contains("component 5002"), "report must name the component store: " + report);
+            Require(report.Contains("TestHealth#5002"), "report must name the component store: " + report);
             Require(report.Contains("slot 1"), "report must name the first divergent slot: " + report);
+            Require(report.Contains("wire byte"), "report must name the first divergent wire byte: " + report);
         }
 
         private static void TestRngDifference()

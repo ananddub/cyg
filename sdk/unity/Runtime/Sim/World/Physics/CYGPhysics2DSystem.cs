@@ -226,7 +226,8 @@ namespace CookYourGame.Sim
     public sealed class CYGPhysics2DSystem : CYGSystem
     {
         private readonly CYGPhysics2DWorld _physics;
-        private readonly Dictionary<CYGEntityRef, int> _bodyByEntity = new Dictionary<CYGEntityRef, int>();
+        private readonly SortedDictionary<CYGEntityRef, int> _bodyByEntity =
+            new SortedDictionary<CYGEntityRef, int>(CYGEntityRefComparer.Instance);
         private readonly List<CYGEntityRef> _staleEntities = new List<CYGEntityRef>();
         private bool _driveFromInput = true;
 

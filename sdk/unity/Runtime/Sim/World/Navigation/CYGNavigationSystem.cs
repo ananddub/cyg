@@ -160,8 +160,8 @@ namespace CookYourGame.Sim
     {
         private readonly CYGNavMesh _mesh;
         private readonly CYGAgentSystem _agents;
-        private readonly Dictionary<CYGEntityRef, CYGAgent> _agentByEntity =
-            new Dictionary<CYGEntityRef, CYGAgent>();
+        private readonly SortedDictionary<CYGEntityRef, CYGAgent> _agentByEntity =
+            new SortedDictionary<CYGEntityRef, CYGAgent>(CYGEntityRefComparer.Instance);
         private readonly List<CYGEntityRef> _staleEntities = new List<CYGEntityRef>();
         private bool _driveFromInput = true;
 
