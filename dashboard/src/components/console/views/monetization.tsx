@@ -6,6 +6,7 @@ import { Ban } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ConfirmAction } from "@/components/console/actions"
 import {
   DataTable,
@@ -17,7 +18,7 @@ import {
   SearchField,
 } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
-import { IapPanel } from "@/components/console/views/monetization-iap"
+import { VendorConfigurationPanel, VendorValidationPanel } from "@/components/console/views/monetization-iap"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
 import {
   CONSOLE_ENDPOINTS,
@@ -89,41 +90,59 @@ export function PurchasesView() {
   ]
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <PageHeading title="Purchases" description="Every verified in-app purchase receipt." />
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
+      <PageHeading
+        title="Purchases"
+        description="Verified receipts, store validation and the credentials each vendor is configured with."
+      />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <SearchField
-          value={query}
-          onChange={setQuery}
-          placeholder="Search purchases by product, transaction or account"
-          label="Search purchases"
-          className="sm:flex-1"
-        />
-        <FilterPills
-          filters={ENV_FILTERS}
-          value={filter}
-          onChange={setFilter}
-          className="sm:ml-auto"
-        />
-      </div>
+      <Tabs defaultValue="ledger" className="flex min-h-0 flex-1 flex-col">
+        <TabsList className="h-12 w-full justify-start gap-1.5">
+          <TabsTrigger value="ledger">Purchases</TabsTrigger>
+          <TabsTrigger value="validation">Vendor validation</TabsTrigger>
+          <TabsTrigger value="configuration">Vendor configuration</TabsTrigger>
+        </TabsList>
 
-      {/* Natural height: a `fill` panel would be squeezed into its header by the
-          vendor form below, hiding every row. The page itself scrolls. */}
-      <Panel title="Purchases">
-        <DataTable
-          columns={columns}
-          rows={filtered}
-          loading={list.isPending}
-          error={queryError(list.error)}
-          rowKey={(row) => row.transaction_id}
-          empty={empty}
-          selectable
-        />
-        <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
-      </Panel>
+        <TabsContent value="ledger" keepMounted className="flex min-h-0 flex-1 flex-col gap-3 pt-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <SearchField
+              value={query}
+              onChange={setQuery}
+              placeholder="Search purchases by product, transaction or account"
+              label="Search purchases"
+              className="sm:flex-1"
+            />
+            <FilterPills
+              filters={ENV_FILTERS}
+              value={filter}
+              onChange={setFilter}
+              className="sm:ml-auto"
+            />
+          </div>
 
-      <IapPanel />
+          <Panel title="Purchases" fill>
+            <DataTable
+              columns={columns}
+              rows={filtered}
+              loading={list.isPending}
+              error={queryError(list.error)}
+              rowKey={(row) => row.transaction_id}
+              empty={empty}
+              selectable
+              fill
+            />
+            <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />
+          </Panel>
+        </TabsContent>
+
+        <TabsContent value="validation" keepMounted className="pt-2">
+          <VendorValidationPanel />
+        </TabsContent>
+
+        <TabsContent value="configuration" keepMounted className="pt-2">
+          <VendorConfigurationPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

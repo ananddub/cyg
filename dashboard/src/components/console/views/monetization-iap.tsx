@@ -1,10 +1,11 @@
-// Vendor IAP maintenance beside the ledger: run a credential through a vendor's
-// validation route (`POST /v2/console/iap/{vendor}/validate`) and clear a
-// vendor's stored configuration (`DELETE /v2/console/iap/{vendor}/reset`).
+// Vendor IAP maintenance: run a credential through a vendor's validation route
+// (`POST /v2/console/iap/{vendor}/validate`) and clear a vendor's stored
+// configuration (`DELETE /v2/console/iap/{vendor}/reset`).
 
 import { useState } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, ShieldCheck, Trash2 } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
 import { JsonBlock, Panel } from "@/components/console/data-table"
@@ -25,11 +26,19 @@ const VENDORS = [
 ]
 
 const KIND_OPTIONS = [
-  { value: "purchase", label: "Purchase" },
+  { value: "purchase", label: "One-off purchase" },
   { value: "subscription", label: "Subscription" },
 ]
 
-export function IapPanel() {
+function RouteChip({ method, path }: { method: string; path: string }) {
+  return (
+    <code className="hidden rounded-md border border-border/60 bg-muted/60 px-2 py-1 font-mono text-[10px] font-medium text-muted-foreground sm:block">
+      {method} {path}
+    </code>
+  )
+}
+
+export function VendorValidationPanel() {
   const [vendor, setVendor] = useState("apple")
   const [kind, setKind] = useState("purchase")
   const [credential, setCredential] = useState("")
@@ -37,10 +46,14 @@ export function IapPanel() {
   const [userId, setUserId] = useState("")
   const [persist, setPersist] = useState(true)
   const [reply, setReply] = useState<unknown>(null)
-  const [resetting, setResetting] = useState<string | null>(null)
   const write = useConsoleMutation()
 
   const active = VENDORS.find((candidate) => candidate.value === vendor) ?? VENDORS[0]
+
+  function chooseVendor(next: string) {
+    setVendor(next)
+    if (!VENDORS.find((candidate) => candidate.value === next)?.subscriptions) setKind("purchase")
+  }
 
   function confirm() {
     if (credential === "") return
@@ -61,30 +74,38 @@ export function IapPanel() {
 
   return (
     <div className="space-y-4">
-      <Panel title="Vendor validation" description="POST /v2/console/iap/{vendor}/validate">
-        <div className="space-y-3 p-4">
-          <div className="grid grid-cols-2 gap-3">
+      <Panel
+        title="Validate a receipt"
+        description="Run one store credential through the vendor's verification API."
+        actions={<RouteChip method="POST" path="/v2/console/iap/{vendor}/validate" />}
+      >
+        <div className="space-y-4 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Select
-              label="Vendor"
+              label="Store"
               value={vendor}
-              onChange={setVendor}
+              onChange={chooseVendor}
               options={VENDORS.map((candidate) => ({ value: candidate.value, label: candidate.label }))}
             />
             <Select
-              label="Kind"
-              hint={active.subscriptions ? undefined : `${active.label} has no subscriptions.`}
+              label="Purchase kind"
+              hint={active.subscriptions ? undefined : `${active.label} sells one-off purchases only.`}
               value={kind}
               onChange={setKind}
               options={KIND_OPTIONS}
             />
           </div>
+
           <TextArea
-            label={`Credential (${active.credential})`}
+            label={`Credential · ${active.credential}`}
+            hint={`Sent as the "${active.credential}" field this store's player route reads.`}
+            rows={3}
             value={credential}
             onChange={setCredential}
-            placeholder="receipt / purchase token / signed request"
+            placeholder="Receipt, purchase token or signed request"
           />
-          <div className="grid grid-cols-2 gap-3">
+
+          <div className="grid gap-3 sm:grid-cols-2">
             <TextInput
               label="Product id"
               hint="Optional. Recorded on the persisted row."
@@ -100,38 +121,63 @@ export function IapPanel() {
               mono
             />
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <Checkbox label="Persist the validated row" checked={persist} onChange={setPersist} />
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
+            <Checkbox label="Persist the validated purchase" checked={persist} onChange={setPersist} />
             <Button size="sm" onClick={confirm} disabled={write.isPending || credential === ""}>
-              {write.isPending && <Loader2 className="animate-spin" />}
-              Validate
+              {write.isPending ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
+              Validate receipt
             </Button>
           </div>
         </div>
       </Panel>
 
       {reply !== null && (
-        <Panel title="Validation reply">
-          <div className="p-3">
+        <Panel title="Validation reply" description="The vendor's response, exactly as the server returned it.">
+          <div className="p-3 sm:p-4">
             <JsonBlock value={reply} />
           </div>
         </Panel>
       )}
+    </div>
+  )
+}
 
-      <Panel title="Vendor configuration" description="DELETE /v2/console/iap/{vendor}/reset">
-        <div className="space-y-2 p-4">
-          <p className="text-xs text-muted-foreground">
-            Reset clears the stored <span className="font-mono">iap.{`{vendor}`}</span> settings — that vendor falls
-            back to unconfigured.
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {VENDORS.map((candidate) => (
-              <Button key={candidate.value} size="xs" variant="outline" onClick={() => setResetting(candidate.value)}>
-                Reset {candidate.label}
+export function VendorConfigurationPanel() {
+  const [resetting, setResetting] = useState<string | null>(null)
+
+  return (
+    <div className="space-y-4">
+      <Panel
+        title="Stored store credentials"
+        description="Clear a vendor's saved configuration so it falls back to unconfigured."
+        actions={<RouteChip method="DELETE" path="/v2/console/iap/{vendor}/reset" />}
+      >
+        <ul className="divide-y divide-border/60">
+          {VENDORS.map((candidate) => (
+            <li key={candidate.value} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">{candidate.label}</span>
+                  <Badge variant="outline">
+                    {candidate.subscriptions ? "One-off + subscriptions" : "One-off only"}
+                  </Badge>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Credential <span className="font-mono text-foreground/80">{candidate.credential}</span>
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setResetting(candidate.value)}>
+                <Trash2 />
+                Reset
               </Button>
-            ))}
-          </div>
-        </div>
+            </li>
+          ))}
+        </ul>
+        <p className="border-t border-border/60 px-4 py-3 text-[11px] text-muted-foreground">
+          Resetting deletes the stored settings for that store. Receipt validation stops working until it is configured
+          again.
+        </p>
       </Panel>
 
       {/* One dialog for every vendor: the chosen name travels as state. */}

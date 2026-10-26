@@ -13,7 +13,7 @@ use crate::repositories::leaderboard::{
 };
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
 use crate::utils::leaderboard::cursor::Cursor;
-use crate::utils::leaderboard::types::{LIST_FAILED, ascending};
+use crate::utils::leaderboard::types::{LIST_FAILED, ascending, ranks_enabled};
 
 #[derive(Default)]
 pub(super) struct Page {
@@ -75,6 +75,7 @@ pub(super) async fn record_page(
     cursor: Option<&Cursor>,
 ) -> Result<Page, V2Error> {
     let expiry = window.timestamp();
+    let ranks = ranks_enabled(board);
     let rows = fetch(queries, board, window, limit, cursor).await?;
     let mut rank = cursor.map_or(0, |c| c.rank);
     let mut records: Vec<RecordResponse> = Vec::with_capacity(limit as usize);
@@ -98,7 +99,9 @@ pub(super) async fn record_page(
             prev = Some(Cursor::at_record(&board.id, expiry, &row, rank, false));
         }
         last = Some((row.clone(), rank));
-        records.push(RecordResponse::from_record(&row, rank));
+        // The window position still drives the cursors; only the printed rank
+        // follows the board's `enable_ranks` switch.
+        records.push(RecordResponse::from_record(&row, if ranks { rank } else { 0 }));
     }
 
     if cursor.is_some_and(|c| !c.is_next) {

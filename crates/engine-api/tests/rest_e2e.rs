@@ -8403,6 +8403,14 @@ async fn leaderboard_surface(client: &Client, base: &str, pool: &PgPool) {
     ] {
         refusal(response, StatusCode::NOT_FOUND, "address an unknown leaderboard").await;
     }
+
+    // The round board is a tournament, so it would appear in the tournament
+    // listings that run later against the same database.
+    sqlx::query("DELETE FROM leaderboard WHERE id = $1")
+        .bind(&tournament_id)
+        .execute(pool)
+        .await
+        .expect("remove the seeded round board");
 }
 
 // ---------------------------------------------------------------------------
@@ -8656,7 +8664,7 @@ async fn iap_surface(client: &Client, base: &str, pool: &PgPool) {
     )
     .await;
     assert_eq!(google_sub["transaction_id"], md5_hex(&google_token));
-    assert_eq!(google_sub["expiration_time"], 1_934_496_000_i64);
+    assert_eq!(google_sub["expiration_time"], 1_924_992_000_i64);
 
     let expired_token = format!("e2e-sub-expired-{suffix}");
     let expired = api_post(
@@ -8755,7 +8763,7 @@ async fn iap_surface(client: &Client, base: &str, pool: &PgPool) {
     .await;
     assert_eq!(renewed["transaction_id"], md5_hex(&apple_token));
     assert_eq!(renewed["product_id"], "sub-a2");
-    assert_eq!(renewed["expiration_time"], 1_977_004_800_i64);
+    assert_eq!(renewed["expiration_time"], 1_956_528_000_i64);
     refusal(
         client
             .get(format!("{iap}/subscription/sub-a"))

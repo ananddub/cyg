@@ -10,7 +10,7 @@ use engine_net::transport::WebRtcServer;
 use crate::rooms::{GameRoom, JournalInput};
 
 /// Schema state payload magic. Kept in sync with
-/// `sdk/server/assemblyscript/cyg.ts` and `sdk/client/cyg.js`.
+/// `sdk/server/assemblyscript/cyg.ts` and `sdk/client/web/cyg.js`.
 pub const SCHEMA_MAGIC: &[u8; 4] = b"OXS2";
 /// Per-tick schema envelope: magic + fullLen + full + patchLen + patch.
 pub const SCHEMA_ENVELOPE_HEADER: usize = 8;

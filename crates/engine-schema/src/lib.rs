@@ -18,7 +18,7 @@ pub mod codegen;
 pub mod ts;
 
 /// The runtime's `schemaFieldSize` table. Keep in sync with
-/// `sdk/server/assemblyscript/cyg.ts` and `sdk/client/cyg.js`.
+/// `sdk/server/assemblyscript/cyg.ts` and `sdk/client/web/cyg.js`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireKind {
     U8,

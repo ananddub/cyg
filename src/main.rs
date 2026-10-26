@@ -712,11 +712,11 @@ fn init(dir: &Path) -> std::io::Result<()> {
     )?;
     std::fs::write(
         dir.join("cyg.js"),
-        include_bytes!("../sdk/client/cyg.js"),
+        include_bytes!("../sdk/client/web/cyg.js"),
     )?;
     std::fs::write(
         dir.join("cyg-client.d.ts"),
-        include_bytes!("../sdk/client/cyg.d.ts"),
+        include_bytes!("../sdk/client/web/cyg.d.ts"),
     )?;
     std::fs::write(
         dir.join("website.html"),
