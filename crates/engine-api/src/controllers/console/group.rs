@@ -103,6 +103,6 @@ async fn guard(
     game: Option<uuid::Uuid>,
     raw: &str,
 ) -> Result<(), crate::error::V2Error> {
-    let id = crate::services::console::id(raw, "group")?;
+    let id = crate::services::console::account_id(raw)?;
     tenant::require_group(state, game, id).await
 }
