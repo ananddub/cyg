@@ -3,7 +3,7 @@
 //! This plane keeps matches and queued tickets in process registries, not in a
 //! database, so the logic here is only validation and shaping: read the registry
 //! through `services::match_handler` / `services::matchmaker` and print the reference
-//! wire shapes. No query runs, no table is touched.
+//! server wire shapes. No query runs, no table is touched.
 
 use auto_di::singleton;
 use axum::Json;
@@ -29,9 +29,9 @@ impl MatchQueryService {
         Self
     }
 
-    /// `GET /v2/match`. Validates first, exactly as reference does, then reads the
+    /// `GET /v2/match`. Validates first, exactly as the reference server does, then reads the
     /// registry and applies the filters it can honour. The `query` label filter is
-    /// dropped: reference itself rejects label/query filtering for non-authoritative
+    /// dropped: the reference server itself rejects label/query filtering for non-authoritative
     /// matches, and every match on this plane is one.
     pub fn list_matches(&self, req: ListMatchesParams) -> Result<Json<MatchListResponse>, V2Error> {
         let limit = match req.limit {

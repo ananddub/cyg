@@ -3,7 +3,7 @@
 //
 // The state comes from `GET /v2/console/match/{id}/state`, which for a relay match
 // answers the real presences with tick 0 and an empty handler state — the same
-// answer reference gives a relayed match, because there is no handler holding state.
+// answer the reference server gives a relayed match, because there is no handler holding state.
 // Terminating routes `DELETE /v2/console/match/{id}`, which runs the match_handler
 // lifecycle (members are notified, the match leaves the registry) rather than a
 // raw record delete.

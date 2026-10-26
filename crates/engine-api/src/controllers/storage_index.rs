@@ -1,6 +1,6 @@
 //! Auto-registered bindings for `/v2/storage/index*` — the storage-index plane.
 //!
-//! reference registers indexes from its runtime and queries them from the console;
+//! The reference server registers indexes from its runtime and queries them from the console;
 //! this is the same surface over player sessions: define an index, list the
 //! definitions, drop one, and read the objects an index matched.
 

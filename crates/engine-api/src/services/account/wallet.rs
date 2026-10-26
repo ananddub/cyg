@@ -4,7 +4,7 @@
 //! BaaS parity: `server/core_wallet.go`. The currency keys of a wallet are reserved:
 //! a player's write never moves a balance (that is what the console
 //! `POST /v2/console/account/{id}/wallet` is for), so a self-service call cannot
-//! mint currency. Mirroring reference, `updateWallets` is only ever reached by the
+//! mint currency. Mirroring the reference server, `updateWallets` is only ever reached by the
 //! server and the console, and the negative-balance guard there is enforced here on
 //! the console path too.
 

@@ -1,5 +1,5 @@
 //! The match read surface shapes the reference server's wire JSON and validates the query the way
-//! reference does, before it ever reads the registry.
+//! the reference server does, before it ever reads the registry.
 
 use axum::Json;
 use uuid::Uuid;
@@ -87,7 +87,7 @@ fn a_limit_out_of_range_is_a_bad_request_before_any_read() {
 }
 
 #[test]
-fn the_size_bounds_are_validated_against_reference_s_wording() {
+fn the_size_bounds_are_validated_against_the_reference_wording() {
     let service = MatchQueryService;
     let err = service
         .list_matches(ListMatchesParams {

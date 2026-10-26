@@ -36,7 +36,7 @@ pub struct ConsoleMatchList {
 
 /// `console.MatchState`: the members currently in the match, its tick and its
 /// handler state. A relay match holds no handler state and tracks no tick counter,
-/// so `tick` is `0` and `state` the empty string — the same answer reference gives a
+/// so `tick` is `0` and `state` the empty string — the same answer the reference server gives a
 /// relayed match. The `presences` are the real joined members, which is the part an
 /// operator can act on.
 #[derive(Debug, Serialize)]

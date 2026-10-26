@@ -45,7 +45,7 @@ impl super::ConsoleService {
                 .get(currency)
                 .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
-            // the reference server's `updateWallets` refuses a result below zero; a grant that would
+            // The reference server's `updateWallets` refuses a result below zero; a grant that would
             // overdraw the account is rejected the same way.
             let value = held + delta;
             if value < 0.0 {

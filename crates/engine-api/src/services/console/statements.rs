@@ -199,7 +199,7 @@ pub async fn delete_wallet_ledger(
 }
 
 /// One notification, addressed by its own id. The console deletes a notification
-/// outright — mirroring reference, the row is not scoped by recipient, so an operator
+/// outright — mirroring the reference server, the row is not scoped by recipient, so an operator
 /// can remove a notification by id alone.
 pub async fn delete_notification(pool: &sqlx::PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
     let done = sqlx::query("DELETE FROM notification WHERE id = $1;")
