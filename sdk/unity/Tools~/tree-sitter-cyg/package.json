@@ -2,7 +2,7 @@
   "name": "tree-sitter-cyg",
   "version": "0.1.0",
   "description": "Tree-sitter grammar for the CYG deterministic simulation schema language",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "main": "bindings/node",
   "keywords": [
     "tree-sitter",

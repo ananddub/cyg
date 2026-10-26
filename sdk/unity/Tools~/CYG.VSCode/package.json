@@ -4,7 +4,7 @@
   "description": "CookYourGame deterministic simulation DSL: syntax highlighting, diagnostics, completion, hover, navigation and rename.",
   "version": "0.1.0",
   "publisher": "cookyourgame",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "engines": {
     "vscode": "^1.91.0"
   },

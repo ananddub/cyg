@@ -526,4 +526,4 @@ editor, player builds and server-side simulations.
 ---
 
 ## 📄 License
-MIT License — see [`LICENSE.md`](LICENSE.md). Copyright (c) 2026 CookYourGame Team.
+Apache 2.0 — see [`LICENSE.md`](LICENSE.md). Copyright (c) 2026 CookYourGame Team.

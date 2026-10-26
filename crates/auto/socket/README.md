@@ -147,4 +147,4 @@ namespace-wide `broadcast` delivery.
 
 ## License
 
-MIT
+Apache-2.0

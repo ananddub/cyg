@@ -464,4 +464,4 @@ blobs it also relays.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE). Copyright (c) 2026 CookYourGame Team.
+Apache 2.0 — see [`LICENSE`](LICENSE). Copyright (c) 2026 CookYourGame Team.

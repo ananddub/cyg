@@ -12,7 +12,7 @@
   ],
   "metadata": {
     "version": "0.1.0",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "description": "Tree-sitter grammar for the CYG deterministic simulation schema language",
     "authors": [
       {

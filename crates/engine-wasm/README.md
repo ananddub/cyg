@@ -251,4 +251,4 @@ cargo test --release -p engine-wasm --test instantiation_bench -- --nocapture
 
 ## 📄 License
 
-MIT
+Apache-2.0

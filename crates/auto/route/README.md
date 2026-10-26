@@ -149,4 +149,4 @@ Delivery can be selected explicitly:
 
 ## License
 
-MIT
+Apache-2.0

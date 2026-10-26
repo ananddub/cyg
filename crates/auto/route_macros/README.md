@@ -4,4 +4,4 @@ Procedural macro implementation for [`auto_route`](https://crates.io/crates/auto
 
 Applications should depend on `auto_route`, which re-exports all public macros. This implementation crate is published separately because Rust procedural macros must live in a `proc-macro` crate.
 
-License: MIT
+License: Apache-2.0

@@ -220,6 +220,6 @@ totals are counted from real traffic rather than fed.
 
 ## License
 
-MIT — see [`LICENSE.md`](LICENSE.md). Copyright (c) 2026 CookYourGame Team.
+Apache 2.0 — see [`LICENSE.md`](LICENSE.md). Copyright (c) 2026 CookYourGame Team.
 Third-party notices: [`addons/cookyourgame/LICENSE-NETFOX.md`](addons/cookyourgame/LICENSE-NETFOX.md)
 and [`addons/cookyourgame/LICENSE-MIRROR.md`](addons/cookyourgame/LICENSE-MIRROR.md).

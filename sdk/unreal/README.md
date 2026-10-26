@@ -15,4 +15,4 @@ Sub-millisecond UDP multiplayer networking plugin for Unreal Engine 5.x.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE). Copyright (c) 2026 CookYourGame Team.
+Apache 2.0 — see [`LICENSE`](LICENSE). Copyright (c) 2026 CookYourGame Team.
