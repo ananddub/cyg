@@ -78,6 +78,15 @@ pub struct MapReload {
     pub bytes: Vec<u8>,
 }
 
+/// Control plane → sim: a runtime knob changed in the console. Only the knobs
+/// the host loop can adopt mid-flight ride here — today the tick rate; boot-only
+/// fields (bind ports, module paths) stay config.toml's business.
+#[derive(Clone, Copy, Debug)]
+pub struct SettingsReload {
+    /// The new tick rate in Hz; the host recomputes its tick interval.
+    pub tick_rate: u32,
+}
+
 /// Everything the sim accepts from the other planes.
 #[derive(Debug)]
 pub enum SimCommand {

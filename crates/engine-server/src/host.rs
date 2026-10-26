@@ -432,6 +432,13 @@ fn reject_room(transport: &mut LoopTransport, client_id: &str, message: &str) {
 ///
 /// `bus` is the same `Arc<Bus>` the control plane was spawned with: this loop is
 /// its only `status_tx` producer on the default path.
+/// The tick rate the loop is actually running at, derived from the (possibly
+/// console-retuned) interval — a report that quotes `cfg.tick_rate` would keep
+/// advertising the boot value after a live change.
+fn live_tick_rate(tick_interval: Duration) -> u32 {
+    (1.0 / tick_interval.as_secs_f64()).round().max(1.0) as u32
+}
+
 pub fn run(
     project_dir: &Path,
     wasm_path: &Path,
@@ -803,7 +810,9 @@ pub fn run(
     }
 
     let mut last_tick = Instant::now();
-    let tick_interval = Duration::from_secs_f64(1.0 / cfg.tick_rate.max(1) as f64);
+    // Live-tunable: a console tick-rate change (SettingsReload on the bus)
+    // rewrites this between iterations; the loop reads it fresh every pass.
+    let mut tick_interval = Duration::from_secs_f64(1.0 / cfg.tick_rate.max(1) as f64);
     let mut tick_counter: u64 = 0;
     let mut tick_stat_start = Instant::now();
     let mut last_wasm_check = Instant::now();
@@ -1758,7 +1767,7 @@ pub fn run(
                 tracing::debug!(
                     "[server] ⏱️ Steady Fixed Tickrate: {:.2} Hz (target: {} Hz, dt: {:.2}ms, 300 samples in {:.2}s)",
                     measured_hz,
-                    cfg.tick_rate,
+                    live_tick_rate(tick_interval),
                     dt * 1000.0,
                     stat_dur
                 );
@@ -2196,7 +2205,7 @@ pub fn run(
                 &bus,
                 PublishReport {
                     tick_hz_est: window_ticks as f64 / window_sec,
-                    tick_rate_hz: cfg.tick_rate,
+                    tick_rate_hz: live_tick_rate(tick_interval),
                     players,
                     ws_sessions: (transport.ccu() as u32).saturating_sub(webrtc_live),
                     webrtc_sessions: webrtc_live,
@@ -2239,6 +2248,18 @@ pub fn run(
                     "[server] ⚠️ console reload ignored: this plane booted without a \
                      room module at {} — nothing to hot-swap onto yet",
                     wasm_path.display()
+                );
+            }
+
+            // 0a. Console settings changes: only live-tunable knobs ride the
+            // settings queue — the tick rate rewires the loop's own cadence
+            // and the next `/status` report says so.
+            while let Ok(settings) = bus.settings_rx.try_recv() {
+                let rate = settings.tick_rate.max(1);
+                tick_interval = Duration::from_secs_f64(1.0 / rate as f64);
+                tracing::info!(
+                    "[server] ⚙️  console setting applied: tick rate now {rate} Hz (was {} Hz)",
+                    cfg.tick_rate
                 );
             }
 

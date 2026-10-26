@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender, bounded};
 
-use crate::messages::{InputMsg, MapReload, OutFrame, SimCommand, WasmReload};
+use crate::messages::{InputMsg, MapReload, OutFrame, SettingsReload, SimCommand, WasmReload};
 use crate::telemetry::StatusSnapshot;
 
 const COMMAND_CAP: usize = 256;
@@ -13,6 +13,8 @@ const RELOAD_CAP: usize = 32;
 /// Map activations are rarer still; one queue so a map flip never sits behind
 /// wasm reloads.
 const MAP_RELOAD_CAP: usize = 8;
+/// Console settings changes (tick rate) — rare by nature.
+const SETTINGS_CAP: usize = 8;
 
 /// Inter-plane wiring. Each plane consumes its own ends directly; sends on
 /// `inputs` must go through [`Bus::push_input`] or the drop policy is lost.
@@ -37,6 +39,9 @@ pub struct Bus {
     /// drained by the host loop (applies at next room spawn).
     pub map_reloads_tx: Sender<MapReload>,
     pub map_reloads_rx: Receiver<MapReload>,
+    /// control plane → sim/host: a live-tunable setting changed (tick rate).
+    pub settings_tx: Sender<SettingsReload>,
+    pub settings_rx: Receiver<SettingsReload>,
 }
 
 impl Bus {
@@ -47,6 +52,7 @@ impl Bus {
         let (status_tx, status_rx) = bounded(STATUS_CAP);
         let (reloads_tx, reloads_rx) = bounded(RELOAD_CAP);
         let (map_reloads_tx, map_reloads_rx) = bounded(MAP_RELOAD_CAP);
+        let (settings_tx, settings_rx) = bounded(SETTINGS_CAP);
         Arc::new(Bus {
             inputs_tx,
             inputs_rx,
@@ -60,6 +66,8 @@ impl Bus {
             reloads_rx,
             map_reloads_tx,
             map_reloads_rx,
+            settings_tx,
+            settings_rx,
         })
     }
 

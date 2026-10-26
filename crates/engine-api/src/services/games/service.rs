@@ -281,13 +281,34 @@ impl GamesService {
             .bind(name)
             .bind(engine)
             .bind(status)
-            .bind(config)
+            .bind(config.clone())
             .bind(backend)
             .bind(game_id)
             .fetch_optional(pool(state)?)
             .await
             .map_err(V2Error::from_sqlx)?
             .ok_or_else(|| V2Error::not_found(NOT_FOUND))?;
+
+        // A tick-rate change on the HOSTED game reaches the running host loop
+        // the same way a wasm or map activation does: over the bus. Every
+        // other game's row is console metadata for a process that is not this
+        // one — nothing to publish.
+        let tick_rate = config
+            .as_ref()
+            .and_then(|c| c.get("tick_rate"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
+        if let Some(tick_rate) = tick_rate {
+            if crate::services::games::tenant::game_id(state)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|hosted| hosted == game_id)
+            {
+                let _ = state.bus.settings_tx.try_send(engine_bus::SettingsReload { tick_rate });
+            }
+        }
+
         Ok(GameDto::from(row))
     }
 
