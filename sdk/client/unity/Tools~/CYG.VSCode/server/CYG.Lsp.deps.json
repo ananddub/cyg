@@ -1,0 +1,56 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "CYG.Lsp/1.0.0": {
+        "dependencies": {
+          "CYG.Dsl.Contracts": "1.0.0",
+          "CYG.Dsl.Core": "1.0.0"
+        },
+        "runtime": {
+          "CYG.Lsp.dll": {}
+        }
+      },
+      "CYG.Dsl.Contracts/1.0.0": {
+        "runtime": {
+          "CYG.Dsl.Contracts.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "CYG.Dsl.Core/1.0.0": {
+        "dependencies": {
+          "CYG.Dsl.Contracts": "1.0.0"
+        },
+        "runtime": {
+          "CYG.Dsl.Core.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "CYG.Lsp/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "CYG.Dsl.Contracts/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "CYG.Dsl.Core/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

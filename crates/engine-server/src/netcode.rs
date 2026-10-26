@@ -342,7 +342,7 @@ pub const CYG_OP_LEAVE_ROOM: u8 = 3;
 
 
 /// Wire-protocol *header* codes (`CYGWireProtocol` in
-/// `sdk/unity/Runtime/Transport/CYGTransport.cs`). These are the bytes the
+/// `sdk/client/unity/Runtime/Transport/CYGTransport.cs`). These are the bytes the
 /// transport writes in the frame header — they are **not** the canonical
 /// opcodes above. `10` is JOIN_ROOM, `11` is ERROR, `12` is LEAVE_ROOM; and
 /// PING is `18`, not `0`.

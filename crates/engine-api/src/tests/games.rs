@@ -867,7 +867,7 @@ fn an_overlong_game_name_is_refused() {
 
 /// The SDK class the asset binds to.
 const UNITY_SDK_SOURCE: &str =
-    include_str!("../../../../sdk/unity/Runtime/Core/CYGServerSettings.cs");
+    include_str!("../../../../sdk/client/unity/Runtime/Core/CYGServerSettings.cs");
 
 /// The controller that owns the asset's YAML template and its attachment name.
 const GAMES_CONTROLLER_SOURCE: &str = include_str!("../controllers/console/games.rs");

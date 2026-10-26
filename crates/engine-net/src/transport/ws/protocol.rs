@@ -65,7 +65,7 @@ mod tests {
     use super::*;
 
     /// These numbers are a contract with the Unity SDK
-    /// (`CYGWireProtocol` in sdk/unity/Runtime/Transport/CYGTransport.cs) and
+    /// (`CYGWireProtocol` in sdk/client/unity/Runtime/Transport/CYGTransport.cs) and
     /// the web/mesh SDKs. Drift here silently breaks every client, so pin them.
     #[test]
     fn wire_codes_match_the_sdk_contract() {
