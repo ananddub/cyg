@@ -13,6 +13,9 @@ pub struct ControlPlane {
     /// The bind port the kernel actually handed us, so a caller asking for
     /// port `0` in a test can find out where it landed.
     pub port: u16,
+    /// The hosted game's active map assets, fetched from `game_maps` while the
+    /// plane came up (empty without a database or uploaded maps).
+    pub(crate) boot_maps: engine_config::BootMaps,
 }
 
 impl ControlPlane {
@@ -26,6 +29,13 @@ impl ControlPlane {
     /// and the game loop — the data-plane owner — drains them.
     pub fn signals(&self) -> engine_api::infra::signaling::SignalHub {
         self.state.signals.clone()
+    }
+
+    /// The hosted game's active maps, fetched once while the plane came up.
+    /// Empty unless a database is configured and the game uploaded maps —
+    /// local project files are the fallback either way.
+    pub fn boot_maps(&self) -> engine_config::BootMaps {
+        self.boot_maps.clone()
     }
 }
 

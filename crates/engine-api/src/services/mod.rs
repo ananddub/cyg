@@ -15,6 +15,7 @@ pub mod inventory;
 pub mod leaderboard;
 pub mod link;
 pub mod match_query;
+pub mod maps;
 pub mod matchmake;
 pub mod notification;
 pub mod realtime;

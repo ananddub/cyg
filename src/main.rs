@@ -880,7 +880,11 @@ fn run(dir: &Path) -> std::io::Result<()> {
     };
 
     let signals = _control.as_ref().map(|plane| plane.signals());
-    engine_server::host::run(&project_dir, &wasm_path, &cfg, bus, signals)
+    let boot_maps = _control
+        .as_ref()
+        .map(|plane| plane.boot_maps())
+        .unwrap_or_default();
+    engine_server::host::run(&project_dir, &wasm_path, &cfg, bus, signals, boot_maps)
 }
 
 /// `ox-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.

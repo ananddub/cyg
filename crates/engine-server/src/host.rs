@@ -438,6 +438,7 @@ pub fn run(
     cfg: &engine_config::GameConfig,
     bus: Arc<Bus>,
     signals: Option<engine_api::infra::signaling::SignalHub>,
+    boot_maps: engine_config::BootMaps,
 ) -> std::io::Result<()> {
     // ------------------------------------------------------------------
     // WASM runtime — the room logic module (hot-swappable).
@@ -504,37 +505,52 @@ pub fn run(
         .expect("ephemeral webrtc transport")
     };
 
-    // Prefer the cooked OXCL arena (ox-game cook <map.glb> arena.oxcl): it
-    // feeds both the WASM host-data physics template and the native ECS rooms.
-    let oxcl_path = project_dir.join("arena.oxcl");
+    // Arena assets: the hosted game's console-uploaded maps (`game_maps`,
+    // fetched by the control plane at boot) win over the project folder's
+    // local files (`arena.oxcl`, `arena_2d.json`, `arena_map.json`), so a
+    // tenant's map arrives through the console instead of an SSH session.
+    let console_oxcl = boot_maps.oxcl.clone();
+    let oxcl_bytes = match &console_oxcl {
+        Some(asset) => {
+            tracing::info!(
+                "[server] 🗺️  console map '{}' (oxcl v{}) overrides local arena.oxcl",
+                asset.name,
+                asset.version
+            );
+            Some(asset.bytes.clone())
+        }
+        None => std::fs::read(project_dir.join("arena.oxcl")).ok(),
+    };
     let arena_mesh: Option<engine_physics::oxcl::CookedMesh> =
-        match std::fs::read(&oxcl_path) {
-            Ok(bytes) => match engine_physics::oxcl::CookedMesh::from_oxcl_bytes(&bytes) {
+        match oxcl_bytes.as_deref() {
+            Some(bytes) => match engine_physics::oxcl::CookedMesh::from_oxcl_bytes(bytes) {
                 Ok(mesh) => {
                     tracing::info!(
-                        "[server] 🗺️  loaded arena.oxcl ({} verts, {} indices)",
+                        "[server] 🗺️  oxcl arena loaded ({} verts, {} indices)",
                         mesh.vertices.len(),
                         mesh.indices.len()
                     );
                     Some(mesh)
                 }
                 Err(e) => {
-                    tracing::error!("[server] failed to parse arena.oxcl: {e}");
+                    tracing::error!("[server] failed to parse the oxcl arena: {e}");
                     None
                 }
             },
-            Err(_) => None,
+            None => None,
         };
 
     let map_path = project_dir.join("arena_map.json");
     let arena_2d_path = project_dir.join("arena_2d.json");
 
-    let arena_2d: Option<engine_physics::MapConfig2D> = if arena_2d_path.exists() {
-        match std::fs::read_to_string(&arena_2d_path) {
-            Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
+    let arena_2d: Option<engine_physics::MapConfig2D> =
+        if let Some(asset) = boot_maps.map2d.as_ref() {
+            match serde_json::from_slice::<engine_physics::MapConfig2D>(&asset.bytes) {
                 Ok(m) => {
                     tracing::info!(
-                        "[server] 🗺️  loaded arena_2d.json with {} static colliders ({}x{})",
+                        "[server] 🗺️  console map '{}' (map2d v{}): {} static colliders ({}x{})",
+                        asset.name,
+                        asset.version,
                         m.obstacles.len(),
                         m.arena_width,
                         m.arena_height
@@ -542,33 +558,74 @@ pub fn run(
                     Some(m)
                 }
                 Err(e) => {
-                    tracing::error!("[server] failed to parse arena_2d.json: {e}");
+                    tracing::error!(
+                        "[server] failed to parse console map2d '{}': {e}",
+                        asset.name
+                    );
                     None
                 }
-            },
-            Err(_) => None,
-        }
-    } else if map_path.exists() {
-        match std::fs::read_to_string(&map_path) {
-            Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
-                Ok(m) => {
-                    tracing::info!(
-                        "[server] 🗺️  loaded arena_map.json as 2D map with {} static colliders ({}x{})",
-                        m.obstacles.len(),
-                        m.arena_width,
-                        m.arena_height
-                    );
-                    Some(m)
-                }
+            }
+        } else if arena_2d_path.exists() {
+            match std::fs::read_to_string(&arena_2d_path) {
+                Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
+                    Ok(m) => {
+                        tracing::info!(
+                            "[server] 🗺️  loaded arena_2d.json with {} static colliders ({}x{})",
+                            m.obstacles.len(),
+                            m.arena_width,
+                            m.arena_height
+                        );
+                        Some(m)
+                    }
+                    Err(e) => {
+                        tracing::error!("[server] failed to parse arena_2d.json: {e}");
+                        None
+                    }
+                },
                 Err(_) => None,
-            },
-            Err(_) => None,
-        }
-    } else {
-        None
-    };
+            }
+        } else if map_path.exists() {
+            match std::fs::read_to_string(&map_path) {
+                Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
+                    Ok(m) => {
+                        tracing::info!(
+                            "[server] 🗺️  loaded arena_map.json as 2D map with {} static colliders ({}x{})",
+                            m.obstacles.len(),
+                            m.arena_width,
+                            m.arena_height
+                        );
+                        Some(m)
+                    }
+                    Err(_) => None,
+                },
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
 
-    let physics = if map_path.exists() && arena_2d.is_none() {
+    let physics = if let Some(asset) = boot_maps.map3d.as_ref() {
+        match PhysicsWorld3D::from_json(
+            std::str::from_utf8(&asset.bytes).unwrap_or_default(),
+        ) {
+            Ok(w) => {
+                tracing::info!(
+                    "[server] 🗺️  console map '{}' (map3d v{}): {} static colliders override arena_map.json",
+                    asset.name,
+                    asset.version,
+                    w.obstacles.len()
+                );
+                w
+            }
+            Err(e) => {
+                tracing::error!(
+                    "[server] failed to parse console map3d '{}': {e}, using default world",
+                    asset.name
+                );
+                PhysicsWorld3D::default()
+            }
+        }
+    } else if map_path.exists() && arena_2d.is_none() {
         match std::fs::read_to_string(&map_path) {
             Ok(json_str) => match PhysicsWorld3D::from_json(&json_str) {
                 Ok(w) => {
@@ -723,6 +780,27 @@ pub fn run(
     }
     let mut server = GameServer::new(pre, cfg.max_clients, physics, cfg.permissions);
     server.arena_2d = arena_2d;
+    // The console's navmesh upload: parsed once here, cloned into every room
+    // at spawn (`sys_navmesh_find_path` reads it). No local-file fallback
+    // exists — before this, only tests could inject a navmesh.
+    if let Some(asset) = boot_maps.navmesh.as_ref() {
+        match engine_nav::nav2d::NavMesh2D::from_bytes(&asset.bytes) {
+            Ok(mesh) => {
+                tracing::info!(
+                    "[server] 🗺️  console navmesh '{}' (v{}) loaded",
+                    asset.name,
+                    asset.version
+                );
+                server.navmesh = Some(std::sync::Arc::new(mesh));
+            }
+            Err(e) => {
+                tracing::error!(
+                    "[server] failed to parse console navmesh '{}': {e}",
+                    asset.name
+                );
+            }
+        }
+    }
 
     let mut last_tick = Instant::now();
     let tick_interval = Duration::from_secs_f64(1.0 / cfg.tick_rate.max(1) as f64);
@@ -2162,6 +2240,41 @@ pub fn run(
                      room module at {} — nothing to hot-swap onto yet",
                     wasm_path.display()
                 );
+            }
+
+            // 0b. Console map changes: a map activation applies to rooms
+            // spawned after this point (rooms clone the host's arena world);
+            // formats with no live swap point are logged and picked up at the
+            // next boot, where the database row is the source of truth.
+            while let Ok(map) = bus.map_reloads_rx.try_recv() {
+                match engine_config::MapFormat::parse(&map.format) {
+                    Some(engine_config::MapFormat::Map2d) => {
+                        match serde_json::from_slice::<engine_physics::MapConfig2D>(&map.bytes) {
+                            Ok(m) => {
+                                server.arena_2d = Some(m);
+                                tracing::info!(
+                                    "[server] 🗺️  console map '{}' v{} (map2d) active — rooms spawned from now on use it",
+                                    map.name,
+                                    map.version
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "[server] failed to parse reloaded map2d '{}': {e}",
+                                    map.name
+                                );
+                            }
+                        }
+                    }
+                    _ => {
+                        tracing::info!(
+                            "[server] 🗺️  console map '{}' v{} ({}) stored — applies at next boot",
+                            map.name,
+                            map.version,
+                            map.format
+                        );
+                    }
+                }
             }
 
             // 1. Detect changes in the TypeScript room source (room.ts)

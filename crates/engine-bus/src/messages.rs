@@ -63,6 +63,21 @@ pub struct WasmReload {
     pub kind: ReloadKind,
 }
 
+/// Control plane → sim: the active MAP for one game changed. Unlike wasm, the
+/// bytes ride along — a map is small, applied only at room spawn (new rooms
+/// clone the host's arena), and making the reader re-fetch over SQL buys
+/// nothing. Formats mirror `game_maps.format` (`oxcl`, `map2d`, `map3d`,
+/// `navmesh`).
+#[derive(Clone, Debug)]
+pub struct MapReload {
+    pub game_key: String,
+    /// The newly active `game_maps.version`.
+    pub version: i32,
+    pub format: String,
+    pub name: String,
+    pub bytes: Vec<u8>,
+}
+
 /// Everything the sim accepts from the other planes.
 #[derive(Debug)]
 pub enum SimCommand {

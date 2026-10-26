@@ -1,9 +1,6 @@
-// The games area's non-component exports: the routes, the per-game paths, the
-// engine/backend-mode contract and the one-value hand-off to the WASM Studio.
-// They live apart from the view so the view file exports components only — the
-// studio imports these without pulling in a render.
-
-import { gameRoute, routeHash } from "@/lib/routes"
+// The games area's non-component exports: the routes, the per-game paths and the
+// engine/backend-mode contract. They live apart from the view so the view file
+// exports components only — other panels import these without pulling in a render.
 
 export const GAMES_ENDPOINT = "/v2/console/games"
 
@@ -11,9 +8,14 @@ export function gamePath(id: string): string {
   return `${GAMES_ENDPOINT}/${encodeURIComponent(id)}`
 }
 
-/** The module list route for a game; the studio and its timeline share it. */
+/** The module list route for a game; the module panel and its timeline share it. */
 export function gameWasmPath(id: string): string {
   return `${gamePath(id)}/wasm`
+}
+
+/** The map list route for a game; the map upload and its version table share it. */
+export function gameMapsPath(id: string): string {
+  return `${gamePath(id)}/maps`
 }
 
 /** `GET /v2/console/games/{id}/unity-settings` — the Unity `CYGServerSettings.asset`.
@@ -50,11 +52,4 @@ export function isRelayMode(mode: BackendMode | string | undefined): boolean {
 
 export function isWasmMode(mode: BackendMode | string | undefined): boolean {
   return mode === "wasm"
-}
-
-// The Studio is an area of the game workspace, not a separate global page: the
-// hand-off navigates to that game's WASM tab, so leaving it keeps the game in
-// scope and the back button still points at the picker.
-export function openWasmStudio(gameId: string): void {
-  window.location.hash = routeHash(gameRoute(gameId, "wasm"))
 }

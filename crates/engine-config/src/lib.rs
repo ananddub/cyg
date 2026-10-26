@@ -4,6 +4,7 @@
 mod console;
 mod control;
 mod game;
+mod maps;
 mod netcode;
 mod parse;
 mod session;
@@ -12,6 +13,7 @@ mod templates;
 pub use console::ConsoleConfig;
 pub use control::{AgonesConfig, ControlConfig};
 pub use game::{DEV_SEAT_SECRET, GameConfig, Runtime};
+pub use maps::{BootMaps, MapAsset, MapFormat};
 pub use netcode::{AoiConfig, RollbackConfig};
 pub use parse::{load_config, parse_config};
 pub use session::SessionConfig;

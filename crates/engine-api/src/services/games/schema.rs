@@ -66,6 +66,28 @@ EXCEPTION
 END $$
 "#;
 
+/// An uploaded map asset, versioned per game. `format` picks how the game
+/// server parses `bytes` at boot: `oxcl` (cooked 3D collision), `map2d`
+/// (`arena_2d.json`), `map3d` (`arena_map.json`), `navmesh` (baked nav2d).
+pub const GAME_MAPS_TABLE_DDL: &str = r#"
+CREATE TABLE IF NOT EXISTS game_maps (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    game_id       UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    version       INT NOT NULL,
+    name          VARCHAR(255) NOT NULL,
+    format        VARCHAR(16) NOT NULL,
+    bytes         BYTEA NOT NULL,
+    sha256        VARCHAR(64) NOT NULL,
+    is_active     BOOLEAN NOT NULL DEFAULT false,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT game_maps_game_version UNIQUE (game_id, version),
+    CONSTRAINT game_maps_format CHECK (format IN ('oxcl', 'map2d', 'map3d', 'navmesh'))
+)
+"#;
+
+pub const GAME_MAPS_INDEX_DDL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_game_maps_game ON game_maps(game_id, version DESC)";
+
 /// The document `games.config` defaults to, restated as one value so a create that
 /// names no config and the column's own default agree.
 pub static DEFAULT_GAME_CONFIG_JSON: &str =
@@ -98,6 +120,8 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
         ROOM_MODULES_TABLE_DDL,
         ROOM_MODULES_INDEX_DDL,
         ROOM_MODULES_VERSION_UQ_DDL,
+        GAME_MAPS_TABLE_DDL,
+        GAME_MAPS_INDEX_DDL,
     ] {
         sqlx::query(ddl).execute(pool).await?;
     }

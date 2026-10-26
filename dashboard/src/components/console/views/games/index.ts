@@ -10,12 +10,14 @@ export {
   WASM_ENGINES,
   gamePath,
   gameUnitySettingsPath,
+  gameMapsPath,
   gameWasmPath,
   isRelayMode,
   isWasmMode,
-  openWasmStudio,
 } from "./routes"
 export type { BackendMode } from "./routes"
+export { MapsPanel, MapsUploadPanel } from "./maps"
+export type { GameMapInfo } from "./maps"
 export type {
   AbiReport,
   CreatedGame,

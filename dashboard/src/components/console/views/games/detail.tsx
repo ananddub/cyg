@@ -17,9 +17,7 @@ import {
   Download,
   Eye,
   EyeOff,
-  FileCode2,
   Loader2,
-  Rocket,
   Settings2,
   Trash2,
 } from "lucide-react"
@@ -50,6 +48,7 @@ import {
   DeploymentHistory,
   WasmUploadPanel,
 } from "@/components/console/views/wasm-upload"
+import { MapsPanel, MapsUploadPanel } from "./maps"
 
 import {
   engineLabel,
@@ -60,7 +59,6 @@ import {
 import {
   gamePath,
   gameUnitySettingsPath,
-  openWasmStudio,
 } from "./routes"
 import type { GameConfig, GameDetail, UnitySettingsJson } from "./model"
 import { CopyValue, EngineBadge, ModePill, StatusPill } from "./parts"
@@ -411,10 +409,15 @@ function WasmStudioTab({ game }: { game: GameDetail }) {
         WebAssembly. Upload a module, verify its ABI, then activate or roll it back below.
       </p>
       <WasmUploadPanel gameId={game.id} />
-      <Button size="sm" variant="outline" onClick={() => openWasmStudio(game.id)}>
-        <FileCode2 />
-        Open full WASM Studio
-      </Button>
+    </div>
+  )
+}
+
+function MapsTab({ game }: { game: GameDetail }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <MapsUploadPanel gameId={game.id} />
+      <MapsPanel gameId={game.id} />
     </div>
   )
 }
@@ -520,14 +523,6 @@ export function GameDetailView({
               <Settings2 />
               Configure
             </Button>
-            {/* The studio hand-off exists only for wasm games; a relay game's DOM
-                carries no upload button and no deploy link at all. */}
-            {isWasm && (
-              <Button size="sm" onClick={() => openWasmStudio(game.id)}>
-                <Rocket />
-                Open WASM Studio
-              </Button>
-            )}
             <Button size="sm" variant="destructive" onClick={() => setArchiving(true)}>
               <Trash2 />
               Archive
@@ -561,6 +556,7 @@ export function GameDetailView({
             <>
               <TabsTrigger value="studio">WASM Studio</TabsTrigger>
               <TabsTrigger value="history">Deployment History</TabsTrigger>
+              <TabsTrigger value="maps">Maps</TabsTrigger>
               <TabsTrigger value="rooms">Live Rooms</TabsTrigger>
             </>
           ) : (
@@ -579,6 +575,9 @@ export function GameDetailView({
             </TabsContent>
             <TabsContent value="history" className="pt-3">
               <DeploymentHistory gameId={game.id} />
+            </TabsContent>
+            <TabsContent value="maps" className="pt-3">
+              <MapsTab game={game} />
             </TabsContent>
           </>
         ) : (

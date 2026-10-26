@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender, bounded};
 
-use crate::messages::{InputMsg, OutFrame, SimCommand, WasmReload};
+use crate::messages::{InputMsg, MapReload, OutFrame, SimCommand, WasmReload};
 use crate::telemetry::StatusSnapshot;
 
 const COMMAND_CAP: usize = 256;
@@ -10,6 +10,9 @@ const STATUS_CAP: usize = 8;
 /// Hot-reload requests are rare and must never be dropped by a busy input path;
 /// a small dedicated queue with its own capacity keeps them independent.
 const RELOAD_CAP: usize = 32;
+/// Map activations are rarer still; one queue so a map flip never sits behind
+/// wasm reloads.
+const MAP_RELOAD_CAP: usize = 8;
 
 /// Inter-plane wiring. Each plane consumes its own ends directly; sends on
 /// `inputs` must go through [`Bus::push_input`] or the drop policy is lost.
@@ -30,6 +33,10 @@ pub struct Bus {
     /// drained by the host loop's module watcher.
     pub reloads_tx: Sender<WasmReload>,
     pub reloads_rx: Receiver<WasmReload>,
+    /// control plane → sim/host: the active map changed (upload / activate),
+    /// drained by the host loop (applies at next room spawn).
+    pub map_reloads_tx: Sender<MapReload>,
+    pub map_reloads_rx: Receiver<MapReload>,
 }
 
 impl Bus {
@@ -39,6 +46,7 @@ impl Bus {
         let (deltas_tx, deltas_rx) = bounded(delta_cap);
         let (status_tx, status_rx) = bounded(STATUS_CAP);
         let (reloads_tx, reloads_rx) = bounded(RELOAD_CAP);
+        let (map_reloads_tx, map_reloads_rx) = bounded(MAP_RELOAD_CAP);
         Arc::new(Bus {
             inputs_tx,
             inputs_rx,
@@ -50,6 +58,8 @@ impl Bus {
             status_rx,
             reloads_tx,
             reloads_rx,
+            map_reloads_tx,
+            map_reloads_rx,
         })
     }
 

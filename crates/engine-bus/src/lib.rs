@@ -8,6 +8,6 @@ mod telemetry;
 
 pub use bus::Bus;
 pub use messages::{
-    FrameKind, InputMsg, OutFrame, PeerId, ReloadKind, SimCommand, Via, WasmReload,
+    FrameKind, InputMsg, MapReload, OutFrame, PeerId, ReloadKind, SimCommand, Via, WasmReload,
 };
 pub use telemetry::{SessionTelemetry, StatusSnapshot, TICK_HISTOGRAM_BUCKETS};

@@ -41,6 +41,18 @@ pub fn spawn(
 
     runtime.spawn(serve(listener, state.clone(), shutdown_signal()));
 
+    // The game's console-uploaded maps, fetched once so the host loop starts
+    // with them instead of an SSH session copying files around. A plane with
+    // no database (or a game with no maps) gets an empty set and falls back to
+    // the project folder's local files, exactly as it always has.
+    let boot_maps = runtime.block_on(engine_api::services::maps::MapService::load_boot_maps(&state));
+    if !boot_maps.is_empty() {
+        tracing::info!(
+            "[control] 🗺️  active maps from console: {}",
+            describe_boot_maps(&boot_maps)
+        );
+    }
+
     // One consumer of the bus status queue, so `/status` always has the newest
     // sample without touching the simulation thread's lock-free path.
     runtime.spawn(pump(state.clone()));
@@ -68,7 +80,7 @@ pub fn spawn(
         });
     }
 
-    Ok(ControlPlane { runtime, state, port })
+    Ok(ControlPlane { runtime, state, port, boot_maps })
 }
 
 /// Refuse to boot the control plane on well-known default secrets. A default-
@@ -106,4 +118,22 @@ fn refuse_default_secrets(game: &GameConfig, control: &ControlConfig) -> std::io
         ));
     }
     Ok(())
+}
+
+/// One log line's worth of `BootMaps` — which formats came from the console.
+fn describe_boot_maps(maps: &engine_config::BootMaps) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    if maps.oxcl.is_some() {
+        parts.push("oxcl");
+    }
+    if maps.map2d.is_some() {
+        parts.push("map2d");
+    }
+    if maps.map3d.is_some() {
+        parts.push("map3d");
+    }
+    if maps.navmesh.is_some() {
+        parts.push("navmesh");
+    }
+    parts.join(", ")
 }
