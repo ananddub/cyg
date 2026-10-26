@@ -72,3 +72,4 @@ cert.crt
 /reference_schema.sql
 /run_website.sh
 /ROADMAP-DX.md
+examples/*
