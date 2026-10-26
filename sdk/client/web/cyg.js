@@ -2916,6 +2916,7 @@
                 frame[2] = 0x5F; frame[3] = 0x5F; frame[4] = 0x72; frame[5] = 0x65; frame[6] = 0x71;
                 frame[7] = (reqId >> 8) & 0xFF;
                 frame[8] = reqId & 0xFF;
+                frame[9] = typeBytes.length;
                 frame.set(typeBytes, 10);
                 frame.set(dataBytes, 10 + typeBytes.length);
                 this.bytesOut += frame.byteLength;

@@ -2667,6 +2667,53 @@ export type RoomEventCallback = (id: i64, val0: f64, val1: f64, room: Room | nul
 const APP_MESSAGE_OPCODE: u8 = 0x05;
 const APP_MESSAGE_MAX_TYPE: i32 = 255;
 
+/// Reserved client-RPC envelope types. The web client's `room.request(type)`
+/// sends a `__req` frame and awaits the matching `__res`; these never reach
+/// `onMessage` handlers.
+const RPC_REQ_TYPE: string = "__req";
+const RPC_RES_TYPE: string = "__res";
+
+/// Handler for `room.onRequest(type, ...)` — the server half of the client's
+/// `room.request()` RPC. Answer with `ctx.reply(payload)` / `ctx.replyText()`.
+export type RequestHandlerCallback = (senderId: i64, reader: InputReader, ctx: RequestContext) => void;
+
+/**
+ * Reply handle for one incoming client `room.request()`. The `__res` frame it
+ * sends carries the same reqId the client's pending promise is waiting on.
+ */
+export class RequestContext {
+    /// Player the request came from (the value passed to `onJoin`).
+    playerId: i64 = 0;
+    /// Wire request id echoed verbatim in the `__res` reply.
+    reqId: u16 = 0;
+    private _room: Room | null;
+
+    constructor(room: Room, playerId: i64, reqId: u16) {
+        this._room = room;
+        this.playerId = playerId;
+        this.reqId = reqId;
+    }
+
+    /// Answer the request with an opaque byte payload (already on its way
+    /// before the handler returns — the client resolves on arrival).
+    reply(payload: ArrayBuffer | null = null): bool {
+        if (this._room == null) return false;
+        let dataLen: i32 = payload == null ? 0 : payload!.byteLength;
+        let buf = new ArrayBuffer(2 + dataLen);
+        store<u8>(changetype<usize>(buf), <u8>((this.reqId >> 8) & 0xFF));
+        store<u8>(changetype<usize>(buf) + 1, <u8>(this.reqId & 0xFF));
+        if (dataLen > 0) {
+            memory.copy(changetype<usize>(buf) + 2, changetype<usize>(payload!), dataLen);
+        }
+        return this._room!.sendTo(this.playerId, RPC_RES_TYPE, buf);
+    }
+
+    /// Answer with a UTF-8 text payload.
+    replyText(text: string): bool {
+        return this.reply(String.UTF8.encode(text));
+    }
+}
+
 /**
  * Universal Zero-Overhead Event Emitter for CYG game rooms.
  * Built into the SDK so developers do not need manual event plumbing.
@@ -2721,11 +2768,20 @@ export abstract class Room {
     private _textMessageHandlers: Map<string, MessageHandlerCallback> = new Map<string, MessageHandlerCallback>();
     /// Legacy numeric-opcode routing for raw binary clients.
     private _messageHandlers: Map<u8, MessageHandlerCallback> = new Map<u8, MessageHandlerCallback>();
+    /// Client RPC handlers: `room.request(type)` → our `ctx.reply(...)`.
+    private _requestHandlers: Map<string, RequestHandlerCallback> = new Map<string, RequestHandlerCallback>();
 
     /// Registers a handler for a named client message:
     /// `this.onMessage("discard", (clientId, reader, room) => { ... })`.
     onMessage(type: string, handler: MessageHandlerCallback): void {
         this._textMessageHandlers.set(type, handler);
+    }
+
+    /// Registers an RPC handler answering a client's `room.request(type, data)`:
+    /// `this.onRequest("login", (clientId, reader, ctx) => { ctx.replyText("ok") })`.
+    /// `__req`/`__res` are reserved type names — `onMessage` never sees them.
+    onRequest(type: string, handler: RequestHandlerCallback): void {
+        this._requestHandlers.set(type, handler);
     }
 
     /// Legacy numeric-opcode handler for existing raw-binary clients.
@@ -2805,6 +2861,28 @@ export abstract class Room {
             let typeLen = load<u8>(ptr + 1) as i32;
             if (typeLen > 0 && 2 + typeLen <= len) {
                 let type = String.UTF8.decodeUnsafe(ptr + 2, typeLen);
+
+                // Client RPC envelope: '__req' payload =
+                // [reqId u16 BE][inner_len u8][inner type][data].
+                if (type == RPC_REQ_TYPE) {
+                    let plen = len - 2 - typeLen;
+                    if (plen >= 3) {
+                        let pptr = ptr + 2 + typeLen;
+                        let reqId: u16 = ((load<u8>(pptr) as u16) << 8) | (load<u8>(pptr + 1) as u16);
+                        let innerLen = load<u8>(pptr + 2) as i32;
+                        if (innerLen > 0 && 3 + innerLen <= plen && this._requestHandlers.has(String.UTF8.decodeUnsafe(pptr + 3, innerLen))) {
+                            let handler = this._requestHandlers.get(String.UTF8.decodeUnsafe(pptr + 3, innerLen));
+                            let dataLen = plen - 3 - innerLen;
+                            let reader = new InputReader(pptr + 3 + innerLen, dataLen);
+                            let ctx = new RequestContext(this, id, reqId);
+                            handler(id, reader, ctx);
+                        }
+                    }
+                    // '__req' with no matching handler is swallowed: it is an
+                    // RPC envelope, never game input for onInputPacket.
+                    return;
+                }
+
                 if (this._textMessageHandlers.has(type)) {
                     let handler = this._textMessageHandlers.get(type);
                     handler(id, new InputReader(ptr + 2 + typeLen, len - 2 - typeLen), this);
