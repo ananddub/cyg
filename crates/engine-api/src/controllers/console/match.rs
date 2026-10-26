@@ -13,7 +13,7 @@ use axum::response::{IntoResponse, Response};
 use crate::app::middleware::ConsoleAuthed;
 use crate::app::params::Params;
 use crate::current_state;
-use crate::dto::console::Page;
+use crate::dto::console::{GameScope, Page};
 use crate::services::console::ConsoleService;
 
 struct ConsoleMatchController {
@@ -38,17 +38,30 @@ impl ConsoleMatchController {
 
     /// Inspect one match's live state.
     #[get("/{id}/state")]
-    async fn state(&self, _auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn state(
+        &self,
+        _auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
-        self.service.match_state(&state, &id).await.into_response()
+        self.service
+            .match_state(&state, scope.id(), &id)
+            .await
+            .into_response()
     }
 
     /// Terminate one running match.
     #[delete("/{id}")]
-    async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn delete(
+        &self,
+        auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
         self.service
-            .terminate_match(&state, &auth, &id)
+            .terminate_match(&state, &auth, scope.id(), &id)
             .await
             .into_response()
     }

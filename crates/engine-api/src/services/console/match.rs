@@ -18,8 +18,17 @@ use crate::services::realtime::RealtimeMatchService;
 
 impl super::ConsoleService {
     /// Page the running matches. The registry is a hash map, so the rows are sorted
-    /// by id before slicing to make the paging deterministic across calls.
-    pub async fn list_matches(&self, _state: &ApiState, page: Page) -> Json<ConsoleMatchList> {
+    /// by id before slicing to make the paging deterministic across calls. A
+    /// scoped request is refused unless this process hosts that game: the registry
+    /// belongs to the process, not to a table.
+    pub async fn list_matches(
+        &self,
+        state: &ApiState,
+        page: Page,
+    ) -> Result<Json<ConsoleMatchList>, V2Error> {
+        if let Some(game) = page.game_id {
+            crate::services::games::tenant::require_hosted(state, game).await?;
+        }
         let mut rows: Vec<ConsoleMatchRow> = RealtimeMatchService::list_snapshots_all()
             .iter()
             .map(ConsoleMatchRow::from)
@@ -27,18 +36,22 @@ impl super::ConsoleService {
         rows.sort_by(|a, b| a.api_match.match_id.cmp(&b.api_match.match_id));
         let offset = page.offset() as usize;
         let limit = page.limit() as usize;
-        Json(ConsoleMatchList {
+        Ok(Json(ConsoleMatchList {
             matches: rows.into_iter().skip(offset).take(limit).collect(),
-        })
+        }))
     }
 
     /// Best-effort live state for one match: its joined members. A relay match has
     /// no handler state and no tick counter, so those print as their empty defaults.
     pub async fn match_state(
         &self,
-        _state: &ApiState,
+        state: &ApiState,
+        game: Option<Uuid>,
         id: &str,
     ) -> Result<Json<ConsoleMatchState>, V2Error> {
+        if let Some(game) = game {
+            crate::services::games::tenant::require_hosted(state, game).await?;
+        }
         let id = match_id(id)?;
         let snapshot = RealtimeMatchService::get_snapshot(id).ok_or_else(|| {
             V2Error::invalid_argument("Match not found, or match handler already stopped.")
@@ -56,9 +69,13 @@ impl super::ConsoleService {
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
+        game: Option<Uuid>,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
+        if let Some(game) = game {
+            crate::services::games::tenant::require_hosted(state, game).await?;
+        }
         let id = match_id(id)?;
         if !RealtimeMatchService::terminate_match(id) {
             return Err(V2Error::not_found("Match not found."));

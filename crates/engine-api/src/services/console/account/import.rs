@@ -2,6 +2,7 @@
 //! parameters the bundle statement takes.
 
 use axum::Json;
+use uuid::Uuid;
 
 use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
@@ -27,6 +28,7 @@ impl super::ConsoleService {
         state: &ApiState,
         claims: &ConsoleAuthed,
         id: &str,
+        game: Option<Uuid>,
         body: AccountExport,
     ) -> Result<Json<Empty>, V2Error> {
         let id = super::account_id(id)?;
@@ -35,7 +37,7 @@ impl super::ConsoleService {
                 "The account id in the body must match the id in the path.",
             ));
         }
-        self.import_account(state, claims, body).await
+        self.import_account(state, claims, game, body).await
     }
 
     /// Restore an account from its export. The id and the username must be free, so
@@ -44,6 +46,7 @@ impl super::ConsoleService {
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
+        game: Option<Uuid>,
         body: AccountExport,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
@@ -150,6 +153,7 @@ impl super::ConsoleService {
         statements::import_account_bundle(super::pool(state)?, &params)
             .await
             .map_err(import_conflict)?;
+        crate::services::games::tenant::stamp_user_as(state, id, game).await;
         super::audit(
             state,
             claims,

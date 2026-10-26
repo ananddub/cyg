@@ -3,6 +3,8 @@ use crate::game::{GameConfig, Runtime};
 pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
     match key {
         "name" => cfg.name = value.to_string(),
+        "game_id" => cfg.game_id = Some(value.to_string()),
+        "game_key" => cfg.game_key = Some(value.to_string()),
         "runtime" => {
             if let Some(r) = Runtime::parse(value) {
                 cfg.runtime = r;

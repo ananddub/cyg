@@ -9,7 +9,6 @@ use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::leaderboard::{LeaderboardRecordRow, LeaderboardRow};
 use crate::error::V2Error;
-use crate::repositories::console::ListLeaderboardsByCategoryParams;
 use crate::repositories::leaderboard::DeleteLeaderboardRecordParams;
 use crate::utils::leaderboard::types::is_tournament;
 use crate::utils::leaderboard::window::record_window;
@@ -41,13 +40,14 @@ impl super::ConsoleService {
         page: Page,
         category: i16,
     ) -> Result<Json<Vec<LeaderboardRow>>, V2Error> {
-        let rows = super::queries(state)?
-            .list_leaderboards_by_category(&ListLeaderboardsByCategoryParams {
-                category,
-                limit: page.limit(),
-                offset: page.offset(),
-            })
-            .await?;
+        let rows = crate::services::games::tenant::list_boards(
+            state,
+            page.game_id,
+            category,
+            page.limit(),
+            page.offset(),
+        )
+        .await?;
         Ok(Json(rows.into_iter().map(LeaderboardRow::from).collect()))
     }
 

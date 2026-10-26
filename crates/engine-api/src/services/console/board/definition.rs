@@ -21,8 +21,8 @@ pub const INSERT_SQL: &str = "
 INSERT INTO leaderboard
     (id, title, description, operator, sort_order, reset_schedule, metadata,
      authoritative, category, duration, start_time, end_time, join_required,
-     max_size, max_num_score)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, $11, $12, $13, $14)
+     max_size, max_num_score, game_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, $11, $12, $13, $14, $15)
 RETURNING *;";
 
 /// The tournament's own fields; `id` and `category` stay where they are, so an

@@ -60,12 +60,13 @@ pub(super) fn pool(state: &ApiState) -> Result<&sqlx::PgPool, V2Error> {
 
 /// Parse a path id, naming the thing that was malformed so the refusal reads the
 /// way the rest of the API's do.
-pub(super) fn id(raw: &str, what: &str) -> Result<Uuid, V2Error> {
+pub(crate) fn id(raw: &str, what: &str) -> Result<Uuid, V2Error> {
     Uuid::parse_str(raw).map_err(|_| V2Error::invalid_argument(format!("Invalid {what} id.")))
 }
 
-/// Parse a player account id.
-pub(super) fn account_id(raw: &str) -> Result<Uuid, V2Error> {
+/// Parse a player account id. Public to the crate because console controllers
+/// guard an account's tenant before handing the id to a service.
+pub(crate) fn account_id(raw: &str) -> Result<Uuid, V2Error> {
     id(raw, "account")
 }
 

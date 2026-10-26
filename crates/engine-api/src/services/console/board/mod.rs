@@ -11,6 +11,7 @@ mod definition;
 
 use axum::Json;
 use chrono::Utc;
+use uuid::Uuid;
 
 use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
@@ -29,6 +30,7 @@ impl super::ConsoleService {
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
+        game: Option<Uuid>,
         body: TournamentWriteRequest,
     ) -> Result<Json<TournamentResponse>, V2Error> {
         claims.require_write()?;
@@ -53,6 +55,7 @@ impl super::ConsoleService {
             .bind(write.join_required)
             .bind(write.max_size)
             .bind(write.max_num_score)
+            .bind(game)
             .fetch_one(super::pool(state)?)
             .await
             .map_err(|e| {

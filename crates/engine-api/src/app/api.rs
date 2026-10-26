@@ -34,6 +34,23 @@ pub async fn app(state: ApiState) -> Router {
         if let Err(err) = crate::services::games::ensure_schema(pool).await {
             tracing::error!("games: schema bootstrap failed: {err}");
         }
+        crate::services::games::ensure_tenant_schema(pool).await;
+        match crate::services::games::tenant::resolve(&state).await {
+            Ok(Some(game)) => {
+                tracing::info!(
+                    "[tenancy] hosting '{}' ({})",
+                    game.name,
+                    game.game_key
+                );
+                crate::services::games::tenant::backfill(&state, game.id).await;
+            }
+            Ok(None) => tracing::warn!(
+                "[tenancy] no hosted game resolved; set game_id/game_key in config.toml"
+            ),
+            Err(err) => {
+                tracing::error!("[tenancy] identity resolution failed: {}", err.message)
+            }
+        }
     }
     let mut router = router(&state);
     if let Ok(container) = auto_di::Container::new() {

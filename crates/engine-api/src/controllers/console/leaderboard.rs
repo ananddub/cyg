@@ -11,9 +11,11 @@ use axum::response::{IntoResponse, Response};
 use crate::app::middleware::ConsoleAuthed;
 use crate::app::params::{Body, Params};
 use crate::current_state;
-use crate::dto::console::Page;
+use crate::dto::console::{GameScope, Page};
 use crate::dto::console::leaderboard::TournamentWriteRequest;
+use crate::error::V2Error;
 use crate::services::console::ConsoleService;
+use crate::services::games::tenant;
 
 struct ConsoleLeaderboardController {
     service: Arc<ConsoleService>,
@@ -35,8 +37,16 @@ impl ConsoleLeaderboardController {
     }
 
     #[get("/{id}")]
-    async fn get(&self, _auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn get(
+        &self,
+        _auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
+        if let Err(err) = guard_board(&state, scope.id(), &id).await {
+            return err.into_response();
+        }
         self.service
             .get_leaderboard(&state, &id)
             .await
@@ -44,8 +54,16 @@ impl ConsoleLeaderboardController {
     }
 
     #[get("/{id}/records")]
-    async fn records(&self, _auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn records(
+        &self,
+        _auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
+        if let Err(err) = guard_board(&state, scope.id(), &id).await {
+            return err.into_response();
+        }
         self.service
             .list_leaderboard_records(&state, &id)
             .await
@@ -53,8 +71,16 @@ impl ConsoleLeaderboardController {
     }
 
     #[delete("/{id}")]
-    async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn delete(
+        &self,
+        auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
+        if let Err(err) = guard_board(&state, scope.id(), &id).await {
+            return err.into_response();
+        }
         self.service
             .delete_leaderboard(&state, &auth, &id)
             .await
@@ -67,8 +93,12 @@ impl ConsoleLeaderboardController {
         &self,
         auth: ConsoleAuthed,
         Path((id, owner_id)): Path<(String, String)>,
+        Params(scope): Params<GameScope>,
     ) -> Response {
         let state = current_state();
+        if let Err(err) = guard_board(&state, scope.id(), &id).await {
+            return err.into_response();
+        }
         self.service
             .delete_leaderboard_record(&state, &auth, &id, &owner_id)
             .await
@@ -99,11 +129,12 @@ impl ConsoleTournamentController {
     async fn create(
         &self,
         auth: ConsoleAuthed,
+        Params(scope): Params<GameScope>,
         Body(body): Body<TournamentWriteRequest>,
     ) -> Response {
         let state = current_state();
         self.service
-            .create_tournament(&state, &auth, body)
+            .create_tournament(&state, &auth, scope.id(), body)
             .await
             .into_response()
     }
@@ -113,9 +144,13 @@ impl ConsoleTournamentController {
         &self,
         auth: ConsoleAuthed,
         Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
         Body(body): Body<TournamentWriteRequest>,
     ) -> Response {
         let state = current_state();
+        if let Err(err) = guard_tournament(&state, scope.id(), &id).await {
+            return err.into_response();
+        }
         self.service
             .update_tournament(&state, &auth, &id, body)
             .await
@@ -123,11 +158,43 @@ impl ConsoleTournamentController {
     }
 
     #[delete("/{id}")]
-    async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn delete(
+        &self,
+        auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
+        if let Err(err) = guard_tournament(&state, scope.id(), &id).await {
+            return err.into_response();
+        }
         self.service
             .delete_tournament(&state, &auth, &id)
             .await
             .into_response()
+    }
+}
+
+async fn guard_board(
+    state: &crate::ApiState,
+    game: Option<uuid::Uuid>,
+    id: &str,
+) -> Result<(), V2Error> {
+    if tenant::board_in_game(state, game, id).await? {
+        Ok(())
+    } else {
+        Err(V2Error::not_found("Leaderboard not found."))
+    }
+}
+
+async fn guard_tournament(
+    state: &crate::ApiState,
+    game: Option<uuid::Uuid>,
+    id: &str,
+) -> Result<(), V2Error> {
+    if tenant::board_in_game(state, game, id).await? {
+        Ok(())
+    } else {
+        Err(V2Error::not_found("Tournament not found."))
     }
 }

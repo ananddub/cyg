@@ -10,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use crate::app::middleware::ConsoleAuthed;
 use crate::app::params::{Body, Params};
 use crate::current_state;
+use crate::dto::console::GameScope;
 use crate::dto::console::notification::{NotificationQuery, SendNotificationRequest};
 use crate::services::console::ConsoleService;
 
@@ -40,20 +41,26 @@ impl ConsoleNotificationController {
     async fn send(
         &self,
         auth: ConsoleAuthed,
+        Params(scope): Params<GameScope>,
         Body(body): Body<SendNotificationRequest>,
     ) -> Response {
         let state = current_state();
         self.service
-            .send_notification(&state, &auth, body)
+            .send_notification(&state, &auth, scope.id(), body)
             .await
             .into_response()
     }
 
     #[delete("/{id}")]
-    async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn delete(
+        &self,
+        auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
         self.service
-            .delete_notification(&state, &auth, &id)
+            .delete_notification(&state, &auth, scope.id(), &id)
             .await
             .into_response()
     }

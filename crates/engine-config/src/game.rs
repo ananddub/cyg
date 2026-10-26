@@ -36,6 +36,13 @@ impl Runtime {
 #[derive(Debug, Clone)]
 pub struct GameConfig {
     pub name: String,
+    /// The `games.id` this process hosts, when the operator has bound it to a
+    /// registered tenant. `None` lets the API infer the tenant from a database
+    /// that holds exactly one active game.
+    pub game_id: Option<String>,
+    /// The `games.game_key` alternative to `game_id`, for a deployment that
+    /// pins identity by the readable tenant key rather than the database id.
+    pub game_key: Option<String>,
     pub runtime: Runtime,
     /// Room source, relative to the project directory.
     pub source: PathBuf,
@@ -69,6 +76,8 @@ impl Default for GameConfig {
     fn default() -> Self {
         Self {
             name: "my-game".into(),
+            game_id: None,
+            game_key: None,
             runtime: Runtime::AssemblyScript,
             source: "room.ts".into(),
             out: "room_logic.wasm".into(),

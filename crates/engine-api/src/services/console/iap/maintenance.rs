@@ -63,6 +63,7 @@ impl super::super::ConsoleService {
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
+        game: Option<uuid::Uuid>,
         product_id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
@@ -70,12 +71,10 @@ impl super::super::ConsoleService {
         if product_id.is_empty() {
             return Err(V2Error::invalid_argument("A product id is required."));
         }
-        let pool = super::super::pool(state)?;
-        let deleted = sqlx::query("DELETE FROM subscription WHERE product_id = $1")
-            .bind(product_id)
-            .execute(pool)
-            .await?
-            .rows_affected();
+        let deleted = crate::services::games::tenant::delete_subscriptions_for_product(
+            state, game, product_id,
+        )
+        .await?;
         if deleted == 0 {
             return Err(V2Error::not_found(
                 "Subscription not found for this product.",

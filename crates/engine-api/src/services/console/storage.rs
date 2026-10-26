@@ -3,6 +3,7 @@
 //! operator can delete one or clear a whole collection.
 
 use axum::Json;
+use uuid::Uuid;
 
 use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
@@ -20,29 +21,39 @@ impl super::ConsoleService {
         state: &ApiState,
         page: Page,
     ) -> Result<Json<Vec<StorageObjectRow>>, V2Error> {
-        let rows = super::queries(state)?
-            .list_storage(page.limit(), page.offset())
-            .await?;
+        let rows = crate::services::games::tenant::list_storage(
+            state,
+            page.game_id,
+            page.limit(),
+            page.offset(),
+        )
+        .await?;
         Ok(Json(rows.into_iter().map(StorageObjectRow::from).collect()))
     }
 
     pub async fn list_storage_collections(
         &self,
         state: &ApiState,
+        game: Option<Uuid>,
     ) -> Result<Json<Vec<String>>, V2Error> {
         Ok(Json(
-            super::queries(state)?.list_storage_collections().await?,
+            crate::services::games::tenant::storage_collections(state, game).await?,
         ))
     }
 
     pub async fn list_storage_in_collection(
         &self,
         state: &ApiState,
+        game: Option<Uuid>,
         collection: &str,
     ) -> Result<Json<Vec<StorageObjectRow>>, V2Error> {
-        let rows = super::queries(state)?
-            .list_storage_in_collection(collection, MAX_IN_COLLECTION)
-            .await?;
+        let rows = crate::services::games::tenant::storage_in_collection(
+            state,
+            game,
+            collection,
+            MAX_IN_COLLECTION,
+        )
+        .await?;
         Ok(Json(rows.into_iter().map(StorageObjectRow::from).collect()))
     }
 
@@ -81,15 +92,16 @@ impl super::ConsoleService {
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
+        game: Option<Uuid>,
         collection: &str,
     ) -> Result<Json<DeletedCount>, V2Error> {
         // Clearing a collection can take every object any player has stored in it,
         // so it is not shared with the write roles.
         claims.require_admin()?;
-        let removed = super::queries(state)?
-            .delete_storage_collection(collection)
-            .await?
-            .rows_affected();
+        let removed = crate::services::games::tenant::delete_storage_collection(
+            state, game, collection,
+        )
+        .await?;
         super::audit(
             state,
             claims,

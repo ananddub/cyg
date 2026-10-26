@@ -70,6 +70,24 @@ END $$
 pub static DEFAULT_GAME_CONFIG_JSON: &str =
     r#"{"tick_rate": 128, "max_clients": 16, "persistent_rooms": false, "auto_close_seconds": 30}"#;
 
+/// The tenant of rows that belong to a player. Legacy rows are NULL until the
+/// first process resolves its game and claims them (`tenant::backfill`).
+pub const USERS_GAME_COLUMN_DDL: &str = r#"
+ALTER TABLE users ADD COLUMN IF NOT EXISTS game_id UUID REFERENCES games(id) ON DELETE CASCADE
+"#;
+
+pub const USERS_GAME_INDEX_DDL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_users_game ON users(game_id)";
+
+/// A board (and, through `category = 1`, a tournament) belongs to the game whose
+/// console created it. Records already inherit the board's tenant.
+pub const LEADERBOARD_GAME_COLUMN_DDL: &str = r#"
+ALTER TABLE leaderboard ADD COLUMN IF NOT EXISTS game_id UUID REFERENCES games(id) ON DELETE CASCADE
+"#;
+
+pub const LEADERBOARD_GAME_INDEX_DDL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_leaderboard_game ON leaderboard(game_id)";
+
 /// Create the tenancy tables if they are missing. Order matters only in that a game
 /// must exist before a module can point at one.
 pub async fn ensure_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
@@ -83,4 +101,24 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
         sqlx::query(ddl).execute(pool).await?;
     }
     Ok(())
+}
+
+/// Add the tenant columns to the player tables.
+///
+/// The player tables are created by the BaaS schema, not by this bootstrap, so a
+/// plane pointed at a database that has not imported that schema yet must still
+/// boot. Each step is therefore independent and a missing table is logged rather
+/// than fatal — the same tolerance `ensure_schema` has for an unreachable
+/// database.
+pub async fn ensure_tenant_schema(pool: &PgPool) {
+    for ddl in [
+        USERS_GAME_COLUMN_DDL,
+        USERS_GAME_INDEX_DDL,
+        LEADERBOARD_GAME_COLUMN_DDL,
+        LEADERBOARD_GAME_INDEX_DDL,
+    ] {
+        if let Err(err) = sqlx::query(ddl).execute(pool).await {
+            tracing::info!("games: tenant schema step skipped: {err}");
+        }
+    }
 }

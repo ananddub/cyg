@@ -26,6 +26,7 @@ CREATE TABLE users (
       disable_time TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01 00:00:00+00'::TIMESTAMPTZ,
       facebook_instant_game_id VARCHAR(128),
       apple_id VARCHAR(128),
+      game_id uuid,
         CONSTRAINT users_password_check CHECK ((length(password) < 32000)),
       CONSTRAINT users_edge_count_check CHECK ((edge_count >= 0)),
       CONSTRAINT users_pkey PRIMARY KEY (id),
@@ -50,3 +51,4 @@ CREATE UNIQUE INDEX users_custom_id_key ON users USING btree (custom_id);
 CREATE UNIQUE INDEX users_facebook_instant_game_id_key ON users USING btree (facebook_instant_game_id);
 CREATE UNIQUE INDEX users_apple_id_key ON users USING btree (apple_id);
 CREATE INDEX users_display_name_idx ON users USING gin (display_name gin_trgm_ops);
+CREATE INDEX idx_users_game ON users USING btree (game_id);

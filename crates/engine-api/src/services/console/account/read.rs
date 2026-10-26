@@ -14,9 +14,13 @@ impl super::ConsoleService {
         state: &ApiState,
         page: Page,
     ) -> Result<Json<Vec<AccountRow>>, V2Error> {
-        let rows = super::queries(state)?
-            .list_accounts(page.limit(), page.offset())
-            .await?;
+        let rows = crate::services::games::tenant::list_accounts(
+            state,
+            page.game_id,
+            page.limit(),
+            page.offset(),
+        )
+        .await?;
         Ok(Json(rows.into_iter().map(AccountRow::from).collect()))
     }
 

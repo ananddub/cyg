@@ -72,9 +72,13 @@ impl super::ConsoleService {
         state: &ApiState,
         page: Page,
     ) -> Result<Json<Vec<PurchaseRow>>, V2Error> {
-        let rows = super::queries(state)?
-            .list_all_purchases(page.limit(), page.offset())
-            .await?;
+        let rows = crate::services::games::tenant::list_purchases(
+            state,
+            page.game_id,
+            page.limit(),
+            page.offset(),
+        )
+        .await?;
         Ok(Json(rows.into_iter().map(PurchaseRow::from).collect()))
     }
 
@@ -83,9 +87,13 @@ impl super::ConsoleService {
         state: &ApiState,
         page: Page,
     ) -> Result<Json<Vec<SubscriptionRow>>, V2Error> {
-        let rows = super::queries(state)?
-            .list_all_subscriptions(page.limit(), page.offset())
-            .await?;
+        let rows = crate::services::games::tenant::list_subscriptions(
+            state,
+            page.game_id,
+            page.limit(),
+            page.offset(),
+        )
+        .await?;
         Ok(Json(rows.into_iter().map(SubscriptionRow::from).collect()))
     }
 }

@@ -13,11 +13,12 @@ use axum::response::{IntoResponse, Response};
 use crate::app::middleware::ConsoleAuthed;
 use crate::app::params::{Body, Params};
 use crate::current_state;
-use crate::dto::console::Page;
+use crate::dto::console::{GameScope, Page};
 use crate::dto::console::account::{
     AccountExport, AddNoteRequest, BanAccountRequest, UpdateWalletRequest,
 };
 use crate::services::console::ConsoleService;
+use crate::services::games::tenant;
 
 struct ConsoleAccountController {
     service: Arc<ConsoleService>,
@@ -39,34 +40,78 @@ impl ConsoleAccountController {
     }
 
     #[post("/import")]
-    async fn import(&self, auth: ConsoleAuthed, Body(body): Body<AccountExport>) -> Response {
+    async fn import(
+        &self,
+        auth: ConsoleAuthed,
+        Params(scope): Params<GameScope>,
+        Body(body): Body<AccountExport>,
+    ) -> Response {
         let state = current_state();
         self.service
-            .import_account(&state, &auth, body)
+            .import_account(&state, &auth, scope.id(), body)
             .await
             .into_response()
     }
 
     #[get("/{id}")]
-    async fn get(&self, _auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn get(
+        &self,
+        _auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
-        self.service.get_account(&state, &id).await.into_response()
+        let id = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), id).await {
+            return err.into_response();
+        }
+        self.service
+            .get_account(&state, &id.to_string())
+            .await
+            .into_response()
     }
 
     #[delete("/{id}")]
-    async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn delete(
+        &self,
+        auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
+        let id = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), id).await {
+            return err.into_response();
+        }
         self.service
-            .delete_account(&state, &auth, &id)
+            .delete_account(&state, &auth, &id.to_string())
             .await
             .into_response()
     }
 
     #[get("/{id}/export")]
-    async fn export(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn export(
+        &self,
+        auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
+        let id = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), id).await {
+            return err.into_response();
+        }
         self.service
-            .export_account(&state, &auth, &id)
+            .export_account(&state, &auth, &id.to_string())
             .await
             .into_response()
     }
@@ -77,11 +122,12 @@ impl ConsoleAccountController {
         &self,
         auth: ConsoleAuthed,
         Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
         Body(body): Body<AccountExport>,
     ) -> Response {
         let state = current_state();
         self.service
-            .import_account_by_id(&state, &auth, &id, body)
+            .import_account_by_id(&state, &auth, &id, scope.id(), body)
             .await
             .into_response()
     }
@@ -91,9 +137,17 @@ impl ConsoleAccountController {
         &self,
         auth: ConsoleAuthed,
         Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
         Body(body): Body<BanAccountRequest>,
     ) -> Response {
         let state = current_state();
+        let parsed = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+            return err.into_response();
+        }
         self.service
             .ban_account(&state, &auth, &id, body)
             .await
@@ -101,8 +155,20 @@ impl ConsoleAccountController {
     }
 
     #[post("/{id}/unban")]
-    async fn unban(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn unban(
+        &self,
+        auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
+        let parsed = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+            return err.into_response();
+        }
         self.service
             .unban_account(&state, &auth, &id)
             .await
@@ -110,8 +176,20 @@ impl ConsoleAccountController {
     }
 
     #[get("/{id}/note")]
-    async fn notes(&self, _auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
+    async fn notes(
+        &self,
+        _auth: ConsoleAuthed,
+        Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
+    ) -> Response {
         let state = current_state();
+        let parsed = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+            return err.into_response();
+        }
         self.service
             .list_account_notes(&state, &id)
             .await
@@ -123,9 +201,17 @@ impl ConsoleAccountController {
         &self,
         auth: ConsoleAuthed,
         Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
         Body(body): Body<AddNoteRequest>,
     ) -> Response {
         let state = current_state();
+        let parsed = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+            return err.into_response();
+        }
         self.service
             .add_account_note(&state, &auth, &id, body)
             .await
@@ -137,8 +223,16 @@ impl ConsoleAccountController {
         &self,
         auth: ConsoleAuthed,
         Path((id, note_id)): Path<(String, String)>,
+        Params(scope): Params<GameScope>,
     ) -> Response {
         let state = current_state();
+        let parsed = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+            return err.into_response();
+        }
         self.service
             .delete_account_note(&state, &auth, &id, &note_id)
             .await
@@ -153,6 +247,13 @@ impl ConsoleAccountController {
         Params(page): Params<Page>,
     ) -> Response {
         let state = current_state();
+        let parsed = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, page.game_id, parsed).await {
+            return err.into_response();
+        }
         self.service
             .list_wallet_ledger(&state, &id, page)
             .await
@@ -164,9 +265,17 @@ impl ConsoleAccountController {
         &self,
         auth: ConsoleAuthed,
         Path(id): Path<String>,
+        Params(scope): Params<GameScope>,
         Body(body): Body<UpdateWalletRequest>,
     ) -> Response {
         let state = current_state();
+        let parsed = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+            return err.into_response();
+        }
         self.service
             .update_account_wallet(&state, &auth, &id, body)
             .await
@@ -178,8 +287,16 @@ impl ConsoleAccountController {
         &self,
         auth: ConsoleAuthed,
         Path((id, wallet_id)): Path<(String, String)>,
+        Params(scope): Params<GameScope>,
     ) -> Response {
         let state = current_state();
+        let parsed = match crate::services::console::account_id(&id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+            return err.into_response();
+        }
         self.service
             .delete_wallet_ledger(&state, &auth, &id, &wallet_id)
             .await

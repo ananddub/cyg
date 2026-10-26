@@ -10,7 +10,7 @@ use axum::response::{IntoResponse, Response};
 use crate::app::middleware::ConsoleAuthed;
 use crate::app::params::{Body, Params};
 use crate::current_state;
-use crate::dto::console::Page;
+use crate::dto::console::{GameScope, Page};
 use crate::dto::console::iap::ConsoleValidateRequest;
 use crate::services::console::ConsoleService;
 
@@ -58,10 +58,11 @@ impl ConsoleSubscriptionController {
         &self,
         auth: ConsoleAuthed,
         Path(product_id): Path<String>,
+        Params(scope): Params<GameScope>,
     ) -> Response {
         let state = current_state();
         self.service
-            .delete_subscription_product(&state, &auth, &product_id)
+            .delete_subscription_product(&state, &auth, scope.id(), &product_id)
             .await
             .into_response()
     }

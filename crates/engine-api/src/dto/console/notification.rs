@@ -14,6 +14,9 @@ pub struct NotificationQuery {
     pub user_id: String,
     #[serde(default)]
     pub limit: Option<i64>,
+    /// The workspace's game; the account must belong to it.
+    #[serde(default)]
+    pub game_id: Option<Uuid>,
 }
 
 impl NotificationQuery {

@@ -31,3 +31,13 @@ CREATE TABLE IF NOT EXISTS room_modules (
 );
 
 CREATE INDEX IF NOT EXISTS idx_room_modules_game ON room_modules(game_id, version DESC);
+
+-- The tenant of the player rows a game's process writes. `users` is the root:
+-- accounts, storage, purchases and notifications all reach a tenant through
+-- their owner. `leaderboard` carries its own tenant because boards are
+-- server-authored and have no player owner.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS game_id UUID REFERENCES games(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_users_game ON users(game_id);
+
+ALTER TABLE leaderboard ADD COLUMN IF NOT EXISTS game_id UUID REFERENCES games(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_leaderboard_game ON leaderboard(game_id);

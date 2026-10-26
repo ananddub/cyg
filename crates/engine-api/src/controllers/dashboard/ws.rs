@@ -3,15 +3,27 @@
 use std::time::Duration;
 
 use auto_route::controller;
-use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::response::Response;
+use axum::extract::State;
+use axum::response::{IntoResponse, Response};
 use engine_dashboard::WsFrame;
 use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use crate::ApiState;
+use crate::app::params::Params;
+use crate::controllers::dashboard::api::guard;
 use crate::services::dashboard::frames;
+
+/// The workspace whose telemetry the socket streams. The console always names
+/// it; an absent one keeps the legacy process-wide feed for tooling.
+#[derive(Debug, Default, Deserialize)]
+struct DashboardScope {
+    #[serde(default)]
+    game_id: Option<Uuid>,
+}
 
 struct DashboardWsController;
 
@@ -22,8 +34,16 @@ impl DashboardWsController {
     }
 
     #[get("/dashboard")]
-    async fn upgrade(&self, ws: WebSocketUpgrade) -> Response {
-        upgrade(ws, State(crate::current_state())).await
+    async fn upgrade(
+        &self,
+        ws: WebSocketUpgrade,
+        Params(scope): Params<DashboardScope>,
+    ) -> Response {
+        let state = crate::current_state();
+        if let Err(err) = guard(&state, scope.game_id).await {
+            return err.into_response();
+        }
+        upgrade(ws, State(state)).await
     }
 }
 

@@ -19,6 +19,7 @@ impl super::ConsoleService {
         query: NotificationQuery,
     ) -> Result<Json<Vec<NotificationRow>>, V2Error> {
         let user_id = super::account_id(&query.user_id)?;
+        crate::services::games::tenant::require_account(state, query.game_id, user_id).await?;
         let rows = super::queries(state)?
             .list_notifications_for_user(user_id, query.limit())
             .await?;
@@ -32,10 +33,12 @@ impl super::ConsoleService {
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
+        game: Option<Uuid>,
         body: SendNotificationRequest,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let user_id = super::account_id(&body.user_id)?;
+        crate::services::games::tenant::require_account(state, game, user_id).await?;
         let subject = body.subject.trim();
         if subject.is_empty() {
             return Err(V2Error::invalid_argument("A notification needs a subject."));
@@ -76,15 +79,12 @@ impl super::ConsoleService {
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
+        game: Option<Uuid>,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::id(id, "notification")?;
-        let removed =
-            crate::services::console::statements::delete_notification(super::pool(state)?, id)
-                .await
-                .map_err(V2Error::from_sqlx)?;
-        if !removed {
+        if !crate::services::games::tenant::delete_notification(state, game, id).await? {
             return Err(V2Error::not_found("Notification not found."));
         }
         super::audit(

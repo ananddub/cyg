@@ -8,8 +8,9 @@
 
 pub mod schema;
 pub mod service;
+pub mod tenant;
 
-pub use schema::ensure_schema;
+pub use schema::{ensure_schema, ensure_tenant_schema};
 pub use service::GamesService;
 
 /// The prefix of a game's tenant key. Naming it here is what lets the console's

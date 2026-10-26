@@ -21,6 +21,7 @@ CREATE TABLE leaderboard (
       size integer NOT NULL DEFAULT 0,
       start_time TIMESTAMPTZ NOT NULL DEFAULT now(),
       enable_ranks boolean DEFAULT true,
+      game_id uuid,
         CONSTRAINT leaderboard_pkey PRIMARY KEY (id),
       CONSTRAINT leaderboard_category_check CHECK ((category >= 0)),
       CONSTRAINT leaderboard_duration_check CHECK ((duration >= 0)),
@@ -30,3 +31,4 @@ CREATE TABLE leaderboard (
 
 CREATE INDEX duration_start_time_end_time_category_idx ON leaderboard USING btree (duration, start_time, end_time DESC, category);
 CREATE INDEX leaderboard_create_time_id_idx ON leaderboard USING btree (create_time, id);
+CREATE INDEX idx_leaderboard_game ON leaderboard USING btree (game_id);

@@ -13,6 +13,12 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = string("name") {
         cfg.name = v;
     }
+    if let Some(v) = string("game_id") {
+        cfg.game_id = Some(v);
+    }
+    if let Some(v) = string("game_key") {
+        cfg.game_key = Some(v);
+    }
     if let Some(v) = string("runtime")
         && let Some(r) = Runtime::parse(&v)
     {
