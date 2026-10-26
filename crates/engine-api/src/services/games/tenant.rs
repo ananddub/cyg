@@ -277,15 +277,18 @@ pub async fn list_subscriptions(
 
 // ----------------------------------------------------------------- guards
 
-/// Whether an account belongs to the scoped game. `None` means the install-wide
-/// landing scope, which leaves every account addressable as before.
+/// Whether an account belongs to the scoped game. An unscoped (landing) call is
+/// not asked to prove anything, so it stays addressable exactly as before.
 pub async fn account_in_game(
     state: &ApiState,
     game: Option<Uuid>,
     user_id: Uuid,
 ) -> Result<bool, V2Error> {
+    let Some(game) = game else {
+        return Ok(true);
+    };
     let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND ($2::uuid IS NULL OR game_id = $2::uuid))",
+        "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND game_id = $2)",
     )
     .bind(user_id)
     .bind(game)
@@ -307,14 +310,18 @@ pub async fn require_account(
     }
 }
 
-/// A group belongs to the game its creator plays in.
+/// A group belongs to the game its creator plays in. An unscoped call leaves the
+/// existing addressable set untouched.
 pub async fn require_group(
     state: &ApiState,
     game: Option<Uuid>,
     group_id: Uuid,
 ) -> Result<(), V2Error> {
+    let Some(game) = game else {
+        return Ok(());
+    };
     let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM groups g WHERE g.id = $1 AND ($2::uuid IS NULL OR g.creator_id IN (SELECT id FROM users WHERE game_id = $2::uuid)))",
+        "SELECT EXISTS(SELECT 1 FROM groups g WHERE g.id = $1 AND g.creator_id IN (SELECT id FROM users WHERE game_id = $2))",
     )
     .bind(group_id)
     .bind(game)
@@ -328,14 +335,18 @@ pub async fn require_group(
     }
 }
 
-/// A board (or tournament) belongs to the game that authored it.
+/// A board (or tournament) belongs to the game that authored it. An unscoped call
+/// keeps every board addressable.
 pub async fn board_in_game(
     state: &ApiState,
     game: Option<Uuid>,
     board_id: &str,
 ) -> Result<bool, V2Error> {
+    let Some(game) = game else {
+        return Ok(true);
+    };
     let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM leaderboard WHERE id = $1 AND ($2::uuid IS NULL OR game_id = $2::uuid))",
+        "SELECT EXISTS(SELECT 1 FROM leaderboard WHERE id = $1 AND game_id = $2)",
     )
     .bind(board_id)
     .bind(game)
