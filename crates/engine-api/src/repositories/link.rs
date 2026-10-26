@@ -3,9 +3,9 @@
 
 use uuid::Uuid;
 
-use super::auth::InsertProviderDeviceParams;
-use super::db::Queries;
 use super::models::*;
+use super::db::Queries;
+use super::auth::InsertProviderDeviceParams;
 
 pub struct LinkEmailParams {
     pub email: String,
@@ -31,7 +31,10 @@ pub type UpsertProviderIdentityParams = InsertProviderDeviceParams;
 
 impl Queries {
     /// LinkEmail
-    pub async fn link_email(&self, params: &LinkEmailParams) -> Result<Uuid, sqlx::Error> {
+    pub async fn link_email(
+        &self,
+        params: &LinkEmailParams,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET email = $1, password = $2, update_time = now() WHERE (id = $3) AND (NOT EXISTS (SELECT id FROM users WHERE email = $1 AND NOT id = $3)) RETURNING id;"
         )
@@ -43,7 +46,11 @@ impl Queries {
     }
 
     /// LinkCustomId
-    pub async fn link_custom_id(&self, custom_id: &str, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn link_custom_id(
+        &self,
+        custom_id: &str,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET custom_id = $1, update_time = now() WHERE (id = $2) AND (NOT EXISTS (SELECT id FROM users WHERE custom_id = $1 AND NOT id = $2)) RETURNING id;"
         )
@@ -54,7 +61,11 @@ impl Queries {
     }
 
     /// LinkApple
-    pub async fn link_apple(&self, apple_id: &str, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn link_apple(
+        &self,
+        apple_id: &str,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET apple_id = $1, update_time = now() WHERE (id = $2) AND (NOT EXISTS (SELECT id FROM users WHERE apple_id = $1 AND NOT id = $2)) RETURNING id;"
         )
@@ -65,7 +76,10 @@ impl Queries {
     }
 
     /// LinkGoogle
-    pub async fn link_google(&self, params: &LinkGoogleParams) -> Result<Uuid, sqlx::Error> {
+    pub async fn link_google(
+        &self,
+        params: &LinkGoogleParams,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users AS u SET google_id = $1, display_name = COALESCE(NULLIF(u.display_name, ''), $2), avatar_url = COALESCE(NULLIF(u.avatar_url, ''), $3), update_time = now() WHERE (id = $4) AND (NOT EXISTS (SELECT id FROM users WHERE google_id = $1 AND NOT id = $4)) RETURNING id;"
         )
@@ -78,7 +92,11 @@ impl Queries {
     }
 
     /// LinkSteam
-    pub async fn link_steam(&self, steam_id: &str, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn link_steam(
+        &self,
+        steam_id: &str,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET steam_id = $1, update_time = now() WHERE (id = $2) AND (NOT EXISTS (SELECT id FROM users WHERE steam_id = $1 AND NOT id = $2)) RETURNING id;"
         )
@@ -89,7 +107,10 @@ impl Queries {
     }
 
     /// LinkFacebook
-    pub async fn link_facebook(&self, params: &LinkFacebookParams) -> Result<Uuid, sqlx::Error> {
+    pub async fn link_facebook(
+        &self,
+        params: &LinkFacebookParams,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users AS u SET facebook_id = $1, display_name = COALESCE(NULLIF(u.display_name, ''), $2), avatar_url = COALESCE(NULLIF(u.avatar_url, ''), $3), update_time = now() WHERE (id = $4) AND (NOT EXISTS (SELECT id FROM users WHERE facebook_id = $1 AND NOT id = $4)) RETURNING id;"
         )
@@ -132,29 +153,45 @@ impl Queries {
     }
 
     /// ImportEmail
-    pub async fn import_email(&self, email: &str, id: Uuid) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE users SET email = $1 WHERE id = $2;")
-            .bind(email)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+    pub async fn import_email(
+        &self,
+        email: &str,
+        id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users SET email = $1 WHERE id = $2;"
+        )
+        .bind(email)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     /// ImportEmailIfEmpty
-    pub async fn import_email_if_empty(&self, email: &str, id: Uuid) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE users SET email = $1 WHERE id = $2 AND NULLIF(email, '') IS NULL;")
-            .bind(email)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+    pub async fn import_email_if_empty(
+        &self,
+        email: &str,
+        id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users SET email = $1 WHERE id = $2 AND NULLIF(email, '') IS NULL;"
+        )
+        .bind(email)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     /// CountOwnedDevice
-    pub async fn count_owned_device(&self, id: &str, user_id: Uuid) -> Result<i64, sqlx::Error> {
+    pub async fn count_owned_device(
+        &self,
+        id: &str,
+        user_id: Uuid,
+    ) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, i64>(
-            "SELECT COUNT(id) FROM user_device WHERE id = $1::VARCHAR AND user_id = $2 LIMIT 1;",
+            "SELECT COUNT(id) FROM user_device WHERE id = $1::VARCHAR AND user_id = $2 LIMIT 1;"
         )
         .bind(id)
         .bind(user_id)
@@ -178,12 +215,16 @@ impl Queries {
     }
 
     /// TouchUser
-    pub async fn touch_user(&self, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn touch_user(
+        &self,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
-            "UPDATE users SET update_time = now() WHERE id = $1 RETURNING id;",
+            "UPDATE users SET update_time = now() WHERE id = $1 RETURNING id;"
         )
         .bind(id)
         .fetch_one(&self.pool)
         .await
     }
+
 }

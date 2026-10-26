@@ -7,15 +7,27 @@
 //! (`game_id`/`game_key`); a database that holds exactly one active game is the
 //! fallback, so a single-tenant deployment needs no extra configuration.
 
+use std::sync::Arc;
+
 use uuid::Uuid;
 
 use crate::ApiState;
 use crate::dto::console::games::GameRow;
 use crate::error::V2Error;
 use crate::repositories::console::ListStorageRow;
-use crate::repositories::models::{
-    Groups, Leaderboard, Purchase, Subscription, Users,
-};
+use crate::repositories::db::Queries;
+use crate::repositories::models::{Groups, Leaderboard, Purchase, Subscription, Users};
+
+/// The FlashORM wrapper every tenancy read and write goes through; 503 when
+/// the database is not configured (the same refusal the raw pool path gave).
+fn q(state: &ApiState) -> Result<Arc<Queries>, V2Error> {
+    state.q.clone().ok_or_else(V2Error::no_db)
+}
+
+/// The generated tenancy rows alias the console projections
+/// (`TenancyStoragePageRow` IS `ListStorageRow`, the game rows alias
+/// `ListGamesRow` whose `From<GameRow>` bridge lives in games/service), so the
+/// page fns keep their signatures unchanged.
 
 const SELECT_BY_ID: &str = "SELECT id, game_key, name, client_key, engine_type, backend_mode, status, config, created_at, updated_at FROM games WHERE id = $1;";
 
@@ -73,20 +85,14 @@ pub async fn require_hosted(state: &ApiState, claimed: Uuid) -> Result<(), V2Err
 /// rows carry the tenant from creation. Both statements are idempotent and a
 /// missing table is a no-op, so a new database and an old one take the same path.
 pub async fn backfill(state: &ApiState, game_id: Uuid) {
-    let Some(pool) = state.db.as_ref() else {
+    let Ok(queries) = q(state) else {
         return;
     };
-    for (table, statement) in [
-        (
-            "users",
-            "UPDATE users SET game_id = $1 WHERE game_id IS NULL",
-        ),
-        (
-            "leaderboard",
-            "UPDATE leaderboard SET game_id = $1 WHERE game_id IS NULL",
-        ),
+    for (table, claimed) in [
+        ("users", queries.backfill_users_game(game_id).await),
+        ("leaderboard", queries.backfill_leaderboard_game(game_id).await),
     ] {
-        match sqlx::query(statement).bind(game_id).execute(pool).await {
+        match claimed {
             Ok(done) => {
                 if done.rows_affected() > 0 {
                     tracing::info!(
@@ -106,18 +112,13 @@ pub async fn backfill(state: &ApiState, game_id: Uuid) {
 /// update is logged and ignored: the account still exists, and the next process
 /// boot's backfill claims it.
 pub async fn stamp_user(state: &ApiState, user_id: Uuid) {
-    let Some(pool) = state.db.as_ref() else {
+    let Ok(queries) = q(state) else {
         return;
     };
     let Ok(Some(game_id)) = game_id(state).await else {
         return;
     };
-    if let Err(err) = sqlx::query("UPDATE users SET game_id = $1 WHERE id = $2 AND game_id IS NULL")
-        .bind(game_id)
-        .bind(user_id)
-        .execute(pool)
-        .await
-    {
+    if let Err(err) = queries.stamp_user_game(game_id, user_id).await {
         tracing::warn!("[tenancy] could not stamp user {user_id}: {err}");
     }
 }
@@ -126,20 +127,170 @@ pub async fn stamp_user(state: &ApiState, user_id: Uuid) {
 /// where the row is restored into the game whose workspace imported it rather
 /// than the game this process happens to host.
 pub async fn stamp_user_as(state: &ApiState, user_id: Uuid, game_id: Option<Uuid>) {
-    let (Some(pool), Some(game_id)) = (state.db.as_ref(), game_id) else {
+    let (Ok(queries), Some(game_id)) = (q(state), game_id) else {
         return;
     };
-    if let Err(err) = sqlx::query("UPDATE users SET game_id = $1 WHERE id = $2 AND game_id IS NULL")
-        .bind(game_id)
-        .bind(user_id)
-        .execute(pool)
-        .await
-    {
+    if let Err(err) = queries.stamp_user_game(game_id, user_id).await {
         tracing::warn!("[tenancy] could not stamp user {user_id}: {err}");
     }
 }
 
 // ------------------------------------------------------------------ reads
+
+
+
+
+
+
+
+
+
+pub async fn list_accounts(
+    state: &ApiState,
+    game: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<Users>, V2Error> {
+    // Hand-written with a nullable uuid: a NULL game id means the UNscoped
+    // (landing) listing, not an empty one, and the generator has no nullable
+    // parameters to say that with.
+    sqlx::query_as::<_, Users>(ACCOUNTS_PAGE)
+        .bind(game)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool(state)?)
+        .await
+        .map_err(V2Error::from_sqlx)
+}
+
+pub async fn list_groups(
+    state: &ApiState,
+    game: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<Groups>, V2Error> {
+    // Nullable game id — see list_accounts.
+    sqlx::query_as::<_, Groups>(GROUP_PAGE)
+        .bind(game)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool(state)?)
+        .await
+        .map_err(V2Error::from_sqlx)
+}
+
+pub async fn list_boards(
+    state: &ApiState,
+    game: Option<Uuid>,
+    category: i16,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<Leaderboard>, V2Error> {
+    // Nullable game id — see list_accounts.
+    sqlx::query_as::<_, Leaderboard>(BOARDS_PAGE)
+        .bind(category)
+        .bind(game)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool(state)?)
+        .await
+        .map_err(V2Error::from_sqlx)
+}
+
+pub async fn list_storage(
+    state: &ApiState,
+    game: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<ListStorageRow>, V2Error> {
+    // Nullable game id — see list_accounts.
+    sqlx::query_as::<_, ListStorageRow>(STORAGE_PAGE)
+        .bind(game)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool(state)?)
+        .await
+        .map_err(V2Error::from_sqlx)
+}
+
+pub async fn storage_collections(state: &ApiState, game: Option<Uuid>) -> Result<Vec<String>, V2Error> {
+    // Nullable game id — see list_accounts.
+    sqlx::query_scalar::<_, String>(STORAGE_COLLECTIONS)
+        .bind(game)
+        .fetch_all(pool(state)?)
+        .await
+        .map_err(V2Error::from_sqlx)
+}
+
+pub async fn storage_in_collection(
+    state: &ApiState,
+    game: Option<Uuid>,
+    collection: &str,
+    limit: i64,
+) -> Result<Vec<ListStorageRow>, V2Error> {
+    // Nullable game id — see list_accounts.
+    sqlx::query_as::<_, ListStorageRow>(STORAGE_COLLECTION)
+        .bind(collection)
+        .bind(game)
+        .bind(limit)
+        .fetch_all(pool(state)?)
+        .await
+        .map_err(V2Error::from_sqlx)
+}
+
+pub async fn list_purchases(
+    state: &ApiState,
+    game: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<Purchase>, V2Error> {
+    // Nullable game id — see list_accounts.
+    sqlx::query_as::<_, Purchase>(PURCHASES_PAGE)
+        .bind(game)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool(state)?)
+        .await
+        .map_err(V2Error::from_sqlx)
+}
+
+pub async fn list_subscriptions(
+    state: &ApiState,
+    game: Option<Uuid>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<Subscription>, V2Error> {
+    // Nullable game id — see list_accounts.
+    sqlx::query_as::<_, Subscription>(SUBSCRIPTIONS_PAGE)
+        .bind(game)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool(state)?)
+        .await
+        .map_err(V2Error::from_sqlx)
+}
+
+// ------------------------------------------------------------------ reads
+//
+// The page reads stay hand-written on purpose: their nullable game id carries
+// the "unscoped listing" case (NULL = no game filter), which the generator's
+// non-null parameters cannot express. Everything with a fixed shape — tenant
+// resolution, backfill, stamps — is generated.
+
+
+
+
+
+
+
+
+
+// ------------------------------------------------------------------ reads
+//
+// The page reads stay hand-written on purpose: their nullable game id carries
+// the "unscoped listing" case (NULL = no game filter), which the generator's
+// non-null parameters cannot express. Everything with a fixed shape — tenant
+// resolution, backfill, stamps — is generated.
 
 const ACCOUNTS_PAGE: &str = "SELECT * FROM users WHERE ($1::uuid IS NULL OR game_id = $1::uuid) ORDER BY create_time DESC, id ASC LIMIT $2 OFFSET $3";
 
@@ -157,124 +308,6 @@ const PURCHASES_PAGE: &str = "SELECT p.* FROM purchase p WHERE ($1::uuid IS NULL
 
 const SUBSCRIPTIONS_PAGE: &str = "SELECT s.* FROM subscription s WHERE ($1::uuid IS NULL OR s.user_id IN (SELECT id FROM users WHERE game_id = $1::uuid)) ORDER BY s.purchase_time DESC, s.original_transaction_id ASC LIMIT $2 OFFSET $3";
 
-pub async fn list_accounts(
-    state: &ApiState,
-    game: Option<Uuid>,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<Users>, V2Error> {
-    sqlx::query_as::<_, Users>(ACCOUNTS_PAGE)
-        .bind(game)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)
-}
-
-pub async fn list_groups(
-    state: &ApiState,
-    game: Option<Uuid>,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<Groups>, V2Error> {
-    sqlx::query_as::<_, Groups>(GROUP_PAGE)
-        .bind(game)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)
-}
-
-pub async fn list_boards(
-    state: &ApiState,
-    game: Option<Uuid>,
-    category: i16,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<Leaderboard>, V2Error> {
-    sqlx::query_as::<_, Leaderboard>(BOARDS_PAGE)
-        .bind(category)
-        .bind(game)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)
-}
-
-pub async fn list_storage(
-    state: &ApiState,
-    game: Option<Uuid>,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<ListStorageRow>, V2Error> {
-    sqlx::query_as::<_, ListStorageRow>(STORAGE_PAGE)
-        .bind(game)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)
-}
-
-pub async fn storage_collections(
-    state: &ApiState,
-    game: Option<Uuid>,
-) -> Result<Vec<String>, V2Error> {
-    sqlx::query_scalar::<_, String>(STORAGE_COLLECTIONS)
-        .bind(game)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)
-}
-
-pub async fn storage_in_collection(
-    state: &ApiState,
-    game: Option<Uuid>,
-    collection: &str,
-    limit: i64,
-) -> Result<Vec<ListStorageRow>, V2Error> {
-    sqlx::query_as::<_, ListStorageRow>(STORAGE_COLLECTION)
-        .bind(collection)
-        .bind(game)
-        .bind(limit)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)
-}
-
-pub async fn list_purchases(
-    state: &ApiState,
-    game: Option<Uuid>,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<Purchase>, V2Error> {
-    sqlx::query_as::<_, Purchase>(PURCHASES_PAGE)
-        .bind(game)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)
-}
-
-pub async fn list_subscriptions(
-    state: &ApiState,
-    game: Option<Uuid>,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<Subscription>, V2Error> {
-    sqlx::query_as::<_, Subscription>(SUBSCRIPTIONS_PAGE)
-        .bind(game)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)
-}
-
 // ----------------------------------------------------------------- guards
 
 /// Whether an account belongs to the scoped game. An unscoped (landing) call is
@@ -287,6 +320,8 @@ pub async fn account_in_game(
     let Some(game) = game else {
         return Ok(true);
     };
+    // Hand-written: the generator mis-types `users.id` inside a correlated
+    // EXISTS (it inferred i32 for a uuid column), so this one guard stays raw.
     let exists = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND game_id = $2)",
     )
@@ -415,39 +450,34 @@ fn configured(value: Option<&str>) -> Option<&str> {
 }
 
 async fn by_id(state: &ApiState, id: Uuid) -> Result<Option<GameRow>, V2Error> {
-    let Some(pool) = state.db.as_ref() else {
-        return Ok(None);
-    };
-    sqlx::query_as::<_, GameRow>(SELECT_BY_ID)
-        .bind(id)
-        .fetch_optional(pool)
+    Ok(q(state)?
+        .tenancy_game_by_id(id)
         .await
-        .map_err(V2Error::from_sqlx)
+        .map_err(V2Error::from_sqlx)?
+        .into_iter()
+        .next()
+        .map(GameRow::from))
 }
 
 async fn by_key(state: &ApiState, key: &str) -> Result<Option<GameRow>, V2Error> {
-    let Some(pool) = state.db.as_ref() else {
-        return Ok(None);
-    };
-    sqlx::query_as::<_, GameRow>(SELECT_BY_KEY)
-        .bind(key)
-        .fetch_optional(pool)
+    Ok(q(state)?
+        .tenancy_game_by_key(key)
         .await
-        .map_err(V2Error::from_sqlx)
+        .map_err(V2Error::from_sqlx)?
+        .into_iter()
+        .next()
+        .map(GameRow::from))
 }
 
 /// A database with exactly one active game is unambiguous. Two means the
 /// operator has to name the tenant rather than have one guessed.
 async fn sole_active(state: &ApiState) -> Result<Option<GameRow>, V2Error> {
-    let Some(pool) = state.db.as_ref() else {
-        return Ok(None);
-    };
-    let mut rows = sqlx::query_as::<_, GameRow>(SELECT_SOLE_ACTIVE)
-        .fetch_all(pool)
+    let mut rows = q(state)?
+        .tenancy_sole_active_games()
         .await
         .map_err(V2Error::from_sqlx)?;
     if rows.len() == 1 {
-        Ok(rows.pop())
+        Ok(rows.pop().map(GameRow::from))
     } else {
         Ok(None)
     }

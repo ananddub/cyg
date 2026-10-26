@@ -9,6 +9,8 @@ use crate::app::middleware::Authed;
 use crate::dto::inventory::*;
 use crate::error::V2Error;
 
+mod queries;
+
 pub struct InventoryService;
 
 #[singleton]

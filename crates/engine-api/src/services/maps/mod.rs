@@ -18,6 +18,29 @@ use uuid::Uuid;
 
 use crate::ApiState;
 use crate::error::V2Error;
+use crate::repositories::db::Queries;
+use crate::repositories::game_maps::ListGameMapsRow;
+
+/// The FlashORM wrapper the generated reads go through; 503 when the database
+/// is not configured (the same refusal the raw pool path gives).
+fn q(state: &ApiState) -> Result<std::sync::Arc<Queries>, V2Error> {
+    state.q.clone().ok_or_else(V2Error::no_db)
+}
+
+/// The generated projection carries `has_source`-style quirks none — a plain
+/// row-to-DTO move.
+fn map_dto(row: ListGameMapsRow) -> MapDto {
+    MapDto {
+        id: row.id,
+        version: row.version,
+        name: row.name,
+        format: row.format,
+        sha256: row.sha256,
+        is_active: row.is_active,
+        size_bytes: row.size_bytes,
+        created_at: row.created_at,
+    }
+}
 
 pub struct MapService;
 
@@ -71,14 +94,11 @@ pub struct MapUploadResponse {
 impl MapService {
     /// Every stored version of one game's maps, newest first, never the bytes.
     pub async fn list_maps(&self, state: &ApiState, game_id: Uuid) -> Result<Vec<MapDto>, V2Error> {
-        let rows: Vec<MapDto> = sqlx::query_as(
-            &format!("SELECT {MAP_COLUMNS} FROM game_maps WHERE game_id = $1 ORDER BY version DESC"),
-        )
-        .bind(game_id)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)?;
-        Ok(rows)
+        let rows: Vec<ListGameMapsRow> = q(state)?
+            .list_game_maps(game_id)
+            .await
+            .map_err(V2Error::from_sqlx)?;
+        Ok(rows.into_iter().map(map_dto).collect())
     }
 
     /// Store a validated map as the game's next version and make it active:
@@ -213,15 +233,11 @@ impl MapService {
         game_id: Uuid,
         version: i32,
     ) -> Result<(), V2Error> {
-        let row: Option<bool> = sqlx::query_scalar(
-            "SELECT is_active FROM game_maps WHERE game_id = $1 AND version = $2",
-        )
-        .bind(game_id)
-        .bind(version)
-        .fetch_optional(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)?;
-        match row {
+        let flags = q(state)?
+            .game_map_active_flag(game_id, version)
+            .await
+            .map_err(V2Error::from_sqlx)?;
+        match flags.into_iter().next() {
             None => {
                 return Err(V2Error::not_found(format!(
                     "Map version {version} not found."
@@ -234,10 +250,8 @@ impl MapService {
             }
             Some(false) => {}
         }
-        sqlx::query("DELETE FROM game_maps WHERE game_id = $1 AND version = $2")
-            .bind(game_id)
-            .bind(version)
-            .execute(pool(state)?)
+        q(state)?
+            .delete_game_map(game_id, version)
             .await
             .map_err(V2Error::from_sqlx)?;
         Ok(())
@@ -255,33 +269,21 @@ impl MapService {
         let Some(game_id) = crate::services::games::tenant::game_id(state).await? else {
             return Ok(BootMaps::default());
         };
-        let rows = sqlx::query(
-            "SELECT name, format, bytes, version FROM game_maps \
-             WHERE game_id = $1 AND is_active",
-        )
-        .bind(game_id)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)?;
+        let rows = q(state)?
+            .load_active_game_maps(game_id)
+            .await
+            .map_err(V2Error::from_sqlx)?;
 
         let mut maps = BootMaps::default();
         for row in rows {
-            let bytes: Vec<u8> = match row.try_get("bytes") {
-                Ok(bytes) => bytes,
-                Err(_) => continue,
-            };
-            let Some(format) = row
-                .try_get::<String, _>("format")
-                .ok()
-                .and_then(|f| MapFormat::parse(&f))
-            else {
+            let Some(format) = MapFormat::parse(&row.format) else {
                 continue;
             };
             maps.insert(MapAsset {
                 format,
-                name: row.try_get("name").unwrap_or_default(),
-                version: row.try_get("version").unwrap_or_default(),
-                bytes,
+                name: row.name,
+                version: row.version,
+                bytes: row.bytes,
             });
         }
         Ok(maps)

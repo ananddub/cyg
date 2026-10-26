@@ -7,17 +7,20 @@
     "db/queries/console.sql": "9c4085b1e67b1b6ec33ca8ed4d19c6cf14a619f3fce61ee99a979243e456218c",
     "db/queries/console_mutations.sql": "ae2bb7758455adfa490e62eaa2e3f5a16eac742e18b16b815eaf9b93e6c57cfa",
     "db/queries/friend.sql": "fb3782a2278531dc7496ca04b49c607d9ff8c669fc79c79019d70b7fb7db2269",
+    "db/queries/game_maps.sql": "54d182b069a7da1759df0e7c63f25ca133f385928239d7163c2c3719e1a7e9d5",
+    "db/queries/games.sql": "5710968d9e632d27f7a4e7e4eb9dc8a1536a5b07a8f42e9fa6175f83ae01b595",
     "db/queries/group.sql": "1c2c9a7ed552ece68aff55442caf2240b31d3622b46f838619205d8823d9ca16",
     "db/queries/iap.sql": "1c564e758a9b4e3d09911525332cfbb3c54df96205c67c863583ec52f7bec678",
     "db/queries/leaderboard.sql": "65f67d7ed206e76c4848bea737492564fb24b038d68bf82bcbd50c92eed4ed5d",
     "db/queries/link.sql": "1a880f0a8f774ad9b492faff393c08adc58b7252b6bcd32596ce7d01938de6b6",
     "db/queries/notification.sql": "068b28c07918f56c3a4f4f8185f82ea73ef9fcf3bc1687596000d29e28fe0b06",
     "db/queries/session.sql": "d94388acfced23296385f513059311c6b56c02c1788881addb34038c8a05c9d8",
+    "db/queries/tenancy.sql": "f2f59500ac0576a06a4045d54da773f1dcae261e995e09a06233a8616277e52e",
     "db/queries/tournament.sql": "92d13dd1e1664c50dee7c048583faa4e1098566a629f8369ade2ce53716d754b",
     "db/queries/unlink.sql": "c90ee5e09e905d5da9617abdebf3e301bd440166021031796a73b516096b30b4",
     "db/queries/user.sql": "bfeb3491032b84d79eeb190c211d2eae269aa85eed73d6dc753315ac9280d25b"
   },
-  "schema_checksum": "f38c6d9a422baf237ddd3c210ff241f9c96c5fb85c9ab918512afbd5474d42fe",
+  "schema_checksum": "f68438ec63f5aa40f248d98c3f2265b54514e47c70105f3dc4e89d2519ab886c",
   "config_checksum": "5a76e5830a4e610c2b0af91ca8c9e233753ead353ef30313f978c28dea001e41",
   "query_table_deps": {
     "db/queries/account.sql": [
@@ -33,33 +36,40 @@
       "message"
     ],
     "db/queries/console.sql": [
+      "users",
+      "users_notes",
+      "leaderboard",
+      "leaderboard_record",
+      "setting",
       "console_audit_log",
       "console_acl_template",
-      "notification",
-      "console_user",
-      "leaderboard",
-      "storage",
-      "setting",
-      "purchase",
-      "users",
       "wallet_ledger",
-      "users_notes",
-      "leaderboard_record"
+      "storage",
+      "purchase",
+      "notification",
+      "console_user"
     ],
     "db/queries/console_mutations.sql": [
+      "console_user",
+      "users_notes",
+      "user_edge",
       "users",
       "storage",
       "notification",
       "setting",
-      "console_audit_log",
-      "console_user",
-      "users_notes",
-      "user_edge",
-      "console_acl_template"
+      "console_acl_template",
+      "console_audit_log"
     ],
     "db/queries/friend.sql": [
-      "user_edge",
-      "users"
+      "users",
+      "user_edge"
+    ],
+    "db/queries/game_maps.sql": [
+      "game_maps"
+    ],
+    "db/queries/games.sql": [
+      "games",
+      "room_modules"
     ],
     "db/queries/group.sql": [
       "groups",
@@ -77,8 +87,8 @@
       "leaderboard_record"
     ],
     "db/queries/link.sql": [
-      "users",
-      "user_device"
+      "user_device",
+      "users"
     ],
     "db/queries/notification.sql": [
       "notification"
@@ -86,18 +96,27 @@
     "db/queries/session.sql": [
       "user_tombstone"
     ],
+    "db/queries/tenancy.sql": [
+      "games",
+      "users",
+      "leaderboard",
+      "groups",
+      "storage",
+      "purchase",
+      "subscription"
+    ],
     "db/queries/tournament.sql": [
       "leaderboard"
     ],
     "db/queries/unlink.sql": [
-      "users",
-      "user_device"
+      "user_device",
+      "users"
     ],
     "db/queries/user.sql": [
       "users"
     ]
   },
   "generated_file_checksums": {},
-  "last_generation": "2026-10-17T20:40:57.864578035+05:30",
+  "last_generation": "2026-10-26T23:07:53.841833232+05:30",
   "OutDir": "crates/engine-api/src/repositories"
 }

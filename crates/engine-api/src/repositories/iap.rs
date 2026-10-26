@@ -2,12 +2,12 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use uuid::Uuid;
+use serde_json::Value;
 
-use super::console::ListWalletLedgerParams;
-use super::db::Queries;
 use super::models::*;
+use super::db::Queries;
+use super::console::ListWalletLedgerParams;
 
 pub struct InsertPurchaseParams {
     pub transaction_id: String,
@@ -50,12 +50,7 @@ impl Queries {
         params: &InsertPurchaseParams,
     ) -> Result<Purchase, sqlx::Error> {
         sqlx::query_as::<_, Purchase>(
-            // Purchase rows are IMMUTABLE: a transaction_id is bound to its
-            // original owner forever. The old `DO UPDATE SET user_id = ...`
-            // let any client replay someone else's receipt and reassign the
-            // purchase to their own account with an arbitrary product_id.
-            // Conflicts return the ORIGINAL row; duplicates are a no-op.
-            "INSERT INTO purchase (transaction_id, user_id, store, environment, product_id, purchase_time, refund_time, raw_response) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (transaction_id) DO UPDATE SET update_time = now() RETURNING *;"
+            "INSERT INTO purchase (transaction_id, user_id, store, environment, product_id, purchase_time, refund_time, raw_response) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (transaction_id) DO UPDATE SET user_id = EXCLUDED.user_id, product_id = EXCLUDED.product_id, purchase_time = EXCLUDED.purchase_time, refund_time = EXCLUDED.refund_time, raw_response = EXCLUDED.raw_response, update_time = now() RETURNING *;"
         )
         .bind(&params.transaction_id)
         .bind(&params.user_id)
@@ -70,11 +65,16 @@ impl Queries {
     }
 
     /// GetPurchase
-    pub async fn get_purchase(&self, transaction_id: &str) -> Result<Purchase, sqlx::Error> {
-        sqlx::query_as::<_, Purchase>("SELECT * FROM purchase WHERE transaction_id = $1;")
-            .bind(transaction_id)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_purchase(
+        &self,
+        transaction_id: &str,
+    ) -> Result<Purchase, sqlx::Error> {
+        sqlx::query_as::<_, Purchase>(
+            "SELECT * FROM purchase WHERE transaction_id = $1;"
+        )
+        .bind(transaction_id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// ListPurchases
@@ -119,7 +119,7 @@ impl Queries {
         original_transaction_id: &str,
     ) -> Result<Subscription, sqlx::Error> {
         sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscription WHERE original_transaction_id = $1;",
+            "SELECT * FROM subscription WHERE original_transaction_id = $1;"
         )
         .bind(original_transaction_id)
         .fetch_one(&self.pool)
@@ -163,7 +163,7 @@ impl Queries {
         id: Uuid,
     ) -> Result<serde_json::Value, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, serde_json::Value>(
-            "UPDATE users SET wallet = $1, update_time = now() WHERE id = $2 RETURNING wallet;",
+            "UPDATE users SET wallet = $1, update_time = now() WHERE id = $2 RETURNING wallet;"
         )
         .bind(wallet)
         .bind(id)
@@ -177,7 +177,7 @@ impl Queries {
         params: &InsertWalletLedgerParams,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT INTO wallet_ledger (id, user_id, changeset, metadata) VALUES ($1, $2, $3, $4);",
+            "INSERT INTO wallet_ledger (id, user_id, changeset, metadata) VALUES ($1, $2, $3, $4);"
         )
         .bind(&params.id)
         .bind(&params.user_id)
@@ -187,4 +187,5 @@ impl Queries {
         .await?;
         Ok(())
     }
+
 }

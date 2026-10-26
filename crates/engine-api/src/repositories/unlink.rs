@@ -3,12 +3,15 @@
 
 use uuid::Uuid;
 
-use super::db::Queries;
 use super::models::*;
+use super::db::Queries;
 
 impl Queries {
     /// UnlinkEmail
-    pub async fn unlink_email(&self, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn unlink_email(
+        &self,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET email = NULL, password = NULL, update_time = now() WHERE id = $1 AND ((apple_id IS NOT NULL OR facebook_id IS NOT NULL OR facebook_instant_game_id IS NOT NULL OR google_id IS NOT NULL OR gamecenter_id IS NOT NULL OR steam_id IS NOT NULL OR custom_id IS NOT NULL) OR EXISTS (SELECT id FROM user_device WHERE user_id = $1 LIMIT 1)) RETURNING id;"
         )
@@ -18,7 +21,10 @@ impl Queries {
     }
 
     /// UnlinkCustomId
-    pub async fn unlink_custom_id(&self, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn unlink_custom_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET custom_id = NULL, update_time = now() WHERE id = $1 AND ((apple_id IS NOT NULL OR facebook_id IS NOT NULL OR facebook_instant_game_id IS NOT NULL OR google_id IS NOT NULL OR gamecenter_id IS NOT NULL OR steam_id IS NOT NULL OR email IS NOT NULL) OR EXISTS (SELECT id FROM user_device WHERE user_id = $1 LIMIT 1)) RETURNING id;"
         )
@@ -28,7 +34,10 @@ impl Queries {
     }
 
     /// UnlinkApple
-    pub async fn unlink_apple(&self, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn unlink_apple(
+        &self,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET apple_id = NULL, update_time = now() WHERE id = $1 AND ((custom_id IS NOT NULL OR facebook_id IS NOT NULL OR facebook_instant_game_id IS NOT NULL OR google_id IS NOT NULL OR gamecenter_id IS NOT NULL OR steam_id IS NOT NULL OR email IS NOT NULL) OR EXISTS (SELECT id FROM user_device WHERE user_id = $1 LIMIT 1)) RETURNING id;"
         )
@@ -38,7 +47,10 @@ impl Queries {
     }
 
     /// UnlinkGoogle
-    pub async fn unlink_google(&self, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn unlink_google(
+        &self,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET google_id = NULL, update_time = now() WHERE id = $1 AND ((apple_id IS NOT NULL OR custom_id IS NOT NULL OR facebook_instant_game_id IS NOT NULL OR facebook_id IS NOT NULL OR gamecenter_id IS NOT NULL OR steam_id IS NOT NULL OR email IS NOT NULL) OR EXISTS (SELECT id FROM user_device WHERE user_id = $1 LIMIT 1)) RETURNING id;"
         )
@@ -48,7 +60,10 @@ impl Queries {
     }
 
     /// UnlinkSteam
-    pub async fn unlink_steam(&self, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn unlink_steam(
+        &self,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET steam_id = NULL, update_time = now() WHERE id = $1 AND ((apple_id IS NOT NULL OR custom_id IS NOT NULL OR facebook_id IS NOT NULL OR facebook_instant_game_id IS NOT NULL OR google_id IS NOT NULL OR gamecenter_id IS NOT NULL OR email IS NOT NULL) OR EXISTS (SELECT id FROM user_device WHERE user_id = $1 LIMIT 1)) RETURNING id;"
         )
@@ -58,7 +73,10 @@ impl Queries {
     }
 
     /// UnlinkFacebook
-    pub async fn unlink_facebook(&self, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn unlink_facebook(
+        &self,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET facebook_id = NULL, update_time = now() WHERE id = $1 AND ((apple_id IS NOT NULL OR custom_id IS NOT NULL OR facebook_instant_game_id IS NOT NULL OR google_id IS NOT NULL OR gamecenter_id IS NOT NULL OR steam_id IS NOT NULL OR email IS NOT NULL) OR EXISTS (SELECT id FROM user_device WHERE user_id = $1 LIMIT 1)) RETURNING id;"
         )
@@ -68,7 +86,10 @@ impl Queries {
     }
 
     /// UnlinkGamecenter
-    pub async fn unlink_gamecenter(&self, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn unlink_gamecenter(
+        &self,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET gamecenter_id = NULL, update_time = now() WHERE id = $1 AND ((apple_id IS NOT NULL OR custom_id IS NOT NULL OR facebook_id IS NOT NULL OR facebook_instant_game_id IS NOT NULL OR google_id IS NOT NULL OR steam_id IS NOT NULL OR email IS NOT NULL) OR EXISTS (SELECT id FROM user_device WHERE user_id = $1 LIMIT 1)) RETURNING id;"
         )
@@ -78,7 +99,10 @@ impl Queries {
     }
 
     /// UnlinkFacebookInstant
-    pub async fn unlink_facebook_instant(&self, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn unlink_facebook_instant(
+        &self,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
             "UPDATE users SET facebook_instant_game_id = NULL, update_time = now() WHERE id = $1 AND ((apple_id IS NOT NULL OR custom_id IS NOT NULL OR facebook_id IS NOT NULL OR google_id IS NOT NULL OR gamecenter_id IS NOT NULL OR steam_id IS NOT NULL OR email IS NOT NULL) OR EXISTS (SELECT id FROM user_device WHERE user_id = $1 LIMIT 1)) RETURNING id;"
         )
@@ -88,7 +112,11 @@ impl Queries {
     }
 
     /// UnlinkDevice
-    pub async fn unlink_device(&self, id: &str, user_id: Uuid) -> Result<String, sqlx::Error> {
+    pub async fn unlink_device(
+        &self,
+        id: &str,
+        user_id: Uuid,
+    ) -> Result<String, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, String>(
             "DELETE FROM user_device WHERE id = $1::VARCHAR AND user_id = $2 AND (EXISTS (SELECT id FROM users WHERE id = $2 AND (apple_id IS NOT NULL OR custom_id IS NOT NULL OR facebook_id IS NOT NULL OR facebook_instant_game_id IS NOT NULL OR google_id IS NOT NULL OR gamecenter_id IS NOT NULL OR steam_id IS NOT NULL OR email IS NOT NULL)) OR EXISTS (SELECT id FROM user_device WHERE user_id = $2 AND id <> $1::VARCHAR LIMIT 1)) RETURNING id;"
         )
@@ -112,4 +140,5 @@ impl Queries {
         .fetch_one(&self.pool)
         .await
     }
+
 }

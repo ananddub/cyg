@@ -2,11 +2,11 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use uuid::Uuid;
+use serde_json::Value;
 
-use super::db::Queries;
 use super::models::*;
+use super::db::Queries;
 
 pub struct InsertChannelMessageParams {
     pub id: Uuid,
@@ -115,11 +115,16 @@ impl Queries {
     }
 
     /// GetMessageById
-    pub async fn get_message_by_id(&self, id: Uuid) -> Result<Message, sqlx::Error> {
-        sqlx::query_as::<_, Message>("SELECT * FROM message WHERE id = $1;")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_message_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Message, sqlx::Error> {
+        sqlx::query_as::<_, Message>(
+            "SELECT * FROM message WHERE id = $1;"
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// UpdateChannelMessage
@@ -189,4 +194,5 @@ impl Queries {
         .fetch_all(&self.pool)
         .await
     }
+
 }

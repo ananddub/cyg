@@ -14,7 +14,6 @@ use axum::http::HeaderMap;
 use rand::Rng;
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::Row;
 use uuid::Uuid;
 
 use crate::ApiState;
@@ -26,6 +25,33 @@ use crate::error::V2Error;
 use crate::utils::status::client_host;
 
 use super::schema::DEFAULT_GAME_CONFIG_JSON;
+use crate::repositories::db::Queries;
+use crate::repositories::games::{InsertGameParams, ListGamesRow, UpdateGameParams};
+
+/// The FlashORM wrapper `games` reads and writes go through; 503 when the
+/// database is not configured (the same refusal the raw pool path gave).
+fn q(state: &ApiState) -> Result<std::sync::Arc<Queries>, V2Error> {
+    state.q.clone().ok_or_else(V2Error::no_db)
+}
+
+/// The generated row and the console's row DTO carry the same ten columns;
+/// this keeps the DTO (and everything downstream of it) generator-agnostic.
+impl From<ListGamesRow> for GameRow {
+    fn from(row: ListGamesRow) -> Self {
+        GameRow {
+            id: row.id,
+            game_key: row.game_key,
+            name: row.name,
+            client_key: row.client_key,
+            engine_type: row.engine_type,
+            backend_mode: row.backend_mode,
+            status: row.status,
+            config: row.config,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
 
 pub struct GamesService;
 
@@ -117,24 +143,21 @@ impl GamesService {
         // and the id is the database's. Retrying with a fresh suffix is the whole
         // recovery — no client ever sees this message unless the draw is unlucky four
         // times running.
+        let queries = q(state)?;
         for _ in 0..KEY_ATTEMPTS {
-            let row = sqlx::query_as::<_, GameRow>(INSERT_GAME)
-                .bind(game_key(&name))
-                .bind(&name)
-                .bind(api_key())
-                .bind(client_key())
-                .bind(&engine)
-                .bind(backend)
-                .bind(&config)
-                .fetch_optional(pool)
-                .await;
-            match row {
-                Ok(Some(row)) => return Ok(GameDto::from(row)),
-                Ok(None) => {
-                    return Err(V2Error::internal(
-                        "The game was written but could not be read back.",
-                    ));
-                }
+            match queries
+                .insert_game(&InsertGameParams {
+                    game_key: game_key(&name),
+                    name: name.clone(),
+                    api_key: api_key(),
+                    client_key: client_key(),
+                    engine_type: engine.clone(),
+                    backend_mode: backend.to_owned(),
+                    config: config.clone(),
+                })
+                .await
+            {
+                Ok(row) => return Ok(GameDto::from(GameRow::from(row))),
                 Err(err) if V2Error::is_any_unique_violation(&err) => continue,
                 Err(err) => return Err(V2Error::from_sqlx(err)),
             }
@@ -147,18 +170,14 @@ impl GamesService {
     /// Every game, with its size. Archived games are listed — an operator retiring a
     /// game still expects to find it.
     pub async fn list_games(state: &ApiState) -> Result<GameListDto, V2Error> {
-        let pool = pool(state)?;
-        let rows = sqlx::query_as::<_, GameRow>(SELECT_GAMES)
-            .fetch_all(pool)
-            .await
-            .map_err(V2Error::from_sqlx)?;
-        let total = sqlx::query(SELECT_GAME_COUNT)
-            .fetch_one(pool)
-            .await
-            .map(|row| row.get::<i64, _>("total"))
-            .map_err(V2Error::from_sqlx)?;
+        let queries = q(state)?;
+        let rows: Vec<ListGamesRow> = queries.list_games().await.map_err(V2Error::from_sqlx)?;
+        let total = queries.count_games().await.map_err(V2Error::from_sqlx)?;
         Ok(GameListDto {
-            games: rows.into_iter().map(GameDto::from).collect(),
+            games: rows
+                .into_iter()
+                .map(|row| GameDto::from(GameRow::from(row)))
+                .collect(),
             total,
         })
     }
@@ -167,13 +186,13 @@ impl GamesService {
     /// is the console's equivalent of a rotate screen.
     pub async fn get_game(state: &ApiState, game_id: Uuid) -> Result<GameDetailDto, V2Error> {
         let row = Self::find_game(state, game_id).await?;
-        let pool = pool(state)?;
-        let api_key = sqlx::query(SELECT_GAME_SECRET)
-            .bind(game_id)
-            .fetch_optional(pool)
+        let queries = q(state)?;
+        let api_key = queries
+            .find_game_secret_by_id(game_id)
             .await
             .map_err(V2Error::from_sqlx)?
-            .map(|row| row.get::<String, _>("api_key"))
+            .into_iter()
+            .next()
             .ok_or_else(|| V2Error::not_found(NOT_FOUND))?;
         Ok(GameDetailDto {
             id: row.id,
@@ -229,73 +248,87 @@ impl GamesService {
         game_id: Uuid,
         body: &UpdateGameRequest,
     ) -> Result<GameDto, V2Error> {
-        let name = body.name.as_deref().map(game_name).transpose()?;
-        let engine = body.engine_type.as_deref().map(engine_type).transpose()?;
-        // A patch that changes the engine moves the game between the relay and the
-        // WASM planes, so the mode rides along with it; every other patch leaves it.
-        let backend = engine.as_deref().map(backend_mode_for_engine);
-        let status = body.status.as_deref().map(game_status).transpose()?;
-
-        // The flat config fields patch the stored document one key at a time —
-        // the same "flat wins over nested" merge registration uses — so a
-        // sync-rate change never needs the caller to resend the whole config. A
-        // nested `config` object alone still replaces the document outright.
-        let config = if body.tick_rate.is_none()
+        let patch_name = body.name.as_deref().map(game_name).transpose()?;
+        let patch_engine = body.engine_type.as_deref().map(engine_type).transpose()?;
+        let patch_status = body.status.as_deref().map(game_status).transpose()?;
+        if patch_name.is_none()
+            && patch_engine.is_none()
+            && patch_status.is_none()
+            && body.config.is_none()
+            && body.tick_rate.is_none()
             && body.max_clients.is_none()
             && body.persistent_rooms.is_none()
             && body.auto_close_seconds.is_none()
         {
-            config_value(body.config.as_ref())?
-        } else {
-            let current = Self::find_game(state, game_id).await?.config;
-            let mut map = current.as_object().cloned().unwrap_or_default();
-            if let Some(patch) = config_value(body.config.as_ref())? {
-                if let Some(patch_map) = patch.as_object() {
-                    for (key, value) in patch_map {
-                        map.insert(key.clone(), value.clone());
-                    }
-                }
-            }
-            if let Some(v) = body.tick_rate {
-                map.insert("tick_rate".to_owned(), json!(v));
-            }
-            if let Some(v) = body.max_clients {
-                map.insert("max_clients".to_owned(), json!(v));
-            }
-            if let Some(v) = body.persistent_rooms {
-                map.insert("persistent_rooms".to_owned(), json!(v));
-            }
-            if let Some(v) = body.auto_close_seconds {
-                map.insert("auto_close_seconds".to_owned(), json!(v));
-            }
-            Some(serde_json::Value::Object(map))
-        };
-
-        if name.is_none() && engine.is_none() && status.is_none() && config.is_none() {
             return Err(V2Error::invalid_argument(
                 "A game update has to change at least one field.",
             ));
         }
 
-        let row = sqlx::query_as::<_, GameRow>(UPDATE_GAME)
-            .bind(name)
-            .bind(engine)
-            .bind(status)
-            .bind(config.clone())
-            .bind(backend)
-            .bind(game_id)
-            .fetch_optional(pool(state)?)
+        // Read-modify-write: the generated UPDATE takes the whole row (this
+        // generator has no nullable parameters, so a COALESCE patch cannot be
+        // expressed in SQL), so the patch merges onto the stored row here — a
+        // nested `config` document over its keys, the four flat config fields
+        // one key at a time, exactly the merge registration performs.
+        let current = Self::find_game(state, game_id).await?;
+
+        let name = match patch_name {
+            Some(name) => name,
+            None => current.name.clone(),
+        };
+        let engine = match patch_engine {
+            Some(engine) => engine,
+            None => current.engine_type.clone(),
+        };
+        // A patch that changes the engine moves the game between the relay and the
+        // WASM planes, so the mode rides along with it; every other patch recomputes
+        // the same mode the row already carries.
+        let backend = backend_mode_for_engine(&engine);
+        let status = match patch_status {
+            Some(status) => status,
+            None => current.status.clone(),
+        };
+
+        let mut map = current.config.as_object().cloned().unwrap_or_default();
+        if let Some(patch) = config_value(body.config.as_ref())? {
+            if let Some(patch_map) = patch.as_object() {
+                for (key, value) in patch_map {
+                    map.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        if let Some(v) = body.tick_rate {
+            map.insert("tick_rate".to_owned(), json!(v));
+        }
+        if let Some(v) = body.max_clients {
+            map.insert("max_clients".to_owned(), json!(v));
+        }
+        if let Some(v) = body.persistent_rooms {
+            map.insert("persistent_rooms".to_owned(), json!(v));
+        }
+        if let Some(v) = body.auto_close_seconds {
+            map.insert("auto_close_seconds".to_owned(), json!(v));
+        }
+        let config = serde_json::Value::Object(map);
+
+        let row = q(state)?
+            .update_game(&UpdateGameParams {
+                id: game_id,
+                name,
+                engine_type: engine,
+                status,
+                config: config.clone(),
+                backend_mode: backend.to_owned(),
+            })
             .await
-            .map_err(V2Error::from_sqlx)?
-            .ok_or_else(|| V2Error::not_found(NOT_FOUND))?;
+            .map_err(V2Error::from_sqlx)?;
 
         // A tick-rate change on the HOSTED game reaches the running host loop
         // the same way a wasm or map activation does: over the bus. Every
         // other game's row is console metadata for a process that is not this
         // one — nothing to publish.
         let tick_rate = config
-            .as_ref()
-            .and_then(|c| c.get("tick_rate"))
+            .get("tick_rate")
             .and_then(|v| v.as_u64())
             .map(|v| v as u32);
         if let Some(tick_rate) = tick_rate {
@@ -309,7 +342,7 @@ impl GamesService {
             }
         }
 
-        Ok(GameDto::from(row))
+        Ok(GameDto::from(GameRow::from(row)))
     }
 
     /// Retire a game. Its modules, its key and its secret stay in the database, so the
@@ -319,9 +352,8 @@ impl GamesService {
     pub async fn archive_game(state: &ApiState, game_id: Uuid) -> Result<bool, V2Error> {
         // Read the row first so an unknown id is a 404 rather than a quiet no-op.
         Self::find_game(state, game_id).await?;
-        let done = sqlx::query(ARCHIVE_GAME)
-            .bind(game_id)
-            .execute(pool(state)?)
+        let done = q(state)?
+            .archive_game(game_id)
             .await
             .map_err(V2Error::from_sqlx)?;
         Ok(done.rows_affected() > 0)
@@ -331,11 +363,13 @@ impl GamesService {
     /// runs before it stores an upload: it needs the tenant's name and status, and has
     /// no business seeing its credential.
     pub async fn find_game(state: &ApiState, game_id: Uuid) -> Result<GameRow, V2Error> {
-        sqlx::query_as::<_, GameRow>(SELECT_GAME_BY_ID)
-            .bind(game_id)
-            .fetch_optional(pool(state)?)
+        q(state)?
+            .find_game_by_id(game_id)
             .await
             .map_err(V2Error::from_sqlx)?
+            .into_iter()
+            .next()
+            .map(GameRow::from)
             .ok_or_else(|| V2Error::not_found(NOT_FOUND))
     }
 
@@ -345,11 +379,13 @@ impl GamesService {
         state: &ApiState,
         game_key: &str,
     ) -> Result<Option<GameRow>, V2Error> {
-        sqlx::query_as::<_, GameRow>(SELECT_GAME_BY_KEY)
-            .bind(game_key)
-            .fetch_optional(pool(state)?)
+        Ok(q(state)?
+            .find_game_by_key(game_key)
             .await
-            .map_err(V2Error::from_sqlx)
+            .map_err(V2Error::from_sqlx)?
+            .into_iter()
+            .next()
+            .map(GameRow::from))
     }
 
     /// Check a presented secret against the stored one. An unknown key and a wrong
@@ -364,18 +400,16 @@ impl GamesService {
         game_key: &str,
         api_key: &str,
     ) -> Result<bool, V2Error> {
-        let Some(stored) = sqlx::query(SELECT_SECRET_BY_KEY)
-            .bind(game_key)
-            .fetch_optional(pool(state)?)
+        let Some(stored) = q(state)?
+            .find_game_secret_by_key(game_key)
             .await
             .map_err(V2Error::from_sqlx)?
+            .into_iter()
+            .next()
         else {
             return Ok(false);
         };
-        Ok(secrets_match(
-            stored.get::<String, _>("api_key").as_bytes(),
-            api_key.as_bytes(),
-        ))
+        Ok(secrets_match(stored.as_bytes(), api_key.as_bytes()))
     }
 
     /// The version a room of this game should boot at, or `None` when the game has no
@@ -384,22 +418,20 @@ impl GamesService {
         state: &ApiState,
         game_id: Uuid,
     ) -> Result<Option<i32>, V2Error> {
-        Ok(sqlx::query(SELECT_ACTIVE_MODULE_VERSION)
-            .bind(game_id)
-            .fetch_optional(pool(state)?)
+        Ok(q(state)?
+            .active_room_module_version(game_id)
             .await
             .map_err(V2Error::from_sqlx)?
-            .map(|row| row.get::<i32, _>("version")))
+            .into_iter()
+            .next())
     }
 
     /// How many modules a game has uploaded, active or not.
     pub async fn module_count(state: &ApiState, game_id: Uuid) -> Result<i64, V2Error> {
-        Ok(sqlx::query(SELECT_MODULE_COUNT)
-            .bind(game_id)
-            .fetch_one(pool(state)?)
+        q(state)?
+            .count_room_modules(game_id)
             .await
-            .map(|row| row.get::<i64, _>("total"))
-            .map_err(V2Error::from_sqlx)?)
+            .map_err(V2Error::from_sqlx)
     }
 }
 

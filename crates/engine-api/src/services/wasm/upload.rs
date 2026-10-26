@@ -22,6 +22,8 @@ use crate::dto::console::wasm::{AbiReport, ModuleDto, UploadResponse};
 use crate::error::V2Error;
 
 use super::pool;
+use crate::repositories::db::Queries;
+use crate::repositories::games::ListRoomModulesRow;
 
 /// The guest exports `RoomLogic` caches on every instantiation — the exact
 /// list `engine-server/src/rooms.rs` declares, sorted for a stable report.
@@ -35,6 +37,12 @@ pub const REQUIRED_EXPORTS: [&str; 8] = [
     "on_save",
     "on_tick",
 ];
+
+/// The FlashORM wrapper the generated reads go through; 503 when the database
+/// is not configured (the same refusal the raw pool path gives).
+fn q(state: &ApiState) -> Result<std::sync::Arc<Queries>, V2Error> {
+    state.q.clone().ok_or_else(V2Error::no_db)
+}
 
 pub struct InsertModuleParams {
     pub filename: String,
@@ -151,14 +159,25 @@ impl WasmService {
         // A relay game has no server-side WASM to list; the console hides the tab,
         // so a stray call is a refusal rather than a fabricated empty list.
         self.require_wasm_mode(state, game_id).await?;
-        let rows = sqlx::query(&format!(
-            "SELECT {MODULE_COLUMNS} FROM room_modules WHERE game_id = $1 ORDER BY version DESC"
-        ))
-        .bind(game_id)
-        .fetch_all(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)?;
-        rows.into_iter().map(Self::module_dto).collect()
+        let rows: Vec<ListRoomModulesRow> = q(state)?
+            .list_room_modules(game_id)
+            .await
+            .map_err(V2Error::from_sqlx)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| ModuleDto {
+                id: row.id,
+                version: row.version,
+                filename: row.filename,
+                sha256: row.sha256,
+                is_active: row.is_active,
+                size_bytes: row.size_bytes,
+                created_at: row.created_at,
+                // The generator types the derived column as i32 (0/1); the
+                // DTO's bool comes from that.
+                has_source: row.has_source != 0,
+            })
+            .collect())
     }
 
     /// One version's filename and bytes — the fetch path a hot-reload uses to
@@ -169,16 +188,14 @@ impl WasmService {
         game_id: Uuid,
         version: i32,
     ) -> Result<(String, Vec<u8>), V2Error> {
-        let row = sqlx::query(
-            "SELECT filename, binary_bytes FROM room_modules WHERE game_id = $1 AND version = $2",
-        )
-        .bind(game_id)
-        .bind(version)
-        .fetch_optional(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)?
-        .ok_or_else(|| V2Error::not_found(format!("Module version {version} not found.")))?;
-        Ok((row.get("filename"), row.get("binary_bytes")))
+        let row = q(state)?
+            .find_room_module_bytes(game_id, version)
+            .await
+            .map_err(V2Error::from_sqlx)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| V2Error::not_found(format!("Module version {version} not found.")))?;
+        Ok((row.filename, row.binary_bytes))
     }
 
     /// Make `version` the active module and tell the sim to hot-swap onto it.
@@ -231,15 +248,11 @@ impl WasmService {
         version: i32,
     ) -> Result<(), V2Error> {
         self.require_wasm_mode(state, game_id).await?;
-        let row: Option<bool> = sqlx::query_scalar(
-            "SELECT is_active FROM room_modules WHERE game_id = $1 AND version = $2",
-        )
-        .bind(game_id)
-        .bind(version)
-        .fetch_optional(pool(state)?)
-        .await
-        .map_err(V2Error::from_sqlx)?;
-        match row {
+        let flags = q(state)?
+            .room_module_active_flag(game_id, version)
+            .await
+            .map_err(V2Error::from_sqlx)?;
+        match flags.into_iter().next() {
             None => {
                 return Err(V2Error::not_found(format!(
                     "Module version {version} not found."
@@ -252,10 +265,8 @@ impl WasmService {
             }
             Some(false) => {}
         }
-        sqlx::query("DELETE FROM room_modules WHERE game_id = $1 AND version = $2")
-            .bind(game_id)
-            .bind(version)
-            .execute(pool(state)?)
+        q(state)?
+            .delete_room_module(game_id, version)
             .await
             .map_err(V2Error::from_sqlx)?;
         Ok(())
@@ -297,6 +308,23 @@ impl WasmService {
         Ok(UploadResponse {
             module,
             abi: report,
+        })
+    }
+
+    /// The raw-tx paths' RETURNING row mapper (insert/activate stay
+    /// hand-written transactions per the console convention).
+    fn module_dto(row: sqlx::postgres::PgRow) -> Result<ModuleDto, V2Error> {
+        Ok(ModuleDto {
+            id: row.try_get("id").map_err(V2Error::from_sqlx)?,
+            version: row.try_get("version").map_err(V2Error::from_sqlx)?,
+            filename: row.try_get("filename").map_err(V2Error::from_sqlx)?,
+            sha256: row.try_get("sha256").map_err(V2Error::from_sqlx)?,
+            is_active: row.try_get("is_active").map_err(V2Error::from_sqlx)?,
+            size_bytes: row.try_get("size_bytes").map_err(V2Error::from_sqlx)?,
+            created_at: row
+                .try_get::<DateTime<Utc>, _>("created_at")
+                .map_err(V2Error::from_sqlx)?,
+            has_source: row.try_get("has_source").map_err(V2Error::from_sqlx)?,
         })
     }
 
@@ -403,20 +431,6 @@ impl WasmService {
         });
     }
 
-    fn module_dto(row: sqlx::postgres::PgRow) -> Result<ModuleDto, V2Error> {
-        Ok(ModuleDto {
-            id: row.try_get("id").map_err(V2Error::from_sqlx)?,
-            version: row.try_get("version").map_err(V2Error::from_sqlx)?,
-            filename: row.try_get("filename").map_err(V2Error::from_sqlx)?,
-            sha256: row.try_get("sha256").map_err(V2Error::from_sqlx)?,
-            is_active: row.try_get("is_active").map_err(V2Error::from_sqlx)?,
-            size_bytes: row.try_get("size_bytes").map_err(V2Error::from_sqlx)?,
-            created_at: row
-                .try_get::<DateTime<Utc>, _>("created_at")
-                .map_err(V2Error::from_sqlx)?,
-            has_source: row.try_get("has_source").map_err(V2Error::from_sqlx)?,
-        })
-    }
 }
 
 /// SHA-256 as lowercase hex — the column contract of `room_modules.sha256`.

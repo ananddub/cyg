@@ -2,11 +2,11 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use uuid::Uuid;
+use serde_json::Value;
 
-use super::db::Queries;
 use super::models::*;
+use super::db::Queries;
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct FindConsoleUserRow {
@@ -80,9 +80,13 @@ impl Queries {
     }
 
     /// ListAccounts
-    pub async fn list_accounts(&self, limit: i64, offset: i64) -> Result<Vec<Users>, sqlx::Error> {
+    pub async fn list_accounts(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Users>, sqlx::Error> {
         sqlx::query_as::<_, Users>(
-            "SELECT * FROM users ORDER BY create_time DESC, id ASC LIMIT $1 OFFSET $2;",
+            "SELECT * FROM users ORDER BY create_time DESC, id ASC LIMIT $1 OFFSET $2;"
         )
         .bind(limit)
         .bind(offset)
@@ -91,10 +95,14 @@ impl Queries {
     }
 
     /// CountAccounts
-    pub async fn count_accounts(&self) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<sqlx::Postgres, i64>("SELECT count(*) FROM users;")
-            .fetch_one(&self.pool)
-            .await
+    pub async fn count_accounts(
+        &self,
+    ) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<sqlx::Postgres, i64>(
+            "SELECT count(*) FROM users;"
+        )
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// ListWalletLedger
@@ -113,7 +121,10 @@ impl Queries {
     }
 
     /// ListUserNotes
-    pub async fn list_user_notes(&self, user_id: Uuid) -> Result<Vec<UsersNotes>, sqlx::Error> {
+    pub async fn list_user_notes(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<UsersNotes>, sqlx::Error> {
         sqlx::query_as::<_, UsersNotes>(
             "SELECT id, user_id, create_time, update_time, note, create_id, update_id FROM users_notes WHERE user_id = $1 ORDER BY create_time DESC;"
         )
@@ -129,7 +140,7 @@ impl Queries {
         offset: i64,
     ) -> Result<Vec<Leaderboard>, sqlx::Error> {
         sqlx::query_as::<_, Leaderboard>(
-            "SELECT * FROM leaderboard ORDER BY create_time DESC, id ASC LIMIT $1 OFFSET $2;",
+            "SELECT * FROM leaderboard ORDER BY create_time DESC, id ASC LIMIT $1 OFFSET $2;"
         )
         .bind(limit)
         .bind(offset)
@@ -198,18 +209,22 @@ impl Queries {
     }
 
     /// ListStorageCollections
-    pub async fn list_storage_collections(&self) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn list_storage_collections(
+        &self,
+    ) -> Result<Vec<String>, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, String>(
-            "SELECT DISTINCT collection FROM storage ORDER BY collection ASC;",
+            "SELECT DISTINCT collection FROM storage ORDER BY collection ASC;"
         )
         .fetch_all(&self.pool)
         .await
     }
 
     /// ListSettings
-    pub async fn list_settings(&self) -> Result<Vec<Setting>, sqlx::Error> {
+    pub async fn list_settings(
+        &self,
+    ) -> Result<Vec<Setting>, sqlx::Error> {
         sqlx::query_as::<_, Setting>(
-            "SELECT name, value, update_time FROM setting ORDER BY name ASC;",
+            "SELECT name, value, update_time FROM setting ORDER BY name ASC;"
         )
         .fetch_all(&self.pool)
         .await
@@ -231,7 +246,9 @@ impl Queries {
     }
 
     /// ListAclTemplates
-    pub async fn list_acl_templates(&self) -> Result<Vec<ConsoleAclTemplate>, sqlx::Error> {
+    pub async fn list_acl_templates(
+        &self,
+    ) -> Result<Vec<ConsoleAclTemplate>, sqlx::Error> {
         sqlx::query_as::<_, ConsoleAclTemplate>(
             "SELECT id, name, description, acl, create_time, update_time FROM console_acl_template ORDER BY name ASC;"
         )
@@ -268,4 +285,5 @@ impl Queries {
         .fetch_all(&self.pool)
         .await
     }
+
 }

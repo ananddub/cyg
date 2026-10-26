@@ -2,19 +2,24 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 use serde_json::Value;
 
-use super::db::Queries;
 use super::models::*;
+use super::db::Queries;
 
 impl Queries {
     /// GetTournament
-    pub async fn get_tournament(&self, id: &str) -> Result<Leaderboard, sqlx::Error> {
+    pub async fn get_tournament(
+        &self,
+        id: &str,
+    ) -> Result<Leaderboard, sqlx::Error> {
         sqlx::query_as::<_, Leaderboard>(
-            "SELECT * FROM leaderboard WHERE id = $1 AND duration <> 0;",
+            "SELECT * FROM leaderboard WHERE id = $1 AND duration <> 0;"
         )
         .bind(id)
         .fetch_one(&self.pool)
         .await
     }
+
 }

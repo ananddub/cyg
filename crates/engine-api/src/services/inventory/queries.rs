@@ -1,8 +1,13 @@
-//! Inventory and Room Snapshot queries.
-
-use super::db::Queries;
-use super::models::*;
+//! Inventory and room-snapshot queries, hand-written beside the service.
+//!
+//! These live outside `repositories/` because `flash gen` rewrites that
+//! directory's `mod.rs` from `db/queries/*.sql` on every run and would drop the
+//! module declaration. An inherent `impl Queries` is legal from any module of
+//! the crate, so the methods still hang off `state.q`.
 use uuid::Uuid;
+
+use crate::repositories::db::Queries;
+use crate::repositories::models::*;
 
 impl Queries {
     pub async fn list_inventory(
@@ -11,7 +16,7 @@ impl Queries {
     ) -> Result<Vec<PlayerInventoryItem>, sqlx::Error> {
         sqlx::query_as::<_, PlayerInventoryItem>(
             "SELECT instance_id, user_id, item_id, quantity, slot_index, metadata, created_at, updated_at \
-             FROM player_inventory WHERE user_id = $1 ORDER BY slot_index ASC, created_at ASC"
+             FROM player_inventory_item WHERE user_id = $1 ORDER BY slot_index ASC, created_at ASC"
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -24,7 +29,7 @@ impl Queries {
     ) -> Result<Option<PlayerInventoryItem>, sqlx::Error> {
         sqlx::query_as::<_, PlayerInventoryItem>(
             "SELECT instance_id, user_id, item_id, quantity, slot_index, metadata, created_at, updated_at \
-             FROM player_inventory WHERE instance_id = $1"
+             FROM player_inventory_item WHERE instance_id = $1"
         )
         .bind(instance_id)
         .fetch_optional(&self.pool)
@@ -37,7 +42,7 @@ impl Queries {
     ) -> Result<Option<ItemDefinition>, sqlx::Error> {
         sqlx::query_as::<_, ItemDefinition>(
             "SELECT item_id, name, category, max_stack, rarity, properties, created_at \
-             FROM item_definitions WHERE item_id = $1",
+             FROM item_definition WHERE item_id = $1",
         )
         .bind(item_id)
         .fetch_optional(&self.pool)
@@ -54,7 +59,7 @@ impl Queries {
         properties: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT INTO item_definitions (item_id, name, category, max_stack, rarity, properties, created_at) \
+            "INSERT INTO item_definition (item_id, name, category, max_stack, rarity, properties, created_at) \
              VALUES ($1, $2, $3, $4, $5, $6, NOW()) \
              ON CONFLICT (item_id) DO UPDATE SET \
                 name = EXCLUDED.name, \
@@ -84,7 +89,7 @@ impl Queries {
         metadata: &serde_json::Value,
     ) -> Result<PlayerInventoryItem, sqlx::Error> {
         sqlx::query_as::<_, PlayerInventoryItem>(
-            "INSERT INTO player_inventory (instance_id, user_id, item_id, quantity, slot_index, metadata, created_at, updated_at) \
+            "INSERT INTO player_inventory_item (instance_id, user_id, item_id, quantity, slot_index, metadata, created_at, updated_at) \
              VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) \
              RETURNING instance_id, user_id, item_id, quantity, slot_index, metadata, created_at, updated_at"
         )
@@ -104,12 +109,12 @@ impl Queries {
         quantity: i32,
     ) -> Result<(), sqlx::Error> {
         if quantity <= 0 {
-            sqlx::query("DELETE FROM player_inventory WHERE instance_id = $1")
+            sqlx::query("DELETE FROM player_inventory_item WHERE instance_id = $1")
                 .bind(instance_id)
                 .execute(&self.pool)
                 .await?;
         } else {
-            sqlx::query("UPDATE player_inventory SET quantity = $1, updated_at = NOW() WHERE instance_id = $2")
+            sqlx::query("UPDATE player_inventory_item SET quantity = $1, updated_at = NOW() WHERE instance_id = $2")
                 .bind(quantity)
                 .bind(instance_id)
                 .execute(&self.pool)
@@ -123,7 +128,7 @@ impl Queries {
         instance_id: Uuid,
         slot_index: i32,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE player_inventory SET slot_index = $1, updated_at = NOW() WHERE instance_id = $2")
+        sqlx::query("UPDATE player_inventory_item SET slot_index = $1, updated_at = NOW() WHERE instance_id = $2")
             .bind(slot_index)
             .bind(instance_id)
             .execute(&self.pool)
@@ -139,7 +144,7 @@ impl Queries {
         entity_count: i32,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT INTO room_persistent_snapshots (room_name, backend, snapshot_bytes, entity_count, saved_at) \
+            "INSERT INTO room_persistent_snapshot (room_name, backend, snapshot_bytes, entity_count, saved_at) \
              VALUES ($1, $2, $3, $4, NOW()) \
              ON CONFLICT (room_name) DO UPDATE SET \
                 backend = EXCLUDED.backend, \
@@ -162,7 +167,7 @@ impl Queries {
     ) -> Result<Option<RoomPersistentSnapshot>, sqlx::Error> {
         sqlx::query_as::<_, RoomPersistentSnapshot>(
             "SELECT room_name, backend, snapshot_bytes, entity_count, saved_at \
-             FROM room_persistent_snapshots WHERE room_name = $1",
+             FROM room_persistent_snapshot WHERE room_name = $1",
         )
         .bind(room_name)
         .fetch_optional(&self.pool)

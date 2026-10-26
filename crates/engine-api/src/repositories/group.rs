@@ -2,14 +2,14 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use uuid::Uuid;
+use serde_json::Value;
 
+use super::models::*;
 use super::db::Queries;
 use super::friend::AddFriendEdgeParams;
 use super::friend::BlockUserEdgesParams;
 use super::friend::ListUserEdgesPagedParams;
-use super::models::*;
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct ListGroupsForUserRow {
@@ -155,7 +155,10 @@ pub type ListGroupsForUserByStatePagedParams = ListUserEdgesPagedParams;
 
 impl Queries {
     /// CreateGroup
-    pub async fn create_group(&self, params: &CreateGroupParams) -> Result<Groups, sqlx::Error> {
+    pub async fn create_group(
+        &self,
+        params: &CreateGroupParams,
+    ) -> Result<Groups, sqlx::Error> {
         sqlx::query_as::<_, Groups>(
             "INSERT INTO groups (id, creator_id, name, description, avatar_url, lang_tag, metadata, edge_count, max_count, state) VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $9) RETURNING *;"
         )
@@ -173,9 +176,12 @@ impl Queries {
     }
 
     /// GetGroupById
-    pub async fn get_group_by_id(&self, id: Uuid) -> Result<Groups, sqlx::Error> {
+    pub async fn get_group_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Groups, sqlx::Error> {
         sqlx::query_as::<_, Groups>(
-            "SELECT * FROM groups WHERE id = $1 AND disable_time = '1970-01-01 00:00:00+00';",
+            "SELECT * FROM groups WHERE id = $1 AND disable_time = '1970-01-01 00:00:00+00';"
         )
         .bind(id)
         .fetch_one(&self.pool)
@@ -183,15 +189,23 @@ impl Queries {
     }
 
     /// GetGroupByName
-    pub async fn get_group_by_name(&self, name: &str) -> Result<Groups, sqlx::Error> {
-        sqlx::query_as::<_, Groups>("SELECT * FROM groups WHERE name = $1;")
-            .bind(name)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_group_by_name(
+        &self,
+        name: &str,
+    ) -> Result<Groups, sqlx::Error> {
+        sqlx::query_as::<_, Groups>(
+            "SELECT * FROM groups WHERE name = $1;"
+        )
+        .bind(name)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// UpdateGroup
-    pub async fn update_group(&self, params: &UpdateGroupParams) -> Result<(), sqlx::Error> {
+    pub async fn update_group(
+        &self,
+        params: &UpdateGroupParams,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE groups SET name = $1, description = $2, avatar_url = $3, lang_tag = $4, metadata = $5, max_count = $6, update_time = now() WHERE id = $7;"
         )
@@ -208,16 +222,24 @@ impl Queries {
     }
 
     /// DeleteGroup
-    pub async fn delete_group(&self, id: Uuid) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE groups SET disable_time = now(), update_time = now() WHERE id = $1;")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+    pub async fn delete_group(
+        &self,
+        id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE groups SET disable_time = now(), update_time = now() WHERE id = $1;"
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     /// JoinGroupEdge
-    pub async fn join_group_edge(&self, params: &JoinGroupEdgeParams) -> Result<(), sqlx::Error> {
+    pub async fn join_group_edge(
+        &self,
+        params: &JoinGroupEdgeParams,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "INSERT INTO group_edge (source_id, destination_id, state, position) VALUES ($1, $2, $3, $4) ON CONFLICT (source_id, destination_id) DO UPDATE SET state = $3, update_time = now();"
         )
@@ -236,11 +258,13 @@ impl Queries {
         source_id: Uuid,
         destination_id: Uuid,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM group_edge WHERE source_id = $1 AND destination_id = $2;")
-            .bind(source_id)
-            .bind(destination_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "DELETE FROM group_edge WHERE source_id = $1 AND destination_id = $2;"
+        )
+        .bind(source_id)
+        .bind(destination_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -266,11 +290,13 @@ impl Queries {
         source_id: Uuid,
         destination_id: Uuid,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM group_edge WHERE source_id = $1 AND destination_id = $2;")
-            .bind(source_id)
-            .bind(destination_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "DELETE FROM group_edge WHERE source_id = $1 AND destination_id = $2;"
+        )
+        .bind(source_id)
+        .bind(destination_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -281,7 +307,7 @@ impl Queries {
         destination_id: Uuid,
     ) -> Result<i16, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, i16>(
-            "SELECT state FROM group_edge WHERE source_id = $1 AND destination_id = $2;",
+            "SELECT state FROM group_edge WHERE source_id = $1 AND destination_id = $2;"
         )
         .bind(source_id)
         .bind(destination_id)
@@ -290,7 +316,10 @@ impl Queries {
     }
 
     /// ListGroups
-    pub async fn list_groups(&self, params: &ListGroupsParams) -> Result<Vec<Groups>, sqlx::Error> {
+    pub async fn list_groups(
+        &self,
+        params: &ListGroupsParams,
+    ) -> Result<Vec<Groups>, sqlx::Error> {
         sqlx::query_as::<_, Groups>(
             "SELECT * FROM groups WHERE disable_time = '1970-01-01 00:00:00+00' AND ($1 = '' OR lang_tag = $1) AND ($2 < 0 OR state = $2) AND ($3 < 0 OR edge_count <= $3) ORDER BY update_time ASC, edge_count ASC, id ASC LIMIT $4 OFFSET $5;"
         )
@@ -309,7 +338,7 @@ impl Queries {
         params: &ListGroupsByNameParams,
     ) -> Result<Vec<Groups>, sqlx::Error> {
         sqlx::query_as::<_, Groups>(
-            "SELECT * FROM groups WHERE name ILIKE $1 ORDER BY name ASC LIMIT $2 OFFSET $3;",
+            "SELECT * FROM groups WHERE name ILIKE $1 ORDER BY name ASC LIMIT $2 OFFSET $3;"
         )
         .bind(&params.name)
         .bind(&params.limit)
@@ -371,7 +400,7 @@ impl Queries {
         id: Uuid,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE groups SET edge_count = edge_count + $1, update_time = now() WHERE id = $2;",
+            "UPDATE groups SET edge_count = edge_count + $1, update_time = now() WHERE id = $2;"
         )
         .bind(edge_count_delta)
         .bind(id)
@@ -381,7 +410,10 @@ impl Queries {
     }
 
     /// ExpandGroupEdgeCount
-    pub async fn expand_group_edge_count(&self, id: Uuid) -> Result<i32, sqlx::Error> {
+    pub async fn expand_group_edge_count(
+        &self,
+        id: Uuid,
+    ) -> Result<i32, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, i32>(
             "UPDATE groups SET edge_count = edge_count + 1, update_time = now() WHERE id = $1 AND edge_count + 1 <= max_count RETURNING edge_count;"
         )
@@ -391,7 +423,10 @@ impl Queries {
     }
 
     /// ShrinkGroupEdgeCount
-    pub async fn shrink_group_edge_count(&self, id: Uuid) -> Result<(), sqlx::Error> {
+    pub async fn shrink_group_edge_count(
+        &self,
+        id: Uuid,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE groups SET edge_count = edge_count - 1, update_time = now() WHERE id = $1 AND edge_count > 1;"
         )
@@ -449,7 +484,10 @@ impl Queries {
     }
 
     /// BanGroupEdge
-    pub async fn ban_group_edge(&self, params: &BanGroupEdgeParams) -> Result<(), sqlx::Error> {
+    pub async fn ban_group_edge(
+        &self,
+        params: &BanGroupEdgeParams,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "INSERT INTO group_edge (source_id, destination_id, state, position) VALUES ($1, $2, 4, $3) ON CONFLICT (source_id, destination_id) DO UPDATE SET state = 4, update_time = now();"
         )
@@ -500,7 +538,7 @@ impl Queries {
         state: i16,
     ) -> Result<Vec<Uuid>, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
-            "SELECT source_id FROM group_edge WHERE destination_id = $1 AND state <= $2;",
+            "SELECT source_id FROM group_edge WHERE destination_id = $1 AND state <= $2;"
         )
         .bind(destination_id)
         .bind(state)
@@ -539,4 +577,5 @@ impl Queries {
         .fetch_all(&self.pool)
         .await
     }
+
 }

@@ -67,6 +67,9 @@ impl super::ConsoleService {
         // The password is never exported, so a restored account has none until an
         // operator sets one: an import must not resurrect a credential.
         let user = Users {
+            // The row is claimed by `stamp_user_as` right after: the import
+            // names its game explicitly rather than trusting the resolver.
+            game_id: None,
             id,
             username: account.username,
             display_name: account.display_name,

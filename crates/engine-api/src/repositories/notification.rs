@@ -2,11 +2,11 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use uuid::Uuid;
+use serde_json::Value;
 
-use super::db::Queries;
 use super::models::*;
+use super::db::Queries;
 
 pub struct CreateNotificationParams {
     pub id: Uuid,
@@ -127,9 +127,13 @@ impl Queries {
     }
 
     /// DeleteNotification
-    pub async fn delete_notification(&self, user_id: Uuid, id: Uuid) -> Result<Uuid, sqlx::Error> {
+    pub async fn delete_notification(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, Uuid>(
-            "DELETE FROM notification WHERE user_id = $1 AND id = $2 RETURNING id;",
+            "DELETE FROM notification WHERE user_id = $1 AND id = $2 RETURNING id;"
         )
         .bind(user_id)
         .bind(id)
@@ -138,11 +142,16 @@ impl Queries {
     }
 
     /// DeleteNotifications
-    pub async fn delete_notifications(&self, user_id: Uuid) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM notification WHERE user_id = $1;")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+    pub async fn delete_notifications(
+        &self,
+        user_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "DELETE FROM notification WHERE user_id = $1;"
+        )
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -195,4 +204,5 @@ impl Queries {
         .fetch_all(&self.pool)
         .await
     }
+
 }

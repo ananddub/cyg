@@ -2,12 +2,12 @@
 #![allow(unused_imports, dead_code)]
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use uuid::Uuid;
+use serde_json::Value;
 
-use super::account::ListUserDevicesRow;
-use super::db::Queries;
 use super::models::*;
+use super::db::Queries;
+use super::account::ListUserDevicesRow;
 
 pub type GetDeviceByIdRow = ListUserDevicesRow;
 
@@ -72,67 +72,107 @@ pub struct InsertProviderDeviceParams {
 
 impl Queries {
     /// GetUserById
-    pub async fn get_user_by_id(&self, id: Uuid) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("SELECT * FROM users WHERE id = $1 LIMIT 1;")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_user_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Users, sqlx::Error> {
+        sqlx::query_as::<_, Users>(
+            "SELECT * FROM users WHERE id = $1 LIMIT 1;"
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// GetUserByEmail
-    pub async fn get_user_by_email(&self, email: &str) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("SELECT * FROM users WHERE email = $1 LIMIT 1;")
-            .bind(email)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_user_by_email(
+        &self,
+        email: &str,
+    ) -> Result<Users, sqlx::Error> {
+        sqlx::query_as::<_, Users>(
+            "SELECT * FROM users WHERE email = $1 LIMIT 1;"
+        )
+        .bind(email)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// GetUserByUsername
-    pub async fn get_user_by_username(&self, username: &str) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("SELECT * FROM users WHERE username = $1 LIMIT 1;")
-            .bind(username)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_user_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Users, sqlx::Error> {
+        sqlx::query_as::<_, Users>(
+            "SELECT * FROM users WHERE username = $1 LIMIT 1;"
+        )
+        .bind(username)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// GetUserByCustomId
-    pub async fn get_user_by_custom_id(&self, custom_id: &str) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("SELECT * FROM users WHERE custom_id = $1 LIMIT 1;")
-            .bind(custom_id)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_user_by_custom_id(
+        &self,
+        custom_id: &str,
+    ) -> Result<Users, sqlx::Error> {
+        sqlx::query_as::<_, Users>(
+            "SELECT * FROM users WHERE custom_id = $1 LIMIT 1;"
+        )
+        .bind(custom_id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// GetUserByFacebookId
-    pub async fn get_user_by_facebook_id(&self, facebook_id: &str) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("SELECT * FROM users WHERE facebook_id = $1 LIMIT 1;")
-            .bind(facebook_id)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_user_by_facebook_id(
+        &self,
+        facebook_id: &str,
+    ) -> Result<Users, sqlx::Error> {
+        sqlx::query_as::<_, Users>(
+            "SELECT * FROM users WHERE facebook_id = $1 LIMIT 1;"
+        )
+        .bind(facebook_id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// GetUserByGoogleId
-    pub async fn get_user_by_google_id(&self, google_id: &str) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("SELECT * FROM users WHERE google_id = $1 LIMIT 1;")
-            .bind(google_id)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_user_by_google_id(
+        &self,
+        google_id: &str,
+    ) -> Result<Users, sqlx::Error> {
+        sqlx::query_as::<_, Users>(
+            "SELECT * FROM users WHERE google_id = $1 LIMIT 1;"
+        )
+        .bind(google_id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// GetUserByAppleId
-    pub async fn get_user_by_apple_id(&self, apple_id: &str) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("SELECT * FROM users WHERE apple_id = $1 LIMIT 1;")
-            .bind(apple_id)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_user_by_apple_id(
+        &self,
+        apple_id: &str,
+    ) -> Result<Users, sqlx::Error> {
+        sqlx::query_as::<_, Users>(
+            "SELECT * FROM users WHERE apple_id = $1 LIMIT 1;"
+        )
+        .bind(apple_id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// GetUserBySteamId
-    pub async fn get_user_by_steam_id(&self, steam_id: &str) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("SELECT * FROM users WHERE steam_id = $1 LIMIT 1;")
-            .bind(steam_id)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn get_user_by_steam_id(
+        &self,
+        steam_id: &str,
+    ) -> Result<Users, sqlx::Error> {
+        sqlx::query_as::<_, Users>(
+            "SELECT * FROM users WHERE steam_id = $1 LIMIT 1;"
+        )
+        .bind(steam_id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// GetUserByGamecenterId
@@ -140,10 +180,12 @@ impl Queries {
         &self,
         gamecenter_id: &str,
     ) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("SELECT * FROM users WHERE gamecenter_id = $1 LIMIT 1;")
-            .bind(gamecenter_id)
-            .fetch_one(&self.pool)
-            .await
+        sqlx::query_as::<_, Users>(
+            "SELECT * FROM users WHERE gamecenter_id = $1 LIMIT 1;"
+        )
+        .bind(gamecenter_id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// GetUserByFacebookInstantGameId
@@ -152,7 +194,7 @@ impl Queries {
         facebook_instant_game_id: &str,
     ) -> Result<Users, sqlx::Error> {
         sqlx::query_as::<_, Users>(
-            "SELECT * FROM users WHERE facebook_instant_game_id = $1 LIMIT 1;",
+            "SELECT * FROM users WHERE facebook_instant_game_id = $1 LIMIT 1;"
         )
         .bind(facebook_instant_game_id)
         .fetch_one(&self.pool)
@@ -160,9 +202,12 @@ impl Queries {
     }
 
     /// GetDeviceById
-    pub async fn get_device_by_id(&self, id: &str) -> Result<GetDeviceByIdRow, sqlx::Error> {
+    pub async fn get_device_by_id(
+        &self,
+        id: &str,
+    ) -> Result<GetDeviceByIdRow, sqlx::Error> {
         sqlx::query_as::<_, GetDeviceByIdRow>(
-            "SELECT id, user_id, provider FROM user_device WHERE id = $1::VARCHAR LIMIT 1;",
+            "SELECT id, user_id, provider FROM user_device WHERE id = $1::VARCHAR LIMIT 1;"
         )
         .bind(id)
         .fetch_one(&self.pool)
@@ -170,12 +215,18 @@ impl Queries {
     }
 
     /// CreateUserBare
-    pub async fn create_user_bare(&self, id: Uuid, username: &str) -> Result<Users, sqlx::Error> {
-        sqlx::query_as::<_, Users>("INSERT INTO users (id, username) VALUES ($1, $2) RETURNING *;")
-            .bind(id)
-            .bind(username)
-            .fetch_one(&self.pool)
-            .await
+    pub async fn create_user_bare(
+        &self,
+        id: Uuid,
+        username: &str,
+    ) -> Result<Users, sqlx::Error> {
+        sqlx::query_as::<_, Users>(
+            "INSERT INTO users (id, username) VALUES ($1, $2) RETURNING *;"
+        )
+        .bind(id)
+        .bind(username)
+        .fetch_one(&self.pool)
+        .await
     }
 
     /// CreateUserWithCustomId
@@ -184,7 +235,7 @@ impl Queries {
         params: &CreateUserWithCustomIdParams,
     ) -> Result<Users, sqlx::Error> {
         sqlx::query_as::<_, Users>(
-            "INSERT INTO users (id, username, custom_id) VALUES ($1, $2, $3) RETURNING *;",
+            "INSERT INTO users (id, username, custom_id) VALUES ($1, $2, $3) RETURNING *;"
         )
         .bind(&params.id)
         .bind(&params.username)
@@ -215,7 +266,7 @@ impl Queries {
         params: &CreateUserWithAppleParams,
     ) -> Result<Users, sqlx::Error> {
         sqlx::query_as::<_, Users>(
-            "INSERT INTO users (id, username, apple_id) VALUES ($1, $2, $3) RETURNING *;",
+            "INSERT INTO users (id, username, apple_id) VALUES ($1, $2, $3) RETURNING *;"
         )
         .bind(&params.id)
         .bind(&params.username)
@@ -262,7 +313,7 @@ impl Queries {
         params: &CreateUserWithGamecenterParams,
     ) -> Result<Users, sqlx::Error> {
         sqlx::query_as::<_, Users>(
-            "INSERT INTO users (id, username, gamecenter_id) VALUES ($1, $2, $3) RETURNING *;",
+            "INSERT INTO users (id, username, gamecenter_id) VALUES ($1, $2, $3) RETURNING *;"
         )
         .bind(&params.id)
         .bind(&params.username)
@@ -294,7 +345,7 @@ impl Queries {
         params: &CreateUserWithSteamParams,
     ) -> Result<Users, sqlx::Error> {
         sqlx::query_as::<_, Users>(
-            "INSERT INTO users (id, username, steam_id) VALUES ($1, $2, $3) RETURNING *;",
+            "INSERT INTO users (id, username, steam_id) VALUES ($1, $2, $3) RETURNING *;"
         )
         .bind(&params.id)
         .bind(&params.username)
@@ -304,9 +355,13 @@ impl Queries {
     }
 
     /// InsertDevice
-    pub async fn insert_device(&self, id: &str, user_id: Uuid) -> Result<String, sqlx::Error> {
+    pub async fn insert_device(
+        &self,
+        id: &str,
+        user_id: Uuid,
+    ) -> Result<String, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, String>(
-            "INSERT INTO user_device (id, user_id) VALUES ($1, $2) RETURNING id;",
+            "INSERT INTO user_device (id, user_id) VALUES ($1, $2) RETURNING id;"
         )
         .bind(id)
         .bind(user_id)
@@ -320,7 +375,7 @@ impl Queries {
         params: &InsertProviderDeviceParams,
     ) -> Result<String, sqlx::Error> {
         sqlx::query_scalar::<sqlx::Postgres, String>(
-            "INSERT INTO user_device (provider, id, user_id) VALUES ($1, $2, $3) RETURNING id;",
+            "INSERT INTO user_device (provider, id, user_id) VALUES ($1, $2, $3) RETURNING id;"
         )
         .bind(&params.provider)
         .bind(&params.id)
@@ -330,11 +385,17 @@ impl Queries {
     }
 
     /// DeleteUser
-    pub async fn delete_user(&self, id: Uuid) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM users WHERE id = $1;")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+    pub async fn delete_user(
+        &self,
+        id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "DELETE FROM users WHERE id = $1;"
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
+
 }
