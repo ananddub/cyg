@@ -64,15 +64,10 @@ export function TemplateDialog({
       description="The document an operator row would carry, kept under a name so it can be reused."
       onClose={close}
       footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending}>
-            {write.isPending && <Loader2 className="animate-spin" />}
-            Save
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending}>
+          {write.isPending && <Loader2 className="animate-spin" />}
+          Save
+        </Button>
       }
     >
       <TextInput label="Name" value={name} onChange={setName} placeholder="support" />

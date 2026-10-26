@@ -1,4 +1,4 @@
-//! The tournament routes' statements, mirroring `db/manual/tournament.sql`. They
+//! The tournament routes' statements, hand-written. They
 //! run as raw sqlx because FlashORM names a parameter after the column it meets,
 //! and every statement here meets one column twice. Ten binds, as BaaS has.
 

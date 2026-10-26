@@ -9,12 +9,11 @@
 // `useConsoleMutation`), so the bearer token, the 401 drop and the toast come
 // for free.
 
-import { useEffect, useRef, useState } from "react"
-import { AlertTriangle, Gamepad2, Plus, Search, SearchX, Settings2 } from "lucide-react"
+import { useState } from "react"
+import { AlertTriangle, Gamepad2, Plus, SearchX, Settings2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { PageHeading } from "@/components/console/data-table"
+import { FilterPills, PageHeading, SearchField } from "@/components/console/data-table"
 import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
 import { num } from "@/lib/format"
@@ -164,7 +163,6 @@ export function GamesView({ onOpenGame }: { onOpenGame?: (game: Game) => void })
   const [created, setCreated] = useState<CreatedGame | null>(null)
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState<StatusFilter>("all")
-  const searchRef = useRef<HTMLInputElement>(null)
 
   const list = useConsoleQuery<GameList>("games", GAMES_ENDPOINT)
   const rows = list.data?.games
@@ -176,27 +174,6 @@ export function GamesView({ onOpenGame }: { onOpenGame?: (game: Game) => void })
     {},
     selectedId !== null,
   )
-
-  // "/" focuses the picker, the same gesture the field's badge shows.
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return
-      const active = document.activeElement as HTMLElement | null
-      if (
-        active !== null &&
-        (active.tagName === "INPUT" ||
-          active.tagName === "TEXTAREA" ||
-          active.tagName === "SELECT" ||
-          active.isContentEditable)
-      ) {
-        return
-      }
-      event.preventDefault()
-      searchRef.current?.focus()
-    }
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
-  }, [])
 
   const needle = query.trim().toLowerCase()
   const filtered = (rows ?? []).filter((game) => {
@@ -228,45 +205,20 @@ export function GamesView({ onOpenGame }: { onOpenGame?: (game: Game) => void })
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative w-full sm:flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
-          <Input
-            ref={searchRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setQuery("")
-            }}
-            placeholder="Search games, keys or engines"
-            aria-label="Search games"
-            className="h-9 rounded-lg border-border bg-card pl-9 pr-11 text-sm transition-colors hover:border-foreground/25"
-          />
-          <kbd
-            aria-hidden
-            className="pointer-events-none absolute right-3 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-md border border-border bg-foreground/[0.04] font-mono text-[11px] text-muted-foreground select-none"
-          >
-            /
-          </kbd>
-        </div>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search games, keys or engines"
+          label="Search games"
+          className="sm:flex-1"
+        />
 
-        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border bg-card p-1 sm:ml-auto">
-          {FILTERS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={filter === option.id}
-              onClick={() => setFilter(option.id)}
-              className={cn(
-                "h-7 cursor-pointer rounded-md px-2.5 text-xs font-medium transition-colors",
-                filter === option.id
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <FilterPills
+          filters={FILTERS}
+          value={filter}
+          onChange={setFilter}
+          className="sm:ml-auto"
+        />
       </div>
 
       {list.isPending ? (

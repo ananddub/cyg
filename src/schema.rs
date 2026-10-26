@@ -173,7 +173,7 @@ fn generate_file(dir: &Path, source_path: &Path) -> io::Result<SchemaOutput> {
     let server_dir = if in_src { src.as_path() } else { dir };
     let mut server_ts = generated.server_ts;
     if in_src {
-        server_ts = server_ts.replace("from \"../openoxide\"", "from \"./openoxide\"");
+        server_ts = server_ts.replace("from \"../openoxide\"", "from \"./openoxide-server\"");
     }
     let server = server_dir.join(SERVER_FILE);
     let descriptor_dir = dir.join(OUT_DIR);

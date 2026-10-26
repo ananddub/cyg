@@ -64,15 +64,10 @@ export function SendNotificationDialog({
       description={`To ${userId}. The sender is the signed-in operator, taken from the token.`}
       onClose={close}
       footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending}>
-            {write.isPending ? <Loader2 className="animate-spin" /> : <Send />}
-            Send
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending}>
+          {write.isPending ? <Loader2 className="animate-spin" /> : <Send />}
+          Send
+        </Button>
       }
     >
       <TextInput label="Subject" value={subject} onChange={setSubject} placeholder="What this is about" />

@@ -1,5 +1,4 @@
-//! The console statements FlashORM cannot generate, mirrored in
-//! `db/manual/console.sql`.
+//! The console statements FlashORM cannot generate.
 //!
 //! Two are out of reach: the account import, which is one transaction over six
 //! statements and so cannot be a single generated method, and the storage deletes,

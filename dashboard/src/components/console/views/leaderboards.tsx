@@ -1,11 +1,18 @@
 // Leaderboards: the ranked boards and the selected board's records. Tournaments
 // are the boards an operator writes and live in their own area.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { ConfirmAction } from "@/components/console/actions"
-import { DataTable, Mono, PageHeading, Pager, Panel } from "@/components/console/data-table"
+import {
+  DataTable,
+  Mono,
+  PageHeading,
+  Pager,
+  Panel,
+  SearchField,
+} from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { DetailSheet } from "@/components/console/detail-sheet"
 import { RecordsPanel } from "@/components/console/views/leaderboard-records"
@@ -21,6 +28,7 @@ export function LeaderboardsView() {
   // The row the delete dialog points at: one hook for the whole table, with the
   // row's own id passed in as variables.
   const [deleting, setDeleting] = useState<ConsoleLeaderboard | null>(null)
+  const [query, setQuery] = useState("")
 
   const list = useConsoleQuery<ConsoleLeaderboard[]>(
     "leaderboards",
@@ -31,6 +39,23 @@ export function LeaderboardsView() {
   // Looked back up from the list rather than held, so deleting a board closes
   // its drawer as soon as the list refreshes.
   const selected = list.data?.find((board) => board.id === selectedId) ?? null
+
+  useEffect(() => {
+    setOffset(0)
+  }, [query])
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (list.data ?? []).filter((row) => {
+    if (needle === "") return true
+    return [row.id, row.title, row.sort_order === 0 ? "asc" : "desc", row.reset_schedule ?? ""].some(
+      (value) => value.toLowerCase().includes(needle),
+    )
+  })
+
+  const empty =
+    list.data !== undefined && list.data.length > 0
+      ? "No leaderboards match this search on this page."
+      : "No leaderboards defined."
 
   const columns: Column<ConsoleLeaderboard>[] = [
     { header: "ID", cell: (row) => <Mono>{row.id}</Mono> },
@@ -57,16 +82,23 @@ export function LeaderboardsView() {
         description="Ranked boards, with the selected board's records and record-level resets."
       />
 
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        placeholder="Search boards by id or title"
+        label="Search leaderboards"
+      />
+
       <Panel title="Leaderboard definitions" fill>
         <DataTable
           columns={columns}
-          rows={list.data}
+          rows={filtered}
           loading={list.isPending}
           error={queryError(list.error)}
           rowKey={(row) => row.id}
           onRowClick={(row) => setSelectedId(row.id)}
           selectedKey={selectedId ?? undefined}
-          empty="No leaderboards defined."
+          empty={empty}
           fill
           selectable
         />

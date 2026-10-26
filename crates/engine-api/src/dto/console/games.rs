@@ -28,7 +28,7 @@ pub const GAME_BACKEND_MODES: [&str; 2] = ["relay", "wasm"];
 pub const GAME_STATUSES: [&str; 3] = ["active", "suspended", "archived"];
 
 /// Per-game runtime tuning, the document `games.config` holds. The defaults are the
-/// column default in `db/manual/games.sql`, restated here so a partial config still
+/// column default in `db/schema/games.sql`, restated here so a partial config still
 /// reads as a complete one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

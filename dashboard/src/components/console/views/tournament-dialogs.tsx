@@ -137,15 +137,10 @@ export function TournamentDialog({
       description="An id and a round length are what make it a tournament; the rest keep their defaults when left blank."
       onClose={onClose}
       footer={
-        <>
-          <Button variant="outline" onClick={onClose} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending || (creating && (form.id === "" || form.duration === ""))}>
-            {write.isPending && <Loader2 className="animate-spin" />}
-            {creating ? "Create" : "Save"}
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending || (creating && (form.id === "" || form.duration === ""))}>
+          {write.isPending && <Loader2 className="animate-spin" />}
+          {creating ? "Create" : "Save"}
+        </Button>
       }
     >
       <TextInput

@@ -38,12 +38,14 @@ var connect_timeout_seconds := 10.0
 var _auth_callback: Callable = Callable()
 var _auth_token: Variant = null
 var _rooms: Array = []
+var _api: OpenOxideApi = null
 
 
 func _init(client_endpoint: String = "", client_options: Dictionary = {}) -> void:
 	endpoint = client_endpoint
 	options = client_options
 	_auth_token = client_options.get("token")
+	token = _auth_token
 
 
 func _process(_delta: float) -> void:
@@ -56,6 +58,44 @@ func _process(_delta: float) -> void:
 func on_auth(callback: Callable) -> OpenOxideClient:
 	_auth_callback = callback
 	return self
+
+
+## Set the fallback bearer token (an `on_auth` hook still wins).
+func set_token(value: Variant) -> OpenOxideClient:
+	_auth_token = value
+	token = value
+	return self
+
+
+## Current token: the `on_auth` hook's value when registered, else the stored one.
+func resolve_token() -> Variant:
+	var auth_token: Variant = _auth_token
+	if _auth_callback.is_valid():
+		var value: Variant = _auth_callback.call()
+		if value is String:
+			auth_token = value
+		elif value is Dictionary and (value as Dictionary).has("token"):
+			auth_token = (value as Dictionary)["token"]
+	return auth_token
+
+
+## REST surface shared with this client's endpoint and token: every
+## `/v2/*` account service, matchmake, room listing, status and signaling URL.
+func api() -> OpenOxideApi:
+	if _api == null:
+		_api = OpenOxideApi.new(http_base())
+		_api.name = "OpenOxideApi"
+		_api.bind_client(self)
+		add_child(_api)
+	else:
+		_api.endpoint = http_base()
+	return _api
+
+
+## Shortcut for `api().request(...)`.
+func request(http_method: String, path: String, body: Variant = null,
+		query: Dictionary = {}) -> Dictionary:
+	return await api().request(http_method, path, body, query)
 
 
 func http_base() -> String:
@@ -100,13 +140,7 @@ func _ws_base(seat: Dictionary = {}) -> String:
 
 func auth_body(auth_options: Dictionary = {}) -> Dictionary:
 	var body := auth_options.duplicate(true)
-	var auth_token: Variant = _auth_token
-	if _auth_callback.is_valid():
-		var value: Variant = _auth_callback.call()
-		if value is String:
-			auth_token = value
-		elif value is Dictionary and (value as Dictionary).has("token"):
-			auth_token = (value as Dictionary)["token"]
+	var auth_token := resolve_token()
 	if auth_token != null and not String(auth_token).is_empty():
 		body["token"] = auth_token
 	return { "body": body, "token": auth_token }

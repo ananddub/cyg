@@ -1,13 +1,23 @@
 // Groups, and the members and roles of the selected one.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Download, Loader2, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
-import { DataTable, Field, JsonBlock, Mono, PageHeading, Pager, Panel } from "@/components/console/data-table"
+import {
+  DataTable,
+  Field,
+  FilterPills,
+  JsonBlock,
+  Mono,
+  PageHeading,
+  Pager,
+  Panel,
+  SearchField,
+} from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
@@ -19,10 +29,19 @@ import {
   type ConsoleGroupExport,
   type ConsoleGroupMember,
 } from "@/lib/console"
+import { useGameScope } from "@/lib/console/scope"
 import { useSession } from "@/lib/session"
 import { dash, formatTime, num, shortId } from "@/lib/format"
 
 const PAGE_SIZE = 25
+
+type VisibilityFilter = "all" | "open" | "closed"
+
+const FILTERS: { id: VisibilityFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "open", label: "Open" },
+  { id: "closed", label: "Closed" },
+]
 
 const STATE_VARIANT: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   superadmin: "default",
@@ -35,6 +54,8 @@ const STATE_VARIANT: Record<string, "default" | "secondary" | "outline" | "destr
 export function GroupsView() {
   const [offset, setOffset] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
+  const [filter, setFilter] = useState<VisibilityFilter>("all")
 
   const list = useConsoleQuery<ConsoleGroup[]>("groups", CONSOLE_ENDPOINTS.groups, {
     limit: PAGE_SIZE,
@@ -45,6 +66,25 @@ export function GroupsView() {
   // behind: the id stops matching and the detail pane falls back to "nothing
   // selected" as soon as the list refreshes.
   const selected = list.data?.find((group) => group.id === selectedId) ?? null
+
+  useEffect(() => {
+    setOffset(0)
+  }, [query, filter])
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (list.data ?? []).filter((row) => {
+    if (filter === "open" && !row.open) return false
+    if (filter === "closed" && row.open) return false
+    if (needle === "") return true
+    return [row.name, row.description ?? "", row.lang_tag ?? "", row.open ? "open" : "closed"].some(
+      (value) => value.toLowerCase().includes(needle),
+    )
+  })
+
+  const empty =
+    list.data !== undefined && list.data.length > 0
+      ? "No groups match these filters on this page."
+      : "No groups yet."
 
   const columns: Column<ConsoleGroup>[] = [
     { header: "Name", cell: (row) => <span className="font-medium text-foreground">{row.name}</span> },
@@ -66,16 +106,32 @@ export function GroupsView() {
         description="Player groups and clans. Select one to list its members and their roles."
       />
 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search groups by name, description or language"
+          label="Search groups"
+          className="sm:flex-1"
+        />
+        <FilterPills
+          filters={FILTERS}
+          value={filter}
+          onChange={setFilter}
+          className="sm:ml-auto"
+        />
+      </div>
+
       <Panel title="All groups" fill>
         <DataTable
           columns={columns}
-          rows={list.data}
+          rows={filtered}
           loading={list.isPending}
           error={queryError(list.error)}
           rowKey={(row) => row.id}
           onRowClick={(row) => setSelectedId(row.id)}
           selectedKey={selectedId ?? undefined}
-          empty="No groups yet."
+          empty={empty}
           fill
           selectable
         />
@@ -99,6 +155,7 @@ export function GroupsView() {
 
 function GroupDetail({ group, onDeleted }: { group: ConsoleGroup; onDeleted: () => void }) {
   const token = useSession()?.token ?? ""
+  const scope = useGameScope()
   const [deleting, setDeleting] = useState(false)
   const [exporting, setExporting] = useState(false)
   const members = useConsoleQuery<ConsoleGroupMember[]>("group-members", `${CONSOLE_ENDPOINTS.groups}/${group.id}/member`)
@@ -111,6 +168,7 @@ function GroupDetail({ group, onDeleted }: { group: ConsoleGroup; onDeleted: () 
       const document_ = await consoleGet<ConsoleGroupExport>(
         `${CONSOLE_ENDPOINTS.groups}/${encodeURIComponent(group.id)}/export`,
         token,
+        scope === null ? {} : { game_id: scope },
       )
       downloadJson(`group-${group.name || shortId(group.id)}.json`, document_)
       toast.success("Exported.")

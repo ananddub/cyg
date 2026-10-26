@@ -79,8 +79,8 @@ impl IapService {
 
     /// `GET /v2/iap/subscription/{product_id}` — the caller's most recent
     /// subscription for a product, the reference server's `GetSubscription`.
-    /// The statement is hand-written (`db/manual/iap.sql`): FlashORM generates
-    /// one lookup per key, and this is the second one.
+    /// The statement is hand-written: FlashORM generates one lookup per key, and
+    /// this is the second one.
     pub async fn subscription_by_product(
         &self,
         state: &ApiState,

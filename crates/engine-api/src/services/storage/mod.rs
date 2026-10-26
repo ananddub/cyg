@@ -24,7 +24,7 @@ impl StorageService {
 }
 
 /// The pool storage runs against, or 503 when `[control.session] database_url` is empty. The
-/// statements are raw sqlx (see `db/manual/storage.sql`), so they take the pool, not the wrapper.
+/// statements are hand-written raw sqlx, so they take the pool, not the wrapper.
 pub(crate) fn pool(state: &ApiState) -> Result<&sqlx::PgPool, V2Error> {
     state.db.as_ref().ok_or_else(V2Error::no_db)
 }

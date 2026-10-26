@@ -153,7 +153,9 @@ export function JsonTextArea({
 }
 
 /** A picker. `searchable` is for the lists read from the server — an operator
- * hunting one username out of three hundred is filtering, not scrolling. */
+ * hunting one username out of three hundred is filtering, not scrolling.
+ * `hideLabel` drops the stacked label so the trigger sits level with a toolbar's
+ * other controls; the value line already names the choice. */
 export function Select({
   label,
   hint,
@@ -161,6 +163,7 @@ export function Select({
   onChange,
   options,
   searchable = false,
+  hideLabel = false,
 }: {
   label: string
   hint?: string
@@ -168,6 +171,7 @@ export function Select({
   onChange: (value: string) => void
   options: readonly { value: string; label: string }[]
   searchable?: boolean
+  hideLabel?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -183,74 +187,83 @@ export function Select({
     if (open && searchable) search.current?.focus()
   }, [open, searchable])
 
-  return (
-    <Labelled label={label} hint={hint}>
+  const field = (
+    <SelectPrimitive
+      value={value}
+      items={options}
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) setQuery("")
+      }}
+      onValueChange={(next) => onChange(next ?? "")}
+    >
       {/* The trigger carries the console's input metrics — same height, radius
           and padding as a text field — so the two sit level in a grid. */}
-      <SelectPrimitive
-        value={value}
-        items={options}
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next)
-          if (!next) setQuery("")
-        }}
-        onValueChange={(next) => onChange(next ?? "")}
+      <SelectTrigger
+        aria-label={hideLabel ? label : undefined}
+        className="w-full rounded-md border-border bg-background px-3 data-[size=default]:h-9"
       >
-        <SelectTrigger className="w-full rounded-md border-border bg-background px-3 data-[size=default]:h-9">
-          <SelectValue />
-        </SelectTrigger>
-        {/* Anchored below the trigger's left edge rather than Base UI's default
-            of sliding the selected item over the trigger, which reads as the
-            popup being misaligned with the field it belongs to. */}
-        <SelectContent
-          align="start"
-          alignItemWithTrigger={false}
-          header={
-            searchable ? (
-              /* Flush and borderless: the popup's own edge is the field's box,
-                 so the search reads as the top of the dropdown rather than a
-                 separate control dropped into it. */
-              <div className="relative">
-                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2" />
-                <input
-                  ref={search}
-                  value={query}
-                  placeholder={`Search ${options.length}`}
-                  onChange={(event) => setQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "ArrowDown") {
-                      const first = event.currentTarget
-                        .closest('[data-slot="select-content"]')
-                        ?.querySelector<HTMLElement>('[data-slot="select-item"]')
-                      if (first) {
-                        event.preventDefault()
-                        first.focus()
-                      }
-                    } else if (event.key === "Enter" && shown.length > 0) {
+        <SelectValue />
+      </SelectTrigger>
+      {/* Anchored below the trigger's left edge rather than Base UI's default
+          of sliding the selected item over the trigger, which reads as the
+          popup being misaligned with the field it belongs to. */}
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        header={
+          searchable ? (
+            /* Flush and borderless: the popup's own edge is the field's box,
+               so the search reads as the top of the dropdown rather than a
+               separate control dropped into it. */
+            <div className="relative">
+              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2" />
+              <input
+                ref={search}
+                value={query}
+                placeholder={`Search ${options.length}`}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") {
+                    const first = event.currentTarget
+                      .closest('[data-slot="select-content"]')
+                      ?.querySelector<HTMLElement>('[data-slot="select-item"]')
+                    if (first) {
                       event.preventDefault()
-                      onChange(shown[0].value)
-                      setOpen(false)
+                      first.focus()
                     }
-                  }}
-                  className="placeholder:text-muted-foreground h-9 w-full bg-transparent pr-3 pl-9 text-sm outline-none"
-                />
-              </div>
-            ) : undefined
-          }
-        >
-          {shown.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-          {searchable && shown.length === 0 && (
-            <p className="text-muted-foreground px-3 py-3 text-center text-xs">
-              Nothing matches “{query}”.
-            </p>
-          )}
-        </SelectContent>
-      </SelectPrimitive>
+                  } else if (event.key === "Enter" && shown.length > 0) {
+                    event.preventDefault()
+                    onChange(shown[0].value)
+                    setOpen(false)
+                  }
+                }}
+                className="placeholder:text-muted-foreground h-9 w-full bg-transparent pr-3 pl-9 text-sm outline-none"
+              />
+            </div>
+          ) : undefined
+        }
+      >
+        {shown.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+        {searchable && shown.length === 0 && (
+          <p className="text-muted-foreground px-3 py-3 text-center text-xs">
+            Nothing matches “{query}”.
+          </p>
+        )}
+      </SelectContent>
+    </SelectPrimitive>
+  )
+
+  if (hideLabel) return field
+
+  return (
+    <Labelled label={label} hint={hint}>
+      {field}
     </Labelled>
   )
 }

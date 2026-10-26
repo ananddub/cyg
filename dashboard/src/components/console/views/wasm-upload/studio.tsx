@@ -16,7 +16,7 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
-import { DataTable, Mono, Panel } from "@/components/console/data-table"
+import { DataTable, Mono, Panel, SearchField } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { queryError, useConsoleQuery } from "@/hooks/use-console"
 import { dash, formatTime } from "@/lib/format"
@@ -297,6 +297,7 @@ export function WasmUploadPanel({ gameId, disabled = false }: { gameId: string; 
 export function DeploymentHistory({ gameId, disabled = false }: { gameId: string; disabled?: boolean }) {
   const [deploying, setDeploying] = useState<WasmModuleInfo | null>(null)
   const [removing, setRemoving] = useState<WasmModuleInfo | null>(null)
+  const [query, setQuery] = useState("")
 
   const modules = useConsoleQuery<WasmModuleInfo[]>(
     `game-wasm-${gameId}`,
@@ -304,6 +305,24 @@ export function DeploymentHistory({ gameId, disabled = false }: { gameId: string
     {},
     !disabled && gameId !== "",
   )
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (modules.data ?? []).filter((row) => {
+    if (needle === "") return true
+    return [
+      `v${row.version}`,
+      String(row.version),
+      row.filename,
+      row.sha256,
+      row.has_source ? "source" : "",
+      row.is_active ? "active" : "",
+    ].some((value) => value.toLowerCase().includes(needle))
+  })
+
+  const empty =
+    modules.data !== undefined && modules.data.length > 0
+      ? "No versions match this search."
+      : "No modules deployed for this game yet."
 
   const columns: Column<WasmModuleInfo>[] = [
     {
@@ -357,13 +376,21 @@ export function DeploymentHistory({ gameId, disabled = false }: { gameId: string
         }
         fill
       >
+        <div className="shrink-0 border-b border-border/60 p-3">
+          <SearchField
+            value={query}
+            onChange={setQuery}
+            placeholder="Search versions, files or checksums"
+            label="Search deployed versions"
+          />
+        </div>
         <DataTable
           columns={columns}
-          rows={modules.data}
+          rows={filtered}
           loading={!disabled && gameId !== "" && modules.isPending}
           error={!disabled && modules.data === undefined ? queryError(modules.error) : null}
           rowKey={(row) => String(row.version)}
-          empty="No modules deployed for this game yet."
+          empty={empty}
           fill
         />
       </Panel>

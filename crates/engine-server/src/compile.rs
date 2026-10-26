@@ -23,8 +23,8 @@ fn newest_input_mtime(project_dir: &Path, src: &Path) -> Option<SystemTime> {
         project_dir.join("src").join("schema.ts"),
         project_dir.join("openoxide.schema.ts"),
         project_dir.join("src").join("openoxide.schema.ts"),
-        project_dir.join("openoxide.ts"),
-        project_dir.join("src").join("openoxide.ts"),
+        project_dir.join("openoxide-server.ts"),
+        project_dir.join("src").join("openoxide-server.ts"),
     ]
     .iter()
     .filter_map(|path| mtime(path))

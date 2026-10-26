@@ -463,15 +463,10 @@ function ConfigureGameSheet({ game, onClose }: { game: GameDetail; onClose: () =
       description={game.game_key}
       onClose={onClose}
       footer={
-        <>
-          <Button variant="outline" onClick={onClose} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending || name.trim() === ""}>
-            {write.isPending && <Loader2 className="animate-spin" />}
-            Save
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending || name.trim() === ""}>
+          {write.isPending && <Loader2 className="animate-spin" />}
+          Save
+        </Button>
       }
     >
       <TextInput label="Name" value={name} onChange={setName} />

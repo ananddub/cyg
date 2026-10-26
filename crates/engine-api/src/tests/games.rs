@@ -47,9 +47,13 @@ fn wasm_bytes() -> Vec<u8> {
 /// all findable (and deletable) by it.
 const TEST_PREFIX: &str = "engine-api-tests";
 
-/// The committed schema, read at test time so a change to the SQL file is a change
+/// The committed schema, read at test time so a change to the SQL files is a change
 /// this file notices.
-const GAMES_SQL: &str = include_str!("../../../../db/manual/games.sql");
+const GAMES_SQL: &str = concat!(
+    include_str!("../../../../db/schema/games.sql"),
+    "\n",
+    include_str!("../../../../db/schema/room_modules.sql"),
+);
 
 /// A console token for a role no `console_user` row has to hold: the role travels
 /// inside the token, exactly as the existing console tests mint one.
@@ -65,10 +69,10 @@ fn admin_token() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Pure: the DDL mirror. `db/manual/games.sql` is the source of truth and
-// `services/games/schema.rs` restates it for a plane booting against an empty
-// database. This test is what makes the two drift a CI failure instead of a
-// runtime "column does not exist".
+// Pure: the DDL mirror. `db/schema/games.sql` and `db/schema/room_modules.sql`
+// are the source of truth and `services/games/schema.rs` restates them for a
+// plane booting against an empty database. This test is what makes the two drift
+// a CI failure instead of a runtime "column does not exist".
 // ---------------------------------------------------------------------------
 
 /// Whitespace collapsed and `--` comments gone: the shape both sides are compared in,
@@ -201,12 +205,12 @@ fn the_runtime_ddl_mirrors_the_committed_games_sql() {
     assert_eq!(
         table_items(&sql, "games"),
         table_items(&normalize(GAMES_TABLE_DDL), "games"),
-        "games() drifted between db/manual/games.sql and GAMES_TABLE_DDL"
+        "games() drifted between db/schema/games.sql and GAMES_TABLE_DDL"
     );
     assert_eq!(
         table_items(&sql, "room_modules"),
         table_items(&normalize(ROOM_MODULES_TABLE_DDL), "room_modules"),
-        "room_modules() drifted between db/manual/games.sql and ROOM_MODULES_TABLE_DDL"
+        "room_modules() drifted between db/schema/room_modules.sql and ROOM_MODULES_TABLE_DDL"
     );
 
     // The parts of the schema a `CREATE TABLE` does not carry: the two indexes. Set
@@ -303,23 +307,6 @@ fn the_runtime_ddl_mirrors_the_committed_games_sql() {
         assert!(
             modules.iter().any(|found| found.to_lowercase() == item),
             "`room_modules` must keep its `{item}`; found {modules:?}"
-        );
-    }
-}
-
-/// `init-oriole.sql` is the same schema for a fresh database: a game table that only
-/// exists in one of the two files is a plane that boots with half a feature.
-#[test]
-fn init_oriole_and_the_manual_migration_agree() {
-    const INIT_SQL: &str = include_str!("../../../../init-oriole.sql");
-    let init = normalize(INIT_SQL);
-    let manual = normalize(GAMES_SQL);
-
-    for table in ["games", "room_modules"] {
-        assert_eq!(
-            table_items(&manual, table),
-            table_items(&init, table),
-            "`{table}` differs between db/manual/games.sql and init-oriole.sql"
         );
     }
 }

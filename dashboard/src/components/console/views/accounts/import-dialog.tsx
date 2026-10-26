@@ -70,15 +70,10 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
       description="The document an Export writes back."
       onClose={close}
       footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending}>
-            {write.isPending ? <Loader2 className="animate-spin" /> : <Upload />}
-            Import
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending}>
+          {write.isPending ? <Loader2 className="animate-spin" /> : <Upload />}
+          Import
+        </Button>
       }
     >
       <JsonTextArea

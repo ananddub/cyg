@@ -237,6 +237,7 @@ func _initialize() -> void:
 	test_timesync_and_interpolation()
 	test_rollback_and_voice()
 	test_client_helpers()
+	test_api_surface()
 	test_replay_and_inspector()
 	print("checks=%d failures=%d" % [checks, failures])
 	quit(1 if failures > 0 else 0)
@@ -607,6 +608,87 @@ func test_client_helpers() -> void:
 		and String(auth["token"]) == "abc")
 	check("client version", OpenOxideClient.VERSION == "1.5.0")
 	client.free()
+
+
+func test_api_surface() -> void:
+	var api := OpenOxideApi.new("wss://example.com:8443/api/", "secret")
+	check("api http base", api.http_base() == "https://example.com:8443/api")
+	check("api ws base", api.ws_base() == "wss://example.com:8443/api")
+	check("api build url", api.build_url("/v2/storage/save", {
+		"limit": 10, "ids": ["a", "b"], "skip": null, "live": true,
+	}) == "https://example.com:8443/api/v2/storage/save?ids=a&ids=b&limit=10&live=true")
+	check("api route url", api.build_url("/v2/leaderboard/wins/owner/u1", {"limit": 3})
+		== "https://example.com:8443/api/v2/leaderboard/wins/owner/u1?limit=3")
+	check("api encodes segments", api._segment("a/b c") == "a%2Fb%20c")
+	check("api signal url", api.signal_url("s 1") == "wss://example.com:8443/api/ws/signal?seat=s%201")
+	check("api signal url bare", api.signal_url() == "wss://example.com:8443/api/ws/signal")
+	check("api error detail", api._error_detail({
+		"error": { "code": 7, "message": "Invalid request body" },
+	}, "") == "Invalid request body")
+	check("api error fallback", api._error_detail(null, "plain failure") == "plain failure")
+	check("api version", OpenOxideApi.VERSION == "1.5.0")
+	api.free()
+
+	var client := OpenOxideClient.new("http://127.0.0.1:8080", {"token": "first"})
+	var bound := client.api()
+	check("client api parent", bound.get_parent() == client and bound.http_base() == "http://127.0.0.1:8080")
+	check("client api token", String(bound.resolve_token()) == "first")
+	bound.set_token("second")
+	check("client api token propagates", String(client.resolve_token()) == "second")
+	client.on_auth(func() -> Variant:
+		return {"token": "hooked"})
+	check("client api hook wins", String(bound.resolve_token()) == "hooked")
+	check("client request shortcut", client.has_method("request"))
+	client.free()
+
+	var routes := [
+		"authenticate", "authenticate_apple", "authenticate_custom", "authenticate_device",
+		"authenticate_email", "authenticate_facebook", "authenticate_facebook_instant_game",
+		"authenticate_game_center", "authenticate_google", "authenticate_steam",
+		"refresh_session", "logout",
+		"link", "link_apple", "link_custom", "link_device", "link_email", "link_facebook",
+		"link_facebook_instant_game", "link_game_center", "link_google", "link_steam",
+		"unlink", "unlink_apple", "unlink_custom", "unlink_device", "unlink_email",
+		"unlink_facebook", "unlink_facebook_instant_game", "unlink_game_center",
+		"unlink_google", "unlink_steam",
+		"get_account", "update_account", "delete_account", "get_wallet", "update_wallet",
+		"merge_wallet",
+		"get_users", "get_users_by_body", "get_user",
+		"list_friends", "add_friends", "delete_friends", "block_friends",
+		"list_friends_of_friends", "import_facebook_friends", "import_steam_friends",
+		"list_groups", "create_group", "get_group", "update_group", "delete_group",
+		"join_group", "leave_group", "list_group_users", "add_group_users",
+		"kick_group_users", "ban_group_users", "promote_group_users", "demote_group_users",
+		"list_user_groups",
+		"list_tournaments", "list_tournament_records", "write_tournament_record",
+		"replace_tournament_record", "delete_tournament_record",
+		"list_tournament_records_around_owner", "join_tournament",
+		"write_leaderboard_record", "list_leaderboard_records", "delete_leaderboard_record",
+		"list_leaderboard_records_around_owner",
+		"write_storage", "read_storage", "delete_storage", "list_storage_collection",
+		"list_user_storage", "read_storage_object",
+		"create_storage_index", "list_storage_indexes", "delete_storage_index",
+		"query_storage_index",
+		"list_inventory", "equip_item", "consume_item", "grant_item", "define_item",
+		"list_channel_messages", "send_channel_message", "update_channel_message",
+		"delete_channel_message",
+		"list_notifications", "delete_notifications", "delete_notification",
+		"validate_apple_purchase", "purchase_apple", "purchase_google", "purchase_huawei",
+		"purchase_facebook_instant", "purchase_samsung", "list_purchases",
+		"subscribe_apple", "subscribe_google", "subscribe_huawei", "list_subscriptions",
+		"get_subscription",
+		"list_matches", "matchmaker_stats", "matchmake", "matchmake_api",
+		"status", "rooms", "health", "auto_health", "signal_url", "request",
+	]
+	var probe := OpenOxideApi.new()
+	var missing := []
+	for route in routes:
+		if not probe.has_method(route):
+			missing.append(route)
+	check("api route coverage (%d)" % routes.size(), missing.is_empty())
+	if not missing.is_empty():
+		print("  missing routes: %s" % ", ".join(missing))
+	probe.free()
 
 
 func test_replay_and_inspector() -> void:

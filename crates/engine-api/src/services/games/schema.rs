@@ -1,8 +1,9 @@
 //! The runtime bootstrap of the multi-game tenancy tables.
 //!
-//! `db/manual/games.sql` is the committed source of truth; this restates the
-//! same statements one at a time so a plane that boots against an empty database
-//! still has `games` and `room_modules` to write into.
+//! `db/schema/games.sql` and `db/schema/room_modules.sql` are the committed
+//! source of truth; this restates the same statements one at a time so a plane
+//! that boots against an empty database still has `games` and `room_modules` to
+//! write into.
 //! Every statement is `IF NOT EXISTS`, so running this over a database that already
 //! has the tables changes nothing.
 

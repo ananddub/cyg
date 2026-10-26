@@ -243,6 +243,7 @@ function GameConsole({
             lastFrameAtMs={data.ws.lastFrameAtMs ?? undefined}
             sectionLabel={area.label}
             gameName={game?.name}
+            showFeed={hosted}
           />
           <ThemeToggle />
         </div>

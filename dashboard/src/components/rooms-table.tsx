@@ -22,6 +22,9 @@ interface RoomsTableProps {
   clients?: ClientRow[] | undefined
   loading: boolean
   onSelectRoom?: (room: RoomRow) => void
+  /** What to say when the list is empty — the caller knows whether a filter or
+   * simply no rooms is the reason. */
+  empty?: string
 }
 
 const DASH = "—"
@@ -93,7 +96,7 @@ function SkeletonRows() {
   )
 }
 
-export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTableProps) {
+export function RoomsTable({ rooms, clients, loading, onSelectRoom, empty = "No rooms active" }: RoomsTableProps) {
   const rows = rooms ?? []
   const showSkeletons = loading && rows.length === 0
   const selection = useSelection(rows.map((room) => `${room.serverId}/${room.name}`))
@@ -210,7 +213,7 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom }: RoomsTable
           {!showSkeletons && rows.length === 0 && (
             <TableRow>
               <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
-                No rooms active
+                {empty}
               </TableCell>
             </TableRow>
           )}

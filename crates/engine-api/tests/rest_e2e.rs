@@ -79,6 +79,86 @@ const LEADERBOARD_RECORD_SQL: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../db/schema/leaderboard_record.sql"
 ));
+const USER_EDGE_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/user_edge.sql"
+));
+const USER_TOMBSTONE_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/user_tombstone.sql"
+));
+const USERS_NOTES_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/users_notes.sql"
+));
+const WALLET_LEDGER_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/wallet_ledger.sql"
+));
+const GROUPS_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/groups.sql"
+));
+const GROUP_EDGE_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/group_edge.sql"
+));
+const MESSAGE_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/message.sql"
+));
+const NOTIFICATION_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/notification.sql"
+));
+const STORAGE_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/storage.sql"
+));
+const STORAGE_INDEX_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/storage_index.sql"
+));
+const PURCHASE_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/purchase.sql"
+));
+const SUBSCRIPTION_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/subscription.sql"
+));
+const SETTING_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/setting.sql"
+));
+const CONSOLE_ACL_TEMPLATE_SQL: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../db/schema/console_acl_template.sql"
+));
+
+/// The inventory repositories are the only queries with no committed schema
+/// file; the tables live in the runtime migration. These are their columns.
+const INVENTORY_SQL: &str = "
+CREATE TABLE IF NOT EXISTS item_definitions (
+    item_id text PRIMARY KEY,
+    name text NOT NULL,
+    category text NOT NULL DEFAULT 'misc',
+    max_stack integer NOT NULL DEFAULT 1,
+    rarity text NOT NULL DEFAULT 'common',
+    properties jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS player_inventory (
+    instance_id uuid PRIMARY KEY,
+    user_id uuid NOT NULL,
+    item_id text NOT NULL,
+    quantity integer NOT NULL DEFAULT 1,
+    slot_index integer NOT NULL DEFAULT -1,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT NOW(),
+    updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rest_api_end_to_end() {
@@ -260,6 +340,22 @@ async fn apply_schema(pool: &PgPool) {
         ("leaderboard", LEADERBOARD_SQL),
         // After `leaderboard`, whose primary key its foreign key names.
         ("leaderboard_record", LEADERBOARD_RECORD_SQL),
+        // Every file below with a foreign key names `users(id)`.
+        ("user_edge", USER_EDGE_SQL),
+        ("user_tombstone", USER_TOMBSTONE_SQL),
+        ("users_notes", USERS_NOTES_SQL),
+        ("wallet_ledger", WALLET_LEDGER_SQL),
+        ("groups", GROUPS_SQL),
+        ("group_edge", GROUP_EDGE_SQL),
+        ("message", MESSAGE_SQL),
+        ("notification", NOTIFICATION_SQL),
+        ("storage", STORAGE_SQL),
+        ("storage_index", STORAGE_INDEX_SQL),
+        ("purchase", PURCHASE_SQL),
+        ("subscription", SUBSCRIPTION_SQL),
+        ("setting", SETTING_SQL),
+        ("console_acl_template", CONSOLE_ACL_TEMPLATE_SQL),
+        ("inventory", INVENTORY_SQL),
     ] {
         apply_file(pool, label, ddl).await;
     }

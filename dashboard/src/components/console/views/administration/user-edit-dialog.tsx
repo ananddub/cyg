@@ -60,15 +60,10 @@ export function UpdateOperatorDialog({
       description="The profile only. Credentials have their own route, so a profile edit cannot change how someone signs in."
       onClose={close}
       footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending || username === ""}>
-            {write.isPending && <Loader2 className="animate-spin" />}
-            Save
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending || username === ""}>
+          {write.isPending && <Loader2 className="animate-spin" />}
+          Save
+        </Button>
       }
     >
       <TextInput label="Username" value={username} onChange={setUsername} />
@@ -122,15 +117,10 @@ export function PasswordDialog({
       description="The operator will not be told the new password — it is set here, and passed on out of band."
       onClose={close}
       footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending || password === ""}>
-            {write.isPending && <Loader2 className="animate-spin" />}
-            Set password
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending || password === ""}>
+          {write.isPending && <Loader2 className="animate-spin" />}
+          Set password
+        </Button>
       }
     >
       <TextInput label="New password" type="password" value={password} onChange={setPassword} autoFocus />

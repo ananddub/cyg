@@ -7,7 +7,14 @@ import { Pencil, Plus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
-import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
+import {
+  DataTable,
+  JsonBlock,
+  Mono,
+  PageHeading,
+  Panel,
+  SearchField,
+} from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
@@ -22,8 +29,22 @@ export function AclTemplatesView() {
   const list = useConsoleQuery<ConsoleAclTemplate[]>("acl", ACL)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [query, setQuery] = useState("")
 
   const selected = list.data?.find((template) => template.id === selectedId) ?? null
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (list.data ?? []).filter((template) => {
+    if (needle === "") return true
+    return [template.name, template.description, JSON.stringify(template.acl)].some((value) =>
+      value.toLowerCase().includes(needle),
+    )
+  })
+
+  const empty =
+    list.data !== undefined && list.data.length > 0
+      ? "No templates match this search."
+      : "No ACL templates defined."
 
   const columns: Column<ConsoleAclTemplate>[] = [
     { header: "Name", cell: (row) => <span className="font-medium text-foreground">{row.name}</span> },
@@ -33,30 +54,36 @@ export function AclTemplatesView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <PageHeading
-        title="ACL Templates"
-        description="Named permission documents an operator role can be defined from."
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <PageHeading
+            title="ACL Templates"
+            description="Named permission documents an operator role can be defined from."
+          />
+        </div>
+        <Button className="h-9 shrink-0 gap-1.5" onClick={() => setCreating(true)}>
+          <Plus className="size-3.5" />
+          New template
+        </Button>
+      </div>
+
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        placeholder="Search templates by name, description or permissions"
+        label="Search ACL templates"
       />
 
-      <Panel
-        title="Templates"
-        fill
-        actions={
-          <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-            <Plus />
-            New template
-          </Button>
-        }
-      >
+      <Panel title="Templates" fill>
         <DataTable
           columns={columns}
-          rows={list.data}
+          rows={filtered}
           loading={list.isPending}
           error={queryError(list.error)}
           rowKey={(row) => row.id}
           onRowClick={(row) => setSelectedId(row.id)}
           selectedKey={selectedId ?? undefined}
-          empty="No ACL templates defined."
+          empty={empty}
           fill
           selectable
         />

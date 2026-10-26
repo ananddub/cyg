@@ -27,8 +27,11 @@ impl StaticRoutesService {
     /// override the client glue, else the baked-in example.
     pub fn serve_sdk(&self, state: &ApiState) -> Response {
         let s = &state.statics;
-        let path = s.project_root().join("openoxide.js");
-        match s.read(&path).or_else(|| s.default_for("/openoxide.js")) {
+        // naya naam: openoxide-client.js (client SDK saaf dikhe); purana
+        // openoxide.js wale projects fallback me serve hote rahenge
+        let client = s.project_root().join("openoxide-client.js");
+        let legacy = s.project_root().join("openoxide.js");
+        match s.read(&client).or_else(|| s.read(&legacy)).or_else(|| s.default_for("/openoxide.js")) {
             Some(body) => file_response("/openoxide.js", body),
             None => not_found(),
         }

@@ -1,7 +1,8 @@
 import { useEffect, useRef, type ReactNode } from "react"
-import { AlertTriangle, ChevronLeft, ChevronRight, Inbox, Loader2 } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, Inbox, Loader2, Search } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { JsonTokens } from "@/components/console/json-view"
 import { useSelection } from "@/hooks/use-selection"
 import {
@@ -326,6 +327,116 @@ export function Pager({
           <ChevronRight />
         </Button>
       </div>
+    </div>
+  )
+}
+
+/** The console's search field: the icon, the "/" hint, and the shortcut that
+ * focuses it. Escape clears, so a search costs no trip to the mouse. */
+export function SearchField({
+  value,
+  onChange,
+  placeholder,
+  label,
+  shortcut = true,
+  className,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  label: string
+  /** Skip the global "/" listener when a view owns the keyboard gesture. */
+  shortcut?: boolean
+  className?: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!shortcut) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return
+      const active = document.activeElement as HTMLElement | null
+      if (
+        active !== null &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.tagName === "SELECT" ||
+          active.isContentEditable)
+      ) {
+        return
+      }
+      event.preventDefault()
+      ref.current?.focus()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [shortcut])
+
+  return (
+    <div className={cn("relative w-full", className)}>
+      <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground/70" />
+      <Input
+        ref={ref}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onChange("")
+        }}
+        placeholder={placeholder}
+        aria-label={label}
+        className="h-9 rounded-lg border-border bg-card pr-11 pl-9 text-sm transition-colors hover:border-foreground/25"
+      />
+      <kbd
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 right-3 flex size-5 -translate-y-1/2 items-center justify-center rounded-md border border-border bg-foreground/[0.04] font-mono text-[11px] text-muted-foreground select-none"
+      >
+        /
+      </kbd>
+    </div>
+  )
+}
+
+export interface FilterOption<Id extends string> {
+  id: Id
+  label: string
+}
+
+/** The segmented status filter that sits beside a search. The pressed state is
+ * announced, so it reads as a choice group rather than a row of buttons. */
+export function FilterPills<Id extends string>({
+  filters,
+  value,
+  onChange,
+  className,
+}: {
+  filters: readonly FilterOption<Id>[]
+  value: Id
+  onChange: (value: Id) => void
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "flex h-9 shrink-0 items-center gap-1 rounded-lg border border-border bg-card p-[3px]",
+        className,
+      )}
+    >
+      {filters.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          aria-pressed={value === option.id}
+          onClick={() => onChange(option.id)}
+          className={cn(
+            "h-7 cursor-pointer rounded-md px-2.5 text-xs font-medium transition-colors",
+            value === option.id
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   )
 }

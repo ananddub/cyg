@@ -102,13 +102,17 @@ export function SecurityView() {
   const enrolled = enrolment !== null
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading
         title="My Security"
         description="Your own console credential. The second factor is what a stolen password cannot replace."
       />
 
-      <Panel title="Credentials" description="The config bootstrap account is password-only and cannot enrol.">
+      <Panel
+        title="Credentials"
+        description="The config bootstrap account is password-only and cannot enrol."
+        className="max-w-3xl"
+      >
         <div className="divide-y divide-border/60">
           <div className="flex items-center gap-4 px-4 py-4">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary ring-1 ring-primary/25">
@@ -154,15 +158,10 @@ export function SecurityView() {
         description="Scan the secret into your app, then type the code it shows."
         onClose={() => setEnrolment(null)}
         footer={
-          <>
-            <Button variant="outline" onClick={() => setEnrolment(null)} disabled={busy !== null}>
-              Discard
-            </Button>
-            <Button onClick={confirm} disabled={busy !== null || confirmCode === ""}>
-              {busy === "confirm" && <Loader2 className="animate-spin" />}
-              Confirm
-            </Button>
-          </>
+          <Button onClick={confirm} disabled={busy !== null || confirmCode === ""}>
+            {busy === "confirm" && <Loader2 className="animate-spin" />}
+            Confirm
+          </Button>
         }
       >
         {enrolment !== null && (

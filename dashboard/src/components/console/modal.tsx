@@ -1,6 +1,6 @@
 // The console's dialogs, hand-rolled: the app carries no modal dependency, and a
 // dialog here is a bordered card over a dimmed backdrop, left by Escape, the
-// backdrop or Cancel.
+// backdrop or the close button.
 
 import { useEffect, type ReactNode } from "react"
 import { Loader2, X } from "lucide-react"
@@ -103,19 +103,14 @@ export function ConfirmDialog({
       description={description}
       onClose={onClose}
       footer={
-        <>
-          <Button variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            variant={destructive ? "destructive" : "default"}
-            onClick={onConfirm}
-            disabled={busy}
-          >
-            {busy && <Loader2 className="animate-spin" />}
-            {confirmLabel}
-          </Button>
-        </>
+        <Button
+          variant={destructive ? "destructive" : "default"}
+          onClick={onConfirm}
+          disabled={busy}
+        >
+          {busy && <Loader2 className="animate-spin" />}
+          {confirmLabel}
+        </Button>
       }
     >
       {message !== undefined && <p className="text-sm text-muted-foreground">{message}</p>}

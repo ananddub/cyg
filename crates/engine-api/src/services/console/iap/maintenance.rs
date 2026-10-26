@@ -8,7 +8,7 @@
 //! every subscription row for one product id: the schema links purchases to
 //! subscriptions by nothing at all — no foreign key, no shared id column — so
 //! purchase rows for the same product survive by design. The delete statement
-//! is hand-written and mirrored in `db/manual/iap.sql`.
+//! is hand-written raw sqlx.
 
 use axum::Json;
 

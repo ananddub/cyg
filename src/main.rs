@@ -703,8 +703,8 @@ fn init(dir: &Path) -> std::io::Result<()> {
     // The easy template is self-contained: server SDK, browser SDK and the
     // matching page all use OpenOxide's own protocol (no Colyseus dependency).
     std::fs::write(
-        dir.join("openoxide.ts"),
-        include_str!("../sdk/interfaces/assemblyscript/openoxide.ts"),
+        dir.join("openoxide-server.ts"),
+        include_str!("../sdk/interfaces/assemblyscript/openoxide-server.ts"),
     )?;
     std::fs::write(
         dir.join("openoxide.d.ts"),
@@ -892,7 +892,7 @@ fn generate_interfaces(dir: &Path) -> std::io::Result<()> {
     let cpp_path = dir.join("openoxide.hpp");
     let rust_path = dir.join("openoxide_room.rs");
     let csharp_path = dir.join("OpenOxide.cs");
-    let as_path = dir.join("openoxide.ts");
+    let as_path = dir.join("openoxide-server.ts");
     let ts_path = dir.join("openoxide.d.ts");
     let readme_path = dir.join("README.md");
 
@@ -915,7 +915,7 @@ fn generate_interfaces(dir: &Path) -> std::io::Result<()> {
     )?;
     std::fs::write(
         &as_path,
-        include_str!("../sdk/interfaces/assemblyscript/openoxide.ts"),
+        include_str!("../sdk/interfaces/assemblyscript/openoxide-server.ts"),
     )?;
     std::fs::write(
         &ts_path,

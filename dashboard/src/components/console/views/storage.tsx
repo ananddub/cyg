@@ -7,7 +7,7 @@ import { Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
-import { DataTable, Field, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
+import { DataTable, Field, JsonBlock, Mono, PageHeading, Panel, SearchField } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
@@ -33,6 +33,7 @@ export function StorageView() {
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [deletingCollection, setDeletingCollection] = useState<string | null>(null)
   const [deletingObject, setDeletingObject] = useState(false)
+  const [query, setQuery] = useState("")
 
   const objects = useConsoleQuery<ConsoleStorageObject[]>(
     "storage-objects",
@@ -44,6 +45,19 @@ export function StorageView() {
   // Read back from the list, so deleting the opened object — or switching
   // collections — closes the drawer instead of pinning a stale value to it.
   const opened = objects.data?.find((row) => objectKey(row) === openKey) ?? null
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (objects.data ?? []).filter((row) => {
+    if (needle === "") return true
+    return [row.key, row.collection, row.user_id, row.version].some((value) =>
+      value.toLowerCase().includes(needle),
+    )
+  })
+
+  const empty =
+    objects.data !== undefined && objects.data.length > 0
+      ? "No objects match this search."
+      : "No objects."
 
   const columns: Column<ConsoleStorageObject>[] = [
     { header: "Key", cell: (row) => <span className="font-medium text-foreground">{row.key}</span> },
@@ -59,6 +73,13 @@ export function StorageView() {
       <PageHeading
         title="Storage"
         description="Every stored object, including private ones the player storage API hides."
+      />
+
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        placeholder="Search objects by key, collection or owner"
+        label="Search storage objects"
       />
 
       <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
@@ -134,13 +155,13 @@ export function StorageView() {
         <Panel title={selected ?? "All objects"} className="min-h-0" fill>
           <DataTable
             columns={columns}
-            rows={objects.data}
+            rows={filtered}
             loading={objects.isPending}
             error={queryError(objects.error)}
             rowKey={objectKey}
             onRowClick={(row) => setOpenKey(objectKey(row))}
             selectedKey={openKey ?? undefined}
-            empty="No objects."
+            empty={empty}
             fill
             selectable
           />

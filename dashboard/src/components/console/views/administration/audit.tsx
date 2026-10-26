@@ -1,10 +1,18 @@
 // The audit trail: every administrative action, newest first. Read-only by
 // design — a trail an operator could edit would be worth nothing.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
-import { DataTable, JsonBlock, Mono, PageHeading, Pager, Panel } from "@/components/console/data-table"
+import {
+  DataTable,
+  JsonBlock,
+  Mono,
+  PageHeading,
+  Pager,
+  Panel,
+  SearchField,
+} from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { DetailSheet } from "@/components/console/detail-sheet"
 import { Select } from "@/components/console/form"
@@ -21,6 +29,7 @@ const PAGE_SIZE = 25
 export function AuditLogView() {
   const [offset, setOffset] = useState(0)
   const [username, setUsername] = useState("")
+  const [query, setQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   // The trail, narrowed by the operator filter. A new filter is a new first page —
@@ -46,11 +55,31 @@ export function AuditLogView() {
     ...(users.data?.usernames ?? []).map((name) => ({ value: name, label: name })),
   ]
 
+  // A new search is a fresh look at the trail, so it starts at the first page.
+  useEffect(() => {
+    setOffset(0)
+  }, [query])
+
   function filterByName(name: string) {
     setUsername(name)
     setOffset(0)
     setSelectedId(null)
   }
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (list.data ?? []).filter((entry) => {
+    if (needle === "") return true
+    return [entry.console_username, entry.action, entry.resource, entry.message].some((value) =>
+      value.toLowerCase().includes(needle),
+    )
+  })
+
+  const empty =
+    list.data !== undefined && list.data.length > 0
+      ? "No entries match this search on this page."
+      : username === ""
+        ? "No audit entries yet."
+        : `No audit entries for ${username}.`
 
   const columns: Column<ConsoleAuditLog>[] = [
     { header: "When", cell: (row) => <Mono>{formatTime(row.create_time)}</Mono> },
@@ -64,14 +93,24 @@ export function AuditLogView() {
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading title="Audit Log" description="Every administrative action, newest first." />
 
-      <div className="max-w-xs shrink-0">
-        <Select
-          label="Operator"
-          value={username}
-          onChange={filterByName}
-          options={operatorOptions}
-          searchable
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search operator, action, resource or message"
+          label="Search audit entries"
+          className="sm:flex-1"
         />
+        <div className="w-full shrink-0 sm:max-w-xs">
+          <Select
+            label="Operator"
+            hideLabel
+            value={username}
+            onChange={filterByName}
+            options={operatorOptions}
+            searchable
+          />
+        </div>
       </div>
 
       <Panel
@@ -81,13 +120,13 @@ export function AuditLogView() {
       >
         <DataTable
           columns={columns}
-          rows={list.data}
+          rows={filtered}
           loading={list.isPending}
           error={queryError(list.error)}
           rowKey={(row) => row.id}
           onRowClick={(row) => setSelectedId(row.id)}
           selectedKey={selectedId ?? undefined}
-          empty="No audit entries yet."
+          empty={empty}
           fill
           selectable
         />

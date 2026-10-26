@@ -16,6 +16,7 @@ import {
   type ConsoleAccountExport,
   type ConsoleAccountNote,
 } from "@/lib/console"
+import { useGameScope } from "@/lib/console/scope"
 import { useSession } from "@/lib/session"
 import { dash, formatTime, shortId } from "@/lib/format"
 
@@ -28,6 +29,7 @@ type Action = "ban" | "unban" | "note" | "wallet" | "delete"
 
 export function AccountDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const token = useSession()?.token ?? ""
+  const scope = useGameScope()
   const [action, setAction] = useState<Action | null>(null)
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
@@ -43,7 +45,11 @@ export function AccountDetail({ id, onDeleted }: { id: string; onDeleted: () => 
   async function exportAccount() {
     setExporting(true)
     try {
-      const document_ = await consoleGet<ConsoleAccountExport>(`${ACCOUNT}/${id}/export`, token)
+      const document_ = await consoleGet<ConsoleAccountExport>(
+        `${ACCOUNT}/${id}/export`,
+        token,
+        scope === null ? {} : { game_id: scope },
+      )
       downloadJson(`account-${account.data?.username ?? id}.json`, document_)
       toast.success("Exported.")
     } catch (cause) {

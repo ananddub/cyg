@@ -131,15 +131,10 @@ export function CreateGameDialog({
       onClose={onClose}
       footer={
         step === 1 ? (
-          <>
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={() => setStep(2)}>
-              Next
-              <ArrowRight />
-            </Button>
-          </>
+          <Button onClick={() => setStep(2)}>
+            Next
+            <ArrowRight />
+          </Button>
         ) : (
           <>
             <Button variant="outline" onClick={() => setStep(1)} disabled={create.isPending}>

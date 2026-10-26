@@ -1,13 +1,21 @@
 // Purchases and subscriptions: the IAP ledger, newest first, with the vendor
 // validation panel and the product-level subscription cancel.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Ban } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
-import { DataTable, Mono, PageHeading, Pager, Panel } from "@/components/console/data-table"
+import {
+  DataTable,
+  FilterPills,
+  Mono,
+  PageHeading,
+  Pager,
+  Panel,
+  SearchField,
+} from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { IapPanel } from "@/components/console/views/monetization-iap"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
@@ -20,6 +28,21 @@ import { formatTime, shortId } from "@/lib/format"
 
 const PAGE_SIZE = 25
 
+type EnvFilter = "all" | "sandbox" | "production"
+type StateFilter = "all" | "active" | "expired"
+
+const ENV_FILTERS: { id: EnvFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "sandbox", label: "Sandbox" },
+  { id: "production", label: "Production" },
+]
+
+const STATE_FILTERS: { id: StateFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "expired", label: "Expired" },
+]
+
 /** `1` sandbox, `2` production, anything else unknown — the schema's comment. */
 function environment(env: number): string {
   if (env === 1) return "SANDBOX"
@@ -29,10 +52,31 @@ function environment(env: number): string {
 
 export function PurchasesView() {
   const [offset, setOffset] = useState(0)
+  const [query, setQuery] = useState("")
+  const [filter, setFilter] = useState<EnvFilter>("all")
   const list = useConsoleQuery<ConsolePurchase[]>("purchases", CONSOLE_ENDPOINTS.purchases, {
     limit: PAGE_SIZE,
     offset,
   })
+
+  useEffect(() => {
+    setOffset(0)
+  }, [query, filter])
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (list.data ?? []).filter((row) => {
+    if (filter === "sandbox" && row.environment !== 1) return false
+    if (filter === "production" && row.environment !== 2) return false
+    if (needle === "") return true
+    return [row.product_id, row.transaction_id, row.user_id, environment(row.environment)].some(
+      (value) => value.toLowerCase().includes(needle),
+    )
+  })
+
+  const empty =
+    list.data !== undefined && list.data.length > 0
+      ? "No purchases match these filters on this page."
+      : "No purchases recorded."
 
   const columns: Column<ConsolePurchase>[] = [
     { header: "Product", cell: (row) => <span className="font-medium text-foreground">{row.product_id}</span> },
@@ -47,14 +91,31 @@ export function PurchasesView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading title="Purchases" description="Every verified in-app purchase receipt." />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search purchases by product, transaction or account"
+          label="Search purchases"
+          className="sm:flex-1"
+        />
+        <FilterPills
+          filters={ENV_FILTERS}
+          value={filter}
+          onChange={setFilter}
+          className="sm:ml-auto"
+        />
+      </div>
+
       <Panel title="Purchases" fill>
         <DataTable
           columns={columns}
-          rows={list.data}
+          rows={filtered}
           loading={list.isPending}
           error={queryError(list.error)}
           rowKey={(row) => row.transaction_id}
-          empty="No purchases recorded."
+          empty={empty}
           fill
           selectable
         />
@@ -71,10 +132,34 @@ export function SubscriptionsView() {
   // The product the cancel dialog points at: one hook for the whole table, with
   // each row's id passed in as variables.
   const [cancelling, setCancelling] = useState<ConsoleSubscription | null>(null)
+  const [query, setQuery] = useState("")
+  const [filter, setFilter] = useState<StateFilter>("all")
   const list = useConsoleQuery<ConsoleSubscription[]>("subscriptions", CONSOLE_ENDPOINTS.subscriptions, {
     limit: PAGE_SIZE,
     offset,
   })
+
+  useEffect(() => {
+    setOffset(0)
+  }, [query, filter])
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (list.data ?? []).filter((row) => {
+    if (filter === "active" && !row.active) return false
+    if (filter === "expired" && row.active) return false
+    if (needle === "") return true
+    return [
+      row.product_id,
+      row.original_transaction_id,
+      row.user_id,
+      row.active ? "active" : "expired",
+    ].some((value) => value.toLowerCase().includes(needle))
+  })
+
+  const empty =
+    list.data !== undefined && list.data.length > 0
+      ? "No subscriptions match these filters on this page."
+      : "No subscriptions recorded."
 
   const columns: Column<ConsoleSubscription>[] = [
     { header: "Product", cell: (row) => <span className="font-medium text-foreground">{row.product_id}</span> },
@@ -100,14 +185,31 @@ export function SubscriptionsView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeading title="Subscriptions" description="Recurring purchases and their expiry state." />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search subscriptions by product, transaction or account"
+          label="Search subscriptions"
+          className="sm:flex-1"
+        />
+        <FilterPills
+          filters={STATE_FILTERS}
+          value={filter}
+          onChange={setFilter}
+          className="sm:ml-auto"
+        />
+      </div>
+
       <Panel title="Subscriptions" fill>
         <DataTable
           columns={columns}
-          rows={list.data}
+          rows={filtered}
           loading={list.isPending}
           error={queryError(list.error)}
           rowKey={(row) => row.original_transaction_id}
-          empty="No subscriptions recorded."
+          empty={empty}
           fill
           selectable
         />

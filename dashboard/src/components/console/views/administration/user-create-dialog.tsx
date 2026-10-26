@@ -50,15 +50,10 @@ export function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose
       description="The role decides what this account can see; least privilege is the default."
       onClose={close}
       footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending || username === "" || password === ""}>
-            {write.isPending && <Loader2 className="animate-spin" />}
-            Create
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending || username === "" || password === ""}>
+          {write.isPending && <Loader2 className="animate-spin" />}
+          Create
+        </Button>
       }
     >
       <TextInput label="Username" value={username} onChange={setUsername} placeholder="jdoe" autoFocus />

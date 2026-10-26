@@ -36,12 +36,15 @@ export interface WorkersStripProps {
   workers: WorkerRow[] | undefined
   loading: boolean
   onSelectWorker?: (worker: WorkerRow) => void
+  /** What to say when the list is empty — a filter or no planes reported. */
+  empty?: string
 }
 
 export function WorkersStrip({
   workers,
   loading,
   onSelectWorker,
+  empty = "No simulation cores reported yet.",
 }: WorkersStripProps) {
   if (loading) {
     return (
@@ -139,7 +142,7 @@ export function WorkersStrip({
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
-                  No simulation cores reported yet.
+                  {empty}
                 </TableCell>
               </TableRow>
             ) : (

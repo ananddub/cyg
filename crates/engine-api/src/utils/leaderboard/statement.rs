@@ -1,4 +1,5 @@
-//! The per-operator upsert, mirroring `db/manual/leaderboard.sql`.
+//! The per-operator upsert, hand-written because FlashORM cannot shape one
+//! statement per operator.
 //!
 //! One statement shape serves every operator: the insert writes the absolute
 //! score, the `DO UPDATE` half differs. A decrement inserts a zeroed row and only

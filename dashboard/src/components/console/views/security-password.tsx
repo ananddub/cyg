@@ -33,28 +33,23 @@ export function PasswordChangeDialog({ open, onClose }: { open: boolean; onClose
       description="Prove the current one before setting the new one."
       onClose={close}
       footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() =>
-              write.mutate(
-                {
-                  method: "POST",
-                  path: CONSOLE_ENDPOINTS.passwordChange,
-                  body: { current_password: current, password: next },
-                  success: "Password changed.",
-                },
-                { onSuccess: close },
-              )
-            }
-            disabled={!ready || write.isPending}
-          >
-            {write.isPending && <Loader2 className="animate-spin" />}
-            Change password
-          </Button>
-        </>
+        <Button
+          onClick={() =>
+            write.mutate(
+              {
+                method: "POST",
+                path: CONSOLE_ENDPOINTS.passwordChange,
+                body: { current_password: current, password: next },
+                success: "Password changed.",
+              },
+              { onSuccess: close },
+            )
+          }
+          disabled={!ready || write.isPending}
+        >
+          {write.isPending && <Loader2 className="animate-spin" />}
+          Change password
+        </Button>
       }
     >
       <TextInput

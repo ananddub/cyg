@@ -8,7 +8,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
-import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
+import { DataTable, JsonBlock, Mono, PageHeading, Panel, SearchField } from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { JsonTextArea, TextInput } from "@/components/console/form"
 import { JsonInline } from "@/components/console/json-view"
@@ -25,8 +25,22 @@ export function SettingsView() {
   const list = useConsoleQuery<ConsoleSetting[]>("settings", SETTINGS)
   const [selectedName, setSelectedName] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [query, setQuery] = useState("")
 
   const selected = list.data?.find((setting) => setting.name === selectedName) ?? null
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (list.data ?? []).filter((setting) => {
+    if (needle === "") return true
+    return [setting.name, JSON.stringify(setting.value) ?? ""].some((value) =>
+      value.toLowerCase().includes(needle),
+    )
+  })
+
+  const empty =
+    list.data !== undefined && list.data.length > 0
+      ? "No settings match this search."
+      : "No settings recorded."
 
   const columns: Column<ConsoleSetting>[] = [
     { header: "Name", cell: (row) => <span className="font-mono text-xs font-medium text-foreground">{row.name}</span> },
@@ -36,30 +50,36 @@ export function SettingsView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <PageHeading
-        title="Settings"
-        description="Server-side key/value settings. A write replaces the whole value."
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <PageHeading
+            title="Settings"
+            description="Server-side key/value settings. A write replaces the whole value."
+          />
+        </div>
+        <Button className="h-9 shrink-0 gap-1.5" onClick={() => setCreating(true)}>
+          <Plus className="size-3.5" />
+          Set a setting
+        </Button>
+      </div>
+
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        placeholder="Search settings by name or value"
+        label="Search settings"
       />
 
-      <Panel
-        title="Settings"
-        fill
-        actions={
-          <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-            <Plus />
-            Set a setting
-          </Button>
-        }
-      >
+      <Panel title="Keys" fill>
         <DataTable
           columns={columns}
-          rows={list.data}
+          rows={filtered}
           loading={list.isPending}
           error={queryError(list.error)}
           rowKey={(row) => row.name}
           onRowClick={(row) => setSelectedName(row.name)}
           selectedKey={selectedName ?? undefined}
-          empty="No settings recorded."
+          empty={empty}
           fill
           selectable
         />
@@ -69,7 +89,7 @@ export function SettingsView() {
         open={selected !== null}
         onClose={() => setSelectedName(null)}
         title={selected?.name ?? "Setting"}
-        description={selected ? formatTime(selected.update_time) : undefined}
+        description={selected ? `Updated ${formatTime(selected.update_time)}` : undefined}
       >
         {selected !== null && (
           <SettingDetail key={selected.name} setting={selected} onDeleted={() => setSelectedName(null)} />
@@ -86,10 +106,9 @@ function SettingDetail({ setting, onDeleted }: { setting: ConsoleSetting; onDele
   const [deleting, setDeleting] = useState(false)
 
   return (
-    <Panel
-      title={setting.name}
-      description={formatTime(setting.update_time)}
-      actions={
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium text-muted-foreground">Value</span>
         <div className="flex shrink-0 gap-1.5">
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
             <Pencil />
@@ -100,11 +119,13 @@ function SettingDetail({ setting, onDeleted }: { setting: ConsoleSetting; onDele
             Delete
           </Button>
         </div>
-      }
-    >
-      <div className="p-3">
-        <JsonBlock value={setting.value} />
       </div>
+
+      <JsonBlock value={setting.value} />
+
+      <p className="text-[11px] text-muted-foreground">
+        A save replaces the whole value, not only the fields you edited.
+      </p>
 
       <SettingDialog open={editing} onClose={() => setEditing(false)} setting={setting} />
       <ConfirmAction
@@ -119,7 +140,7 @@ function SettingDetail({ setting, onDeleted }: { setting: ConsoleSetting; onDele
         path={`${SETTINGS}/${encodeURIComponent(setting.name)}`}
         success="Setting deleted."
       />
-    </Panel>
+    </div>
   )
 }
 
@@ -138,6 +159,7 @@ function SettingDialog({
   const [value, setValue] = useState(jsonText(setting?.value))
   const write = useConsoleMutation()
   const replacing = setting !== null
+  const named = replacing || name.trim() !== ""
 
   function close() {
     setName(setting?.name ?? "")
@@ -170,15 +192,10 @@ function SettingDialog({
       description="The name is the key; the value is the whole document."
       onClose={close}
       footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending}>
-            {write.isPending && <Loader2 className="animate-spin" />}
-            Save
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending || !named}>
+          {write.isPending && <Loader2 className="animate-spin" />}
+          Save
+        </Button>
       }
     >
       <TextInput
@@ -186,13 +203,14 @@ function SettingDialog({
         hint={replacing ? "The key cannot change: renaming would leave the old row behind." : undefined}
         value={name}
         onChange={setName}
+        placeholder="utc_toggle"
         mono
         autoFocus={!replacing}
         disabled={replacing}
       />
-      <JsonTextArea label="Value" rows={6} value={value} onChange={setValue} />
+      <JsonTextArea label="Value" rows={6} value={value} onChange={setValue} placeholder="true" />
       <p className="text-[11px] text-muted-foreground">
-        The value is JSON: a string is quoted, a number is not.
+        The value is JSON: a string is quoted, a number is not. An empty field stores null.
       </p>
     </FormSheet>
   )

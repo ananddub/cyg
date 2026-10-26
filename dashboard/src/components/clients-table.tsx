@@ -12,6 +12,8 @@ import type { ClientRow } from "@/lib/types"
 type Props = {
   clients: ClientRow[] | undefined
   loading: boolean
+  /** What to say when the list is empty — a filter or an empty plane. */
+  empty?: string
 }
 
 type SortDir = "asc" | "desc"
@@ -42,7 +44,7 @@ function truncateSession(session: string): string {
   return session.length > 14 ? `…${session.slice(-12)}` : session
 }
 
-export function ClientsTable({ clients, loading }: Props) {
+export function ClientsTable({ clients, loading, empty = "No clients connected" }: Props) {
   const [dir, setDir] = useState<SortDir>("desc")
 
   const rows = useMemo(() => {
@@ -111,7 +113,7 @@ export function ClientsTable({ clients, loading }: Props) {
           ) : rows.length === 0 ? (
             <TableRow>
               <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
-                No clients connected
+                {empty}
               </TableCell>
             </TableRow>
           ) : (

@@ -150,15 +150,10 @@ export function WalletDialog({ id, open, onClose }: AccountDialogProps) {
       description="Each value is added to what the account holds, and the same map is written to the ledger — so the trail records what was granted, not merely the new total."
       onClose={close}
       footer={
-        <>
-          <Button variant="outline" onClick={close} disabled={write.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={write.isPending}>
-            {write.isPending && <Loader2 className="animate-spin" />}
-            Apply
-          </Button>
-        </>
+        <Button onClick={confirm} disabled={write.isPending}>
+          {write.isPending && <Loader2 className="animate-spin" />}
+          Apply
+        </Button>
       }
     >
       <JsonTextArea label="Changeset" rows={10} value={changeset} onChange={setChangeset} />

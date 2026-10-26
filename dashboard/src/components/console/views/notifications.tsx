@@ -6,7 +6,14 @@ import { Search, Send, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
-import { DataTable, JsonBlock, Mono, PageHeading, Panel } from "@/components/console/data-table"
+import {
+  DataTable,
+  JsonBlock,
+  Mono,
+  PageHeading,
+  Panel,
+  SearchField,
+} from "@/components/console/data-table"
 import type { Column } from "@/components/console/data-table"
 import { DetailSheet } from "@/components/console/detail-sheet"
 import { useConsoleQuery, queryError } from "@/hooks/use-console"
@@ -23,6 +30,7 @@ export function NotificationsView() {
   const [sending, setSending] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
 
   const list = useConsoleQuery<ConsoleNotification[]>(
     "notifications",
@@ -34,6 +42,19 @@ export function NotificationsView() {
   // Read back from the list, so deleting or refetching the opened row updates or
   // closes the drawer rather than leaving a captured copy on screen.
   const opened = list.data?.find((row) => row.id === openId) ?? null
+
+  const needle = query.trim().toLowerCase()
+  const filtered = (list.data ?? []).filter((row) => {
+    if (needle === "") return true
+    return [row.subject, String(row.code), row.sender_id].some((value) =>
+      value.toLowerCase().includes(needle),
+    )
+  })
+
+  const empty =
+    list.data !== undefined && list.data.length > 0
+      ? "No notifications match this search."
+      : "No notifications for this account."
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -66,37 +87,55 @@ export function NotificationsView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <PageHeading
-        title="Notifications"
-        description="Subject, content and delivery time for one account's notifications."
-      />
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <PageHeading
+            title="Notifications"
+            description="Subject, content and delivery time for one account's notifications."
+          />
+        </div>
+        <Button
+          className="h-9 shrink-0 gap-1.5"
+          disabled={userId === null}
+          onClick={() => setSending(true)}
+        >
+          <Send className="size-3.5" />
+          Send
+        </Button>
+      </div>
 
-      <form onSubmit={submit} className="flex shrink-0 flex-wrap items-end gap-2">
-        <label className="space-y-1.5">
-          <span className="block text-xs font-medium text-muted-foreground">Account id</span>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <form onSubmit={submit} className="flex w-full shrink-0 items-center gap-2 sm:max-w-md">
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="00000000-0000-0000-0000-000000000000"
-            className="h-8 w-80 rounded-md border border-border bg-background px-3 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            placeholder="Account id (UUID)"
+            aria-label="Account id"
+            spellCheck={false}
+            autoComplete="off"
+            className="h-9 w-full rounded-lg border border-border bg-card px-3 font-mono text-xs outline-none transition-colors hover:border-foreground/25 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           />
-        </label>
-        <Button type="submit" size="sm" disabled={draft.trim() === ""}>
-          <Search />
-          Look up
-        </Button>
-      </form>
+          <Button type="submit" className="h-9 shrink-0 gap-1.5" disabled={draft.trim() === ""}>
+            <Search className="size-3.5" />
+            Look up
+          </Button>
+        </form>
+
+        {userId !== null && (
+          <SearchField
+            value={query}
+            onChange={setQuery}
+            placeholder="Search notifications by subject, code or sender"
+            label="Search notifications"
+            className="sm:flex-1"
+          />
+        )}
+      </div>
 
       <Panel
         title="Notifications"
         description={userId === null ? "Enter an account id" : shortId(userId)}
         fill
-        actions={
-          <Button size="sm" variant="outline" disabled={userId === null} onClick={() => setSending(true)}>
-            <Send />
-            Send
-          </Button>
-        }
       >
         {userId === null ? (
           <p className="flex flex-1 items-center justify-center px-4 py-6 text-center text-sm text-muted-foreground">
@@ -105,13 +144,13 @@ export function NotificationsView() {
         ) : (
           <DataTable
             columns={columns}
-            rows={list.data}
+            rows={filtered}
             loading={list.isPending}
             error={queryError(list.error)}
             rowKey={(row) => row.id}
             onRowClick={(row) => setOpenId(row.id)}
             selectedKey={openId ?? undefined}
-            empty="No notifications for this account."
+            empty={empty}
             fill
             selectable
           />
