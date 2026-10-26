@@ -46,17 +46,22 @@ pub(crate) fn decode_cursor(raw: Option<&str>) -> Result<Option<(DateTime<Utc>, 
     Ok(Some((time, id)))
 }
 
-/// The delete endpoints accept a repeated field, a comma-joined one, or both;
-/// ids that do not parse are dropped, exactly as the gateway drops them.
+/// The delete endpoints accept a repeated field, a comma-joined one, a JSON
+/// array spelled into one value, or any mix; ids that do not parse are dropped,
+/// exactly as the gateway drops them.
 pub(crate) fn flatten(values: Vec<String>) -> Vec<Uuid> {
     values
         .iter()
         .flat_map(|v| {
-            v.split(',')
-                .map(str::trim)
-                .filter(|t| !t.is_empty())
-                .collect::<Vec<_>>()
+            let raw = v.trim();
+            if raw.starts_with('[') {
+                if let Ok(items) = serde_json::from_str::<Vec<String>>(raw) {
+                    return items;
+                }
+            }
+            raw.split(',').map(str::trim).map(str::to_owned).collect()
         })
-        .filter_map(|s| Uuid::parse_str(s).ok())
+        .filter(|s| !s.trim().is_empty())
+        .filter_map(|s| Uuid::parse_str(s.trim()).ok())
         .collect()
 }

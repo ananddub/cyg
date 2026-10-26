@@ -28,25 +28,29 @@ use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 use uuid::Uuid;
 
-/// An 8-character random suffix of hex LETTERS only (`a`-`f`).
+/// An 8-character random lowercase suffix for e2e identifiers.
 ///
-/// The moderation filter rejects ~8% of random digit+letter strings — its
-/// context matcher reads sequences like "69a8e" as evasive sexual references
-/// — so e2e identifiers that pass through a profanity check must not sample
-/// digits. Letters-only suffixes are immune.
+/// Letters only: the moderation filter is a context matcher that reads digit
+/// runs as leetspeak, so identifiers that pass through it must not sample
+/// digits. `device_player` additionally re-checks the assembled username,
+/// because the boundary between prefix and suffix can itself form a match.
 fn letters_suffix() -> String {
+    let mut value = Uuid::new_v4().as_u128();
     let mut out = String::new();
-    let mut uuid = Uuid::new_v4().simple().to_string().into_bytes();
     while out.len() < 8 {
-        if uuid.is_empty() {
-            uuid = Uuid::new_v4().simple().to_string().into_bytes();
-        }
-        let c = uuid.remove(0) as char;
-        if c.is_ascii_alphabetic() {
-            out.push(c);
-        }
+        out.push((b'a' + (value % 26) as u8) as char);
+        value /= 26;
     }
     out
+}
+
+/// The same rustrict call `moderation::is_clean` makes on the server.
+fn accepts_username(candidate: &str) -> bool {
+    use rustrict::{Censor, Type};
+    !Censor::from_str(candidate)
+        .with_censor_threshold(Type::INAPPROPRIATE)
+        .analyze()
+        .is(Type::INAPPROPRIATE)
 }
 
 
@@ -177,6 +181,15 @@ async fn rest_api_end_to_end() {
     account_surface(&client, &base, &env.pool).await;
     link_surface(&client, &base, &env.pool).await;
     user_surface(&client, &base, &env.pool).await;
+    friend_surface(&client, &base, &env.pool).await;
+    group_surface(&client, &base, &env.pool).await;
+    channel_surface(&client, &base, &env.pool).await;
+    notification_surface(&client, &base, &env.pool).await;
+    storage_surface(&client, &base).await;
+    storage_index_surface(&client, &base).await;
+    inventory_surface(&client, &base).await;
+    leaderboard_surface(&client, &base, &env.pool).await;
+    iap_surface(&client, &base, &env.pool).await;
     tournaments(&client, &base, &console, &env.pool).await;
     audit_trail(&env.pool).await;
     // The seat is still outstanding at the end of the run, which is what `/status`
@@ -1447,7 +1460,12 @@ struct Player {
 /// route, with the Basic server key the plane was booted with.
 async fn device_player(client: &Client, base: &str, label: &str) -> Player {
     let device_id = format!("e2e-{label}-{}", Uuid::new_v4());
-    let username = format!("e2e-{label}-{}", letters_suffix());
+    let username = loop {
+        let candidate = format!("e2e-{label}-{}", letters_suffix());
+        if accepts_username(&candidate) {
+            break candidate;
+        }
+    };
     let body = json_body(
         client
             .post(format!(
@@ -4426,6 +4444,4379 @@ async fn user_surface(client: &Client, base: &str, pool: &PgPool) {
         .execute(pool)
         .await
         .expect("re-enable the second user");
+}
+
+// ---------------------------------------------------------------------------
+// Helper verbs for the social, storage and commerce planes
+// ---------------------------------------------------------------------------
+
+/// A GET as a player session, asserting 200 and decoding the JSON answer.
+async fn api_get(client: &Client, url: String, token: &str, what: &str) -> Value {
+    json_body(
+        client
+            .get(url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap_or_else(|err| panic!("{what}: {err}")),
+        StatusCode::OK,
+        what,
+    )
+    .await
+}
+
+async fn api_post(client: &Client, url: String, token: &str, body: Value, what: &str) -> Value {
+    json_body(
+        client
+            .post(url)
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap_or_else(|err| panic!("{what}: {err}")),
+        StatusCode::OK,
+        what,
+    )
+    .await
+}
+
+/// A verb whose inputs are all in the query string, with no body.
+async fn api_post_empty(client: &Client, url: String, token: &str, what: &str) -> Value {
+    json_body(
+        client
+            .post(url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap_or_else(|err| panic!("{what}: {err}")),
+        StatusCode::OK,
+        what,
+    )
+    .await
+}
+
+async fn api_put(client: &Client, url: String, token: &str, body: Value, what: &str) -> Value {
+    json_body(
+        client
+            .put(url)
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap_or_else(|err| panic!("{what}: {err}")),
+        StatusCode::OK,
+        what,
+    )
+    .await
+}
+
+async fn api_delete(client: &Client, url: String, token: &str, what: &str) -> Value {
+    json_body(
+        client
+            .delete(url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap_or_else(|err| panic!("{what}: {err}")),
+        StatusCode::OK,
+        what,
+    )
+    .await
+}
+
+async fn api_delete_body(
+    client: &Client,
+    url: String,
+    token: &str,
+    body: Value,
+    what: &str,
+) -> Value {
+    json_body(
+        client
+            .delete(url)
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap_or_else(|err| panic!("{what}: {err}")),
+        StatusCode::OK,
+        what,
+    )
+    .await
+}
+
+/// Build a URL with query parameters percent-encoded by the same codec the server
+/// decodes with, so JSON-array values and duplicates travel honestly.
+fn with_query(base: &str, pairs: &[(&str, &str)]) -> String {
+    let mut url = reqwest::Url::parse(base).expect("a valid base URL");
+    {
+        let mut query = url.query_pairs_mut();
+        for (key, value) in pairs {
+            query.append_pair(key, value);
+        }
+    }
+    url.to_string()
+}
+
+fn uuid_of(player: &Player) -> Uuid {
+    Uuid::parse_str(&player.uid).expect("the session's uid claim is a UUID")
+}
+
+/// The gateway carries metadata, notification content and stored values as JSON
+/// strings on the wire; this unwraps one back into a value for comparison.
+fn json_string(value: &Value) -> Value {
+    serde_json::from_str(value.as_str().expect("a JSON string member"))
+        .unwrap_or_else(|err| panic!("member is not JSON ({err}): {value}"))
+}
+
+async fn edge_count(pool: &PgPool, uid: Uuid) -> i32 {
+    sqlx::query_scalar("SELECT edge_count FROM users WHERE id = $1")
+        .bind(uid)
+        .fetch_one(pool)
+        .await
+        .expect("users.edge_count")
+}
+
+async fn friend_edge_state(pool: &PgPool, from: Uuid, to: Uuid) -> Option<i16> {
+    sqlx::query_scalar("SELECT state FROM user_edge WHERE source_id = $1 AND destination_id = $2")
+        .bind(from)
+        .bind(to)
+        .fetch_optional(pool)
+        .await
+        .expect("user_edge state")
+}
+
+async fn group_edge_state(pool: &PgPool, uid: Uuid, group: Uuid) -> Option<i16> {
+    sqlx::query_scalar("SELECT state FROM group_edge WHERE source_id = $1 AND destination_id = $2")
+        .bind(uid)
+        .bind(group)
+        .fetch_optional(pool)
+        .await
+        .expect("group_edge state")
+}
+
+async fn group_count(pool: &PgPool, group: Uuid) -> i32 {
+    sqlx::query_scalar("SELECT edge_count FROM groups WHERE id = $1")
+        .bind(group)
+        .fetch_one(pool)
+        .await
+        .expect("groups.edge_count")
+}
+
+// ---------------------------------------------------------------------------
+// Friends
+// ---------------------------------------------------------------------------
+
+async fn friend_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: friends");
+    let alice = device_player(client, base, "fr-a").await;
+    let bob = device_player(client, base, "fr-b").await;
+    let carol = device_player(client, base, "fr-c").await;
+    let (a, b, c) = (uuid_of(&alice), uuid_of(&bob), uuid_of(&carol));
+
+    let empty = api_get(
+        client,
+        format!("{base}/v2/friend"),
+        &alice.token,
+        "an empty friend list",
+    )
+    .await;
+    assert_eq!(empty["friends"], json!([]));
+    assert_eq!(empty["cursor"], "");
+
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/friend?limit=0"))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "friend list limit below one",
+        )
+        .await,
+        "Invalid limit - limit must be between 1 and 1000."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/friend?state=4"))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "friend list state out of range",
+        )
+        .await,
+        "Invalid state - state must be between 0 and 3."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/friend?cursor=not-a-cursor"))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "friend list bad cursor",
+        )
+        .await,
+        "Cursor is invalid."
+    );
+
+    assert_eq!(
+        refusal(
+            client
+                .post(with_query(
+                    &format!("{base}/v2/friend"),
+                    &[("ids", alice.uid.as_str())],
+                ))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "adding self as a friend",
+        )
+        .await,
+        "Cannot add self as friend."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(with_query(
+                    &format!("{base}/v2/friend"),
+                    &[("usernames", "no-such-player-at-all")],
+                ))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "adding an unresolvable username",
+        )
+        .await,
+        "No valid ID or username was provided."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(with_query(
+                    &format!("{base}/v2/friend"),
+                    &[("ids", "not-a-uuid")],
+                ))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "adding a malformed id",
+        )
+        .await,
+        "Invalid user ID 'not-a-uuid'."
+    );
+
+    // Alice invites Bob, carrying edge metadata.
+    assert_eq!(
+        api_post_empty(
+            client,
+            with_query(
+                &format!("{base}/v2/friend"),
+                &[("ids", bob.uid.as_str()), ("metadata", r#"{"nick":"bob"}"#)],
+            ),
+            &alice.token,
+            "alice invites bob",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(friend_edge_state(pool, a, b).await, Some(1));
+    assert_eq!(friend_edge_state(pool, b, a).await, Some(2));
+    assert_eq!(edge_count(pool, a).await, 1);
+    assert_eq!(edge_count(pool, b).await, 1);
+
+    // The invite is a notification to Bob.
+    let inbox = api_get(
+        client,
+        format!(
+            "{base}/v2/notification?limit=10&sender_id={}",
+            alice.uid
+        ),
+        &bob.token,
+        "bob's friend-request notification",
+    )
+    .await;
+    let rows = inbox["notifications"]
+        .as_array()
+        .expect("bob has a notification");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["code"], -2);
+    assert_eq!(rows[0]["sender_id"], alice.uid);
+    assert_eq!(
+        rows[0]["subject"],
+        format!("{} wants to add you as a friend", alice.username)
+    );
+    assert_eq!(json_string(&rows[0]["content"])["username"], alice.username);
+    assert_eq!(rows[0]["persistent"], true);
+
+    let pending = api_get(
+        client,
+        format!("{base}/v2/friend?state=1"),
+        &alice.token,
+        "alice's sent invites",
+    )
+    .await;
+    let rows = pending["friends"].as_array().expect("a sent invite");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["user"]["id"], bob.uid);
+    assert_eq!(rows[0]["state"], 1);
+    assert_eq!(json_string(&rows[0]["metadata"]), json!({ "nick": "bob" }));
+    assert!(rows[0]["update_time"].as_str().is_some());
+
+    // Bob adds Alice back: the pending pair is accepted rather than re-invited.
+    assert_eq!(
+        api_post_empty(
+            client,
+            with_query(
+                &format!("{base}/v2/friend"),
+                &[
+                    ("ids", alice.uid.as_str()),
+                    ("metadata", r#"{"since":"accepted"}"#),
+                ],
+            ),
+            &bob.token,
+            "bob accepts alice's invite",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(friend_edge_state(pool, a, b).await, Some(0));
+    assert_eq!(friend_edge_state(pool, b, a).await, Some(0));
+    assert_eq!(edge_count(pool, a).await, 1);
+    assert_eq!(edge_count(pool, b).await, 1);
+    let bob_meta: Value = sqlx::query_scalar(
+        "SELECT metadata FROM user_edge WHERE source_id = $1 AND destination_id = $2",
+    )
+    .bind(b)
+    .bind(a)
+    .fetch_one(pool)
+    .await
+    .expect("bob's edge metadata");
+    assert_eq!(bob_meta, json!({ "since": "accepted" }));
+
+    let accepted = api_get(
+        client,
+        format!(
+            "{base}/v2/notification?limit=10&sender_id={}",
+            bob.uid
+        ),
+        &alice.token,
+        "alice's acceptance notification",
+    )
+    .await;
+    assert!(accepted["notifications"]
+        .as_array()
+        .expect("alice has notifications")
+        .iter()
+        .any(|n| n["code"] == -3
+            && n["subject"] == format!("{} accepted your friend request", bob.username)));
+
+    // Bob befriends Carol so Alice has a friend-of-a-friend.
+    api_post_empty(
+        client,
+        with_query(
+            &format!("{base}/v2/friend"),
+            &[("ids", carol.uid.as_str())],
+        ),
+        &bob.token,
+        "bob invites carol",
+    )
+    .await;
+    api_post_empty(
+        client,
+        with_query(&format!("{base}/v2/friend"), &[("ids", bob.uid.as_str())]),
+        &carol.token,
+        "carol accepts bob's invite",
+    )
+    .await;
+    assert_eq!(friend_edge_state(pool, b, c).await, Some(0));
+
+    let fof = api_get(
+        client,
+        format!("{base}/v2/friend/friends?limit=10"),
+        &alice.token,
+        "alice's friends of friends",
+    )
+    .await;
+    let entries = fof["friends_of_friends"]
+        .as_array()
+        .expect("a friends-of-friends page");
+    let entry = entries
+        .iter()
+        .find(|entry| entry["user"]["id"] == carol.uid)
+        .expect("carol is reachable through bob");
+    assert_eq!(entry["referrer"], bob.uid);
+    assert!(entries
+        .iter()
+        .all(|entry| entry["user"]["id"] != alice.uid && entry["user"]["id"] != bob.uid));
+    assert_eq!(fof["cursor"], "");
+
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/friend/friends?limit=0"))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "friends-of-friends limit below one",
+        )
+        .await,
+        "Invalid limit - limit must be between 1 and 100."
+    );
+
+    // Blocking is one-directional and quietly discards a later invite.
+    assert_eq!(
+        refusal(
+            client
+                .post(with_query(
+                    &format!("{base}/v2/friend/block"),
+                    &[("ids", carol.uid.as_str())],
+                ))
+                .bearer_auth(&carol.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "blocking self",
+        )
+        .await,
+        "Cannot block self."
+    );
+    assert_eq!(
+        api_post_empty(
+            client,
+            with_query(
+                &format!("{base}/v2/friend/block"),
+                &[("ids", alice.uid.as_str())],
+            ),
+            &carol.token,
+            "carol blocks alice",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(friend_edge_state(pool, c, a).await, Some(3));
+    assert_eq!(edge_count(pool, c).await, 2);
+
+    assert_eq!(
+        api_post_empty(
+            client,
+            with_query(
+                &format!("{base}/v2/friend"),
+                &[("ids", carol.uid.as_str())],
+            ),
+            &alice.token,
+            "alice invites a player who blocked her",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(
+        friend_edge_state(pool, a, c).await,
+        None,
+        "a blocked invite writes nothing"
+    );
+
+    let blocked = api_get(
+        client,
+        format!("{base}/v2/friend?state=3"),
+        &carol.token,
+        "carol's blocked list",
+    )
+    .await;
+    assert_eq!(blocked["friends"][0]["user"]["id"], alice.uid);
+    assert_eq!(blocked["friends"][0]["state"], 3);
+
+    // Deleting a friend removes both edges, both counts and notifies the other side.
+    assert_eq!(
+        api_delete(
+            client,
+            with_query(
+                &format!("{base}/v2/friend"),
+                &[("ids", carol.uid.as_str())],
+            ),
+            &bob.token,
+            "bob deletes carol",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(friend_edge_state(pool, b, c).await, None);
+    assert_eq!(friend_edge_state(pool, c, b).await, None);
+    assert_eq!(edge_count(pool, b).await, 1);
+    assert_eq!(edge_count(pool, c).await, 1);
+    let removed = api_get(
+        client,
+        format!("{base}/v2/notification?limit=10&sender_id={}", bob.uid),
+        &carol.token,
+        "carol's removal notification",
+    )
+    .await;
+    assert!(removed["notifications"]
+        .as_array()
+        .expect("carol has notifications")
+        .iter()
+        .any(|n| n["code"] == -9
+            && n["subject"] == format!("{} removed you as a friend", bob.username)));
+
+    assert_eq!(
+        api_delete(
+            client,
+            with_query(
+                &format!("{base}/v2/friend"),
+                &[("ids", bob.uid.as_str())],
+            ),
+            &alice.token,
+            "alice deletes bob",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(friend_edge_state(pool, a, b).await, None);
+    assert_eq!(friend_edge_state(pool, b, a).await, None);
+    assert_eq!(edge_count(pool, a).await, 0);
+    assert_eq!(edge_count(pool, b).await, 0);
+
+    assert_eq!(
+        refusal(
+            client
+                .delete(with_query(
+                    &format!("{base}/v2/friend"),
+                    &[("ids", alice.uid.as_str())],
+                ))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "deleting self as a friend",
+        )
+        .await,
+        "Cannot delete self."
+    );
+    assert_eq!(
+        api_delete(
+            client,
+            format!("{base}/v2/friend"),
+            &alice.token,
+            "deleting no friends",
+        )
+        .await,
+        json!({})
+    );
+
+    // Imports are unconfigured in this deployment, and say so.
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/friend/facebook"))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "facebook import",
+        )
+        .await,
+        "Facebook authentication is not configured."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/friend/steam"))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "steam import",
+        )
+        .await,
+        "Steam authentication is not configured."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Groups
+// ---------------------------------------------------------------------------
+
+async fn group_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: groups");
+    let owner = device_player(client, base, "gr-o").await;
+    let member1 = device_player(client, base, "gr-m").await;
+    let member2 = device_player(client, base, "gr-n").await;
+    let outsider = device_player(client, base, "gr-x").await;
+
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group"))
+                .bearer_auth(&owner.token)
+                .json(&json!({ "name": "" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "creating a group without a name",
+        )
+        .await,
+        "Group name must be set."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group"))
+                .bearer_auth(&owner.token)
+                .json(&json!({ "name": format!("e2e-bad-{}", letters_suffix()), "max_count": -1 }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "creating a group with a negative size",
+        )
+        .await,
+        "Group max count must be >= 1 when set."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group"))
+                .bearer_auth(&owner.token)
+                .json(&json!({
+                    "name": format!("e2e-bad-{}", letters_suffix()),
+                    "creator_id": Uuid::new_v4().to_string(),
+                }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "creating a group for another creator",
+        )
+        .await,
+        "Group creator invalid."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group"))
+                .bearer_auth(&owner.token)
+                .json(&json!({ "name": format!("e2e-bad-{}", letters_suffix()), "metadata": "{not json" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "creating a group with bad metadata",
+        )
+        .await,
+        "Failed to unmarshal group metadata."
+    );
+
+    let open_name = format!("e2e-open-{}", letters_suffix());
+    let created = api_post(
+        client,
+        format!("{base}/v2/group"),
+        &owner.token,
+        json!({
+            "name": open_name,
+            "open": true,
+            "max_count": 2,
+            "description": "the open group",
+            "lang_tag": "en",
+            "metadata": r#"{"tier":"gold"}"#,
+        }),
+        "create an open group",
+    )
+    .await;
+    let open_id = created["group"]["id"].as_str().expect("group id").to_owned();
+    let open = Uuid::parse_str(&open_id).expect("group uuid");
+    assert_eq!(created["group"]["creator_id"], owner.uid);
+    assert_eq!(created["group"]["name"], open_name);
+    assert_eq!(created["group"]["open"], true);
+    assert_eq!(created["group"]["edge_count"], 1);
+    assert_eq!(created["group"]["max_count"], 2);
+    assert_eq!(created["group"]["description"], "the open group");
+    assert_eq!(created["group"]["lang_tag"], "en");
+    assert_eq!(
+        json_string(&created["group"]["metadata"]),
+        json!({ "tier": "gold" })
+    );
+
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group"))
+                .bearer_auth(&owner.token)
+                .json(&json!({ "name": open_name }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::CONFLICT,
+            "reusing a group name",
+        )
+        .await,
+        "Group name is in use."
+    );
+
+    let fetched = api_get(
+        client,
+        format!("{base}/v2/group/{open_id}"),
+        &owner.token,
+        "get a group",
+    )
+    .await;
+    assert_eq!(fetched["group"]["id"], open_id);
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/group/not-a-uuid"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "getting a malformed group id",
+        )
+        .await,
+        "Group ID must be a valid ID."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/group/{}", Uuid::new_v4()))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "getting an unknown group",
+        )
+        .await,
+        "Group not found."
+    );
+
+    let by_name = api_get(
+        client,
+        with_query(&format!("{base}/v2/group"), &[("name", open_name.as_str())]),
+        &owner.token,
+        "searching groups by name",
+    )
+    .await;
+    assert_eq!(by_name["groups"][0]["id"], open_id);
+    assert_eq!(
+        refusal(
+            client
+                .get(with_query(
+                    &format!("{base}/v2/group"),
+                    &[("name", open_name.as_str()), ("open", "true")],
+                ))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "combining the name filter with another filter",
+        )
+        .await,
+        "name filter cannot be combined with any other filter"
+    );
+
+    let discover = api_get(
+        client,
+        format!("{base}/v2/group?open=true&members=1"),
+        &owner.token,
+        "discovering open groups",
+    )
+    .await;
+    assert!(discover["groups"]
+        .as_array()
+        .expect("group list")
+        .iter()
+        .any(|group| group["id"] == open_id));
+    assert!(discover["groups"].as_array().unwrap().len() <= 1);
+
+    let bad_bool = refusal(
+        client
+            .get(format!("{base}/v2/group?open=maybe"))
+            .bearer_auth(&owner.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "an unparseable open filter",
+    )
+    .await;
+    assert!(bad_bool.starts_with("invalid query parameter"), "{bad_bool}");
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/group?limit=0"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "group list limit below one",
+        )
+        .await,
+        "Invalid limit - limit must be between 1 and 100."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/group?cursor=not-a-cursor"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "group list bad cursor",
+        )
+        .await,
+        "Cursor is invalid."
+    );
+
+    // Capacity is claimed by the counter: the second member fills the group,
+    // and the third is refused.
+    assert_eq!(
+        api_post_empty(
+            client,
+            format!("{base}/v2/group/{open_id}/join"),
+            &member1.token,
+            "member1 joins the open group",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, Some(2));
+    assert_eq!(group_count(pool, open).await, 2);
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group/{open_id}/join"))
+                .bearer_auth(&member2.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "joining a full group",
+        )
+        .await,
+        "Group is full."
+    );
+
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group/{open_id}/leave"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "the last superadmin leaving",
+        )
+        .await,
+        "Cannot leave group when you are the last superadmin."
+    );
+    assert_eq!(
+        api_post_empty(
+            client,
+            format!("{base}/v2/group/{open_id}/leave"),
+            &member1.token,
+            "member1 leaves the open group",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(group_count(pool, open).await, 1);
+    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, None);
+
+    api_post_empty(
+        client,
+        format!("{base}/v2/group/{open_id}/join"),
+        &member2.token,
+        "member2 joins the freed slot",
+    )
+    .await;
+    assert_eq!(group_edge_state(pool, uuid_of(&member2), open).await, Some(2));
+    assert_eq!(group_count(pool, open).await, 2);
+
+    // Banning a member frees the slot and locks the door.
+    assert_eq!(
+        api_post_empty(
+            client,
+            format!(
+                "{base}/v2/group/{open_id}/ban?user_ids={}",
+                member2.uid
+            ),
+            &owner.token,
+            "owner bans member2",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&member2), open).await,
+        Some(4)
+    );
+    assert_eq!(group_count(pool, open).await, 1);
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group/{open_id}/join"))
+                .bearer_auth(&member2.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "a banned player rejoining",
+        )
+        .await,
+        "Banned from the group."
+    );
+
+    // Adding a member directly, then promote/demote/kick around the role ladder.
+    assert_eq!(
+        api_post_empty(
+            client,
+            format!("{base}/v2/group/{open_id}/add"),
+            &owner.token,
+            "adding no users",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group/{open_id}/add?user_ids=not-a-uuid"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "adding a malformed user id",
+        )
+        .await,
+        "User ID must be a valid ID."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!(
+                    "{base}/v2/group/{open_id}/add?user_ids={}",
+                    Uuid::new_v4()
+                ))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "adding an unknown user",
+        )
+        .await,
+        "One or more users not found."
+    );
+    assert_eq!(
+        api_post_empty(
+            client,
+            format!("{base}/v2/group/{open_id}/add?user_ids={}", member1.uid),
+            &owner.token,
+            "owner adds member1",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, Some(2));
+    assert_eq!(group_count(pool, open).await, 2);
+
+    let roster = api_get(
+        client,
+        format!("{base}/v2/group/{open_id}/user?limit=100"),
+        &owner.token,
+        "the group roster",
+    )
+    .await;
+    let roster = roster["group_users"].as_array().expect("a roster");
+    assert_eq!(roster.len(), 2);
+    assert_eq!(roster[0]["user"]["id"], owner.uid);
+    assert_eq!(roster[0]["state"], 0);
+    assert_eq!(roster[1]["user"]["id"], member1.uid);
+    assert_eq!(roster[1]["state"], 2);
+
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/group/{open_id}/user?state=5"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "group roster state out of range",
+        )
+        .await,
+        "Invalid state - state must be between 0 and 4."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/group/{open_id}/user?limit=0"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "group roster limit below one",
+        )
+        .await,
+        "Invalid limit - limit must be between 1 and 100."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/group/{open_id}/user?cursor=not-a-cursor"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "group roster bad cursor",
+        )
+        .await,
+        "Cursor is invalid."
+    );
+
+    api_post_empty(
+        client,
+        format!("{base}/v2/group/{open_id}/promote?user_ids={}", member1.uid),
+        &owner.token,
+        "owner promotes member1",
+    )
+    .await;
+    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, Some(1));
+    let admins = api_get(
+        client,
+        format!("{base}/v2/group/{open_id}/user?state=1"),
+        &owner.token,
+        "the group's admins",
+    )
+    .await;
+    let admins = admins["group_users"].as_array().expect("an admin page");
+    assert_eq!(admins.len(), 1);
+    assert_eq!(admins[0]["user"]["id"], member1.uid);
+
+    assert_eq!(
+        refusal(
+            client
+                .post(format!(
+                    "{base}/v2/group/{open_id}/kick?user_ids={}",
+                    owner.uid
+                ))
+                .bearer_auth(&member1.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "an admin kicking the superadmin",
+        )
+        .await,
+        "Cannot remove a user of equal or higher role."
+    );
+
+    api_post_empty(
+        client,
+        format!("{base}/v2/group/{open_id}/demote?user_ids={}", member1.uid),
+        &owner.token,
+        "owner demotes member1",
+    )
+    .await;
+    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, Some(2));
+
+    assert_eq!(
+        api_post_empty(
+            client,
+            format!("{base}/v2/group/{open_id}/kick?user_ids={}", member1.uid),
+            &owner.token,
+            "owner kicks member1",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, None);
+    assert_eq!(group_count(pool, open).await, 1);
+    let roster = api_get(
+        client,
+        format!("{base}/v2/group/{open_id}/user?limit=100"),
+        &owner.token,
+        "the roster after the kick",
+    )
+    .await;
+    assert_eq!(roster["group_users"].as_array().unwrap().len(), 1);
+
+    // A closed group records a join request; an admin's add accepts it.
+    let closed_name = format!("e2e-closed-{}", letters_suffix());
+    let closed = api_post(
+        client,
+        format!("{base}/v2/group"),
+        &owner.token,
+        json!({ "name": closed_name }),
+        "create a closed group",
+    )
+    .await;
+    let closed_id = closed["group"]["id"]
+        .as_str()
+        .expect("closed group id")
+        .to_owned();
+    let closed_uuid = Uuid::parse_str(&closed_id).expect("closed group uuid");
+    assert_eq!(closed["group"]["open"], false);
+    assert_eq!(closed["group"]["max_count"], 100);
+    assert!(closed["group"].get("description").is_none());
+    assert!(closed["group"].get("avatar_url").is_none());
+
+    api_post_empty(
+        client,
+        format!("{base}/v2/group/{closed_id}/join"),
+        &outsider.token,
+        "outsider requests to join the closed group",
+    )
+    .await;
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&outsider), closed_uuid).await,
+        Some(3)
+    );
+    assert_eq!(group_count(pool, closed_uuid).await, 1);
+    let request = api_get(
+        client,
+        format!(
+            "{base}/v2/notification?limit=10&sender_id={}",
+            outsider.uid
+        ),
+        &owner.token,
+        "the owner's join-request notification",
+    )
+    .await;
+    let request = request["notifications"]
+        .as_array()
+        .expect("the owner has notifications")
+        .iter()
+        .find(|n| n["code"] == -5)
+        .expect("a join-request notification");
+    let content = json_string(&request["content"]);
+    assert_eq!(content["group_id"], closed_id);
+    assert_eq!(content["username"], outsider.username);
+    assert_eq!(
+        request["subject"],
+        format!("User {} wants to join your group", outsider.username)
+    );
+
+    api_post_empty(
+        client,
+        format!("{base}/v2/group/{closed_id}/join"),
+        &outsider.token,
+        "outsider requests again",
+    )
+    .await;
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&outsider), closed_uuid).await,
+        Some(3)
+    );
+
+    api_post_empty(
+        client,
+        format!("{base}/v2/group/{closed_id}/add?user_ids={}", outsider.uid),
+        &owner.token,
+        "owner accepts the join request",
+    )
+    .await;
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&outsider), closed_uuid).await,
+        Some(2)
+    );
+    assert_eq!(group_count(pool, closed_uuid).await, 2);
+    let added = api_get(
+        client,
+        format!(
+            "{base}/v2/notification?limit=10&sender_id={}",
+            owner.uid
+        ),
+        &outsider.token,
+        "the added player's notification",
+    )
+    .await;
+    let added = added["notifications"]
+        .as_array()
+        .expect("the added player has notifications")
+        .iter()
+        .find(|n| n["code"] == -4)
+        .expect("an added-to-group notification");
+    assert_eq!(
+        added["subject"],
+        format!("You've been added to group {closed_name}")
+    );
+    assert_eq!(json_string(&added["content"])["group_id"], closed_id);
+
+    // Updates: superadmin only, at least one field, name clashes are bad requests.
+    assert_eq!(
+        refusal(
+            client
+                .put(format!("{base}/v2/group/{closed_id}"))
+                .bearer_auth(&owner.token)
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "an empty group update",
+        )
+        .await,
+        "Specify at least one field to update."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .put(format!("{base}/v2/group/{closed_id}"))
+                .bearer_auth(&owner.token)
+                .json(&json!({ "name": open_name }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "renaming a group to a taken name",
+        )
+        .await,
+        "Group name is in use."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .put(format!("{base}/v2/group/{closed_id}"))
+                .bearer_auth(&owner.token)
+                .json(&json!({ "max_count": 0 }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "shrinking a group to nothing",
+        )
+        .await,
+        "Group max count must be >= 1 when set."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .put(format!("{base}/v2/group/{closed_id}"))
+                .bearer_auth(&outsider.token)
+                .json(&json!({ "description": "not mine" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "a member updating a group",
+        )
+        .await,
+        "Group not found or permission denied."
+    );
+    assert_eq!(
+        api_put(
+            client,
+            format!("{base}/v2/group/{closed_id}"),
+            &owner.token,
+            json!({ "description": "updated", "open": true }),
+            "owner updates the group",
+        )
+        .await,
+        json!({})
+    );
+    let updated = api_get(
+        client,
+        format!("{base}/v2/group/{closed_id}"),
+        &owner.token,
+        "the updated group",
+    )
+    .await;
+    assert_eq!(updated["group"]["description"], "updated");
+    assert_eq!(updated["group"]["open"], true);
+
+    // A player's own group list sees the edge state and skips soft-deleted rows.
+    let groups = api_get(
+        client,
+        format!("{base}/v2/user/{}/group", outsider.uid),
+        &owner.token,
+        "the outsider's groups",
+    )
+    .await;
+    assert!(groups["user_groups"]
+        .as_array()
+        .expect("a user-group page")
+        .iter()
+        .any(|entry| entry["group"]["id"] == closed_id && entry["state"] == 2));
+    let only_member = api_get(
+        client,
+        format!("{base}/v2/user/{}/group?state=2", outsider.uid),
+        &owner.token,
+        "the outsider's memberships",
+    )
+    .await;
+    assert!(only_member["user_groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|entry| entry["state"] == 2));
+    let none = api_get(
+        client,
+        format!("{base}/v2/user/{}/group?state=0", outsider.uid),
+        &owner.token,
+        "groups the outsider owns",
+    )
+    .await;
+    assert_eq!(none["user_groups"], json!([]));
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/user/{}/group?state=5", outsider.uid))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "user-group state out of range",
+        )
+        .await,
+        "Invalid state - state must be between 0 and 4."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/user/{}/group?limit=0", outsider.uid))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "user-group limit below one",
+        )
+        .await,
+        "Invalid limit - limit must be between 1 and 100."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/user/not-a-uuid/group"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "a malformed user id on the group alias",
+        )
+        .await,
+        "Group ID must be a valid ID."
+    );
+
+    // Leaving removes the edge and one slot; leaving twice is not found.
+    assert_eq!(
+        api_post_empty(
+            client,
+            format!("{base}/v2/group/{closed_id}/leave"),
+            &outsider.token,
+            "outsider leaves the closed group",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&outsider), closed_uuid).await,
+        None
+    );
+    assert_eq!(group_count(pool, closed_uuid).await, 1);
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/group/{closed_id}/leave"))
+                .bearer_auth(&outsider.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "leaving a group the caller is not in",
+        )
+        .await,
+        "Group not found."
+    );
+
+    // Deletion is a superadmin action and is soft: reads stop finding the group.
+    assert_eq!(
+        refusal(
+            client
+                .delete(format!("{base}/v2/group/{closed_id}"))
+                .bearer_auth(&member1.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "a non-member deleting the group",
+        )
+        .await,
+        "Group not found or permission denied."
+    );
+    assert_eq!(
+        api_delete(
+            client,
+            format!("{base}/v2/group/{closed_id}"),
+            &owner.token,
+            "owner deletes the closed group",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/group/{closed_id}"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "getting a deleted group",
+        )
+        .await,
+        "Group not found."
+    );
+    let owner_groups = api_get(
+        client,
+        format!("{base}/v2/user/{}/group?limit=100", owner.uid),
+        &owner.token,
+        "the owner's groups after a delete",
+    )
+    .await;
+    assert!(owner_groups["user_groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|entry| entry["group"]["id"] != closed_id));
+
+    assert_eq!(
+        api_delete(
+            client,
+            format!("{base}/v2/group/{open_id}"),
+            &owner.token,
+            "owner deletes the open group",
+        )
+        .await,
+        json!({})
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/group/{open_id}"))
+                .bearer_auth(&owner.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "getting the deleted open group",
+        )
+        .await,
+        "Group not found."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Channels
+// ---------------------------------------------------------------------------
+
+async fn channel_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: channels");
+    let alice = device_player(client, base, "ch-a").await;
+    let bob = device_player(client, base, "ch-b").await;
+    let charlie = device_player(client, base, "ch-c").await;
+
+    let room_label = format!("e2e-room-{}", letters_suffix());
+    let room = format!("2...{room_label}");
+
+    // A malformed id never reaches a stream.
+    for bad in [
+        "not-a-channel".to_owned(),
+        "1.aa.bb.cc".to_owned(),
+        "3....".to_owned(),
+        format!("2...{}", "r".repeat(65)),
+    ] {
+        refusal(
+            client
+                .get(format!("{base}/v2/channel/{bad}"))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "list a malformed channel",
+        )
+        .await;
+    }
+
+    let empty = api_get(
+        client,
+        with_query(&format!("{base}/v2/channel/{room}"), &[("limit", "10")]),
+        &alice.token,
+        "empty room listing",
+    )
+    .await;
+    assert_eq!(empty["messages"], json!([]));
+    assert!(empty.get("next_cursor").is_none());
+    assert!(empty.get("cacheable_cursor").is_none());
+
+    // Content must be an object or an array; everything else is refused.
+    for bad in [json!({ "content": "plain" }), json!({ "content": 7 })] {
+        refusal(
+            client
+                .post(format!("{base}/v2/channel/{room}/message"))
+                .bearer_auth(&alice.token)
+                .json(&bad)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "send a non-object message",
+        )
+        .await;
+    }
+
+    let first = api_post(
+        client,
+        format!("{base}/v2/channel/{room}/message"),
+        &alice.token,
+        json!({ "content": { "text": "hello" } }),
+        "send the first room message",
+    )
+    .await;
+    assert_eq!(first["channel_id"], room);
+    assert_eq!(first["sender_id"], alice.uid);
+    assert_eq!(first["username"], alice.username);
+    assert_eq!(first["code"], 0);
+    assert_eq!(first["persistent"], true);
+    assert_eq!(first["room_name"], room_label);
+    assert_eq!(json_string(&first["content"]), json!({ "text": "hello" }));
+    let first_id = first["message_id"].as_str().expect("first message id").to_owned();
+
+    let second = api_post(
+        client,
+        format!("{base}/v2/channel/{room}/message"),
+        &bob.token,
+        json!({ "content": [{ "text": "second" }] }),
+        "send the second room message",
+    )
+    .await;
+    let second_id = second["message_id"].as_str().expect("second message id").to_owned();
+    assert_eq!(second["sender_id"], bob.uid);
+
+    let third = api_post(
+        client,
+        format!("{base}/v2/channel/{room}/message"),
+        &alice.token,
+        json!({ "content": { "text": "third" } }),
+        "send the third room message",
+    )
+    .await;
+    let third_id = third["message_id"].as_str().expect("third message id").to_owned();
+
+    // Forward pages walk oldest to newest and hand back the cursor that resumes.
+    let page = api_get(
+        client,
+        with_query(&format!("{base}/v2/channel/{room}"), &[("limit", "2")]),
+        &alice.token,
+        "first forward page",
+    )
+    .await;
+    let messages = page["messages"].as_array().expect("messages");
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["message_id"], first_id);
+    assert_eq!(messages[1]["message_id"], second_id);
+    let next = page["next_cursor"]
+        .as_str()
+        .expect("forward page has a next cursor")
+        .to_owned();
+    assert!(page.get("prev_cursor").is_none());
+
+    let page = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/channel/{room}"),
+            &[("limit", "2"), ("cursor", &next)],
+        ),
+        &alice.token,
+        "second forward page",
+    )
+    .await;
+    let messages = page["messages"].as_array().expect("messages");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["message_id"], third_id);
+    assert!(page.get("next_cursor").is_none());
+    assert!(page["prev_cursor"].is_string());
+
+    // Backward pages walk newest to oldest.
+    let page = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/channel/{room}"),
+            &[("limit", "2"), ("forward", "false")],
+        ),
+        &alice.token,
+        "backward page",
+    )
+    .await;
+    let messages = page["messages"].as_array().expect("messages");
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["message_id"], third_id);
+    assert_eq!(messages[1]["message_id"], second_id);
+
+    // A cursor belongs to the stream and direction that issued it.
+    refusal(
+        client
+            .get(with_query(
+                &format!("{base}/v2/channel/{room}"),
+                &[
+                    ("limit", "2"),
+                    ("cursor", &next),
+                    ("forward", "false"),
+                ],
+            ))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "replay a forward cursor backward",
+    )
+    .await;
+    refusal(
+        client
+            .get(with_query(
+                &format!("{base}/v2/channel/{room}"),
+                &[("cursor", "garbage")],
+            ))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "list a channel with a malformed cursor",
+    )
+    .await;
+    for limit in ["0", "101"] {
+        refusal(
+            client
+                .get(with_query(
+                    &format!("{base}/v2/channel/{room}"),
+                    &[("limit", limit)],
+                ))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "list a channel with a bad limit",
+        )
+        .await;
+    }
+
+    // Only the author may edit; removal is a tombstone, not a delete.
+    refusal(
+        client
+            .put(format!("{base}/v2/channel/{room}/message/{first_id}"))
+            .bearer_auth(&bob.token)
+            .json(&json!({ "content": { "text": "hijack" } }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "edit another sender's message",
+    )
+    .await;
+    let edited = api_put(
+        client,
+        format!("{base}/v2/channel/{room}/message/{first_id}"),
+        &alice.token,
+        json!({ "content": { "text": "edited" } }),
+        "edit an own message",
+    )
+    .await;
+    assert_eq!(json_string(&edited["content"]), json!({ "text": "edited" }));
+    assert_eq!(edited["message_id"], first_id);
+
+    refusal(
+        client
+            .put(format!("{base}/v2/channel/{room}/message/not-a-uuid"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "content": {} }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "edit a malformed message id",
+    )
+    .await;
+    refusal(
+        client
+            .delete(format!("{base}/v2/channel/{room}/message/not-a-uuid"))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "delete a malformed message id",
+    )
+    .await;
+
+    let tombstone = api_delete(
+        client,
+        format!("{base}/v2/channel/{room}/message/{first_id}"),
+        &alice.token,
+        "delete an own message",
+    )
+    .await;
+    assert_eq!(tombstone["message_id"], first_id);
+    assert_eq!(tombstone["code"], 2);
+
+    // A DM is visible to exactly its two participants, in canonical id order.
+    let (subject, descriptor) = if alice.uid < bob.uid {
+        (alice.uid.clone(), bob.uid.clone())
+    } else {
+        (bob.uid.clone(), alice.uid.clone())
+    };
+    let dm = format!("4.{subject}.{descriptor}.");
+    let dm_message = api_post(
+        client,
+        format!("{base}/v2/channel/{dm}/message"),
+        &alice.token,
+        json!({ "content": { "text": "psst" } }),
+        "send a DM",
+    )
+    .await;
+    assert_eq!(dm_message["user_id_one"], subject);
+    assert_eq!(dm_message["user_id_two"], descriptor);
+    assert!(dm_message.get("group_id").is_none());
+    assert!(dm_message.get("room_name").is_none());
+
+    let dm_page = api_get(
+        client,
+        format!("{base}/v2/channel/{dm}"),
+        &bob.token,
+        "read a DM as its other participant",
+    )
+    .await;
+    assert_eq!(dm_page["messages"].as_array().expect("messages").len(), 1);
+    refusal(
+        client
+            .get(format!("{base}/v2/channel/{dm}"))
+            .bearer_auth(&charlie.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "read somebody else's DM",
+    )
+    .await;
+    let reversed = format!("4.{descriptor}.{subject}.");
+    refusal(
+        client
+            .get(format!("{base}/v2/channel/{reversed}"))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "use a non-canonical DM id",
+    )
+    .await;
+    let self_dm = format!("4.{}.{}.", alice.uid, alice.uid);
+    refusal(
+        client
+            .get(format!("{base}/v2/channel/{self_dm}"))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "address a DM to yourself",
+    )
+    .await;
+
+    // A group channel is for its members only.
+    let group_name = format!("e2e-channel-group-{}", letters_suffix());
+    let group = api_post(
+        client,
+        format!("{base}/v2/group"),
+        &alice.token,
+        json!({ "name": group_name, "open": true }),
+        "create a group for its channel",
+    )
+    .await;
+    let gid = group["group"]["id"].as_str().expect("group id").to_owned();
+    let gchannel = format!("3.{gid}..");
+    api_post(
+        client,
+        format!("{base}/v2/channel/{gchannel}/message"),
+        &alice.token,
+        json!({ "content": { "text": "members only" } }),
+        "send to a group channel",
+    )
+    .await;
+    refusal(
+        client
+            .get(format!("{base}/v2/channel/{gchannel}"))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "read a group channel as a non-member",
+    )
+    .await;
+    api_post_empty(
+        client,
+        format!("{base}/v2/group/{gid}/join"),
+        &bob.token,
+        "join the group to read its channel",
+    )
+    .await;
+    let member_page = api_get(
+        client,
+        format!("{base}/v2/channel/{gchannel}"),
+        &bob.token,
+        "read a group channel as a member",
+    )
+    .await;
+    assert_eq!(member_page["messages"].as_array().expect("messages").len(), 1);
+    assert_eq!(member_page["messages"][0]["group_id"], gid);
+    assert!(member_page["messages"][0].get("user_id_one").is_none());
+    api_post_empty(
+        client,
+        format!("{base}/v2/group/{gid}/leave"),
+        &bob.token,
+        "leave the group channel",
+    )
+    .await;
+    refusal(
+        client
+            .get(format!("{base}/v2/channel/{gchannel}"))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "read a group channel after leaving",
+    )
+    .await;
+
+    let stored: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM message WHERE stream_label = $1 OR stream_subject = $2::uuid")
+            .bind(&room_label)
+            .bind(&gid)
+            .fetch_one(pool)
+            .await
+            .expect("message rows");
+    assert_eq!(stored, 4, "3 room rows plus 1 group row");
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+async fn notification_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: notifications");
+    let alice = device_player(client, base, "no-a").await;
+    let bob = device_player(client, base, "no-b").await;
+    let charlie = device_player(client, base, "no-c").await;
+
+    let add = |username: &str| {
+        with_query(
+            &format!("{base}/v2/friend"),
+            &[("usernames", username)],
+        )
+    };
+
+    // A friend invite lands on the recipient (code -2).
+    api_post_empty(
+        client,
+        add(&bob.username),
+        &alice.token,
+        "alice invites bob",
+    )
+    .await;
+    // Bob accepting lands on alice (code -3).
+    api_post_empty(
+        client,
+        add(&alice.username),
+        &bob.token,
+        "bob accepts alice",
+    )
+    .await;
+
+    let group_name = format!("e2e-notify-group-{}", letters_suffix());
+    let group = api_post(
+        client,
+        format!("{base}/v2/group"),
+        &alice.token,
+        json!({ "name": group_name, "open": false }),
+        "create a closed group for notifications",
+    )
+    .await;
+    let gid = group["group"]["id"].as_str().expect("group id").to_owned();
+    // A join request lands on the group's admins (code -5).
+    api_post_empty(
+        client,
+        format!("{base}/v2/group/{gid}/join"),
+        &bob.token,
+        "bob requests to join",
+    )
+    .await;
+    // Being added lands on the added player (code -4).
+    api_post_empty(
+        client,
+        with_query(
+            &format!("{base}/v2/group/{gid}/add"),
+            &[("user_ids", &bob.uid)],
+        ),
+        &alice.token,
+        "alice adds bob",
+    )
+    .await;
+    // Removing a friend lands on the removed player (code -9).
+    api_delete(
+        client,
+        add(&bob.username),
+        &alice.token,
+        "alice removes bob",
+    )
+    .await;
+
+    let bob_page = api_get(
+        client,
+        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        &bob.token,
+        "bob's notifications",
+    )
+    .await;
+    let rows = bob_page["notifications"]
+        .as_array()
+        .expect("bob has notifications")
+        .clone();
+    assert_eq!(rows.len(), 3, "{bob_page}");
+    let mut codes: Vec<i64> = rows
+        .iter()
+        .map(|row| row["code"].as_i64().expect("a code"))
+        .collect();
+    codes.sort_unstable();
+    assert_eq!(codes, vec![-9, -4, -2]);
+    for row in &rows {
+        assert_eq!(row["sender_id"], alice.uid);
+        assert_eq!(row["persistent"], true);
+        assert!(row["create_time"].as_str().is_some_and(|t| t.ends_with('Z')));
+    }
+    let by_code = |page: &Value, code: i16| -> Value {
+        page["notifications"]
+            .as_array()
+            .expect("notifications")
+            .iter()
+            .find(|row| row["code"] == code)
+            .unwrap_or_else(|| panic!("no notification with code {code}: {page}"))
+            .clone()
+    };
+    let invite = by_code(&bob_page, -2);
+    assert_eq!(json_string(&invite["content"]), json!({ "username": alice.username }));
+    assert_eq!(
+        invite["subject"],
+        format!("{} wants to add you as a friend", alice.username)
+    );
+    let added = by_code(&bob_page, -4);
+    assert_eq!(
+        json_string(&added["content"]),
+        json!({ "group_id": gid, "name": group_name })
+    );
+    assert_eq!(added["subject"], format!("You've been added to group {group_name}"));
+    let removed = by_code(&bob_page, -9);
+    assert_eq!(json_string(&removed["content"]), json!({ "username": alice.username }));
+    assert_eq!(
+        removed["subject"],
+        format!("{} removed you as a friend", alice.username)
+    );
+
+    // The other side of the same events.
+    let alice_page = api_get(
+        client,
+        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        &alice.token,
+        "alice's notifications",
+    )
+    .await;
+    let alice_rows = alice_page["notifications"]
+        .as_array()
+        .expect("alice has notifications");
+    assert_eq!(alice_rows.len(), 2);
+    let mut alice_codes: Vec<i64> = alice_rows
+        .iter()
+        .map(|row| row["code"].as_i64().expect("a code"))
+        .collect();
+    alice_codes.sort_unstable();
+    assert_eq!(alice_codes, vec![-5, -3]);
+    let requested = by_code(&alice_page, -5);
+    assert_eq!(json_string(&requested["content"])["group_id"], gid);
+    assert_eq!(json_string(&requested["content"])["username"], bob.username);
+    assert_eq!(
+        requested["subject"],
+        format!("User {} wants to join your group", bob.username)
+    );
+    let accepted = by_code(&alice_page, -3);
+    assert_eq!(json_string(&accepted["content"]), json!({ "username": bob.username }));
+
+    // Filters and paging.
+    let filtered = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/notification"),
+            &[("limit", "100"), ("code", "-2")],
+        ),
+        &bob.token,
+        "filter notifications by code",
+    )
+    .await;
+    assert_eq!(filtered["notifications"].as_array().expect("notifications").len(), 1);
+    assert_eq!(filtered["notifications"][0]["code"], -2);
+    let by_sender = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/notification"),
+            &[("limit", "100"), ("sender_id", &alice.uid)],
+        ),
+        &bob.token,
+        "filter notifications by sender",
+    )
+    .await;
+    assert_eq!(by_sender["notifications"].as_array().expect("notifications").len(), 3);
+    refusal(
+        client
+            .get(with_query(
+                &format!("{base}/v2/notification"),
+                &[("sender_id", "not-a-uuid")],
+            ))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "filter notifications by a malformed sender",
+    )
+    .await;
+    for limit in ["0", "101"] {
+        refusal(
+            client
+                .get(with_query(
+                    &format!("{base}/v2/notification"),
+                    &[("limit", limit)],
+                ))
+                .bearer_auth(&bob.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "list notifications with a bad limit",
+        )
+        .await;
+    }
+    // The gateway hides every list-query failure behind one internal error.
+    refusal(
+        client
+            .get(with_query(
+                &format!("{base}/v2/notification"),
+                &[("cacheableCursor", "garbage")],
+            ))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "list notifications with a malformed cursor",
+    )
+    .await;
+
+    // The default page is one notification.
+    let default_page = api_get(
+        client,
+        format!("{base}/v2/notification"),
+        &alice.token,
+        "default notification page",
+    )
+    .await;
+    assert_eq!(default_page["notifications"].as_array().expect("notifications").len(), 1);
+
+    // Walk all three bob notifications one at a time.
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor = String::new();
+    for _ in 0..3 {
+        let mut pairs: Vec<(&str, &str)> = vec![("limit", "1")];
+        if !cursor.is_empty() {
+            pairs.push(("cacheableCursor", &cursor));
+        }
+        let page = api_get(
+            client,
+            with_query(&format!("{base}/v2/notification"), &pairs),
+            &bob.token,
+            "page through notifications",
+        )
+        .await;
+        let rows = page["notifications"].as_array().expect("notifications");
+        assert_eq!(rows.len(), 1);
+        seen.push(rows[0]["id"].as_str().expect("notification id").to_owned());
+        cursor = page["cacheable_cursor"]
+            .as_str()
+            .expect("a cacheable cursor")
+            .to_owned();
+    }
+    assert_eq!(seen.len(), 3);
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen.len(), 3);
+
+    let charlie_page = api_get(
+        client,
+        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        &charlie.token,
+        "a player with no notifications",
+    )
+    .await;
+    assert!(charlie_page.get("notifications").is_none());
+    assert!(!charlie_page["cacheable_cursor"].as_str().unwrap_or("").is_empty());
+
+    // Deleting by id, then by every accepted list spelling.
+    let single = removed["id"].as_str().expect("notification id").to_owned();
+    api_delete(
+        client,
+        format!("{base}/v2/notification/{single}"),
+        &bob.token,
+        "delete one notification",
+    )
+    .await;
+    refusal(
+        client
+            .delete(format!("{base}/v2/notification/not-a-uuid"))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "delete a malformed notification id",
+    )
+    .await;
+    refusal(
+        client
+            .delete(format!("{base}/v2/notification/{}", Uuid::new_v4()))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "delete an unknown notification",
+    )
+    .await;
+
+    let remaining: Vec<String> = bob_page["notifications"]
+        .as_array()
+        .expect("notifications")
+        .iter()
+        .filter_map(|row| row["id"].as_str().map(str::to_owned))
+        .filter(|id| id != &single)
+        .collect();
+    assert_eq!(remaining.len(), 2);
+    // Repeated query keys cannot be captured by a struct field; the route merges them.
+    api_delete(
+        client,
+        with_query(
+            &format!("{base}/v2/notification"),
+            &[("ids", &remaining[0]), ("ids", &remaining[1])],
+        ),
+        &bob.token,
+        "delete notifications by repeated ids",
+    )
+    .await;
+    let cleared = api_get(
+        client,
+        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        &bob.token,
+        "bob has no notifications left",
+    )
+    .await;
+    assert!(cleared.get("notifications").is_none());
+    assert!(!cleared["cacheable_cursor"].as_str().unwrap_or("").is_empty());
+
+    // A JSON body (the SDK's shape) deletes too — alice invites bob again.
+    api_post_empty(client, add(&bob.username), &alice.token, "invite bob again").await;
+    let invite = api_get(
+        client,
+        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        &bob.token,
+        "the second invite",
+    )
+    .await;
+    let invite_id = invite["notifications"][0]["id"]
+        .as_str()
+        .expect("a notification id")
+        .to_owned();
+    api_delete_body(
+        client,
+        format!("{base}/v2/notification"),
+        &bob.token,
+        json!({ "ids": [invite_id] }),
+        "delete notifications by JSON body",
+    )
+    .await;
+
+    // A JSON array spelled into one query value deletes too.
+    api_delete(client, add(&bob.username), &alice.token, "remove bob again").await;
+    let removed = api_get(
+        client,
+        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        &bob.token,
+        "the second removal",
+    )
+    .await;
+    let removed_id = removed["notifications"][0]["id"]
+        .as_str()
+        .expect("a notification id")
+        .to_owned();
+    let array_value = json!([removed_id]).to_string();
+    api_delete(
+        client,
+        with_query(&format!("{base}/v2/notification"), &[("ids", &array_value)]),
+        &bob.token,
+        "delete notifications by a JSON-array query value",
+    )
+    .await;
+
+    // A comma-joined list deletes both rows in one request.
+    api_post_empty(client, add(&bob.username), &alice.token, "invite bob once more").await;
+    api_delete(client, add(&bob.username), &alice.token, "remove bob once more").await;
+    let pairs = api_get(
+        client,
+        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        &bob.token,
+        "the final pair of notifications",
+    )
+    .await;
+    let ids: Vec<String> = pairs["notifications"]
+        .as_array()
+        .expect("notifications")
+        .iter()
+        .map(|row| row["id"].as_str().expect("id").to_owned())
+        .collect();
+    assert_eq!(ids.len(), 2);
+    api_delete(
+        client,
+        with_query(
+            &format!("{base}/v2/notification"),
+            &[("ids", &ids.join(","))],
+        ),
+        &bob.token,
+        "delete notifications by a comma-joined list",
+    )
+    .await;
+
+    // Nothing named deletes nothing, successfully.
+    api_delete_body(
+        client,
+        format!("{base}/v2/notification"),
+        &bob.token,
+        json!({ "ids": [] }),
+        "delete an empty notification list",
+    )
+    .await;
+
+    let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notification WHERE user_id = $1")
+        .bind(uuid_of(&bob))
+        .fetch_one(pool)
+        .await
+        .expect("notification rows");
+    assert_eq!(left, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Storage
+// ---------------------------------------------------------------------------
+
+fn md5_hex(raw: &str) -> String {
+    use md5::{Digest, Md5};
+    let mut hasher = Md5::new();
+    hasher.update(raw.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+async fn storage_surface(client: &Client, base: &str) {
+    eprintln!("e2e: storage");
+    let alice = device_player(client, base, "st-a").await;
+    let bob = device_player(client, base, "st-b").await;
+    let collection = format!("e2e-storage-{}", letters_suffix());
+    let storage = format!("{base}/v2/storage");
+
+    let value1 = json!({ "n": 1 }).to_string();
+    let value2 = json!({ "n": 2 }).to_string();
+    let value3 = json!({ "n": 3 }).to_string();
+    let version1 = md5_hex(&value1);
+    let version2 = md5_hex(&value2);
+    let version3 = md5_hex(&value3);
+
+    // An empty batch is a successful no-op.
+    let empty = api_put(
+        client,
+        storage.clone(),
+        &alice.token,
+        json!({ "objects": [] }),
+        "write an empty batch",
+    )
+    .await;
+    assert_eq!(empty, json!({}));
+
+    // The checks that run before any statement.
+    for (body, what) in [
+        (
+            json!({ "objects": [{ "collection": "", "key": "a", "value": value1 }] }),
+            "a write with no collection",
+        ),
+        (
+            json!({ "objects": [{ "collection": collection, "key": "", "value": value1 }] }),
+            "a write with no key",
+        ),
+        (
+            json!({ "objects": [{ "collection": collection, "key": "a", "value": "" }] }),
+            "a write with no value",
+        ),
+        (
+            json!({ "objects": [{ "collection": collection, "key": "a", "value": "[]" }] }),
+            "a write with a non-object value",
+        ),
+        (
+            json!({ "objects": [{ "collection": collection, "key": "a", "value": value1, "permission_read": 3 }] }),
+            "a write with an out-of-range read permission",
+        ),
+        (
+            json!({ "objects": [{ "collection": collection, "key": "a", "value": value1, "permission_write": 2 }] }),
+            "a write with an out-of-range write permission",
+        ),
+    ] {
+        refusal(
+            client
+                .put(storage.clone())
+                .bearer_auth(&alice.token)
+                .json(&body)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            what,
+        )
+        .await;
+    }
+
+    let ack = api_put(
+        client,
+        storage.clone(),
+        &alice.token,
+        json!({ "objects": [{ "collection": collection, "key": "a", "value": value1 }] }),
+        "write a private object",
+    )
+    .await;
+    let object = &ack["acks"][0];
+    assert_eq!(object["collection"], collection);
+    assert_eq!(object["key"], "a");
+    assert_eq!(object["user_id"], alice.uid);
+    assert_eq!(object["version"], version1);
+
+    // An upsert with a public read permission replaces the value.
+    api_put(
+        client,
+        storage.clone(),
+        &alice.token,
+        json!({ "objects": [{ "collection": collection, "key": "a", "value": value2, "permission_read": 2 }] }),
+        "upsert a public object",
+    )
+    .await;
+
+    // Compare-and-set: a stale token is refused, the current one applies.
+    refusal(
+        client
+            .put(storage.clone())
+            .bearer_auth(&alice.token)
+            .json(&json!({ "objects": [{ "collection": collection, "key": "a", "value": value3, "version": "deadbeef" }] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "write with a stale version",
+    )
+    .await;
+    let cas = api_put(
+        client,
+        storage.clone(),
+        &alice.token,
+        json!({ "objects": [{ "collection": collection, "key": "a", "value": value3, "version": version2, "permission_read": 2 }] }),
+        "write with the current version",
+    )
+    .await;
+    assert_eq!(cas["acks"][0]["version"], version3);
+
+    // Writes are applied in collection/key order but acknowledged in request
+    // order, so a client can zip acks back onto its own object array.
+    let batch = api_put(
+        client,
+        storage.clone(),
+        &alice.token,
+        json!({ "objects": [
+            { "collection": collection, "key": "sort-z", "value": json!({ "z": 1 }).to_string() },
+            { "collection": collection, "key": "sort-a", "value": json!({ "a": 1 }).to_string() },
+        ] }),
+        "write an out-of-order batch",
+    )
+    .await;
+    let keys: Vec<String> = batch["acks"]
+        .as_array()
+        .expect("acks")
+        .iter()
+        .map(|ack| ack["key"].as_str().expect("key").to_owned())
+        .collect();
+    assert_eq!(keys, vec!["sort-z", "sort-a"]);
+
+    // Insert-only, private and read-only objects.
+    let b_value = json!({ "b": 1 }).to_string();
+    let c_value = json!({ "c": 1 }).to_string();
+    api_put(
+        client,
+        storage.clone(),
+        &alice.token,
+        json!({ "objects": [
+            { "collection": collection, "key": "b", "value": b_value },
+            { "collection": collection, "key": "c", "value": c_value, "permission_read": 2 },
+            { "collection": collection, "key": "ro", "value": json!({ "ro": 1 }).to_string(), "permission_read": 2, "permission_write": 0 },
+            { "collection": collection, "key": "star", "value": json!({ "star": 1 }).to_string(), "version": "*" },
+        ] }),
+        "write the remaining objects",
+    )
+    .await;
+    refusal(
+        client
+            .put(storage.clone())
+            .bearer_auth(&alice.token)
+            .json(&json!({ "objects": [{ "collection": collection, "key": "star", "value": json!({ "other": 1 }).to_string(), "version": "*" }] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "insert-only write over an existing key",
+    )
+    .await;
+    refusal(
+        client
+            .put(storage.clone())
+            .bearer_auth(&alice.token)
+            .json(&json!({ "objects": [{ "collection": collection, "key": "ro", "value": json!({ "ro": 2 }).to_string() }] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "overwrite a read-only object",
+    )
+    .await;
+
+    // Another account may keep its own object under the same key, without
+    // touching the owner's.
+    api_put(
+        client,
+        storage.clone(),
+        &bob.token,
+        json!({ "objects": [{ "collection": collection, "key": "a", "value": json!({ "bob": 1 }).to_string(), "permission_read": 2 }] }),
+        "bob writes his own object under a shared key",
+    )
+    .await;
+    let unchanged = api_get(
+        client,
+        format!("{base}/v2/storage/{collection}/a/{}", alice.uid),
+        &alice.token,
+        "alice's object survived bob's write",
+    )
+    .await;
+    // jsonb re-serializes on the way out, so compare structurally.
+    assert_eq!(json_string(&unchanged["value"]), json!({ "n": 3 }));
+    assert_eq!(unchanged["user_id"], alice.uid);
+    assert_eq!(unchanged["version"], version3);
+    assert_eq!(unchanged["permission_read"], 2);
+    assert_eq!(unchanged["permission_write"], 1);
+
+    // Batch reads hide what the caller may not read.
+    let read = api_post(
+        client,
+        storage.clone(),
+        &alice.token,
+        json!({ "objectIds": [
+            { "collection": collection, "key": "a" },
+            { "collection": collection, "key": "b" },
+        ] }),
+        "read two own objects",
+    )
+    .await;
+    let keys: Vec<String> = read["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    assert_eq!(keys, vec!["a", "b"]);
+    assert_eq!(json_string(&read["objects"][0]["value"]), json!({ "n": 3 }));
+
+    let bob_read = api_post(
+        client,
+        storage.clone(),
+        &bob.token,
+        json!({ "object_ids": [
+            { "collection": collection, "key": "a" },
+            { "collection": collection, "key": "b" },
+        ] }),
+        "read another account's objects",
+    )
+    .await;
+    let keys: Vec<String> = bob_read["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    assert_eq!(
+        keys,
+        vec!["a"],
+        "an omitted owner means the caller; alice's private b stays hidden"
+    );
+    assert_eq!(
+        json_string(&bob_read["objects"][0]["value"]),
+        json!({ "bob": 1 }),
+        "bob's own object under the shared key"
+    );
+    assert_eq!(bob_read["objects"][0]["user_id"], bob.uid);
+
+    let empty_read = api_post(
+        client,
+        storage.clone(),
+        &alice.token,
+        json!({ "object_ids": [] }),
+        "read an empty batch",
+    )
+    .await;
+    assert_eq!(empty_read, json!({}));
+    for (body, what) in [
+        (
+            json!({ "object_ids": [{ "collection": "", "key": "a" }] }),
+            "read with no collection",
+        ),
+        (
+            json!({ "object_ids": [{ "collection": collection, "key": "a", "user_id": "00000000-0000-0000-0000-000000000000" }] }),
+            "read under the nil owner",
+        ),
+        (
+            json!({ "object_ids": [{ "collection": collection, "key": "a", "user_id": "not-a-uuid" }] }),
+            "read under a malformed owner",
+        ),
+    ] {
+        refusal(
+            client
+                .post(storage.clone())
+                .bearer_auth(&alice.token)
+                .json(&body)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            what,
+        )
+        .await;
+    }
+
+    // One object by its full key: the nil owner names the caller.
+    let one = api_get(
+        client,
+        format!(
+            "{base}/v2/storage/{collection}/a/00000000-0000-0000-0000-000000000000"
+        ),
+        &alice.token,
+        "read an own object by its full key",
+    )
+    .await;
+    assert_eq!(json_string(&one["value"]), json!({ "n": 3 }));
+    let versioned = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/storage/{collection}/a/{}", alice.uid),
+            &[("version", &version3)],
+        ),
+        &alice.token,
+        "read an object at its current version",
+    )
+    .await;
+    assert_eq!(versioned["version"], version3);
+    refusal(
+        client
+            .get(with_query(
+                &format!("{base}/v2/storage/{collection}/a/{}", alice.uid),
+                &[("version", "deadbeef")],
+            ))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "read an object at a superseded version",
+    )
+    .await;
+    refusal(
+        client
+            .get(format!("{base}/v2/storage/{collection}/b/{}", alice.uid))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "read another account's private object",
+    )
+    .await;
+    let public = api_get(
+        client,
+        format!("{base}/v2/storage/{collection}/a/{}", alice.uid),
+        &bob.token,
+        "read another account's public object",
+    )
+    .await;
+    assert_eq!(json_string(&public["value"]), json!({ "n": 3 }));
+    refusal(
+        client
+            .get(format!("{base}/v2/storage/{collection}/a/not-a-uuid"))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "read an object under a malformed owner",
+    )
+    .await;
+
+    // Public listings page by key.
+    let page = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/storage/{collection}"),
+            &[("limit", "2")],
+        ),
+        &bob.token,
+        "first public listing page",
+    )
+    .await;
+    let keys: Vec<String> = page["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    // Both accounts' public `a` rows are visible, ordered by key then owner.
+    assert_eq!(keys, vec!["a", "a"]);
+    let cursor = page["cursor"].as_str().expect("a listing cursor").to_owned();
+    let page = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/storage/{collection}"),
+            &[("limit", "2"), ("cursor", &cursor)],
+        ),
+        &bob.token,
+        "second public listing page",
+    )
+    .await;
+    let keys: Vec<String> = page["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    assert_eq!(keys, vec!["c", "ro"]);
+    assert!(page.get("cursor").is_none());
+    refusal(
+        client
+            .get(with_query(
+                &format!("{base}/v2/storage/{collection}"),
+                &[("cursor", "garbage")],
+            ))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "list storage with a malformed cursor",
+    )
+    .await;
+    for limit in ["0", "101"] {
+        refusal(
+            client
+                .get(with_query(
+                    &format!("{base}/v2/storage/{collection}"),
+                    &[("limit", limit)],
+                ))
+                .bearer_auth(&bob.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "list storage with a bad limit",
+        )
+        .await;
+    }
+
+    // An own listing includes private objects; another account's does not.
+    let own = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/storage/{collection}/{}", alice.uid),
+            &[("limit", "100")],
+        ),
+        &alice.token,
+        "alice's own listing",
+    )
+    .await;
+    let mut keys: Vec<String> = own["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["a", "b", "c", "ro", "sort-a", "sort-z", "star"]);
+    let other = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/storage/{collection}/{}", alice.uid),
+            &[("limit", "100")],
+        ),
+        &bob.token,
+        "another account's listing",
+    )
+    .await;
+    let mut keys: Vec<String> = other["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["a", "c", "ro"]);
+    refusal(
+        client
+            .get(format!(
+                "{base}/v2/storage/{collection}/not-a-uuid"
+            ))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "list under a malformed owner",
+    )
+    .await;
+
+    // Deletes are versioned and owner-scoped.
+    refusal(
+        client
+            .put(format!("{base}/v2/storage/delete"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "object_ids": [{ "collection": collection, "key": "c", "version": "deadbeef" }] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "delete with a stale version",
+    )
+    .await;
+    refusal(
+        client
+            .put(format!("{base}/v2/storage/delete"))
+            .bearer_auth(&bob.token)
+            .json(&json!({ "object_ids": [{ "collection": collection, "key": "b" }] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "delete another account's object",
+    )
+    .await;
+    refusal(
+        client
+            .put(format!("{base}/v2/storage/delete"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "object_ids": [{ "collection": collection, "key": "missing" }] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "delete a missing object",
+    )
+    .await;
+    refusal(
+        client
+            .put(format!("{base}/v2/storage/delete"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "object_ids": [{ "collection": collection, "key": "ro" }] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "delete a read-only object",
+    )
+    .await;
+    let deleted = api_put(
+        client,
+        format!("{base}/v2/storage/delete"),
+        &alice.token,
+        json!({ "object_ids": [{ "collection": collection, "key": "c", "version": md5_hex(&c_value) }] }),
+        "delete with the current version",
+    )
+    .await;
+    assert_eq!(deleted, json!({}));
+    refusal(
+        client
+            .get(format!("{base}/v2/storage/{collection}/c/{}", alice.uid))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "read a deleted object",
+    )
+    .await;
+    let deleted = api_put(
+        client,
+        format!("{base}/v2/storage/delete"),
+        &alice.token,
+        json!({ "object_ids": [{ "collection": collection, "key": "a" }] }),
+        "delete an object by key alone",
+    )
+    .await;
+    assert_eq!(deleted, json!({}));
+    let empty_delete = api_put(
+        client,
+        format!("{base}/v2/storage/delete"),
+        &alice.token,
+        json!({ "object_ids": [] }),
+        "delete an empty batch",
+    )
+    .await;
+    assert_eq!(empty_delete, json!({}));
+}
+
+// ---------------------------------------------------------------------------
+// Storage indexes
+// ---------------------------------------------------------------------------
+
+async fn storage_index_surface(client: &Client, base: &str) {
+    eprintln!("e2e: storage indexes");
+    let alice = device_player(client, base, "si-a").await;
+    let bob = device_player(client, base, "si-b").await;
+    let suffix = letters_suffix();
+    let collection = format!("e2e-index-{suffix}");
+    let index_name = format!("e2e-idx-{suffix}");
+    let index_only_name = format!("e2e-idx-only-{suffix}");
+    let window_name = format!("e2e-idx-window-{suffix}");
+    let index_url = format!("{base}/v2/storage/index");
+
+    let objects = [
+        ("k1", json!({ "level": 12, "name": "sword", "score": 30 })),
+        ("k2", json!({ "level": 18, "name": "shield", "score": 10 })),
+        ("k3", json!({ "level": 25, "name": "bow", "score": 20 })),
+    ];
+    let writes: Vec<Value> = objects
+        .iter()
+        .map(|(key, value)| {
+            json!({
+                "collection": collection,
+                "key": key,
+                "value": value.to_string(),
+            })
+        })
+        .collect();
+    api_put(
+        client,
+        format!("{base}/v2/storage"),
+        &alice.token,
+        json!({ "objects": writes }),
+        "seed indexed objects",
+    )
+    .await;
+
+    // Every definition rule runs before the insert.
+    for (body, what) in [
+        (
+            json!({ "collection": collection, "fields": ["level"] }),
+            "an index with no name",
+        ),
+        (
+            json!({ "name": index_name, "fields": ["level"] }),
+            "an index with no collection",
+        ),
+        (
+            json!({ "name": index_name, "collection": collection, "fields": [] }),
+            "an index with no fields",
+        ),
+        (
+            json!({
+                "name": index_name,
+                "collection": collection,
+                "fields": ["a", "b", "c", "d", "e"],
+            }),
+            "an index with too many fields",
+        ),
+        (
+            json!({
+                "name": index_name,
+                "collection": collection,
+                "fields": ["level"],
+                "max_entries": 0,
+            }),
+            "an index with a non-positive window",
+        ),
+    ] {
+        refusal(
+            client
+                .post(index_url.clone())
+                .bearer_auth(&alice.token)
+                .json(&body)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            what,
+        )
+        .await;
+    }
+
+    let created = api_post(
+        client,
+        index_url.clone(),
+        &alice.token,
+        json!({
+            "name": index_name,
+            "collection": collection,
+            "fields": ["level", "name", "score"],
+            "sortable_fields": ["score"],
+        }),
+        "create an index",
+    )
+    .await;
+    assert_eq!(created["index"], index_name);
+    assert_eq!(created["collection"], collection);
+    assert_eq!(created["max_entries"], 10000);
+    assert_eq!(created["fields"], json!(["level", "name", "score"]));
+    assert_eq!(created["sortable_fields"], json!(["score"]));
+    assert!(created.get("index_only").is_none());
+
+    refusal(
+        client
+            .post(index_url.clone())
+            .bearer_auth(&alice.token)
+            .json(&json!({
+                "name": index_name,
+                "collection": collection,
+                "fields": ["level"],
+            }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::CONFLICT,
+        "create a clashing index name",
+    )
+    .await;
+
+    let listed = api_get(client, index_url.clone(), &alice.token, "list indexes").await;
+    let names: Vec<String> = listed["indexes"]
+        .as_array()
+        .expect("indexes")
+        .iter()
+        .map(|index| index["index"].as_str().expect("index name").to_owned())
+        .collect();
+    assert!(names.contains(&index_name));
+
+    // The query language and its refusals.
+    let query_url = format!("{base}/v2/storage/index/{index_name}/query");
+    for (body, status, what) in [
+        (
+            json!({ "query": "badterm" }),
+            StatusCode::BAD_REQUEST,
+            "parse a malformed index query",
+        ),
+        (
+            json!({ "query": "missing:1" }),
+            StatusCode::BAD_REQUEST,
+            "query a field the index does not cover",
+        ),
+        (
+            json!({ "query": "", "limit": 0 }),
+            StatusCode::BAD_REQUEST,
+            "query an index with a bad limit",
+        ),
+        (
+            json!({ "query": "", "order": ["level"] }),
+            StatusCode::BAD_REQUEST,
+            "order by a field the index cannot sort",
+        ),
+    ] {
+        refusal(
+            client
+                .post(query_url.clone())
+                .bearer_auth(&alice.token)
+                .json(&body)
+                .send()
+                .await
+                .unwrap(),
+            status,
+            what,
+        )
+        .await;
+    }
+
+    let matched = api_post(
+        client,
+        query_url.clone(),
+        &alice.token,
+        json!({ "query": "level:12" }),
+        "query an equality term",
+    )
+    .await;
+    let keys: Vec<String> = matched["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    assert_eq!(keys, vec!["k1"]);
+    assert_eq!(json_string(&matched["objects"][0]["value"])["name"], "sword");
+
+    let ranged = api_post(
+        client,
+        query_url.clone(),
+        &alice.token,
+        json!({ "query": "score:[15 TO 30]" }),
+        "query a numeric range",
+    )
+    .await;
+    let mut keys: Vec<String> = ranged["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["k1", "k3"]);
+
+    let sorted = api_post(
+        client,
+        query_url.clone(),
+        &alice.token,
+        json!({ "query": "", "order": ["-score"] }),
+        "query ordered by a descending field",
+    )
+    .await;
+    let keys: Vec<String> = sorted["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    assert_eq!(keys, vec!["k1", "k3", "k2"]);
+    let prefixed = api_post(
+        client,
+        query_url.clone(),
+        &alice.token,
+        json!({ "query": "", "order": ["-value.score"] }),
+        "query ordered through the value prefix",
+    )
+    .await;
+    assert_eq!(prefixed["objects"], sorted["objects"]);
+
+    // The cursor replays query, limit and order; any drift is refused.
+    let first_page = api_post(
+        client,
+        query_url.clone(),
+        &alice.token,
+        json!({ "query": "", "limit": 2 }),
+        "first indexed page",
+    )
+    .await;
+    assert_eq!(first_page["objects"].as_array().expect("objects").len(), 2);
+    let cursor = first_page["next_cursor"]
+        .as_str()
+        .expect("an index cursor")
+        .to_owned();
+    let second_page = api_post(
+        client,
+        query_url.clone(),
+        &alice.token,
+        json!({ "query": "", "limit": 2, "cursor": cursor }),
+        "second indexed page",
+    )
+    .await;
+    let keys: Vec<String> = second_page["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .map(|object| object["key"].as_str().expect("key").to_owned())
+        .collect();
+    assert_eq!(keys, vec!["k3"]);
+    assert!(second_page.get("next_cursor").is_none());
+    refusal(
+        client
+            .post(query_url.clone())
+            .bearer_auth(&alice.token)
+            .json(&json!({ "query": "level:12", "limit": 2, "cursor": cursor }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "replay an index cursor against another query",
+    )
+    .await;
+
+    // Private objects stay invisible to another account.
+    let hidden = api_post(
+        client,
+        query_url.clone(),
+        &bob.token,
+        json!({ "query": "" }),
+        "query an index as another account",
+    )
+    .await;
+    assert_eq!(hidden, json!({}));
+
+    // An index-only read projects just the declared keys.
+    api_post(
+        client,
+        index_url.clone(),
+        &alice.token,
+        json!({
+            "name": index_only_name,
+            "collection": collection,
+            "fields": ["level"],
+            "index_only": true,
+        }),
+        "create an index-only definition",
+    )
+    .await;
+    let projected = api_post(
+        client,
+        format!("{base}/v2/storage/index/{index_only_name}/query"),
+        &alice.token,
+        json!({ "query": "" }),
+        "read an index-only projection",
+    )
+    .await;
+    for object in projected["objects"].as_array().expect("objects") {
+        let value = json_string(&object["value"]);
+        assert_eq!(value.as_object().expect("object").len(), 1);
+        assert!(value.get("level").is_some());
+    }
+
+    // A small window caps the whole result set, cursor included.
+    api_post(
+        client,
+        index_url.clone(),
+        &alice.token,
+        json!({
+            "name": window_name,
+            "collection": collection,
+            "fields": ["level"],
+            "max_entries": 2,
+        }),
+        "create a two-entry index",
+    )
+    .await;
+    let capped = api_post(
+        client,
+        format!("{base}/v2/storage/index/{window_name}/query"),
+        &alice.token,
+        json!({ "query": "" }),
+        "read a capped index",
+    )
+    .await;
+    assert_eq!(capped["objects"].as_array().expect("objects").len(), 2);
+    let cursor = capped["next_cursor"]
+        .as_str()
+        .expect("a capped index cursor")
+        .to_owned();
+    let exhausted = api_post(
+        client,
+        format!("{base}/v2/storage/index/{window_name}/query"),
+        &alice.token,
+        json!({ "query": "", "cursor": cursor }),
+        "read past the capped window",
+    )
+    .await;
+    assert_eq!(exhausted, json!({}));
+
+    // Only the creator drops a definition; a missing one is not-found.
+    refusal(
+        client
+            .delete(format!("{base}/v2/storage/index/{index_name}"))
+            .bearer_auth(&bob.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "delete another account's index",
+    )
+    .await;
+    refusal(
+        client
+            .delete(format!("{base}/v2/storage/index/absent-{suffix}"))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "delete an unknown index",
+    )
+    .await;
+    for name in [&index_name, &index_only_name, &window_name] {
+        api_delete(
+            client,
+            format!("{base}/v2/storage/index/{name}"),
+            &alice.token,
+            "delete an index",
+        )
+        .await;
+    }
+    refusal(
+        client
+            .post(query_url)
+            .bearer_auth(&alice.token)
+            .json(&json!({ "query": "" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "query a deleted index",
+    )
+    .await;
+    let listed = api_get(client, index_url, &alice.token, "indexes after deletion").await;
+    let names: Vec<String> = listed["indexes"]
+        .as_array()
+        .map(|indexes| {
+            indexes
+                .iter()
+                .map(|index| index["index"].as_str().expect("index name").to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(!names.contains(&index_name));
+}
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+
+async fn inventory_surface(client: &Client, base: &str) {
+    eprintln!("e2e: inventory");
+    let alice = device_player(client, base, "inv-a").await;
+    let bob = device_player(client, base, "inv-b").await;
+    let item_id = format!("e2e-item-{}", letters_suffix());
+    let inventory = format!("{base}/v2/inventory");
+
+    let empty = api_get(client, inventory.clone(), &alice.token, "empty inventory").await;
+    assert_eq!(empty["items"], json!([]));
+
+    let defined = api_post(
+        client,
+        format!("{inventory}/define"),
+        &alice.token,
+        json!({
+            "item_id": item_id,
+            "name": "E2E Sword",
+            "category": "weapon",
+            "max_stack": 5,
+            "rarity": "rare",
+            "properties": { "damage": 12 },
+        }),
+        "define an item",
+    )
+    .await;
+    assert_eq!(defined["success"], true);
+    assert_eq!(
+        defined["message"],
+        format!("item definition '{item_id}' registered")
+    );
+    assert!(defined["item"].is_null());
+
+    refusal(
+        client
+            .post(format!("{inventory}/grant"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "item_id": format!("{item_id}-missing") }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "grant an undefined item",
+    )
+    .await;
+
+    let granted = api_post(
+        client,
+        format!("{inventory}/grant"),
+        &alice.token,
+        json!({ "item_id": item_id, "quantity": 99, "metadata": { "bound": true } }),
+        "grant an item beyond its stack",
+    )
+    .await;
+    assert_eq!(granted["message"], "granted 5x E2E Sword");
+    assert_eq!(granted["item"]["quantity"], 5);
+    assert_eq!(granted["item"]["slot_index"], -1);
+    assert_eq!(granted["item"]["user_id"], alice.uid);
+    assert_eq!(granted["item"]["metadata"], json!({ "bound": true }));
+    let first_instance = granted["item"]["instance_id"]
+        .as_str()
+        .expect("instance id")
+        .to_owned();
+
+    let zero = api_post(
+        client,
+        format!("{inventory}/grant"),
+        &alice.token,
+        json!({ "item_id": item_id, "quantity": 0 }),
+        "grant zero of an item",
+    )
+    .await;
+    assert_eq!(zero["item"]["quantity"], 1);
+    let second_instance = zero["item"]["instance_id"]
+        .as_str()
+        .expect("instance id")
+        .to_owned();
+
+    let bob_item = api_post(
+        client,
+        format!("{inventory}/grant"),
+        &alice.token,
+        json!({ "user_id": bob.uid, "item_id": item_id, "quantity": 2 }),
+        "grant an item to another account",
+    )
+    .await;
+    assert_eq!(bob_item["item"]["user_id"], bob.uid);
+    assert_eq!(bob_item["item"]["quantity"], 2);
+    let bob_instance = bob_item["item"]["instance_id"]
+        .as_str()
+        .expect("instance id")
+        .to_owned();
+
+    refusal(
+        client
+            .post(format!("{inventory}/equip"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "instance_id": Uuid::new_v4(), "slot_index": 0 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "equip an unknown item",
+    )
+    .await;
+    refusal(
+        client
+            .post(format!("{inventory}/equip"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "instance_id": bob_instance, "slot_index": 0 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "equip another account's item",
+    )
+    .await;
+    let equipped = api_post(
+        client,
+        format!("{inventory}/equip"),
+        &alice.token,
+        json!({ "instance_id": first_instance, "slot_index": 3 }),
+        "equip an own item",
+    )
+    .await;
+    assert_eq!(equipped["success"], true);
+    assert_eq!(equipped["message"], "item equipped to slot 3");
+    assert_eq!(equipped["item"]["slot_index"], 3);
+
+    refusal(
+        client
+            .post(format!("{inventory}/consume"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "instance_id": first_instance, "quantity": 0 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "consume nothing",
+    )
+    .await;
+    refusal(
+        client
+            .post(format!("{inventory}/consume"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "instance_id": Uuid::new_v4(), "quantity": 1 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "consume an unknown item",
+    )
+    .await;
+    refusal(
+        client
+            .post(format!("{inventory}/consume"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "instance_id": bob_instance, "quantity": 1 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "consume another account's item",
+    )
+    .await;
+    refusal(
+        client
+            .post(format!("{inventory}/consume"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "instance_id": first_instance, "quantity": 6 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "consume more than the stack holds",
+    )
+    .await;
+    let consumed = api_post(
+        client,
+        format!("{inventory}/consume"),
+        &alice.token,
+        json!({ "instance_id": first_instance, "quantity": 2 }),
+        "consume part of a stack",
+    )
+    .await;
+    assert_eq!(consumed["message"], "consumed 2 items");
+    assert_eq!(consumed["item"]["quantity"], 3);
+    let consumed = api_post(
+        client,
+        format!("{inventory}/consume"),
+        &alice.token,
+        json!({ "instance_id": first_instance, "quantity": 3 }),
+        "consume the rest of a stack",
+    )
+    .await;
+    assert_eq!(consumed["message"], "consumed 3 items");
+    assert!(consumed["item"].is_null(), "an emptied stack is removed");
+
+    let listed = api_get(client, inventory.clone(), &alice.token, "alice's inventory").await;
+    let items = listed["items"].as_array().expect("items");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["instance_id"], second_instance);
+    assert_eq!(items[0]["quantity"], 1);
+
+    let bob_listing = api_get(client, inventory, &bob.token, "bob's inventory").await;
+    let items = bob_listing["items"].as_array().expect("items");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["instance_id"], bob_instance);
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboards
+// ---------------------------------------------------------------------------
+
+async fn leaderboard_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: leaderboards");
+    let alice = device_player(client, base, "lb-a").await;
+    let bob = device_player(client, base, "lb-b").await;
+    let charlie = device_player(client, base, "lb-c").await;
+    let suffix = letters_suffix();
+    let desc_id = format!("e2e-lb-desc-{suffix}");
+    let ops_id = format!("e2e-lb-ops-{suffix}");
+    let asc_id = format!("e2e-lb-asc-{suffix}");
+    let auth_id = format!("e2e-lb-auth-{suffix}");
+    let unranked_id = format!("e2e-lb-unranked-{suffix}");
+    let tournament_id = format!("e2e-lb-round-{suffix}");
+
+    for (id, sort_order, authoritative, enable_ranks) in [
+        (&desc_id, 1_i16, false, true),
+        (&ops_id, 1, false, true),
+        (&asc_id, 0, false, true),
+        (&auth_id, 1, true, true),
+        (&unranked_id, 1, false, false),
+    ] {
+        sqlx::query(
+            "INSERT INTO leaderboard (id, title, category, duration, sort_order, authoritative, enable_ranks) \
+             VALUES ($1, $2, 0, 0, $3, $4, $5)",
+        )
+        .bind(id)
+        .bind(id)
+        .bind(sort_order)
+        .bind(authoritative)
+        .bind(enable_ranks)
+        .execute(pool)
+        .await
+        .expect("seed a leaderboard");
+    }
+    sqlx::query(
+        "INSERT INTO leaderboard (id, title, category, duration, start_time, end_time) \
+         VALUES ($1, $2, 1, 60, now(), now() + interval '1 hour')",
+    )
+    .bind(&tournament_id)
+    .bind(&tournament_id)
+    .execute(pool)
+    .await
+    .expect("seed a tournament board");
+
+    let url = |id: &str| format!("{base}/v2/leaderboard/{id}");
+
+    // An absent body is not a record.
+    refusal(
+        client
+            .post(url(&desc_id))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "write a record with no body",
+    )
+    .await;
+    let first = api_post(
+        client,
+        url(&desc_id),
+        &alice.token,
+        json!({ "score": 100, "metadata": "{\"tag\":\"first\"}" }),
+        "write the top record",
+    )
+    .await;
+    assert_eq!(first["leaderboard_id"], desc_id);
+    assert_eq!(first["owner_id"], alice.uid);
+    assert_eq!(first["username"], alice.username);
+    assert_eq!(first["score"], "100");
+    assert_eq!(first["num_score"], 1);
+    assert_eq!(first["rank"], "1");
+    assert_eq!(json_string(&first["metadata"]), json!({ "tag": "first" }));
+    assert!(first.get("expiry_time").is_none());
+
+    // A best write only climbs.
+    let lower = api_post(
+        client,
+        url(&desc_id),
+        &alice.token,
+        json!({ "score": 50 }),
+        "write a lower best score",
+    )
+    .await;
+    assert_eq!(lower["score"], "100");
+    assert_eq!(lower["num_score"], 1);
+
+    api_post(
+        client,
+        url(&desc_id),
+        &bob.token,
+        json!({ "score": 50 }),
+        "write bob's record",
+    )
+    .await;
+    api_post(
+        client,
+        url(&desc_id),
+        &charlie.token,
+        json!({ "score": 75 }),
+        "write charlie's record",
+    )
+    .await;
+
+    let page = api_get(
+        client,
+        with_query(&url(&desc_id), &[("limit", "2")]),
+        &alice.token,
+        "first leaderboard page",
+    )
+    .await;
+    let scores: Vec<&str> = page["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .map(|record| record["score"].as_str().expect("score"))
+        .collect();
+    assert_eq!(scores, vec!["100", "75"]);
+    assert_eq!(page["records"][0]["rank"], "1");
+    assert_eq!(page["records"][1]["rank"], "2");
+    assert_eq!(page["rank_count"], "3");
+    let cursor = page["next_cursor"]
+        .as_str()
+        .expect("a leaderboard cursor")
+        .to_owned();
+    let page = api_get(
+        client,
+        with_query(&url(&desc_id), &[("limit", "2"), ("cursor", &cursor)]),
+        &alice.token,
+        "second leaderboard page",
+    )
+    .await;
+    let records = page["records"].as_array().expect("records");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["owner_id"], bob.uid);
+    assert_eq!(records[0]["rank"], "3");
+    assert!(page["prev_cursor"].is_string());
+    assert!(page.get("next_cursor").is_none());
+
+    let default_page = api_get(client, url(&desc_id), &alice.token, "default leaderboard page").await;
+    assert_eq!(default_page["records"].as_array().expect("records").len(), 1);
+
+    // Naming owners without paging answers only those records, in board order.
+    let owners = format!("{},{}", alice.uid, bob.uid);
+    let owned = api_get(
+        client,
+        with_query(&url(&desc_id), &[("owner_ids", &owners)]),
+        &alice.token,
+        "owner records batch",
+    )
+    .await;
+    assert!(owned.get("records").is_none());
+    let owner_scores: Vec<&str> = owned["owner_records"]
+        .as_array()
+        .expect("owner records")
+        .iter()
+        .map(|record| record["score"].as_str().expect("score"))
+        .collect();
+    assert_eq!(owner_scores, vec!["100", "50"]);
+
+    for (pairs, what) in [
+        (vec![("owner_ids", "not-a-uuid")], "list with a malformed owner"),
+        (vec![("limit", "0")], "list with a zero limit"),
+        (vec![("limit", "1001")], "list above the page ceiling"),
+        (vec![("limit", "abc")], "list with a non-numeric limit"),
+        (vec![("cursor", "garbage")], "list with a malformed cursor"),
+        (vec![("expiry", "abc")], "list with a non-numeric expiry"),
+    ] {
+        refusal(
+            client
+                .get(with_query(&url(&desc_id), &pairs))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            what,
+        )
+        .await;
+    }
+    let expired = api_get(
+        client,
+        with_query(&url(&desc_id), &[("expiry", "1")]),
+        &alice.token,
+        "list a closed window",
+    )
+    .await;
+    assert_eq!(expired, json!({}));
+
+    // A haystack anchors on the owner and trims to the limit.
+    let haystack = api_get(
+        client,
+        with_query(&url(&desc_id), &[("limit", "3")]),
+        &alice.token,
+        "haystack without an owner",
+    )
+    .await;
+    // Owner-less haystack is a plain listing; the owner route is below.
+    assert_eq!(haystack["records"].as_array().expect("records").len(), 3);
+    let around = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/leaderboard/{desc_id}/owner/{}", alice.uid),
+            &[("limit", "3")],
+        ),
+        &alice.token,
+        "alice's haystack",
+    )
+    .await;
+    let scores: Vec<&str> = around["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .map(|record| record["score"].as_str().expect("score"))
+        .collect();
+    assert_eq!(scores, vec!["100", "75", "50"]);
+    assert_eq!(around["rank_count"], "3");
+    let trimmed = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/leaderboard/{desc_id}/owner/{}", bob.uid),
+            &[("limit", "1")],
+        ),
+        &bob.token,
+        "bob's trimmed haystack",
+    )
+    .await;
+    let records = trimmed["records"].as_array().expect("records");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["owner_id"], bob.uid);
+    assert_eq!(records[0]["rank"], "3");
+    assert!(trimmed["prev_cursor"].is_string());
+    let cursor_page = api_get(
+        client,
+        with_query(
+            &format!("{base}/v2/leaderboard/{desc_id}/owner/{}", alice.uid),
+            &[("limit", "2"), ("cursor", &cursor)],
+        ),
+        &alice.token,
+        "a haystack handed a cursor",
+    )
+    .await;
+    assert!(cursor_page.get("owner_records").is_none());
+    assert_eq!(cursor_page["records"].as_array().expect("records").len(), 1);
+    let no_record = api_get(
+        client,
+        format!(
+            "{base}/v2/leaderboard/{desc_id}/owner/{}",
+            Uuid::new_v4()
+        ),
+        &alice.token,
+        "a haystack for a player with no record",
+    )
+    .await;
+    assert_eq!(no_record, json!({}));
+    for (pairs, what) in [
+        (vec![("limit", "0")], "haystack with a zero limit"),
+        (vec![("limit", "101")], "haystack above its ceiling"),
+        (vec![("expiry", "abc")], "haystack with a non-numeric expiry"),
+    ] {
+        refusal(
+            client
+                .get(with_query(
+                    &format!("{base}/v2/leaderboard/{desc_id}/owner/{}", alice.uid),
+                    &pairs,
+                ))
+                .bearer_auth(&alice.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            what,
+        )
+        .await;
+    }
+    refusal(
+        client
+            .get(format!(
+                "{base}/v2/leaderboard/{desc_id}/owner/not-a-uuid"
+            ))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "haystack for a malformed owner",
+    )
+    .await;
+
+    // Operator overrides on a board of their own.
+    let ops = |score: i64, operator: i64| {
+        json!({ "score": score, "operator": operator })
+    };
+    let written = api_post(client, url(&ops_id), &alice.token, ops(10, 0), "best 10").await;
+    assert_eq!(written["score"], "10");
+    api_post(client, url(&ops_id), &alice.token, ops(30, 0), "best 30").await;
+    let unchanged = api_post(client, url(&ops_id), &alice.token, ops(5, 0), "best 5").await;
+    assert_eq!(unchanged["score"], "30");
+    assert_eq!(unchanged["num_score"], 2);
+    let set = api_post(client, url(&ops_id), &alice.token, ops(40, 2), "set 40").await;
+    assert_eq!(set["score"], "40");
+    assert_eq!(set["num_score"], 3);
+    let increment = api_post(client, url(&ops_id), &alice.token, ops(45, 3), "increment 45").await;
+    assert_eq!(increment["score"], "85");
+    let decrement = api_post(client, url(&ops_id), &alice.token, ops(100, 4), "decrement 100").await;
+    assert!(decrement.get("score").is_none(), "a decrement floors at zero");
+    refusal(
+        client
+            .post(url(&ops_id))
+            .bearer_auth(&alice.token)
+            .json(&ops(1, 9))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "write with an unknown operator",
+    )
+    .await;
+    refusal(
+        client
+            .post(url(&ops_id))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "score": 1, "metadata": "[1]" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "write a non-object metadata value",
+    )
+    .await;
+    let empty_record = api_post(client, url(&ops_id), &alice.token, json!({}), "empty record").await;
+    assert_eq!(empty_record["owner_id"], alice.uid);
+    let removed = api_delete(
+        client,
+        url(&ops_id),
+        &alice.token,
+        "delete an own record",
+    )
+    .await;
+    assert_eq!(removed, json!({}));
+    let after_delete = api_get(
+        client,
+        with_query(&url(&ops_id), &[("owner_ids", &alice.uid)]),
+        &alice.token,
+        "list after deleting the only record",
+    )
+    .await;
+    assert_eq!(after_delete, json!({}));
+
+    // An ascending board sorts the other way.
+    for (player, score) in [(&alice, 10), (&bob, 5), (&charlie, 7)] {
+        api_post(
+            client,
+            url(&asc_id),
+            &player.token,
+            json!({ "score": score }),
+            "write an ascending record",
+        )
+        .await;
+    }
+    let ascending = api_get(
+        client,
+        with_query(&url(&asc_id), &[("limit", "10")]),
+        &alice.token,
+        "ascending listing",
+    )
+    .await;
+    let scores: Vec<&str> = ascending["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .map(|record| record["score"].as_str().expect("score"))
+        .collect();
+    assert_eq!(scores, vec!["5", "7", "10"]);
+
+    // An authoritative board belongs to the operator.
+    refusal(
+        client
+            .post(url(&auth_id))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "score": 1 }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "write to an authoritative leaderboard",
+    )
+    .await;
+    refusal(
+        client
+            .delete(url(&auth_id))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "delete from an authoritative leaderboard",
+    )
+    .await;
+
+    // A board that keeps no ranks reports none.
+    let unranked = api_post(
+        client,
+        url(&unranked_id),
+        &alice.token,
+        json!({ "score": 12 }),
+        "write to an unranked board",
+    )
+    .await;
+    assert!(unranked.get("rank").is_none());
+    let unranked_list = api_get(
+        client,
+        with_query(&url(&unranked_id), &[("limit", "10")]),
+        &alice.token,
+        "list an unranked board",
+    )
+    .await;
+    assert!(unranked_list.get("rank_count").is_none());
+    assert!(unranked_list["records"][0].get("rank").is_none());
+
+    // A round board is not a leaderboard for the delete route.
+    refusal(
+        client
+            .delete(url(&tournament_id))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "delete a tournament record through the leaderboard route",
+    )
+    .await;
+
+    // Unknown boards are not-found on every verb.
+    for response in [
+        client
+            .post(url("e2e-lb-absent"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "score": 1 }))
+            .send()
+            .await
+            .unwrap(),
+        client
+            .get(url("e2e-lb-absent"))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        client
+            .delete(url("e2e-lb-absent"))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+    ] {
+        refusal(response, StatusCode::NOT_FOUND, "address an unknown leaderboard").await;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// IAP
+// ---------------------------------------------------------------------------
+
+async fn iap_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: iap");
+    let alice = device_player(client, base, "iap-a").await;
+    let suffix = letters_suffix();
+    let iap = format!("{base}/v2/iap");
+
+    refusal(
+        client
+            .post(iap.clone())
+            .bearer_auth(&alice.token)
+            .json(&json!({ "receipt": "" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "validate an empty Apple receipt",
+    )
+    .await;
+
+    let receipt = format!("e2e-receipt-{suffix}");
+    let purchase = api_post(
+        client,
+        iap.clone(),
+        &alice.token,
+        json!({ "receipt": receipt, "product_id": "coin", "store": 0 }),
+        "record a legacy Apple purchase",
+    )
+    .await;
+    assert_eq!(purchase["product_id"], "coin");
+    assert_eq!(purchase["transaction_id"], md5_hex(&receipt));
+    assert_eq!(purchase["environment"], "UNKNOWN");
+    assert!(purchase["purchase_time"].as_i64().expect("purchase time") > 0);
+    assert!(purchase["update_time"].as_i64().expect("update time") > 0);
+    assert!(purchase.get("refund_time").is_none());
+    assert!(purchase.get("provider_notification").is_none());
+
+    // A transaction id is bound to its first product for good.
+    let replay = api_post(
+        client,
+        iap.clone(),
+        &alice.token,
+        json!({ "receipt": receipt, "product_id": "gem" }),
+        "replay an Apple receipt",
+    )
+    .await;
+    assert_eq!(replay["product_id"], "coin");
+    assert_eq!(replay["transaction_id"], md5_hex(&receipt));
+
+    let explicit = api_post(
+        client,
+        format!("{iap}/purchase/apple"),
+        &alice.token,
+        json!({ "receipt": format!("e2e-apple-{suffix}"), "product_id": "sword", "transaction_id": "e2e-tx-explicit" }),
+        "record an Apple purchase with an explicit transaction id",
+    )
+    .await;
+    assert_eq!(explicit["transaction_id"], "e2e-tx-explicit");
+    assert_eq!(explicit["product_id"], "sword");
+
+    refusal(
+        client
+            .post(format!("{iap}/purchase/google"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "purchase_token": "" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "record a Google purchase with no token",
+    )
+    .await;
+    let google = api_post(
+        client,
+        format!("{iap}/purchase/google"),
+        &alice.token,
+        json!({ "purchase_token": format!("e2e-google-{suffix}"), "product_id": "gem" }),
+        "record a Google purchase",
+    )
+    .await;
+    assert_eq!(google["transaction_id"], md5_hex(&format!("e2e-google-{suffix}")));
+    assert_eq!(google["product_id"], "gem");
+
+    let huawei = api_post(
+        client,
+        format!("{iap}/purchase/huawei"),
+        &alice.token,
+        json!({ "purchase_token": format!("e2e-huawei-{suffix}"), "product_id": "gem" }),
+        "record a Huawei purchase",
+    )
+    .await;
+    assert_eq!(huawei["transaction_id"], md5_hex(&format!("e2e-huawei-{suffix}")));
+
+    let facebook = api_post(
+        client,
+        format!("{iap}/purchase/facebookinstant"),
+        &alice.token,
+        json!({ "signed_request": format!("e2e-facebook-{suffix}"), "product_id": "gem" }),
+        "record a Facebook Instant purchase through its alias",
+    )
+    .await;
+    assert_eq!(
+        facebook["transaction_id"],
+        md5_hex(&format!("e2e-facebook-{suffix}"))
+    );
+
+    let samsung = api_post(
+        client,
+        format!("{iap}/purchase/samsung"),
+        &alice.token,
+        json!({ "purchase_id": format!("e2e-samsung-{suffix}"), "product_id": "gem" }),
+        "record a Samsung purchase through its alias",
+    )
+    .await;
+    assert_eq!(
+        samsung["transaction_id"],
+        md5_hex(&format!("e2e-samsung-{suffix}"))
+    );
+
+    // Purchase paging: six rows, three per page.
+    let first = api_get(
+        client,
+        with_query(&format!("{iap}/purchase"), &[("limit", "3")]),
+        &alice.token,
+        "first purchase page",
+    )
+    .await;
+    let mut seen: Vec<String> = first["purchases"]
+        .as_array()
+        .expect("purchases")
+        .iter()
+        .map(|row| row["transaction_id"].as_str().expect("transaction").to_owned())
+        .collect();
+    assert_eq!(seen.len(), 3);
+    let cursor = first["next_cursor"]
+        .as_str()
+        .expect("a purchase cursor")
+        .to_owned();
+    assert_eq!(cursor, base64::engine::general_purpose::STANDARD.encode("3"));
+    let second = api_get(
+        client,
+        with_query(
+            &format!("{iap}/purchase"),
+            &[("limit", "3"), ("cursor", &cursor)],
+        ),
+        &alice.token,
+        "second purchase page",
+    )
+    .await;
+    seen.extend(
+        second["purchases"]
+            .as_array()
+            .expect("purchases")
+            .iter()
+            .map(|row| row["transaction_id"].as_str().expect("transaction").to_owned()),
+    );
+    assert_eq!(seen.len(), 6);
+    let cursor = second["next_cursor"]
+        .as_str()
+        .expect("the page was full")
+        .to_owned();
+    let third = api_get(
+        client,
+        with_query(
+            &format!("{iap}/purchase"),
+            &[("limit", "3"), ("cursor", &cursor)],
+        ),
+        &alice.token,
+        "third purchase page",
+    )
+    .await;
+    assert!(third["purchases"].as_array().expect("purchases").is_empty());
+    assert_eq!(third["next_cursor"], "");
+
+    // A malformed cursor decodes to the first page rather than failing.
+    let recovered = api_get(
+        client,
+        with_query(&format!("{iap}/purchase"), &[("limit", "3"), ("cursor", "garbage")]),
+        &alice.token,
+        "purchase page with a malformed cursor",
+    )
+    .await;
+    assert_eq!(recovered["purchases"].as_array().expect("purchases").len(), 3);
+
+    // A refunded purchase leaves the listing.
+    sqlx::query("UPDATE purchase SET refund_time = now() WHERE transaction_id = $1")
+        .bind(&explicit["transaction_id"].as_str().expect("transaction"))
+        .execute(pool)
+        .await
+        .expect("refund a purchase");
+    let listed = api_get(
+        client,
+        with_query(&format!("{iap}/purchase"), &[("limit", "100")]),
+        &alice.token,
+        "purchases after a refund",
+    )
+    .await;
+    assert_eq!(listed["purchases"].as_array().expect("purchases").len(), 5);
+
+    // Subscriptions.
+    refusal(
+        client
+            .post(format!("{iap}/subscription/apple"))
+            .bearer_auth(&alice.token)
+            .json(&json!({ "receipt": "" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "record a subscription with no credential",
+    )
+    .await;
+
+    let apple_token = format!("e2e-sub-apple-{suffix}");
+    let subscription = api_post(
+        client,
+        format!("{iap}/subscription/apple"),
+        &alice.token,
+        json!({
+            "receipt": apple_token,
+            "product_id": "sub-a",
+            "expire_time": "2030-01-01T00:00:00Z",
+        }),
+        "record an Apple subscription",
+    )
+    .await;
+    assert_eq!(subscription["product_id"], "sub-a");
+    assert_eq!(subscription["transaction_id"], md5_hex(&apple_token));
+    assert_eq!(subscription["original_transaction_id"], md5_hex(&apple_token));
+    assert_eq!(subscription["expiration_time"], 1_893_456_000_i64);
+    assert_eq!(subscription["state"], 1);
+    assert_eq!(subscription["environment"], "UNKNOWN");
+    assert!(subscription.get("refund_time").is_none());
+
+    let google_token = format!("e2e-sub-google-{suffix}");
+    let google_sub = api_post(
+        client,
+        format!("{iap}/subscription/google"),
+        &alice.token,
+        json!({
+            "purchase_token": google_token,
+            "product_id": "sub-b",
+            "expire_time": "2031-01-01T00:00:00Z",
+        }),
+        "record a Google subscription",
+    )
+    .await;
+    assert_eq!(google_sub["transaction_id"], md5_hex(&google_token));
+    assert_eq!(google_sub["expiration_time"], 1_934_496_000_i64);
+
+    let expired_token = format!("e2e-sub-expired-{suffix}");
+    let expired = api_post(
+        client,
+        format!("{iap}/subscription/apple"),
+        &alice.token,
+        json!({
+            "receipt": expired_token,
+            "product_id": "sub-expired",
+            "expire_time": "2000-01-01T00:00:00Z",
+        }),
+        "record an expired subscription",
+    )
+    .await;
+    assert_eq!(expired["state"], 3);
+    assert_eq!(expired["expiration_time"], 946_684_800_i64);
+
+    let open_ended = api_post(
+        client,
+        format!("{iap}/subscription/apple"),
+        &alice.token,
+        json!({ "receipt": format!("e2e-sub-open-{suffix}"), "product_id": "sub-open" }),
+        "record a subscription without an expiry",
+    )
+    .await;
+    assert_eq!(open_ended["state"], 1);
+    assert!(open_ended.get("expiration_time").is_none());
+
+    let huawei_token = format!("e2e-sub-huawei-{suffix}");
+    let huawei_sub = api_post(
+        client,
+        format!("{iap}/subscription/huawei"),
+        &alice.token,
+        json!({
+            "purchase_token": huawei_token,
+            "product_id": "sub-h",
+            "expire_time": "2030-06-01T00:00:00Z",
+        }),
+        "record a Huawei subscription",
+    )
+    .await;
+    assert_eq!(huawei_sub["transaction_id"], md5_hex(&huawei_token));
+
+    let active = api_get(
+        client,
+        with_query(&format!("{iap}/subscription"), &[("limit", "100")]),
+        &alice.token,
+        "active subscriptions",
+    )
+    .await;
+    let products: Vec<&str> = active["subscriptions"]
+        .as_array()
+        .expect("subscriptions")
+        .iter()
+        .map(|row| row["product_id"].as_str().expect("product"))
+        .collect();
+    assert_eq!(products.len(), 3);
+    assert!(products.contains(&"sub-a"));
+    assert!(products.contains(&"sub-b"));
+    assert!(products.contains(&"sub-h"));
+    assert!(!products.contains(&"sub-expired"));
+    assert!(!products.contains(&"sub-open"));
+
+    let by_product = api_get(
+        client,
+        format!("{iap}/subscription/sub-a"),
+        &alice.token,
+        "a subscription by product",
+    )
+    .await;
+    assert_eq!(by_product["transaction_id"], md5_hex(&apple_token));
+    refusal(
+        client
+            .get(format!("{iap}/subscription/sub-absent"))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "an unknown subscription product",
+    )
+    .await;
+
+    // Re-recording a token updates that subscription instead of adding one.
+    let renewed = api_post(
+        client,
+        format!("{iap}/subscription/apple"),
+        &alice.token,
+        json!({
+            "receipt": apple_token,
+            "product_id": "sub-a2",
+            "expire_time": "2032-01-01T00:00:00Z",
+        }),
+        "renew the Apple subscription",
+    )
+    .await;
+    assert_eq!(renewed["transaction_id"], md5_hex(&apple_token));
+    assert_eq!(renewed["product_id"], "sub-a2");
+    assert_eq!(renewed["expiration_time"], 1_977_004_800_i64);
+    refusal(
+        client
+            .get(format!("{iap}/subscription/sub-a"))
+            .bearer_auth(&alice.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "the replaced product is gone",
+    )
+    .await;
+    let renewed = api_get(
+        client,
+        format!("{iap}/subscription/sub-a2"),
+        &alice.token,
+        "the renewed subscription",
+    )
+    .await;
+    assert_eq!(renewed["transaction_id"], md5_hex(&apple_token));
+    let still_active = api_get(
+        client,
+        with_query(&format!("{iap}/subscription"), &[("limit", "100")]),
+        &alice.token,
+        "subscriptions after a renewal",
+    )
+    .await;
+    assert_eq!(
+        still_active["subscriptions"]
+            .as_array()
+            .expect("subscriptions")
+            .len(),
+        3
+    );
+
+    // Subscription paging uses the same offset cursor as purchases.
+    let page = api_get(
+        client,
+        with_query(&format!("{iap}/subscription"), &[("limit", "2")]),
+        &alice.token,
+        "first subscription page",
+    )
+    .await;
+    let cursor = page["next_cursor"]
+        .as_str()
+        .expect("a subscription cursor")
+        .to_owned();
+    assert_eq!(cursor, base64::engine::general_purpose::STANDARD.encode("2"));
+    let page = api_get(
+        client,
+        with_query(
+            &format!("{iap}/subscription"),
+            &[("limit", "2"), ("cursor", &cursor)],
+        ),
+        &alice.token,
+        "second subscription page",
+    )
+    .await;
+    assert_eq!(
+        page["subscriptions"].as_array().expect("subscriptions").len(),
+        1
+    );
 }
 
 async fn audit_trail(pool: &PgPool) {

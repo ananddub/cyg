@@ -41,6 +41,12 @@ impl StaticRoutesController {
         self.service.serve_sdk(&state)
     }
 
+    #[get("/openoxide-client.js")]
+    async fn sdk_client(&self) -> Response {
+        let state = current_state();
+        self.service.serve_sdk(&state)
+    }
+
     #[get("/arena_map.json")]
     async fn map(&self) -> Response {
         let state = current_state();

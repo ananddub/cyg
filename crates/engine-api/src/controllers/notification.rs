@@ -10,7 +10,7 @@ use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 
 use crate::app::middleware::Authed;
-use crate::app::params::Params;
+use crate::app::params::{Body, Params};
 use crate::current_state;
 use crate::dto::notification::{DeleteRequest, ListQuery};
 
@@ -32,12 +32,22 @@ impl NotificationController {
         self.service.list(&state, &auth, req).await.into_response()
     }
 
+    /// Ids reach this route two ways: repeated `?ids=` pairs — which a struct
+    /// field cannot capture, since urlencoded structs keep one value per key —
+    /// and a JSON body. Both are merged.
     #[delete("")]
     async fn delete_notifications(
         &self,
         auth: Authed,
-        Params(req): Params<DeleteRequest>,
+        Params(pairs): Params<Vec<(String, String)>>,
+        Body(mut req): Body<DeleteRequest>,
     ) -> Response {
+        req.ids.extend(
+            pairs
+                .into_iter()
+                .filter(|(key, _)| key == "ids")
+                .map(|(_, value)| value),
+        );
         let state = current_state();
         self.service
             .delete_many(&state, &auth, req)

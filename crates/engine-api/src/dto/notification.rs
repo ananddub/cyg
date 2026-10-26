@@ -26,7 +26,7 @@ pub struct ListQuery {
 }
 
 /// `DeleteNotifications`: a repeated field, or a comma-joined one, or both.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct DeleteRequest {
     #[serde(default)]
     pub ids: Vec<String>,
