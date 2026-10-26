@@ -2,7 +2,7 @@
 //! `bus.commands_rx`, drives `wasm.on_tick`, builds per-viewer deltas through
 //! `aoi` + `dispatch`, sends native frames over `UdpPlane` and browser frames
 //! to `bus.deltas_tx` (drop when full), and publishes `StatusSnapshot` once a
-//! second via [`crate::telemetry`]. See CONTRACT.md for the full loop shape.
+//! second via [`crate::telemetry`]. See the UDP plane module for the full loop shape.
 //!
 //! The room type, host linker and membership come from [`crate::rooms`];
 //! input apply/journal (including the rollback replay) from

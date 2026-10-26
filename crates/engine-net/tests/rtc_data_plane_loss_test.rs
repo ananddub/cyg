@@ -22,7 +22,7 @@ use engine_webrtc_protocol::frames::is_newer;
 
 const SEED: u32 = 0xC0FF_EE;
 const TICKS: u32 = 400;
-const TICK_MS: u64 = 8; // 128 Hz broadcast, per CONTRACT.md
+const TICK_MS: u64 = 8; // 128 Hz broadcast
 const LOSS_PCT: u64 = 10;
 const JITTER_MS: u64 = 151; // arrivals spread up to 150 ms → cross-tick reordering
 
