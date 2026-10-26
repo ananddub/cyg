@@ -160,9 +160,10 @@ export function ConsoleNav({
         </SidebarGroup>
       )}
 
-      {onBack !== undefined && (
-        <SidebarGroup className="pb-0">
-          <SidebarMenu>
+      <SidebarGroup>
+        {!flat && <SidebarGroupLabel>Console</SidebarGroupLabel>}
+        <SidebarMenu>
+          {onBack !== undefined && (
             <SidebarMenuItem>
               <SidebarMenuButton
                 tooltip="Back to all games"
@@ -173,13 +174,7 @@ export function ConsoleNav({
                 <span>All games</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarGroup>
-      )}
-
-      <SidebarGroup>
-        {!flat && <SidebarGroupLabel>Console</SidebarGroupLabel>}
-        <SidebarMenu>
+          )}
           {flat ? (
             visible.map((candidate) => (
               <SidebarMenuItem key={candidate.id}>
