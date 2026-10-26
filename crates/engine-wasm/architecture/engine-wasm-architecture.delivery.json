@@ -4,8 +4,8 @@
   "status": "current",
   "command": "deliver",
   "type": "architecture",
-  "input": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/candidate.json",
-  "output": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+  "input": "./crates/engine-wasm/architecture/candidate.json",
+  "output": "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
   "specification": {
     "sha256": "b87eae4a40c9c529e2f30e3fea930ae41c8e137ef57c598d652e5de1658b6ee6",
     "bytes": 4210

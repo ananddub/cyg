@@ -1,6 +1,6 @@
 // PvP Shooting E2E Test: 2 bots connect via @colyseus/sdk.
 // Shooter aims at Target, shoots bullets, verifies target HP drops and damage is dealt.
-import { Client } from '/mnt/SSD/Devloper/pannel/colyseus/packages/sdk/build/index.mjs';
+import { Client } from '../../../../../colyseus/packages/sdk/build/index.mjs';
 
 const client1 = new Client('ws://127.0.0.1:7777');
 const client2 = new Client('ws://127.0.0.1:7777');

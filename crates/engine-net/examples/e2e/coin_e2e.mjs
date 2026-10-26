@@ -1,5 +1,5 @@
 // Coin Rush E2E: auto-play bot — steers toward the coin, verifies score.
-import { Client } from '/mnt/SSD/Devloper/pannel/colyseus/packages/sdk/build/index.mjs';
+import { Client } from '../../../../../colyseus/packages/sdk/build/index.mjs';
 
 const client = new Client('ws://127.0.0.1:7777');
 const room = await client.joinOrCreate('game_room');

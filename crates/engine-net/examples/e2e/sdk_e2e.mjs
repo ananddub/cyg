@@ -1,7 +1,7 @@
 // E2E: real @colyseus/sdk — WASD multi-player flow.
 // Join -> own player spawns -> send input D -> verify server moves us ->
 // verify patch stream keeps flowing. Run: node sdk_e2e.mjs <port>
-import { Client } from '/mnt/SSD/Devloper/pannel/colyseus/packages/sdk/build/index.mjs';
+import { Client } from '../../../../../colyseus/packages/sdk/build/index.mjs';
 
 const port = process.argv[2] ?? '7777';
 const client = new Client(`ws://127.0.0.1:${port}`);

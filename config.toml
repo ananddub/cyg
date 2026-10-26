@@ -1,9 +1,14 @@
 # OpenOxide Game Server Configuration (Standard TOML)
 name = "game_room"
+# The registered game this process hosts. Stats and player data shown in the
+# console are scoped to this tenant; another game's workspace reports that it
+# is not hosted here instead of falling back to global telemetry.
+game_id = "aa1cea32-77f1-4c0e-ad4b-b47f4bef64cd"
+game_key = "gm_test_5312a6"
 runtime = "assemblyscript"
 source = "crates/engine-net/examples/e2e/room.ts"
 out = "crates/engine-net/examples/e2e/room_logic.wasm"
-sdk_dir = "/mnt/SSD/Devloper/pannel/colyseus"
+sdk_dir = "../colyseus"
 website = "crates/engine-net/examples/e2e/website.html"
 port = 7777
 web_port = 8090

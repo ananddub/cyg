@@ -8,7 +8,7 @@
   "provenance": "current",
   "deliveryReceiptId": "13f80ef1-6888-4179-b6a1-6377991b2305",
   "artifact": {
-    "path": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+    "path": "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
     "sha256": "d7e9b7e26aacdd36d9c882e0989d8e5e65fd1222d16752f35a353aaf1bd29d5c",
     "bytes": 764155
   },

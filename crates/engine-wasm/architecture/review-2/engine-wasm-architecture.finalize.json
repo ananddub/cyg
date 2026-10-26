@@ -7,12 +7,12 @@
   "quality": "showcase",
   "startedAt": "2026-10-11T19:52:18.844Z",
   "specification": {
-    "path": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/candidate.json",
+    "path": "./crates/engine-wasm/architecture/candidate.json",
     "sha256": "b87eae4a40c9c529e2f30e3fea930ae41c8e137ef57c598d652e5de1658b6ee6",
     "bytes": 4210
   },
   "artifact": {
-    "path": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+    "path": "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
     "sha256": "aa3e9f90f241c0ff01556ac38a17802f13b627c3a5e9177160b61744a6676cf9",
     "bytes": 763911
   },
@@ -23,12 +23,12 @@
       "durationMs": null,
       "execution": "embedded-in-deliver",
       "command": [
-        "/home/das/.nvm/versions/node/v22.23.2/bin/node",
-        "/home/das/.agents/skills/archify/bin/archify.mjs",
+        "node",
+        "archify.mjs",
         "deliver",
         "architecture",
-        "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/candidate.json",
-        "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+        "./crates/engine-wasm/architecture/candidate.json",
+        "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
         "--quality",
         "showcase",
         "--json"
@@ -56,12 +56,12 @@
       "exitCode": 0,
       "durationMs": 346,
       "command": [
-        "/home/das/.nvm/versions/node/v22.23.2/bin/node",
-        "/home/das/.agents/skills/archify/bin/archify.mjs",
+        "node",
+        "archify.mjs",
         "deliver",
         "architecture",
-        "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/candidate.json",
-        "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+        "./crates/engine-wasm/architecture/candidate.json",
+        "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
         "--quality",
         "showcase",
         "--json"
@@ -72,8 +72,8 @@
         "ok": true,
         "command": "deliver",
         "type": "architecture",
-        "input": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/candidate.json",
-        "output": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+        "input": "./crates/engine-wasm/architecture/candidate.json",
+        "output": "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
         "specification": {
           "sha256": "b87eae4a40c9c529e2f30e3fea930ae41c8e137ef57c598d652e5de1658b6ee6",
           "bytes": 4210
@@ -108,15 +108,15 @@
       "exitCode": 0,
       "durationMs": 130,
       "command": [
-        "/home/das/.nvm/versions/node/v22.23.2/bin/node",
-        "/home/das/.agents/skills/archify/bin/archify.mjs",
+        "node",
+        "archify.mjs",
         "check",
-        "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+        "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
         "--require-provenance"
       ],
       "receipt": {
         "ok": true,
-        "file": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+        "file": "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
         "artifact": {
           "sha256": "aa3e9f90f241c0ff01556ac38a17802f13b627c3a5e9177160b61744a6676cf9",
           "bytes": 763911
@@ -255,14 +255,14 @@
       "exitCode": 0,
       "durationMs": 1011,
       "command": [
-        "/home/das/.nvm/versions/node/v22.23.2/bin/node",
-        "/home/das/.agents/skills/archify/bin/archify.mjs",
+        "node",
+        "archify.mjs",
         "browser-check",
-        "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+        "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
         "--json",
         "--require-provenance",
         "--out-dir",
-        "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/review-2"
+        "./crates/engine-wasm/architecture/review-2"
       ],
       "execution": "in-process",
       "receipt": {
@@ -275,7 +275,7 @@
         "provenance": "current",
         "deliveryReceiptId": "fc8ac748-15e8-4fcd-947f-049d7e7fc12d",
         "artifact": {
-          "path": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+          "path": "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
           "sha256": "aa3e9f90f241c0ff01556ac38a17802f13b627c3a5e9177160b61744a6676cf9",
           "bytes": 763911
         },
@@ -982,7 +982,7 @@
           "contactSheet": null
         },
         "sidecars": {
-          "directory": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/review-2",
+          "directory": "./crates/engine-wasm/architecture/review-2",
           "receipt": "engine-wasm-architecture.browser-check.json",
           "files": []
         }
@@ -991,9 +991,9 @@
   },
   "diagnostics": [],
   "evidence": {
-    "receipt": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/review-2/engine-wasm-architecture.finalize.json",
-    "summaryReceipt": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/review-2/engine-wasm-architecture.finalize-summary.json",
-    "browserCheckReceipt": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/review-2/engine-wasm-architecture.browser-check.json"
+    "receipt": "./crates/engine-wasm/architecture/review-2/engine-wasm-architecture.finalize.json",
+    "summaryReceipt": "./crates/engine-wasm/architecture/review-2/engine-wasm-architecture.finalize-summary.json",
+    "browserCheckReceipt": "./crates/engine-wasm/architecture/review-2/engine-wasm-architecture.browser-check.json"
   },
   "visualReview": "not-requested",
   "finishedAt": "2026-10-11T19:52:20.502Z",

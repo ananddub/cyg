@@ -8,7 +8,7 @@
   "provenance": "current",
   "deliveryReceiptId": "fc8ac748-15e8-4fcd-947f-049d7e7fc12d",
   "artifact": {
-    "path": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+    "path": "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
     "sha256": "aa3e9f90f241c0ff01556ac38a17802f13b627c3a5e9177160b61744a6676cf9",
     "bytes": 763911
   },
@@ -715,7 +715,7 @@
     "contactSheet": null
   },
   "sidecars": {
-    "directory": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/review-2",
+    "directory": "./crates/engine-wasm/architecture/review-2",
     "receipt": "engine-wasm-architecture.browser-check.json",
     "files": []
   }

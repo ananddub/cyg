@@ -6,12 +6,12 @@
   "type": "architecture",
   "quality": "showcase",
   "specification": {
-    "path": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/candidate.json",
+    "path": "./crates/engine-wasm/architecture/candidate.json",
     "sha256": "d666becf8335eda96fa5f6046f63c52830e9798049b9e57046cde9c0d1d3a729",
     "bytes": 4210
   },
   "artifact": {
-    "path": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.html",
+    "path": "./crates/engine-wasm/architecture/engine-wasm-architecture.html",
     "sha256": "d7e9b7e26aacdd36d9c882e0989d8e5e65fd1222d16752f35a353aaf1bd29d5c",
     "bytes": 764155
   },
@@ -28,9 +28,9 @@
     "truncated": false
   },
   "evidence": {
-    "receipt": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.finalize.json",
-    "summaryReceipt": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.finalize-summary.json",
-    "browserCheckReceipt": "/mnt/SSD/Devloper/pannel/openoxide-gaming/crates/engine-wasm/architecture/engine-wasm-architecture.browser-check.json"
+    "receipt": "./crates/engine-wasm/architecture/engine-wasm-architecture.finalize.json",
+    "summaryReceipt": "./crates/engine-wasm/architecture/engine-wasm-architecture.finalize-summary.json",
+    "browserCheckReceipt": "./crates/engine-wasm/architecture/engine-wasm-architecture.browser-check.json"
   },
   "update": {
     "status": "current",

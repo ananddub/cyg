@@ -1,5 +1,5 @@
 // Isolated decode test of the Rust-produced snapshot bytes.
-import { Decoder, t, schema } from '/mnt/SSD/Devloper/pannel/colyseus/node_modules/@colyseus/schema/build/index.mjs';
+import { Decoder, t, schema } from '../../../../../colyseus/node_modules/@colyseus/schema/build/index.mjs';
 
 // Schema layout must match the server encoder's field indices:
 // Player: x=0, y=1, score=2 | GameState: players=0, tick=1, coinX=2, coinY=3.
