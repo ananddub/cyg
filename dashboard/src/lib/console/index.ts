@@ -130,33 +130,37 @@ export async function consoleLogout(token: string): Promise<void> {
   });
 }
 
-/** A console `GET`. `params` drops `undefined`/`""` so a filter that is not set
- * never becomes an empty query argument the server has to ignore. */
-export function consoleGet<T>(
-  path: string,
-  token: string,
-  params: Record<string, string | number | undefined> = {},
-): Promise<T> {
+type Params = Record<string, string | number | undefined>;
+
+/** The query string a console call appends. `undefined`/`""` are dropped so a
+ * filter that is not set never becomes an argument the server has to ignore. */
+function withQuery(path: string, params: Params): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") query.set(key, String(value));
   }
-  const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return request<T>(`${path}${suffix}`, {
+  return query.size > 0 ? `${path}?${query.toString()}` : path;
+}
+
+/** A console `GET`. */
+export function consoleGet<T>(path: string, token: string, params: Params = {}): Promise<T> {
+  return request<T>(withQuery(path, params), {
     method: "GET",
     headers: { authorization: `Bearer ${token}` },
   });
 }
 
 /** A console write. The body is always sent (an empty object when a route takes
- * none), because the console's extractors treat an empty body as "no fields set". */
+ * none), because the console's extractors treat an empty body as "no fields set".
+ * `params` carries the tenant scope; the route ignores it unless it scopes. */
 export function consoleWrite<T>(
   method: HttpMethod,
   path: string,
   token: string,
   body: unknown = {},
+  params: Params = {},
 ): Promise<T> {
-  return request<T>(path, {
+  return request<T>(withQuery(path, params), {
     method,
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(body ?? {}),

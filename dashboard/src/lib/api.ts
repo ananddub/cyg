@@ -9,10 +9,19 @@
 // render as a zero, and a zero that was never measured is the one thing this
 // dashboard must not show.
 
-import type { ClientRow, Overview, RoomRow, TickSeries, WorkerRow, WsFrame } from "@/lib/types";
+import type {
+  ClientRow,
+  DashboardIdentity,
+  Overview,
+  RoomRow,
+  TickSeries,
+  WorkerRow,
+  WsFrame,
+} from "@/lib/types";
 
 /** Every path this client knows, so a test can enumerate the surface. */
 export const DASHBOARD_ENDPOINTS = {
+  identity: "/api/dashboard/identity",
   overview: "/api/dashboard/overview",
   rooms: "/api/dashboard/rooms",
   workers: "/api/dashboard/workers",
@@ -20,6 +29,13 @@ export const DASHBOARD_ENDPOINTS = {
   ticks: "/api/dashboard/ticks",
   ws: "/ws/dashboard",
 } as const;
+
+/** The workspace's game id rides on every telemetry read so the server can
+ * refuse a game this process does not host rather than send its own numbers. */
+function scoped(path: string, gameId: string | null): string {
+  if (gameId === null || gameId === "") return path;
+  return `${path}?${new URLSearchParams({ game_id: gameId }).toString()}`;
+}
 
 /** The control plane answers in well under a second; longer than this is dead. */
 const REQUEST_TIMEOUT_MS = 4000;
@@ -49,30 +65,34 @@ function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-export function fetchOverview(): Promise<Overview> {
-  return getJson<Overview>(DASHBOARD_ENDPOINTS.overview);
+export function fetchIdentity(): Promise<DashboardIdentity> {
+  return getJson<DashboardIdentity>(DASHBOARD_ENDPOINTS.identity);
 }
 
-export function fetchRooms(): Promise<RoomRow[]> {
-  return getJson<RoomRow[]>(DASHBOARD_ENDPOINTS.rooms);
+export function fetchOverview(gameId: string | null): Promise<Overview> {
+  return getJson<Overview>(scoped(DASHBOARD_ENDPOINTS.overview, gameId));
 }
 
-export function fetchWorkers(): Promise<WorkerRow[]> {
-  return getJson<WorkerRow[]>(DASHBOARD_ENDPOINTS.workers);
+export function fetchRooms(gameId: string | null): Promise<RoomRow[]> {
+  return getJson<RoomRow[]>(scoped(DASHBOARD_ENDPOINTS.rooms, gameId));
 }
 
-export function fetchClients(): Promise<ClientRow[]> {
-  return getJson<ClientRow[]>(DASHBOARD_ENDPOINTS.clients);
+export function fetchWorkers(gameId: string | null): Promise<WorkerRow[]> {
+  return getJson<WorkerRow[]>(scoped(DASHBOARD_ENDPOINTS.workers, gameId));
 }
 
-export function fetchTicks(): Promise<TickSeries> {
-  return getJson<TickSeries>(DASHBOARD_ENDPOINTS.ticks);
+export function fetchClients(gameId: string | null): Promise<ClientRow[]> {
+  return getJson<ClientRow[]>(scoped(DASHBOARD_ENDPOINTS.clients, gameId));
+}
+
+export function fetchTicks(gameId: string | null): Promise<TickSeries> {
+  return getJson<TickSeries>(scoped(DASHBOARD_ENDPOINTS.ticks, gameId));
 }
 
 /** `wss:` on a secure page, since the socket is same-origin with the app. */
-export function wsUrl(): string {
+export function wsUrl(gameId: string | null): string {
   const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${window.location.host}${DASHBOARD_ENDPOINTS.ws}`;
+  return `${scheme}//${window.location.host}${scoped(DASHBOARD_ENDPOINTS.ws, gameId)}`;
 }
 
 /** Narrows a raw socket message to a frame, or `null` if it is not one. */

@@ -19,7 +19,6 @@ import { queryError, useConsoleQuery } from "@/hooks/use-console"
 import {
   GAMES_ENDPOINT,
   RELAY_WASM_REJECTED,
-  takePendingStudioGame,
   type Game,
   type GameList,
 } from "@/components/console/views/games"
@@ -48,10 +47,11 @@ function RelayNotice({ game }: { game: Game }) {
   )
 }
 
-export function WasmUploadView() {
-  // The hand-off can name any game; validated against the list during render so
-  // no effect has to chase the selection.
-  const [selectedId, setSelectedId] = useState<string>(() => takePendingStudioGame() ?? "")
+export function WasmUploadView({ gameId }: { gameId?: string }) {
+  // Inside a game workspace the target is fixed; the standalone area keeps the
+  // selector so an operator can jump between wasm games.
+  const locked = gameId !== undefined && gameId !== ""
+  const [selectedId, setSelectedId] = useState<string>(gameId ?? "")
 
   const games = useConsoleQuery<GameList>("games", GAMES_ENDPOINT)
   const all = games.data?.games ?? []
@@ -60,12 +60,18 @@ export function WasmUploadView() {
   const wasmGames = all.filter((game) => game.backend_mode === "wasm")
   const byId = (id: string): Game | undefined => all.find((game) => game.id === id)
 
-  // The game to act on: the selected hand-off when it is a wasm game; otherwise
-  // the first wasm game. A hand-off that names a relay game is shown, not dropped.
-  const handed = selectedId === "" ? undefined : byId(selectedId)
+  // The game to act on: the locked/handed-off game when it is a wasm game;
+  // otherwise the first wasm game. A game that names a relay game is shown, not
+  // dropped.
+  const handed = (locked ? gameId : selectedId) === "" ? undefined : byId(locked ? (gameId ?? "") : selectedId)
   const handedIsRelay = handed !== undefined && handed.backend_mode === "relay"
+  const missing = locked && games.data !== undefined && handed === undefined
   const activeGameId =
-    handed !== undefined && handed.backend_mode === "wasm" ? handed.id : (wasmGames[0]?.id ?? "")
+    handed !== undefined && handed.backend_mode === "wasm"
+      ? handed.id
+      : locked
+        ? ""
+        : (wasmGames[0]?.id ?? "")
 
   const gameOptions = wasmGames.map((game) => ({ value: game.id, label: game.name }))
 
@@ -78,14 +84,32 @@ export function WasmUploadView() {
 
       {handedIsRelay && handed !== undefined ? (
         <RelayNotice game={handed} />
+      ) : missing ? (
+        <Panel title="Game not found" description={gameId}>
+          <p className="px-4 py-4 text-sm text-muted-foreground">
+            This game is no longer in the catalog. Return to the games list and pick another
+            project.
+          </p>
+        </Panel>
       ) : (
         <>
           <Panel
-            title="Target game"
+            title={locked ? "Project module" : "Target game"}
             description="Only Web / Custom games use the WASM plane; modules are deployed per game."
           >
             <div className="space-y-3 px-4 py-3">
-              {gameOptions.length === 0 ? (
+              {locked ? (
+                <p className="text-sm text-muted-foreground">
+                  {handed === undefined ? (
+                    "Loading this game…"
+                  ) : (
+                    <>
+                      <span className="font-medium text-foreground">{handed.name}</span>{" "}
+                      <span className="font-mono text-xs">{handed.game_key}</span>
+                    </>
+                  )}
+                </p>
+              ) : gameOptions.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   {games.isPending
                     ? "Loading the catalog…"
@@ -104,10 +128,10 @@ export function WasmUploadView() {
             </div>
           </Panel>
 
-          {gameOptions.length > 0 && (
+          {activeGameId !== "" && (
             <>
-              <WasmUploadPanel gameId={activeGameId} disabled={activeGameId === ""} />
-              <DeploymentHistory gameId={activeGameId} disabled={activeGameId === ""} />
+              <WasmUploadPanel gameId={activeGameId} />
+              <DeploymentHistory gameId={activeGameId} />
             </>
           )}
         </>

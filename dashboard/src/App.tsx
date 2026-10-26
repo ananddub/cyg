@@ -3,7 +3,6 @@ import { ConsolePage } from "@/pages/console"
 import { LoginPage } from "@/pages/login"
 import { useHashRoute } from "@/hooks/use-hash-route"
 import { consoleLogout } from "@/lib/console"
-import { defaultArea, findArea } from "@/lib/areas"
 import { clearSession, useSession } from "@/lib/session"
 import { useTheme } from "@/lib/theme"
 
@@ -31,7 +30,7 @@ function App() {
       ) : (
         <ConsolePage
           session={session}
-          area={findArea(route) ?? defaultArea()}
+          route={route}
           onNavigate={navigate}
           onLogout={logout}
         />

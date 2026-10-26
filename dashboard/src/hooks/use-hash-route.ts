@@ -1,16 +1,15 @@
 // The console's route: a hash, so a deep link needs no server-side rewrite and a
-// stale or unknown one falls back to the default area instead of a blank page.
+// stale or unknown one falls back to the picker instead of a blank page.
 
 import { useEffect, useState } from "react"
 
-import { DEFAULT_AREA, isArea } from "@/lib/areas"
+import { parseRoute, routeHash, type ConsoleRoute } from "@/lib/routes"
 
-function read(): string {
-  const id = window.location.hash.replace(/^#\/?/, "")
-  return isArea(id) ? id : DEFAULT_AREA
+function read(): ConsoleRoute {
+  return parseRoute(window.location.hash)
 }
 
-export function useHashRoute(): [string, (id: string) => void] {
+export function useHashRoute(): [ConsoleRoute, (to: ConsoleRoute) => void] {
   const [route, setRoute] = useState(read)
 
   useEffect(() => {
@@ -19,10 +18,10 @@ export function useHashRoute(): [string, (id: string) => void] {
     return () => window.removeEventListener("hashchange", onHashChange)
   }, [])
 
-  function navigate(id: string) {
+  function navigate(to: ConsoleRoute) {
     // Assigning the hash fires `hashchange`, which is what actually updates the
     // state — one path, whether the change came from a click or the address bar.
-    window.location.hash = `#/${id}`
+    window.location.hash = routeHash(to)
   }
 
   return [route, navigate]

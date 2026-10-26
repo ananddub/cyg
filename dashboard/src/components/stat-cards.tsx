@@ -71,7 +71,7 @@ function StatCard({ label, value, secondary, tone = "default", loading }: StatCa
 export function StatCards({ overview }: { overview?: Overview }) {
   if (!overview) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="stagger-in grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {Array.from({ length: 6 }, (_, i) => (
           <StatCard key={i} label="" value="" secondary="" loading />
         ))}
@@ -89,7 +89,7 @@ export function StatCards({ overview }: { overview?: Overview }) {
   const dropped = overview.bus.deltasDroppedFull
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <div className="stagger-in grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <StatCard
         label="CCU"
         value={overview.ccu.toLocaleString()}

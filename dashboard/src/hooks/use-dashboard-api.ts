@@ -1,6 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 
-import { fetchClients, fetchOverview, fetchRooms, fetchTicks, fetchWorkers } from '@/lib/api'
+import {
+  fetchClients,
+  fetchIdentity,
+  fetchOverview,
+  fetchRooms,
+  fetchTicks,
+  fetchWorkers,
+} from '@/lib/api'
 import type { ClientRow, Overview, RoomRow, TickSeries, WorkerRow } from '@/lib/types'
 import { useMetricsWs, type MetricsWs } from './use-metrics-ws'
 
@@ -10,33 +17,70 @@ const POLL_MS = 5_000
 const WS_FRESH_MS = 3_000
 
 const keys = {
-  overview: ['dashboard', 'overview'] as const,
-  rooms: ['dashboard', 'rooms'] as const,
-  workers: ['dashboard', 'workers'] as const,
-  clients: ['dashboard', 'clients'] as const,
-  ticks: ['dashboard', 'ticks'] as const,
+  identity: ['dashboard', 'identity'] as const,
+  overview: (gameId: string | null) => ['dashboard', 'overview', gameId] as const,
+  rooms: (gameId: string | null) => ['dashboard', 'rooms', gameId] as const,
+  workers: (gameId: string | null) => ['dashboard', 'workers', gameId] as const,
+  clients: (gameId: string | null) => ['dashboard', 'clients', gameId] as const,
+  ticks: (gameId: string | null) => ['dashboard', 'ticks', gameId] as const,
 }
 
 const poll = { staleTime: POLL_MS, refetchInterval: POLL_MS }
 
-export function useOverviewQuery() {
-  return useQuery({ queryKey: keys.overview, queryFn: fetchOverview, ...poll })
+/** The game this process hosts. Read once per page: it is a deployment
+ * property, not a live measurement. */
+export function useIdentityQuery() {
+  return useQuery({
+    queryKey: keys.identity,
+    queryFn: fetchIdentity,
+    staleTime: 30_000,
+    retry: 0,
+  })
 }
 
-export function useRoomsQuery() {
-  return useQuery({ queryKey: keys.rooms, queryFn: fetchRooms, ...poll })
+export function useOverviewQuery(gameId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.overview(gameId),
+    queryFn: () => fetchOverview(gameId),
+    enabled,
+    ...poll,
+  })
 }
 
-export function useWorkersQuery() {
-  return useQuery({ queryKey: keys.workers, queryFn: fetchWorkers, ...poll })
+export function useRoomsQuery(gameId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.rooms(gameId),
+    queryFn: () => fetchRooms(gameId),
+    enabled,
+    ...poll,
+  })
 }
 
-export function useClientsQuery() {
-  return useQuery({ queryKey: keys.clients, queryFn: fetchClients, ...poll })
+export function useWorkersQuery(gameId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.workers(gameId),
+    queryFn: () => fetchWorkers(gameId),
+    enabled,
+    ...poll,
+  })
 }
 
-export function useTicksQuery() {
-  return useQuery({ queryKey: keys.ticks, queryFn: fetchTicks, ...poll })
+export function useClientsQuery(gameId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.clients(gameId),
+    queryFn: () => fetchClients(gameId),
+    enabled,
+    ...poll,
+  })
+}
+
+export function useTicksQuery(gameId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.ticks(gameId),
+    queryFn: () => fetchTicks(gameId),
+    enabled,
+    ...poll,
+  })
 }
 
 // Everything the first screen shows, from whichever feed is currently fresher.
@@ -56,13 +100,32 @@ export interface DashboardData {
   ws: MetricsWs
 }
 
-export function useDashboardData(): DashboardData {
-  const ws = useMetricsWs()
-  const overview = useOverviewQuery()
-  const ticks = useTicksQuery()
-  const rooms = useRoomsQuery()
-  const workers = useWorkersQuery()
-  const clients = useClientsQuery()
+/**
+ * Live data for one game workspace. `enabled` is false until the workspace has
+ * confirmed this process hosts that game; a disabled feed neither polls nor
+ * opens a socket, so another tenant's workspace cannot accidentally render
+ * this process's numbers.
+ */
+export function useDashboardData(gameId: string | null, enabled: boolean): DashboardData {
+  const ws = useMetricsWs(gameId, enabled)
+  const overview = useOverviewQuery(gameId, enabled)
+  const ticks = useTicksQuery(gameId, enabled)
+  const rooms = useRoomsQuery(gameId, enabled)
+  const workers = useWorkersQuery(gameId, enabled)
+  const clients = useClientsQuery(gameId, enabled)
+
+  if (!enabled) {
+    return {
+      source: 'poll',
+      overview: null,
+      ticks: null,
+      rooms: null,
+      workers: null,
+      clients: null,
+      isLoading: false,
+      ws,
+    }
+  }
 
   const fresh =
     ws.overview !== null && ws.lastFrameAtMs !== null && Date.now() - ws.lastFrameAtMs < WS_FRESH_MS

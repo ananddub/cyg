@@ -40,7 +40,7 @@ export function LoginPage() {
 
   return (
     <div className="flex min-h-svh w-full items-center justify-center bg-background p-4 text-foreground">
-      <div className="w-full max-w-sm">
+      <div className="stagger-in w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-3">
           <img
             src={logoUrl}
@@ -101,7 +101,7 @@ export function LoginPage() {
           )}
 
           {error !== null && (
-            <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
+            <p className="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1 motion-safe:duration-200 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
           )}
 
           <Button type="submit" className="h-9 w-full" disabled={busy}>

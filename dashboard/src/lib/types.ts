@@ -16,6 +16,12 @@
  * chart never has to redo the arithmetic to label its axis. */
 export type Histogram = number[];
 
+/** The tenant this process hosts. `null` means identity is unresolved. */
+export interface DashboardIdentity {
+  game_id: string | null
+  game_name: string | null
+}
+
 export interface ServerInfo {
   name: string;
   /** The game WebSocket/UDP port. */

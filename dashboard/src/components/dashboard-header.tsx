@@ -13,6 +13,10 @@ export interface DashboardHeaderProps {
   lastFrameAtMs?: number
   sectionLabel?: string
   roomName?: string | null
+  /** The selected game, shown between "Console" and the area label. */
+  gameName?: string | null
+  /** `false` at the landing scope, where there is no plane feed to report. */
+  showFeed?: boolean
 }
 
 type PillState = "live" | "reconnecting" | "offline" | "poll"
@@ -29,7 +33,7 @@ function resolvePill(source: string, connected: boolean, ageMs: number | null): 
 }
 
 const pillStyle: Record<PillState, { label: string; dot: string; text: string }> = {
-  live: { label: "LIVE", dot: "bg-primary animate-pulse", text: "text-primary" },
+  live: { label: "LIVE", dot: "bg-primary", text: "text-primary" },
   reconnecting: { label: "RECONNECTING", dot: "bg-warning", text: "text-warning" },
   offline: { label: "OFFLINE", dot: "bg-destructive", text: "text-destructive" },
   poll: { label: "POLL", dot: "bg-muted-foreground", text: "text-muted-foreground" },
@@ -49,6 +53,8 @@ export function DashboardHeader({
   lastFrameAtMs,
   sectionLabel = "Overview",
   roomName,
+  gameName,
+  showFeed = true,
 }: DashboardHeaderProps) {
   const [now, setNow] = useState(() => Date.now())
 
@@ -78,6 +84,12 @@ export function DashboardHeader({
         <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
           <span className="text-muted-foreground/60">Console</span>
           <span className="text-muted-foreground/40">/</span>
+          {gameName !== undefined && gameName !== null && (
+            <>
+              <span className="max-w-40 truncate text-foreground font-medium">{gameName}</span>
+              <span className="text-muted-foreground/40">/</span>
+            </>
+          )}
           <span className="text-foreground font-medium">{sectionLabel}</span>
           {roomName && (
             <>
@@ -92,23 +104,39 @@ export function DashboardHeader({
 
       {/* Right side: Pill, Server info, Sample age, Time */}
       <div className="flex items-center gap-3">
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 text-xs font-medium">
-          <span className={cn("size-1.5 rounded-full", pill.dot)} />
-          <span className={pill.text}>{pill.label}</span>
-        </span>
+        {showFeed && (
+          <>
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 text-xs font-medium">
+              <span className="relative flex size-1.5 shrink-0 items-center justify-center">
+                {pill.label === "LIVE" && (
+                  // A ping ring, not an opacity throb: it reads as "a frame just
+                  // landed" without making the label itself flicker.
+                  <span
+                    className={cn(
+                      "absolute inline-flex size-full rounded-full opacity-50 motion-safe:animate-ping motion-safe:[animation-duration:1.8s]",
+                      pill.dot,
+                    )}
+                  />
+                )}
+                <span className={cn("relative inline-flex size-1.5 rounded-full", pill.dot)} />
+              </span>
+              <span className={pill.text}>{pill.label}</span>
+            </span>
 
-        {server && (
-          <span className="hidden sm:inline text-xs text-muted-foreground tabular-nums shrink-0">
-            {server.name || "room"} <span className="text-foreground font-mono">:{server.controlPort}</span>
-          </span>
+            {server && (
+              <span className="hidden sm:inline text-xs text-muted-foreground tabular-nums shrink-0">
+                {server.name || "room"} <span className="text-foreground font-mono">:{server.controlPort}</span>
+              </span>
+            )}
+
+            <span
+              className="hidden md:inline text-xs text-muted-foreground tabular-nums shrink-0"
+              title="Age of the newest sim sample on this control plane"
+            >
+              sample {formatSampleAge(sampleAge)} ago
+            </span>
+          </>
         )}
-
-        <span
-          className="hidden md:inline text-xs text-muted-foreground tabular-nums shrink-0"
-          title="Age of the newest sim sample on this control plane"
-        >
-          sample {formatSampleAge(sampleAge)} ago
-        </span>
 
         <time className="hidden lg:inline text-xs text-muted-foreground tabular-nums shrink-0">
           {new Date(now).toLocaleTimeString()}

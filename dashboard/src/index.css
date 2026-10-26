@@ -114,8 +114,9 @@
 .dark {
     color-scheme: dark;
 
-    /* Dark inverts the depths: near-black page and sidebar (#050505), the
-       rounded content card on #09090b, inner panels one step lighter. */
+    /* Dark inverts the depths: the rail sits one step above the #09090b page
+       so its surface and hairline edge stay legible on near-black, with
+       inner panels (#101013 cards) one step lighter again. */
     --background: #09090b;
     --foreground: #fafafa;
     --card: #101013;
@@ -141,7 +142,7 @@
     --chart-3: #71717a;
     --chart-4: #52525b;
     --chart-5: #3f3f46;
-    --sidebar: #050505;
+    --sidebar: #0b0b0d;
     --sidebar-foreground: #fafafa;
     --sidebar-primary: #ffffff;
     --sidebar-primary-foreground: #000000;
@@ -177,4 +178,50 @@
   html {
     @apply font-sans;
     }
+}
+
+/* Motion vocabulary. Entrances run on mount only (the console keys its page
+   wrapper per area), and everything is gated on the reduced-motion preference.
+   The `backwards` fill is deliberate: it hides delayed cards until their turn,
+   then releases the animated translate so hover lifts can still land. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes page-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .page-in {
+    animation: page-fade 180ms ease-out backwards;
+  }
+  .stagger-in > * {
+    animation: rise 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+  .stagger-in > *:nth-child(2) { animation-delay: 45ms; }
+  .stagger-in > *:nth-child(3) { animation-delay: 90ms; }
+  .stagger-in > *:nth-child(4) { animation-delay: 135ms; }
+  .stagger-in > *:nth-child(5) { animation-delay: 180ms; }
+  .stagger-in > *:nth-child(6) { animation-delay: 225ms; }
+  .stagger-in > *:nth-child(7) { animation-delay: 270ms; }
+  .stagger-in > *:nth-child(8) { animation-delay: 315ms; }
+  .card-lift {
+    transition:
+      translate 200ms ease,
+      box-shadow 200ms ease,
+      border-color 200ms ease,
+      background-color 200ms ease;
+  }
+  .card-lift:hover {
+    translate: 0 -2px;
+    box-shadow: 0 14px 34px -22px rgb(0 0 0 / 0.65);
+  }
 }

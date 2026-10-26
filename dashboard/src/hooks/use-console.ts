@@ -2,12 +2,16 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { toast } from "sonner"
 
 import { consoleGet, consoleWrite, type HttpMethod } from "@/lib/console"
+import { useGameScope } from "@/lib/console/scope"
 import { useSession } from "@/lib/session"
 
 /** A console read. Disabled until there is a token, never retried (a refusal is
  * an answer, not a flake), and keyed by the path plus its filters so paging and
  * per-user views do not share a cache entry. `enabled` lets a view hold off on a
- * request it has no argument for yet. */
+ * request it has no argument for yet.
+ *
+ * Inside a game workspace the active game id rides along automatically, so a
+ * view cannot accidentally list every tenant's rows. */
 export function useConsoleQuery<T>(
   key: string,
   path: string,
@@ -15,11 +19,13 @@ export function useConsoleQuery<T>(
   enabled = true,
 ): UseQueryResult<T> {
   const token = useSession()?.token ?? ""
+  const scope = useGameScope()
+  const scoped = scope === null ? params : { game_id: scope, ...params }
   return useQuery({
-    queryKey: ["console", key, params],
+    queryKey: ["console", key, scoped],
     enabled: enabled && token !== "",
     retry: 0,
-    queryFn: () => consoleGet<T>(path, token, params),
+    queryFn: () => consoleGet<T>(path, token, scoped),
   })
 }
 
@@ -37,12 +43,14 @@ export function queryError(error: unknown): string | null {
 export function useConsoleMutation<TData = unknown>() {
   const token = useSession()?.token ?? ""
   const client = useQueryClient()
+  const scope = useGameScope()
   return useMutation<
     TData,
     Error,
     { method: HttpMethod; path: string; body?: unknown; success: string }
   >({
-    mutationFn: ({ method, path, body }) => consoleWrite<TData>(method, path, token, body),
+    mutationFn: ({ method, path, body }) =>
+      consoleWrite<TData>(method, path, token, body, scope === null ? {} : { game_id: scope }),
     onSuccess: (_data, variables) => {
       void client.invalidateQueries({ queryKey: ["console"] })
       toast.success(variables.success)

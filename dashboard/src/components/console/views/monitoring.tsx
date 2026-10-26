@@ -31,7 +31,7 @@ export function RuntimeView({ data }: { data: DashboardData }) {
 
       <StatCards overview={overview ?? undefined} />
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="stagger-in grid gap-6 lg:grid-cols-2">
         <TickChart series={ticks ?? undefined} nominalUs={overview?.tick.nominalUs} loading={loading} />
         <div className="rounded-lg border border-border bg-card p-5 shadow-xs">
           <div className="mb-4">
@@ -48,7 +48,7 @@ export function RuntimeView({ data }: { data: DashboardData }) {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="stagger-in grid gap-6 lg:grid-cols-2">
         <TransportMixPanel transport={overview?.transport} capacity={overview?.capacity} loading={loading} />
         <BusHealthCard bus={overview?.bus} loading={loading} />
       </div>

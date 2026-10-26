@@ -122,7 +122,7 @@ export function WasmUploadPanel({ gameId, disabled = false }: { gameId: string; 
   const binaryInput = useRef<HTMLInputElement>(null)
   const sourceInput = useRef<HTMLInputElement>(null)
 
-  const modules = useConsoleQuery<{ modules: WasmModuleInfo[] }>(
+  const modules = useConsoleQuery<WasmModuleInfo[]>(
     `game-wasm-${gameId}`,
     gameWasmPath(gameId),
     {},
@@ -298,7 +298,7 @@ export function DeploymentHistory({ gameId, disabled = false }: { gameId: string
   const [deploying, setDeploying] = useState<WasmModuleInfo | null>(null)
   const [removing, setRemoving] = useState<WasmModuleInfo | null>(null)
 
-  const modules = useConsoleQuery<{ modules: WasmModuleInfo[] }>(
+  const modules = useConsoleQuery<WasmModuleInfo[]>(
     `game-wasm-${gameId}`,
     gameWasmPath(gameId),
     {},
@@ -333,7 +333,7 @@ export function DeploymentHistory({ gameId, disabled = false }: { gameId: string
         <div className="flex justify-end gap-1.5" onClick={(event) => event.stopPropagation()}>
           {!row.is_active && (
             <Button size="xs" variant="outline" onClick={() => setDeploying(row)}>
-              {row.version < (modules.data?.modules.find((m) => m.is_active)?.version ?? 0)
+              {row.version < (modules.data?.find((m) => m.is_active)?.version ?? 0)
                 ? `Rollback to v${row.version}`
                 : `Activate v${row.version}`}
             </Button>
@@ -353,13 +353,13 @@ export function DeploymentHistory({ gameId, disabled = false }: { gameId: string
       <Panel
         title="Deployment timeline"
         description={
-          modules.data === undefined ? undefined : `${modules.data.modules.length} versions · newest first`
+          modules.data === undefined ? undefined : `${modules.data.length} versions · newest first`
         }
         fill
       >
         <DataTable
           columns={columns}
-          rows={modules.data?.modules}
+          rows={modules.data}
           loading={!disabled && gameId !== "" && modules.isPending}
           error={!disabled && modules.data === undefined ? queryError(modules.error) : null}
           rowKey={(row) => String(row.version)}

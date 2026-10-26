@@ -3,6 +3,8 @@
 // They live apart from the view so the view file exports components only — the
 // studio imports these without pulling in a render.
 
+import { gameRoute, routeHash } from "@/lib/routes"
+
 export const GAMES_ENDPOINT = "/v2/console/games"
 
 export function gamePath(id: string): string {
@@ -50,19 +52,9 @@ export function isWasmMode(mode: BackendMode | string | undefined): boolean {
   return mode === "wasm"
 }
 
-// The Studio lives in its own area; a hand-off passes only the game to open it
-// on. A module cell is enough because the console is a single-tab SPA and the
-// hash navigation below remounts the target view.
-let pendingStudioGameId: string | null = null
-
+// The Studio is an area of the game workspace, not a separate global page: the
+// hand-off navigates to that game's WASM tab, so leaving it keeps the game in
+// scope and the back button still points at the picker.
 export function openWasmStudio(gameId: string): void {
-  pendingStudioGameId = gameId
-  window.location.hash = "#/wasm"
-}
-
-/** Reads and clears the handed-off game, so a later visit starts unselected. */
-export function takePendingStudioGame(): string | null {
-  const id = pendingStudioGameId
-  pendingStudioGameId = null
-  return id
+  window.location.hash = routeHash(gameRoute(gameId, "wasm"))
 }

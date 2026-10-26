@@ -78,10 +78,23 @@ const EMPTY: MetricsWs = {
 
 // Live `/ws/dashboard` state: `hello` is a full replacement, `snapshot` replaces
 // and extends the rolling series. Survives a half-open socket without help.
-export function useMetricsWs(): MetricsWs {
+//
+// `enabled` is the tenancy gate: until the workspace knows this process hosts
+// its game, no socket is opened, so one game's page can never stream another
+// game's numbers. A disabled socket reports `closed`, not `connecting`.
+export function useMetricsWs(gameId: string | null, enabled: boolean): MetricsWs {
   const [view, setView] = useState<MetricsWs>(EMPTY)
 
   useEffect(() => {
+    if (!enabled) {
+      setView({ ...EMPTY, status: 'closed' })
+      return
+    }
+
+    // A new scope starts blank: carrying the previous game's overview across
+    // would show its numbers under this workspace's header for a moment.
+    setView(EMPTY)
+
     let disposed = false
     let socket: WebSocket | null = null
     let attempt = 0
@@ -177,7 +190,7 @@ export function useMetricsWs(): MetricsWs {
       if (disposed) return
       let ws: WebSocket
       try {
-        ws = new WebSocket(wsUrl())
+        ws = new WebSocket(wsUrl(gameId))
       } catch {
         publish({ status: 'error' })
         scheduleReconnect()
@@ -226,7 +239,7 @@ export function useMetricsWs(): MetricsWs {
       clearWatchdog()
       abandon()
     }
-  }, [])
+  }, [gameId, enabled])
 
   return view
 }
