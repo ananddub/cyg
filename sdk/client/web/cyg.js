@@ -884,6 +884,9 @@
             this.listeners = new Map();
             /** type -> [callback] for `room.onMessage(type, cb)` */
             this._messageHandlers = new Map();
+            /** request/response (RPC-style): reqId -> {resolve, reject, timer} */
+            this._pendingRequests = new Map();
+            this._reqSeq = 0;
             // Attached WebRTC voice mesh, or null when voice is relay-only.
             this.voice = null;
 
@@ -1724,6 +1727,13 @@
                 ? _decoder.decode(frame.subarray(2, 2 + typeLen))
                 : '';
             const payload = frame.subarray(2 + typeLen);
+
+            // request/response replies pehle intercept: '__res' payload =
+            // [reqId u16][data] — pending request resolve hota hai.
+            if (type === '__res' && payload.length >= 2) {
+                this._resolveRequest(type, payload);
+                return;
+            }
 
             // Generic listener first (useful for logging / routing), then the
             // type-specific handlers registered with onMessage(). The '*'
@@ -2878,6 +2888,66 @@
             this._messageHandlers.get(type).push(cb);
             return this;
         }
+
+        /**
+         * request/response (RPC-style): reliable lane pe '__reqX' bhejo, room
+         * ke reply ('__resX' + same reqId) pe resolve hota hai. Timeout pe
+         * reject. Room side iska jawab `onRequest` sugar se deta hai.
+         */
+        request(type, data = null, timeoutMs = 5000) {
+            return new Promise((resolve, reject) => {
+                if (!this.isOpen) return reject(new Error('[OpenOxide SDK] room not open'));
+                const reqId = ((this._reqSeq = (this._reqSeq + 1) & 0xFFFF) === 0) ? 1 : this._reqSeq;
+                const timer = setTimeout(() => {
+                    this._pendingRequests.delete(reqId);
+                    reject(new Error(`[OpenOxide SDK] request '${type}' timed out (${timeoutMs}ms)`));
+                }, timeoutMs);
+                this._pendingRequests.set(reqId, { resolve, reject, timer });
+
+                // Wire: type='__req', payload=[reqId u16][typeLen u8][type][data]
+                const typeBytes = _encoder.encode(String(type));
+                const dataBytes = data instanceof Uint8Array ? data
+                    : (data instanceof ArrayBuffer ? new Uint8Array(data)
+                    : (ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+                    : _encoder.encode(typeof data === 'string' ? data : JSON.stringify(data ?? ''))));
+                const frame = new Uint8Array(10 + typeBytes.length + dataBytes.length);
+                frame[0] = AppOp.MESSAGE;
+                frame[1] = 5; // type = '__req'
+                frame[2] = 0x5F; frame[3] = 0x5F; frame[4] = 0x72; frame[5] = 0x65; frame[6] = 0x71;
+                frame[7] = (reqId >> 8) & 0xFF;
+                frame[8] = reqId & 0xFF;
+                frame.set(typeBytes, 10);
+                frame.set(dataBytes, 10 + typeBytes.length);
+                this.bytesOut += frame.byteLength;
+                const send_ = this.serverChReliable && this.serverChReliable.readyState === 'open'
+                    ? (f) => this.serverChReliable.send(f)
+                    : (f) => this.ws.send(f);
+                try { send_(frame); } catch (e) {
+                    clearTimeout(timer);
+                    this._pendingRequests.delete(reqId);
+                    return reject(e);
+                }
+            });
+        }
+
+        /** Internal: '__reqX' frame dispatch — pending request resolve. */
+        _resolveRequest(type, payload) {
+            const reqId = (payload[0] << 8) | payload[1];
+            const pending = this._pendingRequests.get(reqId);
+            if (!pending) return;
+            this._pendingRequests.delete(reqId);
+            clearTimeout(pending.timer);
+            pending.resolve(payload.subarray(2));
+        }
+
+        // ---- server-time clock (TimeSync se aligned) ----
+        clock = {
+            setTimeout: (fn, ms) => setTimeout(fn, Math.max(0, ms - (this.clockOffsetMs || 0))),
+            setInterval: (fn, ms) => setInterval(fn, ms),
+            clearTimeout: (id) => clearTimeout(id),
+            clearInterval: (id) => clearInterval(id),
+            now: () => this.serverNow(),
+        };
 
         // --- REPLAY RECORDER ---
 
@@ -4212,6 +4282,44 @@
             return this;
         }
 
+        /** Backend auth: engine-api ke /v2/account/authenticate/* endpoints.
+         *  Token andar store hota hai — future joins automatically use karte hain. */
+        auth = {
+            /** Device auth: naya/returning device account. Token save hota hai. */
+            device: async (deviceId) => this._authenticate('device', { device_id: deviceId }),
+            /** Email + password login (existing account). */
+            login: async (email, password) => this._authenticate('email', { email, password }),
+            /** Naya email account register karo. */
+            register: async (email, password, username) => this._authenticate('register', { email, password, username, create: true }),
+            /** Apple Game Center credential. */
+            gameCenter: async (credential) => this._authenticate('gamecenter', { credential }),
+            /** Instant game (Facebook Instant / light platforms). */
+            instantGame: async (signedRequest) => this._authenticate('instant', { signed_request: signedRequest }),
+            /** Custom runtime provider (server-side provider RPC). */
+            provider: async (name, data) => this._authenticate('provider/' + name, data ?? {}),
+            /** Token manually set karo (apne storage se restore). */
+            setToken: (token) => { this._authToken = token; return this; },
+        };
+
+        async _authenticate(kind, body) {
+            const base = this._httpBase();
+            const res = await fetch(`${base}/v2/account/authenticate/${kind}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body ?? {}),
+            });
+            if (!res.ok) {
+                const text = await res.text().catch(() => '');
+                throw new Error(`[OpenOxide SDK] auth ${kind} failed (${res.status}): ${text.slice(0, 120)}`);
+            }
+            const data = await res.json();
+            if (data.token) {
+                this._authToken = data.token;
+                if (data.user && data.user.sessionId) this._authSessionId = data.user.sessionId;
+            }
+            return data;
+        }
+
         _httpBase() {
             let e = String(this.endpoint || '').replace(/\/+$/, '');
             if (e.startsWith('ws://')) e = `http://${e.slice(5)}`;
@@ -4436,9 +4544,26 @@
         isMouseButton: (key) => key >= 1 && key <= 5
     });
 
+    const Storage = {
+        get(key, fallback = null) {
+            try {
+                const raw = (typeof localStorage !== 'undefined') ? localStorage.getItem('ox_' + key) : null;
+                return raw == null ? fallback : JSON.parse(raw);
+            } catch (_) { return fallback; }
+        },
+        set(key, value) {
+            try { localStorage.setItem('ox_' + key, JSON.stringify(value)); } catch (_) {}
+            return value;
+        },
+        remove(key) {
+            try { localStorage.removeItem('ox_' + key); } catch (_) {}
+        },
+    };
+
     return {
         Client: CYGClient,
         Room: CYGRoom,
+        Storage,
         SchemaDef: SchemaDef,
         SchemaMap: SchemaMap,
         Callbacks: Callbacks,
