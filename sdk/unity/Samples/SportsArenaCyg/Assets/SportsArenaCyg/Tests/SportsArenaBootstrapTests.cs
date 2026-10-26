@@ -12,7 +12,7 @@ namespace CookYourGame.SportsArena.Tests
         public IEnumerator Bootstrap_CreatesDeterministicArena()
         {
             // Headless CI cannot create a graphic device, and the reused sample
-            // prefabs intentionally contain missing reference script references.
+            // prefabs intentionally contain missing script references.
             LogAssert.ignoreFailingMessages = true;
             GameObject host = new GameObject("Sports Arena Test Host");
             SportsArenaBootstrap bootstrap = host.AddComponent<SportsArenaBootstrap>();

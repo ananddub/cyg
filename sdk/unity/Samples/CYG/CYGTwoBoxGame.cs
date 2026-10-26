@@ -6,8 +6,8 @@ using CookYourGame.Sim.TwoBox;
 namespace CookYourGame
 {
     /// <summary>
-    /// Pure reference-Style View Controller with AutoBoot, Bot AI, Match Countdown & Desync Diagnostics.
-    /// Inherits from CYGCallbacks (mirrors referenceCallbacks / referenceMonoBehaviour).
+    /// Pure rollback-style view controller with AutoBoot, Bot AI, Match Countdown & Desync Diagnostics.
+    /// Inherits from CYGCallbacks, the canonical callbacks / MonoBehaviour contract.
     /// All simulation logic lives 100% in TwoBoxMovementSystem & GemCollisionSystem.
     /// Auto-boots on Play mode in any scene; supports Human vs Human or Human vs Bot.
     /// Integrated with CYGCountdownTimer, CYGDesyncOverlay (F8), and CYGStaticMeshAuthoring.
@@ -266,7 +266,7 @@ namespace CookYourGame
             GUILayout.BeginArea(banner);
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            GUILayout.Label("<size=18><b>⚡ QUANTUM TWO-BOX ECS ⚡</b></size>");
+            GUILayout.Label("<size=18><b>⚡ TWO-BOX ECS ⚡</b></size>");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -317,8 +317,8 @@ namespace CookYourGame
             if (UnityEngine.Object.FindObjectOfType<CYGTwoBoxGame>() == null)
 #endif
             {
-                Debug.Log("<color=#44FF88><b>[CYG] Auto-Bootstrapping reference Two Box ECS Game into active scene!</b></color>");
-                GameObject autoObj = new GameObject("[CYG Two Box reference AutoHost]");
+                Debug.Log("<color=#44FF88><b>[CYG] Auto-Bootstrapping Two Box ECS Game into active scene!</b></color>");
+                GameObject autoObj = new GameObject("[CYG Two Box AutoHost]");
                 autoObj.AddComponent<CYGTwoBoxGame>();
 
                 // Attach Desync Diagnostics Overlay (F8 toggle)

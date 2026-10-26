@@ -3,7 +3,7 @@ using System;
 namespace CookYourGame.Sim.TwoBox
 {
     /// <summary>
-    /// reference-style ECS System for player movement.
+    /// Deterministic ECS system for player movement.
     /// Runs deterministically across all connected clients.
     /// Filters entities with BoxPlayer + BoxMovement + CYGSimAgent.
     /// </summary>

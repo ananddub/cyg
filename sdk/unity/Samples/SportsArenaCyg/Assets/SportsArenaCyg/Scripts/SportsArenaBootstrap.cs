@@ -9,7 +9,7 @@ namespace CookYourGame.SportsArena
 {
     /// <summary>
     /// Runtime bootstrap for the CYG-native Sports Arena Brawler port. It keeps
-    /// the original art/prefabs, removes the reference dependency, builds static
+    /// the original art/prefabs, removes the third-party simulation dependency, builds static
     /// collision from the environment and hosts the deterministic simulation.
     /// </summary>
     [DisallowMultipleComponent]

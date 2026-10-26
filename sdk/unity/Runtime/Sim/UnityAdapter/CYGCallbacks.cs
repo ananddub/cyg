@@ -8,7 +8,7 @@ using UnityEngine.InputSystem;
 namespace CookYourGame.Sim
 {
     /// <summary>
-    /// Typed gameplay callback surface, mirroring referenceCallbacks. The runner
+    /// Typed gameplay callback surface for the deterministic runner. The runner
     /// invokes <see cref="OnInputPolling"/> once per simulation tick; the
     /// override calls <see cref="SubmitInput"/> with the local input for that
     /// tick. Game start, simulation update, view update, late view update and
@@ -30,7 +30,7 @@ namespace CookYourGame.Sim
         public int InputTick => _inputTick;
 
         /// <summary>
-        /// reference-style input poll event. Listeners can inspect
+        /// Callback poll event. Listeners can inspect
         /// <see cref="CYGInputPoll.IsInputSet"/> and call
         /// <see cref="CYGInputPoll.SetInput(in CYGPlayerInput, CYGInputFlags)"/>.
         /// The override-based <see cref="OnInputPolling"/> remains supported.
@@ -97,7 +97,7 @@ namespace CookYourGame.Sim
             _hasInput = true;
         }
 
-        /// <summary>reference-style alias for <see cref="SubmitInput"/>.</summary>
+        /// <summary>Alias for <see cref="SubmitInput"/>.</summary>
         public void SetPlayerInput(in CYGPlayerInput input)
         {
             SubmitInput(input);

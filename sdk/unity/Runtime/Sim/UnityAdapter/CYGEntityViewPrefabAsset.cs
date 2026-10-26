@@ -6,8 +6,8 @@ namespace CookYourGame.Sim
 {
     /// <summary>
     /// Describes how one entity view prefab is instantiated and pooled.
-    /// Mirrors reference's entity view prefab asset: the key is what scene
-    /// authoring or gameplay code uses to bind an entity to this view.
+    /// Entity view prefab asset: the key is what scene authoring or gameplay
+    /// code uses to bind an entity to this view.
     /// </summary>
     [CreateAssetMenu(
         fileName = "CYGViewPrefab",

@@ -57,10 +57,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Trademarks and reference code
+## Reference-only architecture
 
-"reference" and "reference" are trademarks of Exit Games GmbH. This package is not
-affiliated with, endorsed by, or sponsored by Exit Games. It contains no
-reference reference or PurrNet source code. References to reference describe an
-architecture (server-authoritative or deterministic simulation driven by
-confirmed input ticks), not a code dependency.
+This package contains no source code from third-party networking or
+deterministic-simulation products. Architectural comparisons in the
+documentation describe publicly documented behaviour; the implementation in
+this repository is independent and written against this project's own wire
+protocol.

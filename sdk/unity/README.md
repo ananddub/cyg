@@ -1,7 +1,7 @@
 # 🍳 CookYourGame (CYG) Unity SDK
 
 Ultra-lightweight, zero-allocation drag-and-drop multiplayer networking client for Unity.
-Designed to replace legacy, expensive solutions (like reference PUN) with an ultra-affordable, high-performance architecture.
+Designed to replace legacy, expensive netcode solutions with an ultra-affordable, high-performance architecture.
 
 ---
 
@@ -129,7 +129,7 @@ Runtime/
   BaaS/            CYGAuth, CYGHttp, CYGStorage, CYGInventory, CYGLeaderboard,
                    CYGChat
 Samples/CYG/       arena.cyg and types.cyg DSL samples
-Samples/SportsArenaCyg/  CYG-native playable port of the reference Sports Arena Brawler sample
+Samples/SportsArenaCyg/  CYG-native playable port of an arena brawler reference sample
 Editor/
   CookYourGame.Editor.asmdef
   CYGProfilerWindow.cs
@@ -138,7 +138,7 @@ Editor/
 
 ### What each area gives you
 
-* **`Samples/SportsArenaCyg/`** — a playable, CYG-native port of the reference Sports Arena Brawler sample. It reuses the original art but does not use reference. This is a port, not a drop-in compatibility layer; see its `README.md` for the supported feature set and setup script.
+* **`Samples/SportsArenaCyg/`** — a playable, CYG-native port of an arena brawler reference sample. It reuses the original art but none of the original simulation code. This is a port, not a drop-in compatibility layer; see its `README.md` for the supported feature set and setup script.
 * **`Core/`** — session and identity. `CYGNetwork` (connect, rooms, master client, spawn/destroy), `CYGView` + `CYGBehaviour` (ownership via `IsMine`, spawn/despawn/owner-changed hooks, the 8-slot delta pump).
 * **`Transport/`** — `[len u16 BE][op u8][payload]` framing over a thread-safe WebSocket client. Install `CYGProfilingTransport` through `CYGNetwork.TransportFactory` to instrument bytes without touching the core.
 * **`Serialization/`** — `CYGBitWriter`/`CYGBitReader` (varint, half-float, packed vector, smallest-three quaternion), plus `CYGDeltaPacker` for binary diff/patch of state snapshots.
@@ -205,9 +205,8 @@ assumption.
 
 The probe covers the primitives. For a concrete game, also log
 `CYGWorld.ComputeChecksum()` at the same tick on each device; the first
-mismatching tick points at the system that diverged. The per-target sign-off
-procedure and recorded results live in
-[`docs/cleanroom/platform-probe.md`](../../docs/cleanroom/platform-probe.md).
+mismatching tick points at the system that diverged. Run the probe on each
+target and record the result in CI.
 
 The automated rollback path has its own two-client harness: an authoritative
 server plus two predicting clients exchange redundant inputs over a simulated
@@ -230,7 +229,7 @@ The input hub relays inputs; it does not ship state snapshots or a
 server-driven tick epoch. Treat all peers as starting together at tick 0
 (a loading/start barrier) and do not allow late join or mid-match reconnect
 without a game-level resync. The current mode is a lockstep prototype, not a
-drop-in replacement for a server-simulated reference room.
+drop-in replacement for a server-simulated deterministic room.
 
 ### Entity view lifecycle
 
@@ -256,7 +255,7 @@ spawn/pool cycle, `OnUpdateView` during the visual frame, and
 inactive views are skipped. `CYGDeterministicRunner` is not auto-created by
 view scripts: add one to the scene or call `runner.Initialize()` explicitly.
 
-Input can use the existing `CYGCallbacks` override or the reference-style poll
+Input can use the existing `CYGCallbacks` override or the callback poll
 event:
 
 ```csharp
@@ -401,7 +400,7 @@ reference fields, unsupported nested values, explicit layout, generic
 components, and non-partial declarations. See
 `Tools~/CYG.CodeGen/README.md` for build and diagnostic details.
 
-### `.cyg` DSL (reference-style authoring)
+### `.cyg` DSL (schema-based authoring)
 
 Instead of writing the C# component skeleton by hand, declare the whole
 simulation schema in `.cyg`. The CLI emits plain partial struct declarations;

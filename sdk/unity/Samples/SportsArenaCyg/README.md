@@ -1,14 +1,14 @@
 # Sports Arena Brawler — CYG-native port
 
-This is a **port**, not a drop-in reference replacement. The original sample's
+This is a **port**, not a drop-in replacement. The original sample's
 art, prefabs, animation controller and scene layout are reused, but every
-simulation and view script runs on CookYourGame.Sim. No reference/reference
-assembly, asset database, generated reference code, or reference API is used.
+simulation and view script runs on CookYourGame.Sim. No third-party
+simulation assembly, asset database or generated code is used.
 
 Runnable Unity project used for verification:
 
 ```
-/mnt/SSD/Devloper/unity/sports_arena_cyg
+~/unity/sports_arena_cyg
 ```
 
 Play scene:
@@ -76,7 +76,7 @@ cargo build --release
 Start two players:
 
 ```bash
-cd /mnt/SSD/Devloper/unity/sports_arena_cyg/Build/Linux
+cd ~/unity/sports_arena_cyg/Build/Linux
 ./SportsArena.x86_64 -network -screen-fullscreen 0 -screen-width 960 -screen-height 600
 ./SportsArena.x86_64 -network -screen-fullscreen 0 -screen-width 960 -screen-height 600
 ```
@@ -123,15 +123,14 @@ backend remains a relay and validator; it does not simulate the match.
 
 ## What is not the original
 
-This is not 100% feature parity with the reference sample:
+This is not 100% feature parity with the original sample:
 
-- No reference ECS, `Frame`, filters, unsafe component pointers, reference
-  assets, signals, `referenceGame`, `referenceRunner`, `referenceEntityView` or
-  reference Realtime networking.
+- No original ECS frame/model, filters, unsafe component pointers, baked
+  assets, signals, runner/entity-view types or realtime networking.
 - No original menu, lobby, matchmaking, late join, reconnect, character
   selection or ability UI. The optional two-client lockstep prototype is not a
   recreation of the original online session flow.
-- Original `.qprototype`, `.qunitydb` and baked reference map collision data are
+- Original prototype/database files and baked map collision data are
   not read. The port approximates level collision from visible block props.
 - Offline, P2-P6 are local deterministic bots. In network mode P2 receives the
   peer's human input through strict tick gating, but P3-P6 are still
@@ -140,7 +139,7 @@ This is not 100% feature parity with the reference sample:
 - Throw is a single balanced throw; the original short/long throw assets are
   not separately reproduced.
 - The port uses a simplified bot, not the original's human-only flow.
-- It is not an API-compatibility layer. Existing reference sample scripts still
+- It is not an API-compatibility layer. Existing sample scripts still
   cannot compile against this package unchanged.
 
 ## Recreate the Unity host project
@@ -151,8 +150,8 @@ already references the CookYourGame Unity package
 
 ```bash
 ./setup.sh \
-  /home/das/Downloads/quantum-sports-arena-brawler-3.0.9 \
-  /mnt/SSD/Devloper/unity/sports_arena_cyg
+  ~/Downloads/sports-arena-brawler \
+  ~/unity/sports_arena_cyg
 ```
 
 The script only reads the original sample. It copies art/prefabs into the
@@ -166,8 +165,8 @@ Then open the host project in Unity 6 and play
 PlayMode tests were run with:
 
 ```bash
-/mnt/SSD/unity/editor_hub/6000.6.2f1/Editor/Unity -batchmode -nographics \
-  -projectPath /mnt/SSD/Devloper/unity/sports_arena_cyg \
+"$UNITY" -batchmode -nographics \
+  -projectPath ~/unity/sports_arena_cyg \
   -runTests -testPlatform PlayMode \
   -logFile /tmp/opencode/sports_arena_lockstep_tests4.log
 ```
@@ -180,10 +179,10 @@ future/stale remote-input rejection, and both hash-verification orderings.
 A Linux standalone player was built from the same scripts:
 
 ```bash
-Unity -batchmode -quit \
-  -projectPath /mnt/SSD/Devloper/unity/sports_arena_cyg \
+"$UNITY" -batchmode -quit \
+  -projectPath ~/unity/sports_arena_cyg \
   -buildLinux64Player \
-  /mnt/SSD/Devloper/unity/sports_arena_cyg/Build/Linux/SportsArena.x86_64
+  ~/unity/sports_arena_cyg/Build/Linux/SportsArena.x86_64
 ```
 
 Two `-network` instances and one backend were launched on the actual display.

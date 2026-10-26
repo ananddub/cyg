@@ -14,7 +14,7 @@ namespace CookYourGame.Sim
 
     /// <summary>
     /// Per-tick input poll object passed to <see cref="CYGCallbacks.InputPoll"/>.
-    /// Mirrors reference's CallbackPollInput shape without exposing reference types:
+    /// Per-tick input poll shape without leaking simulation engine types:
     /// listeners can check <see cref="IsInputSet"/> and call
     /// <see cref="SetInput(in CYGPlayerInput, CYGInputFlags)"/>.
     /// The same instance is reused every tick, so do not store it.

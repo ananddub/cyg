@@ -6,7 +6,7 @@ namespace CookYourGame.Sim
 {
     /// <summary>
     /// Convenience base for every MonoBehaviour that talks to the simulation.
-    /// Mirrors referenceMonoBehaviour: exposes the runner, session, world,
+    /// Canonical simulation MonoBehaviour base: exposes the runner, session, world,
     /// current tick and local-player identity without each script resolving
     /// them on its own.
     /// </summary>

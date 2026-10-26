@@ -110,7 +110,7 @@ namespace CookYourGame.SportsArena
             }
 
             // The original sample stores its real level colliders in a baked
-            // reference map asset, not in Unity colliders. Approximate the
+            // map asset, not in Unity colliders. Approximate the
             // visible arena blocks and walls so the port is immediately
             // playable with the original environment art.
             int rendererCount = 0;

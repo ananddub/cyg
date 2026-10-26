@@ -1,25 +1,25 @@
 namespace CookYourGame.Sim.TwoBox;
 
-// reference-style ECS Component for Player Box State
+// ECS component for player box state
 component BoxPlayer : 1010 {
     player_ref Player;
     Int32 Score;
 }
 
-// reference-style ECS Component for Box Movement State
+// ECS component for box movement state
 component BoxMovement : 1011 {
     FP Speed;
     FPVector3 Velocity;
 }
 
-// reference-style ECS Component for Golden Gem Target
+// ECS component for golden gem target
 component GemTarget : 1012 {
     FP Radius;
     FPVector3 Position;
     Boolean IsActive;
 }
 
-// reference-style View Event emitted when Gem is collected
+// View event emitted when the gem is collected
 event GemCollected : 1000001 {
     entity_ref Collector;
     player_ref Player;

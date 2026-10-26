@@ -765,7 +765,7 @@ pub fn build_host_linker(
             )
             .expect("link sys_physics_lag_record");
 
-        // Host Physics ABI 5: Lag-Compensated Rewind Raycast (reference Fusion Server Rewind)
+        // Host Physics ABI 5: Lag-Compensated Rewind Raycast
         linker
             .func_wrap(
                 ns,

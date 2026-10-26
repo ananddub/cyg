@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace CookYourGame.Sim
 {
     /// <summary>
-    /// reference-style decoupled Event Broker for View / MonoBehaviour layers.
+    /// Decoupled event broker for View / MonoBehaviour layers.
     /// Systems in pure simulation publish via world.Events.Publish(new MyEvent(...)).
     /// MonoBehaviours in Unity view subscribe cleanly via CYGEvents.Subscribe&lt;MyEvent&gt;(handler).
     /// </summary>

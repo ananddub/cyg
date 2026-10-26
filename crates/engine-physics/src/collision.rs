@@ -409,7 +409,7 @@ pub struct TickSnapshot {
     pub entities: Vec<HistoricalEntity>,
 }
 
-/// Authoritative Historical Ring-Buffer for Server-Side Lag Compensation (reference Fusion Killer)
+/// Authoritative Historical Ring-Buffer for Server-Side Lag Compensation
 #[derive(Debug, Clone)]
 pub struct LagCompensator {
     pub history: std::collections::VecDeque<TickSnapshot>,
@@ -780,7 +780,7 @@ impl PhysicsWorld3D {
         );
     }
 
-    /// Fast authoritative lag-compensated hitscan raycast (reference Fusion Server Rewind)
+    /// Fast authoritative lag-compensated hitscan raycast with server rewind
     ///
     /// 1. Rewinds time to `shoot_tick`
     /// 2. Tests ray intersection against historical entity hitboxes

@@ -5,7 +5,7 @@ namespace CookYourGame.SportsArena
 {
     /// <summary>
     /// Tuning values for the CYG-native Sports Arena Brawler sample. Values are
-    /// intentionally close to the original reference sample so gameplay feels the
+    /// intentionally close to the original sample so gameplay feels the
     /// same while every rule runs on CookYourGame.Sim.
     /// </summary>
     public static class SportsArenaConfig

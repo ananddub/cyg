@@ -15,7 +15,7 @@ namespace CookYourGame.EditorTools
             AssetDatabase.Refresh();
         }
 
-        [MenuItem("CookYourGame/Setup Two Box reference Scene")]
+        [MenuItem("CookYourGame/Setup Two Box Scene")]
         public static void CreateTwoBoxScene()
         {
             // 1. Create a brand new clean scene
@@ -40,13 +40,13 @@ namespace CookYourGame.EditorTools
             lightObj.transform.rotation = Quaternion.Euler(50f, -30f, 0);
 
             // 4. Add the Two Box Game Manager
-            GameObject gameObj = new GameObject("[Two Box reference Game]");
+            GameObject gameObj = new GameObject("[Two Box Game]");
             var runner = gameObj.AddComponent<CYGDeterministicRunner>();
             runner.SimulationMode = CYGSimulationMode.Custom;
             gameObj.AddComponent<CYGTwoBoxGame>();
 
             // 5. Ensure folder exists and save scene
-            string scenePath = "Assets/Scenes/TwoBoxreferenceGame.unity";
+            string scenePath = "Assets/Scenes/TwoBoxGame.unity";
             if (!AssetDatabase.IsValidFolder("Assets/Scenes"))
             {
                 AssetDatabase.CreateFolder("Assets", "Scenes");
@@ -55,7 +55,7 @@ namespace CookYourGame.EditorTools
             EditorSceneManager.SaveScene(scene, scenePath);
             AssetDatabase.Refresh();
 
-            Debug.Log($"<color=#44FF88><b>[CYG] Two Box reference Scene successfully created and saved at {scenePath}!</b></color>\nPress <b>PLAY</b> in Unity to enjoy the deterministic two-box game!");
+            Debug.Log($"<color=#44FF88><b>[CYG] Two Box Scene successfully created and saved at {scenePath}!</b></color>\nPress <b>PLAY</b> in Unity to enjoy the deterministic two-box game!");
         }
 
         [MenuItem("CookYourGame/Add Two Box Game to Current Scene")]
@@ -71,13 +71,13 @@ namespace CookYourGame.EditorTools
                 return;
             }
 
-            GameObject gameObj = new GameObject("[Two Box reference Game]");
+            GameObject gameObj = new GameObject("[Two Box Game]");
             var runner = gameObj.AddComponent<CYGDeterministicRunner>();
             runner.SimulationMode = CYGSimulationMode.Custom;
             gameObj.AddComponent<CYGTwoBoxGame>();
 
             EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
-            Debug.Log("<color=#44FF88><b>[CYG] Added [Two Box reference Game] to the current active scene! Press PLAY to start!</b></color>");
+            Debug.Log("<color=#44FF88><b>[CYG] Added [Two Box Game] to the current active scene! Press PLAY to start!</b></color>");
         }
     }
 }

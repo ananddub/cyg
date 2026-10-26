@@ -13,7 +13,7 @@ namespace CookYourGame.Sim
     /// <see cref="OnUpdateView"/> during the visual frame, and
     /// <see cref="OnLateUpdateView"/> after camera/transform work.
     ///
-    /// Disabled components are not updated, matching reference's
+    /// Disabled components are not updated, matching Unity's
     /// IsActiveAndEnabled behaviour.
     /// </summary>
     public abstract class CYGEntityViewComponent : CYGMonoBehaviour
