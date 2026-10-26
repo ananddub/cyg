@@ -1,4 +1,4 @@
-# OpenOxide Gaming SDK for Unreal Engine 5
+# CYG Gaming SDK for Unreal Engine 5
 
 Sub-millisecond UDP multiplayer networking plugin for Unreal Engine 5.x.
 
@@ -9,8 +9,8 @@ Sub-millisecond UDP multiplayer networking plugin for Unreal Engine 5.x.
 - Full Blueprint and C++ support.
 
 ## Installation
-1. Copy `OpenOxide` folder into your Unreal Project's `Plugins/` folder.
-2. In Project Settings -> Plugins, enable `OpenOxide Gaming SDK`.
+1. Copy `CYG` folder into your Unreal Project's `Plugins/` folder.
+2. In Project Settings -> Plugins, enable `CYG Gaming SDK`.
 3. Rebuild your project.
 
 ## License

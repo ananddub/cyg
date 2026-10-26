@@ -162,7 +162,7 @@ fn request(config: &SidecarConfig, method: &str, path: &str) -> Result<Reply, Si
     let mut stream = connect(config, deadline)?;
 
     let head = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {}\r\nUser-Agent: openoxide-agones/0.1\r\nAccept: */*\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        "{method} {path} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cyg-agones/0.1\r\nAccept: */*\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         config.addr
     );
     let budget = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));

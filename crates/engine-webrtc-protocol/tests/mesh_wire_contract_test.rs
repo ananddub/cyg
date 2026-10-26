@@ -1,5 +1,5 @@
 //! Cross-language wire contract. Every byte vector here was produced by the browser
-//! SDK (`examples/tank-3d/openoxide.js`, v1.3.0) in Node, and is pinned verbatim. If
+//! SDK (`examples/tank-3d/cyg.js`, v1.3.0) in Node, and is pinned verbatim. If
 //! Rust and JS ever disagree about the layout, this test fails instead of two clients
 //! silently reading each other's positions wrong.
 //!

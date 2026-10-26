@@ -18,7 +18,7 @@ pub(super) struct TempDir(PathBuf);
 impl TempDir {
     pub(super) fn new(tag: &str) -> TempDir {
         let dir = std::env::temp_dir().join(format!(
-            "openoxide-static-{tag}-{}-{}",
+            "cyg-static-{tag}-{}-{}",
             std::process::id(),
             static_counter()
         ));

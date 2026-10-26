@@ -169,7 +169,7 @@ impl SpatialIndex2D {
 }
 
 // =========================================================================
-// 3D Spatial Index (FPS / TPS / OpenOxide Arena / 3D Battlefield)
+// 3D Spatial Index (FPS / TPS / CYG Arena / 3D Battlefield)
 // =========================================================================
 
 /// High-performance 3D KD-Tree spatial index for entity proximity & AOI queries.

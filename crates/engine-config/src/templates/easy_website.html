@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>OpenOxide — Easy Room</title>
+<title>CYG — Easy Room</title>
 <style>
     * { box-sizing: border-box; }
     body {
@@ -21,13 +21,13 @@
 </style>
 </head>
 <body>
-<h1>OpenOxide Easy Room</h1>
+<h1>CYG Easy Room</h1>
 <div id="status">connecting…</div>
 <canvas id="game" width="800" height="500"></canvas>
 <div id="hint">WASD / arrows to move · Q = local event + broadcast · H = hello · P = targeted ping · I = state inspector</div>
 <div id="log"></div>
 
-<script src="/openoxide.js"></script>
+<script src="/cyg.js"></script>
 <script>
 (async function () {
     const statusEl = document.getElementById('status');
@@ -117,14 +117,14 @@
     }
 
     try {
-        // The schema arrives with the join handshake (openoxide.schema.bin),
+        // The schema arrives with the join handshake (cyg.schema.bin),
         // so the client needs no schema file and no useSchema() call.
-        const client = new OpenOxide.Client(endpoint);
+        const client = new CYG.Client(endpoint);
         window.room = room = await client.joinOrCreate(roomName);
-        window.inspector = new OpenOxide.Inspector(room);
+        window.inspector = new CYG.Inspector(room);
 
         // Colyseus v5 callback API.
-        const callbacks = OpenOxide.getStateCallbacks(room);
+        const callbacks = CYG.getStateCallbacks(room);
         callbacks.onAdd('players', (player, id) => {
             note('player added: ' + id);
             // callbacks.listen(player, 'x', (current, previous) => { ... });

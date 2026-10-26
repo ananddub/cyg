@@ -7,7 +7,7 @@ import { useSyncExternalStore } from "react"
 
 import type { ConsoleSession } from "@/lib/console"
 
-const STORAGE_KEY = "openoxide.console.session"
+const STORAGE_KEY = "cyg.console.session"
 
 let current: ConsoleSession | null = read()
 const listeners = new Set<() => void>()

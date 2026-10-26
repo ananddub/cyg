@@ -68,7 +68,7 @@ pub struct FullView<'a> {
 }
 
 impl SchemaAoi {
-    /// Build the layout map from the same `openoxide.schema.bin` bytes the
+    /// Build the layout map from the same `cyg.schema.bin` bytes the
     /// host ships to clients.
     pub fn from_descriptor(bytes: &[u8]) -> Option<Self> {
         let descriptor = parse_descriptor(bytes)?;

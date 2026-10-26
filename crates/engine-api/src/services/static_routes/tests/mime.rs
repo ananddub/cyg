@@ -31,7 +31,7 @@ fn content_type_covers_the_unity_and_asset_extensions() {
         "image/vnd.microsoft.icon"
     );
     assert_eq!(content_type_for("/arena_map.json"), "application/json");
-    assert_eq!(content_type_for("/openoxide.js.map"), "application/json");
+    assert_eq!(content_type_for("/cyg.js.map"), "application/json");
     assert_eq!(content_type_for("/fonts/ui.woff2"), "font/woff2");
     assert_eq!(content_type_for("/models/tank.glb"), "model/gltf-binary");
     assert_eq!(content_type_for("/sky/noon.hdr"), "image/vnd.radiance");

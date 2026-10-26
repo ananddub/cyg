@@ -1,4 +1,4 @@
-//! # OpenOxide Game Host ABI v1 Specification & Enforcement
+//! # CYG Game Host ABI v1 Specification & Enforcement
 //!
 //! Implements strict, future-proof ABI contracts:
 //! 1. Versioning: `game_host_v1` namespace and mandatory `abi_version` validation.
@@ -12,7 +12,7 @@
 
 use std::cell::Cell;
 
-/// Official canonical ABI v1 namespace for OpenOxide game hosts.
+/// Official canonical ABI v1 namespace for CYG game hosts.
 pub const HOST_NAMESPACE_V1: &str = "game_host_v1";
 
 /// Legacy compatibility namespace so existing compiled WASM modules continue to run.
@@ -148,8 +148,8 @@ mod tests {
 
     #[test]
     fn test_utf8_validation() {
-        let valid = b"Hello, OpenOxide Arena!";
-        assert_eq!(validate_utf8(valid), Ok("Hello, OpenOxide Arena!"));
+        let valid = b"Hello, CYG Arena!";
+        assert_eq!(validate_utf8(valid), Ok("Hello, CYG Arena!"));
 
         let invalid = &[0xFF, 0xFE, 0xFD];
         assert_eq!(validate_utf8(invalid), Err(ABI_ERR_INVALID_UTF8));

@@ -92,7 +92,7 @@ impl super::ConsoleService {
         .await;
 
         Ok(Json(MfaEnrolmentResponse {
-            uri: totp::otpauth_uri(&secret, "OpenOxide Console", &row.username),
+            uri: totp::otpauth_uri(&secret, "CYG Console", &row.username),
             secret,
             recovery_codes: codes,
         }))

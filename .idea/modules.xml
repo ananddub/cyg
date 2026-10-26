@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/openoxide-gaming.iml" filepath="$PROJECT_DIR$/.idea/openoxide-gaming.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/cyg-gaming.iml" filepath="$PROJECT_DIR$/.idea/cyg-gaming.iml" />
     </modules>
   </component>
 </project>

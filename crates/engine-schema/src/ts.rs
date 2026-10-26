@@ -1500,7 +1500,7 @@ mod tests {
     #[test]
     fn parses_colyseus_v5_schema_and_root_collection() {
         let source = r#"
-            import { schema, t } from "./openoxide";
+            import { schema, t } from "./cyg-server";
 
             export const Player = schema({
                 x: t.number(),

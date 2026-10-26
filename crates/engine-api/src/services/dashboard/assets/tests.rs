@@ -16,7 +16,7 @@ pub(super) struct TempDist {
 impl TempDist {
     pub(super) fn new(tag: &str) -> TempDist {
         let root = std::env::temp_dir().join(format!(
-            "openoxide-dashboard-assets-{tag}-{}-{}",
+            "cyg-dashboard-assets-{tag}-{}-{}",
             std::process::id(),
             counter()
         ));
@@ -24,7 +24,7 @@ impl TempDist {
         std::fs::create_dir_all(dist.join("assets")).expect("create temp dist");
         std::fs::write(
             dist.join("index.html"),
-            b"<!doctype html><title>OpenOxide</title>",
+            b"<!doctype html><title>CYG</title>",
         )
         .expect("write index");
         std::fs::write(dist.join("assets").join("app-9a7c.js"), b"console.log(1)")

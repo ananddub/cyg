@@ -1,8 +1,8 @@
 // Network state contract — the only schema source in this project.
 //
 // `ox-game run` compiles this file before starting the room:
-//   • openoxide.schema.ts  — typed AssemblyScript class imported by room.ts
-//   • openoxide.schema.bin — descriptor delivered to every client on join
+//   • cyg.schema.ts  — typed AssemblyScript class imported by room.ts
+//   • cyg.schema.bin — descriptor delivered to every client on join
 //
 // The browser needs no matching schema file. It rebuilds the same field list
 // from the descriptor, exactly like Colyseus.

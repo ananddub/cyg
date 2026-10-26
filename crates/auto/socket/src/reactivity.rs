@@ -201,17 +201,17 @@ mod tests {
 
         assert!(claim_endpoint_invalidation(
             &mut claimed,
-            "/_openoxide/live",
+            "/_cyg/live",
             "DeploymentController::list",
         ));
         assert!(!claim_endpoint_invalidation(
             &mut claimed,
-            "/_openoxide/live",
+            "/_cyg/live",
             "DeploymentController::list",
         ));
         assert!(claim_endpoint_invalidation(
             &mut claimed,
-            "/_openoxide/live",
+            "/_cyg/live",
             "ComposeController::get",
         ));
         assert!(claim_endpoint_invalidation(

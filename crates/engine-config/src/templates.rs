@@ -14,7 +14,7 @@ source = "room.ts"
 out = "room_logic.wasm"
 
 # Legacy Colyseus bundle directory. New projects should use the bundled
-# OpenOxide web SDK (`openoxide.js`) and can leave this empty.
+# CYG web SDK (`cyg.js`) and can leave this empty.
 sdk_dir = ""
 
 # Your website (canvas page). Served at http://localhost:<web_port>/
@@ -33,7 +33,7 @@ width = 800.0
 height = 500.0
 speed = 240.0
 
-# OpenOxide ABI Contract & Permissions
+# CYG ABI Contract & Permissions
 abi_version = 1
 allow_physics = true
 allow_lag_compensation = true
@@ -221,7 +221,7 @@ mod tests {
         assert!(ROOM_TEMPLATE.contains("this.onMessage(\"input\""));
         assert!(ROOM_TEMPLATE.contains("broadcastText("));
         assert!(ROOM_TEMPLATE.contains("room.sendTo("));
-        assert!(ROOM_TEMPLATE.contains("from \"./openoxide.schema\""));
+        assert!(ROOM_TEMPLATE.contains("from \"./cyg.schema\""));
         assert!(ROOM_TEMPLATE.contains("new SchemaState(PlayerSchema)"));
         assert!(!ROOM_TEMPLATE.contains("new SchemaDef("));
         assert!(ROOM_TEMPLATE.contains("return this.state.seal();"));

@@ -32,7 +32,7 @@ pub struct WebRtcTransport {
     idle_after: Duration,
     pending: Vec<TransportEvent>,
     inbound: Vec<(String, super::contract::Inbound)>,
-    /// `openoxide.schema.bin` bytes queued on a session's reliable lane as
+    /// `cyg.schema.bin` bytes queued on a session's reliable lane as
     /// soon as that lane opens — the DataChannel equivalent of the WS
     /// transport sending the descriptor right after the upgrade.
     schema_descriptor: Bytes,
@@ -90,7 +90,7 @@ impl WebRtcTransport {
         std::mem::take(&mut self.inbound)
     }
 
-    /// Set the `openoxide.schema.bin` descriptor pushed to a session on its
+    /// Set the `cyg.schema.bin` descriptor pushed to a session on its
     /// reliable lane as soon as that lane opens.
     pub fn set_schema_descriptor(&mut self, descriptor: impl Into<Bytes>) {
         self.schema_descriptor = descriptor.into();

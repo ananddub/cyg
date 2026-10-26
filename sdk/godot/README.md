@@ -1,6 +1,6 @@
 # CookYourGame SDK for Godot 4 (`CYGGodot`)
 
-Network client for the OpenOxide Gaming room relay: view-based state sync, RPCs,
+Network client for the CYG Gaming room relay: view-based state sync, RPCs,
 Netfox-style rollback, lag compensation, the `/v2/` BaaS surface and an editor
 dock — in GDScript, with no native plugin and no engine fork.
 
@@ -198,7 +198,7 @@ the edited scene and lists findings per node: `NO_ROOT`, `ORPHAN_VIEW`,
 
 ## Validating a change
 
-The room server must be running (`./target/debug/openoxide-gaming`, health on
+The room server must be running (`./target/debug/cyg-gaming`, health on
 `:7777`).
 
 ```bash

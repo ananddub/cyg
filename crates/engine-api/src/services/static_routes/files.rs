@@ -23,16 +23,16 @@ impl StaticRoutesService {
         axum::response::Redirect::temporary("/dashboard/").into_response()
     }
 
-    /// `/openoxide.js`: the project's own copy when it has one, so a game can
+    /// `/cyg.js`: the project's own copy when it has one, so a game can
     /// override the client glue, else the baked-in example.
     pub fn serve_sdk(&self, state: &ApiState) -> Response {
         let s = &state.statics;
-        // naya naam: openoxide-client.js (client SDK saaf dikhe); purana
-        // openoxide.js wale projects fallback me serve hote rahenge
-        let client = s.project_root().join("openoxide-client.js");
-        let legacy = s.project_root().join("openoxide.js");
-        match s.read(&client).or_else(|| s.read(&legacy)).or_else(|| s.default_for("/openoxide.js")) {
-            Some(body) => file_response("/openoxide.js", body),
+        // naya naam: cyg-client.js (client SDK saaf dikhe); purana
+        // cyg.js wale projects fallback me serve hote rahenge
+        let client = s.project_root().join("cyg-client.js");
+        let legacy = s.project_root().join("cyg.js");
+        match s.read(&client).or_else(|| s.read(&legacy)).or_else(|| s.default_for("/cyg.js")) {
+            Some(body) => file_response("/cyg.js", body),
             None => not_found(),
         }
     }

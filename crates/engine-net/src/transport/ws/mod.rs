@@ -1,4 +1,4 @@
-//! # OpenOxide WebSocket Wire-Protocol Transport
+//! # CYG WebSocket Wire-Protocol Transport
 //!
 //! Binary game protocol over WebSocket — the browser fallback plane:
 //! - Standard RFC 6455 WebSocket Upgrade handshake (`101 Switching Protocols`)

@@ -94,7 +94,7 @@ fn generated_types_expose_generic_room_state_and_colyseus_shim() {
 
     assert!(dts.contains("export interface PlayerState {"));
     assert!(dts.contains("players: SchemaMap<PlayerState>;"));
-    assert!(dts.contains("export type GameRoom = OpenOxideRoom<GameState>;"));
+    assert!(dts.contains("export type GameRoom = CYGRoom<GameState>;"));
     assert!(dts.contains("declare module \"@colyseus/schema\""));
     assert!(dts.contains("export function schema<"));
 }

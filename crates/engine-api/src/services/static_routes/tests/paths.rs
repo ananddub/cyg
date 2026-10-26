@@ -56,7 +56,7 @@ fn the_route_table_registers_without_conflicting() {
     let _router = Router::<()>::new()
         .route("/", get(stub_page))
         .route("/website.html", get(stub_page))
-        .route("/openoxide.js", get(stub_page))
+        .route("/cyg.js", get(stub_page))
         .route("/arena_map.json", get(stub_page))
         .route("/health", get(stub_page))
         .route("/packages/sdk/dist/colyseus.js", get(stub_page))

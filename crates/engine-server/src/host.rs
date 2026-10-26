@@ -37,7 +37,7 @@ const SPECTATOR_CONFIRM: &[u8] = &[0xA5, b'd', b'e', b'l', b't', b'a', 0, 0, 0, 
 /// whole batch is relayed.
 const MAX_FRAMES_PER_LOOP: usize = 256;
 
-/// OpenOxide app-message opcode (client <-> server, typed).
+/// CYG app-message opcode (client <-> server, typed).
 ///
 /// Wire shape: `[0x05][type_len u8][UTF-8 type][opaque payload]`.
 /// This is our own envelope, deliberately independent of Colyseus/msgpack.
@@ -258,7 +258,7 @@ fn strip_type_header(payload: &[u8]) -> Option<&[u8]> {
         let type_len = *payload.get(1)? as usize;
         payload.get(2 + type_len..)
     } else {
-        // Direct raw binary input from OpenOxide SDK without msgpack overhead
+        // Direct raw binary input from CYG SDK without msgpack overhead
         Some(payload)
     }
 }
@@ -594,8 +594,8 @@ pub fn run(
     // Descriptor lives in out/ (conventional layout); older projects keep it
     // at the root. Both are valid.
     let candidates = [
-        project_dir.join("out").join("openoxide.schema.bin"),
-        project_dir.join("openoxide.schema.bin"),
+        project_dir.join("out").join("cyg.schema.bin"),
+        project_dir.join("cyg.schema.bin"),
     ];
     let found = candidates.iter().find(|p| p.exists());
     let schema_descriptor = found

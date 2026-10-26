@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "CYG Gaming SDK",
+	"Description": "Ultra-low-latency UDP multiplayer networking client for CYG Gaming Engine.",
+	"Category": "Networking",
+	"CreatedBy": "CYG Team",
+	"CreatedByURL": "https://github.com/ananddub/cyg",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "CYG",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

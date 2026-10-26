@@ -173,6 +173,10 @@ async fn rest_api_end_to_end() {
     let (relay_game, wasm_game) = games(&client, &base, port, &console).await;
     wasm_lifecycle(&client, &base, &console, &relay_game, &wasm_game).await;
     device_auth(&client, &base, &env.pool).await;
+    auth_surface(&client, &base, &env.pool).await;
+    account_surface(&client, &base, &env.pool).await;
+    link_surface(&client, &base, &env.pool).await;
+    user_surface(&client, &base, &env.pool).await;
     tournaments(&client, &base, &console, &env.pool).await;
     audit_trail(&env.pool).await;
     // The seat is still outstanding at the end of the run, which is what `/status`
@@ -503,6 +507,14 @@ async fn console_login(client: &Client, base: &str) -> String {
     assert_eq!(body["username"], CONSOLE_USER);
     assert_eq!(body["role"], "admin");
     body["token"].as_str().expect("console token").to_owned()
+}
+
+/// `Basic base64("<server key>:")` — the credential the player auth plane wants.
+fn server_key_header() -> String {
+    format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(format!("{SERVER_KEY}:"))
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1421,12 +1433,14 @@ async fn device_auth(client: &Client, base: &str, pool: &PgPool) {
     assert_eq!(stored_username, username);
 }
 
-/// A signed-in test player: the session token plus the id and username the
-/// server wrote into it, so record rows can be checked against that account.
+/// A signed-in test player: the token pair plus the identifiers the server wrote,
+/// so record rows and follow-up routes can be checked against that account.
 struct Player {
     token: String,
+    refresh_token: String,
     uid: String,
     username: String,
+    device_id: String,
 }
 
 /// A fresh device account through the real `/v2/account/authenticate/device`
@@ -1434,16 +1448,12 @@ struct Player {
 async fn device_player(client: &Client, base: &str, label: &str) -> Player {
     let device_id = format!("e2e-{label}-{}", Uuid::new_v4());
     let username = format!("e2e-{label}-{}", letters_suffix());
-    let basic = format!(
-        "Basic {}",
-        base64::engine::general_purpose::STANDARD.encode(format!("{SERVER_KEY}:"))
-    );
     let body = json_body(
         client
             .post(format!(
                 "{base}/v2/account/authenticate/device?username={username}&create=true"
             ))
-            .header(reqwest::header::AUTHORIZATION, basic)
+            .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "id": device_id }))
             .send()
             .await
@@ -1454,8 +1464,13 @@ async fn device_player(client: &Client, base: &str, label: &str) -> Player {
     .await;
     Player {
         token: body["token"].as_str().expect("session token").to_owned(),
+        refresh_token: body["refresh_token"]
+            .as_str()
+            .expect("refresh token")
+            .to_owned(),
         uid: jwt_uid(&body["token"]),
         username,
+        device_id,
     }
 }
 
@@ -2470,6 +2485,1947 @@ async fn tournaments(client: &Client, base: &str, console: &str, pool: &PgPool) 
     assert_eq!(creates, 4);
     assert_eq!(updates, 1);
     assert_eq!(deletes, 4);
+}
+
+// ---------------------------------------------------------------------------
+// Player auth, account, session, link/unlink and user lookups
+// ---------------------------------------------------------------------------
+
+/// The ten `Authenticate*` routes: the server-key wall, every validation gate,
+/// the three providers this build can verify itself (device, custom, email), and
+/// the vendor refusals for the other seven.
+async fn auth_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: auth providers");
+    let key = server_key_header();
+    let url = |route: &str, query: &str| format!("{base}/v2/account/authenticate{route}{query}");
+
+    // The server key is the first wall, and its two refusals differ.
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/device", ""))
+                .json(&json!({ "id": "e2e-no-key-device" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "authenticate without a server key",
+        )
+        .await,
+        "Server key required"
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/device", ""))
+                .header(
+                    reqwest::header::AUTHORIZATION,
+                    format!(
+                        "Basic {}",
+                        base64::engine::general_purpose::STANDARD.encode("wrong-key:")
+                    ),
+                )
+                .json(&json!({ "id": "e2e-wrong-key-device" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "authenticate with the wrong server key",
+        )
+        .await,
+        "Server key invalid"
+    );
+
+    // Device: required, character class, then the 10-byte floor.
+    for (id, message) in [
+        ("", "Device ID is required."),
+        ("short", "Device ID invalid, must be 10-128 bytes."),
+        (
+            "has space in it",
+            "Device ID invalid, no spaces or control characters allowed.",
+        ),
+    ] {
+        assert_eq!(
+            refusal(
+                client
+                    .post(url("/device", ""))
+                    .header(reqwest::header::AUTHORIZATION, &key)
+                    .json(&json!({ "id": id }))
+                    .send()
+                    .await
+                    .unwrap(),
+                StatusCode::BAD_REQUEST,
+                "device id validation",
+            )
+            .await,
+            message
+        );
+    }
+    let bad_bool = refusal(
+        client
+            .post(url("/device", "?create=maybe"))
+            .header(reqwest::header::AUTHORIZATION, &key)
+            .json(&json!({ "id": "e2e-bool-device" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "device create flag",
+    )
+    .await;
+    assert!(
+        bad_bool.contains("cannot parse \"maybe\" as a boolean value"),
+        "{bad_bool}"
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url(
+                    "/device",
+                    &format!("?username={}", "bad[]name".replace(' ', "")),
+                ))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "id": "e2e-bad-username-device" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "device username characters",
+        )
+        .await,
+        "Username invalid, no spaces or control characters allowed."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/device", "?username=ab&create=true"))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "id": "e2e-short-name-device" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "device username moderation",
+        )
+        .await,
+        "Username must be 3-20 characters and free of profanity."
+    );
+
+    // A device account is created once and resumed afterwards.
+    let device_id = format!("e2e-auth-device-{}", Uuid::new_v4());
+    let username = format!("authplayer{}", letters_suffix());
+    let created = json_body(
+        client
+            .post(url(
+                "/device",
+                &format!("?username={username}&create=true"),
+            ))
+            .header(reqwest::header::AUTHORIZATION, &key)
+            .json(&json!({ "id": device_id }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "create a device account",
+    )
+    .await;
+    assert_eq!(created["created"], true);
+    let uid = jwt_uid(&created["token"]);
+    let resumed = json_body(
+        client
+            .post(url("/device", "?create=false"))
+            .header(reqwest::header::AUTHORIZATION, &key)
+            .json(&json!({ "id": device_id }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "resume a device account",
+    )
+    .await;
+    assert!(resumed.get("created").is_none());
+    assert_eq!(jwt_uid(&resumed["token"]), uid);
+    let stored: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
+        .bind(Uuid::parse_str(&uid).unwrap())
+        .fetch_one(pool)
+        .await
+        .expect("the device account row");
+    assert_eq!(stored, username);
+
+    // A banned account is refused before anything else, and a provider-linked
+    // device row is not a passwordless way back into the account.
+    sqlx::query("UPDATE users SET disable_time = now() WHERE id = $1")
+        .bind(Uuid::parse_str(&uid).unwrap())
+        .execute(pool)
+        .await
+        .expect("ban the device account");
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/device", "?create=false"))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "id": device_id }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "resume a banned account",
+        )
+        .await,
+        "User account banned."
+    );
+    sqlx::query("UPDATE users SET disable_time = '1970-01-01T00:00:00Z' WHERE id = $1")
+        .bind(Uuid::parse_str(&uid).unwrap())
+        .execute(pool)
+        .await
+        .expect("unban the device account");
+    let provider_device = format!("e2e-provider-device-{}", Uuid::new_v4());
+    sqlx::query("INSERT INTO user_device (id, user_id, provider) VALUES ($1, $2, 'steam')")
+        .bind(&provider_device)
+        .bind(Uuid::parse_str(&uid).unwrap())
+        .execute(pool)
+        .await
+        .expect("write a provider-linked device row");
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/device", "?create=false"))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "id": provider_device }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "sign in through a provider-linked device row",
+        )
+        .await,
+        "User account uses provider-linked identifier."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/device", "?create=false"))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "id": format!("e2e-missing-device-{}", Uuid::new_v4()) }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "resume a device that was never created",
+        )
+        .await,
+        "User account not found."
+    );
+
+    // Custom ids are a unique column, so the resume path reads `users`.
+    for (id, message) in [
+        ("", "Custom ID is required."),
+        ("short", "Custom ID invalid, must be 6-128 bytes."),
+        (
+            "has space",
+            "Custom ID invalid, no spaces or control characters allowed.",
+        ),
+    ] {
+        assert_eq!(
+            refusal(
+                client
+                    .post(url("/custom", ""))
+                    .header(reqwest::header::AUTHORIZATION, &key)
+                    .json(&json!({ "id": id }))
+                    .send()
+                    .await
+                    .unwrap(),
+                StatusCode::BAD_REQUEST,
+                "custom id validation",
+            )
+            .await,
+            message
+        );
+    }
+    let custom_id = format!("custom-{}", letters_suffix());
+    let custom_name = format!("custom{}", letters_suffix());
+    let custom_created = json_body(
+        client
+            .post(url(
+                "/custom",
+                &format!("?username={custom_name}&create=true"),
+            ))
+            .header(reqwest::header::AUTHORIZATION, &key)
+            .json(&json!({ "id": custom_id }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "create a custom-id account",
+    )
+    .await;
+    assert_eq!(custom_created["created"], true);
+    let custom_uid = jwt_uid(&custom_created["token"]);
+    let custom_resumed = json_body(
+        client
+            .post(url("/custom", ""))
+            .header(reqwest::header::AUTHORIZATION, &key)
+            .json(&json!({ "id": custom_id }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "resume a custom-id account",
+    )
+    .await;
+    assert!(custom_resumed.get("created").is_none());
+    assert_eq!(jwt_uid(&custom_resumed["token"]), custom_uid);
+    assert_eq!(
+        refusal(
+            client
+                .post(url(
+                    "/custom",
+                    &format!("?username={custom_name}&create=true"),
+                ))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "id": format!("other-{}", letters_suffix()) }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::CONFLICT,
+            "create a second account under a taken username",
+        )
+        .await,
+        "Username is already in use."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/custom", "?create=false"))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "id": format!("absent-{}", letters_suffix()) }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "custom id that was never created",
+        )
+        .await,
+        "User account not found."
+    );
+
+    // Email: the only route with a password this server verifies itself.
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/email", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "email authenticate with no body",
+        )
+        .await,
+        "Email address and password is required."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/email", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "email": "nope", "password": "long-enough" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "email address shape",
+        )
+        .await,
+        "Invalid email address format."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/email", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "email": "a@b.co", "password": "long-enough" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "email address length",
+        )
+        .await,
+        "Invalid email address, must be 10-255 bytes."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/email", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "email": "e2e-short-password@example.com", "password": "short" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "email password length",
+        )
+        .await,
+        "Password must be at least 8 characters long."
+    );
+    let email_name = format!("mail{}", letters_suffix());
+    let email = format!("{email_name}@example.com");
+    let password = "e2e-password";
+    let email_created = json_body(
+        client
+            .post(url("/email", &format!("?username={email_name}&create=true")))
+            .header(reqwest::header::AUTHORIZATION, &key)
+            .json(&json!({ "email": email, "password": password }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "create an email account",
+    )
+    .await;
+    assert_eq!(email_created["created"], true);
+    let email_uid = jwt_uid(&email_created["token"]);
+    let email_login = json_body(
+        client
+            .post(url("/email", ""))
+            .header(reqwest::header::AUTHORIZATION, &key)
+            .json(&json!({ "email": email.to_uppercase(), "password": password }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "log in by email (case-folded)",
+    )
+    .await;
+    assert!(email_login.get("created").is_none());
+    assert_eq!(jwt_uid(&email_login["token"]), email_uid);
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/email", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "email": email, "password": "wrong-password" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "email login with the wrong password",
+        )
+        .await,
+        "Invalid credentials."
+    );
+    let username_login = json_body(
+        client
+            .post(url("/email", &format!("?username={email_name}")))
+            .header(reqwest::header::AUTHORIZATION, &key)
+            .json(&json!({ "email": "", "password": password }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "log in by username",
+    )
+    .await;
+    assert_eq!(jwt_uid(&username_login["token"]), email_uid);
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/email", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "email": "", "password": password }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "username login without a username",
+        )
+        .await,
+        "Username is required when email address is not supplied."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/email", "?create=false"))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "email": format!("absent{}@example.com", letters_suffix()), "password": password }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "email login that must not create",
+        )
+        .await,
+        "User account not found."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/email", &format!("?username={email_name}&create=true")))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "email": format!("other{}@example.com", letters_suffix()), "password": password }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::CONFLICT,
+            "create a second email account under a taken username",
+        )
+        .await,
+        "Username is already in use."
+    );
+
+    // Apple and Steam answer from configuration before a credential is read.
+    for provider in ["apple", "steam"] {
+        let label = if provider == "apple" { "Apple" } else { "Steam" };
+        assert_eq!(
+            refusal(
+                client
+                    .post(url(&format!("/{provider}"), ""))
+                    .header(reqwest::header::AUTHORIZATION, &key)
+                    .json(&json!({ "token": "vendor-token" }))
+                    .send()
+                    .await
+                    .unwrap(),
+                StatusCode::BAD_REQUEST,
+                "unconfigured vendor authenticate",
+            )
+            .await,
+            format!("{label} authentication is not configured.")
+        );
+    }
+    for provider in ["facebook", "google"] {
+        let label = if provider == "facebook" {
+            "Facebook"
+        } else {
+            "Google"
+        };
+        assert_eq!(
+            refusal(
+                client
+                    .post(url(&format!("/{provider}"), ""))
+                    .header(reqwest::header::AUTHORIZATION, &key)
+                    .json(&json!({}))
+                    .send()
+                    .await
+                    .unwrap(),
+                StatusCode::BAD_REQUEST,
+                "vendor token is required",
+            )
+            .await,
+            format!("{label} access token is required.")
+        );
+        assert_eq!(
+            refusal(
+                client
+                    .post(url(&format!("/{provider}"), ""))
+                    .header(reqwest::header::AUTHORIZATION, &key)
+                    .json(&json!({ "token": "vendor-token" }))
+                    .send()
+                    .await
+                    .unwrap(),
+                StatusCode::UNAUTHORIZED,
+                "vendor token cannot be verified",
+            )
+            .await,
+            format!("Could not authenticate {label} profile.")
+        );
+    }
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/facebookinstantgame", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "instant game signature is required",
+        )
+        .await,
+        "Signed Player Info for a Facebook Instant Game is required."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/facebookinstantgame", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "signedPlayerInfo": "signed" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "instant game signature cannot be verified",
+        )
+        .await,
+        "Error extracting the Facebook Instant Game player ID or validating the signature"
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/gamecenter", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "gamecenter credentials are required",
+        )
+        .await,
+        "GameCenter access credentials are required."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/gamecenter", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "bundle_id": "com.example.e2e" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "gamecenter fields are checked in order",
+        )
+        .await,
+        "GameCenter player ID is required."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("/gamecenter", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({
+                    "bundle_id": "com.example.e2e",
+                    "player_id": "G:12345",
+                    "timestamp_seconds": 1_700_000_000i64,
+                    "salt": "salt",
+                    "signature": "signature",
+                    "public_key_url": "https://example.test/key",
+                }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "gamecenter signature cannot be verified",
+        )
+        .await,
+        "Could not authenticate GameCenter profile."
+    );
+
+    // The runtime-provider registry is empty in this build.
+    assert_eq!(
+        refusal(
+            client
+                .post(url("", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "runtime provider name is required",
+        )
+        .await,
+        "Provider name is required."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(url("", ""))
+                .header(reqwest::header::AUTHORIZATION, &key)
+                .json(&json!({ "provider": "GitHub" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "unknown runtime provider",
+        )
+        .await,
+        "Authentication provider not found: github"
+    );
+}
+
+/// `GET`/`PUT`/`DELETE /v2/account`, the wallet routes, and the session pair.
+async fn account_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: account, wallet and session");
+    let player = device_player(client, base, "acct").await;
+    let other = device_player(client, base, "acctb").await;
+
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/account"))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "account without a token",
+        )
+        .await,
+        "Auth token required"
+    );
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/account"))
+                .bearer_auth("not-a-jwt")
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "account with an unparsable token",
+        )
+        .await,
+        "Auth token invalid"
+    );
+
+    let account = json_body(
+        client
+            .get(format!("{base}/v2/account"))
+            .bearer_auth(&player.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "read the account",
+    )
+    .await;
+    assert_eq!(account["user_id"], player.uid);
+    assert_eq!(account["username"], player.username);
+    assert_eq!(account["lang_tag"], "en");
+    assert_eq!(account["metadata"], json!({}));
+    assert_eq!(account["wallet"], json!({}));
+    assert_eq!(account["edge_count"], 0);
+    assert!(account["display_name"].is_null());
+    assert!(account["create_time"].as_str().unwrap().ends_with('Z'));
+    let devices = account["device_accounts"].as_array().unwrap();
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0]["id"], player.device_id);
+    assert_eq!(devices[0]["provider"], "");
+    assert!(devices[0]["vars"]["push_token_ios"].is_string());
+
+    let renamed = format!("renamed{}", letters_suffix());
+    let updated = json_body(
+        client
+            .put(format!("{base}/v2/account"))
+            .bearer_auth(&player.token)
+            .json(&json!({
+                "display_name": "E2E Hero",
+                "avatar_url": "https://example.test/hero.png",
+                "lang_tag": "fr",
+                "location": "Test Range",
+                "timezone": "UTC",
+                "metadata": "{\"tier\":\"gold\"}",
+                "username": renamed,
+            }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "update the account",
+    )
+    .await;
+    assert_eq!(updated["username"], renamed);
+    assert_eq!(updated["display_name"], "E2E Hero");
+    assert_eq!(updated["avatar_url"], "https://example.test/hero.png");
+    assert_eq!(updated["lang_tag"], "fr");
+    assert_eq!(updated["location"], "Test Range");
+    assert_eq!(updated["timezone"], "UTC");
+    assert_eq!(updated["metadata"], json!({ "tier": "gold" }));
+    assert_eq!(
+        refusal(
+            client
+                .put(format!("{base}/v2/account"))
+                .bearer_auth(&player.token)
+                .json(&json!({ "metadata": "{broken" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "account metadata must parse",
+        )
+        .await,
+        "invalid account metadata"
+    );
+
+    // A custom id moves between accounts only through unlink, so a second claim is a conflict.
+    let shared_custom = format!("shared-{}", letters_suffix());
+    let claimed = json_body(
+        client
+            .put(format!("{base}/v2/account"))
+            .bearer_auth(&player.token)
+            .json(&json!({ "custom_id": shared_custom }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "claim a custom id",
+    )
+    .await;
+    assert_eq!(claimed["custom_id"], shared_custom);
+    assert_eq!(
+        refusal(
+            client
+                .put(format!("{base}/v2/account"))
+                .bearer_auth(&other.token)
+                .json(&json!({ "custom_id": shared_custom }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::CONFLICT,
+            "claim a taken custom id",
+        )
+        .await,
+        "custom id already in use by another account"
+    );
+
+    // The wallet is read-only for players: currency keys are the console's.
+    let wallet = json_body(
+        client
+            .get(format!("{base}/v2/account/wallet"))
+            .bearer_auth(&player.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "read the wallet",
+    )
+    .await;
+    assert_eq!(wallet["wallet"], json!({}));
+    assert!(wallet["ledger_items"].as_array().unwrap().is_empty());
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/wallet"))
+                .bearer_auth(&player.token)
+                .json(&json!({ "wallet_items": { "gold": 10 } }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "a player cannot mint currency",
+        )
+        .await,
+        "Currency changes require a console write; a player may only merge ledger metadata."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/wallet"))
+                .bearer_auth(&player.token)
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "an empty wallet write",
+        )
+        .await,
+        "There is nothing to write: send ledger metadata to merge."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/wallet"))
+                .bearer_auth(&player.token)
+                .json(&json!({ "ledger_items": [{ "id": "not-a-uuid", "metadata": {} }] }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "a malformed ledger id",
+        )
+        .await,
+        "Invalid ledger item id."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/wallet"))
+                .bearer_auth(&player.token)
+                .json(&json!({ "ledger_items": [{ "id": Uuid::new_v4().to_string(), "metadata": {} }] }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "a ledger entry that does not exist",
+        )
+        .await,
+        "That ledger entry does not belong to this account."
+    );
+
+    let player_uid = Uuid::parse_str(&player.uid).unwrap();
+    let other_uid = Uuid::parse_str(&other.uid).unwrap();
+    let ledger_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO wallet_ledger (id, user_id, changeset, metadata) \
+         VALUES ($1, $2, '{\"gold\":25}'::jsonb, '{}'::jsonb)",
+    )
+    .bind(ledger_id)
+    .bind(player_uid)
+    .execute(pool)
+    .await
+    .expect("seed a ledger entry");
+    let merged = json_body(
+        client
+            .post(format!("{base}/v2/account/wallet"))
+            .bearer_auth(&player.token)
+            .json(&json!({ "ledger_items": [{ "id": ledger_id.to_string(), "metadata": { "note": "merged" } }] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "merge ledger metadata",
+    )
+    .await;
+    let row = merged["ledger_items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == ledger_id.to_string())
+        .expect("the merged ledger row is returned");
+    assert_eq!(row["metadata"]["note"], "merged");
+    // Merging metadata never moves the balance.
+    assert_eq!(merged["wallet"], json!({}));
+
+    let second_ledger = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO wallet_ledger (id, user_id, changeset, metadata) \
+         VALUES ($1, $2, '{\"gems\":5}'::jsonb, '{}'::jsonb)",
+    )
+    .bind(second_ledger)
+    .bind(player_uid)
+    .execute(pool)
+    .await
+    .expect("seed a second ledger entry");
+    json_body(
+        client
+            .put(format!("{base}/v2/account/wallet"))
+            .bearer_auth(&player.token)
+            .json(&json!({ "ledger_items": [{ "id": second_ledger.to_string(), "metadata": { "note": "put" } }] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "the PUT wallet variant merges too",
+    )
+    .await;
+    let foreign_ledger = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO wallet_ledger (id, user_id, changeset, metadata) \
+         VALUES ($1, $2, '{}'::jsonb, '{}'::jsonb)",
+    )
+    .bind(foreign_ledger)
+    .bind(other_uid)
+    .execute(pool)
+    .await
+    .expect("seed another account's ledger entry");
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/wallet"))
+                .bearer_auth(&player.token)
+                .json(&json!({ "ledger_items": [{ "id": foreign_ledger.to_string(), "metadata": {} }] }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "merge another account's ledger entry",
+        )
+        .await,
+        "That ledger entry does not belong to this account."
+    );
+
+    // Refresh: server key in, a new pair under the same family out.
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/session/refresh"))
+                .json(&json!({ "token": player.refresh_token }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "refresh without the server key",
+        )
+        .await,
+        "Server key required"
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/session/refresh"))
+                .header(reqwest::header::AUTHORIZATION, server_key_header())
+                .json(&json!({ "token": "" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "refresh without a token",
+        )
+        .await,
+        "Refresh token is required."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/session/refresh"))
+                .header(reqwest::header::AUTHORIZATION, server_key_header())
+                .json(&json!({ "token": "not-a-token" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "refresh with an unparsable token",
+        )
+        .await,
+        "Refresh token invalid or expired."
+    );
+    let refreshed = json_body(
+        client
+            .post(format!("{base}/v2/account/session/refresh"))
+            .header(reqwest::header::AUTHORIZATION, server_key_header())
+            .json(&json!({ "token": player.refresh_token, "vars": { "platform": "refreshed" } }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "refresh the session",
+    )
+    .await;
+    assert!(refreshed.get("created").is_none());
+    assert_eq!(jwt_uid(&refreshed["token"]), player.uid);
+    let refreshed_token = refreshed["token"].as_str().unwrap().to_owned();
+    let refreshed_refresh = refreshed["refresh_token"].as_str().unwrap().to_owned();
+    // The freshly minted access token is live.
+    json_body(
+        client
+            .get(format!("{base}/v2/account"))
+            .bearer_auth(&refreshed_token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "read the account with the refreshed token",
+    )
+    .await;
+
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/session/logout"))
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "logout without a token",
+        )
+        .await,
+        "Auth token required"
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/session/logout"))
+                .bearer_auth(&refreshed_token)
+                .json(&json!({ "token": "not-a-token" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "logout naming an unparsable token",
+        )
+        .await,
+        "Session token invalid."
+    );
+    let logged_out = json_body(
+        client
+            .post(format!("{base}/v2/session/logout"))
+            .bearer_auth(&refreshed_token)
+            .json(&json!({ "token": refreshed_token, "refresh_token": refreshed_refresh }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "log out the pair",
+    )
+    .await;
+    assert_eq!(logged_out, json!({}));
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/account"))
+                .bearer_auth(&refreshed_token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "a logged-out token is revoked",
+        )
+        .await,
+        "Auth token invalid"
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/session/refresh"))
+                .header(reqwest::header::AUTHORIZATION, server_key_header())
+                .json(&json!({ "token": refreshed_refresh }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "a logged-out refresh token is revoked",
+        )
+        .await,
+        "Refresh token invalid or expired."
+    );
+
+    // Deleting an account writes the tombstone and removes the row.
+    let doomed = device_player(client, base, "del").await;
+    let deleted = json_body(
+        client
+            .delete(format!("{base}/v2/account"))
+            .bearer_auth(&doomed.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "delete the account",
+    )
+    .await;
+    assert_eq!(deleted, json!({}));
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/account"))
+                .bearer_auth(&doomed.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "read a deleted account",
+        )
+        .await,
+        "Entity not found."
+    );
+    let doomed_uid = Uuid::parse_str(&doomed.uid).unwrap();
+    let tombstoned: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_tombstone WHERE user_id = $1")
+        .bind(doomed_uid)
+        .fetch_one(pool)
+        .await
+        .expect("count the tombstone");
+    assert_eq!(tombstoned, 1);
+    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE id = $1")
+        .bind(doomed_uid)
+        .fetch_one(pool)
+        .await
+        .expect("count the deleted row");
+    assert_eq!(remaining, 0);
+}
+
+/// `/v2/account/link*` and `/v2/account/unlink*`: the three self-verifiable
+/// credentials attach and detach, the vendor ones refuse after their field
+/// checks, and no unlink may leave the account with no way back in.
+async fn link_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: link and unlink");
+    let a = device_player(client, base, "linka").await;
+    let b = device_player(client, base, "linkb").await;
+
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/link/device"))
+                .json(&json!({ "id": "e2e-anonymous-device" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "link without a token",
+        )
+        .await,
+        "Auth token required"
+    );
+    for (route, body, message) in [
+        (
+            "device",
+            json!({}),
+            "Device ID is required.",
+        ),
+        (
+            "device",
+            json!({ "id": "short" }),
+            "Device ID invalid, must be 10-128 bytes.",
+        ),
+        (
+            "custom",
+            json!({}),
+            "Custom ID is required.",
+        ),
+        (
+            "custom",
+            json!({ "id": "short" }),
+            "Invalid custom ID, must be 6-128 bytes.",
+        ),
+        (
+            "custom",
+            json!({ "id": "has space" }),
+            "Invalid custom ID, no spaces or control characters allowed.",
+        ),
+        (
+            "email",
+            json!({}),
+            "Email address and password is required.",
+        ),
+        (
+            "email",
+            json!({ "email": "e2e-link@example.com", "password": "short" }),
+            "Password must be at least 8 characters long.",
+        ),
+        (
+            "email",
+            json!({ "email": "nope", "password": "long-enough" }),
+            "Invalid email address format.",
+        ),
+    ] {
+        assert_eq!(
+            refusal(
+                client
+                    .post(format!("{base}/v2/account/link/{route}"))
+                    .bearer_auth(&a.token)
+                    .json(&body)
+                    .send()
+                    .await
+                    .unwrap(),
+                StatusCode::BAD_REQUEST,
+                "link validation",
+            )
+            .await,
+            message
+        );
+    }
+
+    // B has one device and nothing else, so its only unlink is the guarded one.
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink/device"))
+                .bearer_auth(&b.token)
+                .json(&json!({ "id": b.device_id }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "unlink B's last identifier",
+        )
+        .await,
+        "Cannot unlink last account identifier. Check profile exists and is not last link."
+    );
+
+    // Custom id, a second device and an email all attach to A.
+    let custom = format!("link-{}", letters_suffix());
+    json_body(
+        client
+            .post(format!("{base}/v2/account/link/custom"))
+            .bearer_auth(&a.token)
+            .json(&json!({ "id": custom }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "link a custom id",
+    )
+    .await;
+    let b_custom = format!("blink-{}", letters_suffix());
+    json_body(
+        client
+            .post(format!("{base}/v2/account/link/custom"))
+            .bearer_auth(&b.token)
+            .json(&json!({ "id": b_custom }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "link B's custom id",
+    )
+    .await;
+    let second_device = format!("e2e-second-device-{}", Uuid::new_v4());
+    json_body(
+        client
+            .post(format!("{base}/v2/account/link/device"))
+            .bearer_auth(&a.token)
+            .json(&json!({ "id": second_device }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "link a second device",
+    )
+    .await;
+    let email = format!("link{}@example.com", letters_suffix());
+    json_body(
+        client
+            .post(format!("{base}/v2/account/link/email"))
+            .bearer_auth(&a.token)
+            .json(&json!({ "email": email, "password": "e2e-password" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "link an email",
+    )
+    .await;
+
+    // A link never moves an identity: every one of those identifiers is now taken.
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/link/custom"))
+                .bearer_auth(&b.token)
+                .json(&json!({ "id": custom }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::CONFLICT,
+            "claim a custom id already linked",
+        )
+        .await,
+        "Custom ID is already in use."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/link/device"))
+                .bearer_auth(&b.token)
+                .json(&json!({ "id": second_device }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::CONFLICT,
+            "claim a device already linked",
+        )
+        .await,
+        "Device ID already in use."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/link/email"))
+                .bearer_auth(&b.token)
+                .json(&json!({ "email": email, "password": "e2e-password" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::CONFLICT,
+            "claim an email already linked",
+        )
+        .await,
+        "Email is already in use."
+    );
+
+    let account = json_body(
+        client
+            .get(format!("{base}/v2/account"))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "read the linked account",
+    )
+    .await;
+    assert_eq!(account["custom_id"], custom);
+    assert_eq!(account["email"], email.to_lowercase());
+    let devices = account["device_accounts"].as_array().unwrap();
+    assert_eq!(devices.len(), 2);
+    assert!(devices.iter().any(|device| device["id"] == second_device));
+
+    // The seven vendor links stop at their verification step.
+    for (route, body, status, message) in [
+        (
+            "apple",
+            json!({ "token": "vendor-token" }),
+            StatusCode::BAD_REQUEST,
+            "Apple authentication is not configured.",
+        ),
+        (
+            "steam",
+            json!({}),
+            StatusCode::BAD_REQUEST,
+            "Steam access token is required.",
+        ),
+        (
+            "steam",
+            json!({ "account": { "token": "vendor-token" } }),
+            StatusCode::BAD_REQUEST,
+            "Steam authentication is not configured.",
+        ),
+        (
+            "facebook",
+            json!({}),
+            StatusCode::BAD_REQUEST,
+            "Facebook access token is required.",
+        ),
+        (
+            "facebook",
+            json!({ "token": "vendor-token" }),
+            StatusCode::UNAUTHORIZED,
+            "Could not authenticate Facebook profile.",
+        ),
+        (
+            "google",
+            json!({ "token": "vendor-token" }),
+            StatusCode::UNAUTHORIZED,
+            "Could not authenticate Google profile.",
+        ),
+        (
+            "facebookinstantgame",
+            json!({}),
+            StatusCode::BAD_REQUEST,
+            "Signed Player Info for a Facebook Instant Game is required.",
+        ),
+        (
+            "facebookinstantgame",
+            json!({ "signed_player_info": "signed" }),
+            StatusCode::UNAUTHORIZED,
+            "Could not authenticate Facebook Instant Game profile.",
+        ),
+        (
+            "gamecenter",
+            json!({ "bundle_id": "com.example.e2e" }),
+            StatusCode::BAD_REQUEST,
+            "GameCenter player ID is required.",
+        ),
+    ] {
+        assert_eq!(
+            refusal(
+                client
+                    .post(format!("{base}/v2/account/link/{route}"))
+                    .bearer_auth(&a.token)
+                    .json(&body)
+                    .send()
+                    .await
+                    .unwrap(),
+                status,
+                "vendor link",
+            )
+            .await,
+            message
+        );
+    }
+    let bad_sync = refusal(
+        client
+            .post(format!("{base}/v2/account/link/facebook?sync=maybe"))
+            .bearer_auth(&a.token)
+            .json(&json!({ "token": "vendor-token" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "facebook sync flag",
+    )
+    .await;
+    assert!(bad_sync.contains("cannot parse \"maybe\" as a boolean value"));
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/link"))
+                .bearer_auth(&a.token)
+                .json(&json!({ "provider": "GitHub" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "runtime provider link",
+        )
+        .await,
+        "Authentication provider not found: github"
+    );
+
+    // The guard: no unlink may leave the account with nothing to sign in with.
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink/device"))
+                .bearer_auth(&a.token)
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "unlink without a device id",
+        )
+        .await,
+        "A device ID must be supplied."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink/device"))
+                .bearer_auth(&a.token)
+                .json(&json!({ "id": format!("e2e-not-owned-{}", Uuid::new_v4()) }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "unlink a device the account does not own",
+        )
+        .await,
+        "Cannot unlink last account identifier. Check profile exists and is not last link."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink/custom"))
+                .bearer_auth(&a.token)
+                .json(&json!({ "id": format!("wrong-{}", letters_suffix()) }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "unlink with the wrong custom id",
+        )
+        .await,
+        "Cannot unlink last account identifier. Check profile exists and is not last link."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink/email"))
+                .bearer_auth(&a.token)
+                .json(&json!({ "email": "wrong@example.com" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "unlink with the wrong email",
+        )
+        .await,
+        "Cannot unlink last account identifier. Check profile exists and is not last link."
+    );
+
+    // The correct values detach; B loses its custom id first, then its device.
+    json_body(
+        client
+            .post(format!("{base}/v2/account/unlink/custom"))
+            .bearer_auth(&b.token)
+            .json(&json!({ "id": b_custom }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "unlink B's custom id",
+    )
+    .await;
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink/device"))
+                .bearer_auth(&b.token)
+                .json(&json!({ "id": b.device_id }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "B's device is the last identifier again",
+        )
+        .await,
+        "Cannot unlink last account identifier. Check profile exists and is not last link."
+    );
+    json_body(
+        client
+            .post(format!("{base}/v2/account/unlink/custom"))
+            .bearer_auth(&a.token)
+            .json(&json!({ "id": custom }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "unlink A's custom id",
+    )
+    .await;
+    json_body(
+        client
+            .post(format!("{base}/v2/account/unlink/email"))
+            .bearer_auth(&a.token)
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "unlink A's email",
+    )
+    .await;
+    let unlinked = json_body(
+        client
+            .get(format!("{base}/v2/account"))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "read the unlinked account",
+    )
+    .await;
+    assert!(unlinked["custom_id"].is_null());
+    assert!(unlinked["email"].is_null());
+    let stored_password: Option<Vec<u8>> =
+        sqlx::query_scalar("SELECT password FROM users WHERE id = $1")
+            .bind(Uuid::parse_str(&a.uid).unwrap())
+            .fetch_one(pool)
+            .await
+            .expect("read the password column");
+    assert!(stored_password.is_none(), "unlinking an email drops the password");
+
+    // The vendor unlinks clear a column on an empty credential and refuse a non-empty one.
+    for (route, body, status, message) in [
+        (
+            "apple",
+            json!({ "token": "vendor-token" }),
+            StatusCode::UNAUTHORIZED,
+            "Could not authenticate Apple profile.",
+        ),
+        (
+            "facebook",
+            json!({ "token": "vendor-token" }),
+            StatusCode::UNAUTHORIZED,
+            "Could not authenticate Facebook profile.",
+        ),
+        (
+            "google",
+            json!({ "token": "vendor-token" }),
+            StatusCode::UNAUTHORIZED,
+            "Could not authenticate Google profile.",
+        ),
+        (
+            "steam",
+            json!({ "token": "vendor-token" }),
+            StatusCode::UNAUTHORIZED,
+            "Could not authenticate Steam profile.",
+        ),
+        (
+            "facebookinstantgame",
+            json!({ "signed_player_info": "signed" }),
+            StatusCode::UNAUTHORIZED,
+            "Could not authenticate Facebook Instant Game profile.",
+        ),
+    ] {
+        assert_eq!(
+            refusal(
+                client
+                    .post(format!("{base}/v2/account/unlink/{route}"))
+                    .bearer_auth(&a.token)
+                    .json(&body)
+                    .send()
+                    .await
+                    .unwrap(),
+                status,
+                "vendor unlink with a credential",
+            )
+            .await,
+            message
+        );
+        json_body(
+            client
+                .post(format!("{base}/v2/account/unlink/{route}"))
+                .bearer_auth(&a.token)
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::OK,
+            "vendor unlink without a credential",
+        )
+        .await;
+    }
+    let partial_gamecenter = json!({ "bundle_id": "com.example.e2e" });
+    json_body(
+        client
+            .post(format!("{base}/v2/account/unlink/gamecenter"))
+            .bearer_auth(&a.token)
+            .json(&partial_gamecenter)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "a partial gamecenter bundle is not a refinement",
+    )
+    .await;
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink/gamecenter"))
+                .bearer_auth(&a.token)
+                .json(&json!({
+                    "bundle_id": "com.example.e2e",
+                    "player_id": "G:12345",
+                    "timestamp_seconds": 1_700_000_000i64,
+                    "salt": "salt",
+                    "signature": "signature",
+                    "public_key_url": "https://example.test/key",
+                }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "a complete gamecenter bundle must be verified",
+        )
+        .await,
+        "Could not authenticate GameCenter profile."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink"))
+                .bearer_auth(&a.token)
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::BAD_REQUEST,
+            "unlink without a provider name",
+        )
+        .await,
+        "A provider name must be supplied."
+    );
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink"))
+                .bearer_auth(&a.token)
+                .json(&json!({ "provider": "steam" }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "unlink a provider with no rows",
+        )
+        .await,
+        "Cannot unlink last account identifier. Check profile exists and is not last link."
+    );
+
+    // A now holds two device rows and nothing else; removing the second is fine,
+    // removing the first is the guard.
+    json_body(
+        client
+            .post(format!("{base}/v2/account/unlink/device"))
+            .bearer_auth(&a.token)
+            .json(&json!({ "id": second_device }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "unlink the second device",
+    )
+    .await;
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/unlink/device"))
+                .bearer_auth(&a.token)
+                .json(&json!({ "id": a.device_id }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::FORBIDDEN,
+            "the last device cannot go",
+        )
+        .await,
+        "Cannot unlink last account identifier. Check profile exists and is not last link."
+    );
+}
+
+/// `GET`/`POST /v2/user` and `GET /v2/user/{id}`: the public view, its
+/// miss-is-absent semantics, and the disabled-account hiding rule.
+async fn user_surface(client: &Client, base: &str, pool: &PgPool) {
+    eprintln!("e2e: user lookups");
+    let a = device_player(client, base, "usr").await;
+    let b = device_player(client, base, "usrb").await;
+
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/user?ids={}", a.uid))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "user lookup without a token",
+        )
+        .await,
+        "Auth token required"
+    );
+
+    let empty = json_body(
+        client
+            .get(format!("{base}/v2/user"))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "user lookup with nothing requested",
+    )
+    .await;
+    assert!(empty["users"].as_array().unwrap().is_empty());
+
+    let found = json_body(
+        client
+            .get(format!("{base}/v2/user?ids={}", a.uid))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "user lookup by id",
+    )
+    .await;
+    let users = found["users"].as_array().unwrap();
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0]["id"], a.uid);
+    assert_eq!(users[0]["username"], a.username);
+    assert_eq!(users[0]["metadata"], "{}");
+    assert_eq!(users[0]["lang_tag"], "en");
+    assert!(users[0]["edge_count"].is_null());
+    assert!(users[0]["create_time"].as_str().unwrap().ends_with('Z'));
+
+    let both = json_body(
+        client
+            .get(format!(
+                "{base}/v2/user?ids={},{}&usernames={}",
+                a.uid, b.uid, b.username
+            ))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "user lookup by comma-joined keys",
+    )
+    .await;
+    assert_eq!(both["users"].as_array().unwrap().len(), 3);
+
+    let missing = json_body(
+        client
+            .get(format!(
+                "{base}/v2/user?ids={}&usernames=absent{}",
+                Uuid::new_v4(),
+                letters_suffix()
+            ))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "user lookup with misses",
+    )
+    .await;
+    assert!(missing["users"].as_array().unwrap().is_empty());
+
+    let bad_id = refusal(
+        client
+            .get(format!("{base}/v2/user?ids=not-a-uuid"))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "user lookup with a malformed id",
+    )
+    .await;
+    assert_eq!(bad_id, "ID 'not-a-uuid' is not a valid system ID.");
+
+    let by_body = json_body(
+        client
+            .post(format!("{base}/v2/user"))
+            .bearer_auth(&a.token)
+            .json(&json!({ "ids": [a.uid], "usernames": [b.username] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "user multi-get by body",
+    )
+    .await;
+    assert_eq!(by_body["users"].as_array().unwrap().len(), 2);
+
+    let single = json_body(
+        client
+            .get(format!("{base}/v2/user/{}", a.uid))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "get a user by id",
+    )
+    .await;
+    assert_eq!(single["users"][0]["username"], a.username);
+    let by_name = json_body(
+        client
+            .get(format!("{base}/v2/user/{}", b.username))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "get a user by username",
+    )
+    .await;
+    assert_eq!(by_name["users"][0]["id"], b.uid);
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/user/absent{}", letters_suffix()))
+                .bearer_auth(&a.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "get a user that does not exist",
+        )
+        .await,
+        "User account not found."
+    );
+
+    // A disabled account has no public view.
+    sqlx::query("UPDATE users SET disable_time = now() WHERE id = $1")
+        .bind(Uuid::parse_str(&b.uid).unwrap())
+        .execute(pool)
+        .await
+        .expect("disable the second user");
+    let hidden = json_body(
+        client
+            .get(format!("{base}/v2/user?ids={}", b.uid))
+            .bearer_auth(&a.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "a disabled account is absent from the multi-get",
+    )
+    .await;
+    assert!(hidden["users"].as_array().unwrap().is_empty());
+    assert_eq!(
+        refusal(
+            client
+                .get(format!("{base}/v2/user/{}", b.uid))
+                .bearer_auth(&a.token)
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::NOT_FOUND,
+            "a disabled account has no single-get",
+        )
+        .await,
+        "User account not found."
+    );
+    sqlx::query("UPDATE users SET disable_time = '1970-01-01T00:00:00Z' WHERE id = $1")
+        .bind(Uuid::parse_str(&b.uid).unwrap())
+        .execute(pool)
+        .await
+        .expect("re-enable the second user");
 }
 
 async fn audit_trail(pool: &PgPool) {

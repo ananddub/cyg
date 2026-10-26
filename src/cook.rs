@@ -1,7 +1,7 @@
 //! # GLTF / GLB Collision Asset Cooker
 //!
 //! Extracts triangle mesh vertices and index buffers from standard `.glb` or `.gltf`
-//! 3D scene files and bakes them into OpenOxide's high-speed flat binary `OXCL` format.
+//! 3D scene files and bakes them into CYG's high-speed flat binary `OXCL` format.
 //!
 //! Loading an `OXCL` binary at server boot requires zero JSON/GLTF decoding and
 //! starts the physics plane in under 1 millisecond.

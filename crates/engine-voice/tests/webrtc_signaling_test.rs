@@ -174,7 +174,7 @@ fn audio_frames_are_never_mistaken_for_signaling() {
 }
 
 /// Byte-for-byte contract with the browser SDK. This vector was captured from
-/// `examples/tank-3d/openoxide.js`:
+/// `examples/tank-3d/cyg.js`:
 /// `room.sendSignal(SignalKind.JOIN, 0xFFFFFFFF, {version:1, capabilities:"webrtc,opus"})`
 /// If either side changes the layout, this fails here instead of at runtime in a
 /// browser that has already asked the user for microphone access.

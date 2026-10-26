@@ -32,7 +32,7 @@ impl StaticServer {
                 .join("node_modules/@colyseus/schema/build/index.mjs"),
             unity_build: project_dir
                 .parent()
-                .map(|p| p.join("OpenOxideArena/Build/WebGL"))
+                .map(|p| p.join("CYGArena/Build/WebGL"))
                 .unwrap_or_else(|| project_dir.join("unity")),
             defaults: HashMap::new(),
             cache: Mutex::new(HashMap::new()),

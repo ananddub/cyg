@@ -108,7 +108,9 @@ export function PurchasesView() {
         />
       </div>
 
-      <Panel title="Purchases" fill>
+      {/* Natural height: a `fill` panel would be squeezed into its header by the
+          vendor form below, hiding every row. The page itself scrolls. */}
+      <Panel title="Purchases">
         <DataTable
           columns={columns}
           rows={filtered}
@@ -116,7 +118,6 @@ export function PurchasesView() {
           error={queryError(list.error)}
           rowKey={(row) => row.transaction_id}
           empty={empty}
-          fill
           selectable
         />
         <Pager offset={offset} limit={PAGE_SIZE} count={list.data?.length ?? 0} onChange={setOffset} />

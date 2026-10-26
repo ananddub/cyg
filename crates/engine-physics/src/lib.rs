@@ -1,4 +1,4 @@
-//! # OpenOxide Physics Engine
+//! # CYG Physics Engine
 //!
 //! Provides deterministic 3D AABB obstacle collisions, Kinematic Character
 //! Controllers (move_and_slide), Continuous Collision Detection (CCD)

@@ -36,7 +36,7 @@ impl SeatResponse {
             name: seat.room.clone(),
             session_id: seat.id.clone(),
             room_id: seat.room.clone(),
-            process_id: format!("openoxide_{}", std::process::id()),
+            process_id: format!("cyg_{}", std::process::id()),
             reconnection_token: seat.token.clone(),
             seat_token: seat.token.clone(),
             game_port: state.game.port,

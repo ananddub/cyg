@@ -1,4 +1,4 @@
-//! OpenOxide SDK greeting: a WebSocket upgrade or a matchmake HTTP seat
+//! CYG SDK greeting: a WebSocket upgrade or a matchmake HTTP seat
 //! reservation.
 //!
 //! The SDK always POSTs `/matchmake/<method>/<room>` first (plain HTTP) and

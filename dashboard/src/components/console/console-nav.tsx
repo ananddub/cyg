@@ -175,8 +175,26 @@ export function ConsoleNav({
             ))
           ) : groups.map((group) => {
             const GroupIcon = GROUP_ICONS[group.group] ?? UsersRound
-            const expanded = searching ? group.areas.length > 0 : (open[group.group] ?? false)
             if (searching && group.areas.length === 0) return null
+            // A group of one is that area: a collapsible header over a lone
+            // child costs a click and tells the operator nothing extra.
+            if (group.areas.length === 1) {
+              const only = group.areas[0]
+              return (
+                <SidebarMenuItem key={group.group}>
+                  <SidebarMenuButton
+                    isActive={only.id === area.id}
+                    onClick={() => onNavigate(only.id)}
+                    tooltip={only.label}
+                    className="font-medium text-sidebar-foreground/85"
+                  >
+                    <GroupIcon />
+                    <span>{only.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )
+            }
+            const expanded = searching ? group.areas.length > 0 : (open[group.group] ?? false)
             return (
               <SidebarMenuItem key={group.group}>
                 <SidebarMenuButton

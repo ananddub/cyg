@@ -1,4 +1,4 @@
-//! # OXCL — OpenOxide CoLlision binary format
+//! # OXCL — CYG CoLlision binary format
 //!
 //! Flat, parse-free collision mesh format produced by `ox-game cook` from
 //! `.glb`/`.gltf` sources. Loading an OXCL arena at server boot is a pure
@@ -7,7 +7,7 @@
 
 use std::io;
 
-/// Magic 4-byte header: "OXCL" (OpenOXide CoLlision)
+/// Magic 4-byte header: "OXCL" (CYG CoLlision)
 pub const MAGIC: &[u8; 4] = b"OXCL";
 /// Format version
 pub const VERSION: u16 = 1;

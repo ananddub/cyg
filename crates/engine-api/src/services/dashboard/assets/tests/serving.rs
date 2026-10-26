@@ -55,7 +55,7 @@ async fn embedded_dashboard_serves_when_no_dist_dir_passed() {
 #[test]
 fn a_dist_without_an_index_is_not_a_dist() {
     let empty = std::env::temp_dir().join(format!(
-        "openoxide-dashboard-assets-empty-{}-{}",
+        "cyg-dashboard-assets-empty-{}-{}",
         std::process::id(),
         counter()
     ));

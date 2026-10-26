@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
-#include "openoxide_schema_runtime.hpp"
+#include "cyg_schema_runtime.hpp"
 
-using namespace openoxide::schema;
+using namespace cyg::schema;
 
 namespace {
 

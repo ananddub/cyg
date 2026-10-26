@@ -7,7 +7,7 @@
 //! 4. Masked `[ROOM_DATA=13]` -> `TransportEvent::Packet`
 //!
 //! Protocol values verified against `packages/shared-types/src/Protocol.ts`
-//! of the OpenOxide wire (0.18-derived) monorepo.
+//! of the CYG wire (0.18-derived) monorepo.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -74,7 +74,7 @@ fn ws_upgrade_with_query(port: u16, transport: &mut WsTransport, query: &str) ->
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ok");
     // RFC 6455 section 1.3 example key -> known accept value.
     let request = format!(
-        "GET /openoxide_1/game_room?{query} HTTP/1.1\r\n\
+        "GET /cyg_1/game_room?{query} HTTP/1.1\r\n\
          Host: localhost\r\n\
          Upgrade: websocket\r\n\
          Connection: Upgrade\r\n\

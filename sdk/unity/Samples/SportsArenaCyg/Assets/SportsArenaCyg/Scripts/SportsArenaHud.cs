@@ -57,7 +57,7 @@ namespace CookYourGame.SportsArena
                 string hash = arena.LastStateHashTick >= 0
                     ? "  hash " + arena.LastStateHash.ToString("X8") + " @" + arena.LastStateHashTick
                     : string.Empty;
-                controls = "YOU ARE " + role + "   |   OpenOxide: " + status
+                controls = "YOU ARE " + role + "   |   CYG: " + status
                     + "   |   tick " + arena.Tick
                     + (arena.VerifiedHashCount > 0 ? "  verified " + arena.VerifiedHashCount : string.Empty)
                     + hash

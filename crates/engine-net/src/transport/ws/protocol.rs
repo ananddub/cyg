@@ -1,4 +1,4 @@
-//! Wire-protocol codes: the Colyseus/OpenOxide opcodes, close codes, status
+//! Wire-protocol codes: the Colyseus/CYG opcodes, close codes, status
 //! bytes and the method whitelist this transport answers over plain HTTP.
 
 use crate::framing::OpCode;

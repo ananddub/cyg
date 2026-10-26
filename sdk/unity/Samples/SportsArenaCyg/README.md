@@ -31,7 +31,7 @@ Assets/SportsArenaCyg/Scenes/SportsArena.unity
 - Six fighters, three per team. Player one is human; player two is a bot by
   default. P2 can be controlled with the keyboard by disabling
   `playerTwoIsBot` on the `Sports Arena` object. Players three to six are bots.
-- Optional two-window mode (`-network`) joins an OpenOxide input-hub room.
+- Optional two-window mode (`-network`) joins an CYG input-hub room.
   Each window publishes tick-keyed keyboard input as opcode-19 packets and only
   advances the deterministic simulation when both humans' inputs for the exact
   tick are present. A HELLO/READY/START handshake gives both clients the same
@@ -63,14 +63,14 @@ owns P2; each camera follows that window's own fighter. The HUD shows
 count and the last state hash. A mismatch changes the status to `DESYNC` and
 stops the simulation instead of hiding the divergence.
 
-## Two-client lockstep over OpenOxide
+## Two-client lockstep over CYG
 
 The included `server/config.toml` starts the backend as a pure Unity relay room
 (`input_hub = true`, room `cyg_sports`, WebSocket/HTTP port 7777, UDP 7778):
 
 ```bash
 cargo build --release
-./target/release/openoxide-gaming run sdk/unity/Samples/SportsArenaCyg/server
+./target/release/cyg-gaming run sdk/unity/Samples/SportsArenaCyg/server
 ```
 
 Start two players:

@@ -2,7 +2,7 @@
 name = "engine-nav"
 version = "0.1.0"
 edition = "2024"
-description = "High-performance 2D and 3D navigation mesh pathfinding for OpenOxide"
+description = "High-performance 2D and 3D navigation mesh pathfinding for CYG"
 
 [dependencies]
 polyanya = "0.17.1"

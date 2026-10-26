@@ -8,21 +8,21 @@ namespace CookYourGame.SportsArena
 {
     /// <summary>
     /// Optional two-client mode. Both instances run the deterministic Sports
-    /// Arena simulation locally, but input is relayed through the OpenOxide
+    /// Arena simulation locally, but input is relayed through the CYG
     /// input hub and the simulation only advances when both human inputs for a
     /// tick have arrived. A small HELLO/READY/START handshake gives both peers
     /// the same tick-0 epoch, and periodic CRC hashes detect divergence.
     /// </summary>
     public sealed partial class SportsArenaBootstrap
     {
-        [Header("Network (OpenOxide backend)")]
+        [Header("Network (CYG backend)")]
         [Tooltip("Start with -network (or CYG_NETWORK=1) to join a two-client lockstep room.")]
         public bool networkMode;
 
-        [Tooltip("OpenOxide WebSocket host. Override with CYG_SERVER_HOST.")]
+        [Tooltip("CYG WebSocket host. Override with CYG_SERVER_HOST.")]
         public string networkServer = "127.0.0.1";
 
-        [Tooltip("OpenOxide game port (the HTTP/WS transport port). Override with CYG_SERVER_PORT.")]
+        [Tooltip("CYG game port (the HTTP/WS transport port). Override with CYG_SERVER_PORT.")]
         public int networkPort = 7777;
 
         [Tooltip("Input-hub room name. Override with CYG_ROOM.")]
@@ -209,7 +209,7 @@ namespace CookYourGame.SportsArena
             CYGNetwork.TransportFactory = () => new CYGWebSocketTransport();
             CYGNetwork.ConnectToMatch(networkRoom, string.Empty, networkServer, networkPort);
 
-            Debug.Log("[SportsArena] Connecting to OpenOxide input hub at ws://"
+            Debug.Log("[SportsArena] Connecting to CYG input hub at ws://"
                 + networkServer + ":" + networkPort + "/" + networkRoom);
         }
 
@@ -462,7 +462,7 @@ namespace CookYourGame.SportsArena
         private void HandleNetworkJoined(string room)
         {
             int actor = CYGNetwork.LocalActorNumber;
-            Debug.Log("[SportsArena] Joined OpenOxide input-hub room '" + networkRoom + "' as actor " + actor);
+            Debug.Log("[SportsArena] Joined CYG input-hub room '" + networkRoom + "' as actor " + actor);
             _lastHandshakeAt = 0f;
             SendLockstepHello();
         }
@@ -473,7 +473,7 @@ namespace CookYourGame.SportsArena
             _remoteActor = 0;
             _rolesResolved = false;
             _lockstep?.SetState(SportsArenaLockstepState.Paused);
-            Debug.LogWarning("[SportsArena] OpenOxide disconnected: " + reason);
+            Debug.LogWarning("[SportsArena] CYG disconnected: " + reason);
         }
 
         private void HandleNetworkInputTick(ArraySegment<byte> payload)

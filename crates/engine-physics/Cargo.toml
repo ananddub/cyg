@@ -2,7 +2,7 @@
 name = "engine-physics"
 version = "0.1.0"
 edition = "2024"
-description = "Fixed-step 3D BVH, spatial query, lag-compensation, and Rapier 2D/3D integration for OpenOxide"
+description = "Fixed-step 3D BVH, spatial query, lag-compensation, and Rapier 2D/3D integration for CYG"
 
 [dependencies]
 tracing = "0.1"

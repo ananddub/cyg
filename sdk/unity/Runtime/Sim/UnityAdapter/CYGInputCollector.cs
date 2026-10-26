@@ -7,7 +7,7 @@ namespace CookYourGame.Sim
     /// <summary>
     /// Captures Unity player input, normalizes it into a deterministic
     /// CYGPlayerInput struct, stores it in the ECS rollback session, and
-    /// transmits it over UDP to the OpenOxide server using opcode 19
+    /// transmits it over UDP to the CYG server using opcode 19
     /// (CYG_WIRE_INPUT_TICK) with triple redundancy. Zero GC allocations
     /// during runtime tick loops.
     /// </summary>

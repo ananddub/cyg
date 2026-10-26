@@ -31,7 +31,7 @@ fn the_body_is_decoded_before_the_credential_is_read() {
     assert_eq!(anonymous.refusal(UNAUTHENTICATED), "Server key required");
     assert_eq!(
         anonymous.header("www-authenticate"),
-        Some("Bearer realm=\"openoxide\"")
+        Some("Bearer realm=\"cyg\"")
     );
     assert_eq!(anonymous.header("content-type"), Some("application/json"));
 }

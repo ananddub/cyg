@@ -1,6 +1,6 @@
 //! Adversarial inputs for the descriptor decoder.
 //!
-//! The host ships `openoxide.schema.bin` to untrusted clients, and the host
+//! The host ships `cyg.schema.bin` to untrusted clients, and the host
 //! itself re-reads it to walk entity rows. A malformed or truncated descriptor
 //! must be rejected, never panic.
 

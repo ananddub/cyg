@@ -1,9 +1,9 @@
 //! Parses Colyseus-v5-style `schema({...}, "Name")` calls from `schema.ts` and
-//! generates the OpenOxide state-sync contract:
+//! generates the CYG state-sync contract:
 //!
-//! * `openoxide.schema.ts` — AssemblyScript `SchemaDef` + `SchemaEntity` subclass.
-//! * `openoxide.schema.bin` — compact descriptor sent to clients on join.
-//! * `openoxide.schema.d.ts` — typed browser contract.
+//! * `cyg.schema.ts` — AssemblyScript `SchemaDef` + `SchemaEntity` subclass.
+//! * `cyg.schema.bin` — compact descriptor sent to clients on join.
+//! * `cyg.schema.d.ts` — typed browser contract.
 //!
 //! Every output derives its field list from the same source, so the FNV-1a wire
 //! hash is identical by construction. Field values are numeric/bool primitives,
@@ -18,7 +18,7 @@ pub mod codegen;
 pub mod ts;
 
 /// The runtime's `schemaFieldSize` table. Keep in sync with
-/// `sdk/interfaces/assemblyscript/openoxide.ts` and `sdk/web/openoxide.js`.
+/// `sdk/server/assemblyscript/cyg.ts` and `sdk/client/cyg.js`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireKind {
     U8,
@@ -253,7 +253,7 @@ impl fmt::Display for SchemaDiagnostic {
 pub struct GeneratedSchema {
     pub server_ts: String,
     pub client_dts: String,
-    /// Compact `openoxide.schema.bin` payload sent by the host on join.
+    /// Compact `cyg.schema.bin` payload sent by the host on join.
     pub descriptor: Vec<u8>,
 }
 
@@ -332,7 +332,7 @@ fn write_field(out: &mut Vec<u8>, field: &SchemaField) {
     out.push(field.element.map(WireKind::code).unwrap_or(0));
 }
 
-/// Binary schema descriptor consumed by `openoxide.js`.
+/// Binary schema descriptor consumed by `cyg.js`.
 ///
 /// ```text
 /// "OXSD" [u8 version=3] [u8 flags]
@@ -394,7 +394,7 @@ pub fn emit_descriptor(schemas: &[SchemaDef], root: Option<&RootState>) -> Vec<u
     out
 }
 
-/// A decoded `openoxide.schema.bin` descriptor (v1–v3).
+/// A decoded `cyg.schema.bin` descriptor (v1–v3).
 ///
 /// The host keeps one of these next to the wire state so it can walk entity
 /// rows (per-field sizes, optional presence bytes) without asking the guest.
@@ -670,7 +670,7 @@ fn is_reserved_word(name: &str) -> bool {
             | "SchemaDef"
             | "SchemaEntity"
             | "SchemaState"
-            | "OpenOxide"
+            | "CYG"
     )
 }
 
@@ -790,10 +790,10 @@ fn emit_server(schemas: &[SchemaDef], root: Option<&RootState>, source_name: &st
     ));
     if is_multi_root(root) {
         out.push_str(
-            "import { SchemaDef, SchemaEntity, SchemaState, SchemaWorld } from \"./openoxide\";\n",
+            "import { SchemaDef, SchemaEntity, SchemaState, SchemaWorld } from \"./cyg-server\";\n",
         );
     } else {
-        out.push_str("import { SchemaDef, SchemaEntity } from \"./openoxide\";\n");
+        out.push_str("import { SchemaDef, SchemaEntity } from \"./cyg-server\";\n");
     }
 
     for schema in schemas {
@@ -983,7 +983,7 @@ fn emit_client_dts(
         "// Generated from {source_name} by `ox-game schema`. Edit the schema source, not this file.\n\n"
     ));
     out.push_str(
-        "import type { Room as OpenOxideRoom, SchemaDef, SchemaEntity, SchemaMap } from \"./openoxide-client\";\n",
+        "import type { Room as CYGRoom, SchemaDef, SchemaEntity, SchemaMap } from \"./cyg-client\";\n",
     );
 
     for schema in schemas {
@@ -1036,7 +1036,7 @@ fn emit_client_dts(
         }
         out.push_str("}\n");
         out.push_str("\n/** Convenience alias for a room carrying this schema. */\n");
-        out.push_str("export type GameRoom = OpenOxideRoom<GameState>;\n");
+        out.push_str("export type GameRoom = CYGRoom<GameState>;\n");
     }
 
     out.push_str("\nexport declare const schemas: {\n");
@@ -1045,7 +1045,7 @@ fn emit_client_dts(
     }
     out.push_str("};\n");
 
-    out.push_str("\ndeclare global {\n    interface Window {\n        OpenOxideSchema: {\n");
+    out.push_str("\ndeclare global {\n    interface Window {\n        CYGSchema: {\n");
     for schema in schemas {
         out.push_str(&format!("            {0}Schema: SchemaDef;\n", schema.name));
     }

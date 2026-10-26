@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * OpenOxide load test.
+ * CYG load test.
  *
  * Spawns N schema clients against a running game server, drives inputs at a
  * fixed rate, and reports join latency, schema latency, update rate, and
@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const OpenOxide = require(path.resolve(here, '..', 'sdk', 'web', 'openoxide.js'));
+const CYG = require(path.resolve(here, '..', 'sdk', 'web', 'cyg.js'));
 
 const TYPES = new Set(['u8', 'u16', 'u32', 'i32', 'f32', 'f64', 'bool', 'i64']);
 const DEFAULTS = {
@@ -46,7 +46,7 @@ const DEFAULTS = {
 };
 
 function usage() {
-    console.log(`OpenOxide load test
+    console.log(`CYG load test
 
 Usage:
   node bench/loadtest.mjs [options]
@@ -59,7 +59,7 @@ Options:
   --hz <n>                 Input messages per second per client (default ${DEFAULTS.hz})
   --move                   Send alternating right/left movement flags
   --webrtc                 Let the SDK negotiate WebRTC data channels (off by default)
-  --descriptor <path>      Read the server's openoxide.schema.bin (preferred)
+  --descriptor <path>      Read the server's cyg.schema.bin (preferred)
   --fields <spec>          Manual schema fields, e.g. x:f64,y:f64,flags:u32 (default ${DEFAULTS.fields})
   --schema-name <name>     Manual schema name (default ${DEFAULTS.schemaName})
   --schema-version <n>     Manual schema version (default ${DEFAULTS.schemaVersion})
@@ -135,7 +135,7 @@ function parseFields(spec) {
 }
 
 function buildSchema(config, fields) {
-    const schema = new OpenOxide.SchemaDef(config.schemaName, config.schemaVersion);
+    const schema = new CYG.SchemaDef(config.schemaName, config.schemaVersion);
     for (const field of fields) {
         schema[field.type](field.name);
     }
@@ -346,7 +346,7 @@ async function main() {
         schema = buildSchema(config, fields);
     }
 
-    const client = new OpenOxide.Client(config.url);
+    const client = new CYG.Client(config.url);
     const records = [];
     let aborted = false;
     process.on('SIGINT', () => {
@@ -482,7 +482,7 @@ async function main() {
 
 function printReport(report, config) {
     const row = (label, value) => console.log(`  ${label.padEnd(15)} ${value}`);
-    console.log(`OpenOxide load test — ${report.endpoint} (room "${report.room}")`);
+    console.log(`CYG load test — ${report.endpoint} (room "${report.room}")`);
     row('schema', `${report.schema.name} v${report.schema.version} · ${report.schema.fields.join(', ')} · ${report.schema.hash}`);
     row('clients', `${report.clients.joined}/${report.clients.requested} joined · ${report.clients.ready} ready`);
     row('join', `p50 ${ms(report.joinMs.p50)} · p95 ${ms(report.joinMs.p95)} · mean ${ms(report.joinMs.mean)}`);

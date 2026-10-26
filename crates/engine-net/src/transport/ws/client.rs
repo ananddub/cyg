@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use bytes::BytesMut;
 
-/// State of a connected OpenOxide SDK client.
+/// State of a connected CYG SDK client.
 #[derive(PartialEq)]
 pub(super) enum WsState {
     Handshaking,

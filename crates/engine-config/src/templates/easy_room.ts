@@ -1,4 +1,4 @@
-// OpenOxide easy-mode room.
+// CYG easy-mode room.
 //
 // Three channels, kept separate on purpose:
 //   this.on / this.emit        local room events (not networked by themselves)
@@ -6,13 +6,13 @@
 //   SchemaState                continuous authoritative state (automatic sync)
 //
 // The schema itself lives in schema.ts (Colyseus v5 syntax). `ox-game run`
-// generates openoxide.schema.ts from it, so server and client can never drift.
+// generates cyg.schema.ts from it, so server and client can never drift.
 //
 // Edit this file and run `ox-game run .` — the compiler generates the WASM ABI
 // bridge for you.
 
-import { Room, InputReader, SchemaState } from "./openoxide";
-import { Player, PlayerSchema } from "./openoxide.schema";
+import { Room, InputReader, SchemaState } from "./cyg-server";
+import { Player, PlayerSchema } from "./cyg.schema";
 
 const WORLD_W: f64 = 800.0;
 const WORLD_H: f64 = 500.0;

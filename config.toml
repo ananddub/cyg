@@ -1,4 +1,4 @@
-# OpenOxide Game Server Configuration (Standard TOML)
+# CYG Game Server Configuration (Standard TOML)
 name = "game_room"
 # The registered game this process hosts. Stats and player data shown in the
 # console are scoped to this tenant; another game's workspace reports that it
@@ -16,7 +16,7 @@ tick_rate = 128
 max_clients = 16
 
 [control.session]
-database_url = "postgres://openoxide:change-me@localhost:5432/openoxide_db"
+database_url = "postgres://cyg:change-me@localhost:5432/cyg_db"
 max_db_connections = 10
 server_key = "change-me"
 

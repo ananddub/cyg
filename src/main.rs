@@ -1,4 +1,4 @@
-//! # ox-game — OpenOxide game server CLI
+//! # ox-game — CYG game server CLI
 //!
 //!   ox-game init \[dir]    create a game project (room.ts + schema.ts + own SDK + website)
 //!   ox-game run  \[dir]    compile (if needed) and run the server
@@ -156,7 +156,7 @@ fn doctor(dir: &Path) -> std::io::Result<()> {
                         tracing::info!("✓ room wasm exports the full host ABI ({} exports)", exports.len());
                     } else {
                         tracing::info!(
-                            "✗ room wasm is missing host exports: {}. The host looks up exactly these names (see sdk/interfaces). Got: {}",
+                            "✗ room wasm is missing host exports: {}. The host looks up exactly these names (see sdk/server). Got: {}",
                             missing.join(", "),
                             exports.join(", ")
                         );
@@ -182,7 +182,7 @@ fn doctor(dir: &Path) -> std::io::Result<()> {
 
 fn print_help() {
     tracing::info!(
-        "ox-game — OpenOxide game server
+        "ox-game — CYG game server
 
 USAGE:
   ox-game init          [dir]    create a game project (room.ts + schema.ts + own SDK + website)
@@ -373,7 +373,7 @@ fn schema_debug_command(args: &[String]) {
             "--help" | "-h" => {
                 tracing::info!(
                     "usage: ox-game schema-debug [dir|file] [--json]\n\
-                     \x20 Reads openoxide.schema.bin (or the given file) and prints the\n\
+                     \x20 Reads cyg.schema.bin (or the given file) and prints the\n\
                      \x20 root, collections, schemas, fields and recomputed hashes."
                 );
                 return;
@@ -701,22 +701,22 @@ fn init(dir: &Path) -> std::io::Result<()> {
     std::fs::write(dir.join("room.ts"), ROOM_TEMPLATE)?;
     std::fs::write(dir.join("schema.ts"), SCHEMA_TS_TEMPLATE)?;
     // The easy template is self-contained: server SDK, browser SDK and the
-    // matching page all use OpenOxide's own protocol (no Colyseus dependency).
+    // matching page all use CYG's own protocol (no Colyseus dependency).
     std::fs::write(
-        dir.join("openoxide-server.ts"),
-        include_str!("../sdk/interfaces/assemblyscript/openoxide-server.ts"),
+        dir.join("cyg-server.ts"),
+        include_str!("../sdk/server/assemblyscript/cyg-server.ts"),
     )?;
     std::fs::write(
-        dir.join("openoxide.d.ts"),
-        include_str!("../sdk/interfaces/typescript/openoxide.d.ts"),
+        dir.join("cyg.d.ts"),
+        include_str!("../sdk/server/typescript/cyg.d.ts"),
     )?;
     std::fs::write(
-        dir.join("openoxide.js"),
-        include_bytes!("../sdk/web/openoxide.js"),
+        dir.join("cyg.js"),
+        include_bytes!("../sdk/client/cyg.js"),
     )?;
     std::fs::write(
-        dir.join("openoxide-client.d.ts"),
-        include_bytes!("../sdk/web/openoxide.d.ts"),
+        dir.join("cyg-client.d.ts"),
+        include_bytes!("../sdk/client/cyg.d.ts"),
     )?;
     std::fs::write(
         dir.join("website.html"),
@@ -750,15 +750,15 @@ fn init(dir: &Path) -> std::io::Result<()> {
         dir.display()
     );
     tracing::info!(
-        "  {}/openoxide.ts   — server SDK (Room, messages, SchemaState)",
+        "  {}/cyg-server.ts — server SDK (Room, messages, SchemaState)",
         dir.display()
     );
     tracing::info!(
-        "  {}/openoxide.js   — browser SDK (Client, schema, messages)",
+        "  {}/cyg.js   — browser SDK (Client, schema, messages)",
         dir.display()
     );
     tracing::info!(
-        "  {}/openoxide-client.d.ts — browser SDK types",
+        "  {}/cyg-client.d.ts — browser SDK types",
         dir.display()
     );
     tracing::info!(
@@ -887,44 +887,44 @@ fn run(dir: &Path) -> std::io::Result<()> {
 fn generate_interfaces(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
 
-    let lua_path = dir.join("openoxide.lua");
-    let c_path = dir.join("openoxide.h");
-    let cpp_path = dir.join("openoxide.hpp");
-    let rust_path = dir.join("openoxide_room.rs");
-    let csharp_path = dir.join("OpenOxide.cs");
-    let as_path = dir.join("openoxide-server.ts");
-    let ts_path = dir.join("openoxide.d.ts");
+    let lua_path = dir.join("cyg.lua");
+    let c_path = dir.join("cyg.h");
+    let cpp_path = dir.join("cyg.hpp");
+    let rust_path = dir.join("cyg_room.rs");
+    let csharp_path = dir.join("CYG.cs");
+    let as_path = dir.join("cyg-server.ts");
+    let ts_path = dir.join("cyg.d.ts");
     let readme_path = dir.join("README.md");
 
     std::fs::write(
         &lua_path,
-        include_str!("../sdk/interfaces/lua/openoxide.lua"),
+        include_str!("../sdk/server/lua/cyg.lua"),
     )?;
-    std::fs::write(&c_path, include_str!("../sdk/interfaces/c/openoxide.h"))?;
+    std::fs::write(&c_path, include_str!("../sdk/server/c/cyg.h"))?;
     std::fs::write(
         &cpp_path,
-        include_str!("../sdk/interfaces/cpp/openoxide.hpp"),
+        include_str!("../sdk/server/cpp/cyg.hpp"),
     )?;
     std::fs::write(
         &rust_path,
-        include_str!("../sdk/interfaces/rust/openoxide_room.rs"),
+        include_str!("../sdk/server/rust/cyg_room.rs"),
     )?;
     std::fs::write(
         &csharp_path,
-        include_str!("../sdk/interfaces/csharp/OpenOxide.cs"),
+        include_str!("../sdk/server/csharp/CYG.cs"),
     )?;
     std::fs::write(
         &as_path,
-        include_str!("../sdk/interfaces/assemblyscript/openoxide-server.ts"),
+        include_str!("../sdk/server/assemblyscript/cyg-server.ts"),
     )?;
     std::fs::write(
         &ts_path,
-        include_str!("../sdk/interfaces/typescript/openoxide.d.ts"),
+        include_str!("../sdk/server/typescript/cyg.d.ts"),
     )?;
-    std::fs::write(&readme_path, include_str!("../sdk/interfaces/README.md"))?;
+    std::fs::write(&readme_path, include_str!("../sdk/server/README.md"))?;
 
     tracing::info!(
-        "✓ Successfully auto-generated OpenOxide Room Interfaces in {}:",
+        "✓ Successfully auto-generated CYG Room Interfaces in {}:",
         dir.display()
     );
     tracing::info!("  • {} (Lua Room SDK & Class)", lua_path.display());

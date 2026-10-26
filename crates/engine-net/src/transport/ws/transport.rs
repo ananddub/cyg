@@ -64,7 +64,7 @@ pub struct WsTransport {
     pub(super) advertised_udp_port: u16,
     pub(super) matchmake_hook: Option<MatchmakeHook>,
     pub(super) http_hook: Option<HttpHook>,
-    /// `openoxide.schema.bin` bytes sent to each client after JOIN_ROOM.
+    /// `cyg.schema.bin` bytes sent to each client after JOIN_ROOM.
     pub(super) schema_descriptor: Bytes,
 }
 
@@ -140,7 +140,7 @@ impl WsTransport {
         })
     }
 
-    /// Set the `openoxide.schema.bin` descriptor pushed to every client right
+    /// Set the `cyg.schema.bin` descriptor pushed to every client right
     /// after JOIN_ROOM. Cheap to call once at boot; each join clones a `Bytes`.
     pub fn set_schema_descriptor(&mut self, descriptor: impl Into<Bytes>) {
         self.schema_descriptor = descriptor.into();

@@ -34,7 +34,7 @@ fn a_reservation_carries_every_field_the_sdk_needs() {
     assert_eq!(v["roomId"].as_str().unwrap(), "tank-3d");
     assert_eq!(v["gamePort"].as_u64().unwrap(), u64::from(state.game.port));
     assert_eq!(v["controlPort"].as_u64().unwrap(), 8124);
-    assert!(v["processId"].as_str().unwrap().starts_with("openoxide_"));
+    assert!(v["processId"].as_str().unwrap().starts_with("cyg_"));
     assert_eq!(v["seatToken"].as_str(), v["reconnectionToken"].as_str());
     assert!(v["expiresAt"].as_u64().unwrap() > now_unix());
     assert!(
@@ -68,7 +68,7 @@ fn seat_json_is_parseable_and_nests_the_ice_blob_as_text() {
         name: "tank-3d".into(),
         session_id: "s1".into(),
         room_id: "tank-3d".into(),
-        process_id: "openoxide_1".into(),
+        process_id: "cyg_1".into(),
         reconnection_token: "tok".into(),
         seat_token: "tok".into(),
         game_port: 7777,

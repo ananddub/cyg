@@ -5,7 +5,7 @@ local source = debug.getinfo(1, "S").source
 local here = source:sub(2):match("(.*/)") or "./"
 package.path = here .. "../?.lua;" .. package.path
 
-local S = require("openoxide_schema")
+local S = require("cyg_schema")
 
 local checks, failures = 0, 0
 local function check(name, ok)

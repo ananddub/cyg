@@ -43,7 +43,7 @@ sdk/unity/Tools~/CYG.DeterminismLab/*/obj/
 *.slnx
 !sdk/unity/Tools~/**/*.csproj
 !sdk/unity/Runtime/Sim/Tests/**/*.csproj
-# OpenOxide compiler temporary synthetic entry bridge files
+# CYG compiler temporary synthetic entry bridge files
 ._*_entry.ts
 *.cwasm
 reference/

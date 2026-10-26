@@ -63,7 +63,7 @@ fn next_session_id() -> String {
 /// server whenever the game runs on a non-default port.
 fn seat_json(room: &str, session_id: &str, token: &str, game_port: u16, udp_port: u16) -> String {
     format!(
-        "{{\"name\":\"{room}\",\"sessionId\":\"{sid}\",\"roomId\":\"{room}\",\"processId\":\"openoxide_1\",\"reconnectionToken\":\"{token}\",\"gamePort\":{game_port},\"udpPort\":{udp_port}}}",
+        "{{\"name\":\"{room}\",\"sessionId\":\"{sid}\",\"roomId\":\"{room}\",\"processId\":\"cyg_1\",\"reconnectionToken\":\"{token}\",\"gamePort\":{game_port},\"udpPort\":{udp_port}}}",
         room = room,
         sid = session_id,
         token = token

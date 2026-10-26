@@ -1,12 +1,12 @@
 services:
   postgres:
     image: orioledb/orioledb:latest-pg17
-    container_name: openoxide_postgres
+    container_name: cyg_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: openoxide
+      POSTGRES_USER: cyg
       POSTGRES_PASSWORD: change-me
-      POSTGRES_DB: openoxide_db
+      POSTGRES_DB: cyg_db
     ports:
       - "5432:5432"
     shm_size: 1gb
@@ -15,7 +15,7 @@ services:
 
   redis:
     image: redis:7
-    container_name: openoxide_redis
+    container_name: cyg_redis
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"

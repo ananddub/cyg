@@ -8,7 +8,7 @@ import { useSyncExternalStore } from "react"
 
 export type Theme = "light" | "dark"
 
-const STORAGE_KEY = "openoxide.console.theme"
+const STORAGE_KEY = "cyg.console.theme"
 
 let current: Theme = read()
 const listeners = new Set<() => void>()

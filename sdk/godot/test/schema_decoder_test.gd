@@ -11,7 +11,7 @@ var checks := 0
 var failures := 0
 
 
-class Player extends OpenOxideSchema.Entity:
+class Player extends CYGSchema.Entity:
 	var x: float = 0.0
 	var hp: int = 0
 	var tags: Array = []
@@ -185,15 +185,15 @@ func world_patch() -> PackedByteArray:
 
 
 func _initialize() -> void:
-	var registry := OpenOxideSchema.Registry.new()
+	var registry := CYGSchema.Registry.new()
 	registry.register("Player", func(): return Player.new())
 
-	var state = OpenOxideSchema.State.create_from_descriptor(descriptor(), registry)
+	var state = CYGSchema.State.create_from_descriptor(descriptor(), registry)
 	check("descriptor parses", state != null)
 	if state == null:
 		quit(1)
 		return
-	check("bad descriptor rejected", OpenOxideSchema.Descriptor.parse(PackedByteArray([79, 88, 83, 68, 9])) == null)
+	check("bad descriptor rejected", CYGSchema.Descriptor.parse(PackedByteArray([79, 88, 83, 68, 9])) == null)
 
 	var counters := {"adds": 0, "removes": 0, "changes": 0, "updates": 0, "root_changes": 0}
 	state.entity_added.connect(func(_name, _id, _entity): counters["adds"] += 1)
@@ -221,7 +221,7 @@ func _initialize() -> void:
 	check("events", counters["removes"] == 1 and counters["changes"] == 2
 		and counters["updates"] == 1 and counters["root_changes"] == 2)
 
-	var bare = OpenOxideSchema.State.create_from_descriptor(descriptor(), registry)
+	var bare = CYGSchema.State.create_from_descriptor(descriptor(), registry)
 	check("patch before full dropped", bare != null and not bare.apply(world_patch()))
 	check("truncated rejected", not state.apply(PackedByteArray([79, 88, 83, 50, 1, 0])))
 	check("foreign rejected", not state.apply(PackedByteArray([1, 2, 3, 4, 5])))

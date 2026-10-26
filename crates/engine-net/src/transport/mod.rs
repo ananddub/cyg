@@ -4,7 +4,7 @@
 //! [`create_transport`] selects through [`TransportType`]:
 //!
 //! - `udp`: raw non-blocking length-prefixed datagrams
-//! - `ws`: the OpenOxide/Colyseus WebSocket wire protocol (the browser plane)
+//! - `ws`: the CYG/Colyseus WebSocket wire protocol (the browser plane)
 //! - `webrtc`: sans-IO `str0m` DataChannels and their channel contract
 //!
 //! Only `udp` and `ws` implement [`GameTransport`]; the WebRTC server is driven
@@ -34,7 +34,7 @@ pub use ws::WsTransport;
 pub enum TransportType {
     /// Raw high-frequency non-blocking UDP datagrams.
     Udp,
-    /// WebSocket with OpenOxide SDK wire-protocol compatibility (zero client migration).
+    /// WebSocket with CYG SDK wire-protocol compatibility (zero client migration).
     Ws,
 }
 

@@ -10,7 +10,7 @@ using UnityEngine;
 namespace CookYourGame
 {
     /// <summary>
-    /// High-performance Raw UDP Transport connecting to OpenOxide's 128 Hz MIO plane.
+    /// High-performance Raw UDP Transport connecting to CYG's 128 Hz MIO plane.
     /// Eliminates TCP Head-of-Line blocking, delivering sub-millisecond datagrams
     /// for transforms, RPCs, SyncVars and spawns.
     /// </summary>

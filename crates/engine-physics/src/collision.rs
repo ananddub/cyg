@@ -1,4 +1,4 @@
-//! # OpenOxide High-Performance 3D Collision & Kinematics Engine
+//! # CYG High-Performance 3D Collision & Kinematics Engine
 //!
 //! Provides deterministic 3D AABB obstacle collisions, Kinematic Character
 //! Controllers (move_and_slide), and Continuous Collision Detection (CCD)

@@ -81,12 +81,12 @@ fn a_generated_secret_is_base32_and_unique() {
 
 #[test]
 fn the_provisioning_uri_carries_what_an_app_reads() {
-    let uri = otpauth_uri("ABCDEF", "OpenOxide Console", "admin@console.local");
+    let uri = otpauth_uri("ABCDEF", "CYG Console", "admin@console.local");
     assert!(uri.starts_with("otpauth://totp/"), "{uri}");
     assert!(uri.contains("secret=ABCDEF"));
-    assert!(uri.contains("issuer=OpenOxide%20Console"));
+    assert!(uri.contains("issuer=CYG%20Console"));
     assert!(uri.contains("digits=6") && uri.contains("period=30"));
-    assert!(uri.contains("OpenOxide%20Console:admin%40console.local"));
+    assert!(uri.contains("CYG%20Console:admin%40console.local"));
 }
 
 #[test]

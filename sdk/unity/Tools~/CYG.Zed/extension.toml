@@ -4,7 +4,7 @@ version = "0.1.0"
 schema_version = 1
 description = "CYG deterministic simulation schema support: syntax highlighting, outline, and the CYG language server."
 authors = ["CookYourGame"]
-repository = "https://github.com/cookyourgame/openoxide-gaming"
+repository = "https://github.com/ananddub/cyg"
 languages = ["languages/cyg"]
 
 [lib]

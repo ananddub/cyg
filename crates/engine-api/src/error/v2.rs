@@ -168,7 +168,7 @@ impl IntoResponse for V2Error {
             // Every 401 carries this realm, and the refusal text must not leak into the header.
             response.headers_mut().insert(
                 axum::http::header::WWW_AUTHENTICATE,
-                axum::http::HeaderValue::from_static("Bearer realm=\"openoxide\""),
+                axum::http::HeaderValue::from_static("Bearer realm=\"cyg\""),
             );
         }
         response

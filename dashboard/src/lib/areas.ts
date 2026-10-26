@@ -48,7 +48,7 @@ export const CONSOLE_AREAS: ConsoleArea[] = [
   { group: "Workspace", id: GAMES_AREA_ID, label: "Games & Projects", icon: Gamepad2 },
 
   // Inside one game.
-  { group: "Project", id: "project", label: "Project Settings", icon: LayoutDashboard },
+  { group: "Project", id: "project", label: "Project", icon: LayoutDashboard },
   { group: "Monitoring", id: "runtime", label: "Overview & Realtime", icon: Activity },
   { group: "Monitoring", id: "rooms", label: "Game Rooms", icon: Layers },
   { group: "Monitoring", id: "clients", label: "Connected Clients", icon: Users },

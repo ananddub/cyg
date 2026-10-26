@@ -35,7 +35,7 @@ impl StaticRoutesController {
         self.service.serve_root()
     }
 
-    #[get("/openoxide.js")]
+    #[get("/cyg.js")]
     async fn sdk(&self) -> Response {
         let state = current_state();
         self.service.serve_sdk(&state)

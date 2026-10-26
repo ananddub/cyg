@@ -19,7 +19,7 @@ namespace CookYourGame.SportsArena
     /// Tick-keyed input buffer and state-hash verifier for the two-client
     /// Sports Arena prototype.
     ///
-    /// The OpenOxide input hub relays opaque input packets but does not provide
+    /// The CYG input hub relays opaque input packets but does not provide
     /// a shared tick epoch or server snapshots. Both clients therefore start at
     /// tick 0 through a small HELLO/READY/START handshake, keep a short input
     /// delay, and only advance a tick when both human inputs for that exact

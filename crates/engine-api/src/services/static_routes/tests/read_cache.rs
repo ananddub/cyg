@@ -56,6 +56,6 @@ fn game_web_is_not_embedded_in_server() {
     let dir = TempDir::new("defaults");
     let s = server(dir.path());
     assert!(s.default_for("/website.html").is_none());
-    assert!(s.default_for("/openoxide.js").is_none());
+    assert!(s.default_for("/cyg.js").is_none());
     assert!(s.default_for("/no-such-default").is_none());
 }

@@ -124,7 +124,7 @@ function SettingDetail({ setting, onDeleted }: { setting: ConsoleSetting; onDele
       <JsonBlock value={setting.value} />
 
       <p className="text-[11px] text-muted-foreground">
-        A save replaces the whole value, not only the fields you edited.
+        A save replaces the whole value, not just part of it.
       </p>
 
       <SettingDialog open={editing} onClose={() => setEditing(false)} setting={setting} />

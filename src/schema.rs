@@ -2,7 +2,7 @@
 //! init/run/aot and the explicit `ox-game schema` command.
 //!
 //! The browser needs no schema file: the descriptor is delivered in the join
-//! handshake, and `openoxide.schema.d.ts` provides the typed contract.
+//! handshake, and `cyg.schema.d.ts` provides the typed contract.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -12,11 +12,11 @@ use engine_schema::ts;
 use engine_schema::{RootState, SchemaDef};
 
 pub const TS_SOURCE_FILE: &str = "schema.ts";
-pub const SERVER_FILE: &str = "openoxide.schema.ts";
-pub const CLIENT_DTS_FILE: &str = "openoxide.schema.d.ts";
-pub const DESCRIPTOR_FILE: &str = "openoxide.schema.bin";
+pub const SERVER_FILE: &str = "cyg.schema.ts";
+pub const CLIENT_DTS_FILE: &str = "cyg.schema.d.ts";
+pub const DESCRIPTOR_FILE: &str = "cyg.schema.bin";
 /// Build artifacts directory: everything a tool generates, so the project
-/// root stays clean (config.toml + src/ + website.html + openoxide.js only).
+/// root stays clean (config.toml + src/ + website.html + cyg.js only).
 pub const OUT_DIR: &str = "out";
 
 #[derive(Debug)]
@@ -115,8 +115,8 @@ pub fn write_codegen(
     // (two copies in one compile = duplicate-class conflicts).
     if language == codegen::Language::As && dir_has_src(out_dir) {
         contents = contents.replace(
-            "from \"../openoxide\"",
-            "from \"../src/openoxide\"",
+            "from \"../cyg-server\"",
+            "from \"../src/cyg-server\"",
         );
     }
     std::fs::create_dir_all(out_dir)?;
@@ -163,9 +163,9 @@ fn generate_file(dir: &Path, source_path: &Path) -> io::Result<SchemaOutput> {
     let root = parsed.root.ok_or_else(|| missing_root(source_path))?;
     let generated = engine_schema::generate_with_root(&parsed.schemas, Some(&root), TS_SOURCE_FILE);
 
-    // Conventional src/ layout: room.ts imports "./openoxide.schema", so the
+    // Conventional src/ layout: room.ts imports "./cyg.schema", so the
     // server binding lives beside it in src/ — and its SDK import becomes
-    // same-dir ("./openoxide") instead of the root copy's ("../openoxide").
+    // same-dir ("./cyg-server") instead of the root copy's ("../cyg-server").
     // The descriptor and the typed browser contract are build artifacts and
     // go to out/.
     let src = dir.join("src");
@@ -173,7 +173,7 @@ fn generate_file(dir: &Path, source_path: &Path) -> io::Result<SchemaOutput> {
     let server_dir = if in_src { src.as_path() } else { dir };
     let mut server_ts = generated.server_ts;
     if in_src {
-        server_ts = server_ts.replace("from \"../openoxide\"", "from \"./openoxide-server\"");
+        server_ts = server_ts.replace("from \"../cyg-server\"", "from \"./cyg-server\"");
     }
     let server = server_dir.join(SERVER_FILE);
     let descriptor_dir = dir.join(OUT_DIR);

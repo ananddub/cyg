@@ -16,7 +16,7 @@
 //! - Unresponsive-client heartbeat termination
 //!
 //! Protocol values verified against `packages/shared-types/src/Protocol.ts`
-//! and `packages/sdk/src/Room.ts` of the OpenOxide wire (0.18-derived) monorepo.
+//! and `packages/sdk/src/Room.ts` of the CYG wire (0.18-derived) monorepo.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -319,7 +319,7 @@ fn decode_mp_uint(bytes: &[u8]) -> Option<u64> {
 #[test]
 fn test_ping_opcode_echoed() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_ping");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_ping");
 
     // SDK room.ping() / getLatency() send a bare [18] binary message.
     send_ws_frame(&mut stream, &[18]);
@@ -333,7 +333,7 @@ fn test_ping_opcode_echoed() {
 #[test]
 fn test_ws_control_ping_answered_with_pong() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_ws");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_ws");
 
     // RFC 6455 ping (opcode 0x9) with an application payload.
     send_ws_frame_raw(&mut stream, 0x89, b"probe");
@@ -351,7 +351,7 @@ fn test_ws_control_ping_answered_with_pong() {
 #[test]
 fn test_room_data_bytes_dispatch() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_rdb");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_rdb");
 
     // SDK room.sendBytes('input', bytes): [17][msgpack str "input"][bytes...]
     let mut msg = vec![17u8, 0xa5];
@@ -378,7 +378,7 @@ fn test_room_data_bytes_dispatch() {
 #[test]
 fn test_room_request_and_response_roundtrip() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_rpc");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_rpc");
 
     // SDK room.request(): [21][msgpack requestId][msgpackr payload]
     send_ws_frame(&mut stream, &[21, 7, 0xa3, b'h', b'i', b'!']);
@@ -416,7 +416,7 @@ fn test_room_request_and_response_roundtrip() {
 #[test]
 fn test_fragmented_message_dispatched_once() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_frag");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_frag");
 
     // ROOM_DATA split across two frames: first (FIN=0, binary), then a
     // continuation (FIN=1, opcode 0).
@@ -439,7 +439,7 @@ fn test_fragmented_message_dispatched_once() {
 #[test]
 fn test_modifier_bits_stripped_before_dispatch() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_mod");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_mod");
 
     // JOIN_ROOM ack decorated with the TIMED modifier bit (0x80): the SDK
     // strips modifier bits before dispatch; so must we.
@@ -575,7 +575,7 @@ fn test_join_handshake_echoes_seat_reconnection_token() {
     let stream = ws_upgrade(
         port,
         &mut transport,
-        &format!("/openoxide_1/game_room?sessionId={}", session),
+        &format!("/cyg_1/game_room?sessionId={}", session),
     );
 
     // The JOIN_ROOM handshake was drained by ws_upgrade — reconnect with a
@@ -583,7 +583,7 @@ fn test_join_handshake_echoes_seat_reconnection_token() {
     drop(stream);
     let mut stream2 = TcpStream::connect(("127.0.0.1", port)).expect("connect");
     let request = format!(
-        "GET /openoxide_1/game_room?sessionId={} HTTP/1.1\r\n\
+        "GET /cyg_1/game_room?sessionId={} HTTP/1.1\r\n\
          Host: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
          Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
         session
@@ -626,7 +626,7 @@ fn test_join_handshake_echoes_seat_reconnection_token() {
 #[test]
 fn test_opcode_mapping_state_snapshot_vs_patch() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_map");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_map");
 
     // Connected already fired inside ws_upgrade's polling; the session id is
     // the upgrade URL's sessionId param.
@@ -648,7 +648,7 @@ fn test_opcode_mapping_state_snapshot_vs_patch() {
 #[test]
 fn test_server_disconnect_close_code_4000() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_kick");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_kick");
 
     // Connected already fired inside ws_upgrade's polling.
     let cid = "sess_kick".to_string();
@@ -670,7 +670,7 @@ fn test_server_disconnect_close_code_4000() {
 #[test]
 fn test_disconnect_with_close_code_4002() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_full");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_full");
 
     // Connected already fired inside ws_upgrade's polling.
     let cid = "sess_full".to_string();
@@ -693,7 +693,7 @@ fn test_disconnect_with_close_code_4002() {
 fn test_queued_error_precedes_close_frame() {
     let (mut transport, port) = spawn_transport();
     let mut stream =
-        ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_reject");
+        ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_reject");
     let cid = "sess_reject".to_string();
 
     let reason = br#"{"code":4002,"message":"room is full"}"#;
@@ -715,7 +715,7 @@ fn test_queued_error_precedes_close_frame() {
 #[test]
 fn test_leave_room_answers_close_code_4000() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_lv");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_lv");
 
     // SDK Room.leave(): sends the 1-byte [12] message before closing.
     send_ws_frame(&mut stream, &[12]);
@@ -749,7 +749,7 @@ fn test_bare_tcp_eof_disconnects_without_close_frame() {
         ping_interval: Duration::from_secs(30),
         max_retries: 0,
     });
-    let stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_eof");
+    let stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_eof");
 
     // Abrupt death: drop the socket. FIN is sent, no close frame follows.
     drop(stream);
@@ -778,7 +778,7 @@ fn test_heartbeat_terminates_unresponsive_client() {
     });
 
     // Connect, then go completely silent (no pongs, no data).
-    let _stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_dead");
+    let _stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_dead");
 
     let start = std::time::Instant::now();
     poll_until(&mut transport, |e| {
@@ -799,7 +799,7 @@ fn test_heartbeat_spares_active_client() {
         max_retries: 1,
     });
 
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_live");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_live");
 
     // Keep the client active: app-level [18] pings every iteration. Any
     // inbound frame proves liveness, so the heartbeat must never fire.
@@ -822,7 +822,7 @@ fn test_heartbeat_spares_active_client() {
 #[test]
 fn test_error_frame_wire_format() {
     let (mut transport, port) = spawn_transport();
-    let mut stream = ws_upgrade(port, &mut transport, "/openoxide_1/game_room?sessionId=sess_err2");
+    let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_err2");
 
     // Connected already fired inside ws_upgrade's polling.
     let cid = "sess_err2".to_string();

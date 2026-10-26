@@ -681,11 +681,11 @@ fn expand_controller(
         let strategy = strategy_tokens(route);
         Some(quote! {
             pub fn #publisher(#(#arguments),*) -> ::std::result::Result<::auto_route::__private::auto_socket::LivePublisher<#return_type>, ::auto_route::__private::auto_socket::PublishError> {
-                ::auto_route::__private::auto_socket::LivePublisher::new("/_openoxide/live", #endpoint, #event).strategy(#strategy)#scope.room(#args)
+                ::auto_route::__private::auto_socket::LivePublisher::new("/_cyg/live", #endpoint, #event).strategy(#strategy)#scope.room(#args)
             }
 
             pub fn #subscription(#(#client_arguments),*) -> ::std::result::Result<::auto_route::__private::auto_socket::LiveSubscription<#return_type>, ::auto_route::__private::auto_socket::PublishError> {
-                ::auto_route::__private::auto_socket::LiveSubscription::new("/_openoxide/live", #endpoint, #event, #client_name, #args)
+                ::auto_route::__private::auto_socket::LiveSubscription::new("/_cyg/live", #endpoint, #event, #client_name, #args)
             }
         })
     }).collect::<Vec<_>>();
@@ -724,18 +724,18 @@ fn expand_controller(
                 >
             {
                 ::auto_route::__private::auto_socket::LivePublisher::new(
-                    "/_openoxide/live",
+                    "/_cyg/live",
                     #endpoint,
                     #event,
                 ).strategy(#strategy)#scope.room(#args)
             }
             pub fn #event_handler() -> ::auto_route::__private::auto_socket::LivePublisher<#return_type> {
                 ::auto_route::__private::auto_socket::LivePublisher::new(
-                    "/_openoxide/live", #endpoint, #event,
+                    "/_cyg/live", #endpoint, #event,
                 ).strategy(#strategy)
             }
             pub fn #subscription(#(#client_arguments),*) -> ::std::result::Result<::auto_route::__private::auto_socket::LiveSubscription<#return_type>, ::auto_route::__private::auto_socket::PublishError> {
-                ::auto_route::__private::auto_socket::LiveSubscription::new("/_openoxide/live", #endpoint, #event, #client_name, #args)
+                ::auto_route::__private::auto_socket::LiveSubscription::new("/_cyg/live", #endpoint, #event, #client_name, #args)
             }
         })
     });
@@ -843,7 +843,7 @@ fn expand_controller(
                 })
             }
             ::auto_route::__private::inventory::submit! {
-                ::auto_route::__private::auto_socket::SocketDescriptor::new("/_openoxide/live", #live_factory)
+                ::auto_route::__private::auto_socket::SocketDescriptor::new("/_cyg/live", #live_factory)
             }
         }
     } else {
@@ -919,7 +919,7 @@ fn expand_controller(
                                 identity.as_ref(),
                             ).await {
                                 ::auto_route::__private::tracing::info!(endpoint = #endpoint, args = ?args, "live refresh cache hit");
-                                let publisher = ::auto_route::__private::auto_socket::LivePublisher::new("/_openoxide/live", #endpoint, #event).strategy(#strategy);
+                                let publisher = ::auto_route::__private::auto_socket::LivePublisher::new("/_cyg/live", #endpoint, #event).strategy(#strategy);
                                 let publisher = if let ::std::option::Option::Some(identity) = identity { publisher.user(identity.user_id) } else { publisher };
                                 if let Ok(publisher) = publisher.room(args) {
                                     if let Err(error) = publisher.publish(data).await {
@@ -939,7 +939,7 @@ fn expand_controller(
                                     value,
                                 ).await;
                             }
-                            let publisher = ::auto_route::__private::auto_socket::LivePublisher::new("/_openoxide/live", #endpoint, #event).strategy(#strategy);
+                            let publisher = ::auto_route::__private::auto_socket::LivePublisher::new("/_cyg/live", #endpoint, #event).strategy(#strategy);
                             let publisher = if let ::std::option::Option::Some(identity) = identity { publisher.user(identity.user_id) } else { publisher };
                             if let Ok(publisher) = publisher.room(args) {
                                 if let Err(error) = publisher.publish(data).await {
@@ -1050,7 +1050,7 @@ fn expand_controller(
             ::auto_route::__private::inventory::submit! {
                 ::auto_route::LiveClientRouteDescriptor::new(
                     #client_name,
-                    "/_openoxide/live",
+                    "/_cyg/live",
                     #endpoint,
                     #event,
                     #path,
