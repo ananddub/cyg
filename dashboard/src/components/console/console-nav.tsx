@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Activity,
+  ChevronLeft,
   ChevronRight,
   CreditCard,
   Database,
@@ -51,12 +52,15 @@ export function ConsoleNav({
   areas,
   onNavigate,
   flat = false,
+  onBack,
 }: {
   area: ConsoleArea
   areas: ConsoleArea[]
   onNavigate: (id: string) => void
   /** Render every area as a plain row instead of collapsible groups. */
   flat?: boolean
+  /** Present only inside a game: returns to the games picker. */
+  onBack?: () => void
 }) {
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState<Record<string, boolean>>({ [area.group]: true })
@@ -153,6 +157,23 @@ export function ConsoleNav({
               </kbd>
             )}
           </div>
+        </SidebarGroup>
+      )}
+
+      {onBack !== undefined && (
+        <SidebarGroup className="pb-0">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                tooltip="Back to all games"
+                onClick={onBack}
+                className="font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent"
+              >
+                <ChevronLeft />
+                <span>All games</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
         </SidebarGroup>
       )}
 
