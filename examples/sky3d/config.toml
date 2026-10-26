@@ -1,0 +1,36 @@
+# Sky Arena 3D — Three.js + Rapier3D physics multiplayer example.
+# Fall off the platform = respawn. Collect the floating orb = +1.
+#
+# JO IS FILE ME LIKHA HAI WAHI BIND HOTA HAI:
+#   port      = game data port (WebRTC DataChannel over UDP)
+#   api_port  = website + matchmake + signaling (control plane)
+# Local dev: OX_ALLOW_DEFAULT_SECRETS=1 · Debug logs: RUST_LOG=debug
+
+name = "sky3d"
+runtime = "assemblyscript"
+
+source = "src/room.ts"
+out = "out/room_logic.wasm"
+
+website = "website.html"
+
+port = 7977
+tick_rate = 60
+max_clients = 16
+
+width = 60.0
+height = 60.0
+speed = 120.0
+
+[control]
+enabled = true
+api_port = 19224
+
+[control.session]
+database_url = "postgresql://openoxide:mysecretpassword@localhost:5432/openoxide_db"
+max_db_connections = 10
+
+[control.console]
+username = "admin"
+password = "change-me"
+
