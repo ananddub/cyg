@@ -2,15 +2,15 @@
 
 An open-source multiplayer backend that does what Colyseus + Nakama do, in **one Rust binary**: authoritative WASM game rooms, WebRTC + UDP netcode, a player accounts/chat/friends/leaderboards API, and a web console to run it all — self-hosted, on a ₹800/mo VPS.
 
-No Node cluster, no sidecar orchestra. `ox-game run` **is** the production artifact.
+No Node cluster, no sidecar orchestra. `ox-game run` **is** the production artifact. Everything below ships **in the box** — game runtime, physics, ECS, netcode, BaaS, console. There is nothing to bolt together.
 
 ```
 ┌──────────────────────────  one process  ──────────────────────────┐
 │                                                                   │
 │  Control plane (Tokio/Axum)          Game host loop (pinned sim)  │
 │  ├─ matchmake + seat tokens          ├─ WASM room runtime         │
-│  ├─ /ws/signal  (WebRTC signaling)   ├─ Rapier2D/3D physics       │
-│  ├─ /v2/* player API (BaaS)          ├─ ECS backend               │
+│  ├─ /ws/signal  (WebRTC signaling)   ├─ inbuilt ECS backend       │
+│  ├─ /v2/* player API (BaaS)          ├─ Rapier2D/3D physics       │
 │  ├─ /v2/console/* + web dashboard    ├─ AOI / spatial index       │
 │  └─ statics (game website + SDK)     └─ WebRTC · UDP data plane   │
 │                                                                   │
@@ -18,15 +18,26 @@ No Node cluster, no sidecar orchestra. `ox-game run` **is** the production artif
 └───────────────────────────────────────────────────────────────────┘
 ```
 
+## See it
+
+Every game is server-authoritative WebAssembly — and the console workspace around it is the same binary. Live telemetry of a WASM game (tick-time traces, tick distribution histogram, transport mix, queue depths — one live WebSocket feed, scoped to this game only):
+
+![Game workspace — live telemetry](docs/screenshots/console-game-overview.png)
+
+The same game's Project tab: configure sync rate and capacity, deploy WASM room modules with an ABI gate, upload maps, watch live rooms — activate and rollback without touching the server:
+
+![Project — WASM modules](docs/screenshots/console-wasm-modules.png)
+
 ## Highlights
 
-- **Authoritative rooms in AssemblyScript** — extend `Room`, mutate a typed reactive state, `commitState()`. Zero-GC guest code, hot-reload on save, per-room WASM sandbox (one tenant's bad loop cannot kill the host).
-- **WebRTC DataChannels** (dual lane: newest-wins deltas + ordered reliable) with raw-UDP native clients on the side — QUIC-tier reliability on both: per-frame sequence, reorder-safe delivery, SACK selective resends.
+- **Your game runs as sandboxed WebAssembly** — extend `Room`, mutate a typed reactive state, `commitState()`. Zero-GC AssemblyScript, hot-reload on save, per-room sandbox: one tenant's infinite loop cannot kill the host.
+- **The engine parts come to you — all inbuilt, all optional-per-game**: host-side Rapier2D/3D physics, deterministic RNG and tick timers, navmesh A* pathfinding, spatial AOI, lag-compensated raycasts. Thirty-plus `sys_*` imports behind per-game permissions; your `room.ts` calls them like functions.
+- **An inbuilt ECS backend for scale.** When a game fits the template shape (movement, dense players), the same binary runs it on the flat, cache-native ECS state instead of per-entity WASM — 128 Hz at tens of thousands of CCU per core. Same wire protocol, same console, same descriptor. You choose per game; nothing extra to install.
+- **WebRTC DataChannels** (dual lane: newest-wins deltas + ordered reliable) with raw-UDP native clients on the side — QUIC-tier reliability on both: per-frame sequence, reorder-safe delivery, SACK selective resends, sendmmsg + UDP-GSO fan-out.
 - **Reactive client SDK** — descriptor-driven decode at join: `room.onStateChange`, `player.listen("x", cb)`, collection `onAdd/onRemove`, `room.request()` RPC, `client.auth`, `room.clock`. Colyseus-shaped, no alien syntax.
-- **Server-side physics** — Rapier2D/3D, navmesh pathfinding, deterministic RNG/timers, lag-compensated raycasts: 30+ `sys_*` host imports, permission-gated per game.
-- **BaaS** — accounts (device/email/custom + link/unlink, MFA), friends, groups, chat, channels, parties, presence, storage, leaderboards, tournaments, IAP validation, inventory, notifications, matchmaker.
-- **Web console** — games with per-game workspace: live telemetry graphs, live rooms & clients, WASM studio (upload → ABI gate → activate → rollback), **map upload** (3D mesh / 2D arena / navmesh), matches with terminate, accounts with ban that **kicks live sessions in realtime**, and per-game tenancy scoping everywhere.
-- **Measured capacity** — ~9k CCU/core @128 Hz (WASM + Rapier2D small rooms), 14–16k/core ECS, RAM ≤ 12% of a 4 GB pod. Full numbers below.
+- **BaaS in the same binary** — accounts (device/email/custom + link/unlink, MFA), friends, groups, chat, channels, parties, presence, storage, leaderboards, tournaments, IAP validation, inventory, notifications, matchmaker.
+- **Web console** — per-game workspace: live telemetry, live rooms & clients, WASM studio (upload → ABI gate → activate → rollback), map upload (3D mesh / 2D arena / navmesh), matches with terminate, accounts with ban that kicks live sessions in realtime — and every view scoped to the game you opened.
+- **Measured capacity** — the table below, all from this one binary.
 
 ## Quick start
 
@@ -45,7 +56,6 @@ Local, without Docker:
 ```bash
 cargo build --release
 OX_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg-gaming run examples/coin-rush
-# website  http://localhost:8124/website.html
 # console  http://localhost:8124/dashboard/
 ```
 
@@ -127,7 +137,7 @@ One process, one thread for the simulation, lock-free bus between planes:
 
 | Crate | What it is |
 |---|---|
-| `engine-server` | the host loop: WASM runtime, rooms, RUDP, schema deltas, AOI |
+| `engine-server` | the host loop: WASM runtime, rooms, inbuilt ECS backend, RUDP, schema deltas, AOI |
 | `engine-api` | `/v2` player API + `/v2/console` + dashboard API (Axum, sqlx) |
 | `engine-control` | binds the plane: seats, signaling hub, Agones lifecycle |
 | `engine-net` | transports: WebRTC (str0m, sans-IO) + raw UDP, sendmmsg + UDP-GSO fan-out |
@@ -140,7 +150,9 @@ One process, one thread for the simulation, lock-free bus between planes:
 | `engine-config` | config.toml → typed structs |
 | `engine-agones` | GameServer lifecycle for Kubernetes fleets |
 
-**Transport.** Browsers dial WebRTC (`game-unreliable` for 128 Hz deltas, `game-reliable` for everything else; the signaling WebSocket is control-plane only). Native engines speak raw UDP on `:7778` — dual-lane with the same reliability wire. `cfg.port` is the real game-data port and what seats advertise.
+**One runtime, inbuilt backends.** Game logic always runs in the WASM sandbox. The *state and simulation* behind it is your per-game choice among the inbuilt options: the reactive schema state (custom games), the host-side physics family (Rapier2D/3D rooms), or the flat ECS backend (template-scale games). Same binary, same wire protocol, same console — a config field, not a deployment.
+
+**Transport.** Browsers dial WebRTC (`game-unreliable` for high-rate deltas, `game-reliable` for everything else; the signaling WebSocket is control-plane only). Native engines speak raw UDP on `:7778` — dual-lane with the same reliability wire. `cfg.port` is the real game-data port and what seats advertise.
 
 **Tenancy.** The console and the database serve many games; each process hosts one. A game workspace shows only that game's data — telemetry is refused for any other tenant ("This server hosts 'X', not the requested game"), and database views filter by `game_id`. Bind a process with `game_id`/`game_key` in config.toml.
 
@@ -150,15 +162,15 @@ One process, one thread for the simulation, lock-free bus between planes:
 
 Schema lives in `db/schema/*.sql`, named queries in `db/queries/*.sql`; `flash gen` emits typed repositories into `crates/engine-api/src/repositories/` (runtime-checked, no live DB needed at build). Console services read/write through `state.q`; multi-statement transactions stay hand-written beside their services by convention. Adding a domain = write the `.sql`, run `flash gen`, call `state.q`.
 
-## Benchmarks (measured, Ryzen 9 5900XT, release builds)
+## Benchmarks (measured, one binary, Ryzen 9 5900XT, release builds)
 
-Never conflate these three — different backends **and** workloads:
+The same room runtime, scaled by which inbuilt backend carries the simulation — heavier custom logic, lighter template logic:
 
-| Backend / workload | p99 tick | CCU per core |
+| Inbuilt backend / workload | p99 tick | CCU per core |
 |---|---|---|
-| Full combat in WASM (move + shoot + damage + respawn) @60 Hz | 3.36 ms @500p | **~2.5k** |
-| WASM + Rapier2D real ABI @128 Hz, 100–200p rooms | 0.06 ms @100p | **~9k** |
-| ECS backend (movement) @128 Hz | 0.07 ms @100p | **14–16k** |
+| WASM room, full combat logic (move + shoot + damage + respawn) @60 Hz | 3.36 ms @500p | ~2.5k |
+| WASM room + inbuilt Rapier2D @128 Hz, 100–200p rooms | 0.06 ms @100p | ~9k |
+| Inbuilt ECS backend (movement) @128 Hz | 0.07 ms @100p | 14–16k |
 
 2-core / 2 GB pod @128 Hz: 100 rooms × 100 players fits at 0.76× the tick budget, peak RAM 93 MB. Reproduce: `cargo run --release --example bench_ecs_128` / `bench_wasm_rapier_128` / `bench_potential` (under `taskset -c 0-1`).
 
@@ -179,6 +191,7 @@ dashboard/         the web console (React, served by the binary at /dashboard/)
 sdk/client/        web (cyg.js) + Unity/Unreal/Godot/native players
 sdk/server/        AssemblyScript (cyg-server.ts) + Lua/C/C++/Rust/C#/TS interfaces
 examples/          sky3d, blaster, coin-rush — complete runnable games
+docs/screenshots/  console captures used by this README
 db/                schema + FlashORM queries
 deploy/            Dockerfile + compose for the game container
 ROADMAP-DX.md      the working roadmap (where the project is heading)
