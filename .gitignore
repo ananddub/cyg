@@ -1,5 +1,9 @@
 /target
 
+# Landing page (Vite / React)
+landingpage/node_modules/
+landingpage/dist/
+
 # AI agent configs
 .agents/
 .claude/
@@ -73,3 +77,6 @@ cert.crt
 /run_website.sh
 /ROADMAP-DX.md
 examples/*
+.idea/
+.delta/
+/bench/

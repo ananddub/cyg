@@ -42,7 +42,7 @@ macro_rules! wasm_module {
     ) => {
         #[allow(non_snake_case)]
         $(#[$meta])*
-        $vis struct $name<T = ()> {
+        $vis struct $name<T: 'static = ()> {
             instance: $crate::WasmInstance<T>,
             $(
                 $func: wasmtime::TypedFunc<( $( $arg_ty ),* ), $crate::wasm_module!(@ret $( $ret )?)>,
@@ -50,7 +50,7 @@ macro_rules! wasm_module {
         }
 
         #[allow(non_snake_case)]
-        impl<T> $name<T> {
+        impl<T: 'static> $name<T> {
             /// Wrap an existing WasmInstance and pre-cache typed function handles.
             pub fn from_instance(mut instance: $crate::WasmInstance<T>) -> Result<Self, $crate::WasmError> {
                 $(

@@ -9,7 +9,6 @@ use crate::ApiState;
 
 use super::StaticRoutesService;
 use crate::utils::static_routes::responses::{file_response, not_found};
-use crate::utils::static_routes::unity::unity_subpath;
 
 impl StaticRoutesService {
     /// `/health` — the liveness probe, kept out of the fallback because it must
@@ -62,34 +61,23 @@ impl StaticRoutesService {
         }
     }
 
-    /// `/unity` and `/unity/`: the build's own landing page.
-    pub fn serve_unity_index(&self, state: &ApiState) -> Response {
-        let s = &state.statics;
-        match s.read(&s.unity_build_path().join("index.html")) {
-            Some(body) => file_response("index.html", body),
-            None => not_found(),
-        }
+    /// `/unity` and `/unity/`: Direct browser game rendering is disabled.
+    pub fn serve_unity_index(&self, _state: &ApiState) -> Response {
+        not_found()
     }
 
-    /// `/unity/{*rest}`, `/Build/{*rest}` and `/TemplateData/{*rest}` — one handler for the
-    /// three because they name the same tree; the build root gets its own containment check.
-    pub fn serve_unity_asset(&self, state: &ApiState, path: &str) -> Response {
-        let s = &state.statics;
-        let Some(sub) = unity_subpath(path) else {
-            return not_found();
-        };
-        match s
-            .resolve_under(s.unity_build_path(), sub)
-            .and_then(|p| s.read(&p))
-        {
-            Some(body) => file_response(sub, body),
-            None => not_found(),
-        }
+    /// `/unity/{*rest}`, `/Build/{*rest}` and `/TemplateData/{*rest}`: Direct browser game rendering is disabled.
+    pub fn serve_unity_asset(&self, _state: &ApiState, _path: &str) -> Response {
+        not_found()
     }
 
-    /// Anything unmatched is a project-file request. Only paths under the project root are
-    /// opened; a refusal is a plain 404, and the path is the raw still-encoded URI.
+    /// Anything unmatched is a project-file request.
+    /// Direct browser game rendering (HTML/HTM) is disabled — OpenOxide operates as a headless game server.
     pub fn fallback(&self, state: &ApiState, path: &str) -> Response {
+        let lower = path.to_ascii_lowercase();
+        if lower.ends_with(".html") || lower.ends_with(".htm") {
+            return not_found();
+        }
         let statics = &state.statics;
         match statics.resolve(path).and_then(|p| statics.read(&p)) {
             Some(body) => file_response(path, body),

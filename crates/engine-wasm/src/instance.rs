@@ -6,12 +6,12 @@ use crate::error::WasmError;
 /// startup work is done once up-front. Each call to [`instantiate`](Self::instantiate)
 /// then spawns a room with only the cheap remaining steps — ideal when
 /// creating thousands of rooms per second.
-pub struct WasmPreInstance<T> {
+pub struct WasmPreInstance<T: 'static> {
     engine: Engine,
     pre: InstancePre<T>,
 }
 
-impl<T> WasmPreInstance<T> {
+impl<T: 'static> WasmPreInstance<T> {
     pub fn new(engine: Engine, pre: InstancePre<T>) -> Self {
         Self { engine, pre }
     }
@@ -35,13 +35,13 @@ impl<T> WasmPreInstance<T> {
 
 /// A running WebAssembly instance with its own isolated memory and state.
 /// Completely decoupled and generic over any host data `T`.
-pub struct WasmInstance<T> {
+pub struct WasmInstance<T: 'static> {
     store: Store<T>,
     instance: Instance,
     memory: Option<Memory>,
 }
 
-impl<T> WasmInstance<T> {
+impl<T: 'static> WasmInstance<T> {
     pub fn new(mut store: Store<T>, instance: Instance) -> Self {
         let memory = instance.get_memory(&mut store, "memory");
         Self {

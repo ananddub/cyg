@@ -126,6 +126,9 @@ export type RoomStatus = "live" | "empty";
 
 export interface RoomRow {
   name: string;
+  registerId?: string | null;
+  gameId?: string | null;
+  gameName?: string | null;
   clients: number;
   maxClients: number;
   tickHz: number;

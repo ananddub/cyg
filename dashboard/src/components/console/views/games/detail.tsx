@@ -12,7 +12,6 @@
 import { useState } from "react"
 import {
   Braces,
-  Check as CheckDone,
   Copy,
   Download,
   Eye,
@@ -33,7 +32,7 @@ import {
 } from "@/components/ui/tabs"
 import { ConfirmAction } from "@/components/console/actions"
 import { Checkbox, Select, TextInput } from "@/components/console/form"
-import { Field, JsonBlock, Mono, Panel } from "@/components/console/data-table"
+import { Field, Mono, Panel } from "@/components/console/data-table"
 import { FormSheet } from "@/components/console/form-sheet"
 import { queryError, useConsoleMutation, useConsoleQuery } from "@/hooks/use-console"
 import { dash, formatTime, num } from "@/lib/format"
@@ -61,90 +60,10 @@ import {
   gameUnitySettingsPath,
 } from "./routes"
 import type { GameConfig, GameDetail, UnitySettingsJson } from "./model"
-import { CopyValue, EngineBadge, ModePill, StatusPill } from "./parts"
-
-// ------------------------------------------------------------------ snippets
-//
-// Real, compiling C# — every call below is read off the shipped Unity SDK
-// (sdk/unity/Runtime/Core/CYGNetwork.cs, CYGServerSettings.cs and the BaaS files
-// CYGAuth / CYGStorage / CYGInventory / CYGLeaderboard). Method names are used
-// exactly as the SDK declares them; nothing is invented.
-
-const SNIPPET_DEVICE_LOGIN = `using CookYourGame;
-using UnityEngine;
-
-public class GameLauncher : MonoBehaviour
-{
-    async void Start()
-    {
-        // One-line guest login. Falls back to SystemInfo.deviceUniqueIdentifier
-        // and persists the session token in PlayerPrefs for you.
-        CYGAuthSession session = await CYGAuth.LoginDeviceAsync();
-        if (session == null) return;                       // login failed
-        Debug.Log($"signed in as {CYGAuth.Username} ({CYGAuth.UserId})");
-
-        // Server endpoints come from the CYGServerSettings asset you download in
-        // the Credentials tab; reserve a seat and open the room socket.
-        CYGNetwork.ConnectToRoom("lobby", session.username);
-
-        // ...or reserve-or-create a named room with a capacity hint:
-        // CYGNetwork.JoinOrCreateRoom("arena-1", 8, session.username);
-    }
-}`
-
-const SNIPPET_ROOM_CALLBACKS = `using CookYourGame;
-using UnityEngine;
-
-public class RoomHooks : MonoBehaviour
-{
-    void OnEnable()
-    {
-        CYGNetwork.OnConnectedEvent   += () => Debug.Log("room handshake done");
-        CYGNetwork.OnJoinedRoom       += room  => Debug.Log($"joined {room}");
-        CYGNetwork.OnDisconnectedEvent += why => Debug.Log($"left: {why}");
-        CYGNetwork.OnErrorEvent       += (code, msg) => Debug.LogError($"{code}: {msg}");
-        // Room is full arrives here as (4002, "room is full") just before OnDisconnectedEvent.
-    }
-
-    void OnDisable()
-    {
-        CYGNetwork.OnConnectedEvent   -= Noop;   // unsubscribe in a real build
-        CYGNetwork.OnJoinedRoom       -= NoopRoom;
-        CYGNetwork.OnDisconnectedEvent -= NoopWhy;
-        CYGNetwork.OnErrorEvent       -= NoopErr;
-    }
-
-    void Update() => CYGNetwork.PumpInbound();   // drain the socket once per frame
-
-    void Noop() {} void NoopRoom(string r) {} void NoopWhy(string w) {} void NoopErr(int c, string m) {}
-}`
-
-const SNIPPET_BAAS = `using System.Collections.Generic;
-using CookYourGame;
-using UnityEngine;
-
-public class Loadout : MonoBehaviour
-{
-    async System.Threading.Tasks.Task Run()
-    {
-        // Save a document (game save / progression) — value is a JSON string.
-        await CYGStorage.WriteAsync("saves", "slot1", "{\\"hp\\":100}");
-        string json = await CYGStorage.ReadAsync("saves", "slot1");   // null when absent
-
-        // Server-authoritative inventory.
-        List<CYGInventoryItem> items = await CYGInventory.GetInventoryAsync();
-        await CYGInventory.GrantItemAsync("sword_rusty", quantity: 1);
-        await CYGInventory.EquipItemAsync(items[0].instance_id, slotIndex: 0);
-
-        // Leaderboards.
-        await CYGLeaderboard.SubmitScoreAsync("best_times", score: 4211);
-        CYGLeaderboardRecordList top = await CYGLeaderboard.GetScoresAsync("best_times", limit: 10);
-    }
-}`
+import { CopyValue, StatusPill } from "./parts"
 
 // ------------------------------------------------------------------ helpers
 
-/** Reads the `filename=` out of a Content-Disposition header, quoted or bare. */
 function filenameFromDisposition(header: string | null, fallback: string): string {
   if (header === null) return fallback
   const star = /filename\*\s*=\s*[^;]*'[^']*'?([^;']+)'?/i.exec(header)
@@ -152,53 +71,6 @@ function filenameFromDisposition(header: string | null, fallback: string): strin
   const raw = (star ?? plain)?.[1]?.trim()
   return raw === undefined || raw === "" ? fallback : decodeURIComponent(raw)
 }
-
-function CodeSnippet({ title, language, code }: { title: string; language: string; code: string }) {
-  const [copied, setCopied] = useState(false)
-  function copy() {
-    navigator.clipboard
-      ?.writeText(code)
-      .then(() => {
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), 1500)
-      })
-      .catch(() => setCopied(false))
-  }
-  return (
-    <Panel
-      title={title}
-      actions={
-        <Button size="xs" variant="outline" onClick={copy}>
-          {copied ? <CheckDone className="size-3" /> : <Copy className="size-3" />}
-          {copied ? "Copied" : `Copy ${language}`}
-        </Button>
-      }
-    >
-      <pre className="overflow-auto px-4 py-3 font-mono text-[11px] leading-relaxed text-foreground">
-        <code>{code}</code>
-      </pre>
-    </Panel>
-  )
-}
-
-// ------------------------------------------------------------- relay: SDK tab
-
-function UnityQuickstartTab() {
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        Zero Server Code — you write no server logic. Authenticate, let the C# relay seat you into
-        a room, and call the BaaS APIs. These snippets compile against the shipped
-        <Mono className="mx-1">CookYourGame</Mono> SDK.
-      </p>
-      <CodeSnippet title="1 · Device login + join a room" language="C#" code={SNIPPET_DEVICE_LOGIN} />
-      <CodeSnippet title="2 · Room callbacks and the per-frame pump" language="C#" code={SNIPPET_ROOM_CALLBACKS} />
-      <CodeSnippet title="3 · BaaS: storage, inventory, leaderboards" language="C#" code={SNIPPET_BAAS} />
-    </div>
-  )
-}
-
-// ---------------------------------------------------- relay: credentials tab
 
 function ConfigFields({ config }: { config: GameConfig }) {
   return (
@@ -211,7 +83,7 @@ function ConfigFields({ config }: { config: GameConfig }) {
   )
 }
 
-function CredentialsTab({ game }: { game: GameDetail }) {
+function CredentialsTab({ game, onConfigure }: { game: GameDetail; onConfigure?: () => void }) {
   const token = useSession()?.token ?? ""
   const [revealed, setRevealed] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -261,7 +133,7 @@ function CredentialsTab({ game }: { game: GameDetail }) {
 
   return (
     <div className="space-y-4">
-      <Panel title="Identifiers" description="Paste these into the Unity build's configuration.">
+      <Panel title="Identifiers" description="Game keys and credentials for connecting clients.">
         <div className="space-y-2 px-4 py-3">
           <div className="flex items-center justify-between gap-3 text-xs">
             <span className="text-muted-foreground">game_key</span>
@@ -302,7 +174,27 @@ function CredentialsTab({ game }: { game: GameDetail }) {
         </div>
       </Panel>
 
-      <Panel title="Unity connection" description="Drives the CYGServerSettings asset for this game.">
+      <Panel
+        title="Configuration"
+        description="Tick rate, capacity, and persistence parameters."
+        actions={
+          onConfigure !== undefined ? (
+            <Button size="sm" variant="outline" onClick={onConfigure}>
+              <Settings2 />
+              Configure
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="grid grid-cols-2 gap-x-6 px-4 py-3">
+          <ConfigFields config={game.config} />
+          <Field label="Status">{game.status}</Field>
+          <Field label="Created">{formatTime(game.created_at)}</Field>
+          <Field label="Updated">{formatTime(game.updated_at)}</Field>
+        </div>
+      </Panel>
+
+      <Panel title="Connection details" description="Endpoints and settings for client SDKs.">
         <div className="flex flex-wrap gap-2 px-4 py-3">
           <Button size="sm" onClick={copyConnectionJson} disabled={copyingJson}>
             {copyingJson ? <Loader2 className="animate-spin" /> : <Braces />}
@@ -310,24 +202,8 @@ function CredentialsTab({ game }: { game: GameDetail }) {
           </Button>
           <Button size="sm" variant="outline" onClick={downloadAsset} disabled={downloading}>
             {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-            Download CYGServerSettings.asset
+            Download settings asset
           </Button>
-        </div>
-        <p className="px-4 pb-3 text-xs text-muted-foreground">
-          The SDK ships no <code>.meta</code> files, so a downloaded asset carries a script reference your project may
-          not recognise yet. If it lands as <span className="font-medium">Missing Script</span> in the Inspector, drag
-          <code> Assets/.../CYGServerSettings.cs</code> onto that field — the six values survive the re-bind. The
-          connection JSON needs no re-bind and is the faster path for a fresh project.
-        </p>
-      </Panel>
-
-      <Panel title="Configuration">
-        <div className="px-4 py-2">
-          <ConfigFields config={game.config} />
-          <Field label="Engine">{engineLabel(game.engine_type)}</Field>
-          <Field label="Status">{game.status}</Field>
-          <Field label="Created">{formatTime(game.created_at)}</Field>
-          <Field label="Updated">{formatTime(game.updated_at)}</Field>
         </div>
       </Panel>
     </div>
@@ -444,9 +320,7 @@ function ConfigureGameSheet({ game, onClose }: { game: GameDetail; onClose: () =
         path: gamePath(game.id),
         body: {
           name: name.trim(),
-          // engine_type is fixed at registration; the mode follows it, so keep
-          // sending the current engine rather than letting it drift.
-          engine_type: game.engine_type,
+          engine_type: "custom",
           status,
           tick_rate: Number(tickRate) || 0,
           max_clients: Number(maxClients) || 0,
@@ -468,7 +342,7 @@ function ConfigureGameSheet({ game, onClose }: { game: GameDetail; onClose: () =
       footer={
         <Button onClick={confirm} disabled={write.isPending || name.trim() === ""}>
           {write.isPending && <Loader2 className="animate-spin" />}
-          Save
+          Save changes
         </Button>
       }
     >
@@ -493,7 +367,6 @@ function ConfigureGameSheet({ game, onClose }: { game: GameDetail; onClose: () =
           onChange={setAutoClose}
         />
       )}
-      <JsonBlock value={game.config} />
     </FormSheet>
   )
 }
@@ -509,8 +382,6 @@ export function GameDetailView({
 }) {
   const [configuring, setConfiguring] = useState(false)
   const [archiving, setArchiving] = useState(false)
-
-  const isWasm = game.backend_mode === "wasm"
 
   return (
     <div className="space-y-4">
@@ -531,65 +402,36 @@ export function GameDetailView({
         }
       >
         <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-          <EngineBadge engine={game.engine_type} mode={game.backend_mode} />
-          <ModePill mode={game.backend_mode} />
           <StatusPill status={game.status} />
         </div>
         <div className="grid grid-cols-2 gap-x-6 px-4 pb-3">
           <ConfigFields config={game.config} />
-          {isWasm && (
-            <>
-              <Field label="Modules">{num(game.module_count)}</Field>
-              <Field label="Active version">
-                {game.active_module_version === null || game.active_module_version === undefined
-                  ? "—"
-                  : `v${game.active_module_version}`}
-              </Field>
-            </>
-          )}
         </div>
       </Panel>
 
-      <Tabs defaultValue={isWasm ? "studio" : "sdk"}>
+      <Tabs defaultValue="overview">
         <TabsList className="w-full justify-start">
-          {isWasm ? (
-            <>
-              <TabsTrigger value="studio">WASM Studio</TabsTrigger>
-              <TabsTrigger value="history">Deployment History</TabsTrigger>
-              <TabsTrigger value="maps">Maps</TabsTrigger>
-              <TabsTrigger value="rooms">Live Rooms</TabsTrigger>
-            </>
-          ) : (
-            <>
-              <TabsTrigger value="sdk">Unity SDK Quickstart</TabsTrigger>
-              <TabsTrigger value="creds">Credentials &amp; Config</TabsTrigger>
-              <TabsTrigger value="rooms">Live Rooms</TabsTrigger>
-            </>
-          )}
+          <TabsTrigger value="overview">Configuration</TabsTrigger>
+          <TabsTrigger value="maps">Maps</TabsTrigger>
+          <TabsTrigger value="modules">WASM Modules</TabsTrigger>
+          <TabsTrigger value="rooms">Live Rooms</TabsTrigger>
         </TabsList>
 
-        {isWasm ? (
-          <>
-            <TabsContent value="studio" className="pt-3">
-              <WasmStudioTab game={game} />
-            </TabsContent>
-            <TabsContent value="history" className="pt-3">
-              <DeploymentHistory gameId={game.id} />
-            </TabsContent>
-            <TabsContent value="maps" className="pt-3">
-              <MapsTab game={game} />
-            </TabsContent>
-          </>
-        ) : (
-          <>
-            <TabsContent value="sdk" className="pt-3">
-              <UnityQuickstartTab />
-            </TabsContent>
-            <TabsContent value="creds" className="pt-3">
-              <CredentialsTab game={game} />
-            </TabsContent>
-          </>
-        )}
+        <TabsContent value="overview" className="pt-3">
+          <CredentialsTab game={game} onConfigure={() => setConfiguring(true)} />
+        </TabsContent>
+
+        <TabsContent value="maps" className="pt-3">
+          <MapsTab game={game} />
+        </TabsContent>
+
+        <TabsContent value="modules" className="pt-3">
+          <div className="space-y-4">
+            <WasmStudioTab game={game} />
+            <DeploymentHistory gameId={game.id} />
+          </div>
+        </TabsContent>
+
         <TabsContent value="rooms" className="pt-3">
           <LiveRoomsTab />
         </TabsContent>

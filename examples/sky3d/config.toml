@@ -6,12 +6,8 @@
 #   api_port  = website + matchmake + signaling (control plane)
 # Local dev: OX_ALLOW_DEFAULT_SECRETS=1 · Debug logs: RUST_LOG=debug
 
+# Name of the game
 name = "sky3d"
-runtime = "assemblyscript"
-
-# Which registered game (games table) this process hosts. Multi-game database
-# me sole-active fallback ambiguous hota hai — ye binding zaroori hai.
-game_id = "aa1cea32-77f1-4c0e-ad4b-b47f4bef64cd"
 
 source = "src/room.ts"
 out = "out/room_logic.wasm"
@@ -19,6 +15,8 @@ out = "out/room_logic.wasm"
 website = "website.html"
 
 port = 7977
+# QUIC/WebTransport lane — browsers connect bina WebRTC ke (serverCertificateHashes pin)
+quic_port = 7978
 tick_rate = 60
 max_clients = 16
 

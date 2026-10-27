@@ -6,7 +6,7 @@ pub mod ticks;
 
 pub use assets::{serve_asset, serve_index};
 pub use overview::build_overview;
-pub use tables::{build_rooms, build_workers};
+pub use tables::{build_rooms, build_rooms_scoped, build_workers};
 pub use ticks::{build_clients, build_ticks};
 
 use engine_dashboard::StatusSnapshot;

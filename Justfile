@@ -66,6 +66,9 @@ build:
     cargo build --release
     @echo "💡 Done! Run 'just restart' to load the new binary in the container."
 
+# Rebuild both dashboard UI + Rust binary and restart the game server container
+rebuild: build-dashboard build restart
+
 # Rebuild Web Console Dashboard on the host
 build-dashboard:
     @echo "🎨 Building console dashboard dist..."

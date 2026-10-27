@@ -137,7 +137,6 @@ impl GamesService {
         let engine = engine_type(body.engine_type.as_deref().unwrap_or("unity"))?;
         let backend = backend_mode_for_engine(&engine);
         let config = create_config(body)?;
-        let pool = pool(state)?;
 
         // The only clash possible here is on the minted key: the name is not unique,
         // and the id is the database's. Retrying with a fresh suffix is the whole

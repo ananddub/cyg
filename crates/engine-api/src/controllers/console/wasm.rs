@@ -159,17 +159,31 @@ impl ConsoleWasmController {
             Ok(upload) => upload,
             Err(e) => return e.into_response(),
         };
-        self.service
+        match self.service
             .upload_module(
                 &state,
                 game_id,
                 upload.filename,
-                upload.binary,
+                upload.binary.clone(),
                 upload.source_code,
             )
             .await
-            .map(Json)
-            .into_response()
+        {
+            Ok(resp) => Json(resp).into_response(),
+            Err(e) => {
+                let report = WasmService::validate_binary(&upload.binary);
+                let status = e.kind.status();
+                let body = serde_json::json!({
+                    "error": {
+                        "code": e.kind.code(),
+                        "message": e.message,
+                        "details": Vec::<String>::new(),
+                    },
+                    "abi": report
+                });
+                (status, Json(body)).into_response()
+            }
+        }
     }
 
     async fn switch(

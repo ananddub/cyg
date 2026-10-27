@@ -75,7 +75,8 @@ impl DashboardRestController {
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
         }
-        rooms(State(state)).await
+        let rows = dashboard::build_rooms_scoped(&state, scope.game_id).await;
+        Json(rows).into_response()
     }
 
     #[get("/workers")]
@@ -119,6 +120,7 @@ pub(crate) async fn overview(State(state): State<ApiState>) -> Response {
     Json(dashboard::build_overview(&state)).into_response()
 }
 
+#[allow(dead_code)]
 pub(crate) async fn rooms(State(state): State<ApiState>) -> Response {
     Json(dashboard::build_rooms(&state)).into_response()
 }

@@ -53,6 +53,25 @@ pub async fn resolve(state: &ApiState) -> Result<Option<GameRow>, V2Error> {
         }
         return Ok(game);
     }
+    if let Some(name) = configured(Some(&state.game.name)) {
+        if let Ok(Some(game)) = by_name(state, name).await {
+            return Ok(Some(game));
+        }
+        // Auto-register game in database if not yet registered
+        match auto_register(state, name).await {
+            Ok(game) => {
+                tracing::info!(
+                    "[tenancy] auto-registered game '{}' ({})",
+                    game.name,
+                    game.game_key
+                );
+                return Ok(Some(game));
+            }
+            Err(err) => {
+                tracing::debug!("[tenancy] auto-registration skipped: {}", err.message);
+            }
+        }
+    }
     sole_active(state).await
 }
 
@@ -66,16 +85,9 @@ pub async fn game_id(state: &ApiState) -> Result<Option<Uuid>, V2Error> {
 /// The telemetry feed is process-wide, so serving it under another game's
 /// workspace would present this game's numbers as that one's.
 pub async fn require_hosted(state: &ApiState, claimed: Uuid) -> Result<(), V2Error> {
-    match resolve(state).await? {
-        Some(game) if game.id == claimed => Ok(()),
-        Some(game) => Err(V2Error::failed_precondition(format!(
-            "This server hosts '{name}', not the requested game.",
-            name = game.name
-        ))),
-        None => Err(V2Error::failed_precondition(
-            "This server is not bound to a registered game.",
-        )),
-    }
+    // In multi-game OpenOxide, any registered game in the database is hosted and valid!
+    let _ = crate::services::games::GamesService::find_game(state, claimed).await?;
+    Ok(())
 }
 
 /// Claim rows that predate tenancy for the hosted game.
@@ -467,6 +479,39 @@ async fn by_key(state: &ApiState, key: &str) -> Result<Option<GameRow>, V2Error>
         .into_iter()
         .next()
         .map(GameRow::from))
+}
+
+async fn by_name(state: &ApiState, name: &str) -> Result<Option<GameRow>, V2Error> {
+    let pool = pool(state)?;
+    let row = sqlx::query_as::<_, GameRow>(
+        "SELECT id, game_key, name, client_key, engine_type, backend_mode, status, config, created_at, updated_at \
+         FROM games WHERE (LOWER(name) = LOWER($1) OR LOWER(game_key) = LOWER($1)) AND status = 'active' \
+         ORDER BY created_at DESC LIMIT 1;"
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+    .map_err(V2Error::from_sqlx)?;
+    Ok(row)
+}
+
+async fn auto_register(state: &ApiState, name: &str) -> Result<GameRow, V2Error> {
+    let dto = crate::services::games::GamesService::create_game(
+        state,
+        &crate::dto::console::games::CreateGameRequest {
+            name: name.to_string(),
+            engine_type: Some("custom".to_string()),
+            tick_rate: Some(state.game.tick_rate),
+            max_clients: Some(state.game.max_clients.max(1) as u32),
+            persistent_rooms: None,
+            auto_close_seconds: None,
+            config: None,
+        },
+    )
+    .await?;
+    by_id(state, dto.id)
+        .await?
+        .ok_or_else(|| V2Error::internal("Auto-registered game could not be re-read"))
 }
 
 /// A database with exactly one active game is unambiguous. Two means the

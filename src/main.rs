@@ -185,7 +185,7 @@ fn print_help() {
         "ox-game — CYG game server
 
 USAGE:
-  ox-game init          [dir]    create a game project (room.ts + schema.ts + own SDK + website)
+  ox-game init          [dir]    create a game project (room.ts + schema.ts + own SDK)
   ox-game run           [dir]    compile the room (if needed) and start the server
   ox-game aot           [dir]    AOT precompile room to native .cwasm for <1ms cold starts
   ox-game gen-interface [dir]    auto-generate C++, Rust, C#, AssemblyScript & TypeScript interfaces
@@ -718,10 +718,6 @@ fn init(dir: &Path) -> std::io::Result<()> {
         dir.join("cyg-client.d.ts"),
         include_bytes!("../sdk/client/web/cyg.d.ts"),
     )?;
-    std::fs::write(
-        dir.join("website.html"),
-        include_bytes!("../crates/engine-config/src/templates/easy_website.html"),
-    )?;
     let gitignore = dir.join(".gitignore");
     if !gitignore.exists() {
         std::fs::write(
@@ -744,7 +740,6 @@ fn init(dir: &Path) -> std::io::Result<()> {
         "  {}/room.ts        — your room logic (edit me!)",
         dir.display()
     );
-    tracing::info!("  {}/website.html   — the canvas page", dir.display());
     tracing::info!(
         "  {}/schema.ts      — network state (Colyseus v5 syntax, edit me!)",
         dir.display()
@@ -781,8 +776,8 @@ fn run(dir: &Path) -> std::io::Result<()> {
             && !Path::new("config.toml").exists()
             && !Path::new("config.yml").exists()
         {
-            // No project here: run the built-in demo (example room + website).
-            tracing::info!("[run] no config.toml found — running the built-in demo");
+            // No project here: run the built-in demo (headless room).
+            tracing::info!("[run] no config.toml found — running the built-in demo (headless room)");
             GameConfig {
                 name: "game_room".into(),
                 source: PathBuf::from("crates/engine-net/examples/e2e/room.ts"),

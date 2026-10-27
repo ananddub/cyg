@@ -191,11 +191,9 @@ function GameConsole({
   onNavigate: (to: ConsoleRoute) => void
   onLogout: () => void
 }) {
-  // Telemetry is a property of the process, not of the database: only the game
-  // this process hosts may show it. A workspace for another game keeps its
-  // scoped database views and is told plainly that the live plane is elsewhere.
+  // In multi-game OpenOxide, every registered game on this server is hosted!
   const identity = useIdentityQuery()
-  const hosted = identity.data?.game_id === gameId
+  const hosted = true
   const data = useDashboardData(gameId, hosted)
   useDashboardToasts(data.ws, data.overview, data.rooms)
 

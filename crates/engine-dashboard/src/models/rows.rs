@@ -6,6 +6,9 @@ pub const MAX_CLIENT_ROWS: usize = 256;
 #[serde(rename_all = "camelCase")]
 pub struct RoomRow {
     pub name: String,
+    pub register_id: Option<String>,
+    pub game_id: Option<String>,
+    pub game_name: Option<String>,
     pub clients: u32,
     pub max_clients: u32,
     pub tick_hz: f64,

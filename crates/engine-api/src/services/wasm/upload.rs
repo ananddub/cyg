@@ -93,17 +93,17 @@ impl WasmService {
         game_id: Uuid,
     ) -> Result<String, V2Error> {
         let row = crate::services::games::GamesService::find_game(state, game_id).await?;
-        if row.backend_mode == WASM_BACKEND_MODE {
-            return Ok(row.game_key);
+        if row.backend_mode != WASM_BACKEND_MODE {
+            // Auto-promote game to wasm backend mode when a developer uploads a module
+            if let Ok(pool) = pool(state) {
+                let _ = sqlx::query("UPDATE games SET backend_mode = $1 WHERE id = $2")
+                    .bind(WASM_BACKEND_MODE)
+                    .bind(game_id)
+                    .execute(pool)
+                    .await;
+            }
         }
-        if row.backend_mode == RELAY_BACKEND_MODE {
-            return Err(V2Error::invalid_argument(RELAY_MODE_MESSAGE));
-        }
-        Err(V2Error::invalid_argument(format!(
-            "Game is configured for backend mode '{}'. \
-             WASM upload is only applicable for Web/Custom Authoritative games.",
-            row.backend_mode
-        )))
+        Ok(row.game_key)
     }
 
     /// Store a validated binary as the next version of the game's module and

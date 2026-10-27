@@ -75,7 +75,7 @@ function CopyCell({ value }: { value: string | null | undefined }) {
   )
 }
 
-const SKELETON_WIDTHS = ["w-28", "w-24", "w-16", "w-12", "w-10", "w-14", "w-40"] as const
+const SKELETON_WIDTHS = ["w-28", "w-20", "w-24", "w-16", "w-12", "w-10", "w-14", "w-40"] as const
 
 function SkeletonRows() {
   return (
@@ -124,6 +124,7 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom, empty = "No 
               />
             </TableHead>
             <TableHead>Room</TableHead>
+            <TableHead>Register ID</TableHead>
             <TableHead>Players / CCU</TableHead>
             <TableHead>Tick Rate</TableHead>
             <TableHead>Status</TableHead>
@@ -162,6 +163,16 @@ export function RoomsTable({ rooms, clients, loading, onSelectRoom, empty = "No 
                         {room.name}
                       </span>
                     </div>
+                  </TableCell>
+
+                  <TableCell>
+                    {room.registerId ? (
+                      <Badge variant="outline" className="font-mono text-[11px] py-0.5">
+                        {room.registerId}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">{DASH}</span>
+                    )}
                   </TableCell>
 
                   <TableCell className="tabular-nums font-mono text-xs">

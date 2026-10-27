@@ -65,7 +65,7 @@ impl WasmRuntime {
     }
 
     /// Instantiate a compiled module with a Linker and custom host data `T`.
-    pub fn instantiate<T>(
+    pub fn instantiate<T: 'static>(
         &self,
         linker: &Linker<T>,
         module: &Module,
@@ -80,7 +80,7 @@ impl WasmRuntime {
     }
 
     /// Instantiate without any imports (pure standalone module).
-    pub fn instantiate_standalone<T>(
+    pub fn instantiate_standalone<T: 'static>(
         &self,
         module: &Module,
         host_data: T,
@@ -92,7 +92,7 @@ impl WasmRuntime {
     /// Pre-instantiate a module with a Linker: validation, linking and type
     /// checks happen once; every subsequent [`WasmPreInstance::instantiate`]
     /// is much cheaper — the fast path for high room-spawn rates.
-    pub fn prepare<T>(
+    pub fn prepare<T: 'static>(
         &self,
         linker: &Linker<T>,
         module: &Module,
@@ -104,7 +104,7 @@ impl WasmRuntime {
     }
 
     /// [`prepare`](Self::prepare) without any imports (standalone module).
-    pub fn prepare_standalone<T>(&self, module: &Module) -> Result<WasmPreInstance<T>, WasmError> {
+    pub fn prepare_standalone<T: 'static>(&self, module: &Module) -> Result<WasmPreInstance<T>, WasmError> {
         let linker: Linker<T> = Linker::new(&self.engine);
         self.prepare(&linker, module)
     }

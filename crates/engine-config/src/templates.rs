@@ -17,9 +17,6 @@ out = "room_logic.wasm"
 # CYG web SDK (`cyg.js`) and can leave this empty.
 sdk_dir = ""
 
-# Your website (canvas page). Served at http://localhost:<web_port>/
-website = "website.html"
-
 port = 7777
 web_port = 8090
 # 30 Hz is the easy-mode default; use 20 for slower/casual rooms or 60/128 for

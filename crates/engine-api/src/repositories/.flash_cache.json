@@ -24,9 +24,9 @@
   "config_checksum": "5a76e5830a4e610c2b0af91ca8c9e233753ead353ef30313f978c28dea001e41",
   "query_table_deps": {
     "db/queries/account.sql": [
+      "user_device",
       "users",
-      "user_tombstone",
-      "user_device"
+      "user_tombstone"
     ],
     "db/queries/auth.sql": [
       "users",
@@ -36,33 +36,33 @@
       "message"
     ],
     "db/queries/console.sql": [
-      "users",
+      "notification",
       "users_notes",
       "leaderboard",
       "leaderboard_record",
-      "setting",
-      "console_audit_log",
       "console_acl_template",
+      "console_user",
+      "users",
       "wallet_ledger",
       "storage",
-      "purchase",
-      "notification",
-      "console_user"
+      "setting",
+      "console_audit_log",
+      "purchase"
     ],
     "db/queries/console_mutations.sql": [
-      "console_user",
-      "users_notes",
       "user_edge",
-      "users",
-      "storage",
       "notification",
+      "users_notes",
+      "storage",
       "setting",
       "console_acl_template",
-      "console_audit_log"
+      "console_audit_log",
+      "console_user",
+      "users"
     ],
     "db/queries/friend.sql": [
-      "users",
-      "user_edge"
+      "user_edge",
+      "users"
     ],
     "db/queries/game_maps.sql": [
       "game_maps"
@@ -83,12 +83,12 @@
       "wallet_ledger"
     ],
     "db/queries/leaderboard.sql": [
-      "leaderboard",
-      "leaderboard_record"
+      "leaderboard_record",
+      "leaderboard"
     ],
     "db/queries/link.sql": [
-      "user_device",
-      "users"
+      "users",
+      "user_device"
     ],
     "db/queries/notification.sql": [
       "notification"
@@ -97,26 +97,26 @@
       "user_tombstone"
     ],
     "db/queries/tenancy.sql": [
+      "purchase",
+      "subscription",
       "games",
       "users",
       "leaderboard",
       "groups",
-      "storage",
-      "purchase",
-      "subscription"
+      "storage"
     ],
     "db/queries/tournament.sql": [
       "leaderboard"
     ],
     "db/queries/unlink.sql": [
-      "user_device",
-      "users"
+      "users",
+      "user_device"
     ],
     "db/queries/user.sql": [
       "users"
     ]
   },
   "generated_file_checksums": {},
-  "last_generation": "2026-10-26T23:07:53.841833232+05:30",
+  "last_generation": "2026-10-26T23:50:19.409254388+05:30",
   "OutDir": "crates/engine-api/src/repositories"
 }

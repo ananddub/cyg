@@ -3,6 +3,7 @@
 ///
 /// `/unity/…` drops its prefix; `/Build/…` and `/TemplateData/…` keep theirs,
 /// since the export already lays those out as directories under the build folder.
+#[allow(dead_code)]
 pub(crate) fn unity_subpath(path: &str) -> Option<&str> {
     if let Some(sub) = path.strip_prefix("/unity/") {
         return Some(sub);
