@@ -35,6 +35,20 @@ impl super::ConsoleService {
         } else {
             format!("Banned {}: {reason}", user.username)
         };
+
+        // The ban is effective NOW, not at the next login: every token the user
+        // holds is revoked, and every live realtime socket is kicked out of its
+        // matches and closed — the operator pressing Ban expects the player
+        // gone, not politely refused at re-entry.
+        state.sessions.remove_all(id);
+        let kicked =
+            crate::services::realtime::RealtimeSessionHub::global().kick_user(id, &message);
+
+        let message = if kicked > 0 {
+            format!("{message} Kicked {kicked} live session(s).")
+        } else {
+            message
+        };
         super::audit(state, claims, "account.ban", "account", Some(id), &message).await;
         Ok(Json(Empty {}))
     }

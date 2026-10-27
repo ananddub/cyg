@@ -5,9 +5,9 @@
 //! planes can reach a session without threading `ApiState` through every callback.
 
 use arc_swap::ArcSwapOption;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use uuid::Uuid;
 
 use super::envelope::Envelope;
@@ -18,8 +18,11 @@ pub struct Session {
     pub sid: Uuid,
     pub uid: Uuid,
     pub username: String,
-    /// Writer task inbox: serialised envelopes, delivered in order.
-    tx: UnboundedSender<String>,
+    /// Writer task inbox: serialised envelopes, delivered in order. Behind a
+    /// mutex so [`Session::close`] can swap in a throwaway sender — the writer
+    /// sees its channel disconnect and ends, closing the socket — while the
+    /// `auto_ws`-owned writer itself stays untouched.
+    tx: Mutex<UnboundedSender<String>>,
     /// Match ids this socket joined (realtime presence bookkeeping).
     pub matches: FastSet<Uuid>,
     /// Channel ids (hex stream ids) this socket joined.
@@ -41,7 +44,7 @@ impl Session {
             sid,
             uid,
             username,
-            tx,
+            tx: Mutex::new(tx),
             matches: new_fast_set(),
             channels: new_fast_set(),
             party: ArcSwapOption::new(None),
@@ -61,8 +64,19 @@ impl Session {
     /// the socket; the read side tears the session down on the next send.
     pub fn send(&self, env: &Envelope) {
         if let Ok(json) = serde_json::to_string(env) {
-            let _ = self.tx.send(json);
+            let _ = self.tx.lock().unwrap().send(json);
         }
+    }
+
+    /// Tear the socket down: the live sender is swapped for a throwaway one,
+    /// so the writer's channel disconnects, it drains and ends — closing the
+    /// websocket. The console ban/kick path uses this: a banned user's socket
+    /// must not outlive its (now revoked) tokens. Later `send`s land in the
+    /// throwaway and are lost, which is exactly the intent.
+    pub fn close(&self) {
+        let (dead, _dead_rx): (UnboundedSender<String>, UnboundedReceiver<String>) =
+            unbounded_channel();
+        *self.tx.lock().unwrap() = dead;
     }
 
     pub fn send_message(&self, cid: Option<String>, message: super::envelope::EnvelopeMessage) {
