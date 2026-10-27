@@ -35,6 +35,7 @@ services:
       - "19224:19224"       # Control Plane: HTTP API, WebSockets (/ws/signal), Dashboard (/dashboard/), Matchmaking
       - "7977:7977/udp"     # WebRTC DataChannel (Fast UDP game state & inputs)
       - "7778:7778/udp"     # Native Engine (Unity / Unreal / Godot UDP datagrams)
+      - "7978:7978/udp"     # QUIC/WebTransport (browser clients without WebRTC)
     environment:
       - DATABASE_URL=postgresql://openoxide:mysecretpassword@postgres:5432/openoxide_db
       - OX_ALLOW_DEFAULT_SECRETS=1

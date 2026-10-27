@@ -12,6 +12,7 @@
 //! Either way the simulation above this module does not know which wire a client
 //! reached the room on.
 
+pub mod quic_transport;
 pub mod udp;
 pub mod webrtc;
 pub mod ws;
@@ -25,6 +26,7 @@ use bytes::Bytes;
 
 use crate::framing::OpCode;
 
+pub use quic_transport::QuicTransport;
 pub use udp::UdpTransport;
 pub use webrtc::{WebRtcServer, WebRtcServerEvent, WebRtcTransport};
 pub use ws::WsTransport;

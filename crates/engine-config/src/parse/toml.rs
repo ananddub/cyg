@@ -39,6 +39,9 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = int("port") {
         cfg.port = v as u16;
     }
+    if let Some(v) = int("quic_port") {
+        cfg.quic_port = v as u16;
+    }
     if let Some(v) = int("web_port") {
         cfg.web_port = v as u16;
     }

@@ -53,6 +53,9 @@ pub struct GameConfig {
     /// Website HTML; falls back to the built-in template when missing.
     pub website: PathBuf,
     pub port: u16,
+    /// The QUIC/WebTransport listener port. `0` (default) keeps the lane off;
+    /// WebRTC and raw UDP are unaffected either way.
+    pub quic_port: u16,
     pub web_port: u16,
     pub tick_rate: u32,
     pub max_clients: i32,
@@ -82,8 +85,9 @@ impl Default for GameConfig {
             source: "room.ts".into(),
             out: "room_logic.wasm".into(),
             sdk_dir: "".into(),
-            website: "website.html".into(),
+            website: PathBuf::new(),
             port: 7777,
+            quic_port: 0,
             web_port: 8090,
             tick_rate: 30,
             max_clients: 16,

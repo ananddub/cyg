@@ -15,6 +15,7 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "sdk_dir" => cfg.sdk_dir = value.into(),
         "website" => cfg.website = value.into(),
         "port" => cfg.port = value.parse().unwrap_or(cfg.port),
+        "quic_port" => cfg.quic_port = value.parse().unwrap_or(cfg.quic_port),
         "web_port" => cfg.web_port = value.parse().unwrap_or(cfg.web_port),
         "tick_rate" => cfg.tick_rate = value.parse().unwrap_or(cfg.tick_rate),
         "max_clients" => cfg.max_clients = value.parse().unwrap_or(cfg.max_clients),

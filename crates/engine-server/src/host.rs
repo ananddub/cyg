@@ -57,6 +57,9 @@ const APP_MESSAGE_OPCODE: u8 = 0x05;
 /// seat -> room/options at offer time and consults those maps on connect.
 pub struct LoopTransport {
     rtc: WebRtcTransport,
+    /// The QUIC/WebTransport lane, when `quic_port` is configured. Client ids
+    /// carry the `q<n>` namespace, so sends route by which plane knows the id.
+    quic: Option<engine_net::QuicTransport>,
     /// session id -> room id, mirrored from the seat at signaling time so the
     /// loop can route connect/disconnect events without borrowing the wire.
     client_rooms: Arc<scc::HashMap<String, String>>,
@@ -76,10 +79,11 @@ pub struct LoopTransport {
 }
 
 impl LoopTransport {
-    fn new(rtc: WebRtcTransport) -> Self {
+    fn new(rtc: WebRtcTransport, quic: Option<engine_net::QuicTransport>) -> Self {
         let local_addr = rtc.local_addr().ok();
         Self {
             rtc,
+            quic,
             client_rooms: Arc::new(scc::HashMap::new()),
             client_options: HashMap::new(),
             consented: std::collections::HashSet::new(),
@@ -199,35 +203,62 @@ impl GameTransport for LoopTransport {
             !matches!(ev, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. })
         });
         self.inbound.extend(self.rtc.poll_inbound());
+        if let Some(quic) = self.quic.as_mut() {
+            quic.poll_events(timeout, events)?;
+            // The two planes share one inbound shape; the id types differ only
+            // in their Arc wrapper, so the QUIC ids widen in place.
+            self.inbound.extend(
+                quic.poll_inbound().into_iter().map(|(id, msg)| (id.to_string(), msg)),
+            );
+        }
         Ok(())
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
+        if self.quic.as_ref().is_some_and(|q| q.knows(client_id)) {
+            return self.quic.as_mut().unwrap().send_to(client_id, opcode, payload);
+        }
         self.rtc.send_to(client_id, opcode, payload)
     }
 
     fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
-        self.rtc.broadcast(opcode, payload)
+        // Deltas must reach every plane: a QUIC client is as much a player as
+        // a WebRTC one.
+        self.rtc.broadcast(opcode, payload)?;
+        if let Some(quic) = self.quic.as_mut() {
+            quic.broadcast(opcode, payload)?;
+        }
+        Ok(())
     }
 
     fn disconnect(&mut self, client_id: &str) -> std::io::Result<()> {
+        if self.quic.as_ref().is_some_and(|q| q.knows(client_id)) {
+            return self.quic.as_mut().unwrap().disconnect(client_id);
+        }
         self.rtc.disconnect(client_id)
     }
 
-    fn disconnect_with(&mut self, client_id: &str, _code: u16, _reason: &str) -> std::io::Result<()> {
+    fn disconnect_with(&mut self, client_id: &str, code: u16, reason: &str) -> std::io::Result<()> {
         // There is no close frame on a DataChannel: a server-initiated close
         // just tears the session down, and its consent marker decides whether
         // the seat is held for reconnection.
         self.consented.insert(client_id.to_string());
+        if self.quic.as_ref().is_some_and(|q| q.knows(client_id)) {
+            return self.quic.as_mut().unwrap().disconnect_with(client_id, code, reason);
+        }
         self.rtc.disconnect(client_id)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.rtc.flush()
+        self.rtc.flush()?;
+        if let Some(quic) = self.quic.as_mut() {
+            quic.flush()?;
+        }
+        Ok(())
     }
 
     fn ccu(&self) -> usize {
-        self.rtc.ccu()
+        self.rtc.ccu() + self.quic.as_ref().map_or(0, |q| q.ccu())
     }
 
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
@@ -716,7 +747,30 @@ pub fn run(
     // One thread: transport I/O and the simulation share this loop. An idle
     // wait below blocks inside `poll`, so network work is still serviced while
     // the sim waits for its next tick.
-    let mut transport = LoopTransport::new(raw_transport);
+    // The QUIC/WebTransport lane: a fourth door on its own UDP port, off
+    // unless `quic_port` is set. Same wire contract as WebRTC, QUIC's own
+    // reliability underneath.
+    let quic_transport = if cfg.quic_port > 0 {
+        let addr: SocketAddr = SocketAddr::new(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+            cfg.quic_port,
+        );
+        match engine_net::QuicTransport::new(addr) {
+            Ok(q) => {
+                tracing::info!(
+                    "[server] 🚄 QUIC/WebTransport listening on udp://{addr} (same wire contract as WebRTC)"
+                );
+                Some(q)
+            }
+            Err(e) => {
+                tracing::error!("[server] ⚠️ QUIC bind :{} failed — lane disabled ({e})", cfg.quic_port);
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mut transport = LoopTransport::new(raw_transport, quic_transport);
     let mut udp_peers: HashMap<SocketAddr, (i64, String, Instant)> = HashMap::new();
     // RUDP: per-peer reliable send lane (server -> client, per-frame resend
     // timers until the client's cumulative ack) + the next outgoing seq per
@@ -2365,7 +2419,10 @@ mod loop_transport_tests {
     use super::*;
 
     fn transport() -> LoopTransport {
-        LoopTransport::new(WebRtcTransport::new("127.0.0.1:0".parse().unwrap()).unwrap())
+        LoopTransport::new(
+            WebRtcTransport::new("127.0.0.1:0".parse().unwrap()).unwrap(),
+            None,
+        )
     }
 
     /// A rejected join for a session the transport never accepted must be a

@@ -32,6 +32,6 @@ pub use runtime::worker::{ClientPacket, MioWorker, WorkerConfig, WorkerStats};
 pub use runtime::connection::ClientConn;
 pub use transport::ws::{MatchMakeError, MATCHMAKE_METHODS, close_code, response_status};
 pub use transport::{
-    WsTransport, GameTransport, TransportEvent,
+    QuicTransport, WsTransport, GameTransport, TransportEvent,
     TransportType, UdpTransport, WebRtcServer, WebRtcServerEvent, create_transport,
 };

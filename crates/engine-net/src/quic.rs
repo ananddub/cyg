@@ -264,6 +264,16 @@ impl QuicEngine {
         events
     }
 
+    /// Any live connection's handle (tests and single-connection callers).
+    pub fn first_connection(&self) -> Option<ConnectionHandle> {
+        self.connections.keys().next().copied()
+    }
+
+    /// Open one bidirectional stream (client-initiated requests).
+    pub fn open_bi(&mut self, handle: ConnectionHandle) -> Option<quinn_proto::StreamId> {
+        self.connections.get_mut(&handle).and_then(|conn| conn.streams().open(Dir::Bi))
+    }
+
     /// Reliable lane: write on a stream (client-opened or accepted).
     pub fn stream_write(
         &mut self,
@@ -283,6 +293,24 @@ impl QuicEngine {
             .get_mut(&handle)
             .map(|conn| conn.send_stream(id).finish().is_ok())
             .unwrap_or(false)
+    }
+
+    /// Server-initiated close: a CONNECTION_CLOSE frame goes out on the next
+    /// transmit pass, the peer sees a clean goodbye.
+    pub fn connection_close(&mut self, handle: ConnectionHandle, reason: &str) -> bool {
+        let now = Instant::now();
+        self.connections
+            .get_mut(&handle)
+            .map(|conn| {
+                conn.close(now, 0u32.into(), bytes::Bytes::copy_from_slice(reason.as_bytes()));
+                true
+            })
+            .unwrap_or(false)
+    }
+
+    /// The peer's socket address, once the connection exists.
+    pub fn remote_addr(&self, handle: ConnectionHandle) -> Option<SocketAddr> {
+        self.connections.get(&handle).map(|conn| conn.remote_address())
     }
 
     /// Unreliable lane: one datagram toward the peer.
@@ -327,6 +355,15 @@ fn read_stream(
     }
     // `finalize` consumes the reader — it must come after the drain loop.
     let _ = chunks.finalize();
+}
+
+/// `[u32 BE][payload]` — the reliable-lane frame, shared by the engine and
+/// the transport's framing (one definition so the two never drift).
+pub fn frame_bytes(payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(4 + payload.len());
+    out.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    out.extend_from_slice(payload);
+    out
 }
 
 /// The endpoint reset key QUIC stateless resets need, from ring's HMAC.
