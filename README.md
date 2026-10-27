@@ -30,9 +30,9 @@ The same game's Project tab: configure sync rate and capacity, deploy WASM room 
 
 ## Highlights
 
-- **Your game runs as sandboxed WebAssembly** — extend `Room`, mutate a typed reactive state, `commitState()`. Zero-GC AssemblyScript, hot-reload on save, per-room sandbox: one tenant's infinite loop cannot kill the host.
+- **Your game runs as sandboxed WebAssembly** — extend `Room`, mutate a typed reactive state, `commitState()`. Zero-GC AssemblyScript, hot-reload on save, per-room sandbox: a trapping room fails alone — its crashes and bad memory accesses stay inside the room while the host keeps running.
 - **The engine parts come to you — all inbuilt, all optional-per-game**: host-side Rapier2D/3D physics, deterministic RNG and tick timers, navmesh A* pathfinding, spatial AOI, lag-compensated raycasts. Thirty-plus `sys_*` imports behind per-game permissions; your `room.ts` calls them like functions.
-- **An inbuilt ECS backend for scale.** When a game fits the template shape (movement, dense players), the same binary runs it on the flat, cache-native ECS state instead of per-entity WASM — 128 Hz at tens of thousands of CCU per core. Same wire protocol, same console, same descriptor. You choose per game; nothing extra to install.
+- **An inbuilt ECS backend for scale.** When a room fits the template shape (movement, dense players), the same binary can run it on the flat, cache-native ECS state instead of per-entity WASM — 128 Hz at thousands of CCU per core. Same wire protocol, same console, same descriptor; a room whose name contains `ecs` runs on it. Nothing extra to install.
 - **WebRTC DataChannels** (dual lane: newest-wins deltas + ordered reliable) with raw-UDP native clients on the side — QUIC-tier reliability on both: per-frame sequence, reorder-safe delivery, SACK selective resends, sendmmsg + UDP-GSO fan-out.
 - **Reactive client SDK** — descriptor-driven decode at join: `room.onStateChange`, `player.listen("x", cb)`, collection `onAdd/onRemove`, `room.request()` RPC, `client.auth`, `room.clock`. Colyseus-shaped, no alien syntax.
 - **BaaS in the same binary** — accounts (device/email/custom + link/unlink, MFA), friends, groups, chat, channels, parties, presence, storage, leaderboards, tournaments, IAP validation, inventory, notifications, matchmaker.
@@ -69,7 +69,7 @@ ox-game run             # compile room.ts → wasm and serve
 
 ## Writing a game
 
-A project is `config.toml` + `src/` + `website.html` + `out/` (generated). The server reads **only** what the config names — ports, tick rate, file paths — nothing is hardcoded.
+A project is `config.toml`, your room source and schema (`src/` in the examples; `ox-game init` scaffolds the same files at the project root), a `website.html` you host yourself, and generated `out/`. The server reads **only** what the config names — ports, tick rate, file paths — nothing is hardcoded.
 
 ```toml
 name = "coin-rush"
@@ -81,7 +81,7 @@ tick_rate = 128
 max_clients = 16
 
 [control]
-api_port = 8124        # website, matchmake, signaling, console
+api_port = 8124        # matchmake, signaling, console, dashboard
 
 [control.session]
 database_url = "postgresql://…"
@@ -91,9 +91,12 @@ database_url = "postgresql://…"
 
 ```ts
 // schema.ts
-const players = t.collection("players", t.entity({ pid: t.i64(), x: t.f64(), y: t.f64(), score: t.i32() }));
-const coinX = t.f64();
-const coinY = t.f64();
+const Player = schema({ pid: t.int64(), x: t.number(), y: t.number(), score: t.number() }, "Player");
+export const State = schema({
+    players: t.map(Player),
+    coinX: t.number(),
+    coinY: t.number(),
+}, "State");
 ```
 
 `src/room.ts` is Colyseus-shaped — physics and input helpers included, no byte wrangling:
@@ -150,7 +153,7 @@ One process, one thread for the simulation, lock-free bus between planes:
 | `engine-config` | config.toml → typed structs |
 | `engine-agones` | GameServer lifecycle for Kubernetes fleets |
 
-**One runtime, inbuilt backends.** Game logic always runs in the WASM sandbox. The *state and simulation* behind it is your per-game choice among the inbuilt options: the reactive schema state (custom games), the host-side physics family (Rapier2D/3D rooms), or the flat ECS backend (template-scale games). Same binary, same wire protocol, same console — a config field, not a deployment.
+**One runtime, inbuilt backends.** Game logic always runs in the WASM sandbox. The *state and simulation* behind it has inbuilt options: the reactive schema state (custom games), the host-side physics family (Rapier2D/3D), or the flat ECS backend (template-scale games — any room with `ecs` in its name runs on it). Same binary, same wire protocol, same console; nothing to install.
 
 **Transport.** Browsers dial WebRTC (`game-unreliable` for high-rate deltas, `game-reliable` for everything else; the signaling WebSocket is control-plane only). Native engines speak raw UDP on `:7778` — dual-lane with the same reliability wire. `cfg.port` is the real game-data port and what seats advertise.
 
@@ -162,7 +165,7 @@ One process, one thread for the simulation, lock-free bus between planes:
 
 Schema lives in `db/schema/*.sql`, named queries in `db/queries/*.sql`; `flash gen` emits typed repositories into `crates/engine-api/src/repositories/` (runtime-checked, no live DB needed at build). Console services read/write through `state.q`; multi-statement transactions stay hand-written beside their services by convention. Adding a domain = write the `.sql`, run `flash gen`, call `state.q`.
 
-## Benchmarks (measured, one binary, Ryzen 9 5900XT, release builds)
+## Benchmarks (measured, one binary, Ryzen 9 5900XT, release builds, idle machine)
 
 The same room runtime, scaled by which inbuilt backend carries the simulation — heavier custom logic, lighter template logic:
 
