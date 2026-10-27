@@ -189,7 +189,7 @@ fn sockaddr_storage_of(addr: &SocketAddr) -> (libc::sockaddr_storage, libc::sock
 ///
 /// Non-unix fallback: same call shape, per-message `send_to`. Correctness
 /// identical — only the syscall batching is lost, which is a Linux feature.
-#[cfg(not(unix))]
+#[cfg(not(target_os = "linux"))]
 pub fn send_datagram_batch<B: AsRef<[u8]>>(
     socket: &mio::net::UdpSocket,
     msgs: &[(SocketAddr, B)],
@@ -205,7 +205,7 @@ pub fn send_datagram_batch<B: AsRef<[u8]>>(
 
 /// Non-unix fallback: GSO is a Linux socket feature — always refuse so the
 /// caller falls back to `send_datagram_batch`.
-#[cfg(not(unix))]
+#[cfg(not(target_os = "linux"))]
 pub fn send_gso(
     _socket: &mio::net::UdpSocket,
     _addr: &SocketAddr,
@@ -216,7 +216,7 @@ pub fn send_gso(
 }
 
 /// Pure logic — identical on every platform.
-#[cfg(not(unix))]
+#[cfg(not(target_os = "linux"))]
 pub fn gso_run_len(msgs: &[(SocketAddr, impl AsRef<[u8]>)], start: usize) -> usize {
     let (dest, first) = &msgs[start];
     let seg = first.as_ref().len();
@@ -239,7 +239,7 @@ pub fn gso_run_len(msgs: &[(SocketAddr, impl AsRef<[u8]>)], start: usize) -> usi
 /// destinations per tick) is a measurable slice of the send path. Returns the
 /// number of messages the kernel accepted; on any error the remaining
 /// messages fall back to plain `send_to` (correctness never degrades).
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn send_datagram_batch<F: std::os::unix::io::AsFd, B: AsRef<[u8]>>(
     socket: &F,
     msgs: &[(SocketAddr, B)],
@@ -454,7 +454,7 @@ const UDP_SEGMENT: libc::c_int = 103;
 /// datagram per `seg_size`-byte slice (the tail may be shorter). iovecs point
 /// at the caller's buffers — no copy. `Err` means the kernel refused GSO
 /// (old kernel, unsupported NIC path); the caller must fall back.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn send_gso<F: std::os::unix::io::AsFd>(
     socket: &F,
     addr: &SocketAddr,
@@ -517,7 +517,7 @@ pub fn send_gso<F: std::os::unix::io::AsFd>(
 /// True when this run of queued datagrams is GSO-shaped: one destination,
 /// every chunk the same size (a trailing shorter chunk is allowed — the
 /// kernel sends it as the final datagram).
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn gso_run_len(msgs: &[(SocketAddr, impl AsRef<[u8]>)], start: usize) -> usize {
     let (dest, first) = &msgs[start];
     let seg = first.as_ref().len();

@@ -7,6 +7,21 @@
 
 use std::io;
 
+/// Affinity is a deployment nicety, not a correctness requirement: on
+/// non-Linux (dev machines, CI, Windows/macOS servers) pinning is a no-op and
+/// the scheduler does its usual thing.
+#[cfg(not(target_os = "linux"))]
+pub fn pin_current_thread(_core: usize) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn current_core() -> i32 {
+    // Same convention as the Linux probe: -1 = unknown.
+    -1
+}
+
+#[cfg(target_os = "linux")]
 pub fn pin_current_thread(core: usize) -> io::Result<()> {
     // glibc's cpu_set_t is a 1024-bit mask in 16 u64 words; the libc crate's
     // field is hygienically named, so reach the storage as a plain word array.
