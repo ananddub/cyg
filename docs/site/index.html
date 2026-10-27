@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CYG — the single-binary game server platform</title>
+<meta name="description" content="Authoritative WASM game rooms, WebRTC + UDP + QUIC netcode, BaaS and a web console — one self-hosted Rust binary.">
+<style>
+  :root {
+    --bg: #0b0d10; --bg2: #12151a; --card: #161a21; --line: #232933;
+    --text: #e8ebf0; --muted: #98a2b3; --accent: #5eead4; --accent2: #818cf8;
+    --code-bg: #0e1116; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6; font-size: 16px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+
+  /* nav */
+  nav { position: sticky; top: 0; z-index: 10; background: rgba(11,13,16,.92); border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
+  nav .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
+  .logo { font-weight: 800; letter-spacing: .5px; font-size: 18px; color: var(--text); }
+  .logo b { color: var(--accent); }
+  nav a.item { color: var(--muted); font-size: 14px; }
+  nav a.item:hover { color: var(--text); text-decoration: none; }
+  nav .cta { margin-left: auto; }
+
+  /* hero */
+  header.hero { padding: 72px 0 48px; background:
+    radial-gradient(800px 300px at 20% -10%, rgba(94,234,212,.08), transparent),
+    radial-gradient(800px 300px at 80% -10%, rgba(129,140,248,.08), transparent); }
+  h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.15; font-weight: 800; }
+  h1 b { color: var(--accent); }
+  .tag { margin-top: 14px; font-size: 18px; color: var(--muted); max-width: 760px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+  .badge { font-size: 12.5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--bg2); }
+  .btns { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 10px 20px; border-radius: 10px; font-weight: 600; font-size: 15px; }
+  .btn.primary { background: var(--accent); color: #05201b; }
+  .btn.primary:hover { text-decoration: none; filter: brightness(1.1); }
+  .btn.ghost { border: 1px solid var(--line); color: var(--text); }
+  .btn.ghost:hover { text-decoration: none; border-color: var(--accent); }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.55; }
+  pre .c { color: var(--muted); }
+  .hero pre { margin-top: 8px; }
+
+  /* sections */
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 26px; margin-bottom: 6px; }
+  .sub { color: var(--muted); margin-bottom: 26px; max-width: 780px; }
+  h3 { font-size: 17px; margin: 18px 0 8px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 15.5px; }
+  .card p { font-size: 14px; color: var(--muted); }
+  .card p b { color: var(--text); font-weight: 600; }
+
+  .shot { width: 100%; border: 1px solid var(--line); border-radius: 12px; display: block; }
+  .cap { font-size: 13px; color: var(--muted); margin: 8px 0 26px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 12px 0; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .4px; }
+  td b { color: var(--accent); font-weight: 700; }
+  .note { font-size: 13px; color: var(--muted); }
+  .warn { border-left: 3px solid var(--warn); padding: 10px 14px; background: var(--bg2); border-radius: 0 8px 8px 0; font-size: 14px; color: var(--muted); margin: 14px 0; }
+  .warn b { color: var(--warn); }
+
+  footer { padding: 40px 0 64px; color: var(--muted); font-size: 13.5px; border-top: 1px solid var(--line); }
+  footer .cols { display: flex; gap: 40px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <span class="logo"><b>CYG</b> server</span>
+  <a class="item" href="#features">Features</a>
+  <a class="item" href="#see">See it</a>
+  <a class="item" href="#start">Quick start</a>
+  <a class="item" href="#game">Write a game</a>
+  <a class="item" href="#net">Netcode</a>
+  <a class="item" href="#bench">Benchmarks</a>
+  <a class="item" href="#vs">vs others</a>
+  <a class="item cta" href="#start">Get started →</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <h1>Authoritative multiplayer,<br><b>one self-hosted binary</b>.</h1>
+  <p class="tag">
+    CYG runs your game logic in sandboxed WebAssembly rooms with state sync, physics, an inbuilt
+    ECS backend, accounts &amp; social APIs, and a web console — over WebRTC, raw UDP and QUIC.
+    The whole stack Colyseus + Nakama would give you, collapsed into one artifact you host yourself.
+  </p>
+  <div class="badges">
+    <span class="badge">Rust · Apache-2.0</span>
+    <span class="badge">AssemblyScript guest rooms</span>
+    <span class="badge">WebRTC · UDP · QUIC</span>
+    <span class="badge">Rapier2D/3D inbuilt</span>
+    <span class="badge">ECS backend inbuilt</span>
+    <span class="badge">128 Hz tick</span>
+    <span class="badge">Agones-aware</span>
+  </div>
+  <div class="btns">
+    <a class="btn primary" href="#start">Quick start</a>
+    <a class="btn ghost" href="#vs">How it compares</a>
+  </div>
+  <pre><span class="c"># docker: postgres + redis + the server, live-mounted</span>
+just up                     <span class="c"># console → http://localhost:19224/dashboard/</span>
+just game coin-rush         <span class="c"># or run any example</span></pre>
+</div></header>
+
+<!-- ======================================================= features -->
+<section id="features"><div class="wrap">
+  <h2>Everything in the box</h2>
+  <p class="sub">Nothing here is a plugin you assemble. One process, one config file, one console —
+  and every claim below is backed by code and tests in the repository.</p>
+
+  <div class="grid">
+    <div class="card"><h3>Sandboxed WASM rooms</h3>
+      <p>Extend <b>Room</b>, mutate a typed reactive state, <b>commitState()</b>. Zero-GC AssemblyScript,
+      hot-reload on save, per-room sandbox: a trapping room fails alone while the host keeps running.</p></div>
+    <div class="card"><h3>Inbuilt simulation backends</h3>
+      <p><b>Rapier2D/3D</b> physics, deterministic RNG + tick timers, <b>navmesh A*</b>, spatial <b>AOI</b>,
+      lag-compensated raycasts — 30+ permission-gated host imports your room calls like functions.
+      Plus a flat <b>ECS backend</b> for template-scale rooms.</p></div>
+    <div class="card"><h3>Three transport lanes</h3>
+      <p><b>WebRTC DataChannels</b> (dual lane) for browsers, <b>raw UDP</b> for native engines,
+      <b>QUIC/WebTransport</b> on its own port. QUIC-tier reliability everywhere: per-frame sequence,
+      reorder-safe delivery, SACK selective resends, sendmmsg + UDP-GSO fan-out.</p></div>
+    <div class="card"><h3>Reactive client SDK</h3>
+      <p>Descriptor-driven decode at join — no client codegen. <b>onStateChange</b>, field
+      <b>listen</b>, collection <b>onAdd/onRemove</b>, <b>room.request()</b> RPC, <b>client.auth</b>,
+      <b>room.clock</b>. Colyseus-shaped, so nothing reads like alien syntax.</p></div>
+    <div class="card"><h3>BaaS in the same process</h3>
+      <p>Accounts (device/email/custom, link/unlink, MFA), friends, groups, <b>chat + channels + DMs</b>,
+      parties, presence, storage, leaderboards, tournaments, IAP validation, inventory, notifications,
+      matchmaker.</p></div>
+    <div class="card"><h3>Web console, per-game scoped</h3>
+      <p>Live telemetry graphs, live rooms &amp; clients, <b>WASM studio</b> (upload → ABI gate →
+      activate → rollback), <b>map upload</b> (mesh / 2D / navmesh), match terminate, accounts with
+      ban that <b>kicks live sessions in realtime</b>. Every view scoped to the game you opened.</p></div>
+    <div class="card"><h3>Deterministic core</h3>
+      <p>Fixed-tick simulation with deterministic RNG and tick-based timers; rollback and rewind
+      lag-compensation built for competitive play — the foundation Photon-style games need,
+      without the per-CCU bill.</p></div>
+    <div class="card"><h3>Fleet-ready</h3>
+      <p><b>Agones</b> lifecycle hooks built in, one binary per pod, capacity measured
+      (100 rooms × 100 players fits a 2-core / 2 GB pod at 128 Hz). Self-host on a
+      ₹800/mo VPS or scale on Kubernetes.</p></div>
+    <div class="card"><h3>Typed database layer</h3>
+      <p>FlashORM codegen: named SQL in <b>db/queries/*.sql</b> → typed repositories. Adding a domain
+      is write-the-SQL, run-gen, call-the-methods.</p></div>
+  </div>
+</div></section>
+
+<!-- ======================================================= see it -->
+<section id="see"><div class="wrap">
+  <h2>See it</h2>
+  <p class="sub">Captured from a running deployment. A hosted WASM game's workspace — live telemetry
+  on one WebSocket feed, scoped to this game only.</p>
+  <img class="shot" src="../screenshots/console-game-overview.png" alt="Game workspace — live telemetry">
+  <p class="cap">Overview &amp; Realtime: CCU, rooms, tick rate, tick-p99, live tick-time trace, tick
+  distribution histogram, transport mix, queue depths.</p>
+  <img class="shot" src="../screenshots/console-wasm-modules.png" alt="Project — WASM modules">
+  <p class="cap">Project tab: configure sync rate and capacity, deploy WASM modules with an ABI gate,
+  upload maps, watch live rooms — activate and rollback without touching the server.</p>
+</div></section>
+
+<!-- ======================================================= quick start -->
+<section id="start"><div class="wrap">
+  <h2>Quick start</h2>
+  <p class="sub">Docker (everything mounted live) or bare metal — both are one command.</p>
+
+  <h3>Docker</h3>
+<pre>git clone https://github.com/your-org/openoxide-gaming && cd openoxide-gaming
+just up                     <span class="c"># postgres + redis + server, with examples/sky3d</span>
+<span class="c"># console → http://localhost:19224/dashboard/   (admin / change-me in dev)</span>
+just game coin-rush         <span class="c"># switch examples · just logs · just down</span></pre>
+
+  <h3>Local</h3>
+<pre>cargo build --release
+OX_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg-gaming run examples/coin-rush
+<span class="c"># console → http://localhost:8124/dashboard/</span></pre>
+
+  <h3>New project</h3>
+<pre>ox-game init my-game && cd my-game
+ox-game doctor              <span class="c"># config + schema + ABI health check</span>
+ox-game run                 <span class="c"># compile room.ts → wasm and serve</span></pre>
+
+  <div class="warn"><b>Note:</b> the engine deliberately does not host your game's website — you host the page
+  (any static server) and point the client SDK at the server's control port. The control plane serves
+  the SDK itself at <code>/cyg.js</code> and <code>/openoxide-client.js</code>, plus matchmake, signaling and the console.</div>
+</div></section>
+
+<!-- ======================================================= write a game -->
+<section id="game"><div class="wrap">
+  <h2>Writing a game</h2>
+  <p class="sub">A project is <code>config.toml</code>, your room source and schema, a website you host,
+  and generated <code>out/</code>. The server reads only what the config names.</p>
+
+  <h3>config.toml</h3>
+<pre>name = "coin-rush"
+runtime = "assemblyscript"
+source = "src/room.ts"
+out = "out/room_logic.wasm"
+port = 7779                 <span class="c"># game data (WebRTC over UDP)</span>
+quic_port = 7780            <span class="c"># QUIC/WebTransport lane (0 = off)</span>
+tick_rate = 128
+max_clients = 16
+
+[control]
+api_port = 8124             <span class="c"># matchmake, signaling, console</span>
+
+[control.session]
+database_url = "postgresql://…"</pre>
+
+  <h3>src/schema.ts — declare the state once</h3>
+<pre>const Player = schema({ pid: t.int64(), x: t.number(), y: t.number(), score: t.number() }, "Player");
+export const State = schema({
+    players: t.map(Player),
+    coinX: t.number(),
+    coinY: t.number(),
+}, "State");</pre>
+  <p class="note">Codegen emits typed server classes and the browser descriptor — the client gets its
+  schema at join, so there is no client-side codegen step.</p>
+
+  <h3>src/room.ts — Colyseus-shaped, physics included</h3>
+<pre>import { Room, InputReader, Rapier2D, BodyType } from "./openoxide-server";
+import { GameState, Player } from "./openoxide.schema";
+
+export class CoinRush extends Room {
+    private s: GameState = new GameState();
+
+    onCreate(max: i32): void {
+        this.setState(this.s);
+        Rapier2D.init(0.0, 0.0);
+        const coin = Rapier2D.createBody(BodyType.Fixed, this.s.coinX, this.s.coinY);
+        Rapier2D.addCircleCollider(coin, 24.0, true, 0.0, 0.0);
+    }
+
+    onInputPacket(id: i64, input: InputReader): void {
+        // movement via host physics, mutate state — no byte wrangling
+    }
+
+    onTick(dt: f64): i64 {
+        return this.commitState();      // dirty-only TLV delta, 128 Hz-ready
+    }
+}</pre>
+
+  <h3>Browser client — descriptor-driven, no codegen</h3>
+<pre>const client = new CYG.Client(SERVER_ORIGIN);
+const room = await client.joinOrCreate("game_room");
+
+room.onStateChange((state) => render(state.players.get(room.playerId).x));
+callbacks.onAdd("players", (p) => p.listen("score", (v) => hud(v)));
+
+const reply = await room.request("login", { user });      <span class="c">// request/response RPC</span>
+room.send("fire", { dir });                                <span class="c">// reliable lane</span>
+room.sendUnreliable("move", input);                        <span class="c">// newest-wins lane</span></pre>
+
+  <h3>CLI</h3>
+<pre>ox-game init [dir]              <span class="c"># scaffold a project</span>
+ox-game run [dir]               <span class="c"># compile if needed, then serve</span>
+ox-game aot [dir]               <span class="c"># precompile to native .cwasm (&lt;1 ms cold start)</span>
+ox-game schema [dir]            <span class="c"># compile schema.ts → bindings + descriptor</span>
+ox-game schema-codegen [dir]    <span class="c"># typed client bindings (--lang cs|gdscript|cpp|lua|all)</span>
+ox-game doctor [dir]            <span class="c"># config + schema + ABI health check</span>
+ox-game cook in.glb out.oxcl    <span class="c"># cook a 3D collision mesh for instant boot</span></pre>
+</div></section>
+
+<!-- ======================================================= netcode -->
+<section id="net"><div class="wrap">
+  <h2>Netcode &amp; transports</h2>
+  <p class="sub">One process, three doors, one wire contract. Reliability is QUIC-tier on every lane —
+  per-frame sequence, reorder-safe delivery, SACK selective resends — not a TCP fallback.</p>
+
+  <table>
+    <tr><th>Lane</th><th>Who</th><th>Unreliable</th><th>Reliable</th><th>Connect path</th></tr>
+    <tr><td><b>WebRTC DataChannels</b></td><td>browsers (universal)</td><td>newest-wins deltas</td><td>ordered events + RPC</td><td>seat → signaling WS → ICE/DTLS</td></tr>
+    <tr><td><b>raw UDP</b></td><td>Unity / Unreal / Godot native</td><td>same input lane</td><td>RUDP: SACK + per-frame RTO</td><td>HMAC seat token</td></tr>
+    <tr><td><b>QUIC / WebTransport</b></td><td>engine + native clients (browsers: in progress)</td><td>QUIC datagrams</td><td>QUIC streams, framed</td><td>direct, self-signed hash pinning</td></tr>
+  </table>
+
+  <table>
+    <tr><th>Port</th><th>Config</th><th>What</th></tr>
+    <tr><td><code>cfg.port</code></td><td><code>port</code></td><td>WebRTC data plane (advertised in seats)</td></tr>
+    <tr><td><code>cfg.quic_port</code></td><td><code>quic_port</code></td><td>QUIC/WebTransport listener (0 = off)</td></tr>
+    <tr><td><code>:7778</code></td><td>plane config</td><td>native engine UDP</td></tr>
+    <tr><td><code>cfg.control.api_port</code></td><td><code>api_port</code></td><td>matchmake, signaling, /v2 API, console</td></tr>
+  </table>
+
+  <h3>Fan-out engineering</h3>
+  <p class="note">Delta broadcast is not a naive loop: <b>sendmmsg</b> batches syscalls (measured ~6–7%
+  send-side saving on loopback, more on real NICs) and <b>UDP GSO</b> collapses same-destination runs —
+  measured at <b>0.3% of per-message send_to walltime</b> for GSO-eligible bursts. Hot-path buffers are
+  pre-allocated; the 128 Hz tick budget is respected by construction.</p>
+</div></section>
+
+<!-- ======================================================= bench -->
+<section id="bench"><div class="wrap">
+  <h2>Benchmarks</h2>
+  <p class="sub">Measured on a Ryzen 9 5900XT, release builds, idle machine, single core — reproducible
+  from the repo (<code>cargo run --release --example bench_ecs_128</code> and friends). These are the
+  same numbers in the README; nothing here is extrapolated marketing.</p>
+
+  <table>
+    <tr><th>Inbuilt backend / workload</th><th>p99 tick</th><th>CCU per core</th></tr>
+    <tr><td>WASM room, full combat logic (move + shoot + damage + respawn) @60 Hz</td><td>3.36 ms @500p</td><td>~2.5k</td></tr>
+    <tr><td>WASM room + inbuilt Rapier2D @128 Hz, 100–200p rooms</td><td>0.06 ms @100p</td><td>~9k</td></tr>
+    <tr><td>Inbuilt ECS backend (movement) @128 Hz</td><td>0.07 ms @100p</td><td>14–16k</td></tr>
+    <tr><td>Rapier3D physics step @60 Hz, 500-body rooms</td><td>0.57 ms</td><td>~14.6k</td></tr>
+  </table>
+
+  <p class="note">Room size matters: one 5000-body room is the wrong shape (12.8 ms/tick) while
+  100–500-player rooms leave 96%+ of the budget free. A 2-core / 2 GB pod serves
+  <b>100 rooms × 100 players at 128 Hz</b> (0.76× of budget) with peak RAM of 93 MB — 4.6% of the pod.
+  RAM is never the bottleneck; CPU is.</p>
+</div></section>
+
+<!-- ======================================================= vs -->
+<section id="vs"><div class="wrap">
+  <h2>How it compares</h2>
+  <p class="sub">Honest table, not a mud-slinging one. Each of these is good at what it does — CYG's
+  claim is the combination, self-hosted, at commodity-hardware economics.</p>
+
+  <table>
+    <tr><th></th><th>CYG</th><th>Colyseus</th><th>Nakama</th><th>SpacetimeDB</th><th>Photon Quantum/Fusion</th></tr>
+    <tr><td>Reactive room state-sync DX</td><td><b>✔</b></td><td>✔</td><td>—</td><td>subscriptions</td><td>✔ (closed)</td></tr>
+    <tr><td>BaaS (accounts/chat/leaderboards/IAP)</td><td><b>✔ same process</b></td><td>—</td><td>✔</td><td>—</td><td>add-on</td></tr>
+    <tr><td>Authoritative custom logic, sandboxed</td><td><b>✔ WASM per-room</b></td><td>Node process</td><td>Go/Lua/TS module</td><td>✔ WASM module</td><td>closed runtime</td></tr>
+    <tr><td>Physics / navmesh / AOI inbuilt</td><td><b>✔ Rapier + A* + AOI</b></td><td>—</td><td>—</td><td>—</td><td>✔</td></tr>
+    <tr><td>Transports</td><td><b>WebRTC + UDP + QUIC</b></td><td>WS/WebRTC</td><td>WS</td><td>WebSocket/SPDN-b</td><td>UDP (their relay)</td></tr>
+    <tr><td>Multi-tenant SaaS hosting</td><td><b>✔ sandboxed tenants</b></td><td>—</td><td>—</td><td>—</td><td>their cloud only</td></tr>
+    <tr><td>Self-host cost @ ~2k CCU</td><td><b>~₹800/mo VPS</b></td><td>~$72+/mo cloud</td><td>varies</td><td>varies</td><td>$240+/mo class</td></tr>
+    <tr><td>Ecosystem maturity</td><td>early — read the honest note</td><td>10+ years</td><td>10+ years</td><td>growing fast</td><td>mature, closed</td></tr>
+  </table>
+
+  <div class="warn"><b>Honest note:</b> CYG is young. No shipped games yet, docs are this page, and the
+  community is you (for now). Raw full-combat CCU/core is at <i>parity</i> with Colyseus's measured
+  baseline — the win is the collapsed stack, the inbuilt backends, determinism, and self-host
+  economics, not a magic performance multiplier. Pick it for the architecture and the bill; expect to
+  read source code like an early adopter.</div>
+</div></section>
+
+<!-- ======================================================= architecture -->
+<section id="arch"><div class="wrap">
+  <h2>Architecture</h2>
+  <p class="sub">One process. One thread for the simulation. A lock-free bus between planes.</p>
+<pre>┌──────────────────────────  one process  ──────────────────────────┐
+│  Control plane (Tokio/Axum)          Game host loop (pinned sim)  │
+│  ├─ matchmake + seat tokens          ├─ WASM room runtime         │
+│  ├─ /ws/signal  (WebRTC signaling)   ├─ inbuilt ECS backend       │
+│  ├─ /v2/* player API (BaaS)          ├─ Rapier2D/3D physics       │
+│  ├─ /v2/console/* + web dashboard    ├─ AOI / spatial index       │
+│  └─ statics (SDK + unity pages)      └─ WebRTC · UDP · QUIC lanes │
+│            everything talks through one lock-free bus             │
+└───────────────────────────────────────────────────────────────────┘</pre>
+
+  <table>
+    <tr><th>Crate</th><th>What it is</th></tr>
+    <tr><td><code>engine-server</code></td><td>host loop: WASM runtime, rooms, inbuilt ECS backend, RUDP, deltas, AOI</td></tr>
+    <tr><td><code>engine-api</code></td><td>/v2 player API + /v2/console + dashboard API</td></tr>
+    <tr><td><code>engine-net</code></td><td>transports: WebRTC (str0m) + raw UDP + QUIC (quinn-proto, sans-IO)</td></tr>
+    <tr><td><code>engine-webrtc-protocol</code></td><td>the shared wire: event/ack frames, SACK, lanes</td></tr>
+    <tr><td><code>engine-wasm</code> / <code>engine-schema</code></td><td>guest ABI + permissions / schema compiler + codegen</td></tr>
+    <tr><td><code>engine-physics</code> / <code>engine-nav</code> / <code>engine-spatial</code></td><td>Rapier worlds + OXCL meshes / navmesh A* / AOI index</td></tr>
+    <tr><td><code>engine-control</code> / <code>engine-bus</code> / <code>engine-agones</code></td><td>plane binding / lock-free channels / K8s GameServer lifecycle</td></tr>
+    <tr><td><code>engine-config</code> / <code>engine-dashboard</code></td><td>config.toml → typed structs / the web console</td></tr>
+  </table>
+
+  <h3>Tenancy</h3>
+  <p class="note">The console and database serve many games; each process hosts one. A game workspace
+  shows only that game's data — telemetry for any other tenant is refused ("This server hosts 'X', not
+  the requested game") and database views filter by <code>game_id</code>. Bind a process with
+  <code>game_id</code>/<code>game_key</code> in config.toml.</p>
+
+  <h3>Testing</h3>
+<pre>cargo test --workspace              <span class="c"># engine crates + API suite</span>
+node --test sdk/client/web/test/    <span class="c"># client SDK (schema decode, signaling, RPC)</span>
+just doctor sky3d                   <span class="c"># project-level health check</span></pre>
+</div></section>
+
+<footer><div class="wrap">
+  <div class="cols">
+    <div>
+      <b>CYG</b> — Apache-2.0. Source in <code>crates/</code>, working roadmap in
+      <code>ROADMAP-DX.md</code>, screenshots in <code>docs/screenshots/</code>.
+    </div>
+    <div>
+      Examples: <code>examples/sky3d</code> (Three.js + Rapier3D) ·
+      <code>examples/blaster</code> (top-down shooter) ·
+      <code>examples/coin-rush</code> (Rapier2D pickups) ·
+      SDK: <code>sdk/client</code> + <code>sdk/server</code> (AssemblyScript first, Lua/C/C++/Rust/C#/TS interfaces generated).
+    </div>
+  </div>
+</div></footer>
+
+</body>
+</html>
