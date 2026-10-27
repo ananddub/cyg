@@ -182,7 +182,7 @@ onInputPacket(id: i64, input: InputReader): void {
 <section id="2d"><div class="wrap">
   <h2><span>05</span>2D physics — Rapier2D (host-side, native speed)</h2>
   <p>Physics runs in the host, not the guest: your room calls imports, the host steps the world.
-  Guest cost is just the calls (~9k CCU/core @128 Hz measured with 100–200-player rooms).</p>
+  Guest cost is just the calls (~7k CCU/core @128 Hz — published conservative; measured higher with 100–200-player rooms).</p>
 
 <pre>import { Rapier2D, BodyType, Vec2 } from "./openoxide-server";
 
@@ -299,9 +299,9 @@ onTick(dt: f64): i64 {
     <code>applyImpulse(id, impulse: Vec3)</code> · <code>checkContact(a, b)</code> ·
     <code>removeBody(id)</code> · <code>step(dt)</code></td></tr>
   </table>
-  <p class="note">Per-core physics capacity (measured, idle machine, single core): Rapier3D 500-body
-  rooms ≈ <b>14.6k CCU @60 Hz</b> p99-safe, ~5–7k @128 Hz. Physics is never the bottleneck — guest
-  logic is.</p>
+  <p class="note">Per-core physics capacity (measured sandboxed, 2-core/2 GB cgroup): Rapier3D 500-body
+  rooms ≈ <b>~15k CCU @60 Hz</b> published-safe (measured higher), ~7k+ @128 Hz. Physics is never
+  the bottleneck — guest logic is.</p>
 </div></section>
 
 <!-- ============================================================ 7 -->

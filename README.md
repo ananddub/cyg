@@ -165,15 +165,15 @@ One process, one thread for the simulation, lock-free bus between planes:
 
 Schema lives in `db/schema/*.sql`, named queries in `db/queries/*.sql`; `flash gen` emits typed repositories into `crates/engine-api/src/repositories/` (runtime-checked, no live DB needed at build). Console services read/write through `state.q`; multi-statement transactions stay hand-written beside their services by convention. Adding a domain = write the `.sql`, run `flash gen`, call `state.q`.
 
-## Benchmarks (measured, one binary, Ryzen 9 5900XT, release builds, idle machine)
+## Benchmarks (measured in a 2-core / 2 GB sandbox cgroup, release builds — published figures rounded below measured)
 
 The same room runtime, scaled by which inbuilt backend carries the simulation — heavier custom logic, lighter template logic:
 
 | Inbuilt backend / workload | p99 tick | CCU per core |
 |---|---|---|
-| WASM room, full combat logic (move + shoot + damage + respawn) @60 Hz | 3.36 ms @500p | ~2.5k |
-| WASM room + inbuilt Rapier2D @128 Hz, 100–200p rooms | 0.06 ms @100p | ~9k |
-| Inbuilt ECS backend (movement) @128 Hz | 0.07 ms @100p | 14–16k |
+| WASM room, full combat logic (move + shoot + damage + respawn) @60 Hz | 4.1 ms @500p | ~1.5k |
+| WASM room + inbuilt Rapier2D @128 Hz, 100–200p rooms | 0.07 ms @100p | ~7k |
+| Inbuilt ECS backend (movement) @128 Hz | 0.06 ms @100p | ~10k |
 
 2-core / 2 GB pod @128 Hz: 100 rooms × 100 players fits at 0.76× the tick budget, peak RAM 93 MB. Reproduce: `cargo run --release --example bench_ecs_128` / `bench_wasm_rapier_128` / `bench_potential` (under `taskset -c 0-1`).
 
