@@ -44,6 +44,17 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # engine-api embeds dashboard/dist at compile time (RustEmbed) — the
+      # console ships inside the binary, so the dashboard builds first.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build web console (dashboard/dist)
+        run: |
+          cd dashboard
+          npm install
+          npm run build
+
       - name: Build (release)
         run: cargo build --release --target ${{ matrix.target }} --bin cyg-gaming
 
