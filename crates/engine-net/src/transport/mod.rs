@@ -187,6 +187,53 @@ fn sockaddr_storage_of(addr: &SocketAddr) -> (libc::sockaddr_storage, libc::sock
 /// Batch-send queued datagrams with **one syscall per chunk**
 /// (`sendmmsg(2)`), instead of one `send_to` per destination.
 ///
+/// Non-unix fallback: same call shape, per-message `send_to`. Correctness
+/// identical — only the syscall batching is lost, which is a Linux feature.
+#[cfg(not(unix))]
+pub fn send_datagram_batch<B: AsRef<[u8]>>(
+    socket: &mio::net::UdpSocket,
+    msgs: &[(SocketAddr, B)],
+) -> usize {
+    let mut sent = 0;
+    for (dest, bytes) in msgs {
+        if socket.send_to(bytes.as_ref(), *dest).is_ok() {
+            sent += 1;
+        }
+    }
+    sent
+}
+
+/// Non-unix fallback: GSO is a Linux socket feature — always refuse so the
+/// caller falls back to `send_datagram_batch`.
+#[cfg(not(unix))]
+pub fn send_gso(
+    _socket: &mio::net::UdpSocket,
+    _addr: &SocketAddr,
+    _segments: &[&[u8]],
+    _seg_size: usize,
+) -> Result<(), std::io::Error> {
+    Err(std::io::Error::other("GSO is linux-only"))
+}
+
+/// Pure logic — identical on every platform.
+#[cfg(not(unix))]
+pub fn gso_run_len(msgs: &[(SocketAddr, impl AsRef<[u8]>)], start: usize) -> usize {
+    let (dest, first) = &msgs[start];
+    let seg = first.as_ref().len();
+    if seg == 0 {
+        return 1;
+    }
+    let mut n = 1;
+    while start + n < msgs.len() {
+        let (next_dest, next) = &msgs[start + n];
+        if *next_dest != *dest || next.as_ref().len() != seg {
+            break;
+        }
+        n += 1;
+    }
+    n
+}
+
 /// Per-packet work inside the kernel is unchanged — what this removes is the
 /// user↔kernel transition per message, which at high fan-out (thousands of
 /// destinations per tick) is a measurable slice of the send path. Returns the
