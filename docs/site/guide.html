@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CYG Guide — A to Z</title>
+<style>
+  :root { --bg:#0b0d10; --bg2:#12151a; --card:#161a21; --line:#232933; --text:#e8ebf0; --muted:#98a2b3; --accent:#5eead4; --accent2:#818cf8; --code-bg:#0e1116; --warn:#fbbf24; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; line-height:1.65; font-size:15.5px; }
+  a { color:var(--accent); text-decoration:none; }
+  code, pre { font-family:ui-monospace,"Cascadia Code",Consolas,monospace; }
+  .wrap { max-width:1000px; margin:0 auto; padding:0 24px; }
+  nav { position:sticky; top:0; z-index:10; background:rgba(11,13,16,.94); border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; align-items:center; gap:16px; height:52px; overflow-x:auto; }
+  .logo { font-weight:800; color:var(--text); white-space:nowrap; } .logo b { color:var(--accent); }
+  nav a { color:var(--muted); font-size:13.5px; white-space:nowrap; }
+  nav a:hover { color:var(--text); }
+  header { padding:48px 0 30px; }
+  h1 { font-size:34px; } h1 b { color:var(--accent); }
+  .tag { color:var(--muted); margin-top:8px; max-width:820px; }
+  section { padding:34px 0; border-top:1px solid var(--line); }
+  h2 { font-size:23px; margin-bottom:10px; padding-top:6px; }
+  h2 span { color:var(--accent2); font-size:14px; vertical-align:middle; margin-right:8px; }
+  p { margin:8px 0; color:var(--text); }
+  .note { color:var(--muted); font-size:14px; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; margin:10px 0; }
+  th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.4px; }
+  td code, p code, li code { background:var(--code-bg); border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:12.5px; }
+  pre { background:var(--code-bg); border:1px solid var(--line); border-radius:10px; padding:13px 16px; overflow-x:auto; font-size:13px; line-height:1.55; margin:10px 0; }
+  pre .c { color:var(--muted); }
+  pre .h { color:var(--accent); }
+  .warn { border-left:3px solid var(--warn); padding:9px 14px; background:var(--bg2); border-radius:0 8px 8px 0; font-size:14px; color:var(--muted); margin:12px 0; }
+  .warn b { color:var(--warn); }
+  ul, ol { margin:8px 0 8px 22px; }
+  li { margin:4px 0; }
+  footer { padding:36px 0 60px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <span class="logo"><b>CYG</b> guide</span>
+  <a href="index.html">← Home</a>
+  <a href="#setup">1 Setup</a><a href="#state">2 State</a><a href="#life">3 Lifecycle</a>
+  <a href="#input">4 Inputs</a><a href="#2d">5 Physics 2D</a><a href="#3d">6 Physics 3D</a>
+  <a href="#nav">7 Navmesh</a><a href="#aoi">8 AOI</a><a href="#util">9 RNG/Timers</a>
+  <a href="#msg">10 Messaging</a><a href="#maps">11 Maps</a><a href="#client">12 Client SDK</a>
+  <a href="#console">13 Console</a><a href="#deploy">14 Deploy</a>
+</div></nav>
+
+<header><div class="wrap">
+  <h1>The <b>A-to-Z</b> developer guide</h1>
+  <p class="tag">Every system, every API name, every file — from an empty folder to a deployed
+  multiplayer game. All names match the SDK exactly (<code>sdk/server/assemblyscript/cyg-server.ts</code>
+  and <code>sdk/client/web/cyg.js</code>).</p>
+</div></header>
+
+<!-- ============================================================ 1 -->
+<section id="setup"><div class="wrap">
+  <h2><span>01</span>Project setup</h2>
+<pre>ox-game init my-game && cd my-game</pre>
+  <p>Two runtimes exist: <code>runtime = "assemblyscript"</code> (your logic compiles to WASM —
+  the standard path) and the inbuilt backends (physics rooms, ECS rooms) the host can run natively.</p>
+  <table>
+    <tr><th>Key</th><th>Meaning</th></tr>
+    <tr><td><code>name</code></td><td>project name</td></tr>
+    <tr><td><code>source</code> / <code>out</code></td><td>room entry file / compiled wasm output</td></tr>
+    <tr><td><code>port</code></td><td>WebRTC data plane (advertised in seat reservations)</td></tr>
+    <tr><td><code>quic_port</code></td><td>QUIC lane; <code>0</code> = off</td></tr>
+    <tr><td><code>tick_rate</code></td><td>simulation Hz (20–128)</td></tr>
+    <tr><td><code>max_clients</code> / <code>max_rooms</code></td><td>per-process capacity caps</td></tr>
+    <tr><td><code>width</code> / <code>height</code></td><td>default world bounds handed to rooms</td></tr>
+    <tr><td><code>[control] api_port</code></td><td>matchmake + signaling + /v2 API + console</td></tr>
+    <tr><td><code>[control.session] database_url</code></td><td>Postgres for accounts, chat, everything BaaS</td></tr>
+    <tr><td><code>game_id</code> / <code>game_key</code></td><td>which registered game (games table) this process hosts — required the moment your database has 2+ games</td></tr>
+    <tr><td><code>permissions</code></td><td>gates the <code>sys_*</code> host imports (physics, logging, …)</td></tr>
+  </table>
+  <p class="note">Live edits: saving <code>room.ts</code> or <code>schema.ts</code> triggers recompile +
+  hot-swap — players stay connected. <code>ox-game doctor</code> validates the whole project.
+  <code>ox-game aot</code> precompiles to <code>.cwasm</code> for sub-millisecond cold starts.</p>
+</div></section>
+
+<!-- ============================================================ 2 -->
+<section id="state"><div class="wrap">
+  <h2><span>02</span>Schema &amp; state — the reactive core</h2>
+  <p>You declare the network state once; the build compiles it into typed server classes plus a browser
+  descriptor. Clients decode at join — no client codegen, ever.</p>
+<pre><span class="c">// src/schema.ts</span>
+const Player = schema({
+    pid: t.int64(), x: t.number(), y: t.number(),
+    hp: t.int32(), score: t.int32(),
+}, "Player");
+
+export const State = schema({
+    players: t.map(Player),          <span class="c">// collection (per-player entities)</span>
+    coinX:   t.number(),             <span class="c">// root scalars = world-level values</span>
+    coinY:   t.number(),
+    phase:   t.int32(),
+}, "State");</pre>
+  <p>In the room, the pattern is always the same three lines:</p>
+<pre><span class="c">// src/room.ts</span>
+import { GameState, Player } from "./openoxide.schema";
+
+export class CoinRush extends Room {
+    private s: GameState = new GameState();
+
+    onCreate(max: i32): void {
+        this.setState(this.s);                       <span class="c">// 1. bind the state</span>
+    }
+    onTick(dt: f64): i64 {
+        // ... mutate s.players / s.coinX ...
+        return this.commitState();                    <span class="c">// 2. dirty-only delta out</span>
+    }
+}</pre>
+  <p class="note"><b>How the wire works:</b> <code>commitState()</code> encodes only fields you changed
+  (dirty tracking) into tagged TLV rows — a quiet room costs ~0 bytes. Clients receive a full snapshot
+  on join and patches afterwards, decoded through the descriptor. The state is also what the console's
+  AOI and the descriptors in <code>out/cyg.schema.bin</code> are built from.</p>
+</div></section>
+
+<!-- ============================================================ 3 -->
+<section id="life"><div class="wrap">
+  <h2><span>03</span>Room lifecycle hooks</h2>
+  <table>
+    <tr><th>Hook</th><th>When</th><th>Return</th></tr>
+    <tr><td><code>onCreate(max: i32)</code></td><td>room allocated; physics init, state bind</td><td>—</td></tr>
+    <tr><td><code>onJoin(id: i64, x: f64, y: f64)</code></td><td>player seated (spawn x/y from host)</td><td>—</td></tr>
+    <tr><td><code>onLeave(id: i64)</code></td><td>player gone (clean or timeout)</td><td>—</td></tr>
+    <tr><td><code>onInputPacket(id, input: InputReader)</code></td><td>reliable app message from one player</td><td>—</td></tr>
+    <tr><td><code>onTick(dt: f64)</code></td><td>every simulation tick at <code>tick_rate</code></td><td><code>i64</code> = <code>commitState()</code> result (ptr&lt;&lt;32 | len)</td></tr>
+    <tr><td><code>onSave() / onLoad()</code></td><td>persistence snapshots (hibernation)</td><td>serialized state bytes</td></tr>
+  </table>
+  <p class="note">Per-tick flow: <b>inputs in → simulate → commitState()</b>. <code>dt</code> is the tick
+  delta in seconds (1/128 at 128 Hz) — always scale movement by it, never assume fixed values.</p>
+</div></section>
+
+<!-- ============================================================ 4 -->
+<section id="input"><div class="wrap">
+  <h2><span>04</span>Inputs — the 128 Hz movement lane</h2>
+  <p>Movement input is special: it rides the <b>unreliable newest-wins lane</b> (a late packet is
+  worthless). The client packs a small binary frame; the server reads it with <code>InputReader</code>.</p>
+
+  <h3>Client side (web SDK)</h3>
+<pre><span class="c">// keys → one flag byte (W=1 S=2 A=4 D=8 …), aim as a normalized vector</span>
+let flags = 0;
+if (keys.has("w")) flags |= 1;
+if (keys.has("s")) flags |= 2;
+if (keys.has("a")) flags |= 4;
+if (keys.has("d")) flags |= 8;
+
+<span class="c">// the movement packet: [flags u8][aimX f32][aimY f32] on the unreliable lane</span>
+const pkt = new DataView(new ArrayBuffer(9));
+pkt.setUint8(0, flags);
+pkt.setFloat32(1, aimX, true);
+pkt.setFloat32(5, aimY, true);
+room.sendUnreliable("input", new Uint8Array(pkt.buffer));</pre>
+
+  <h3>Server side</h3>
+<pre>import { InputReader, Key, isHeld } from "./openoxide-server";
+
+onInputPacket(id: i64, input: InputReader): void {
+    const flags = input.readU8();
+    const aimX  = input.readF32();
+    const aimY  = input.readF32();
+    if (isHeld(flags, Key.W)) { /* forward */ }
+}</pre>
+  <p class="note"><code>InputReader</code>: <code>readU8()</code>, <code>readF32()</code>,
+  <code>readF64()</code>, <code>readI64()</code>, <code>hasRemaining(n)</code> — cursor-based, never
+  throws past the end you check. <code>Key</code>/<code>KeyCode</code> carry the standard constants;
+  <code>heldFlags(ptr,len)</code> + <code>isHeld(flags,key)</code> decode packed key bytes. For
+  physics-based movement, <code>Physics.move(pos, vel, radius, dt)</code> (see §6) applies
+  wall-sliding kinematic motion in one call.</p>
+
+  <div class="warn"><b>Rule:</b> <code>onInputPacket</code> is the <b>reliable</b> path (fires, chats,
+  RPC-shaped messages — things you cannot afford to drop). Per-tick movement stays on
+  <code>sendUnreliable</code>. Never swap them.</div>
+</div></section>
+
+<!-- ============================================================ 5 -->
+<section id="2d"><div class="wrap">
+  <h2><span>05</span>2D physics — Rapier2D (host-side, native speed)</h2>
+  <p>Physics runs in the host, not the guest: your room calls imports, the host steps the world.
+  Guest cost is just the calls (~9k CCU/core @128 Hz measured with 100–200-player rooms).</p>
+
+<pre>import { Rapier2D, BodyType, Vec2 } from "./openoxide-server";
+
+onCreate(max: i32): void {
+    Rapier2D.init(0.0, 0.0);                       <span class="c">// gravity x, y (top-down: 0,0)</span>
+    this.playerBody = Rapier2D.createBody(BodyType.Dynamic, x, y);
+    Rapier2D.addCircleCollider(this.playerBody, 14.0, false, 0.0, 0.0);
+    <span class="c">//                                     radius  sensor</span>
+    this.coinBody = Rapier2D.createBody(BodyType.Fixed, 400, 250);
+    Rapier2D.addCircleCollider(this.coinBody, 24.0, <b>true</b>, 0.0, 0.0);  <span class="c">// sensor = pickup</span>
+}
+
+onTick(dt: f64): i64 {
+    <span class="c">// move: velocity or impulses — your choice per game</span>
+    Rapier2D.setVelocity(this.playerBody, vx, vy);
+    <span class="c">// Rapier2D.applyImpulse(this.playerBody, ix, iy);</span>
+
+    <span class="c">// pickup: sensor contact test</span>
+    if (Rapier2D.checkContact(this.playerBody, this.coinBody)) { /* score++ */ }
+
+    Rapier2D.step(dt);                              <span class="c">// advance the world once</span>
+
+    const out = new Vec2();
+    if (Rapier2D.getPosition(this.playerBody, out)) {
+        p.x = out.x; p.y = out.y;                   <span class="c">// read back into state</span>
+    }
+    return this.commitState();
+}</pre>
+  <table>
+    <tr><th>Full Rapier2D surface</th></tr>
+    <tr><td><code>init(gx, gy)</code> · <code>createBody(BodyType.Dynamic|Fixed, x, y)</code> ·
+    <code>addCircleCollider(bodyId, radius, sensor, ox, oy)</code> · <code>addBoxCollider(...)</code> ·
+    <code>setVelocity(id, vx, vy)</code> · <code>getVelocity(id, out: Vec2)</code> ·
+    <code>getPosition(id, out: Vec2)</code> · <code>setPosition(id, x, y)</code> ·
+    <code>applyImpulse(id, ix, iy)</code> · <code>checkContact(a, b)</code> ·
+    <code>removeBody(id)</code> · <code>step(dt)</code></td></tr>
+  </table>
+
+  <h3>2D arena geometry (walls, obstacles)</h3>
+  <p>Two ways — both boot-loaded once, cloned into every room (never re-created per tick):</p>
+  <ol>
+    <li><b><code>arena_2d.json</code></b> in the project folder:
+<pre>{ "arena_width": 800, "arena_height": 600,
+  "obstacles": [ { "x": 100, "y": 300, "w": 20, "h": 400, "rotation": 0 } ] }</pre>
+    boxes carry <code>x/y/w/h</code> (optional <code>rotation</code> radians); all become fixed
+    colliders. Or <code>arena_map.json</code> — parsed as a 2D map when no <code>arena_2d.json</code> exists.</li>
+    <li><b>Console upload:</b> game → Project → <b>Maps</b> → upload the same JSON with format
+    <b>2D arena</b>. The active version reaches the server at boot (no SSH, no file copy) and new rooms
+    spawn on a re-activated map live.</li>
+  </ol>
+</div></section>
+
+<!-- ============================================================ 6 -->
+<section id="3d"><div class="wrap">
+  <h2><span>06</span>3D — kinematic Physics + Rapier3D</h2>
+  <p>3D gives you two layers. <b>Physics</b> is the character controller layer: world geometry,
+  wall-sliding movement, raycasts, lag compensation. <b>Rapier3D</b> is the rigid-body layer: balls,
+  boxes, impulses — projectiles, debris, dynamic props.</p>
+
+  <h3>Map geometry (choose one, loaded at boot)</h3>
+<pre><span class="c"># cook a GLB scene into an OXCL collision mesh (instant boot, baked statics)</span>
+ox-game cook map.glb arena.oxcl
+
+<span class="c"># …or simple boxes: arena_map.json</span>
+{ "arena_width": 60, "arena_depth": 60,
+  "obstacles": [ { "id": 1, "name": "wall", "x": 0, "y": 2, "z": -30,
+                   "w": 60, "h": 4, "d": 1, "walkable_roof": false } ] }</pre>
+  <p class="note">Priority at boot: console-uploaded map (per game, active version) → local
+  <code>arena.oxcl</code> → <code>arena_map.json</code>. Rooms clone the loaded world — spawn cost is
+  milliseconds, geometry processing never repeats per tick.</p>
+
+  <h3>Kinematic character movement (sky3d's pattern)</h3>
+<pre>import { Physics, Vec3 } from "./openoxide-server";
+
+onTick(dt: f64): i64 {
+    <span class="c">// desired velocity from input, then one call moves + slides along walls</span>
+    const result = Physics.move(pos, vel, /*radius*/ 0.5, dt);
+    <span class="c">// result: MoveResult { position, grounded … }</span>
+
+    <span class="c">// snap to floors / walk on ramps:</span>
+    const ground = Physics.getSurfaceHeight(pos, 0.5);
+
+    <span class="c">// hitscan with lag compensation (rewinds to what the shooter saw):</span>
+    const hit = Physics.lagRaycast(origin, dir, 200.0);
+    return this.commitState();
+}</pre>
+  <p class="note"><b>Physics surface:</b> <code>move / moveRaw</code> (wall-sliding step),
+  <code>raycast / raycastRaw</code>, <code>lagRaycast</code>, <code>getSurfaceHeight</code>,
+  <code>distance</code>, <code>checkCircleOverlap</code> (XZ), <code>checkSphereOverlap</code>,
+  <code>isPointInSphere</code>, <code>isPointInBox</code>. Vector-first: APIs take <b>Vec2/Vec3</b>,
+  the <code>*Raw</code> variants are scalar escape hatches.</p>
+
+  <h3>Rapier3D rigid bodies (projectiles, dynamic props)</h3>
+<pre>import { Rapier3D, BodyType, Vec3 } from "./openoxide-server";
+
+onCreate(max: i32): void { Rapier3D.init(new Vec3(0.0, -9.81, 0.0)); }
+
+onTick(dt: f64): i64 {
+    const bullet = Rapier3D.createBody(BodyType.Dynamic, spawnPos);
+    Rapier3D.addBallCollider(bullet, 0.1);
+    Rapier3D.setVelocity(bullet, new Vec3(dir.x * 60, dir.y * 60, dir.z * 60));
+
+    if (Rapier3D.checkContact(bullet, targetBody)) { /* damage */ }
+
+    Rapier3D.step(dt);
+    const p = Rapier3D.getPosition(bullet);        <span class="c">// returns Vec3</span>
+    return this.commitState();
+}</pre>
+  <table>
+    <tr><th>Full Rapier3D surface</th></tr>
+    <tr><td><code>init(gravity: Vec3)</code> · <code>createBody(BodyType, pos: Vec3)</code> ·
+    <code>addBallCollider(id, radius)</code> · <code>addBoxCollider(id, halfExtents: Vec3)</code> ·
+    <code>setPosition / setVelocity / getPosition / getVelocity</code> ·
+    <code>applyImpulse(id, impulse: Vec3)</code> · <code>checkContact(a, b)</code> ·
+    <code>removeBody(id)</code> · <code>step(dt)</code></td></tr>
+  </table>
+  <p class="note">Per-core physics capacity (measured, idle machine, single core): Rapier3D 500-body
+  rooms ≈ <b>14.6k CCU @60 Hz</b> p99-safe, ~5–7k @128 Hz. Physics is never the bottleneck — guest
+  logic is.</p>
+</div></section>
+
+<!-- ============================================================ 7 -->
+<section id="nav"><div class="wrap">
+  <h2><span>07</span>Navmesh — bot pathfinding</h2>
+  <p>Bots ask the host for an any-angle path across the baked navmesh; you steer them along the
+  waypoints. Nothing to compute in the guest.</p>
+<pre>import { NavMesh, Vec2 } from "./openoxide-server";
+
+onTick(dt: f64): i64 {
+    for each bot:
+        if (reachedWaypoint || waypoints.length == 0) {
+            waypoints = NavMesh.findPath(botPos, targetPos, /*maxPoints*/ 32);
+            waypointIndex = 0;
+        }
+        <span class="c">// steer toward waypoints[waypointIndex], advance when close</span>
+}</pre>
+  <h3>Getting a navmesh in (two ways)</h3>
+  <ol>
+    <li><b>Console upload:</b> game → Project → <b>Maps</b> → format <b>Navmesh</b> → upload the baked
+    file (Polyanya <code>.nav2d</code>/<code>.mesh</code>). The server loads the active version at boot
+    and injects it into every room — <code>sys_navmesh_find_path</code> reads it inside
+    <code>NavMesh.findPath</code>.</li>
+    <li>It is also injected automatically when the map arrives with the game's uploaded assets —
+    rooms created after the injection (or re-injected hot-reload) see it.</li>
+  </ol>
+  <p class="note"><code>findPath</code> returns corner waypoints — the start and goal are not
+  guaranteed members of the list; steer point-to-point and treat the last point as "arrive".
+  Unreachable targets return an empty path.</p>
+</div></section>
+
+<!-- ============================================================ 8 -->
+<section id="aoi"><div class="wrap">
+  <h2><span>08</span>AOI — area of interest</h2>
+  <p>Register every moving entity once, query who is near — the host keeps the spatial index
+  (kiddo r-tree) and your deltas stay small because clients only receive what matters.</p>
+<pre><span class="c">// keep the index fresh (on join / on tick when moving)</span>
+spatialUpdate(playerId, new Vec2(p.x, p.y));
+<span class="c">// 3D worlds / plain numbers:</span>
+spatialUpdateXY(playerId, x, y);
+
+<span class="c">// who is within R units of me? → ids written into your buffer, count returned</span>
+const near = spatialQuery(new Vec2(p.x, p.y), 40.0, outIdsPtr);
+
+<span class="c">// on leave — remove or the ghost lingers in everyone's queries:</span>
+spatialRemove(playerId, new Vec2(p.x, p.y));</pre>
+  <p class="note">The host's schema-AOI can also filter deltas automatically when your schema carries
+  <code>x/y</code> fields and <code>[aoi] enabled = true</code> in config — entities outside a
+  viewer's radius are not encoded for that viewer at all.</p>
+</div></section>
+
+<!-- ============================================================ 9 -->
+<section id="util"><div class="wrap">
+  <h2><span>09</span>RNG, timers, combat, match state</h2>
+  <p>All deterministic, all rollback-safe — these never read wall-clock, so a replay re-simulates
+  identically.</p>
+<pre><span class="c">// deterministic RNG (per-room seeded from the room name)</span>
+rngNext(): f64                            <span class="c">// 0..1, xorshift64 — loot spawns, scatter</span>
+Random.seed(s: u64) / Random.nextU32()    <span class="c">// explicit control</span>
+clockTicks(): i64                         <span class="c">// the tick counter — time itself</span>
+
+<span class="c">// tick-based timers (Colyseus this.clock, but deterministic)</span>
+Timers.set(id, delayTicks, intervalTicks = 0)   <span class="c">// 0 = one-shot</span>
+Timers.poll()                                   <span class="c">// once per onTick → fired ids</span>
+Timers.cancel(id)
+
+<span class="c">// combat: zone-weighted damage with crits</span>
+const dmg = Combat.applyDamage(/* attacker seed, zone, weapon … */);  <span class="c">// → DamageResult</span>
+
+<span class="c">// match flow machine + pickup/cooldown helpers</span>
+MatchStateMachine / CooldownTracker / TriggerZone</pre>
+  <p class="note">Timers are <b>polled</b>, not callbacks: call <code>Timers.poll()</code> at the top of
+  <code>onTick</code> and switch on the returned ids. That is what makes them survive rollback replays.</p>
+</div></section>
+
+<!-- ============================================================ 10 -->
+<section id="msg"><div class="wrap">
+  <h2><span>10</span>Messaging — broadcast, send, RPC</h2>
+<pre><span class="c">// server → everyone (reliable)</span>
+this.broadcast("phase", writerBytes);
+this.broadcastText("chat", "welcome!");
+
+<span class="c">// server → one player</span>
+this.sendTo(playerId, "private", bytes);
+this.sendTextTo(playerId, "toast", "level up");
+
+<span class="c">// ── request/response RPC (client asks, server answers) ──</span>
+this.onRequest("login", (senderId: i64, reader: InputReader, ctx: RequestContext) => {
+    const name = reader.remainingBytes();          <span class="c">// read the payload</span>
+    ctx.replyText("ok");                            <span class="c">// or ctx.reply(bytes)</span>
+});
+<span class="c">// 'request'/'response' are reserved names — onMessage never sees them.</span>
+
+<span class="c">// typed app messages from clients (reliable lane)</span>
+this.onMessage("chat", (senderId, reader, room) => { /* … */ });</pre>
+  <table>
+    <tr><th>Client call</th><th>Lane</th><th>Use for</th></tr>
+    <tr><td><code>room.send(type, data)</code> / <code>sendBytes</code></td><td>reliable, ordered</td><td>fire, hit, chat, score — cannot drop</td></tr>
+    <tr><td><code>room.sendUnreliable(type, data)</code></td><td>newest-wins, no retransmit</td><td>movement/aim every tick</td></tr>
+    <tr><td><code>room.request(type, data, timeoutMs=5000)</code></td><td>reliable + promise</td><td>login, buy, match action — await reply</td></tr>
+  </table>
+  <p class="note">Server events (Fire/Hit/Scores) ride an ordered event lane with sequence numbers and
+  SACK resends — a client that misses frame 12 gets exactly frame 12 again, nothing more. Lanes never
+  block each other.</p>
+</div></section>
+
+<!-- ============================================================ 11 -->
+<section id="maps"><div class="wrap">
+  <h2><span>11</span>Maps A-to-Z</h2>
+  <table>
+    <tr><th>Format</th><th>File</th><th>How to make</th><th>Feeds</th></tr>
+    <tr><td><b>3D mesh</b> (<code>oxcl</code>)</td><td><code>arena.oxcl</code></td><td><code>ox-game cook map.glb arena.oxcl</code></td><td>3D static collision (both physics layers)</td></tr>
+    <tr><td><b>3D boxes</b> (JSON)</td><td><code>arena_map.json</code></td><td>hand-write (x/y/z/w/h/d per box)</td><td>PhysicsWorld3D walls</td></tr>
+    <tr><td><b>2D arena</b> (JSON)</td><td><code>arena_2d.json</code></td><td>hand-write (boxes/circles)</td><td>Rapier2D static colliders + arena bounds</td></tr>
+    <tr><td><b>Navmesh</b></td><td><code>.nav2d</code>/<code>.mesh</code></td><td>bake (Polyanya format)</td><td><code>NavMesh.findPath</code></td></tr>
+  </table>
+  <p><b>Delivery:</b> per game, from the console — Project → <b>Maps</b> → drop the file, pick format,
+  <b>Upload &amp; activate</b>. Gates run at upload (OXCL magic, JSON dims, 32 MiB cap, obstacle caps);
+  activation is per-format and versioned (rollback = activate the old version). The server loads the
+  active set at boot — console maps beat local files — and a re-activation reaches new rooms live.
+  Deleting the active version is refused. No SSH, no file copies, per tenant.</p>
+</div></section>
+
+<!-- ============================================================ 12 -->
+<section id="client"><div class="wrap">
+  <h2><span>12</span>Client SDK A-to-Z (web)</h2>
+<pre>import CYG from "/openoxide-client.js";          <span class="c">// served by the control plane</span>
+const { Client, Callbacks, Storage } = CYG;
+
+<span class="c">// ── connect ──</span>
+const client = new Client(SERVER_ORIGIN);        <span class="c">// control-plane origin</span>
+const room = await client.joinOrCreate("game_room", { mode: "duo" });
+<span class="c">// also: client.join(name) · client.create(name) · client.joinById(id) · client.spectate(name)</span>
+
+<span class="c">// ── state (descriptor arrives on join; zero codegen) ──</span>
+room.onStateChange((state) => draw(state.players.get(room.playerId)));
+const cb = Callbacks.get(room);
+cb.onAdd("players", (p, id) => { /* spawn */ });
+cb.onRemove("players", (p, id) => { /* despawn */ });
+const stop = p.listen("hp", (value, prev) => bar(value));  <span class="c">// field-level, returns unsubscribe</span>
+
+<span class="c">// ── signals ──</span>
+room.onError((code, msg) => {}); room.onLeave((code) => {});
+room.onReconnect(() => {});      room.onDrop(() => {});        <span class="c">// auto-reconnect is built in</span>
+
+<span class="c">// ── messaging ──</span>
+room.onMessage("chat", (payload) => {});
+room.onMessage("*", (type, payload) => {});                    <span class="c">// wildcard</span>
+room.send("fire", { dir });  room.sendBytes("bin", u8);
+room.sendUnreliable("move", u8);                               <span class="c">// newest-wins lane</span>
+const res = await room.request("login", { user });              <span class="c">// RPC, 5 s timeout</span>
+
+<span class="c">// ── accounts ──</span>
+await client.auth.login({ email, password });    <span class="c">// also .device .register .provider .gameCenter .instantGame</span>
+
+<span class="c">// ── helpers ──</span>
+Storage.set("muted", true); Storage.get("muted", false);      <span class="c">// localStorage, JSON, 'ox_' prefix</span>
+room.clock.now(); room.clock.setTimeout(fn, ms);               <span class="c">// server-clock aligned</span>
+room.ping((rttMs) => {}); room.leave(/*consented*/ true);</pre>
+  <p class="note">Server-side SDK (<code>cyg-server.ts</code>) mirrors every name you saw in §4–§10 —
+  one mental model both ends. Generated interfaces exist for Lua/C/C++/Rust/C#/TS
+  (<code>ox-game gen-interface</code>); native engines speak raw UDP with the same frames.</p>
+</div></section>
+
+<!-- ============================================================ 13 -->
+<section id="console"><div class="wrap">
+  <h2><span>13</span>Console operations</h2>
+  <ul>
+    <li><b>Games &amp; Projects</b> — register a game (minted <code>game_key</code>/<code>api_key</code>/<code>client_key</code>), open its workspace. Every view inside is scoped to that game; another game's telemetry is refused, not mixed.</li>
+    <li><b>Overview &amp; Realtime</b> — live CCU/rooms/tick-rate/tick-p99, tick-time trace, tick histogram, transport mix, queue depths. One live socket feed.</li>
+    <li><b>Project → Configuration</b> — sync rate (Hz applies <b>live</b>, the running server retunes on the next tick), max players, persistent rooms, auto-close. Changes to status/engine switch relay↔WASM.</li>
+    <li><b>Project → Maps</b> — upload/activate/delete per format (§11).</li>
+    <li><b>Project → WASM Modules</b> — upload <code>.wasm</code> (+ source for audit), ABI gate names any missing export, activate/rollback with a live hot-swap — players stay connected.</li>
+    <li><b>Game Rooms / Matches</b> — live rooms with member lists; terminate a match from the row.</li>
+    <li><b>Accounts</b> — full BaaS surface; <b>Ban</b> revokes tokens instantly and <b>kicks live sessions</b> (matches left, socket closed) — not just "blocked at next login".</li>
+    <li><b>Players / Game Data / Monetization</b> — accounts, groups, notifications, leaderboards, tournaments, storage, purchases, subscriptions — all filtered by the game you are in.</li>
+  </ul>
+</div></section>
+
+<!-- ============================================================ 14 -->
+<section id="deploy"><div class="wrap">
+  <h2><span>14</span>Deployment</h2>
+<pre><span class="c"># one VPS (₹800/mo class serves ~4k realistic combat CCU @60 Hz)</span>
+docker compose up -d            <span class="c"># postgres + redis + server, repo mounted</span>
+<span class="c"># open in firewall: cfg.port/udp, quic_port/udp, 7778/udp, api_port/tcp</span></pre>
+  <ul>
+    <li><b>Secrets:</b> real <code>[control.session]</code> signing keys + console credentials; the server refuses default secrets unless <code>OX_ALLOW_DEFAULT_SECRETS=1</code> (dev only).</li>
+    <li><b>Identity:</b> set <code>game_id</code> (or <code>game_key</code>) — with 2+ games in the database the process refuses to guess.</li>
+    <li><b>Scale-out:</b> Agones hooks are built in — the pod reports Ready, health-pings, and retires cleanly. One binary per pod; the console shows which game each node hosts.</li>
+    <li><b>Health:</b> <code>/status</code> (live tick rate, CCU, uptime), <code>/health</code>, <code>ox-game doctor</code>.</li>
+  </ul>
+</div></section>
+
+<footer><div class="wrap">
+  CYG A-to-Z guide · every API name from <code>sdk/server/assemblyscript/cyg-server.ts</code> and
+  <code>sdk/client/web/cyg.js</code> · landing: <a href="index.html">index.html</a> ·
+  roadmap: <code>ROADMAP-DX.md</code> · license Apache-2.0
+</div></footer>
+
+</body>
+</html>
