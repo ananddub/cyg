@@ -20,6 +20,7 @@ mod bufio;
 pub mod rtc_plane;
 pub mod runtime;
 pub mod transport;
+pub mod quic;
 
 pub use bytes;
 pub use framing::{OpCode, decode_frame, encode_frame, iter_frames, take_frame};

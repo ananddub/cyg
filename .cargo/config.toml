@@ -1,8 +1,4 @@
-[target.x86_64-unknown-linux-gnu]
-linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
-
-# Rustc ko batao kitne threads use karo compilation mein
-# (codegen-units se alag — ye frontend/macro expansion ke liye hai)
+# Machine courtesy: this box is shared (Docker, emulator, browser sessions).
+# Cargo never takes more than 8 cores, whatever it is building.
 [build]
 jobs = 8
