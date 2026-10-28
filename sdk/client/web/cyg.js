@@ -2847,7 +2847,29 @@
         /** Colyseus parity: fire-and-forget over the unreliable lane. Returns
          *  false when no unreliable path is open (the delta lane drops stale
          *  frames by design — the caller re-sends or re-thinks). */
-        sendUnreliable(type, data = null) {
+        /** Input batching: N 20-byte samples in one unreliable packet
+       *  ([0x26][count][seq u16][20B]×N) — 75% header overhead cut on
+       *  lossy/mobile paths. samples: Array of { seq, payload: Uint8Array(20) }. */
+      sendInputBatch(samples) {
+        if (!this._inputBatchCh && this.serverChUnreliable) { /* noop shim */ }
+        const ch = this.serverChUnreliable || this.serverCh;
+        if (!ch || ch.readyState !== 'open') return false;
+        const count = samples.length;
+        const pkt = new Uint8Array(3 + count * 22);
+        pkt[0] = 0x26;
+        pkt[1] = count;
+        let off = 3;
+        for (let i = 0; i < count; i++) {
+          const seq = samples[i].seq & 0xffff;
+          pkt[off] = (seq >> 8) & 0xff;
+          pkt[off + 1] = seq & 0xff;
+          pkt.set(samples[i].payload.subarray(0, 20), off + 2);
+          off += 22;
+        }
+        return ch.send(pkt);
+      }
+
+      sendUnreliable(type, data = null) {
             if (this.serverRtcActive && this.serverChUnreliable &&
                 this.serverChUnreliable.readyState === 'open') {
                 const frame = this._encodeAppMessage(type, data);

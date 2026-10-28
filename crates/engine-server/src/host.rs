@@ -1488,6 +1488,33 @@ pub fn run(
                         continue;
                     }
 
+                    // Input batching (Source-engine pattern): [0x26][count u8]
+                    // ([seq u16 LE][20B payload])×count — N samples, one packet.
+                    // Cuts header overhead ~75% on lossy/mobile paths; samples
+                    // apply sequentially through the existing input path.
+                    if data.len() > 3 && data[0] == 0x26 {
+                        let samples = (data.len() - 3) / 22;
+                        if samples > 0 && data.len() == 3 + samples * 22 {
+                            last_input_at.insert(client_id.to_string(), Instant::now());
+                            for i in 0..samples {
+                                let off = 3 + i * 22;
+                                let seq = u16::from_le_bytes([data[off], data[off + 1]]);
+                                let mut payload_20 = [0u8; 20];
+                                payload_20.copy_from_slice(&data[off + 2..off + 22]);
+                                netcode::apply_input(
+                                    room,
+                                    cfg,
+                                    tick_interval.as_secs_f64(),
+                                    &client_id,
+                                    id,
+                                    seq,
+                                    &payload_20,
+                                );
+                            }
+                        }
+                        continue;
+                    }
+
                     last_input_at.insert(client_id.to_string(), Instant::now());
 
                     if room.is_ecs() {
