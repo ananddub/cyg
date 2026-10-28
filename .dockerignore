@@ -1,10 +1,7 @@
-target
-.git
-.jj
-.delta
-.idea
-.claude
-.agents
-dashboard/node_modules
-dashboard/dist
-node_modules
+target/
+release-out/
+examples/*/out/
+examples/*/vendor/
+.git/
+docs/
+dashboard/node_modules/

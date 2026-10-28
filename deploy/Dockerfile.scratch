@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+# CYG server — scratch image: sirf static binary + game + CA certs. Kuch aur nahi.
+# Build: docker build -f deploy/Dockerfile.scratch -t dubeyanand/cyg-gaming:slim .
+
+FROM rust:1 AS build
+RUN apt-get update && apt-get install -y --no-install-recommends musl-tools pkg-config && rm -rf /var/lib/apt/lists/*
+RUN rustup target add x86_64-unknown-linux-musl
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+COPY src src
+COPY dashboard/dist dashboard/dist
+COPY sdk sdk
+ENV CARGO_NET_RETRY=10
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target-musl \
+    CARGO_TARGET_DIR=/src/target-musl \
+    cargo build --release --target x86_64-unknown-linux-musl --bin cyg-gaming \
+    && cp /src/target-musl/x86_64-unknown-linux-musl/release/cyg-gaming /out-cyg-gaming
+
+FROM scratch
+COPY --from=build /out-cyg-gaming /cyg-gaming
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY examples/sky3d /app/game
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+# 19224 TCP: control plane · 7977 UDP: WebRTC · 7978 UDP: QUIC · 7778 UDP: native
+EXPOSE 19224 7977/udp 7978/udp 7778/udp
+ENTRYPOINT ["/cyg-gaming", "run", "/app/game"]
