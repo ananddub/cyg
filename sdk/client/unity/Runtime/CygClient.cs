@@ -32,8 +32,6 @@ namespace CYG
         private byte _pingCookie;
         private bool _running;
         private readonly ConcurrentQueue<byte[]> _deltas = new ConcurrentQueue<byte[]>();
-        private readonly ConcurrentDictionary<string, TaskCompletionSource<byte[]>> _pendingRpc
-            = new ConcurrentDictionary<string, TaskCompletionSource<byte[]>>();
 
         /// Player id the host assigned at bind (0 until then).
         public long PlayerId { get; private set; }
