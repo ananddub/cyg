@@ -1,21 +1,8 @@
 {
-  "name": "com.cookyourgame.sdk",
-  "version": "1.0.0",
-  "displayName": "CookYourGame SDK",
-  "description": "Ultra-lightweight, zero-allocation drag-and-drop multiplayer networking and BaaS client for Unity. Connects seamlessly to CookYourGame high-performance game servers.",
-  "unity": "2021.3",
-  "license": "Apache-2.0",
-  "author": {
-    "name": "CookYourGame",
-    "url": "https://github.com/cookyourgame"
-  },
-  "keywords": [
-    "multiplayer",
-    "netcode",
-    "cookyourgame",
-    "websocket",
-    "drag-and-drop",
-    "zero-allocation",
-    "pun-alternative"
-  ]
+  "name": "com.cyg.unity",
+  "version": "0.2.0",
+  "displayName": "CYG Unity SDK",
+  "description": "Server-authoritative multiplayer client for CYG servers — matchmake, raw-UDP transport, state deltas, movement input lane.",
+  "unity": "2022.3",
+  "license": "Apache-2.0"
 }

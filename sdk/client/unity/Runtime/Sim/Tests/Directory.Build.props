@@ -1,6 +1,0 @@
-<Project>
-  <!-- Keep console test output out of the UPM package; Unity imports every DLL under it. -->
-  <PropertyGroup>
-    <ArtifactsPath>$(MSBuildThisFileDirectory)../../../../.artifacts/DeterminismCheckTest</ArtifactsPath>
-  </PropertyGroup>
-</Project>

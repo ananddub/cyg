@@ -1,7 +1,0 @@
-component DuplicateA : 3003 {
-    FP Value;
-}
-
-component DuplicateB : 3003 {
-    FP Value;
-}

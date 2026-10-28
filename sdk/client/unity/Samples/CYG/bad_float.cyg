@@ -1,3 +1,0 @@
-component BadFloat : 3001 {
-    float Health;
-}

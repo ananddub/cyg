@@ -1,4 +1,0 @@
-component BadReference : 3002 {
-    string Name;
-    List<FP> Values;
-}

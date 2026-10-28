@@ -1,0 +1,14 @@
+/mnt/SSD/Devloper/pannel/openoxide-gaming/sdk/unity/Tools~/CYG.Zed/target/release/deps/serde-ec5b36fea59b5735.d: /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /mnt/SSD/Devloper/pannel/openoxide-gaming/sdk/unity/Tools~/CYG.Zed/target/release/build/serde-597899dace1b2f0d/out/private.rs
+
+/mnt/SSD/Devloper/pannel/openoxide-gaming/sdk/unity/Tools~/CYG.Zed/target/release/deps/libserde-ec5b36fea59b5735.rlib: /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /mnt/SSD/Devloper/pannel/openoxide-gaming/sdk/unity/Tools~/CYG.Zed/target/release/build/serde-597899dace1b2f0d/out/private.rs
+
+/mnt/SSD/Devloper/pannel/openoxide-gaming/sdk/unity/Tools~/CYG.Zed/target/release/deps/libserde-ec5b36fea59b5735.rmeta: /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /mnt/SSD/Devloper/pannel/openoxide-gaming/sdk/unity/Tools~/CYG.Zed/target/release/build/serde-597899dace1b2f0d/out/private.rs
+
+/home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs:
+/home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs:
+/home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs:
+/home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs:
+/home/das/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs:
+/mnt/SSD/Devloper/pannel/openoxide-gaming/sdk/unity/Tools~/CYG.Zed/target/release/build/serde-597899dace1b2f0d/out/private.rs:
+
+# env-dep:OUT_DIR=/mnt/SSD/Devloper/pannel/openoxide-gaming/sdk/unity/Tools~/CYG.Zed/target/release/build/serde-597899dace1b2f0d/out
