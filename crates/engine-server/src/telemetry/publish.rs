@@ -29,6 +29,7 @@ impl Recorder {
         let mut snap = self.snapshot();
         snap.players = report.players;
         snap.nominal_tick_us = nominal_tick_us(report.tick_rate_hz);
+        snap.stage_sim_us = report.stage_sim_us;
         snap.ws_sessions = report.ws_sessions;
         snap.webrtc_sessions = report.webrtc_sessions;
         snap.udp_sessions = report.udp_sessions;

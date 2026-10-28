@@ -27,6 +27,9 @@ pub struct StatusSnapshot {
     pub tick_budget_p99_us: u64,
     pub tick_overruns: u64,
     pub nominal_tick_us: u64,
+    /// Simulation-stage share of the tick (room ticks incl. guest + physics +
+    /// delta fan-out), average µs over the publish window. 0 = no samples yet.
+    pub stage_sim_us: u64,
     /// Zero distinguishes "no samples yet" from "every tick was instant".
     pub tick_samples: u32,
     /// Reset by the producer every publish — describes the current window only.
@@ -64,6 +67,7 @@ mod tests {
             "tick_budget_p99_us",
             "tick_overruns",
             "nominal_tick_us",
+            "stage_sim_us",
             "tick_samples",
             "tick_histogram",
             "kernel_to_sim_p50_us",
@@ -82,7 +86,7 @@ mod tests {
         ] {
             assert!(map.contains_key(key), "missing wire key {key:?}");
         }
-        assert_eq!(map.len(), 20);
+        assert_eq!(map.len(), 21);
         assert_eq!(
             map["tick_histogram"].as_array().unwrap().len(),
             TICK_HISTOGRAM_BUCKETS

@@ -121,6 +121,7 @@ fn publish_report(
     }
     let players = room.sessions.len() as u32;
     PublishReport {
+        stage_sim_us: 0,
         tick_hz_est,
         tick_rate_hz: tick_hz.max(0.0) as u32,
         players,

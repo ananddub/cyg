@@ -900,6 +900,10 @@ pub fn run(
     let mut recorder = Recorder::new();
     let mut publish_start = Instant::now();
     let mut window_ticks: u64 = 0;
+    // Simulation-stage accumulation: gated-block µs, averaged per tick at
+    // publish. This is the first per-phase span — network-drain and
+    // encode-only spans slot in beside it the same way.
+    let mut stage_sim_us_sum: u64 = 0;
     // Native-UDP fan-out batch: one reusable buffer so the per-tick delta
     // broadcast costs one sendmmsg instead of one sendto per peer.
     let mut udp_batch: Vec<(SocketAddr, Vec<u8>)> = Vec::new();
@@ -1809,6 +1813,7 @@ pub fn run(
         // ---- fixed-tick: wasm simulates, host broadcasts the delta buffer ----
         let elapsed = last_tick.elapsed();
         if elapsed >= tick_interval {
+            let __gate_t0 = Instant::now();
             let mut ticks_to_run = (elapsed.as_secs_f64() / tick_interval.as_secs_f64()) as u32;
             if ticks_to_run > 3 {
                 ticks_to_run = 3;
@@ -2180,6 +2185,8 @@ pub fn run(
                 // One sample per batch, as the pinned sim plane does: this is the
                 // wall cost of keeping the room's ticks and broadcast current.
                 recorder.note_tick(tick_start.elapsed());
+                stage_sim_us_sum +=
+                    __gate_t0.elapsed().as_micros() as u64 / ticks_to_run.max(1) as u64 * ticks_to_run as u64;
                 window_ticks += ticks_to_run as u64;
             }
 
@@ -2262,6 +2269,7 @@ pub fn run(
             if recorder.maybe_publish(
                 &bus,
                 PublishReport {
+                    stage_sim_us: (stage_sim_us_sum / window_ticks.max(1)) as u64,
                     tick_hz_est: window_ticks as f64 / window_sec,
                     tick_rate_hz: live_tick_rate(tick_interval),
                     players,
@@ -2274,6 +2282,7 @@ pub fn run(
             ) {
                 publish_start = Instant::now();
                 window_ticks = 0;
+                stage_sim_us_sum = 0;
             }
         }
 

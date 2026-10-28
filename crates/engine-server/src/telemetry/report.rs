@@ -10,6 +10,9 @@ use engine_bus::SessionTelemetry;
 pub struct PublishReport {
     /// Measured tick rate over the publish window.
     pub tick_hz_est: f64,
+    /// Simulation-stage average µs/tick over the window (the gated block:
+    /// room ticks — guest + physics + delta fan-out).
+    pub stage_sim_us: u64,
     /// The configured rate (`GameConfig::tick_rate`). 0 leaves
     /// `nominal_tick_us` at 0 rather than inventing a period.
     pub tick_rate_hz: u32,
