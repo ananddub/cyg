@@ -1,124 +1,61 @@
-// CYG easy-mode room.
+// CYG starter room — Colyseus-style reactive state, server-authoritative.
 //
-// Three channels, kept separate on purpose:
-//   this.on / this.emit        local room events (not networked by themselves)
-//   onMessage / broadcast      typed, reliable client <-> server messages
-//   SchemaState                continuous authoritative state (automatic sync)
+// Flow: onJoin/onInputPacket collect inputs → onTick simulates →
+// commitState() encodes the dirty-only delta. The browser rebuilds state
+// from the descriptor — no client codegen needed.
 //
-// The schema itself lives in schema.ts (Colyseus v5 syntax). `ox-game run`
-// generates cyg.schema.ts from it, so server and client can never drift.
-//
-// Edit this file and run `ox-game run .` — the compiler generates the WASM ABI
-// bridge for you.
+// Edit this file and run `ox-game run .` — the compiler generates the WASM
+// ABI bridge for you.
 
-import { Room, InputReader, SchemaState } from "../pkg/cyg-server";
-// Player class = generated file se (value + type dono); PlayerSchema = source
-import { Player } from "../gen/cyg.schema";
-import { PlayerSchema } from "./schema/player";
+import { Room, InputReader, Key, isHeld } from "../pkg/cyg-server";
+import { State, Player } from "../gen/cyg.schema";
 
-const WORLD_W: f64 = 800.0;
-const WORLD_H: f64 = 500.0;
-const SPEED: f64 = 220.0;
+export class MyGame extends Room {
+    private s: State = new State();
+    private inputs: Map<i64, u8> = new Map<i64, u8>();
+    private speed: f64 = 120.0;
 
-export class GameRoom extends Room {
-    players: Array<Player> = new Array<Player>();
-    // Full snapshot + dirty patches are encoded for you. `seal()` returns the
-    // packed pointer/len that `onTick` hands back to the engine.
-    state: SchemaState = new SchemaState(PlayerSchema);
-
-    // Optional lifecycle hooks — uncomment what you need:
-    //
-    // onAuth(clientId: i64, options: string): bool {
-    //     // `options` is the JSON the client passed to joinOrCreate/join.
-    //     return options.includes("token");
-    // }
-    // allowReconnection(clientId: i64): i32 { return 5000; } // hold seat 5s
-    // onReconnect(clientId: i64): void { /* resumed, state kept */ }
-    // onDispose(): void { /* room removed: flush scores, ... */ }
-    //
-    // Rate controls (0 = every host tick, the default):
-    // patchRate = 50;          // 20 Hz state frames
-    // simulationInterval = 50; // 20 Hz onTick with a fixed dt
-
-    onCreate(maxClients: i32): void {
-        this.maxPlayers = maxClients;
-
-        // Local event: useful for room-only side effects. It does not cross the
-        // network unless you explicitly broadcast. The SDK injects `room` as
-        // the last callback argument, so this stays closure-free.
-        this.on("discard", (id: i64, val0: f64, val1: f64, room: Room | null) => {
-            if (room != null) {
-                room.broadcastText("notice", "player " + id.toString() + " discarded");
-            }
-        });
-
-        // Client -> server typed message. The web client calls
-        // room.send("input", 4-byte-flags).
-        this.onMessage("input", (id: i64, reader: InputReader, room: Room) => {
-            (room as GameRoom).setInput(id, reader.readU32());
-        });
-
-        // Local events and network messages can be composed.
-        this.onMessage("discard", (id: i64, reader: InputReader, room: Room) => {
-            room.emit("discard", id, 0.0, 0.0);
-        });
-
-        // Broadcast a one-shot message to everyone.
-        this.onMessage("hello", (id: i64, reader: InputReader, room: Room) => {
-            room.broadcast("hello", null);
-        });
-
-        // Targeted reply: only the sender receives "pong".
-        this.onMessage("ping", (id: i64, reader: InputReader, room: Room) => {
-            room.sendTo(id, "pong", null);
-        });
+    onCreate(max: i32): void {
+        this.setState(this.s);
     }
 
-    onJoin(id: i64, spawnX: f64, spawnZ: f64): void {
-        let p = new Player();
-        p.x = spawnX;
-        p.y = spawnZ;
-        this.players.push(p);
-        this.state.set(id as u32, p);
+    onJoin(id: i64, x: f64, y: f64): void {
+        const p = new Player();
+        p.x = x;
+        p.y = y;
+        this.s.players.set(id as u32, p);
         this.broadcastText("joined", id.toString());
     }
 
     onLeave(id: i64): void {
-        this.state.delete(id as u32);
-        for (let i = 0; i < this.players.length; i++) {
-            if (unchecked(this.players[i]).id == (id as u32)) {
-                this.players.splice(i, 1);
-                break;
-            }
-        }
+        this.s.players.delete(id as u32);
+        this.inputs.delete(id);
+    }
+
+    // Movement flags from the unreliable lane — store now, apply on tick.
+    onInputPacket(id: i64, input: InputReader): void {
+        if (this.s.players.has(id as u32)) this.inputs.set(id, input.readU8());
     }
 
     onTick(dt: f64): i64 {
-        for (let i = 0; i < this.players.length; i++) {
-            let p = unchecked(this.players[i]);
-            if (p.flags & 1) p.y -= SPEED * dt; // W / Up
-            if (p.flags & 2) p.y += SPEED * dt; // S / Down
-            if (p.flags & 4) p.x -= SPEED * dt; // A / Left
-            if (p.flags & 8) p.x += SPEED * dt; // D / Right
+        const ids = this.inputs.keys();
 
-            if (p.x < 14.0) p.x = 14.0;
-            if (p.x > WORLD_W - 14.0) p.x = WORLD_W - 14.0;
-            if (p.y < 14.0) p.y = 14.0;
-            if (p.y > WORLD_H - 14.0) p.y = WORLD_H - 14.0;
+        for (let i = 0; i < ids.length; i++) {
+            const p = this.s.players.get(ids[i] as u32);
+            if (p === null) continue;
+
+            const flags = this.inputs.get(ids[i]);
+            let dx: f64 = 0;
+            let dy: f64 = 0;
+            if (isHeld(flags, Key.W)) dy -= this.speed * dt;
+            if (isHeld(flags, Key.S)) dy += this.speed * dt;
+            if (isHeld(flags, Key.A)) dx -= this.speed * dt;
+            if (isHeld(flags, Key.D)) dx += this.speed * dt;
+            p.x += dx;
+            p.y += dy;
         }
+        this.inputs.clear();
 
-        // The first viewer gets the full row; everyone else gets only the
-        // fields that changed this tick.
-        return this.state.seal();
-    }
-
-    setInput(id: i64, flags: u32): void {
-        for (let i = 0; i < this.players.length; i++) {
-            let p = unchecked(this.players[i]);
-            if (p.id == (id as u32)) {
-                p.flags = flags;
-                return;
-            }
-        }
+        return this.commitState();
     }
 }
