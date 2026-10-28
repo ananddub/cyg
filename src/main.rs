@@ -708,11 +708,45 @@ fn init(dir: &Path) -> std::io::Result<()> {
     std::fs::write(pkg.join("cyg.d.ts"), include_str!("../sdk/server/typescript/cyg.d.ts"))?;
     // The easy template is self-contained: server SDK, browser SDK and the
     // matching page all use CYG's own protocol (no Colyseus dependency).
+    // VSCode/TS-server ko khush rakhta hai: pkg/ (AssemblyScript) exclude,
+    // AS types ambient stub — warna poori SDK laal dikh jaati hai.
+    std::fs::write(
+        dir.join("tsconfig.json"),
+        r#"{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "experimentalDecorators": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["src", "gen"]
+}
+"#,
+    )?;
+    std::fs::write(
+        src.join("as-types.d.ts"),
+        r#"// AssemblyScript types as ambient stubs — sirf editor ke liye.
+declare type i8 = number;
+declare type i16 = number;
+declare type i32 = number;
+declare type i64 = bigint;
+declare type u8 = number;
+declare type u16 = number;
+declare type u32 = number;
+declare type u64 = bigint;
+declare type usize = bigint;
+declare type f32 = number;
+declare type f64 = number;
+"#,
+    )?;
     let gitignore = dir.join(".gitignore");
     if !gitignore.exists() {
         std::fs::write(
             &gitignore,
-            "# Regenerable schema client bindings (ox-game schema-codegen)\ngenerated/\n",
+            "# Regenerable schema bindings (ox-game schema-codegen)\ngen/\n",
         )?;
     }
 
