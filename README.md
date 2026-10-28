@@ -41,7 +41,27 @@ The same game's Project tab: configure sync rate and capacity, deploy WASM room 
 
 ## Quick start
 
-Docker (Postgres + Redis + the server, the repo is mounted live):
+**One line (Linux / macOS)** — installs the latest release binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ananddub/cyg/main/scripts/install.sh | sh
+```
+
+Then scaffold and run:
+
+```bash
+cyg-gaming init my-game && cd my-game
+cyg-gaming run
+# console → http://localhost:8124/dashboard/
+```
+
+**Docker image** (self-contained, game included):
+
+```bash
+docker pull dubeyanand/cyg-gaming:v0.1.0
+```
+
+**From source** (Postgres + Redis + the server, the repo is mounted live):
 
 ```bash
 just up                 # start the stack with examples/sky3d
@@ -157,11 +177,23 @@ One process, one thread for the simulation, lock-free bus between planes:
 
 **Transport.** Browsers dial WebRTC (`game-unreliable` for high-rate deltas, `game-reliable` for everything else; the signaling WebSocket is control-plane only). Native engines speak raw UDP on `:7778` — dual-lane with the same reliability wire. `cfg.port` is the real game-data port and what seats advertise.
 
+**Observability.** The console streams live per-tick telemetry (tick wall-time
+trace, base-2µs histogram, per-lane queue depths, transport mix, per-game
+scoped). The simulation-stage span (average µs/tick inside the room-tick block)
+and a Prometheus **`/metrics`** endpoint ship in the binary — point any
+Prometheus scraper at it, no config.
+
 **Tenancy.** The console and the database serve many games; each process hosts one. A game workspace shows only that game's data — telemetry is refused for any other tenant ("This server hosts 'X', not the requested game"), and database views filter by `game_id`. Bind a process with `game_id`/`game_key` in config.toml.
 
 **Maps.** Upload an `.oxcl` cooked mesh, a 2D/3D arena JSON, or a navmesh per game from the console; the host loads the active versions at boot (over local files) and new rooms pick up a re-activated map live.
 
-## Database (FlashORM)
+## Database
+
+Postgres today. **SQLite support is on the roadmap as an embedded mode** —
+FlashORM (the generator) already speaks SQLite, so a solo-dev "no Postgres
+needed" build is planned; production/SaaS deployments stay on Postgres.
+
+### FlashORM
 
 Schema lives in `db/schema/*.sql`, named queries in `db/queries/*.sql`; `flash gen` emits typed repositories into `crates/engine-api/src/repositories/` (runtime-checked, no live DB needed at build). Console services read/write through `state.q`; multi-statement transactions stay hand-written beside their services by convention. Adding a domain = write the `.sql`, run `flash gen`, call `state.q`.
 
@@ -184,6 +216,19 @@ cargo test --workspace              # engine crates + API suite
 node --test sdk/client/web/test/    # client SDK (schema decode, signaling, RPC)
 just doctor sky3d                   # project-level health check
 ```
+
+## Releases & SDKs
+
+- **Binaries** — Linux / Windows / macOS (Intel + Apple Silicon) attach to every
+  GitHub Release. One-line install above.
+- **Docker** — `dubeyanand/cyg-gaming` on Docker Hub (game included, scratch-slim
+  variant available).
+- **SDK repos** — [cyg-unity](https://github.com/ananddub/cyg-unity) ·
+  [cyg-godot](https://github.com/ananddub/cyg-godot) ·
+  [cyg-unreal](https://github.com/ananddub/cyg-unreal) ·
+  [cyg-native](https://github.com/ananddub/cyg-native) ·
+  [cyg-web](https://github.com/ananddub/cyg-web) (npm: `cyg-client`).
+  Development sources live in `sdk/client/` here.
 
 ## Repository layout
 
