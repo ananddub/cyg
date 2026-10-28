@@ -1,3 +1,4 @@
+// @ts-nocheck — AssemblyScript file: TS server ise check nahi karta (AS types/intrinsics).
 // =============================================================================
 // CYG Game Server — High-Level Guest Room SDK for AssemblyScript
 // WebAssembly Target: wasm32 (asc -Ospeed --runtime stub)

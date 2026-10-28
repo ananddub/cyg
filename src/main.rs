@@ -732,14 +732,19 @@ fn init(dir: &Path) -> std::io::Result<()> {
 declare type i8 = number;
 declare type i16 = number;
 declare type i32 = number;
-declare type i64 = bigint;
+declare type i64 = number;
 declare type u8 = number;
 declare type u16 = number;
 declare type u32 = number;
-declare type u64 = bigint;
-declare type usize = bigint;
+declare type u64 = number;
+declare type usize = number;
 declare type f32 = number;
 declare type f64 = number;
+declare function unchecked<T>(x: T): T;
+declare module "@colyseus/schema" {
+  export function schema<T>(def: T, name: string): T;
+  export const t: any;
+}
 "#,
     )?;
     let gitignore = dir.join(".gitignore");

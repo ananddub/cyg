@@ -18,6 +18,7 @@ export const Player = schema({
 }, "Player");
 
 // Root state. Every `t.map(Player)` entry is synced by numeric entity id.
+export const PlayerSchema = Player;
 export const State = schema({
     players: t.map(Player),
 }, "State");

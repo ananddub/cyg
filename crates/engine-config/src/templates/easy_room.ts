@@ -14,7 +14,6 @@
 import { Room, InputReader, SchemaState } from "../pkg/cyg-server";
 // Player class = generated file se (value + type dono); PlayerSchema = source
 import { Player } from "../gen/cyg.schema";
-import { PlayerSchema } from "./schema/player";
 
 const WORLD_W: f64 = 800.0;
 const WORLD_H: f64 = 500.0;
