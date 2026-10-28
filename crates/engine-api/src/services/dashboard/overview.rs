@@ -53,6 +53,7 @@ pub fn build_overview(state: &ApiState) -> Overview {
             nominal_us: snap.as_ref().map(|s| s.nominal_tick_us).unwrap_or(0),
             p50_us: snap.as_ref().map(|s| s.tick_budget_p50_us).unwrap_or(0),
             p99_us: snap.as_ref().map(|s| s.tick_budget_p99_us).unwrap_or(0),
+            stage_sim_us: snap.as_ref().map(|s| s.stage_sim_us).unwrap_or(0),
             overruns: snap.as_ref().map(|s| s.tick_overruns).unwrap_or(0),
             samples: snap.as_ref().map(|s| s.tick_samples).unwrap_or(0),
             seq: snap.as_ref().map(|s| s.seq).unwrap_or(0),

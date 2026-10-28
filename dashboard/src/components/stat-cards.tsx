@@ -107,6 +107,11 @@ export function StatCards({ overview }: { overview?: Overview }) {
         value={sampled ? formatUs(tick.p99Us) : EM_DASH}
         secondary={sampled ? `budget ${formatUs(tick.nominalUs)}` : "no sample"}
       />
+      <StatCard
+        label="Sim stage"
+        value={sampled ? formatUs(tick.stageSimUs) : EM_DASH}
+        secondary={sampled ? "µs/tick in room ticks" : "no sample"}
+      />
       <StatCard label="Uptime" value={formatUptime(overview.uptimeSec)} secondary="since process start" />
       <StatCard
         label="Dropped deltas"

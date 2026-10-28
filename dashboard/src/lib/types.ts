@@ -52,6 +52,8 @@ export interface TickHealth {
   p99Us?: number;
   /** Ticks that overran `nominalUs` since the process started. */
   overruns: number;
+  /** Simulation-stage span: average µs/tick inside the gated room-tick block. */
+  stageSimUs: number;
   /** Ticks in the current window; 0 means "no samples yet". */
   samples: number;
   /** Publish counter: two polls with the same `seq` mean the sim stopped. */
