@@ -187,32 +187,49 @@ fn sockaddr_storage_of(addr: &SocketAddr) -> (libc::sockaddr_storage, libc::sock
 /// Batch-send queued datagrams with **one syscall per chunk**
 /// (`sendmmsg(2)`), instead of one `send_to` per destination.
 ///
-/// Non-unix fallback: same call shape, per-message `send_to`. Correctness
-/// identical — only the syscall batching is lost, which is a Linux feature.
+/// Non-glibc fallback: same call shape, per-message `send_to`. Correctness
+/// identical — only the syscall batching is lost, which is a glibc/Linux
+/// feature (musl, macOS, Windows sab is path pe).
+pub trait BatchSend {
+    fn send_one(&self, data: &[u8], dest: SocketAddr) -> std::io::Result<()>;
+}
+
+impl BatchSend for std::net::UdpSocket {
+    fn send_one(&self, data: &[u8], dest: SocketAddr) -> std::io::Result<()> {
+        self.send_to(data, dest).map(|_| ())
+    }
+}
+
+impl BatchSend for mio::net::UdpSocket {
+    fn send_one(&self, data: &[u8], dest: SocketAddr) -> std::io::Result<()> {
+        self.send_to(data, dest).map(|_| ())
+    }
+}
+
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
-pub fn send_datagram_batch<B: AsRef<[u8]>>(
-    socket: &mio::net::UdpSocket,
+pub fn send_datagram_batch<S: BatchSend, B: AsRef<[u8]>>(
+    socket: &S,
     msgs: &[(SocketAddr, B)],
 ) -> usize {
     let mut sent = 0;
     for (dest, bytes) in msgs {
-        if socket.send_to(bytes.as_ref(), *dest).is_ok() {
+        if socket.send_one(bytes.as_ref(), *dest).is_ok() {
             sent += 1;
         }
     }
     sent
 }
 
-/// Non-unix fallback: GSO is a Linux socket feature — always refuse so the
-/// caller falls back to `send_datagram_batch`.
+/// Non-glibc fallback: GSO is a glibc/Linux socket feature — always refuse so
+/// the caller falls back to `send_datagram_batch`.
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
-pub fn send_gso(
-    _socket: &mio::net::UdpSocket,
+pub fn send_gso<S: BatchSend>(
+    _socket: &S,
     _addr: &SocketAddr,
     _segments: &[&[u8]],
     _seg_size: usize,
 ) -> Result<(), std::io::Error> {
-    Err(std::io::Error::other("GSO is linux-only"))
+    Err(std::io::Error::other("GSO is glibc-linux-only"))
 }
 
 /// Pure logic — identical on every platform.
