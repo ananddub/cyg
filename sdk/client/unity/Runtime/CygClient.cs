@@ -44,6 +44,7 @@ namespace CYG
         public event Action<string, byte[]> OnMessage;
         public event Action<string> OnError;
         public event Action OnLeave;
+        public event Action OnReconnect;
 
         private CygClient() { }
 
@@ -217,6 +218,37 @@ namespace CYG
             OnMessage?.Invoke(type, payload ?? Array.Empty<byte>());
         }
 
+        /// Unreliable single message: [0x05][typeLen][type][payload] — newest-wins.
+        public void SendUnreliable(string type, byte[] payload = null)
+        {
+            var typeB = Encoding.UTF8.GetBytes(type);
+            var frame = new byte[3 + typeB.Length + (payload?.Length ?? 0)];
+            frame[0] = 0x05; frame[1] = (byte)typeB.Length;
+            Buffer.BlockCopy(typeB, 0, frame, 2, typeB.Length);
+            if (payload != null) Buffer.BlockCopy(payload, 0, frame, 2 + typeB.Length, payload.Length);
+            _sock.Send(frame);
+        }
+
+        /// Input batching — N movement samples ek packet me (lossy networks pe 4x kam packets).
+        /// Layout: [0x26][count u8]([seq u16][20B payload])×count — server sequential apply karta hai.
+        public void SendInputBatch((ushort seq, byte[] payload)[] samples)
+        {
+            var pkt = new byte[3 + samples.Length * 22];
+            pkt[0] = 0x26; pkt[1] = (byte)samples.Length;
+            int off = 3;
+            foreach (var (seq, payload) in samples)
+            {
+                pkt[off] = (byte)(seq >> 8); pkt[off + 1] = (byte)(seq & 0xFF);
+                Buffer.BlockCopy(payload, 0, pkt, off + 2, 20);
+                off += 22;
+            }
+            _sock.Send(pkt);
+        }
+
+        /// Server-clock aligned time (BIND ke baad ka offset).
+        public long ClockNow => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + _clockOffsetMs;
+        private long _clockOffsetMs;
+
         private ushort _reqSeq;
         private readonly ConcurrentDictionary<ushort, TaskCompletionSource<byte[]>> _pendingRpc
             = new ConcurrentDictionary<ushort, TaskCompletionSource<byte[]>>();
@@ -261,6 +293,38 @@ namespace CYG
             _sock?.Dispose();
             Connected = false;
             OnLeave?.Invoke();
+        }
+
+        /// Storage — web SDK ke localStorage ka parity. Unity me PlayerPrefs,
+        /// non-Unity (tests/dotnet) me in-memory dictionary.
+        public static class Storage
+        {
+            private static readonly Dictionary<string, string> Backing = new Dictionary<string, string>();
+
+            public static void Set(string key, string value)
+            {
+#if UNITY_5_3_OR_NEWER
+                UnityEngine.PlayerPrefs.SetString("cyg_" + key, value);
+#endif
+                Backing[key] = value;
+            }
+
+            public static string Get(string key, string fallback = "")
+            {
+#if UNITY_5_3_OR_NEWER
+                if (UnityEngine.PlayerPrefs.HasKey("cyg_" + key))
+                    return UnityEngine.PlayerPrefs.GetString("cyg_" + key);
+#endif
+                return Backing.TryGetValue(key, out var v) ? v : fallback;
+            }
+
+            public static void Remove(string key)
+            {
+#if UNITY_5_3_OR_NEWER
+                UnityEngine.PlayerPrefs.DeleteKey("cyg_" + key);
+#endif
+                Backing.Remove(key);
+            }
         }
 
         public void Dispose() => Leave();
