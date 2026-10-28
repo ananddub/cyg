@@ -698,8 +698,10 @@ fn init(dir: &Path) -> std::io::Result<()> {
     }
     std::fs::create_dir_all(dir)?;
     std::fs::write(&config_path, CONFIG_TEMPLATE)?;
-    std::fs::write(dir.join("room.ts"), ROOM_TEMPLATE)?;
-    std::fs::write(dir.join("schema.ts"), SCHEMA_TS_TEMPLATE)?;
+    let src = dir.join("src");
+    std::fs::create_dir_all(src.join("schema"))?;
+    std::fs::write(src.join("room.ts"), ROOM_TEMPLATE)?;
+    std::fs::write(src.join("schema/player.ts"), SCHEMA_TS_TEMPLATE)?;
     // The easy template is self-contained: server SDK, browser SDK and the
     // matching page all use CYG's own protocol (no Colyseus dependency).
     std::fs::write(
@@ -709,14 +711,6 @@ fn init(dir: &Path) -> std::io::Result<()> {
     std::fs::write(
         dir.join("cyg.d.ts"),
         include_str!("../sdk/server/typescript/cyg.d.ts"),
-    )?;
-    std::fs::write(
-        dir.join("cyg.js"),
-        include_bytes!("../sdk/client/web/cyg.js"),
-    )?;
-    std::fs::write(
-        dir.join("cyg-client.d.ts"),
-        include_bytes!("../sdk/client/web/cyg.d.ts"),
     )?;
     let gitignore = dir.join(".gitignore");
     if !gitignore.exists() {

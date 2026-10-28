@@ -12,7 +12,7 @@
 // bridge for you.
 
 import { Room, InputReader, SchemaState } from "./cyg-server";
-import { Player, PlayerSchema } from "./cyg.schema";
+import { Player, PlayerSchema } from "./schema/player";
 
 const WORLD_W: f64 = 800.0;
 const WORLD_H: f64 = 500.0;

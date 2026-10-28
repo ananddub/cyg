@@ -36,7 +36,25 @@ fn find_source(dir: &Path) -> Option<PathBuf> {
         return Some(root);
     }
     let nested = dir.join("src").join(TS_SOURCE_FILE);
-    nested.exists().then_some(nested)
+    if nested.exists() {
+        return Some(nested);
+    }
+    // Modular layout: src/schema/ — entry file player.ts, ya alphabetically
+    // pehla .ts (imports ka order developer ke haath me).
+    let schema_dir = dir.join("src").join("schema");
+    if let Ok(entries) = std::fs::read_dir(&schema_dir) {
+        let player = schema_dir.join("player.ts");
+        if player.exists() {
+            return Some(player);
+        }
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().map(|x| x == "ts").unwrap_or(false) {
+                return Some(p);
+            }
+        }
+    }
+    None
 }
 
 /// Regenerate when `schema.ts` exists; do nothing for projects that have not

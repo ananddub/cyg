@@ -10,7 +10,7 @@ name = "my-game"
 runtime = "assemblyscript"
 
 # Your room logic source + compiled output (relative to this folder).
-source = "room.ts"
+source = "src/room.ts"
 out = "room_logic.wasm"
 
 # Legacy Colyseus bundle directory. New projects should use the bundled
