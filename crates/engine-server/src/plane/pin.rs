@@ -44,6 +44,7 @@ pub fn pin_current_thread(core: usize) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 pub fn current_core() -> i32 {
     let rc = unsafe { libc::sched_getcpu() };
     if rc < 0 { -1 } else { rc }
