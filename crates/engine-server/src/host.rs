@@ -195,12 +195,13 @@ impl GameTransport for LoopTransport {
         events: &mut Vec<TransportEvent>,
     ) -> std::io::Result<()> {
         self.rtc.poll_events(timeout, events)?;
-        // The wire transport also derives `Packet { PlayerInput }` events from
-        // the contract's input lane; this loop consumes the lane-classified
-        // stream instead (it needs seq/resupply/ack context the derived event
-        // drops), so the derived view is discarded here.
+        // The wire transport also derives `Packet { PlayerInput }` and `Packet { RoomDataBytes }`
+        // from the contract's lanes; this loop consumes the lane-classified inbound
+        // stream instead (Inbound::Input and Inbound::App), so the duplicate derived
+        // events are discarded here.
         events.retain(|ev| {
             !matches!(ev, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. })
+                && !matches!(ev, TransportEvent::Packet { opcode: OpCode::RoomDataBytes, .. })
         });
         self.inbound.extend(self.rtc.poll_inbound());
         if let Some(quic) = self.quic.as_mut() {
@@ -1765,24 +1766,27 @@ pub fn run(
                     }
                 }
                 Inbound::Ack(ack) => netcode::record_channel_ack(room, &client_id, ack),
-                // SDK `sendBytes` app messages: envelope strip karke guest
-                // `on_input` ko raw payload do (schema/relay rooms, vector
-                // games ka input yahi hai).
+                // SDK `sendBytes` app messages: pass the full typed envelope
+                // [0x05][type_len][type][payload] to guest `on_input`.
                 Inbound::App { data } => {
-                    let type_len = data[1] as usize;
-                    let Some(payload) = data.get(2 + type_len..) else {
+                    let type_len = data.get(1).copied().unwrap_or(0) as usize;
+                    if type_len > 0
+                        && 2 + type_len <= data.len()
+                        && &data[2..2 + type_len] == b"__ox_schema_ready"
+                    {
+                        room.schema_sent.insert(client_id.to_string());
                         continue;
-                    };
+                    }
                     if let Some(ref mut wasm) = room.wasm {
-                        match wasm.on_alloc(payload.len() as i32) {
+                        match wasm.on_alloc(data.len() as i32) {
                             Ok(ptr_i32) => {
                                 let ptr = ptr_i32 as u32;
-                                if let Err(e) = wasm.write_memory(ptr, payload) {
+                                if let Err(e) = wasm.write_memory(ptr, &data) {
                                     tracing::error!(
                                         "[server] ⚠️ app payload write failed for player {id}: {e}"
                                     );
                                 } else if let Err(e) =
-                                    wasm.on_input(id, ptr_i32, payload.len() as i32)
+                                    wasm.on_input(id, ptr_i32, data.len() as i32)
                                 {
                                     tracing::warn!(
                                         "[server] ⚠️ guest trap in on_input (app msg) for player {id}: {e}"

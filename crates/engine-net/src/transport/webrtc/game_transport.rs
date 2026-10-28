@@ -174,12 +174,22 @@ impl GameTransport for WebRtcTransport {
         // never surface here.
         for (client_id, msg) in self.server.poll_inbound() {
             self.last_seen.insert(client_id.clone(), now);
-            if let super::contract::Inbound::Input { payload, .. } = &msg {
-                self.pending.push(TransportEvent::Packet {
-                    client_id: client_id.clone().into(),
-                    opcode: OpCode::PlayerInput,
-                    payload: bytes::Bytes::copy_from_slice(payload),
-                });
+            match &msg {
+                super::contract::Inbound::Input { payload, .. } => {
+                    self.pending.push(TransportEvent::Packet {
+                        client_id: client_id.clone().into(),
+                        opcode: OpCode::PlayerInput,
+                        payload: bytes::Bytes::copy_from_slice(payload),
+                    });
+                }
+                super::contract::Inbound::App { data } => {
+                    self.pending.push(TransportEvent::Packet {
+                        client_id: client_id.clone().into(),
+                        opcode: OpCode::RoomDataBytes,
+                        payload: bytes::Bytes::copy_from_slice(data),
+                    });
+                }
+                _ => {}
             }
             self.inbound.push((client_id, msg));
         }

@@ -2310,6 +2310,14 @@ export class InputReader {
         this._offset += 4;
         return val;
     }
+
+    readRemainingString(): string {
+        let rem = this._len - this._offset;
+        if (rem <= 0) return "";
+        let str = String.UTF8.decodeUnsafe(this._ptr + this._offset, rem);
+        this._offset = this._len;
+        return str;
+    }
 }
 
 

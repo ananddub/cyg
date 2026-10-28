@@ -84,6 +84,18 @@ export default function Benchmarks() {
       />
 
       <Reveal>
+        {/* measurement conditions — impossible to miss */}
+        <div className="mb-6 flex flex-wrap items-center justify-center gap-2.5">
+          {['1 core', '2 GB RAM', 'release build · idle machine', 'published below measured'].map((c) => (
+            <span
+              key={c}
+              className="rounded-full border border-oxide/30 bg-oxide/5 px-3.5 py-1.5 font-mono text-[11px] font-medium tracking-wide text-oxide"
+            >
+              {c}
+            </span>
+          ))}
+        </div>
+
         <div className="space-y-8 rounded-2xl border border-line bg-panel p-6 sm:p-10">
           {BARS.map((b) => (
             <div key={b.name}>
