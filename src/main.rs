@@ -722,12 +722,12 @@ fn init(dir: &Path) -> std::io::Result<()> {
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src", "gen"]
+  "include": ["src", "gen", "pkg/as-types.d.ts"]
 }
 "#,
     )?;
     std::fs::write(
-        src.join("as-types.d.ts"),
+        pkg.join("as-types.d.ts"),
         r#"// AssemblyScript types as ambient stubs — sirf editor ke liye.
 declare type i8 = number;
 declare type i16 = number;
