@@ -16,3 +16,19 @@ Tenant apna game logic likhta hai — engine sab expose karti hai:
 
 RULE: server SDK me jo bhi expose hoga (physics, timers, navmesh) tenant
 ko freely milega — freedom ka limitation nahi, ye engine ka feature hai.
+
+## Publishing (separate SDK repos)
+
+Each SDK also lives in its own repository for registry publishing
+(Unity UPM via git URL, Godot Asset Library, npm):
+
+| SDK | Repo | Install |
+|---|---|---|
+| Unity | github.com/ananddub/cyg-unity | UPM: `https://github.com/ananddub/cyg-unity.git` |
+| Godot | github.com/ananddub/cyg-godot | copy `addons/cyg/` into your project |
+| Unreal | github.com/ananddub/cyg-unreal | plugin folder |
+| C++ / Lua | github.com/ananddub/cyg-native | headers/sources |
+| Web (cyg.js) | github.com/ananddub/cyg-web | `npm install cyg-client` — the server also serves it at `/cyg.js` |
+
+The copies in `sdk/client/` are the development sources; releases to the
+SDK repos happen from here when a version ships.
