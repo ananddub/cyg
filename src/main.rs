@@ -700,18 +700,14 @@ fn init(dir: &Path) -> std::io::Result<()> {
     std::fs::write(&config_path, CONFIG_TEMPLATE)?;
     let src = dir.join("src");
     std::fs::create_dir_all(src.join("schema"))?;
-    std::fs::write(src.join("room.ts"), ROOM_TEMPLATE)?;
+    let pkg = dir.join("pkg");
+    std::fs::create_dir_all(&pkg)?;
+    std::fs::write(src.join("index.ts"), ROOM_TEMPLATE)?;
     std::fs::write(src.join("schema/player.ts"), SCHEMA_TS_TEMPLATE)?;
+    std::fs::write(pkg.join("cyg-server.ts"), include_str!("../sdk/server/assemblyscript/cyg-server.ts"))?;
+    std::fs::write(pkg.join("cyg.d.ts"), include_str!("../sdk/server/typescript/cyg.d.ts"))?;
     // The easy template is self-contained: server SDK, browser SDK and the
     // matching page all use CYG's own protocol (no Colyseus dependency).
-    std::fs::write(
-        dir.join("cyg-server.ts"),
-        include_str!("../sdk/server/assemblyscript/cyg-server.ts"),
-    )?;
-    std::fs::write(
-        dir.join("cyg.d.ts"),
-        include_str!("../sdk/server/typescript/cyg.d.ts"),
-    )?;
     let gitignore = dir.join(".gitignore");
     if !gitignore.exists() {
         std::fs::write(

@@ -11,7 +11,7 @@
 // Edit this file and run `ox-game run .` — the compiler generates the WASM ABI
 // bridge for you.
 
-import { Room, InputReader, SchemaState } from "./cyg-server";
+import { Room, InputReader, SchemaState } from "../pkg/cyg-server";
 import { Player, PlayerSchema } from "./schema/player";
 
 const WORLD_W: f64 = 800.0;
