@@ -181,19 +181,17 @@ fn generate_file(dir: &Path, source_path: &Path) -> io::Result<SchemaOutput> {
     let root = parsed.root.ok_or_else(|| missing_root(source_path))?;
     let generated = engine_schema::generate_with_root(&parsed.schemas, Some(&root), TS_SOURCE_FILE);
 
-    // Conventional src/ layout: room.ts imports "./cyg.schema", so the
-    // server binding lives beside it in src/ — and its SDK import becomes
-    // same-dir ("./cyg-server") instead of the root copy's ("../cyg-server").
-    // The descriptor and the typed browser contract are build artifacts and
-    // go to out/.
-    let src = dir.join("src");
-    let in_src = src.exists();
-    let server_dir = if in_src { src.as_path() } else { dir };
-    let mut server_ts = generated.server_ts;
-    if in_src {
-        server_ts = server_ts.replace("from \"../cyg-server\"", "from \"./cyg-server\"");
-    }
-    let server = server_dir.join(SERVER_FILE);
+    // Generated server binding src/ ko ganda nahi karta — dedicated gen/
+    // folder me jata hai, SDK import pkg/ ki taraf rewrite hota hai. The
+    // descriptor and the typed browser contract are build artifacts and go
+    // to out/.
+    let gen_dir = dir.join("gen");
+    let _ = std::fs::create_dir_all(&gen_dir);
+    let mut server_ts = generated
+        .server_ts
+        .replace("from \"../cyg-server\"", "from \"../pkg/cyg-server\"");
+    server_ts = server_ts.replace("from \"./cyg-server\"", "from \"../pkg/cyg-server\"");
+    let server = gen_dir.join(SERVER_FILE);
     let descriptor_dir = dir.join(OUT_DIR);
     let _ = std::fs::create_dir_all(&descriptor_dir);
     let descriptor = descriptor_dir.join(DESCRIPTOR_FILE);
