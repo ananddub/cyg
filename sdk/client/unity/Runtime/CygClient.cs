@@ -16,6 +16,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -159,6 +160,20 @@ namespace CYG
                     _deltas.Enqueue(delta);
                     OnRawDelta?.Invoke(delta);
                     break;
+                case 0x05: // typed app message / RPC response
+                    if (n >= 3)
+                    {
+                        int tLen = buf[2];
+                        if (n >= 3 + tLen)
+                        {
+                            var type = Encoding.UTF8.GetString(buf, 3, tLen);
+                            var payload = new byte[n - 3 - tLen];
+                            Buffer.BlockCopy(buf, 3 + tLen, payload, 0, payload.Length);
+                            if (type == "__res") ResolveRpc(buf);
+                            OnMessage?.Invoke(type, payload);
+                        }
+                    }
+                    break;
                 default: break;
             }
         }
@@ -191,8 +206,8 @@ namespace CYG
             _sock.Send(pkt);
         }
 
-        /// Reliable typed app message: [0x05][typeLen][type][payload].
-        /// (OP_APP server lane — reserved; transport ready, server op next.)
+        /// Typed app message (reliable-style): [0x05][typeLen][type][payload]
+        /// over UDP — guest ka onMessage/onRequest isse milta hai.
         public void Send(string type, byte[] payload = null)
         {
             var typeB = Encoding.UTF8.GetBytes(type);
@@ -200,7 +215,45 @@ namespace CYG
             frame[0] = 0x05; frame[1] = (byte)typeB.Length;
             Buffer.BlockCopy(typeB, 0, frame, 2, typeB.Length);
             if (payload != null) Buffer.BlockCopy(payload, 0, frame, 2 + typeB.Length, payload.Length);
-            OnMessage?.Invoke(type, payload ?? Array.Empty<byte>()); // local echo until OP_APP lands
+            _sock.Send(frame);
+            OnMessage?.Invoke(type, payload ?? Array.Empty<byte>());
+        }
+
+        private ushort _reqSeq;
+        private readonly ConcurrentDictionary<ushort, TaskCompletionSource<byte[]>> _pendingRpc
+            = new ConcurrentDictionary<ushort, TaskCompletionSource<byte[]>>();
+
+        /// request() RPC — guest ke onRequest ka jawab await karta hai (5s default).
+        public Task<byte[]> Request(string type, byte[] payload = null, int timeoutMs = 5000)
+        {
+            _reqSeq = (ushort)((_reqSeq + 1) & 0xFFFF);
+            ushort rid = _reqSeq == 0 ? (ushort)1 : _reqSeq;
+            var typeB = Encoding.UTF8.GetBytes(type);
+            var reqB = Encoding.UTF8.GetBytes("__req");
+            var frame = new byte[3 + 5 + 2 + typeB.Length + (payload?.Length ?? 0)];
+            frame[0] = 0x05; frame[1] = 5;
+            frame[2] = (byte)'_'; frame[3] = (byte)'_'; frame[4] = (byte)'r'; frame[5] = (byte)'e'; frame[6] = (byte)'q';
+            frame[7] = (byte)(rid >> 8); frame[8] = (byte)(rid & 0xFF);
+            frame[9] = (byte)typeB.Length;
+            Buffer.BlockCopy(typeB, 0, frame, 10, typeB.Length);
+            if (payload != null) Buffer.BlockCopy(payload, 0, frame, 10 + typeB.Length, payload.Length);
+            var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingRpc[rid] = tcs;
+            _sock.Send(frame);
+            Task.Run(async () => {
+                await Task.Delay(timeoutMs);
+                if (_pendingRpc.TryRemove(rid, out var t)) t.TrySetException(new TimeoutException($"request '{type}' timed out"));
+            });
+            return tcs.Task;
+        }
+
+        private void ResolveRpc(byte[] frame)
+        {
+            // __res: [0x05][5][__res][reqId u16][payload]
+            if (frame.Length < 9) return;
+            ushort rid = (ushort)((frame[7] << 8) | frame[8]);
+            if (_pendingRpc.TryRemove(rid, out var t))
+                t.TrySetResult(frame.Skip(9).ToArray());
         }
 
         /// Leave politely: stop the loops; the server's idle sweep cleans the seat.
