@@ -78,4 +78,4 @@ cert.crt
 examples/*
 .idea/
 .delta/
-/bench/
+/bench/release-out/

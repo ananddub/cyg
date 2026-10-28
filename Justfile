@@ -69,6 +69,10 @@ build:
 # Rebuild both dashboard UI + Rust binary and restart the game server container
 rebuild: build-dashboard build restart
 
+# Local release build — GitHub CI nahi, tumhara system (build + archive + ready command)
+release-local version="v0.1.0-local":
+    @bash scripts/release-local.sh {{version}}
+
 # Rebuild Web Console Dashboard on the host
 build-dashboard:
     @echo "🎨 Building console dashboard dist..."
