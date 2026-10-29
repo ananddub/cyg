@@ -213,11 +213,11 @@ mod tests {
 
     #[test]
     fn room_template_is_a_class_with_all_three_channels() {
-        assert!(ROOM_TEMPLATE.contains("export class GameRoom extends Room"));
+        assert!(ROOM_TEMPLATE.contains("export class MyGame extends Room"));
         assert!(ROOM_TEMPLATE.contains("this.on(\"discard\""));
         assert!(ROOM_TEMPLATE.contains("this.onMessage(\"input\""));
-        assert!(ROOM_TEMPLATE.contains("broadcastText("));
-        assert!(ROOM_TEMPLATE.contains("room.sendTo("));
+        assert!(ROOM_TEMPLATE.contains("commitState("));
+        assert!(ROOM_TEMPLATE.contains("onJoin"));
         assert!(ROOM_TEMPLATE.contains("from \"./cyg.schema\""));
         assert!(ROOM_TEMPLATE.contains("new SchemaState(PlayerSchema)"));
         assert!(!ROOM_TEMPLATE.contains("new SchemaDef("));
