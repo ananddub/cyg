@@ -1,4 +1,4 @@
-// CYG starter room — Colyseus-style reactive state, server-authoritative.
+// CYG starter room — reactive state, server-authoritative.
 //
 // Flow: onJoin/onInputPacket collect inputs → onTick simulates →
 // commitState() encodes the dirty-only delta. The browser rebuilds state

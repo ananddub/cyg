@@ -123,7 +123,7 @@
         window.room = room = await client.joinOrCreate(roomName);
         window.inspector = new CYG.Inspector(room);
 
-        // Colyseus v5 callback API.
+        // CYG callback API.
         const callbacks = CYG.getStateCallbacks(room);
         callbacks.onAdd('players', (player, id) => {
             note('player added: ' + id);

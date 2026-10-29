@@ -5,9 +5,9 @@
 //   • cyg.schema.bin — descriptor delivered to every client on join
 //
 // The browser needs no matching schema file. It rebuilds the same field list
-// from the descriptor, exactly like Colyseus.
+// from the descriptor.
 //
-// Syntax is Colyseus v5: https://docs.colyseus.io/state/schema/
+// CYG schema DSL.
 import { schema, t } from "cyg";
 
 // One player entity. Position is a double on the wire; flags is the held-key mask.
