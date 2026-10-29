@@ -741,7 +741,7 @@ declare type usize = number;
 declare type f32 = number;
 declare type f64 = number;
 declare function unchecked<T>(x: T): T;
-declare module "@colyseus/schema" {
+declare module "cyg" {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   export function schema(def: any, name: string): any;
   export const t: any;

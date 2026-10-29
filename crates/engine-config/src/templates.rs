@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn ts_schema_template_uses_colyseus_v5_syntax() {
-        assert!(SCHEMA_TS_TEMPLATE.contains("from \"@colyseus/schema\""));
+        assert!(SCHEMA_TS_TEMPLATE.contains("from \"cyg\""));
         assert!(SCHEMA_TS_TEMPLATE.contains("const Player = schema({"));
         assert!(SCHEMA_TS_TEMPLATE.contains("players: t.map(Player)"));
     }

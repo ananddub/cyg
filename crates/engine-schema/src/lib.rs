@@ -1056,8 +1056,8 @@ fn emit_client_dts(
     // without installing @colyseus/schema. A real installation wins by
     // declaration merging and remains compatible.
     out.push_str(
-        "\n/** Type shim for `schema.ts` when @colyseus/schema is not installed. */\n\
-         declare module \"@colyseus/schema\" {\n\
+        "\n/** Type shim for `schema.ts` when cyg is not installed. */\n\
+         declare module \"cyg\" {\n\
          \x20   export interface SchemaType<T> {\n\
          \x20       extend<B extends Record<string, unknown>>(base: B): SchemaType<T & B> & (T & B);\n\
          \x20       version(value: number): SchemaType<T> & T;\n\

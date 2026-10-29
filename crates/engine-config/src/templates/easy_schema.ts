@@ -8,7 +8,7 @@
 // from the descriptor, exactly like Colyseus.
 //
 // Syntax is Colyseus v5: https://docs.colyseus.io/state/schema/
-import { schema, t } from "@colyseus/schema";
+import { schema, t } from "cyg";
 
 // One player entity. Position is a double on the wire; flags is the held-key mask.
 export const Player = schema({
