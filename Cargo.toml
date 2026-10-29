@@ -55,3 +55,8 @@ bevy_ecs = { version = "0.15", default-features = false }
 rapier3d = "0.36"
 
 
+
+# `cyg-game` short alias — templates/docs isse reference karte hain
+[[bin]]
+name = "cyg-game"
+path = "src/main.rs"

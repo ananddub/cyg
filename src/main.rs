@@ -1,8 +1,8 @@
-//! # ox-game — CYG game server CLI
+//! # cyg-game — CYG game server CLI
 //!
-//!   ox-game init \[dir]    create a game project (room.ts + schema.ts + own SDK + website)
-//!   ox-game run  \[dir]    compile (if needed) and run the server
-//!   ox-game run            (with no config.toml present) runs the built-in demo
+//!   cyg-game init \[dir]    create a game project (room.ts + schema.ts + own SDK + website)
+//!   cyg-game run  \[dir]    compile (if needed) and run the server
+//!   cyg-game run            (with no config.toml present) runs the built-in demo
 //!
 //! Everything is driven by config.toml — runtime, source, ports, tick rate.
 //!
@@ -83,7 +83,7 @@ fn main() {
         "schema-debug" | "schema-inspect" => schema_debug_command(&args[1..]),
         "cook" => {
             if args.len() < 3 {
-                tracing::info!("Usage: ox-game cook <input.glb> <output.bin>");
+                tracing::info!("Usage: cyg-game cook <input.glb> <output.bin>");
                 std::process::exit(1);
             }
             let input = Path::new(&args[1]);
@@ -102,13 +102,13 @@ fn main() {
     }
 }
 
-/// `ox-game doctor [dir]` — one command that validates everything a project
+/// `cyg-game doctor [dir]` — one command that validates everything a project
 /// needs: config, schema, wasm presence and the exact ABI export names the
 /// host will look up. Catches contract mismatches (e.g. `tick()` vs
 /// `on_tick()`) in seconds instead of at room-join time.
 fn doctor(dir: &Path) -> std::io::Result<()> {
     let mut problems = 0usize;
-    tracing::info!("🩺 ox-game doctor — {}\n", dir.display());
+    tracing::info!("🩺 cyg-game doctor — {}\n", dir.display());
 
     // 1. config
     let cfg = match engine_config::load_config(dir) {
@@ -169,7 +169,7 @@ fn doctor(dir: &Path) -> std::io::Result<()> {
                 }
             }
         }
-        None => tracing::info!("• room wasm not built yet (run: ox-game run {})", dir.display()),
+        None => tracing::info!("• room wasm not built yet (run: cyg-game run {})", dir.display()),
     }
 
     if problems > 0 {
@@ -182,25 +182,25 @@ fn doctor(dir: &Path) -> std::io::Result<()> {
 
 fn print_help() {
     tracing::info!(
-        "ox-game — CYG game server
+        "cyg-game — CYG game server
 
 USAGE:
-  ox-game init          [dir]    create a game project (room.ts + schema.ts + own SDK)
-  ox-game run           [dir]    compile the room (if needed) and start the server
-  ox-game aot           [dir]    AOT precompile room to native .cwasm for <1ms cold starts
-  ox-game gen-interface [dir]    auto-generate C++, Rust, C#, AssemblyScript & TypeScript interfaces
-  ox-game cook <in.glb> <out.bin> extract 3D collision geometry to instant-boot OXCL binary
-  ox-game schema [dir] --dump     compile schema.ts and print the descriptor as hex
-  ox-game schema [dir] --json     compile schema.ts and print a machine-readable report
-  ox-game schema        [dir]    compile schema.ts to server code + browser descriptor
-  ox-game schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|all)
-  ox-game schema-debug [path]    inspect a compiled descriptor (--json)
-  ox-game doctor       [dir]    validate config, schema and wasm ABI exports
-  ox-game                        same as `run` in the current directory
+  cyg-game init          [dir]    create a game project (room.ts + schema.ts + own SDK)
+  cyg-game run           [dir]    compile the room (if needed) and start the server
+  cyg-game aot           [dir]    AOT precompile room to native .cwasm for <1ms cold starts
+  cyg-game gen-interface [dir]    auto-generate C++, Rust, C#, AssemblyScript & TypeScript interfaces
+  cyg-game cook <in.glb> <out.bin> extract 3D collision geometry to instant-boot OXCL binary
+  cyg-game schema [dir] --dump     compile schema.ts and print the descriptor as hex
+  cyg-game schema [dir] --json     compile schema.ts and print a machine-readable report
+  cyg-game schema        [dir]    compile schema.ts to server code + browser descriptor
+  cyg-game schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|all)
+  cyg-game schema-debug [path]    inspect a compiled descriptor (--json)
+  cyg-game doctor       [dir]    validate config, schema and wasm ABI exports
+  cyg-game                        same as `run` in the current directory
 
 CONFIG:
   Everything lives in config.toml — runtime, source file, ports, tick rate.
-  See the template `ox-game init` writes."
+  See the template `cyg-game init` writes."
     );
 }
 
@@ -214,7 +214,7 @@ fn schema_command(args: &[String]) {
             "--json" => json = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: ox-game schema [dir] [--dump] [--json]\n\
+                    "usage: cyg-game schema [dir] [--dump] [--json]\n\
                      \x20 --dump   print the binary descriptor as lowercase hex\n\
                      \x20 --json   print paths, byte count and descriptor hex as JSON"
                 );
@@ -277,7 +277,7 @@ fn schema_codegen_command(args: &[String]) {
             "--check" => check = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: ox-game schema-codegen [dir] [--lang <cs|gdscript|cpp|lua|all>] [--out DIR] [--check]\n\
+                    "usage: cyg-game schema-codegen [dir] [--lang <cs|gdscript|cpp|lua|all>] [--out DIR] [--check]\n\
                      \x20 --lang    target language; defaults to all\n\
                      \x20 --out     output directory; defaults to <dir>/generated\n\
                      \x20 --check   fail if generated files are missing or stale (CI)"
@@ -339,7 +339,7 @@ fn schema_codegen_command(args: &[String]) {
                 tracing::info!("✗ stale {}", path.display());
             }
             tracing::info!(
-                "run `ox-game schema-codegen {} --out {}` to regenerate",
+                "run `cyg-game schema-codegen {} --out {}` to regenerate",
                 dir.display(),
                 out_dir.display()
             );
@@ -372,7 +372,7 @@ fn schema_debug_command(args: &[String]) {
             "--json" => json = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: ox-game schema-debug [dir|file] [--json]\n\
+                    "usage: cyg-game schema-debug [dir|file] [--json]\n\
                      \x20 Reads cyg.schema.bin (or the given file) and prints the\n\
                      \x20 root, collections, schemas, fields and recomputed hashes."
                 );
@@ -663,7 +663,7 @@ fn json_escape(value: &str) -> String {
     out
 }
 
-/// `ox-game aot [dir]` — compile room source to WASM and AOT precompile to native `.cwasm`.
+/// `cyg-game aot [dir]` — compile room source to WASM and AOT precompile to native `.cwasm`.
 fn aot(dir: &Path) -> std::io::Result<()> {
     let cfg =
         if dir.join("config.toml").exists() || dir.join("config.yml").exists() || dir.is_file() {
@@ -687,7 +687,7 @@ fn aot(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// `ox-game init [dir]` — scaffold a project.
+/// `cyg-game init [dir]` — scaffold a project.
 fn init(dir: &Path) -> std::io::Result<()> {
     let config_path = dir.join("config.toml");
     if config_path.exists() {
@@ -752,7 +752,7 @@ declare module "cyg" {
     if !gitignore.exists() {
         std::fs::write(
             &gitignore,
-            "# Regenerable schema bindings (ox-game schema-codegen)\ngen/\n",
+            "# Regenerable schema bindings (cyg-game schema-codegen)\ngen/\n",
         )?;
     }
 
@@ -793,11 +793,11 @@ declare module "cyg" {
     tracing::info!("");
     print_schema_output(&generated, false, false)?;
     tracing::info!("");
-    tracing::info!("next: ox-game run {}", dir.display());
+    tracing::info!("next: cyg-game run {}", dir.display());
     Ok(())
 }
 
-/// `ox-game run [dir]` — compile (if needed) and serve.
+/// `cyg-game run [dir]` — compile (if needed) and serve.
 fn run(dir: &Path) -> std::io::Result<()> {
     let cfg =
         if dir.join("config.toml").exists() || dir.join("config.yml").exists() || dir.is_file() {
@@ -824,7 +824,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
     // Demo mode uses the pre-compiled example wasm shipped with the repo.
     let (project_dir, cfg) = if cfg.out.as_os_str().is_empty() {
         let wasm = include_bytes!("../crates/engine-net/examples/e2e/room_logic.wasm");
-        let out_dir = std::env::temp_dir().join("ox-game-demo");
+        let out_dir = std::env::temp_dir().join("cyg-game-demo");
         std::fs::create_dir_all(&out_dir)?;
         let out = out_dir.join("room_logic.wasm");
         std::fs::write(&out, wasm)?;
@@ -912,7 +912,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
     engine_server::host::run(&project_dir, &wasm_path, &cfg, bus, signals, boot_maps)
 }
 
-/// `ox-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.
+/// `cyg-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.
 fn generate_interfaces(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
 

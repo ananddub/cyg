@@ -1,5 +1,5 @@
 //! `schema.ts` → server state-sync code + binary descriptor, shared by
-//! init/run/aot and the explicit `ox-game schema` command.
+//! init/run/aot and the explicit `cyg-game schema` command.
 //!
 //! The browser needs no schema file: the descriptor is delivered in the join
 //! handshake, and `cyg.schema.d.ts` provides the typed contract.

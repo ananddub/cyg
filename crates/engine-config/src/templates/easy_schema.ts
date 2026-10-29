@@ -1,6 +1,6 @@
 // Network state contract — the only schema source in this project.
 //
-// `ox-game run` compiles this file before starting the room:
+// `cyg-game run` compiles this file before starting the room:
 //   • cyg.schema.ts  — typed AssemblyScript class imported by room.ts
 //   • cyg.schema.bin — descriptor delivered to every client on join
 //

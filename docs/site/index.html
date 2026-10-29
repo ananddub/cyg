@@ -193,9 +193,9 @@ OX_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg-gaming run examples/coin-rush
 <span class="c"># console → http://localhost:8124/dashboard/</span></pre>
 
   <h3>New project</h3>
-<pre>ox-game init my-game && cd my-game
-ox-game doctor              <span class="c"># config + schema + ABI health check</span>
-ox-game run                 <span class="c"># compile room.ts → wasm and serve</span></pre>
+<pre>cyg-game init my-game && cd my-game
+cyg-game doctor              <span class="c"># config + schema + ABI health check</span>
+cyg-game run                 <span class="c"># compile room.ts → wasm and serve</span></pre>
 
   <div class="warn"><b>Note:</b> the engine deliberately does not host your game's website — you host the page
   (any static server) and point the client SDK at the server's control port. The control plane serves
@@ -269,13 +269,13 @@ room.send("fire", { dir });                                <span class="c">// re
 room.sendUnreliable("move", input);                        <span class="c">// newest-wins lane</span></pre>
 
   <h3>CLI</h3>
-<pre>ox-game init [dir]              <span class="c"># scaffold a project</span>
-ox-game run [dir]               <span class="c"># compile if needed, then serve</span>
-ox-game aot [dir]               <span class="c"># precompile to native .cwasm (&lt;1 ms cold start)</span>
-ox-game schema [dir]            <span class="c"># compile schema.ts → bindings + descriptor</span>
-ox-game schema-codegen [dir]    <span class="c"># typed client bindings (--lang cs|gdscript|cpp|lua|all)</span>
-ox-game doctor [dir]            <span class="c"># config + schema + ABI health check</span>
-ox-game cook in.glb out.oxcl    <span class="c"># cook a 3D collision mesh for instant boot</span></pre>
+<pre>cyg-game init [dir]              <span class="c"># scaffold a project</span>
+cyg-game run [dir]               <span class="c"># compile if needed, then serve</span>
+cyg-game aot [dir]               <span class="c"># precompile to native .cwasm (&lt;1 ms cold start)</span>
+cyg-game schema [dir]            <span class="c"># compile schema.ts → bindings + descriptor</span>
+cyg-game schema-codegen [dir]    <span class="c"># typed client bindings (--lang cs|gdscript|cpp|lua|all)</span>
+cyg-game doctor [dir]            <span class="c"># config + schema + ABI health check</span>
+cyg-game cook in.glb out.oxcl    <span class="c"># cook a 3D collision mesh for instant boot</span></pre>
 </div></section>
 
 <!-- ======================================================= netcode -->

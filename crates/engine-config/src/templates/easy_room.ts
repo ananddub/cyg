@@ -4,7 +4,7 @@
 // commitState() encodes the dirty-only delta. The browser rebuilds state
 // from the descriptor — no client codegen needed.
 //
-// Edit this file and run `ox-game run .` — the compiler generates the WASM
+// Edit this file and run `cyg-game run .` — the compiler generates the WASM
 // ABI bridge for you.
 
 import {

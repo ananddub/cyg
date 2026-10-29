@@ -2,7 +2,7 @@
 
 An open-source multiplayer backend that does what Colyseus + Nakama do, in **one Rust binary**: authoritative WASM game rooms, WebRTC + UDP netcode, a player accounts/chat/friends/leaderboards API, and a web console to run it all — self-hosted, on a $10/mo VPS.
 
-No Node cluster, no sidecar orchestra. `ox-game run` **is** the production artifact. Everything below ships **in the box** — game runtime, physics, ECS, netcode, BaaS, console. There is nothing to bolt together.
+No Node cluster, no sidecar orchestra. `cyg-game run` **is** the production artifact. Everything below ships **in the box** — game runtime, physics, ECS, netcode, BaaS, console. There is nothing to bolt together.
 
 ```
 ┌──────────────────────────  one process  ──────────────────────────┐
@@ -82,14 +82,14 @@ OX_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg-gaming run examples/coin-rush
 Fresh project:
 
 ```bash
-ox-game init my-game && cd my-game
-ox-game doctor          # config + schema + ABI check
-ox-game run             # compile room.ts → wasm and serve
+cyg-game init my-game && cd my-game
+cyg-game doctor          # config + schema + ABI check
+cyg-game run             # compile room.ts → wasm and serve
 ```
 
 ## Writing a game
 
-A project is `config.toml`, your room source and schema (`src/` in the examples; `ox-game init` scaffolds the same files at the project root), a `website.html` you host yourself, and generated `out/`. The server reads **only** what the config names — ports, tick rate, file paths — nothing is hardcoded.
+A project is `config.toml`, your room source and schema (`src/` in the examples; `cyg-game init` scaffolds the same files at the project root), a `website.html` you host yourself, and generated `out/`. The server reads **only** what the config names — ports, tick rate, file paths — nothing is hardcoded.
 
 ```toml
 name = "coin-rush"
@@ -144,14 +144,14 @@ const reply = await room.request("login", { user });   // request/response RPC
 ## CLI
 
 ```
-ox-game init            [dir]   scaffold a project (room.ts + schema.ts + SDK)
-ox-game run             [dir]   compile if needed, then serve
-ox-game aot             [dir]   precompile to native .cwasm (<1 ms cold start)
-ox-game schema          [dir]   compile schema.ts → server bindings + client descriptor
-ox-game schema-codegen  [dir]   typed client bindings (--lang cs|gdscript|cpp|lua|all)
-ox-game doctor          [dir]   validate config, schema and ABI exports
-ox-game gen-interface   [dir]   C++/Rust/C#/AS/TS room interfaces
-ox-game cook <in.glb> <out.oxcl>  cook a 3D collision mesh for instant boot
+cyg-game init            [dir]   scaffold a project (room.ts + schema.ts + SDK)
+cyg-game run             [dir]   compile if needed, then serve
+cyg-game aot             [dir]   precompile to native .cwasm (<1 ms cold start)
+cyg-game schema          [dir]   compile schema.ts → server bindings + client descriptor
+cyg-game schema-codegen  [dir]   typed client bindings (--lang cs|gdscript|cpp|lua|all)
+cyg-game doctor          [dir]   validate config, schema and ABI exports
+cyg-game gen-interface   [dir]   C++/Rust/C#/AS/TS room interfaces
+cyg-game cook <in.glb> <out.oxcl>  cook a 3D collision mesh for instant boot
 ```
 
 ## Architecture
@@ -234,7 +234,7 @@ just doctor sky3d                   # project-level health check
 
 ```
 crates/            the engine (see table above)
-src/main.rs        the `ox-game` CLI
+src/main.rs        the `cyg-game` CLI
 dashboard/         the web console (React, served by the binary at /dashboard/)
 sdk/client/        web (cyg.js) + Unity/Unreal/Godot/native players
 sdk/server/        AssemblyScript (cyg-server.ts) + Lua/C/C++/Rust/C#/TS interfaces

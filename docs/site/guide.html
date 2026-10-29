@@ -61,7 +61,7 @@
 <!-- ============================================================ 1 -->
 <section id="setup"><div class="wrap">
   <h2><span>01</span>Project setup</h2>
-<pre>ox-game init my-game && cd my-game</pre>
+<pre>cyg-game init my-game && cd my-game</pre>
   <p>Two runtimes exist: <code>runtime = "assemblyscript"</code> (your logic compiles to WASM —
   the standard path) and the inbuilt backends (physics rooms, ECS rooms) the host can run natively.</p>
   <table>
@@ -79,8 +79,8 @@
     <tr><td><code>permissions</code></td><td>gates the <code>sys_*</code> host imports (physics, logging, …)</td></tr>
   </table>
   <p class="note">Live edits: saving <code>room.ts</code> or <code>schema.ts</code> triggers recompile +
-  hot-swap — players stay connected. <code>ox-game doctor</code> validates the whole project.
-  <code>ox-game aot</code> precompiles to <code>.cwasm</code> for sub-millisecond cold starts.</p>
+  hot-swap — players stay connected. <code>cyg-game doctor</code> validates the whole project.
+  <code>cyg-game aot</code> precompiles to <code>.cwasm</code> for sub-millisecond cold starts.</p>
 </div></section>
 
 <!-- ============================================================ 2 -->
@@ -245,7 +245,7 @@ onTick(dt: f64): i64 {
 
   <h3>Map geometry (choose one, loaded at boot)</h3>
 <pre><span class="c"># cook a GLB scene into an OXCL collision mesh (instant boot, baked statics)</span>
-ox-game cook map.glb arena.oxcl
+cyg-game cook map.glb arena.oxcl
 
 <span class="c"># …or simple boxes: arena_map.json</span>
 { "arena_width": 60, "arena_depth": 60,
@@ -414,7 +414,7 @@ this.onMessage("chat", (senderId, reader, room) => { /* … */ });</pre>
   <h2><span>11</span>Maps A-to-Z</h2>
   <table>
     <tr><th>Format</th><th>File</th><th>How to make</th><th>Feeds</th></tr>
-    <tr><td><b>3D mesh</b> (<code>oxcl</code>)</td><td><code>arena.oxcl</code></td><td><code>ox-game cook map.glb arena.oxcl</code></td><td>3D static collision (both physics layers)</td></tr>
+    <tr><td><b>3D mesh</b> (<code>oxcl</code>)</td><td><code>arena.oxcl</code></td><td><code>cyg-game cook map.glb arena.oxcl</code></td><td>3D static collision (both physics layers)</td></tr>
     <tr><td><b>3D boxes</b> (JSON)</td><td><code>arena_map.json</code></td><td>hand-write (x/y/z/w/h/d per box)</td><td>PhysicsWorld3D walls</td></tr>
     <tr><td><b>2D arena</b> (JSON)</td><td><code>arena_2d.json</code></td><td>hand-write (boxes/circles)</td><td>Rapier2D static colliders + arena bounds</td></tr>
     <tr><td><b>Navmesh</b></td><td><code>.nav2d</code>/<code>.mesh</code></td><td>bake (Polyanya format)</td><td><code>NavMesh.findPath</code></td></tr>
@@ -464,7 +464,7 @@ room.clock.now(); room.clock.setTimeout(fn, ms);               <span class="c">/
 room.ping((rttMs) => {}); room.leave(/*consented*/ true);</pre>
   <p class="note">Server-side SDK (<code>cyg-server.ts</code>) mirrors every name you saw in §4–§10 —
   one mental model both ends. Generated interfaces exist for Lua/C/C++/Rust/C#/TS
-  (<code>ox-game gen-interface</code>); native engines speak raw UDP with the same frames.</p>
+  (<code>cyg-game gen-interface</code>); native engines speak raw UDP with the same frames.</p>
 </div></section>
 
 <!-- ============================================================ 13 -->
@@ -492,7 +492,7 @@ docker compose up -d            <span class="c"># postgres + redis + server, rep
     <li><b>Secrets:</b> real <code>[control.session]</code> signing keys + console credentials; the server refuses default secrets unless <code>OX_ALLOW_DEFAULT_SECRETS=1</code> (dev only).</li>
     <li><b>Identity:</b> set <code>game_id</code> (or <code>game_key</code>) — with 2+ games in the database the process refuses to guess.</li>
     <li><b>Scale-out:</b> Agones hooks are built in — the pod reports Ready, health-pings, and retires cleanly. One binary per pod; the console shows which game each node hosts.</li>
-    <li><b>Health:</b> <code>/status</code> (live tick rate, CCU, uptime), <code>/health</code>, <code>ox-game doctor</code>.</li>
+    <li><b>Health:</b> <code>/status</code> (live tick rate, CCU, uptime), <code>/health</code>, <code>cyg-game doctor</code>.</li>
   </ul>
 </div></section>
 
@@ -543,7 +543,7 @@ hp: t.uint8().default(100),</pre>
     <li>Entity defs (<code>Player</code> etc.) are referenced by name inside collections.</li>
     <li>Reserved words (<code>var</code>, <code>function</code>, <code>this</code>…) field names ke roop me allowed nahi.</li>
     <li>Room imports from <code>../gen/cyg.schema</code> — <code>src/schema/player.ts</code> ko import mat karo (colyseus module resolve nahi hota asc me).</li>
-    <li>Run <code>ox-game schema</code> after edits, ya <code>ox-game run</code> auto-compiles.</li>
+    <li>Run <code>cyg-game schema</code> after edits, ya <code>cyg-game run</code> auto-compiles.</li>
   </ul>
 </div></section>
 
