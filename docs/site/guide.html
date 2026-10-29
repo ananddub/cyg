@@ -48,6 +48,7 @@
   <a href="#nav">7 Navmesh</a><a href="#aoi">8 AOI</a><a href="#util">9 RNG/Timers</a>
   <a href="#msg">10 Messaging</a><a href="#maps">11 Maps</a><a href="#client">12 Client SDK</a>
   <a href="#console">13 Console</a><a href="#deploy">14 Deploy</a>
+  <a href="#schema-full">15 Schema</a>
 </div></nav>
 
 <header><div class="wrap">
@@ -492,6 +493,57 @@ docker compose up -d            <span class="c"># postgres + redis + server, rep
     <li><b>Identity:</b> set <code>game_id</code> (or <code>game_key</code>) — with 2+ games in the database the process refuses to guess.</li>
     <li><b>Scale-out:</b> Agones hooks are built in — the pod reports Ready, health-pings, and retires cleanly. One binary per pod; the console shows which game each node hosts.</li>
     <li><b>Health:</b> <code>/status</code> (live tick rate, CCU, uptime), <code>/health</code>, <code>ox-game doctor</code>.</li>
+  </ul>
+</div></section>
+
+
+<!-- ============================================================ schema -->
+<section id="schema-full"><div class="wrap">
+  <h2><span>15</span>Schema DSL — complete reference</h2>
+  <p class="sub">Colyseus v5 syntax, fully compatible. File: <code>src/schema/player.ts</code>.
+  The compiler reads the <code>schema({...}, "Name")</code> calls and generates the typed
+  AssemblyScript binding (<code>gen/cyg.schema.ts</code>), the binary descriptor
+  (<code>out/cyg.schema.bin</code>) and the browser contract (<code>out/cyg.schema.d.ts</code>).</p>
+
+  <h3>Primitives</h3>
+  <table>
+    <tr><th>Declaration</th><th>Wire type</th><th>Bytes</th><th>Range / notes</th></tr>
+    <tr><td><code>t.number()</code> / <code>t.float64()</code> / <code>t.f64()</code></td><td>f64</td><td>8</td><td>positions, angles — default numeric choice</td></tr>
+    <tr><td><code>t.float32()</code> / <code>t.f32()</code></td><td>f32</td><td>4</td><td>7 significant digits</td></tr>
+    <tr><td><code>t.int8()</code> / <code>t.i8()</code></td><td>i8</td><td>1</td><td>−128…127</td></tr>
+    <tr><td><code>t.uint8()</code> / <code>t.u8()</code></td><td>u8</td><td>1</td><td>0…255 — HP, level, flags</td></tr>
+    <tr><td><code>t.int16()</code> / <code>t.i16()</code></td><td>i16</td><td>2</td><td>−32768…32767</td></tr>
+    <tr><td><code>t.uint16()</code> / <code>t.u16()</code></td><td>u16</td><td>2</td><td>0…65535</td></tr>
+    <tr><td><code>t.int32()</code> / <code>t.i32()</code></td><td>i32</td><td>4</td><td>signed 32-bit</td></tr>
+    <tr><td><code>t.uint32()</code> / <code>t.u32()</code></td><td>u32</td><td>4</td><td>0…4294967295</td></tr>
+    <tr><td><code>t.int64()</code> / <code>t.i64()</code></td><td>i64</td><td>8</td><td>player ids (i64)</td></tr>
+    <tr><td><code>t.boolean()</code> / <code>t.bool()</code></td><td>bool</td><td>1</td><td>true/false</td></tr>
+    <tr><td><code>t.string()</code></td><td>string</td><td>var</td><td>UTF-8, len-prefixed</td></tr>
+  </table>
+  <p class="note"><b>Size matters:</b> the delta encodes only changed fields — an HP that fits in
+  <code>uint8</code> costs 1 byte per change vs 8 for <code>number</code>. At 128 Hz × 1000 players
+  the right type choice is the difference between 8 KB/s and 64 KB/s per field.</p>
+
+  <h3>Collections</h3>
+  <table>
+    <tr><th>Declaration</th><th>Use</th></tr>
+    <tr><td><code>t.map(Player)</code></td><td>keyed entities — <code>players.set(id, p)</code>, <code>.get(id)</code>, <code>.delete(id)</code>, <code>.ids</code></td></tr>
+    <tr><td><code>t.array(Item)</code></td><td>ordered list — chat log, bullet feed</td></tr>
+    <tr><td><code>t.ref(Other)</code></td><td>entity reference — wire pe entity id travel karta hai</td></tr>
+  </table>
+
+  <h3>Defaults</h3>
+<pre>pid: t.int64().default(0),
+hp: t.uint8().default(100),</pre>
+  <p class="note"><code>.default(value)</code> primitives aur strings pe supported hai — arrays pe assign the constructor me.</p>
+
+  <h3>Rules</h3>
+  <ul>
+    <li>Every schema file must <code>export const State = schema({...}, "State")</code> — the root.</li>
+    <li>Entity defs (<code>Player</code> etc.) are referenced by name inside collections.</li>
+    <li>Reserved words (<code>var</code>, <code>function</code>, <code>this</code>…) field names ke roop me allowed nahi.</li>
+    <li>Room imports from <code>../gen/cyg.schema</code> — <code>src/schema/player.ts</code> ko import mat karo (colyseus module resolve nahi hota asc me).</li>
+    <li>Run <code>ox-game schema</code> after edits, ya <code>ox-game run</code> auto-compiles.</li>
   </ul>
 </div></section>
 
