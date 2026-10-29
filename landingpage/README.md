@@ -9,8 +9,10 @@ Engine lives at [ananddub/cyg](https://github.com/ananddub/cyg); this repo is on
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5173 (landing) · /docs.html (docs)
 ```
+
+The site is a Vite multi-page app: `index.html` (landing) + `docs.html` (full documentation — quick start, writing a game, the 14-part A-to-Z developer guide, netcode/ports tables, 1-core benchmarks, honest comparison, architecture). Nav "Docs" and the footer link point to it — same domain, no external redirect.
 
 Build / preview:
 
@@ -36,13 +38,13 @@ Static output in `dist/` — works on any static host:
 | `src/components/Hero.jsx` | Full-viewport hero over the 3D scene, GSAP entrance timeline, scroll parallax. |
 | `src/components/Stats.jsx` | GSAP counters — **1-core measured**: 7,000+ CCU/core (WASM+Rapier2D @128 Hz), 0.08 ms p99 tick, 10k CCU/core ECS, 30+ `sys_*` imports. |
 | `src/components/Features.jsx` | Bento grid: WASM rooms, dual-lane netcode (+ QUIC/WebTransport lane chip), server physics, BaaS tag cloud, console, SDK (real platform logos). |
-| `src/components/Threed.jsx` + `src/three/ArenaScene.jsx` | "Full 3D worlds, served authoritative" — lit low-poly 3D diorama (PCF soft shadows) demonstrating real mechanics: **orb pickup → +1 score → respawn**, **lag-compensated raycast → visible crate hit**, **bot falls off edge → respawns**. With grounded copy (Rapier3D host physics, `ox-game cook` .glb → .oxcl, navmesh A* + AOI, lag-compensated raycasts) + floating `config.toml` card (TOML-highlighted). |
+| `src/components/Threed.jsx` + `src/three/ArenaScene.jsx` | "Full 3D worlds, served authoritative" — lit low-poly 3D diorama (PCF soft shadows) demonstrating real mechanics: **orb pickup → +1 score → respawn**, **lag-compensated raycast → visible crate hit**, **bot falls off edge → respawns**. With grounded copy (Rapier3D host physics, `cyg-gaming cook` .glb → .oxcl, navmesh A* + AOI, lag-compensated raycasts) + floating `config.toml` card (TOML-highlighted). |
 | `src/components/Architecture.jsx` | "One process" diagram — control plane (Axum) / game host loop / animated lock-free bus with packet dots. |
 | `src/components/CodeSection.jsx` | Tabbed code viewer (`room.ts` / `client.js` / `schema.ts`) with highlight.js — uses the current `schema()` / `t.number()` / `t.map()` API. |
 | `src/components/ConsolePreview.jsx` | The **real** web console — actual captures from the engine repo's `docs/screenshots/`, presented straight (border + deep shadow + soft brand glow) with view tabs (Live telemetry / WASM studio). No mock data. |
 | `src/components/TechStack.jsx` | "Built on proven technology" logo wall — Rust, WebAssembly, WebRTC, AssemblyScript, PostgreSQL, Redis, Docker, Kubernetes (simple-icons) + Rapier2D/3D, QUIC, WebTransport, Axum, ECS, str0m, wasmtime sigils. |
 | `src/components/Benchmarks.jsx` | Scroll-triggered bars, **all measured in a strict 1-core / 2 GB cgroup, published below measured**: ~1.5k combat · ~5k combined tick · ~7k Rapier2D · ~10k ECS · ~15k Rapier3D CCU/core — plus real capacity cards (~4k combat CCU per $10/mo VPS, 100×100 rooms×players on 2-core/2 GB, 0.76× tick budget, 93 MB peak RAM). |
-| `src/components/Quickstart.jsx` | Auto-typing terminal loop (`ox-game init` → `doctor` → `run`) + 3-step guide. |
+| `src/components/Quickstart.jsx` | Auto-typing terminal loop (`cyg-gaming init` → `doctor` → `run`) + 3-step guide. |
 | `src/components/CTA.jsx` / `Footer.jsx` | Closing CTA + sitemap footer (with Rust trademark attribution). |
 
 All copy and numbers are grounded in the engine repo — benchmark figures are the published

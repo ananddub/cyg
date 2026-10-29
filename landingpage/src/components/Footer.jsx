@@ -13,7 +13,7 @@ const COLS = [
   {
     h: 'Platform',
     links: [
-      ['Documentation', 'https://github.com/ananddub/cyg#readme'],
+      ['Documentation', '/docs.html'],
       ['Web console', '#console'],
       ['Player backend', '#features'],
       ['Architecture', '#architecture'],

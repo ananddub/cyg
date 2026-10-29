@@ -1,7 +1,5 @@
 target/
 release-out/
-examples/*/out/
-examples/*/vendor/
 .git/
 docs/
 dashboard/node_modules/

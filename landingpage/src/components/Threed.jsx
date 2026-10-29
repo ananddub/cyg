@@ -18,7 +18,7 @@ const POINTS = [
     h: 'Cook your maps for instant boot',
     p: (
       <>
-        <code className="code-inline">ox-game cook arena.glb → arena.oxcl</code> compiles 3D collision
+        <code className="code-inline">cyg-gaming cook arena.glb → arena.oxcl</code> compiles 3D collision
         meshes ahead of time; upload meshes, arenas or navmeshes straight from the console.
       </>
     ),

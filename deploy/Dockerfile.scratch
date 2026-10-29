@@ -21,8 +21,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM scratch
 COPY --from=build /out-cyg-gaming /cyg-gaming
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY examples/sky3d /app/game
+COPY examples/sky3d/config.toml examples/sky3d/out examples/sky3d/website.html examples/sky3d/openoxide-client.js /app/game/
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 # 19224 TCP: control plane · 7977 UDP: WebRTC · 7978 UDP: QUIC · 7778 UDP: native
 EXPOSE 19224 7977/udp 7978/udp 7778/udp
+# src/ jaan-bujh ke excluded: production image prebuilt wasm chalata hai,
+# recompile nahi karta (scratch me node/asc hai hi nahi).
 ENTRYPOINT ["/cyg-gaming", "run", "/app/game"]

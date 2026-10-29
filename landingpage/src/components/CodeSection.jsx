@@ -63,6 +63,8 @@ const reply = await room.request("login", { user });`,
     lang: 'typescript',
     code: `// schema.ts — declare state once; codegen emits typed
 // server classes AND the browser descriptor.
+import { schema, t } from "cyg";
+
 const Player = schema({
     pid:   t.int64(),
     x:     t.number(),

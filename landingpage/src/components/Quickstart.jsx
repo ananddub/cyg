@@ -4,11 +4,11 @@ import SectionHead from './SectionHead.jsx'
 
 /* typed lines: cmd = typed char-by-char, out = printed instantly */
 const SCRIPT = [
-  { type: 'cmd', text: 'ox-game init my-game && cd my-game' },
+  { type: 'cmd', text: 'cyg-gaming init my-game && cd my-game' },
   { type: 'out', text: '✓ scaffolded room.ts · schema.ts · SDK · website', cls: 'text-oxide' },
-  { type: 'cmd', text: 'ox-game doctor' },
+  { type: 'cmd', text: 'cyg-gaming doctor' },
   { type: 'out', text: '✓ config.toml  ✓ schema  ✓ ABI exports', cls: 'text-oxide' },
-  { type: 'cmd', text: 'ox-game run' },
+  { type: 'cmd', text: 'cyg-gaming run' },
   { type: 'out', text: '✓ room.ts → room_logic.wasm (41 kB) · schema descriptor emitted', cls: 'text-oxide' },
   { type: 'out', text: '▶ game data   0.0.0.0:7779  (WebRTC · UDP · QUIC · 128 Hz)', cls: 'text-frost' },
   { type: 'out', text: '▶ control     0.0.0.0:8124  (console → /dashboard/)', cls: 'text-frost' },
@@ -77,9 +77,9 @@ const STEPS = [
     title: 'Scaffold a game',
     body: (
       <>
-        <code className="text-oxide">ox-game init my-game</code> generates{' '}
+        <code className="text-oxide">cyg-gaming init my-game</code> generates{' '}
         <code className="text-oxide">room.ts</code>, <code className="text-oxide">schema.ts</code>,
-        the SDK and a playable website. <code className="text-oxide">ox-game doctor</code> validates
+        the SDK and a playable website. <code className="text-oxide">cyg-gaming doctor</code> validates
         config, schema and ABI.
       </>
     ),
@@ -89,7 +89,7 @@ const STEPS = [
     title: 'Run it',
     body: (
       <>
-        <code className="text-oxide">ox-game run</code> compiles your room to WASM and serves game
+        <code className="text-oxide">cyg-gaming run</code> compiles your room to WASM and serves game
         data, signaling, console and website — one process, production-ready.
       </>
     ),

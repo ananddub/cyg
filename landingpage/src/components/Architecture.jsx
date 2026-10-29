@@ -59,7 +59,7 @@ export default function Architecture() {
           sub={
             <>
               No Node cluster, no orchestra of services.{' '}
-              <code className="rounded bg-panel-2 px-1.5 py-0.5 font-mono text-[12.5px] text-oxide">ox-game run</code>{' '}
+              <code className="rounded bg-panel-2 px-1.5 py-0.5 font-mono text-[12.5px] text-oxide">cyg-gaming run</code>{' '}
               <em className="text-sub">is</em> the production artifact — both planes talk
               through one lock-free bus.
             </>
