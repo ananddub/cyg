@@ -32,10 +32,6 @@ use crate::telemetry::{PublishReport, Recorder};
 const SPAWN_W: f64 = 800.0;
 const SPAWN_H: f64 = 500.0;
 
-/// Catch-up cap: never simulate more than 2 ticks in a row (the rest are
-/// dropped and counted — a sim thread that digs a deeper hole never climbs out).
-const MAX_CATCHUP_TICKS: u32 = 2;
-
 /// Decode the guest's packed `(ptr << 32) | len` i64 return (server.rs idiom:
 /// high word is the linear-memory offset, low word the byte length).
 #[inline]
@@ -137,8 +133,8 @@ fn publish_report(
         webrtc_sessions: browser,
         udp_sessions: players.saturating_sub(browser),
         sessions,
-        // One room per pinned plane, and its length is not configurable on
-        // this path: `PlaneConfig` comes from the environment, not `[lifecycle]`.
+        // One room per pinned plane, and its lifetime is the pod's: Agones
+        // retires the process, so there is no `[lifecycle]` deadline to report.
         rooms: vec![RoomTelemetry {
             name: room_name.to_string(),
             phase: room.phase(),
@@ -155,17 +151,21 @@ fn publish_report(
 pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     // ------------------------------------------------------------- UDP plane
     let seats = Arc::new(plane::SeatRegistry::new(&cfg.seat_secret));
-    let mut udp =
-        match plane::udp::UdpPlane::new(&cfg.udp_addr, Arc::clone(&bus), Arc::clone(&seats)) {
-            Ok(u) => u,
-            Err(e) => {
-                tracing::error!(
-                    "[sim] ✖️ UDP plane bind {} failed: {e} — sim thread exiting",
-                    cfg.udp_addr
-                );
-                return;
-            }
-        };
+    let mut udp = match plane::udp::UdpPlane::new(
+        &cfg.udp_addr,
+        Arc::clone(&bus),
+        Arc::clone(&seats),
+        cfg.lifecycle.peer_idle(),
+    ) {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!(
+                "[sim] ✖️ UDP plane bind {} failed: {e} — sim thread exiting",
+                cfg.udp_addr
+            );
+            return;
+        }
+    };
     let mut poll = match Poll::new() {
         Ok(p) => p,
         Err(e) => {
@@ -408,11 +408,11 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             continue;
         }
         let mut ticks_to_run = (elapsed.as_nanos() / period.as_nanos().max(1) as u128) as u32;
-        if ticks_to_run > MAX_CATCHUP_TICKS {
+        if ticks_to_run > watchdog.max_ticks_per_frame {
             // Count the skipped ticks as overruns and reset the deadline;
             // falling behind is fine, trying to catch up all at once is not.
-            recorder.tick_overruns += (ticks_to_run - MAX_CATCHUP_TICKS) as u64;
-            ticks_to_run = MAX_CATCHUP_TICKS;
+            recorder.tick_overruns += (ticks_to_run - watchdog.max_ticks_per_frame) as u64;
+            ticks_to_run = watchdog.max_ticks_per_frame;
             last_tick = Instant::now();
         } else {
             last_tick += period * ticks_to_run;

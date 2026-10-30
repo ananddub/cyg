@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use engine_bus::{Bus, RoomTelemetry, SessionTelemetry, SimEvent};
+use engine_bus::{Bus, MatchFinished, RoomSnapshot, RoomTelemetry, SessionTelemetry, SimEvent};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc::contract::Inbound;
 use engine_net::transport::{GameTransport, TransportEvent, WebRtcServer, WebRtcTransport};
@@ -26,7 +26,10 @@ use engine_physics::PhysicsWorld3D;
 use engine_wasm::WasmRuntime;
 
 use crate::netcode;
-use crate::rooms::{self, CloseReason, GameRoom, GameServer, OutboundMessage, RoomHostData};
+use crate::rooms::{
+    self, CloseReason, DRAIN_REASON, GameRoom, GameServer, OutboundMessage, RoomBackend,
+    RoomHostData,
+};
 use crate::telemetry::{PublishReport, Recorder};
 
 /// Pre-framed spectator "you are watching" confirm: `["delta"]` with id 0.
@@ -45,6 +48,10 @@ const MAX_FRAMES_PER_LOOP: usize = 256;
 /// `sendInput` (0x01), mesh events (0x03), voice (0x56), signals (0x57) and the
 /// spectator handshake (0xFF) keep their existing frames.
 const APP_MESSAGE_OPCODE: u8 = 0x05;
+
+/// Event name the host broadcasts when it starts draining, so a guest that
+/// listens can reconnect elsewhere instead of being closed out.
+const CLOSING_EVENT: &str = "server_closing";
 
 /// The game loop's view of the WebRTC DataChannel transport.
 ///
@@ -321,6 +328,16 @@ fn mono_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Wall-clock seconds. A match row outlives the process that wrote it, so
+/// `Instant` is useless here.
+fn unix_secs() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 /// Queue an arbitrary payload on a UDP peer's reliable lane (assigned seq,
 /// Go-Back-N resend until the client ACKs). Called from the room-outbox fan-out.
 #[allow(dead_code)]
@@ -435,6 +452,14 @@ impl<'a> EventHistory<'a> {
         );
     }
 
+    /// Whether this message is the game's declared match outcome. Allowlist or
+    /// not: the finished-match row needs an outcome even in a game that records
+    /// nothing else, and the last one sent is the one that stood when the room
+    /// was disposed.
+    fn carries_result(&self, message: &OutboundMessage) -> bool {
+        message.event == self.record.result_event
+    }
+
     /// Queue the engine's own desync evidence. Unlike a guest message this is
     /// never allowlisted: an operator who shipped a game without a `[gameplay]`
     /// block still needs the diverging tick and both checksums on record.
@@ -469,6 +494,9 @@ fn flush_room_outbox(
             continue;
         }
         history.mirror(room_name, tick, &message);
+        if history.carries_result(&message) {
+            room.result = Some(message.payload.clone());
+        }
         frame.clear();
         frame.push(APP_MESSAGE_OPCODE);
         frame.push(message.event.len() as u8);
@@ -555,11 +583,87 @@ fn close_room_sessions(transport: &mut LoopTransport, room: &GameRoom, code: u16
     let _ = transport.flush();
 }
 
+/// Whether the host may reap this room at all. A `[lifecycle] persistent_rooms`
+/// entry never dies of idle or old age, and the default room is kept while raw
+/// UDP peers are still attached to it — they live outside the room's own seat
+/// bookkeeping, so `close_reason` cannot see them.
+fn room_is_reapable(cfg: &engine_config::GameConfig, name: &str, udp_peers: usize) -> bool {
+    !cfg.lifecycle.is_persistent(name) && (name != cfg.name.as_str() || udp_peers == 0)
+}
+
+/// Queue one disposed room as a finished match. The host holds no database
+/// handle, so the row the console reads is made here and written by the control
+/// plane; `peak_players` is sampled per host tick by the caller, since a room
+/// that only ever held one player at a time is not the same match as one that
+/// held eight.
+fn report_match(
+    bus: &Bus,
+    game_id: &str,
+    room: &GameRoom,
+    name: &str,
+    end_reason: &str,
+    peak_players: u32,
+) {
+    let now = unix_secs();
+    bus.push_match(MatchFinished {
+        room: name.to_string(),
+        game_id: game_id.to_string(),
+        end_reason: end_reason.to_string(),
+        started_at_unix: now - room.born.elapsed().as_secs() as i64,
+        ended_at_unix: now,
+        ticks: room.current_tick as i64,
+        peak_players: peak_players as i64,
+        snapshot_seq: room.snapshot_seq as i64,
+        result: room.result.clone().unwrap_or_default(),
+    });
+}
+
+fn backend_label(backend: RoomBackend) -> &'static str {
+    match backend {
+        RoomBackend::Relay => "relay",
+        RoomBackend::Wasm => "wasm",
+        RoomBackend::Ecs => "ecs",
+    }
+}
+
+/// Hand a room's saved bytes to the control plane. The host keeps them in its own
+/// map for the lifetime of the process, which is exactly the lifetime the
+/// snapshot must outlive — the node holding the room is the node being replaced.
+/// `save_snapshot` consumes the Vec, so this runs first.
+fn report_snapshot(bus: &Bus, room: &GameRoom, name: &str, bytes: &[u8]) {
+    bus.push_snapshot(RoomSnapshot {
+        room: name.to_string(),
+        backend: backend_label(room.backend).to_string(),
+        seq: room.snapshot_seq as i64,
+        bytes: bytes.to_vec(),
+    });
+}
+
 /// SIGINT/SIGTERM said the process is going away: save every room's state,
 /// give its guests a shutdown close, and let the guest run `onDispose`. This
 /// is the last thing the loop does, so it must not depend on any guest being
 /// well-behaved — a room whose `on_save` traps loses its snapshot, not the pod.
-fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport) {
+/// Tell every peer in every room that the host is closing, framed exactly like
+/// a guest broadcast so an SDK sees one event name (`server_closing`) and no
+/// new wire path. Peers that act on it leave on their own; the rest are closed
+/// with a reason when the grace window runs out.
+fn announce_closure(server: &GameServer, transport: &mut LoopTransport) {
+    let mut frame = Vec::with_capacity(24);
+    frame.push(APP_MESSAGE_OPCODE);
+    frame.push(CLOSING_EVENT.len() as u8);
+    frame.extend_from_slice(CLOSING_EVENT.as_bytes());
+    frame.push(0x80); // msgpack: empty object
+    for room in server.rooms.values() {
+        let mut targets: Vec<&str> =
+            Vec::with_capacity(room.sessions.len() + room.spectators.len());
+        targets.extend(room.sessions.keys().map(String::as_str));
+        targets.extend(room.spectators.iter().map(String::as_str));
+        let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, &frame);
+    }
+    let _ = transport.flush();
+}
+
+fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport, bus: &Bus, game_id: &str) {
     let names: Vec<String> = server.rooms.keys().cloned().collect();
     for name in names {
         let Some(mut room) = server.rooms.remove(&name) else {
@@ -572,8 +676,17 @@ fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport) {
             "server shutting down",
         );
         if let Some(snapshot) = room.export_snapshot() {
+            report_snapshot(bus, &room, &name, &snapshot);
             server.save_snapshot(&name, snapshot);
         }
+        report_match(
+            bus,
+            game_id,
+            &room,
+            &name,
+            DRAIN_REASON,
+            room.sessions.len() as u32,
+        );
         room.dispose();
         tracing::info!("[server] room '{name}' drained and state saved (shutdown)");
     }
@@ -1147,18 +1260,42 @@ pub fn run(
     let mut last_input_at: HashMap<String, Instant> = HashMap::new();
 
     let history = EventHistory::new(&bus, &cfg.gameplay);
+    // A match row is keyed by the game, not just the room: the same room name is
+    // reused by every match this process serves.
+    let game_id = cfg
+        .game_id
+        .clone()
+        .or(cfg.game_key.clone())
+        .unwrap_or_else(|| cfg.name.clone());
+    // Room name → most seats held at once since spawn, sampled once per
+    // housekeeping pass. Rooms leave it when they are disposed.
+    let mut match_peaks: HashMap<String, u32> = HashMap::new();
+    // When the drain is latched, the moment the process is allowed to stop.
+    let mut drain_deadline: Option<Instant> = None;
 
     loop {
         // ---- termination: the plane's signal watcher latched the drain
         // Checked between ticks, never inside one, so a guest is never cut off
         // mid-callback and every room gets its `on_save` and `on_dispose`.
         if bus.is_draining() {
-            tracing::info!(
-                "[server] 🛑 drain requested: closing {} room(s)",
-                server.rooms.len()
-            );
-            drain_rooms(&mut server, &mut transport);
-            return Ok(());
+            let deadline = match drain_deadline {
+                Some(at) => at,
+                None => {
+                    let grace = Duration::from_secs(cfg.lifecycle.drain_grace_secs);
+                    let at = Instant::now() + grace;
+                    drain_deadline = Some(at);
+                    tracing::info!(
+                        "[server] 🛑 drain requested: {} room(s) get {grace:?} to finish and leave",
+                        server.rooms.len()
+                    );
+                    announce_closure(&server, &mut transport);
+                    at
+                }
+            };
+            if Instant::now() >= deadline {
+                drain_rooms(&mut server, &mut transport, &bus, &game_id);
+                return Ok(());
+            }
         }
 
         // ---- signaling hand-over: browser SDP -> str0m sessions ----
@@ -1237,6 +1374,14 @@ pub fn run(
         for event in events.drain(..batch) {
             match event {
                 TransportEvent::Connected { client_id, .. } => {
+                    // A host that is closing cannot give a new peer anything: it
+                    // would simulate the room for a grace window and then hand
+                    // back a closed socket. Refuse before a room is created.
+                    if bus.is_draining() {
+                        tracing::info!("[server] ⛔ {client_id} refused: server is closing");
+                        reject_room(&mut transport, &client_id, CLOSING_EVENT);
+                        continue;
+                    }
                     let raw_room_str = transport.room_of(&client_id);
                     let raw_room = raw_room_str.as_deref().unwrap_or(&cfg.name);
                     let is_spectator = raw_room.contains("spectator");
@@ -1958,6 +2103,12 @@ pub fn run(
                 }
 
                 if !udp_peers.contains_key(&peer_addr) {
+                    if bus.is_draining() {
+                        // The same refusal the WebRTC path applies: a joining UDP
+                        // peer would get a host that stops in a moment.
+                        tracing::info!("[server-udp] ⛔ {peer_addr} refused: server is closing");
+                        continue;
+                    }
                     if is_spec_handshake {
                         let session_id = format!("spec_{}_{}", peer_addr.ip(), peer_addr.port());
                         udp_peers.insert(peer_addr, (0, session_id.clone(), Instant::now())); // 0 = spectator
@@ -2203,8 +2354,8 @@ pub fn run(
         if elapsed >= tick_interval {
             let __gate_t0 = Instant::now();
             let mut ticks_to_run = (elapsed.as_secs_f64() / tick_interval.as_secs_f64()) as u32;
-            if ticks_to_run > 3 {
-                ticks_to_run = 3;
+            if ticks_to_run > cfg.watchdog.max_ticks_per_frame {
+                ticks_to_run = cfg.watchdog.max_ticks_per_frame;
                 last_tick = Instant::now();
             } else {
                 last_tick += tick_interval * ticks_to_run;
@@ -2230,12 +2381,17 @@ pub fn run(
             let reap_now = Instant::now();
             dead_rooms.clear();
             for (name, room) in server.rooms.iter_mut() {
+                let live = room.sessions.len() as u32;
+                match match_peaks.get_mut(name.as_str()) {
+                    Some(peak) => *peak = (*peak).max(live),
+                    None => {
+                        match_peaks.insert(name.clone(), live);
+                    }
+                }
                 // A `[lifecycle] persistent_rooms` entry never dies of idle or
                 // old age, and the default room is kept while raw UDP peers are
-                // still attached to it (they live outside the room's own seat
-                // bookkeeping, so `is_hibernating` cannot see them).
-                let reapable = !cfg.lifecycle.is_persistent(name)
-                    && (name != &cfg.name || udp_peers.is_empty());
+                // still attached to it.
+                let reapable = room_is_reapable(&cfg, name, udp_peers.len());
                 if let Some(reason) = room.close_reason(&cfg.lifecycle, reapable, reap_now) {
                     dead_rooms.push((name.clone(), reason));
                 }
@@ -2623,8 +2779,13 @@ pub fn run(
                         );
                     }
                     if let Some(snapshot) = room.export_snapshot() {
+                        report_snapshot(&bus, &room, &name, &snapshot);
                         server.save_snapshot(&name, snapshot);
                     }
+                    let peak = match_peaks
+                        .remove(&name)
+                        .unwrap_or(room.sessions.len() as u32);
+                    report_match(&bus, &game_id, &room, &name, reason.label(), peak);
                     // Last guest callback: flush scores / release resources.
                     room.dispose();
                     tracing::info!(
@@ -2927,8 +3088,33 @@ mod loop_transport_tests {
         server.get_or_create("lobby").expect("relay room");
 
         let mut t = transport();
-        drain_rooms(&mut server, &mut t);
+        let bus = Bus::new(8, 8);
+        drain_rooms(&mut server, &mut t, &bus, "tank-3d");
         assert!(server.rooms.is_empty(), "a drained room kept its slot");
+        let match_ = bus
+            .matches_rx
+            .try_recv()
+            .expect("a drained room is a finished match");
+        assert_eq!(match_.end_reason, DRAIN_REASON);
+        assert_eq!(match_.game_id, "tank-3d");
+    }
+
+    /// A snapshot is read back as bytes that must be decoded, so the queue has to
+    /// carry which backend wrote them; guessing from the room name is not a plan.
+    /// The ordinal rides along too, because the match row points at it.
+    #[test]
+    fn a_saved_room_hands_its_bytes_and_backend_to_the_control_plane() {
+        let bus = Bus::new(8, 8);
+        let mut room = GameRoom::new_relay();
+        room.snapshot_seq = 7;
+        report_snapshot(&bus, &room, "arena", &[1, 2, 3]);
+        let saved = bus.snapshots_rx.try_recv().expect("snapshot queued");
+        assert_eq!(saved.room, "arena");
+        assert_eq!(saved.backend, "relay");
+        assert_eq!(saved.seq, 7);
+        assert_eq!(saved.bytes, vec![1, 2, 3]);
+        assert_eq!(backend_label(RoomBackend::Wasm), "wasm");
+        assert_eq!(backend_label(RoomBackend::Ecs), "ecs");
     }
 
     /// One flooding seat may not spend the room's budget for everyone else:
@@ -3123,5 +3309,85 @@ mod event_history_tests {
             bus.events_rx.try_recv().unwrap().seq,
         ];
         assert_eq!(seqs, [1, 2, 3], "a reader must see no gap and no reuse");
+    }
+
+    /// The match's outcome is whatever the game sent under `[gameplay]
+    /// result_event`, and the last declaration wins: a game that restates the
+    /// score every round still finishes with the final one. It is kept whether or
+    /// not the event is allowlisted, because the history row needs an outcome for
+    /// a game that records nothing else.
+    #[test]
+    fn the_finished_match_keeps_the_last_result_and_the_snapshot_ordinal() {
+        let bus = Bus::new(8, 8);
+        let mut record = engine_config::GameplayConfig {
+            result_event: "match_outcome".into(),
+            ..Default::default()
+        };
+        record.normalize();
+        let history = EventHistory::new(&bus, &record);
+        let mut room = GameRoom::new_relay();
+        room.snapshot_seq = 3;
+        for (event, payload) in [
+            ("chat", vec![7]),
+            ("match_outcome", vec![1]),
+            ("match_outcome", vec![2]),
+        ] {
+            room.ecs_outbox.push(OutboundMessage {
+                target: 0,
+                event: event.into(),
+                payload,
+            });
+        }
+
+        let mut transport = LoopTransport::new(
+            WebRtcTransport::new("127.0.0.1:0".parse().unwrap()).unwrap(),
+            None,
+        );
+        flush_room_outbox(&mut room, &mut transport, "arena", &history);
+        assert_eq!(room.result, Some(vec![2]), "the last outcome stands");
+
+        report_match(&bus, "tank-3d", &room, "arena", "empty", 1);
+        let row = bus.matches_rx.try_recv().expect("the match is queued");
+        assert_eq!(row.result, vec![2]);
+        assert_eq!(
+            row.snapshot_seq, 3,
+            "the match points at the room's last save"
+        );
+    }
+
+    /// `match_history.end_reason` stores these exact strings, so they are a
+    /// contract with every reader, not a debug label.
+    #[test]
+    fn the_history_row_names_every_way_a_match_can_end() {
+        assert_eq!(CloseReason::Empty.label(), "empty");
+        assert_eq!(CloseReason::Duration.label(), "duration");
+        assert_eq!(DRAIN_REASON, "drain");
+    }
+
+    /// The lifecycle gate lives beside the host loop, not in the room: a named
+    /// persistent room is never reapable, and the default room only becomes
+    /// reapable once its last raw UDP peer is gone.
+    #[test]
+    fn a_persistent_or_udp_held_room_is_not_reapable() {
+        let mut cfg = engine_config::GameConfig::default();
+        cfg.name = "arena".into();
+        cfg.lifecycle.persistent_rooms = vec!["lobby".into()];
+
+        assert!(
+            !room_is_reapable(&cfg, "lobby", 0),
+            "a persistent room is never reaped"
+        );
+        assert!(
+            !room_is_reapable(&cfg, "arena", 2),
+            "the default room holds its seats while UDP peers remain"
+        );
+        assert!(
+            room_is_reapable(&cfg, "arena", 0),
+            "with no peers left it is a room like any other"
+        );
+        assert!(
+            room_is_reapable(&cfg, "side", 3),
+            "peers attached elsewhere do not protect a second room"
+        );
     }
 }

@@ -28,15 +28,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{bounded, Receiver, TryRecvError};
+use crossbeam_channel::{Receiver, TryRecvError, bounded};
 use mio::net::UdpSocket;
 use mio::{Interest, Token};
 
-use engine_bus::{Bus, FrameKind, InputMsg, OutFrame, PeerId, SimCommand, Via};
-use engine_webrtc_protocol::{EventFrame, OP_ACK, OP_EVENT, parse_ack};
 use crate::plane::mono_ns;
 use crate::plane::reliable::{ReliableCounts, ReliableLane};
 use crate::plane::seats::SeatRegistry;
+use engine_bus::{Bus, FrameKind, InputMsg, OutFrame, PeerId, SimCommand, Via};
+use engine_webrtc_protocol::{EventFrame, OP_ACK, OP_EVENT, parse_ack};
 
 /// mio registration token for the UDP socket inside the sim poll loop.
 pub const UDP_TOKEN: Token = Token(1);
@@ -56,7 +56,6 @@ const DENY_FULL: u8 = 4;
 
 /// [0x21][seq u16][payload 20]
 const INP_LEN: usize = 23;
-const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 const SEND_RETRIES: u8 = 3;
 
 struct TokenBucket {
@@ -66,14 +65,17 @@ struct TokenBucket {
 
 impl TokenBucket {
     fn new_at(now: Instant) -> TokenBucket {
-        TokenBucket { tokens: MAX_PACKETS_PER_SEC as f64, last: now }
+        TokenBucket {
+            tokens: MAX_PACKETS_PER_SEC as f64,
+            last: now,
+        }
     }
 
     fn allow(&mut self, now: Instant) -> bool {
         let elapsed = now.duration_since(self.last).as_secs_f64();
         self.last = now;
-        self.tokens = (self.tokens + elapsed * MAX_PACKETS_PER_SEC as f64)
-            .min(MAX_PACKETS_PER_SEC as f64);
+        self.tokens =
+            (self.tokens + elapsed * MAX_PACKETS_PER_SEC as f64).min(MAX_PACKETS_PER_SEC as f64);
         if self.tokens >= 1.0 {
             self.tokens -= 1.0;
             true
@@ -111,6 +113,10 @@ pub struct UdpPlane {
     scratch: Vec<u8>,
     session_counter: u64,
     tick_hz: f64,
+    /// How long a peer may go silent before the plane drops it. The host loop
+    /// honours `[lifecycle] peer_idle_ms`; this lane has to agree or the two
+    /// transports would disconnect at different times.
+    peer_idle: Duration,
     pkts_in: u64,
     denied: u64,
     rate_limited: u64,
@@ -131,7 +137,12 @@ pub struct UdpPlane {
 }
 
 impl UdpPlane {
-    pub fn new(bind_addr: &str, bus: Arc<Bus>, seats: Arc<SeatRegistry>) -> io::Result<UdpPlane> {
+    pub fn new(
+        bind_addr: &str,
+        bus: Arc<Bus>,
+        seats: Arc<SeatRegistry>,
+        peer_idle: Duration,
+    ) -> io::Result<UdpPlane> {
         let addr: SocketAddr = bind_addr
             .parse()
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
@@ -154,6 +165,7 @@ impl UdpPlane {
             scratch: Vec::with_capacity(128),
             session_counter: 0,
             tick_hz,
+            peer_idle,
             pkts_in: 0,
             denied: 0,
             rate_limited: 0,
@@ -182,7 +194,8 @@ impl UdpPlane {
     /// Register the socket with the sim thread's poll (interest: READABLE).
     pub fn register(&self, poll: &mio::Poll) -> io::Result<()> {
         let mut sock = self.socket.borrow_mut();
-        poll.registry().register(&mut *sock, UDP_TOKEN, Interest::READABLE)
+        poll.registry()
+            .register(&mut *sock, UDP_TOKEN, Interest::READABLE)
     }
 
     /// Drain the kernel receive queue. Handles JOIN/BIND auth, INP →
@@ -230,12 +243,24 @@ impl UdpPlane {
                         continue;
                     }
                     let Ok(token) = std::str::from_utf8(&b[2..]) else {
-                        Self::send_deny(&mut sock, &mut self.scratch, &mut self.denied, addr, DENY_BAD_TOKEN);
+                        Self::send_deny(
+                            &mut sock,
+                            &mut self.scratch,
+                            &mut self.denied,
+                            addr,
+                            DENY_BAD_TOKEN,
+                        );
                         continue;
                     };
                     let grant = self.seats.verify(token);
                     match grant {
-                        None => Self::send_deny(&mut sock, &mut self.scratch, &mut self.denied, addr, DENY_BAD_TOKEN),
+                        None => Self::send_deny(
+                            &mut sock,
+                            &mut self.scratch,
+                            &mut self.denied,
+                            addr,
+                            DENY_BAD_TOKEN,
+                        ),
                         Some(grant) => {
                             if self.peers.contains_key(&addr) {
                                 continue; // already pending or bound
@@ -266,7 +291,13 @@ impl UdpPlane {
                                     },
                                 );
                             } else {
-                                Self::send_deny(&mut sock, &mut self.scratch, &mut self.denied, addr, DENY_FULL);
+                                Self::send_deny(
+                                    &mut sock,
+                                    &mut self.scratch,
+                                    &mut self.denied,
+                                    addr,
+                                    DENY_FULL,
+                                );
                             }
                         }
                     }
@@ -359,7 +390,8 @@ impl UdpPlane {
 
     /// Hand one framed event to its peer's window and transmit it immediately,
     /// so an event never waits for the next tick to leave the socket.
-    fn queue_reliable(&mut self, peer_id: &str, bytes: &[u8]) -> bool {        // The seq the lane tracks must be the seq the client reads out of the
+    fn queue_reliable(&mut self, peer_id: &str, bytes: &[u8]) -> bool {
+        // The seq the lane tracks must be the seq the client reads out of the
         // frame, so an ack names the same number. A reliable frame that is not
         // one event is a producer bug: refuse it rather than resend blindly.
         let Ok(event) = EventFrame::decode(bytes) else {
@@ -399,7 +431,9 @@ impl UdpPlane {
     fn pump_peer(&mut self, addr: SocketAddr, now_ms: u64) {
         let socket = &self.socket;
         let peers = &mut self.peers;
-        let Some(peer) = peers.get_mut(&addr) else { return };
+        let Some(peer) = peers.get_mut(&addr) else {
+            return;
+        };
         let mut sent = 0u64;
         let mut drops = 0u64;
         peer.reliable.pump(now_ms, |wire| {
@@ -480,18 +514,21 @@ impl UdpPlane {
     pub fn peer_rtt_ms(&self, peer_id: &str) -> Option<f64> {
         let &addr = self.peer_addrs.get(peer_id)?;
         let peer = self.peers.get(&addr)?;
-        peer.bound.then_some(peer.reliable.rtt_ms()).filter(|ms| *ms > 0.0)
+        peer.bound
+            .then_some(peer.reliable.rtt_ms())
+            .filter(|ms| *ms > 0.0)
     }
 
-    /// Idle-timeout sweep (~10 s without a packet): unbinds the peer and
+    /// Idle-timeout sweep (`peer_idle` without a packet): unbinds the peer and
     /// queues `SimCommand::DropPeer` on the bus. Also drains pending BIND
     /// replies and prunes stranger rate-limit buckets.
     pub fn sweep(&mut self) {
         self.drain_pending();
         let now = Instant::now();
+        let peer_idle = self.peer_idle;
         let mut dropped: Vec<PeerId> = Vec::new();
         self.peers.retain(|_, peer| {
-            if now.duration_since(peer.last_seen) > IDLE_TIMEOUT {
+            if now.duration_since(peer.last_seen) > peer_idle {
                 dropped.push(peer.session_id.clone());
                 false
             } else {
@@ -506,7 +543,7 @@ impl UdpPlane {
                 .try_send(SimCommand::DropPeer { peer_id: sid });
         }
         self.strangers
-            .retain(|_, bucket| now.duration_since(bucket.last) <= IDLE_TIMEOUT);
+            .retain(|_, bucket| now.duration_since(bucket.last) <= peer_idle);
     }
 
     /// Number of currently bound peers (for status).
@@ -609,8 +646,18 @@ impl UdpPlane {
 #[cfg(unix)]
 fn bind_udp(addr: SocketAddr) -> io::Result<std::net::UdpSocket> {
     use std::os::unix::io::FromRawFd;
-    let domain = if addr.is_ipv6() { libc::AF_INET6 } else { libc::AF_INET };
-    let fd = unsafe { libc::socket(domain, libc::SOCK_DGRAM | libc::SOCK_NONBLOCK, libc::IPPROTO_UDP) };
+    let domain = if addr.is_ipv6() {
+        libc::AF_INET6
+    } else {
+        libc::AF_INET
+    };
+    let fd = unsafe {
+        libc::socket(
+            domain,
+            libc::SOCK_DGRAM | libc::SOCK_NONBLOCK,
+            libc::IPPROTO_UDP,
+        )
+    };
     if fd < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -618,7 +665,13 @@ fn bind_udp(addr: SocketAddr) -> io::Result<std::net::UdpSocket> {
     let on: libc::c_int = 1;
     let len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
     unsafe {
-        libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_REUSEADDR, (&on as *const libc::c_int).cast(), len);
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_REUSEADDR,
+            (&on as *const libc::c_int).cast(),
+            len,
+        );
         #[cfg(any(
             target_os = "linux",
             target_os = "android",
@@ -629,26 +682,44 @@ fn bind_udp(addr: SocketAddr) -> io::Result<std::net::UdpSocket> {
             target_os = "netbsd",
             target_os = "openbsd"
         ))]
-        libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_REUSEPORT, (&on as *const libc::c_int).cast(), len);
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_REUSEPORT,
+            (&on as *const libc::c_int).cast(),
+            len,
+        );
     }
     let rc = match addr {
         SocketAddr::V4(a) => {
             let mut sa: libc::sockaddr_in = unsafe { std::mem::zeroed() };
             sa.sin_family = libc::AF_INET as libc::sa_family_t;
             sa.sin_port = a.port().to_be();
-            sa.sin_addr = libc::in_addr { s_addr: u32::from(a.ip().to_bits()).to_be() };
+            sa.sin_addr = libc::in_addr {
+                s_addr: u32::from(a.ip().to_bits()).to_be(),
+            };
             unsafe {
-                libc::bind(fd, (&sa as *const libc::sockaddr_in).cast(), std::mem::size_of_val(&sa) as libc::socklen_t)
+                libc::bind(
+                    fd,
+                    (&sa as *const libc::sockaddr_in).cast(),
+                    std::mem::size_of_val(&sa) as libc::socklen_t,
+                )
             }
         }
         SocketAddr::V6(a) => {
             let mut sa: libc::sockaddr_in6 = unsafe { std::mem::zeroed() };
             sa.sin6_family = libc::AF_INET6 as libc::sa_family_t;
             sa.sin6_port = a.port().to_be();
-            sa.sin6_addr = libc::in6_addr { s6_addr: a.ip().octets() };
+            sa.sin6_addr = libc::in6_addr {
+                s6_addr: a.ip().octets(),
+            };
             sa.sin6_scope_id = a.scope_id();
             unsafe {
-                libc::bind(fd, (&sa as *const libc::sockaddr_in6).cast(), std::mem::size_of_val(&sa) as libc::socklen_t)
+                libc::bind(
+                    fd,
+                    (&sa as *const libc::sockaddr_in6).cast(),
+                    std::mem::size_of_val(&sa) as libc::socklen_t,
+                )
             }
         }
     };

@@ -50,6 +50,7 @@ pub struct PlaneConfig {
     pub room_name: String,
     pub max_players: i32,
     pub watchdog: engine_config::WatchdogConfig,
+    pub lifecycle: engine_config::LifecycleConfig,
 }
 
 impl PlaneConfig {
@@ -75,6 +76,7 @@ impl PlaneConfig {
             .and_then(|v| v.parse().ok())
             .unwrap_or(8);
         let watchdog = engine_config::WatchdogConfig::from_env();
+        let lifecycle = engine_config::LifecycleConfig::from_env();
         PlaneConfig {
             enabled,
             sim_core,
@@ -85,6 +87,7 @@ impl PlaneConfig {
             room_name,
             max_players,
             watchdog,
+            lifecycle,
         }
     }
 }
