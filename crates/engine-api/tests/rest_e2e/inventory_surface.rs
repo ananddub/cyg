@@ -4,6 +4,9 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     eprintln!("e2e: inventory");
     let alice = device_player(client, base, "inv-a").await;
     let bob = device_player(client, base, "inv-b").await;
+    // Defining items and granting them are privileged (console/server) calls,
+    // so they authenticate with the console session rather than a player token.
+    let console = console_login(client, base).await;
     let item_id = format!("e2e-item-{}", letters_suffix());
     let inventory = format!("{base}/v2/inventory");
 
@@ -13,7 +16,7 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     let defined = api_post(
         client,
         format!("{inventory}/define"),
-        &alice.token,
+        &console,
         json!({
             "item_id": item_id,
             "name": "E2E Sword",
@@ -35,8 +38,8 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     refusal(
         client
             .post(format!("{inventory}/grant"))
-            .bearer_auth(&alice.token)
-            .json(&json!({ "item_id": format!("{item_id}-missing") }))
+            .bearer_auth(&console)
+            .json(&json!({ "user_id": alice.uid, "item_id": format!("{item_id}-missing") }))
             .send()
             .await
             .unwrap(),
@@ -48,8 +51,8 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     let granted = api_post(
         client,
         format!("{inventory}/grant"),
-        &alice.token,
-        json!({ "item_id": item_id, "quantity": 99, "metadata": { "bound": true } }),
+        &console,
+        json!({ "user_id": alice.uid, "item_id": item_id, "quantity": 99, "metadata": { "bound": true } }),
         "grant an item beyond its stack",
     )
     .await;
@@ -66,8 +69,8 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     let zero = api_post(
         client,
         format!("{inventory}/grant"),
-        &alice.token,
-        json!({ "item_id": item_id, "quantity": 0 }),
+        &console,
+        json!({ "user_id": alice.uid, "item_id": item_id, "quantity": 0 }),
         "grant zero of an item",
     )
     .await;
@@ -80,7 +83,7 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     let bob_item = api_post(
         client,
         format!("{inventory}/grant"),
-        &alice.token,
+        &console,
         json!({ "user_id": bob.uid, "item_id": item_id, "quantity": 2 }),
         "grant an item to another account",
     )
