@@ -53,6 +53,7 @@ export function LogsView() {
   const [status, setStatus] = useState<"connecting" | "open" | "closed">("connecting")
   const [lines, setLines] = useState<ConsoleLogLine[]>([])
   const [level, setLevel] = useState<LevelId>("all")
+  const [needle, setNeedle] = useState("")
   const [paused, setPaused] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
   const pausedRef = useRef(paused)
@@ -87,10 +88,14 @@ export function LogsView() {
   }, [token])
 
   const visible = useMemo(() => {
-    if (level === "all") return lines
     const floor = LEVEL_RANK[level.toUpperCase()] ?? 0
-    return lines.filter((line) => (LEVEL_RANK[line.level] ?? 99) <= floor)
-  }, [lines, level])
+    const query = needle.trim().toLowerCase()
+    return lines.filter((line) => {
+      if ((LEVEL_RANK[line.level] ?? 99) > floor) return false
+      if (query === "") return true
+      return `${line.target} ${line.message}`.toLowerCase().includes(query)
+    })
+  }, [lines, level, needle])
 
   const bottom = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -113,6 +118,12 @@ export function LogsView() {
         }
         actions={
           <div className="flex items-center gap-2">
+            <input
+              className="h-8 w-44 rounded-md border border-border bg-background px-2 text-xs"
+              placeholder="filter target or text…"
+              value={needle}
+              onChange={(event) => setNeedle(event.target.value)}
+            />
             <FilterPills<LevelId> filters={LEVELS} value={level} onChange={setLevel} />
             <Button size="sm" variant="outline" onClick={() => setPaused((value) => !value)}>
               {paused ? "Resume" : "Pause"}

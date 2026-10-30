@@ -19,6 +19,8 @@ pub struct EconomySummary {
     pub window_days: i64,
     pub purchases: PurchaseVolume,
     pub wallet: WalletFlow,
+    /// Desync reports in the window — the pressure side of the funnel.
+    pub desyncs: i64,
     pub quests: QuestActivity,
     pub market: MarketActivity,
     /// `0` when the window holds no activity at all — the UI renders zeros,
@@ -29,6 +31,7 @@ pub struct EconomySummary {
 #[derive(Debug, Serialize, Default)]
 pub struct PurchaseVolume {
     pub total: i64,
+    pub refunded: i64,
     pub by_environment: BTreeMap<String, i64>,
 }
 

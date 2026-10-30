@@ -1,10 +1,9 @@
 use super::*;
 
-#[tokio::test]
-pub async fn every_migrated_path_is_still_registered() {
-    let app = engine_api::auto_router(state()).await;
-
-    let routes: &[(&str, &str)] = &[
+/// The route table snapshot every surface test agrees on: the router must
+/// register all of it, and the served OpenAPI spec must describe all of it.
+pub fn pinned_routes() -> &'static [(&'static str, &'static str)] {
+    &[
         ("GET", "/health"),
         ("GET", "/auto/health"),
         ("GET", "/status"),
@@ -351,7 +350,13 @@ pub async fn every_migrated_path_is_still_registered() {
             "GET",
             "/v2/notify/test/00000000-0000-0000-0000-000000000000",
         ),
-    ];
+    ]
+}
+
+#[tokio::test]
+pub async fn every_migrated_path_is_still_registered() {
+    let app = engine_api::auto_router(state()).await;
+    let routes = pinned_routes();
 
     let mut paths: Vec<&str> = routes.iter().map(|(_, path)| *path).collect();
     paths.sort_unstable();

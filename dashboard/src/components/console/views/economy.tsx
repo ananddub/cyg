@@ -71,7 +71,11 @@ export function EconomyView() {
           <p className="px-4 py-6 text-center text-sm text-muted-foreground">Loading…</p>
         ) : (
           <div className="grid grid-cols-2 gap-px bg-border/40 md:grid-cols-4">
-            <Stat label="Purchases" value={summary.data.purchases.total} />
+            <Stat
+              label="Purchases"
+              value={summary.data.purchases.total}
+              hint={`${summary.data.purchases.refunded} refunded`}
+            />
             <Stat label="Wallet credits" value={summary.data.wallet.credits} />
             <Stat label="Wallet debits" value={summary.data.wallet.debits} />
             <Stat
@@ -87,6 +91,7 @@ export function EconomyView() {
             <Stat label="Wagers held" value={summary.data.market.wagers_held} />
             <Stat label="Wagers settled" value={summary.data.market.wagers_settled} />
             <Stat label="Wagers refunded" value={summary.data.market.wagers_refunded} />
+            <Stat label="Desyncs" value={summary.data.desyncs} />
           </div>
         )}
       </Panel>

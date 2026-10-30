@@ -342,8 +342,9 @@ export interface ConsoleEconomySummary {
   from: string;
   to: string;
   window_days: number;
-  purchases: { total: number; by_environment: Record<string, number> };
+  purchases: { total: number; refunded: number; by_environment: Record<string, number> };
   wallet: { credits: number; debits: number; net_by_currency: Record<string, number> };
+  desyncs: number;
   quests: { completed: number; claimed: number };
   market: {
     listings_created: number;

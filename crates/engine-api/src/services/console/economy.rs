@@ -44,6 +44,18 @@ impl super::ConsoleService {
             })
             .collect();
         let purchase_total: i64 = purchases.iter().map(|(_, n)| n).sum();
+        let refunded: i64 = queries
+            .count_purchases_refunded(from, to)
+            .await?
+            .first()
+            .map(|row| row.n)
+            .unwrap_or(0);
+        let desyncs: i64 = queries
+            .count_desyncs(from, to)
+            .await?
+            .first()
+            .map(|row| row.n)
+            .unwrap_or(0);
         let by_environment: std::collections::BTreeMap<String, i64> =
             purchases.into_iter().collect();
 
@@ -79,9 +91,8 @@ impl super::ConsoleService {
 
         let mut market = MarketActivity::default();
         for row in queries.count_market_states(from, to).await? {
-            match row.state.as_deref() {
-                Some("sold") => market.trades_settled += row.n,
-                _ => {}
+            if row.state.as_deref() == Some("sold") {
+                market.trades_settled += row.n;
             }
         }
         market.listings_created = queries
@@ -115,9 +126,11 @@ impl super::ConsoleService {
             window_days: (to - from).num_days().max(0),
             purchases: PurchaseVolume {
                 total: purchase_total,
+                refunded,
                 by_environment,
             },
             wallet,
+            desyncs,
             quests,
             market,
             empty,

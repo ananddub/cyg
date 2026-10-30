@@ -51,7 +51,18 @@ impl ConsoleGamesController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        answer(GamesService::update_game(&state, id, &body, Some(&auth.0.username)).await)
+        let updated = GamesService::update_game(&state, id, &body, Some(&auth.0.username)).await;
+        if updated.is_ok() {
+            config_audit(
+                &state,
+                &auth,
+                id,
+                "game.config.update",
+                "Updated the game config.",
+            )
+            .await;
+        }
+        answer(updated)
     }
 
     #[get("/{gameId}/config/history")]
@@ -186,4 +197,33 @@ fn asset_response(connection: &UnityConnectionDto) -> Response {
         .unwrap_or_else(|_| {
             V2Error::internal("The asset reply could not be built.").into_response()
         })
+}
+/// The audit row a config write leaves behind, operator-attributed.
+async fn config_audit(
+    state: &crate::ApiState,
+    auth: &ConsoleAuthed,
+    game_id: uuid::Uuid,
+    action: &str,
+    message: &str,
+) {
+    let Some(operator) = auth.0.uuid() else {
+        return;
+    };
+    let Ok(queries) = crate::services::deps::q(state).await else {
+        return;
+    };
+    let _ = queries
+        .insert_audit_log(
+            &crate::repositories::console_mutations::InsertAuditLogParams {
+                id: uuid::Uuid::new_v4(),
+                console_user_id: operator,
+                console_username: auth.0.username.clone(),
+                email: auth.0.email.clone(),
+                action: action.to_owned(),
+                resource: "game".to_owned(),
+                message: format!("{message} (game {game_id})"),
+                metadata: serde_json::json!({ "game_id": game_id }),
+            },
+        )
+        .await;
 }

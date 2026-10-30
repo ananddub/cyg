@@ -74,6 +74,42 @@ impl Queries {
         .await
     }
 
+    /// Purchases whose refund landed inside the window; an unrefunded row
+    /// carries the epoch in `refund_time`, which the floor excludes.
+    pub async fn count_purchases_refunded(
+        &self,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> Result<Vec<CountRow>, DbError> {
+        self.all(
+            "SELECT count() AS n FROM purchase \
+             WHERE refund_time > $epoch AND refund_time >= $from AND refund_time <= $to \
+             GROUP ALL",
+            params!(
+                from = ts(from),
+                to = ts(to),
+                epoch = ts(DateTime::from_timestamp(0, 0).expect("the epoch is a valid time"))
+            ),
+        )
+        .await
+    }
+
+    /// Desync reports the window produced — the engine's own evidence that
+    /// client prediction drifted from the host.
+    pub async fn count_desyncs(
+        &self,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> Result<Vec<CountRow>, DbError> {
+        self.all(
+            "SELECT count() AS n FROM desync_report \
+             WHERE create_time >= $from AND create_time <= $to \
+             GROUP ALL",
+            window(from, to),
+        )
+        .await
+    }
+
     /// The ledger rows of the window, oldest first. The caller bounds this at
     /// `ECONOMY_LEDGER_ROWS`; the summary reports when it had to stop early.
     pub async fn ledger_window(

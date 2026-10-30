@@ -403,6 +403,8 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
     .await;
     assert_eq!(empty["empty"], true);
     assert_eq!(empty["purchases"]["total"], 0);
+    assert_eq!(empty["purchases"]["refunded"], 0);
+    assert_eq!(empty["desyncs"], 0);
 
     let summary = json_body(
         env.client

@@ -110,6 +110,7 @@ fn main() {
         "backup" => backup_command(&dir, &args[1..]),
         "restore" => restore_command(&args[1..]),
         "migrate" => cli::migrate::run(&dir),
+        "schema-status" => cli::migrate::status(&dir),
         "openapi" => cli::openapi::run(&args[1..]),
         "secrets" => match args.get(1).map(String::as_str) {
             Some("audit") => cli::secrets::run(&dir),
