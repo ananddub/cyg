@@ -36,6 +36,9 @@ pub use engine_bus::clock::{mono_ns, tick_period};
 /// * `OX_SEAT_SECRET`       — HMAC key for seat tokens (required)
 /// * `OX_WASM_PATH`         — compiled room wasm; defaults to the project's
 ///                            `ox-server/room_logic.wasm` next to `ox.toml`
+/// * `OX_WATCHDOG_ENABLED=0` — guest-timeout fuse off; `OX_WATCHDOG_BUDGET_MS`
+///                            and `OX_WATCHDOG_TICKS` set it (shared with the
+///                            `[watchdog]` config block)
 #[derive(Clone, Debug)]
 pub struct PlaneConfig {
     pub enabled: bool,
@@ -46,34 +49,61 @@ pub struct PlaneConfig {
     pub wasm_path: PathBuf,
     pub room_name: String,
     pub max_players: i32,
+    pub watchdog: engine_config::WatchdogConfig,
 }
 
 impl PlaneConfig {
     pub fn from_env(project_dir: &std::path::Path) -> PlaneConfig {
         let enabled = std::env::var("OX_PLANES").map_or(false, |v| v == "1");
-        let sim_core = std::env::var("OX_SIM_CORE").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
+        let sim_core = std::env::var("OX_SIM_CORE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2);
         let udp_addr = std::env::var("OX_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into());
-        let tick_hz = std::env::var("OX_TICK_HZ").ok().and_then(|v| v.parse().ok()).unwrap_or(128.0);
-        let seat_secret =
-            std::env::var("OX_SEAT_SECRET").unwrap_or_else(|_| engine_config::DEV_SEAT_SECRET.into());
+        let tick_hz = std::env::var("OX_TICK_HZ")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(128.0);
+        let seat_secret = std::env::var("OX_SEAT_SECRET")
+            .unwrap_or_else(|_| engine_config::DEV_SEAT_SECRET.into());
         let wasm_path = std::env::var("OX_WASM_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|_| project_dir.join("ox-server").join("room_logic.wasm"));
         let room_name = std::env::var("OX_ROOM").unwrap_or_else(|_| "tank-3d".into());
-        let max_players = std::env::var("OX_MAX_PLAYERS").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
-        PlaneConfig { enabled, sim_core, udp_addr, tick_hz, seat_secret, wasm_path, room_name, max_players }
+        let max_players = std::env::var("OX_MAX_PLAYERS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(8);
+        let watchdog = engine_config::WatchdogConfig::from_env();
+        PlaneConfig {
+            enabled,
+            sim_core,
+            udp_addr,
+            tick_hz,
+            seat_secret,
+            wasm_path,
+            room_name,
+            max_players,
+            watchdog,
+        }
     }
 }
 
 /// Spawn the pinned sim thread (raw UDP + 128 Hz wasm sim). The browser-side
 /// consumer of `bus.deltas_rx` lives on the Tokio plane and is not started
 /// here.
-pub fn spawn_sim_plane(bus: Arc<Bus>, cfg: PlaneConfig) -> std::io::Result<std::thread::JoinHandle<()>> {
+pub fn spawn_sim_plane(
+    bus: Arc<Bus>,
+    cfg: PlaneConfig,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
     std::thread::Builder::new()
         .name("ox-sim".into())
         .spawn(move || {
             if let Err(e) = pin::pin_current_thread(cfg.sim_core) {
-                tracing::error!("[sim] ⚠️ core pinning to {} failed: {e} (continuing unpinned)", cfg.sim_core);
+                tracing::error!(
+                    "[sim] ⚠️ core pinning to {} failed: {e} (continuing unpinned)",
+                    cfg.sim_core
+                );
             }
             sim::run(bus, cfg);
         })

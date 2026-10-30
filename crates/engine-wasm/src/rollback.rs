@@ -170,14 +170,20 @@ impl RollbackRingBuffer {
     }
 
     /// Retrieve the checksum for a historical frame if still present in the buffer.
+    ///
+    /// A memory snapshot is authoritative when one was taken; otherwise the
+    /// guest-serialized checkpoint for that tick stands in, hashed the same way.
+    /// Without this fallback the host loop — which records blobs through
+    /// `GameRoom::tick`, never linear memory — could never answer a client's
+    /// checksum report at all.
     pub fn get_checksum(&self, tick: u64) -> Option<u64> {
         let index = (tick as usize) % self.capacity;
-        let frame = self.frames[index].as_ref()?;
-        if frame.tick == tick {
-            Some(frame.checksum)
-        } else {
-            None
+        if let Some(frame) = self.frames[index].as_ref() {
+            if frame.tick == tick {
+                return Some(frame.checksum);
+            }
         }
+        self.blobs.get(&tick).map(|blob| compute_checksum_64(blob))
     }
 
     /// Verify whether a client's checksum matches the authoritative host's checksum at `tick`.
@@ -277,5 +283,38 @@ mod tests {
         assert_eq!(desync.tick, 4);
         assert_eq!(desync.expected_checksum, 100);
         assert_eq!(desync.client_checksum, 999);
+    }
+
+    #[test]
+    fn test_blob_checkpoints_answer_checksum_reports() {
+        // The host loop records guest-serialized blobs, never memory frames, so
+        // a checkpoint alone has to be enough to judge a client's report.
+        let mut buf = RollbackRingBuffer::new(4);
+        buf.save_blob(7, b"state_at_7".to_vec());
+
+        assert_eq!(
+            buf.get_checksum(7),
+            Some(compute_checksum_64(b"state_at_7"))
+        );
+        assert!(
+            buf.verify_sync(7, compute_checksum_64(b"state_at_7"))
+                .is_ok()
+        );
+
+        let desync = buf
+            .verify_sync(7, compute_checksum_64(b"state_at_8"))
+            .unwrap_err();
+        assert_eq!(desync.tick, 7);
+        assert_eq!(desync.expected_checksum, compute_checksum_64(b"state_at_7"));
+        assert_eq!(desync.client_checksum, compute_checksum_64(b"state_at_8"));
+    }
+
+    #[test]
+    fn test_a_tick_with_no_checkpoint_is_not_called_a_desync() {
+        // A report for a tick already evicted from the window proves nothing;
+        // failing it would turn normal client lag into desync noise.
+        let mut buf = RollbackRingBuffer::new(4);
+        buf.save_blob(7, b"state_at_7".to_vec());
+        assert!(buf.verify_sync(1_000, 0).is_ok());
     }
 }

@@ -9,6 +9,7 @@ use crate::db::{bytes, time};
 
 mod console_acl_template;
 mod economy;
+mod gameplay_event;
 mod marketplace;
 mod player_inventory_item;
 mod quest;
@@ -18,6 +19,7 @@ mod users;
 
 pub use console_acl_template::*;
 pub use economy::*;
+pub use gameplay_event::*;
 pub use marketplace::*;
 pub use player_inventory_item::*;
 pub use quest::*;

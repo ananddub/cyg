@@ -6,6 +6,7 @@ pub mod console_mutations;
 pub mod db;
 pub mod friend;
 pub mod game_maps;
+pub mod gameplay_event;
 pub mod games;
 pub mod group;
 pub mod iap;

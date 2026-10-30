@@ -270,6 +270,8 @@ pub async fn every_migrated_path_is_still_registered() {
         ("POST", "/v2/console/seasons"),
         ("PUT", "/v2/console/seasons/example"),
         ("DELETE", "/v2/console/seasons/example"),
+        ("GET", "/v2/match/arena/events"),
+        ("GET", "/v2/console/desync"),
     ];
 
     let mut paths: Vec<&str> = routes.iter().map(|(_, path)| *path).collect();

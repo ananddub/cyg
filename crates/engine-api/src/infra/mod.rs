@@ -1,4 +1,5 @@
 pub mod console;
+pub mod events;
 pub mod gc;
 pub mod jwt;
 pub mod liveops;

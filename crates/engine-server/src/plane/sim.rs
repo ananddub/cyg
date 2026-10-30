@@ -13,8 +13,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mio::{Events, Poll};
 use engine_wasm::WasmRuntime;
+use mio::{Events, Poll};
 
 use engine_bus::{
     Bus, FrameKind, OutFrame, PeerId, RoomTelemetry, SessionTelemetry, SimCommand, Via,
@@ -23,8 +23,8 @@ use engine_config::{AoiConfig, GameConfig};
 use engine_physics::PhysicsWorld3D;
 use engine_spatial::aoi;
 
-use crate::plane::{self, PlaneConfig, mono_ns, tick_period};
 use crate::netcode;
+use crate::plane::{self, PlaneConfig, mono_ns, tick_period};
 use crate::rooms::{self, GameRoom};
 use crate::telemetry::{PublishReport, Recorder};
 
@@ -118,8 +118,13 @@ fn publish_report(
             session: peer_id.clone(),
             transport: if via_browser { "webrtc" } else { "native-udp" }.to_string(),
             player_id: Some(player_id),
-            acked_seq: room.last_input_seq.get(peer_id.as_str()).map(|&seq| seq as u32),
-            idle_ms: last_input_at.get(peer_id).map(|t| t.elapsed().as_millis() as u64),
+            acked_seq: room
+                .last_input_seq
+                .get(peer_id.as_str())
+                .map(|&seq| seq as u32),
+            idle_ms: last_input_at
+                .get(peer_id)
+                .map(|t| t.elapsed().as_millis() as u64),
         });
     }
     let players = room.sessions.len() as u32;
@@ -150,13 +155,17 @@ fn publish_report(
 pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     // ------------------------------------------------------------- UDP plane
     let seats = Arc::new(plane::SeatRegistry::new(&cfg.seat_secret));
-    let mut udp = match plane::udp::UdpPlane::new(&cfg.udp_addr, Arc::clone(&bus), Arc::clone(&seats)) {
-        Ok(u) => u,
-        Err(e) => {
-            tracing::error!("[sim] ✖️ UDP plane bind {} failed: {e} — sim thread exiting", cfg.udp_addr);
-            return;
-        }
-    };
+    let mut udp =
+        match plane::udp::UdpPlane::new(&cfg.udp_addr, Arc::clone(&bus), Arc::clone(&seats)) {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::error!(
+                    "[sim] ✖️ UDP plane bind {} failed: {e} — sim thread exiting",
+                    cfg.udp_addr
+                );
+                return;
+            }
+        };
     let mut poll = match Poll::new() {
         Ok(p) => p,
         Err(e) => {
@@ -171,8 +180,11 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     udp.set_tick_hz(cfg.tick_hz);
 
     // -------------------------------------------------------------- WASM room
+    let watchdog = cfg.watchdog.clone();
     let runtime = match WasmRuntime::new_with_config(engine_wasm::WasmConfig {
         optimize_for_speed: true,
+        enable_epoch_interruption: watchdog.enabled,
+        epoch_deadline_ticks: watchdog.enabled.then_some(watchdog.epoch_deadline_ticks),
         ..engine_wasm::WasmConfig::default()
     }) {
         Ok(r) => r,
@@ -181,6 +193,11 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             return;
         }
     };
+    // An armed guest is only cut off while something advances the engine epoch,
+    // so the pump has to live as long as this runtime does.
+    let _epoch_ticker = watchdog
+        .enabled
+        .then(|| runtime.spawn_epoch_ticker(watchdog.epoch_period()));
     let module = match runtime.load_or_compile_cached(&cfg.wasm_path) {
         Ok(m) => m,
         Err(e) => {
@@ -268,11 +285,25 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         // ---- commands: bind/drop/event (fully drained; small, never starved)
         while let Ok(cmd) = bus.commands_rx.try_recv() {
             match cmd {
-                SimCommand::BindPeer { peer_id, room: wanted, reply } => {
-                    let id = bind_peer(&mut room, peer_id.clone(), &wanted, &cfg.room_name, cfg.max_players, &mut session_of);
+                SimCommand::BindPeer {
+                    peer_id,
+                    room: wanted,
+                    reply,
+                } => {
+                    let id = bind_peer(
+                        &mut room,
+                        peer_id.clone(),
+                        &wanted,
+                        &cfg.room_name,
+                        cfg.max_players,
+                        &mut session_of,
+                    );
                     let _ = reply.send(id);
                     if id >= 0 {
-                        tracing::info!("[sim] {peer_id} bound to room '{}' as player {id}", cfg.room_name);
+                        tracing::info!(
+                            "[sim] {peer_id} bound to room '{}' as player {id}",
+                            cfg.room_name
+                        );
                     } else {
                         tracing::info!("[sim] bind rejected for {peer_id}: room mismatch or full");
                     }
@@ -280,7 +311,11 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                 SimCommand::DropPeer { peer_id } => {
                     drop_peer(&mut room, &peer_id, &mut browser_players, &mut session_of);
                 }
-                SimCommand::Event { room: wanted, target, bytes } => {
+                SimCommand::Event {
+                    room: wanted,
+                    target,
+                    bytes,
+                } => {
                     if wanted != cfg.room_name || room.sessions.is_empty() {
                         continue;
                     }
@@ -321,7 +356,9 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         // ---- inputs: bounded drain so a flood cannot stall the tick clock
         let mut drained = 0usize;
         while drained < 64 {
-            let Ok(msg) = bus.inputs_rx.try_recv() else { break };
+            let Ok(msg) = bus.inputs_rx.try_recv() else {
+                break;
+            };
             drained += 1;
             recorder.note_input_latency(msg.arrival_ns, mono_ns());
             let Some(session) = session_of.get(&msg.player_id) else {
@@ -353,16 +390,15 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             // A quiet loop still has to age its sample: `publish_due` gates the
             // row build so this stays off the per-poll path.
             if recorder.publish_due() {
-                let report =
-                    publish_report(
-                        &cfg.room_name,
-                        &room,
-                        &browser_players,
-                        &last_input_at,
-                        cfg.tick_hz,
-                        measured_hz,
-                        cfg.max_players,
-                    );
+                let report = publish_report(
+                    &cfg.room_name,
+                    &room,
+                    &browser_players,
+                    &last_input_at,
+                    cfg.tick_hz,
+                    measured_hz,
+                    cfg.max_players,
+                );
                 recorder.maybe_publish(&bus, report);
             }
             if sweep_start.elapsed() >= Duration::from_millis(200) {
@@ -392,12 +428,16 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                         // packed = (ptr << 32) | len into the guest's linear memory.
                         let (ptr, len) = decode_packed(packed);
                         if len > engine_wasm::MAX_OUTBOUND_DELTA_SIZE {
-                            tracing::warn!("[sim] ⚠️ delta size {len} exceeds ABI max — skipped dispatch");
+                            tracing::warn!(
+                                "[sim] ⚠️ delta size {len} exceeds ABI max — skipped dispatch"
+                            );
                             trap = true; // don't read stale/oversized memory this tick
                             break;
                         }
                         if len > 0 {
-                            if let Err(e) = wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf) {
+                            if let Err(e) =
+                                wasm.read_memory_into(ptr as u32, len as u32, &mut delta_buf)
+                            {
                                 tracing::error!("[sim] ⚠️ delta read failed: {e}");
                                 trap = true;
                                 break;
@@ -406,8 +446,21 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                             delta_buf.clear();
                         }
                     }
+                    Err(e) if e.is_interrupt() => {
+                        recorder.tick_overruns += 1;
+                        tracing::warn!(
+                            "[sim] ⛔ watchdog cut off on_tick at room tick {} after {}ms; the room stays up and the next call re-arms, but its state may be torn",
+                            room.current_tick,
+                            watchdog.tick_budget_ms
+                        );
+                        trap = true;
+                        break;
+                    }
                     Err(e) => {
-                        tracing::warn!("[sim] ⚠️ guest trap in on_tick at room tick {}: {e}", room.current_tick);
+                        tracing::warn!(
+                            "[sim] ⚠️ guest trap in on_tick at room tick {}: {e}",
+                            room.current_tick
+                        );
                         trap = true;
                         break;
                     }
@@ -450,7 +503,11 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                     // Foreign/unrecognized guest layout: fall back to raw multicast.
                     None => &delta_buf,
                 };
-                let acked_seq = room.last_input_seq.get(peer_id.as_str()).copied().unwrap_or(0);
+                let acked_seq = room
+                    .last_input_seq
+                    .get(peer_id.as_str())
+                    .copied()
+                    .unwrap_or(0);
                 frames.clear();
                 if plane::dispatch::emit_delta(
                     peer_id,
@@ -468,7 +525,9 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                         for frame in frames.drain(..) {
                             match bus.deltas_tx.try_send(frame) {
                                 Ok(()) => recorder.deltas_sent += 1,
-                                Err(crossbeam_channel::TrySendError::Full(_)) => recorder.deltas_dropped_full += 1,
+                                Err(crossbeam_channel::TrySendError::Full(_)) => {
+                                    recorder.deltas_dropped_full += 1
+                                }
                                 Err(_) => break,
                             }
                         }
@@ -497,16 +556,15 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             window_ticks = 0;
             status_start = Instant::now();
             last_input_at.retain(|peer, _| room.sessions.contains_key(peer));
-            let report =
-                publish_report(
-                    &cfg.room_name,
-                    &room,
-                    &browser_players,
-                    &last_input_at,
-                    cfg.tick_hz,
-                    measured_hz,
-                    cfg.max_players,
-                );
+            let report = publish_report(
+                &cfg.room_name,
+                &room,
+                &browser_players,
+                &last_input_at,
+                cfg.tick_hz,
+                measured_hz,
+                cfg.max_players,
+            );
             recorder.maybe_publish(&bus, report);
         }
         let _ = native_send_failed; // unknown-peer sends: counted, no user to blame yet
@@ -540,7 +598,13 @@ mod tests {
         let slot = last.entry(id).or_insert(0);
         assert!(*slot == 0 || engine_webrtc_protocol::is_newer(*slot, seq));
         *slot = seq;
-        journal.push_back(rooms::JournalInput { tick: 0, session: String::new(), id, seq, payload: [0u8; 20] });
+        journal.push_back(rooms::JournalInput {
+            tick: 0,
+            session: String::new(),
+            id,
+            seq,
+            payload: [0u8; 20],
+        });
         assert_eq!(last[&id], 5);
         assert_eq!(journal.len(), 1);
     }

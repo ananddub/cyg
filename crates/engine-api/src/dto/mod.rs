@@ -13,6 +13,7 @@ pub mod link;
 pub mod marketplace;
 #[path = "match.rs"]
 pub mod matches;
+pub mod match_history;
 pub mod matchmake;
 pub mod notification;
 pub mod quest;

@@ -20,8 +20,10 @@ pub fn ddl() -> Vec<&'static str> {
         ConsoleAclTemplate,
         ConsoleAuditLog,
         ConsoleUser,
+        DesyncReport,
         GameMaps,
         Games,
+        GameplayEvent,
         GroupEdge,
         Groups,
         IdempotencyKey,
@@ -69,7 +71,7 @@ mod tests {
             ddl.iter()
                 .filter(|line| line.starts_with("DEFINE TABLE"))
                 .count(),
-            34
+            36
         );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {

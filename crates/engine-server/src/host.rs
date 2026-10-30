@@ -15,9 +15,10 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use engine_bus::{Bus, RoomTelemetry, SessionTelemetry};
+use engine_bus::{Bus, RoomTelemetry, SessionTelemetry, SimEvent};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc::contract::Inbound;
 use engine_net::transport::{GameTransport, TransportEvent, WebRtcServer, WebRtcTransport};
@@ -25,7 +26,7 @@ use engine_physics::PhysicsWorld3D;
 use engine_wasm::WasmRuntime;
 
 use crate::netcode;
-use crate::rooms::{self, CloseReason, GameRoom, GameServer, RoomHostData};
+use crate::rooms::{self, CloseReason, GameRoom, GameServer, OutboundMessage, RoomHostData};
 use crate::telemetry::{PublishReport, Recorder};
 
 /// Pre-framed spectator "you are watching" confirm: `["delta"]` with id 0.
@@ -159,13 +160,7 @@ impl LoopTransport {
     /// Stamp and fragment one world delta onto a session's unreliable lane.
     /// Returns the frame count; zero means the caller should fall back to the
     /// reliable lane (`send_state`/`send_to`).
-    pub fn send_delta_framed(
-        &mut self,
-        session: &str,
-        seq: u16,
-        tick: u32,
-        body: &[u8],
-    ) -> usize {
+    pub fn send_delta_framed(&mut self, session: &str, seq: u16, tick: u32, body: &[u8]) -> usize {
         netcode::send_delta_framed(self.rtc.server_mut(), session, seq, tick, body)
     }
 
@@ -200,8 +195,19 @@ impl GameTransport for LoopTransport {
         // stream instead (Inbound::Input and Inbound::App), so the duplicate derived
         // events are discarded here.
         events.retain(|ev| {
-            !matches!(ev, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. })
-                && !matches!(ev, TransportEvent::Packet { opcode: OpCode::RoomDataBytes, .. })
+            !matches!(
+                ev,
+                TransportEvent::Packet {
+                    opcode: OpCode::PlayerInput,
+                    ..
+                }
+            ) && !matches!(
+                ev,
+                TransportEvent::Packet {
+                    opcode: OpCode::RoomDataBytes,
+                    ..
+                }
+            )
         });
         self.inbound.extend(self.rtc.poll_inbound());
         if let Some(quic) = self.quic.as_mut() {
@@ -209,7 +215,9 @@ impl GameTransport for LoopTransport {
             // The two planes share one inbound shape; the id types differ only
             // in their Arc wrapper, so the QUIC ids widen in place.
             self.inbound.extend(
-                quic.poll_inbound().into_iter().map(|(id, msg)| (id.to_string(), msg)),
+                quic.poll_inbound()
+                    .into_iter()
+                    .map(|(id, msg)| (id.to_string(), msg)),
             );
         }
         Ok(())
@@ -217,7 +225,11 @@ impl GameTransport for LoopTransport {
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
         if self.quic.as_ref().is_some_and(|q| q.knows(client_id)) {
-            return self.quic.as_mut().unwrap().send_to(client_id, opcode, payload);
+            return self
+                .quic
+                .as_mut()
+                .unwrap()
+                .send_to(client_id, opcode, payload);
         }
         self.rtc.send_to(client_id, opcode, payload)
     }
@@ -245,7 +257,11 @@ impl GameTransport for LoopTransport {
         // the seat is held for reconnection.
         self.consented.insert(client_id.to_string());
         if self.quic.as_ref().is_some_and(|q| q.knows(client_id)) {
-            return self.quic.as_mut().unwrap().disconnect_with(client_id, code, reason);
+            return self
+                .quic
+                .as_mut()
+                .unwrap()
+                .disconnect_with(client_id, code, reason);
         }
         self.rtc.disconnect(client_id)
     }
@@ -364,8 +380,70 @@ fn rxd_summary(seen: &std::collections::HashSet<u16>) -> (u16, Vec<(u16, u16)>) 
 /// Test-visible alias for the SACK summary helper.
 #[cfg(test)]
 #[allow(dead_code)]
-pub(crate) fn rxd_summary_for_test(seen: &std::collections::HashSet<u16>) -> (u16, Vec<(u16, u16)>) {
+pub(crate) fn rxd_summary_for_test(
+    seen: &std::collections::HashSet<u16>,
+) -> (u16, Vec<(u16, u16)>) {
     rxd_summary(seen)
+}
+
+/// This game's event-history mirror: the `[gameplay] record_events` allowlist
+/// plus the bus end the control plane drains.
+///
+/// `seq` counts mirrored messages for the life of the process, so a gap on the
+/// reader side is exactly a message the bounded queue had to discard.
+struct EventHistory<'a> {
+    bus: &'a Bus,
+    record: &'a engine_config::GameplayConfig,
+    seq: AtomicU64,
+}
+
+impl<'a> EventHistory<'a> {
+    fn new(bus: &'a Bus, record: &'a engine_config::GameplayConfig) -> Self {
+        Self {
+            bus,
+            record,
+            seq: AtomicU64::new(0),
+        }
+    }
+
+    /// Queue one message on the control plane's event history.
+    fn emit(&self, room: &str, tick: u64, target: i64, event: String, payload: Vec<u8>) {
+        self.bus.push_event(SimEvent {
+            room: room.to_string(),
+            tick: tick as i64,
+            seq: self.seq.fetch_add(1, Ordering::Relaxed) + 1,
+            target,
+            event,
+            payload,
+        });
+    }
+
+    /// Queue one outbound message for persistence when this game listed it. An
+    /// unlisted event stays wire-only, and a listing never blocks the tick:
+    /// [`Bus::push_event`] drops the oldest queued message when the control
+    /// plane falls behind, not the newest.
+    fn mirror(&self, room: &str, tick: u64, message: &OutboundMessage) {
+        if !self.record.records(&message.event) {
+            return;
+        }
+        self.emit(
+            room,
+            tick,
+            message.target,
+            message.event.clone(),
+            message.payload.clone(),
+        );
+    }
+
+    /// Queue the engine's own desync evidence. Unlike a guest message this is
+    /// never allowlisted: an operator who shipped a game without a `[gameplay]`
+    /// block still needs the diverging tick and both checksums on record.
+    fn record_desync(&self, room: &str, target: i64, desync: &engine_wasm::DesyncReport) {
+        let mut payload = Vec::with_capacity(16);
+        payload.extend_from_slice(&desync.expected_checksum.to_le_bytes());
+        payload.extend_from_slice(&desync.client_checksum.to_le_bytes());
+        self.emit(room, desync.tick, target, "desync".to_string(), payload);
+    }
 }
 
 /// Frame and route everything the guest queued through `host_send`.
@@ -373,17 +451,24 @@ pub(crate) fn rxd_summary_for_test(seen: &std::collections::HashSet<u16>) -> (u1
 /// The guest names a player id (or 0 for broadcast); the host maps that to
 /// transport session ids here. Messages are queued and drained after the tick,
 /// so a guest can never write to a socket from inside a Wasm call.
-fn flush_room_outbox(room: &mut GameRoom, transport: &mut impl GameTransport) {
+fn flush_room_outbox(
+    room: &mut GameRoom,
+    transport: &mut impl GameTransport,
+    room_name: &str,
+    history: &EventHistory,
+) {
     let messages = room.drain_outbox();
     if messages.is_empty() {
         return;
     }
 
+    let tick = room.current_tick;
     let mut frame = Vec::with_capacity(64);
     for message in messages {
         if message.event.is_empty() || message.event.len() > 255 {
             continue;
         }
+        history.mirror(room_name, tick, &message);
         frame.clear();
         frame.push(APP_MESSAGE_OPCODE);
         frame.push(message.event.len() as u8);
@@ -463,12 +548,7 @@ fn reject_room(transport: &mut LoopTransport, client_id: &str, message: &str) {
 /// End every socket attached to a room the host is disposing. `CONSENTED` is
 /// the clean-close code: an SDK whose room died of old age should stop
 /// reconnecting to it rather than loop against a room that no longer exists.
-fn close_room_sessions(
-    transport: &mut LoopTransport,
-    room: &GameRoom,
-    code: u16,
-    message: &str,
-) {
+fn close_room_sessions(transport: &mut LoopTransport, room: &GameRoom, code: u16, message: &str) {
     for session in room.sessions.keys().chain(room.spectators.iter()) {
         let _ = transport.disconnect_with(session, code, message);
     }
@@ -598,9 +678,20 @@ pub fn run(
     // ------------------------------------------------------------------
     let runtime = WasmRuntime::new_with_config(engine_wasm::WasmConfig {
         optimize_for_speed: true,
+        enable_epoch_interruption: cfg.watchdog.enabled,
+        epoch_deadline_ticks: cfg
+            .watchdog
+            .enabled
+            .then_some(cfg.watchdog.epoch_deadline_ticks),
         ..engine_wasm::WasmConfig::default()
     })
     .expect("wasm runtime");
+    // An armed guest is only cut off while something advances the engine epoch,
+    // so the pump has to live as long as this runtime does.
+    let _epoch_ticker = cfg
+        .watchdog
+        .enabled
+        .then(|| runtime.spawn_epoch_ticker(cfg.watchdog.epoch_period()));
     // The room module bytes are only needed for the boot log; the actual load
     // happens below and is allowed to fail into Unity-relay-only mode. A missing
     // file here must not take the whole process down.
@@ -650,7 +741,9 @@ pub fn run(
         }
         WebRtcTransport::from_socket(sock, announced).expect("webrtc transport")
     } else {
-        tracing::error!("[server] ⚠️ webrtc bind :{webrtc_port} failed — WebRTC data plane disabled");
+        tracing::error!(
+            "[server] ⚠️ webrtc bind :{webrtc_port} failed — WebRTC data plane disabled"
+        );
         WebRtcTransport::from_socket(
             std::net::UdpSocket::bind("127.0.0.1:0").expect("ephemeral udp bind"),
             Vec::new(),
@@ -674,36 +767,56 @@ pub fn run(
         }
         None => std::fs::read(project_dir.join("arena.oxcl")).ok(),
     };
-    let arena_mesh: Option<engine_physics::oxcl::CookedMesh> =
-        match oxcl_bytes.as_deref() {
-            Some(bytes) => match engine_physics::oxcl::CookedMesh::from_oxcl_bytes(bytes) {
-                Ok(mesh) => {
-                    tracing::info!(
-                        "[server] 🗺️  oxcl arena loaded ({} verts, {} indices)",
-                        mesh.vertices.len(),
-                        mesh.indices.len()
-                    );
-                    Some(mesh)
-                }
-                Err(e) => {
-                    tracing::error!("[server] failed to parse the oxcl arena: {e}");
-                    None
-                }
-            },
-            None => None,
-        };
+    let arena_mesh: Option<engine_physics::oxcl::CookedMesh> = match oxcl_bytes.as_deref() {
+        Some(bytes) => match engine_physics::oxcl::CookedMesh::from_oxcl_bytes(bytes) {
+            Ok(mesh) => {
+                tracing::info!(
+                    "[server] 🗺️  oxcl arena loaded ({} verts, {} indices)",
+                    mesh.vertices.len(),
+                    mesh.indices.len()
+                );
+                Some(mesh)
+            }
+            Err(e) => {
+                tracing::error!("[server] failed to parse the oxcl arena: {e}");
+                None
+            }
+        },
+        None => None,
+    };
 
     let map_path = project_dir.join("arena_map.json");
     let arena_2d_path = project_dir.join("arena_2d.json");
 
-    let arena_2d: Option<engine_physics::MapConfig2D> =
-        if let Some(asset) = boot_maps.map2d.as_ref() {
-            match serde_json::from_slice::<engine_physics::MapConfig2D>(&asset.bytes) {
+    let arena_2d: Option<engine_physics::MapConfig2D> = if let Some(asset) =
+        boot_maps.map2d.as_ref()
+    {
+        match serde_json::from_slice::<engine_physics::MapConfig2D>(&asset.bytes) {
+            Ok(m) => {
+                tracing::info!(
+                    "[server] 🗺️  console map '{}' (map2d v{}): {} static colliders ({}x{})",
+                    asset.name,
+                    asset.version,
+                    m.obstacles.len(),
+                    m.arena_width,
+                    m.arena_height
+                );
+                Some(m)
+            }
+            Err(e) => {
+                tracing::error!(
+                    "[server] failed to parse console map2d '{}': {e}",
+                    asset.name
+                );
+                None
+            }
+        }
+    } else if arena_2d_path.exists() {
+        match std::fs::read_to_string(&arena_2d_path) {
+            Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
                 Ok(m) => {
                     tracing::info!(
-                        "[server] 🗺️  console map '{}' (map2d v{}): {} static colliders ({}x{})",
-                        asset.name,
-                        asset.version,
+                        "[server] 🗺️  loaded arena_2d.json with {} static colliders ({}x{})",
                         m.obstacles.len(),
                         m.arena_width,
                         m.arena_height
@@ -711,56 +824,34 @@ pub fn run(
                     Some(m)
                 }
                 Err(e) => {
-                    tracing::error!(
-                        "[server] failed to parse console map2d '{}': {e}",
-                        asset.name
-                    );
+                    tracing::error!("[server] failed to parse arena_2d.json: {e}");
                     None
                 }
-            }
-        } else if arena_2d_path.exists() {
-            match std::fs::read_to_string(&arena_2d_path) {
-                Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
-                    Ok(m) => {
-                        tracing::info!(
-                            "[server] 🗺️  loaded arena_2d.json with {} static colliders ({}x{})",
-                            m.obstacles.len(),
-                            m.arena_width,
-                            m.arena_height
-                        );
-                        Some(m)
-                    }
-                    Err(e) => {
-                        tracing::error!("[server] failed to parse arena_2d.json: {e}");
-                        None
-                    }
-                },
+            },
+            Err(_) => None,
+        }
+    } else if map_path.exists() {
+        match std::fs::read_to_string(&map_path) {
+            Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
+                Ok(m) => {
+                    tracing::info!(
+                        "[server] 🗺️  loaded arena_map.json as 2D map with {} static colliders ({}x{})",
+                        m.obstacles.len(),
+                        m.arena_width,
+                        m.arena_height
+                    );
+                    Some(m)
+                }
                 Err(_) => None,
-            }
-        } else if map_path.exists() {
-            match std::fs::read_to_string(&map_path) {
-                Ok(json_str) => match serde_json::from_str::<engine_physics::MapConfig2D>(&json_str) {
-                    Ok(m) => {
-                        tracing::info!(
-                            "[server] 🗺️  loaded arena_map.json as 2D map with {} static colliders ({}x{})",
-                            m.obstacles.len(),
-                            m.arena_width,
-                            m.arena_height
-                        );
-                        Some(m)
-                    }
-                    Err(_) => None,
-                },
-                Err(_) => None,
-            }
-        } else {
-            None
-        };
+            },
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
 
     let physics = if let Some(asset) = boot_maps.map3d.as_ref() {
-        match PhysicsWorld3D::from_json(
-            std::str::from_utf8(&asset.bytes).unwrap_or_default(),
-        ) {
+        match PhysicsWorld3D::from_json(std::str::from_utf8(&asset.bytes).unwrap_or_default()) {
             Ok(w) => {
                 tracing::info!(
                     "[server] 🗺️  console map '{}' (map3d v{}): {} static colliders override arena_map.json",
@@ -789,7 +880,9 @@ pub fn run(
                     w
                 }
                 Err(e) => {
-                    tracing::error!("[server] failed to parse arena_map.json: {e}, using default world");
+                    tracing::error!(
+                        "[server] failed to parse arena_map.json: {e}, using default world"
+                    );
                     PhysicsWorld3D::default()
                 }
             },
@@ -878,7 +971,10 @@ pub fn run(
                 Some(q)
             }
             Err(e) => {
-                tracing::error!("[server] ⚠️ QUIC bind :{} failed — lane disabled ({e})", cfg.quic_port);
+                tracing::error!(
+                    "[server] ⚠️ QUIC bind :{} failed — lane disabled ({e})",
+                    cfg.quic_port
+                );
                 None
             }
         }
@@ -892,7 +988,8 @@ pub fn run(
     // peer, and a received-seq ring for inbound dedupe (QUIC-style: every
     // frame is delivered on arrival, reordering is fine — only resend
     // duplicates are suppressed, nothing ever blocks anything).
-    let mut udp_reliable: HashMap<SocketAddr, crate::plane::reliable::ReliableLane> = HashMap::new();
+    let mut udp_reliable: HashMap<SocketAddr, crate::plane::reliable::ReliableLane> =
+        HashMap::new();
     let mut udp_reliable_seq: HashMap<SocketAddr, u16> = HashMap::new();
     let mut udp_rxd_seq: HashMap<SocketAddr, std::collections::HashSet<u16>> = HashMap::new();
     const RUDP_DEDUPE_SPAN: usize = 256;
@@ -1049,12 +1146,17 @@ pub fn run(
     // per-session arrival clock. Entries are dropped with the session itself.
     let mut last_input_at: HashMap<String, Instant> = HashMap::new();
 
+    let history = EventHistory::new(&bus, &cfg.gameplay);
+
     loop {
         // ---- termination: the plane's signal watcher latched the drain
         // Checked between ticks, never inside one, so a guest is never cut off
         // mid-callback and every room gets its `on_save` and `on_dispose`.
         if bus.is_draining() {
-            tracing::info!("[server] 🛑 drain requested: closing {} room(s)", server.rooms.len());
+            tracing::info!(
+                "[server] 🛑 drain requested: closing {} room(s)",
+                server.rooms.len()
+            );
             drain_rooms(&mut server, &mut transport);
             return Ok(());
         }
@@ -1073,27 +1175,29 @@ pub fn run(
                             Ok(answer) => {
                                 hub.publish(
                                     &seat.id,
-                                    engine_api::infra::signaling::SignalOut::Answer {
-                                        sdp: answer,
-                                    },
+                                    engine_api::infra::signaling::SignalOut::Answer { sdp: answer },
                                 );
                                 tracing::info!(
                                     "[server] ⚡ WebRTC offer accepted for seat {} (room '{}'), SDP answer returned",
-                                    seat.id, seat.room
+                                    seat.id,
+                                    seat.room
                                 );
                             }
                             Err(e) => {
                                 hub.publish(
                                     &seat.id,
-                                    engine_api::infra::signaling::SignalOut::Error {
-                                        message: e,
-                                    },
+                                    engine_api::infra::signaling::SignalOut::Error { message: e },
                                 );
                             }
                         }
                     }
-                    engine_api::infra::signaling::SignalIn::Candidate { seat, candidate, .. } => {
-                        if let Err(e) = transport.rtc_server().handle_candidate(&seat.id, &candidate) {
+                    engine_api::infra::signaling::SignalIn::Candidate {
+                        seat, candidate, ..
+                    } => {
+                        if let Err(e) = transport
+                            .rtc_server()
+                            .handle_candidate(&seat.id, &candidate)
+                        {
                             tracing::error!(
                                 "[server] ⚠️ seat {} candidate error: {e} ({candidate})",
                                 seat.id
@@ -1104,7 +1208,8 @@ pub fn run(
                     // so the seat is released and `on_leave` runs without waiting for idle timeout.
                     engine_api::infra::signaling::SignalIn::Close { seat } => {
                         tracing::info!("[server] signaling socket closed for seat {}", seat.id);
-                        let _ = transport.disconnect_with(&seat.id, 1000, "signaling socket closed");
+                        let _ =
+                            transport.disconnect_with(&seat.id, 1000, "signaling socket closed");
                     }
                 }
             }
@@ -1186,7 +1291,7 @@ pub fn run(
                         tracing::info!(
                             "[server] 🔁 {client_id} reconnected to room '{room_name}' (player id {id})"
                         );
-                        flush_room_outbox(room, &mut transport);
+                        flush_room_outbox(room, &mut transport, room_name, &history);
                     } else if room.is_full(cfg.max_clients) {
                         // WASM rooms may override the ceiling via their
                         // `on_is_full` export; relay rooms (no guest) fall back to
@@ -1220,7 +1325,7 @@ pub fn run(
                         );
                         // Deliver onJoin() messages in this same loop, not one
                         // tick later, while the client is still connected.
-                        flush_room_outbox(room, &mut transport);
+                        flush_room_outbox(room, &mut transport, room_name, &history);
                     }
                     let _ = transport.flush();
                 }
@@ -1274,7 +1379,7 @@ pub fn run(
                         );
                     }
                     // onLeave() may have queued a roster/chat message.
-                    flush_room_outbox(room, &mut transport);
+                    flush_room_outbox(room, &mut transport, &room_name, &history);
                     transport.rtc_server().remove_session(&client_id);
                     if room.is_hibernating() {
                         tracing::info!(
@@ -1579,6 +1684,28 @@ pub fn run(
                         continue;
                     }
 
+                    // Desync report: [0x44][tick u64][checksum u64] (17 bytes).
+                    // Owned by the host like the ack above, so it is checked
+                    // before the guest pass-through: a client whose simulation
+                    // has diverged must not spend a tick of guest input on a
+                    // frame the host already answers.
+                    if let Some(report) = engine_webrtc_protocol::parse_checksum(data) {
+                        if let Err(desync) = room
+                            .rollback_buffer
+                            .verify_sync(report.tick, report.checksum)
+                        {
+                            recorder.desyncs += 1;
+                            tracing::warn!(
+                                "[server] ⚠️ desync in room '{room_name}': player {id} disagrees at tick {} (host {:016x}, client {:016x})",
+                                desync.tick,
+                                desync.expected_checksum,
+                                desync.client_checksum
+                            );
+                            history.record_desync(room_name, id, &desync);
+                        }
+                        continue;
+                    }
+
                     // QUIC-Style Ordered Event Frame: [0x03, seq_u16, kind_u8, from_u16, target_u16, tick_u16, value_f32] (14 bytes)
                     if data.len() == engine_webrtc_protocol::EVENT_WIRE_LEN
                         && data[0] == engine_webrtc_protocol::OP_EVENT
@@ -1693,7 +1820,7 @@ pub fn run(
                     if room.is_ecs() {
                         // Native ECS backend: raw bytes are the WASD flags.
                         room.ecs_input(&client_id, data);
-                        flush_room_outbox(room, &mut transport);
+                        flush_room_outbox(room, &mut transport, room_name, &history);
                         continue;
                     }
 
@@ -1715,14 +1842,16 @@ pub fn run(
                                 }
                             }
                             Err(e) => {
-                                tracing::error!("[server] ⚠️ guest on_alloc failed for player {id}: {e}");
+                                tracing::error!(
+                                    "[server] ⚠️ guest on_alloc failed for player {id}: {e}"
+                                );
                             }
                         }
                     }
                     // Reply now instead of waiting for the next tick: typed
                     // messages from onMessage() are low-latency and independent
                     // of the continuous delta.
-                    flush_room_outbox(room, &mut transport);
+                    flush_room_outbox(room, &mut transport, room_name, &history);
                 }
             }
         }
@@ -1762,13 +1891,33 @@ pub fn run(
                         let server_guard = &mut server;
                         if let Ok(room) = server_guard.get_or_create(&cfg.name) {
                             room.empty_since = None;
-                            if let Some(ref mut wasm) = room.wasm {
+                            // Host-owned frames first: a checksum report is the
+                            // engine's evidence, not a tick of guest input. No
+                            // session id exists on this lane, so the row is
+                            // room-wide (`target` 0) and the peer address is in
+                            // the log line.
+                            if let Some(report) = engine_webrtc_protocol::parse_checksum(payload) {
+                                if let Err(desync) = room
+                                    .rollback_buffer
+                                    .verify_sync(report.tick, report.checksum)
+                                {
+                                    recorder.desyncs += 1;
+                                    tracing::warn!(
+                                        "[server-udp] ⚠️ desync in room '{}': {peer_addr} disagrees at tick {} (host {:016x}, client {:016x})",
+                                        cfg.name,
+                                        desync.tick,
+                                        desync.expected_checksum,
+                                        desync.client_checksum
+                                    );
+                                    history.record_desync(&cfg.name, 0, &desync);
+                                }
+                            } else if let Some(ref mut wasm) = room.wasm {
                                 if let Ok(ptr) = wasm.on_alloc(payload.len() as i32) {
                                     let _ = wasm.write_memory(ptr as u32, payload);
                                     let _ = wasm.on_input(0, ptr, payload.len() as i32);
                                 }
                             }
-                            flush_room_outbox(room, &mut transport);
+                            flush_room_outbox(room, &mut transport, &cfg.name, &history);
                         }
                     }
                     continue;
@@ -1792,7 +1941,9 @@ pub fn run(
                         || data[0] == netcode::CYG_OP_LEAVE_ROOM)
                 {
                     if let Some((id, sess, _)) = udp_peers.remove(&peer_addr) {
-                        tracing::info!("[server-udp] {peer_addr} left room via UDP (session {sess})");
+                        tracing::info!(
+                            "[server-udp] {peer_addr} left room via UDP (session {sess})"
+                        );
                         udp_input_rates.remove(&peer_addr);
                         udp_reliable.remove(&peer_addr);
                         udp_reliable_seq.remove(&peer_addr);
@@ -1810,16 +1961,23 @@ pub fn run(
                     if is_spec_handshake {
                         let session_id = format!("spec_{}_{}", peer_addr.ip(), peer_addr.port());
                         udp_peers.insert(peer_addr, (0, session_id.clone(), Instant::now())); // 0 = spectator
-                        tracing::info!("[server-udp] 👁️  {peer_addr} connected as SPECTATOR via UDP");
+                        tracing::info!(
+                            "[server-udp] 👁️  {peer_addr} connected as SPECTATOR via UDP"
+                        );
                         let _ = udp_sock.send_to(SPECTATOR_CONFIRM, peer_addr);
                     } else {
                         // Join amplification guard: max 5 joins/sec per source
                         // address. The join path is the only unauthenticated
                         // allocation (guest on_join + descriptor-sized reply).
-                        if udp_join_rates.len() >= 4096 && !udp_join_rates.contains_key(&peer_addr) {
+                        if udp_join_rates.len() >= 4096 && !udp_join_rates.contains_key(&peer_addr)
+                        {
                             continue;
                         }
-                        if !udp_join_rates.entry(peer_addr).or_insert_with(|| netcode::InputRateLimiter::new(5, 5.0)).allow(Instant::now()) {
+                        if !udp_join_rates
+                            .entry(peer_addr)
+                            .or_insert_with(|| netcode::InputRateLimiter::new(5, 5.0))
+                            .allow(Instant::now())
+                        {
                             tracing::error!("[server-udp] ⛔ join rate-limit hit by {peer_addr}");
                             continue;
                         }
@@ -1854,8 +2012,12 @@ pub fn run(
                             let Ok(sample) = <&[u8; 20]>::try_from(data) else {
                                 continue;
                             };
-                            if !udp_input_allowed(&mut udp_input_rates, tick_interval, peer_addr, sample)
-                            {
+                            if !udp_input_allowed(
+                                &mut udp_input_rates,
+                                tick_interval,
+                                peer_addr,
+                                sample,
+                            ) {
                                 recorder.inputs_dropped += 1;
                                 continue;
                             }
@@ -1872,7 +2034,9 @@ pub fn run(
                     if is_spec_handshake && *id != 0 {
                         room.remove_raw_player(*id);
                         *id = 0;
-                        tracing::info!("[server-udp] 👁️  {peer_addr} upgraded to SPECTATOR via UDP");
+                        tracing::info!(
+                            "[server-udp] 👁️  {peer_addr} upgraded to SPECTATOR via UDP"
+                        );
                     } else if *id > 0 && !data.is_empty() {
                         if data[0] == netcode::CYG_WIRE_PING {
                             let _ = udp_sock.send_to(data, peer_addr);
@@ -1882,8 +2046,12 @@ pub fn run(
                             let Ok(sample) = <&[u8; 20]>::try_from(data) else {
                                 continue;
                             };
-                            if !udp_input_allowed(&mut udp_input_rates, tick_interval, peer_addr, sample)
-                            {
+                            if !udp_input_allowed(
+                                &mut udp_input_rates,
+                                tick_interval,
+                                peer_addr,
+                                sample,
+                            ) {
                                 recorder.inputs_dropped += 1;
                                 continue;
                             }
@@ -1909,9 +2077,7 @@ pub fn run(
                 .collect();
             for addr in due {
                 if let Some(lane) = udp_reliable.get_mut(&addr) {
-                    lane.pump(now, |frame| {
-                        udp_sock.send_to(frame, addr).is_ok()
-                    });
+                    lane.pump(now, |frame| udp_sock.send_to(frame, addr).is_ok());
                 }
             }
         }
@@ -1969,8 +2135,7 @@ pub fn run(
                     event.seq = room.event_seq;
                     event.from = id as u16;
 
-                    let mut wire_event =
-                        Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
+                    let mut wire_event = Vec::with_capacity(engine_webrtc_protocol::EVENT_WIRE_LEN);
                     engine_webrtc_protocol::encode_event(&event, &mut wire_event);
 
                     if event.kind == engine_webrtc_protocol::EventKind::Fire {
@@ -2013,8 +2178,7 @@ pub fn run(
                                     tracing::error!(
                                         "[server] ⚠️ app payload write failed for player {id}: {e}"
                                     );
-                                } else if let Err(e) =
-                                    wasm.on_input(id, ptr_i32, data.len() as i32)
+                                } else if let Err(e) = wasm.on_input(id, ptr_i32, data.len() as i32)
                                 {
                                     tracing::warn!(
                                         "[server] ⚠️ guest trap in on_input (app msg) for player {id}: {e}"
@@ -2028,7 +2192,7 @@ pub fn run(
                             }
                         }
                     }
-                    flush_room_outbox(room, &mut transport);
+                    flush_room_outbox(room, &mut transport, &room_name, &history);
                 }
                 Inbound::Other { .. } | Inbound::Refused(_) => {}
             }
@@ -2070,9 +2234,8 @@ pub fn run(
                 // old age, and the default room is kept while raw UDP peers are
                 // still attached to it (they live outside the room's own seat
                 // bookkeeping, so `is_hibernating` cannot see them).
-                let reapable =
-                    !cfg.lifecycle.is_persistent(name)
-                        && (name != &cfg.name || udp_peers.is_empty());
+                let reapable = !cfg.lifecycle.is_persistent(name)
+                    && (name != &cfg.name || udp_peers.is_empty());
                 if let Some(reason) = room.close_reason(&cfg.lifecycle, reapable, reap_now) {
                     dead_rooms.push((name.clone(), reason));
                 }
@@ -2088,14 +2251,14 @@ pub fn run(
                     // Held seats (allowReconnection) expire on wall-clock time;
                     // only then does the guest see `onLeave`.
                     if room.expire_pending_leaves(Instant::now()) {
-                        flush_room_outbox(room, &mut transport);
+                        flush_room_outbox(room, &mut transport, name, &history);
                     }
 
                     // Native ECS backend: single-threaded bevy_ecs + Rapier
                     // schedule; the delta rides the same outbox as a guest's.
                     if room.is_ecs() {
                         room.tick_ecs(dt);
-                        flush_room_outbox(room, &mut transport);
+                        flush_room_outbox(room, &mut transport, name, &history);
                         continue;
                     }
 
@@ -2104,11 +2267,20 @@ pub fn run(
                     // inside `GameRoom::tick`.
                     let packed = match room.tick(dt, cfg.rollback.enabled) {
                         Ok(p) => p,
+                        Err(e) if e.is_interrupt() => {
+                            recorder.tick_overruns += 1;
+                            tracing::warn!(
+                                "[server] ⛔ watchdog cut off a guest call in room '{name}' after {}ms; the room stays up and the next call re-arms, but its state may be torn",
+                                cfg.watchdog.tick_budget_ms
+                            );
+                            flush_room_outbox(room, &mut transport, name, &history);
+                            continue;
+                        }
                         Err(e) => {
                             tracing::warn!(
                                 "[server] ⚠️ guest trap during on_tick in room '{name}': {e}"
                             );
-                            flush_room_outbox(room, &mut transport);
+                            flush_room_outbox(room, &mut transport, name, &history);
                             continue;
                         }
                     };
@@ -2118,7 +2290,7 @@ pub fn run(
                     // Typed app messages are independent of the delta buffer.
                     // Flush even when `on_tick` returned no delta, and before
                     // the delta-size guards can skip the rest of this tick.
-                    flush_room_outbox(room, &mut transport);
+                    flush_room_outbox(room, &mut transport, name, &history);
 
                     // Rule 4: Bounds check outbound delta size
                     if len > engine_wasm::MAX_OUTBOUND_DELTA_SIZE {
@@ -2187,8 +2359,7 @@ pub fn run(
                                 // Stay on the full snapshot until the client acks
                                 // (`__ox_schema_ready`); a patch that races the
                                 // baseline over another transport would be lost.
-                                let is_full =
-                                    force_full || !room.schema_sent.contains(&session);
+                                let is_full = force_full || !room.schema_sent.contains(&session);
                                 let body = if culled {
                                     &view_buf[..]
                                 } else if is_full {
@@ -2255,7 +2426,6 @@ pub fn run(
                                     }
                                 }
                             }
-
                         } else {
                             // Interest management: parse the delta once per tick.
                             // When the layout is recognized and AOI is on, every player
@@ -2411,8 +2581,9 @@ pub fn run(
                 // One sample per batch, as the pinned sim plane does: this is the
                 // wall cost of keeping the room's ticks and broadcast current.
                 recorder.note_tick(tick_start.elapsed());
-                stage_sim_us_sum +=
-                    __gate_t0.elapsed().as_micros() as u64 / ticks_to_run.max(1) as u64 * ticks_to_run as u64;
+                stage_sim_us_sum += __gate_t0.elapsed().as_micros() as u64
+                    / ticks_to_run.max(1) as u64
+                    * ticks_to_run as u64;
                 window_ticks += ticks_to_run as u64;
             }
 
@@ -2420,7 +2591,8 @@ pub fn run(
             let now = Instant::now();
             timed_out_udp.clear();
             udp_peers.retain(|&addr, (id, sess, last_seen)| {
-                if now.duration_since(*last_seen) > Duration::from_millis(cfg.lifecycle.peer_idle_ms)
+                if now.duration_since(*last_seen)
+                    > Duration::from_millis(cfg.lifecycle.peer_idle_ms)
                 {
                     timed_out_udp.push((addr, *id, sess.clone()));
                     false
@@ -2858,5 +3030,98 @@ mod console_module_tests {
             Err(err) => err,
         };
         assert!(err.contains("sha256 mismatch"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod event_history_tests {
+    use super::*;
+
+    fn message(event: &str) -> OutboundMessage {
+        OutboundMessage {
+            target: 7,
+            event: event.to_string(),
+            payload: vec![1, 2, 3],
+        }
+    }
+
+    #[test]
+    fn an_unlisted_event_stays_on_the_wire() {
+        let bus = Bus::new(8, 8);
+        let record = engine_config::GameplayConfig {
+            record_events: vec!["deal".into()],
+            ..Default::default()
+        };
+        let history = EventHistory::new(&bus, &record);
+
+        history.mirror("arena", 4, &message("chat"));
+        assert!(bus.events_rx.try_recv().is_err(), "chat was never listed");
+
+        history.mirror("arena", 5, &message("deal"));
+        let row = bus.events_rx.try_recv().expect("deal was listed");
+        assert_eq!(row.room, "arena");
+        assert_eq!(row.tick, 5);
+        assert_eq!(row.target, 7);
+        assert_eq!(row.event, "deal");
+        assert_eq!(row.seq, 1, "the ordinal counts what was actually queued");
+    }
+
+    #[test]
+    fn a_desync_is_recorded_whether_or_not_the_game_listed_anything() {
+        let bus = Bus::new(8, 8);
+        let record = engine_config::GameplayConfig::default();
+        let history = EventHistory::new(&bus, &record);
+
+        history.record_desync(
+            "arena",
+            3,
+            &engine_wasm::DesyncReport {
+                tick: 99,
+                expected_checksum: 0x0123_4567_89ab_cdef,
+                client_checksum: 0xfedc_ba98_7654_3210,
+            },
+        );
+
+        let row = bus
+            .events_rx
+            .try_recv()
+            .expect("the engine's own evidence is never filtered");
+        assert_eq!(row.event, "desync");
+        assert_eq!(row.room, "arena");
+        assert_eq!(row.target, 3);
+        assert_eq!(row.tick, 99);
+        let expected = u64::from_le_bytes(row.payload[..8].try_into().unwrap());
+        let client = u64::from_le_bytes(row.payload[8..].try_into().unwrap());
+        assert_eq!(expected, 0x0123_4567_89ab_cdef);
+        assert_eq!(client, 0xfedc_ba98_7654_3210);
+    }
+
+    #[test]
+    fn guest_and_engine_rows_share_one_ordinal() {
+        let bus = Bus::new(8, 8);
+        let record = engine_config::GameplayConfig {
+            record_events: vec!["deal".into()],
+            ..Default::default()
+        };
+        let history = EventHistory::new(&bus, &record);
+
+        history.mirror("arena", 1, &message("deal"));
+        history.record_desync(
+            "arena",
+            0,
+            &engine_wasm::DesyncReport {
+                tick: 2,
+                expected_checksum: 1,
+                client_checksum: 2,
+            },
+        );
+        history.mirror("arena", 3, &message("deal"));
+
+        let seqs = [
+            bus.events_rx.try_recv().unwrap().seq,
+            bus.events_rx.try_recv().unwrap().seq,
+            bus.events_rx.try_recv().unwrap().seq,
+        ];
+        assert_eq!(seqs, [1, 2, 3], "a reader must see no gap and no reuse");
     }
 }

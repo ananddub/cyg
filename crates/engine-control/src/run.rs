@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use engine_api::{ApiState, gc_seats, pump, serve};
+use engine_api::{ApiState, gc_seats, pump, pump_events, serve, sweep_match_history};
 use engine_bus::Bus;
 use engine_config::{ControlConfig, GameConfig};
 
@@ -29,8 +29,10 @@ pub fn spawn(
 
     // Bind before building the state: the seat reservation and `/status` both
     // carry the real port, and `api_port: 0` means "ask the kernel".
-    let listener = runtime
-        .block_on(tokio::net::TcpListener::bind((control.bind_addr.as_str(), control.api_port)))?;
+    let listener = runtime.block_on(tokio::net::TcpListener::bind((
+        control.bind_addr.as_str(),
+        control.api_port,
+    )))?;
     let port = listener.local_addr()?.port();
     // Opening the datastore uses the surrounding runtime (remote endpoints
     // connect over the network), so the state is built inside its context.
@@ -42,7 +44,9 @@ pub fn spawn(
     // with them instead of an SSH session copying files around. A plane with
     // no database (or a game with no maps) gets an empty set and falls back to
     // the project folder's local files, exactly as it always has.
-    let boot_maps = runtime.block_on(engine_api::services::maps::MapService::load_boot_maps(&state));
+    let boot_maps = runtime.block_on(engine_api::services::maps::MapService::load_boot_maps(
+        &state,
+    ));
     if !boot_maps.is_empty() {
         tracing::info!(
             "[control] 🗺️  active maps from console: {}",
@@ -52,8 +56,9 @@ pub fn spawn(
 
     // The console's active room module, fetched the same way: the host runs
     // these bytes instead of whatever the project folder last compiled.
-    let boot_module =
-        runtime.block_on(engine_api::services::wasm::WasmService::load_boot_module(&state));
+    let boot_module = runtime.block_on(engine_api::services::wasm::WasmService::load_boot_module(
+        &state,
+    ));
     if let Some(module) = boot_module.as_ref() {
         tracing::info!(
             "[control] 📦 active room module from console: v{} ({} bytes, sha256 {}…)",
@@ -69,6 +74,12 @@ pub fn spawn(
 
     // Expiring seats must not accumulate if nothing ever calls `verify`.
     runtime.spawn(gc_seats(state.clone()));
+
+    // The host's mirrored events and desync evidence become rows here; the sim
+    // thread never waits for this database. Then one hourly beat ages the
+    // history out, because a match past the window is nobody's replay.
+    runtime.spawn(pump_events(state.clone()));
+    runtime.spawn(sweep_match_history(state.clone()));
 
     // Agones sidecar lifecycle: Ready, then the Health ping loop. No-op unless
     // `[control.agones] enabled = true`.
@@ -114,14 +125,19 @@ pub fn spawn(
 /// is the explicit dev-only escape hatch.
 fn refuse_default_secrets(game: &GameConfig, control: &ControlConfig) -> std::io::Result<()> {
     if std::env::var("OX_ALLOW_DEFAULT_SECRETS").as_deref() == Ok("1") {
-        tracing::warn!("[control] ⚠️  OX_ALLOW_DEFAULT_SECRETS=1 — booting with default secrets (DEV ONLY)");
+        tracing::warn!(
+            "[control] ⚠️  OX_ALLOW_DEFAULT_SECRETS=1 — booting with default secrets (DEV ONLY)"
+        );
         return Ok(());
     }
     let mut defaults: Vec<&str> = Vec::new();
     let s = &control.session;
     for (name, value) in [
         ("session.signing_key", s.signing_key.as_str()),
-        ("session.refresh_signing_key", s.refresh_signing_key.as_str()),
+        (
+            "session.refresh_signing_key",
+            s.refresh_signing_key.as_str(),
+        ),
         ("session.server_key", s.server_key.as_str()),
         ("control.seat_secret", control.seat_secret.as_str()),
     ] {
@@ -150,24 +166,6 @@ fn refuse_default_secrets(game: &GameConfig, control: &ControlConfig) -> std::io
         ));
     }
     Ok(())
-}
-
-/// A documented default or template placeholder a stranger could guess.
-fn placeholder_secret(value: &str) -> bool {
-    let lower = value.trim().to_ascii_lowercase();
-    lower.is_empty()
-        || lower.starts_with("default")
-        || lower.starts_with("ox-dev")
-        || lower.contains("change-me")
-        || lower.contains("changeme")
-        || lower.contains("placeholder")
-        || matches!(lower.as_str(), "password" | "secret" | "test" | "letmein")
-}
-
-/// Signing keys and server credentials also need enough entropy to survive an
-/// offline guess; a short password is a login-policy question, not boot.
-fn weak_secret(value: &str) -> bool {
-    placeholder_secret(value) || value.trim().len() < 16
 }
 
 /// One log line's worth of `BootMaps` — which formats came from the console.
