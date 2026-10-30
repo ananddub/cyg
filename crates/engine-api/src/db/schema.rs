@@ -31,6 +31,7 @@ pub fn ddl() -> Vec<&'static str> {
         PlayerStat,
         Leaderboard,
         LeaderboardRecord,
+        MarketListing,
         Message,
         Notification,
         Purchase,
@@ -49,6 +50,7 @@ pub fn ddl() -> Vec<&'static str> {
         Users,
         UsersNotes,
         WalletLedger,
+        Wager,
     ]
 }
 
@@ -67,7 +69,7 @@ mod tests {
             ddl.iter()
                 .filter(|line| line.starts_with("DEFINE TABLE"))
                 .count(),
-            32
+            34
         );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {

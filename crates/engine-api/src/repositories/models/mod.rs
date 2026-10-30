@@ -9,6 +9,7 @@ use crate::db::{bytes, time};
 
 mod console_acl_template;
 mod economy;
+mod marketplace;
 mod player_inventory_item;
 mod quest;
 mod room_persistent_snapshot;
@@ -17,6 +18,7 @@ mod users;
 
 pub use console_acl_template::*;
 pub use economy::*;
+pub use marketplace::*;
 pub use player_inventory_item::*;
 pub use quest::*;
 pub use room_persistent_snapshot::*;

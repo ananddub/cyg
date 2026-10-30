@@ -10,6 +10,7 @@ pub mod iap;
 pub mod inventory;
 pub mod leaderboard;
 pub mod link;
+pub mod marketplace;
 #[path = "match.rs"]
 pub mod matches;
 pub mod matchmake;

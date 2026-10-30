@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 /// variables with clamped defaults instead of a new config section.
 pub(crate) struct LiveOps {
     pub idempotency_ttl_days: i64,
+    pub market_ttl_days: i64,
 }
 
 fn env_i64(name: &str, default: i64, min: i64, max: i64) -> i64 {
@@ -19,5 +20,6 @@ pub(crate) fn config() -> &'static LiveOps {
     static CONFIG: OnceLock<LiveOps> = OnceLock::new();
     CONFIG.get_or_init(|| LiveOps {
         idempotency_ttl_days: env_i64("OX_IDEMPOTENCY_TTL_DAYS", 30, 1, 3650),
+        market_ttl_days: env_i64("OX_MARKET_TTL_DAYS", 7, 1, 90),
     })
 }

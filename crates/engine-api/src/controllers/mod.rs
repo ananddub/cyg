@@ -11,6 +11,7 @@ pub mod iap;
 pub mod inventory;
 pub mod leaderboard;
 pub mod link;
+pub mod marketplace;
 #[path = "match.rs"]
 pub mod match_routes;
 pub mod matchmake;

@@ -240,6 +240,24 @@ pub async fn every_migrated_path_is_still_registered() {
             "DELETE",
             "/v2/console/acl/template/00000000-0000-0000-0000-000000000000",
         ),
+        ("POST", "/v2/marketplace/listings"),
+        (
+            "POST",
+            "/v2/marketplace/listings/00000000-0000-0000-0000-000000000000/buy",
+        ),
+        (
+            "POST",
+            "/v2/marketplace/listings/00000000-0000-0000-0000-000000000000/cancel",
+        ),
+        ("POST", "/v2/wager/create"),
+        (
+            "POST",
+            "/v2/wager/00000000-0000-0000-0000-000000000000/settle",
+        ),
+        (
+            "POST",
+            "/v2/wager/00000000-0000-0000-0000-000000000000/refund",
+        ),
         ("POST", "/v2/events"),
         ("GET", "/v2/quest"),
         ("POST", "/v2/quest/claim"),

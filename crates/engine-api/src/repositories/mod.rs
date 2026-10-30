@@ -13,6 +13,7 @@ pub mod idempotency;
 pub mod inventory;
 pub mod leaderboard;
 pub mod link;
+pub mod marketplace;
 pub mod models;
 pub mod notification;
 pub mod quest;

@@ -13,6 +13,7 @@ pub mod inventory;
 pub mod leaderboard;
 pub mod link;
 pub mod maps;
+pub mod marketplace;
 pub mod match_query;
 pub mod matchmake;
 pub mod notification;
