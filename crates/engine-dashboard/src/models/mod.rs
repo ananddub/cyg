@@ -1,5 +1,5 @@
-
 pub mod health;
+pub mod log;
 pub mod overview;
 pub mod rows;
 pub mod ticks;
