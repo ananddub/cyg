@@ -463,11 +463,40 @@ fn reject_room(transport: &mut LoopTransport, client_id: &str, message: &str) {
 /// End every socket attached to a room the host is disposing. `CONSENTED` is
 /// the clean-close code: an SDK whose room died of old age should stop
 /// reconnecting to it rather than loop against a room that no longer exists.
-fn close_room_sessions(transport: &mut LoopTransport, room: &GameRoom, message: &str) {
+fn close_room_sessions(
+    transport: &mut LoopTransport,
+    room: &GameRoom,
+    code: u16,
+    message: &str,
+) {
     for session in room.sessions.keys().chain(room.spectators.iter()) {
-        let _ = transport.disconnect_with(session, engine_net::close_code::CONSENTED, message);
+        let _ = transport.disconnect_with(session, code, message);
     }
     let _ = transport.flush();
+}
+
+/// SIGINT/SIGTERM said the process is going away: save every room's state,
+/// give its guests a shutdown close, and let the guest run `onDispose`. This
+/// is the last thing the loop does, so it must not depend on any guest being
+/// well-behaved — a room whose `on_save` traps loses its snapshot, not the pod.
+fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport) {
+    let names: Vec<String> = server.rooms.keys().cloned().collect();
+    for name in names {
+        let Some(mut room) = server.rooms.remove(&name) else {
+            continue;
+        };
+        close_room_sessions(
+            transport,
+            &room,
+            engine_net::close_code::SERVER_SHUTDOWN,
+            "server shutting down",
+        );
+        if let Some(snapshot) = room.export_snapshot() {
+            server.save_snapshot(&name, snapshot);
+        }
+        room.dispose();
+        tracing::info!("[server] room '{name}' drained and state saved (shutdown)");
+    }
 }
 
 /// Run the server until killed.
@@ -991,6 +1020,15 @@ pub fn run(
     let mut last_input_at: HashMap<String, Instant> = HashMap::new();
 
     loop {
+        // ---- termination: the plane's signal watcher latched the drain
+        // Checked between ticks, never inside one, so a guest is never cut off
+        // mid-callback and every room gets its `on_save` and `on_dispose`.
+        if bus.is_draining() {
+            tracing::info!("[server] 🛑 drain requested: closing {} room(s)", server.rooms.len());
+            drain_rooms(&mut server, &mut transport);
+            return Ok(());
+        }
+
         // ---- signaling hand-over: browser SDP -> str0m sessions ----
         // Offers arrive on the control plane's `/ws/signal` socket; the seat
         // names the room, so the seat is mirrored here before the session it
@@ -2328,7 +2366,12 @@ pub fn run(
             for (name, reason) in dead_rooms.drain(..) {
                 if let Some(mut room) = server.rooms.remove(&name) {
                     if reason == CloseReason::Duration && !room.is_hibernating() {
-                        close_room_sessions(&mut transport, &room, "room reached its time limit");
+                        close_room_sessions(
+                            &mut transport,
+                            &room,
+                            engine_net::close_code::CONSENTED,
+                            "room reached its time limit",
+                        );
                     }
                     if let Some(snapshot) = room.export_snapshot() {
                         server.save_snapshot(&name, snapshot);
@@ -2619,6 +2662,24 @@ mod loop_transport_tests {
         assert_eq!(sanitize_room_name("smoke?sessionId=alice&token=x"), "smoke");
         assert_eq!(sanitize_room_name("smoke?room=ignored"), "smoke");
         assert_eq!(sanitize_room_name("smoke/sessionId=alice"), "smoke/");
+    }
+
+    /// SIGTERM's last act must leave nothing behind: every room is out of the
+    /// map before the loop returns, so no guest state survives to tick again.
+    #[test]
+    fn drain_closes_and_forgets_every_room() {
+        let mut server = GameServer::new(
+            None,
+            16,
+            PhysicsWorld3D::default(),
+            engine_wasm::AbiPermissions::default(),
+        );
+        server.get_or_create("arena").expect("relay room");
+        server.get_or_create("lobby").expect("relay room");
+
+        let mut t = transport();
+        drain_rooms(&mut server, &mut t);
+        assert!(server.rooms.is_empty(), "a drained room kept its slot");
     }
 }
 

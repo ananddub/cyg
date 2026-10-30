@@ -49,6 +49,23 @@ impl ControlPlane {
     }
 }
 
+/// Wait until the process is told to stop. `ctrl_c` covers SIGINT — a terminal
+/// Ctrl-C — while Kubernetes and a systemd stop send SIGTERM, which without a
+/// listener would kill the game loop mid-tick with no room ever saving.
 pub(crate) async fn shutdown_signal() {
+    #[cfg(unix)]
+    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        Ok(mut terminate) => {
+            tokio::select! {
+                _ = async { let _ = tokio::signal::ctrl_c().await; } => {}
+                _ = terminate.recv() => {}
+            }
+        }
+        // A blocked or unusable SIGTERM still leaves Ctrl-C to drain on.
+        Err(_) => {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    }
+    #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
 }

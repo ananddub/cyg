@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossbeam_channel::{Receiver, Sender, bounded};
 
@@ -44,6 +45,10 @@ pub struct Bus {
     /// control plane → sim/host: a live-tunable setting changed (tick rate).
     pub settings_tx: Sender<SettingsReload>,
     pub settings_rx: Receiver<SettingsReload>,
+    /// Latched by whatever catches the process' termination signal and read by
+    /// the loop that owns the rooms. A one-way latch, so an atomic beats a
+    /// channel that every consumer would have to keep draining.
+    draining: AtomicBool,
 }
 
 impl Bus {
@@ -70,7 +75,19 @@ impl Bus {
             map_reloads_rx,
             settings_tx,
             settings_rx,
+            draining: AtomicBool::new(false),
         })
+    }
+
+    /// Tell every plane that the process is going away. Idempotent: SIGINT and
+    /// SIGTERM, or two watchers, latches the same flag.
+    pub fn request_drain(&self) {
+        self.draining.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether the host loop should flush its rooms and return.
+    pub fn is_draining(&self) -> bool {
+        self.draining.load(Ordering::Relaxed)
     }
 
     /// On full, drops the oldest queued input and retries once — never the

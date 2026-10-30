@@ -41,3 +41,13 @@ fn push_input_when_the_sim_is_gone_is_a_silent_noop() {
         Err(crossbeam_channel::TrySendError::Disconnected(_))
     ));
 }
+
+#[test]
+fn a_drain_request_latches_for_every_reader() {
+    let bus = Bus::new(2, 2);
+    assert!(!bus.is_draining());
+    bus.request_drain();
+    bus.request_drain();
+    assert!(bus.is_draining());
+    assert!(bus.clone().is_draining(), "the other plane sees the same latch");
+}

@@ -74,18 +74,27 @@ pub fn spawn(
     // `[control.agones] enabled = true`.
     crate::agones::spawn(&state);
 
-    // Ctrl-C is a pod's last words: stop the beat and tell the sidecar to
-    // retire this GameServer, or the agent holds a dead pod in the Ready pool
-    // while clients keep being matched into a server that no longer answers.
-    if control.agones.enabled {
-        runtime.spawn(async {
+    // A termination signal is a pod's last words. Latch the drain so the loop
+    // that owns the rooms saves their snapshots and gives its guests a clean
+    // close, then stop the Agones beat and retire this GameServer — or the
+    // agent holds a dead pod in the Ready pool while clients keep being
+    // matched into a server that no longer answers. This needs the plane's
+    // Tokio runtime for the signal listener, so a run with the control plane
+    // switched off has no drain to wait for.
+    {
+        let state = state.clone();
+        let agones = control.agones.enabled;
+        runtime.spawn(async move {
             shutdown_signal().await;
-            match crate::agones::shutdown() {
-                Ok(sent) => tracing::info!(
-                    "[agones] 🛑 {} shutdown sent; this pod leaves the pool",
-                    if sent { "first" } else { "repeat" }
-                ),
-                Err(e) => tracing::error!("[agones] ✖ could not retire the pod: {e}"),
+            state.bus.request_drain();
+            if agones {
+                match crate::agones::shutdown() {
+                    Ok(sent) => tracing::info!(
+                        "[agones] 🛑 {} shutdown sent; this pod leaves the pool",
+                        if sent { "first" } else { "repeat" }
+                    ),
+                    Err(e) => tracing::error!("[agones] ✖ could not retire the pod: {e}"),
+                }
             }
         });
     }
