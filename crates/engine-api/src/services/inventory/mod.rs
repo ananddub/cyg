@@ -100,10 +100,9 @@ impl InventoryService {
     pub async fn grant_item(
         &self,
         state: &ApiState,
-        auth: &Authed,
+        target_user: Uuid,
         req: GrantItemRequest,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
-        let target_user = req.user_id.unwrap_or_else(|| auth.uid());
         let queries = crate::services::deps::q(state).await?;
 
         let def = queries

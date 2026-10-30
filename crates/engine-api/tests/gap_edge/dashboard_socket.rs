@@ -2,9 +2,21 @@ use super::*;
 
 pub async fn dashboard_socket(env: &Harness) {
     eprintln!("gap: dashboard websocket");
+    let console = console_login(&env.client, &env.base).await;
+
+    let refused = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{}/ws/dashboard",
+        env.port
+    ))
+    .await;
+    assert!(
+        refused.is_err(),
+        "a dashboard socket without a console token must be refused"
+    );
+
     let mut ws = PlainWs::connect(
         "gap-dashboard",
-        format!("ws://127.0.0.1:{}/ws/dashboard", env.port),
+        format!("ws://127.0.0.1:{}/ws/dashboard?token={console}", env.port),
     )
     .await;
 

@@ -54,6 +54,7 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                             game_port: pass.game_port,
                             udp_port: pass.udp_port,
                             schema_descriptor: pass.schema_descriptor,
+                            allowed_origins: pass.allowed_origins,
                         };
                         handle_client_greeting(client, &peer, &mut *pass.buf, &mut ctx)
                     };

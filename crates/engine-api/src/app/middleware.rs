@@ -78,6 +78,18 @@ pub fn server_key(headers: &HeaderMap, state: &crate::ApiState) -> Result<(), V2
     Ok(())
 }
 
+/// Privileged server-to-server routes accept either the server key (game
+/// backend) or a console session; a player session is never enough.
+pub fn server_key_or_console(
+    headers: &HeaderMap,
+    state: &crate::ApiState,
+) -> Result<(), V2Error> {
+    if server_key(headers, state).is_ok() {
+        return Ok(());
+    }
+    console_claims(headers).map(|_| ())
+}
+
 fn parse_basic_user(value: &str) -> Option<String> {
     let encoded = value.strip_prefix("Basic ")?;
     let decoded = base64::engine::general_purpose::STANDARD
@@ -128,8 +140,15 @@ pub fn console_claims(headers: &HeaderMap) -> Result<ConsoleClaims, V2Error> {
     if auth_headers(headers) != 1 {
         return Err(V2Error::unauthenticated("Console token required"));
     }
+    let token = bearer_token(headers)
+        .ok_or_else(|| V2Error::unauthenticated("Console token invalid"))?;
+    console_token_claims(token)
+}
+
+/// Browsers cannot set an `Authorization` header on a WebSocket handshake, so
+/// the dashboard socket carries the same console token as a query parameter.
+pub fn console_token_claims(token: &str) -> Result<ConsoleClaims, V2Error> {
     let invalid = || V2Error::unauthenticated("Console token invalid");
-    let token = bearer_token(headers).ok_or_else(invalid)?;
     let claims = crate::infra::console::verify(token)?;
     if !crate::infra::console::is_live(claims.uuid(), claims.exp, &claims.jti) {
         return Err(invalid());

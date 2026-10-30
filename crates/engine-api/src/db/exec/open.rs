@@ -96,6 +96,24 @@ impl Datastore {
     {
         Ok(self.query(q).await?.into_iter().next())
     }
+    /// Runs a multi-statement transaction and decodes the first statement that
+    /// returned rows. `BEGIN`/`LET`/`COMMIT` answer empty, so a guarded `IF`
+    /// block yields its own rows or nothing when the guard refused.
+    pub async fn query_transaction<T>(
+        &self,
+        surql: &str,
+        params: &BTreeMap<String, serde_json::Value>,
+    ) -> Result<Vec<T>, DbError>
+    where
+        T: DeserializeOwned,
+    {
+        let statements = self.run(surql, Some(params)).await?;
+        let rows = statements
+            .into_iter()
+            .find(|statement| matches!(statement, serde_json::Value::Array(rows) if !rows.is_empty()))
+            .unwrap_or(serde_json::Value::Array(Vec::new()));
+        decode_rows(rows)
+    }
     pub async fn live(
         &self,
         surql: &str,

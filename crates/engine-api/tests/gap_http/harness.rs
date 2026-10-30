@@ -2,9 +2,11 @@ use super::*;
 
 pub async fn dashboard_identity(env: &Harness) {
     eprintln!("gap: dashboard identity");
+    let console = console_login(&env.client, &env.base).await;
     let body = json_body(
         env.client
             .get(format!("{}/api/dashboard/identity", env.base))
+            .bearer_auth(&console)
             .send()
             .await
             .expect("dashboard identity"),

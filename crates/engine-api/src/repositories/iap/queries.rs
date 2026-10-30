@@ -168,6 +168,53 @@ impl Queries {
 }
 
 impl Queries {
+    /// Applies a wallet changeset and writes its ledger entry in one
+    /// transaction. Empty result means the guard refused: unknown account or a
+    /// currency would go negative. A racing adjustment cannot slip between the
+    /// read and the write because the check lives inside the same transaction.
+    pub async fn apply_wallet_change(
+        &self,
+        user_id: Uuid,
+        changes: &serde_json::Map<String, serde_json::Value>,
+        metadata: serde_json::Value,
+        ledger_id: Uuid,
+    ) -> Result<Option<Users>, DbError> {
+        let now = Utc::now();
+        let game_id = self.account_game_id(user_id).await?;
+        let ledger = serde_json::json!({
+            "id": ledger_id,
+            "user_id": user_id,
+            "changeset": changes,
+            "metadata": metadata,
+            "create_time": time::encode(now),
+            "update_time": time::encode(now),
+            "game_id": game_id,
+        });
+        let rows: Vec<Users> = self
+            .db
+            .query_transaction(
+                "BEGIN TRANSACTION; \
+                 LET $uid = type::record('users', <uuid>$id); \
+                 LET $exists = array::len((SELECT VALUE id FROM $uid)) > 0; \
+                 LET $wallet = (SELECT VALUE wallet FROM $uid)[0] ?? {}; \
+                 LET $ok = $exists AND array::all(array::keys($changes), |$c| (($wallet[$c] ?? 0) + $changes[$c]) >= 0); \
+                 IF $ok THEN \
+                     CREATE type::record('wallet_ledger', <uuid>$ledger) CONTENT $ledger_data RETURN NONE; \
+                     UPDATE $uid SET wallet = object::extend($wallet, $changes), update_time = $update_time RETURN AFTER; \
+                 END; \
+                 COMMIT TRANSACTION;",
+                &params!(
+                    id = user_id.to_string(),
+                    ledger = ledger_id.to_string(),
+                    changes = serde_json::Value::Object(changes.clone()),
+                    ledger_data = ledger,
+                    update_time = ts(now),
+                ),
+            )
+            .await?;
+        Ok(rows.into_iter().next())
+    }
+
     pub async fn insert_wallet_ledger(&self, p: &InsertWalletLedgerParams) -> Result<(), DbError> {
         let now = Utc::now();
         let row = WalletLedger {

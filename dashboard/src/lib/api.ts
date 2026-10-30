@@ -9,6 +9,7 @@
 // render as a zero, and a zero that was never measured is the one thing this
 // dashboard must not show.
 
+import { clearSession, session } from "@/lib/session";
 import type {
   ClientRow,
   DashboardIdentity,
@@ -41,16 +42,21 @@ function scoped(path: string, gameId: string | null): string {
 const REQUEST_TIMEOUT_MS = 4000;
 
 async function getJson<T>(path: string): Promise<T> {
+  const token = session()?.token ?? "";
   let response: Response;
   try {
     response = await fetch(path, {
       method: "GET",
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        ...(token === "" ? {} : { authorization: `Bearer ${token}` }),
+      },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (cause) {
     throw new Error(`GET ${path} failed: ${describe(cause)}`, { cause });
   }
+  if (response.status === 401) clearSession();
   if (!response.ok) {
     throw new Error(`GET ${path} returned ${response.status} ${response.statusText}`);
   }
@@ -89,10 +95,17 @@ export function fetchTicks(gameId: string | null): Promise<TickSeries> {
   return getJson<TickSeries>(scoped(DASHBOARD_ENDPOINTS.ticks, gameId));
 }
 
-/** `wss:` on a secure page, since the socket is same-origin with the app. */
+/** `wss:` on a secure page, since the socket is same-origin with the app. The
+ * console token rides in the query because a WebSocket handshake cannot set an
+ * `Authorization` header. */
 export function wsUrl(gameId: string | null): string {
   const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${window.location.host}${scoped(DASHBOARD_ENDPOINTS.ws, gameId)}`;
+  const query = new URLSearchParams();
+  if (gameId !== null && gameId !== "") query.set("game_id", gameId);
+  const token = session()?.token ?? "";
+  if (token !== "") query.set("token", token);
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return `${scheme}//${window.location.host}${DASHBOARD_ENDPOINTS.ws}${suffix}`;
 }
 
 /** Narrows a raw socket message to a frame, or `null` if it is not one. */

@@ -2,10 +2,24 @@ use super::*;
 
 pub async fn dashboard_api(env: &Harness, minted: u64) {
     eprintln!("gap: dashboard api reads the live registry");
+    let console = console_login(&env.client, &env.base).await;
+
+    let unauthenticated = env
+        .client
+        .get(format!("{}/api/dashboard/overview", env.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        unauthenticated.status(),
+        StatusCode::UNAUTHORIZED,
+        "telemetry needs a console token"
+    );
 
     let identity = json_body(
         env.client
             .get(format!("{}/api/dashboard/identity", env.base))
+            .bearer_auth(&console)
             .send()
             .await
             .unwrap(),
@@ -25,6 +39,7 @@ pub async fn dashboard_api(env: &Harness, minted: u64) {
     let overview = json_body(
         env.client
             .get(format!("{}/api/dashboard/overview", env.base))
+            .bearer_auth(&console)
             .send()
             .await
             .unwrap(),
@@ -47,6 +62,7 @@ pub async fn dashboard_api(env: &Harness, minted: u64) {
     let rooms = json_body(
         env.client
             .get(format!("{}/api/dashboard/rooms", env.base))
+            .bearer_auth(&console)
             .send()
             .await
             .unwrap(),
@@ -69,6 +85,7 @@ pub async fn dashboard_api(env: &Harness, minted: u64) {
     let workers = json_body(
         env.client
             .get(format!("{}/api/dashboard/workers", env.base))
+            .bearer_auth(&console)
             .send()
             .await
             .unwrap(),
@@ -90,6 +107,7 @@ pub async fn dashboard_api(env: &Harness, minted: u64) {
     let clients = json_body(
         env.client
             .get(format!("{}/api/dashboard/clients", env.base))
+            .bearer_auth(&console)
             .send()
             .await
             .unwrap(),
@@ -106,6 +124,7 @@ pub async fn dashboard_api(env: &Harness, minted: u64) {
     let ticks = json_body(
         env.client
             .get(format!("{}/api/dashboard/ticks", env.base))
+            .bearer_auth(&console)
             .send()
             .await
             .unwrap(),
@@ -123,6 +142,7 @@ pub async fn dashboard_api(env: &Harness, minted: u64) {
                     "{}/api/dashboard/overview?game_id={stranger}",
                     env.base
                 ))
+                .bearer_auth(&console)
                 .send()
                 .await
                 .unwrap(),

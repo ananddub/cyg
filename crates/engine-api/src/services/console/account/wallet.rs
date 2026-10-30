@@ -7,7 +7,6 @@ use crate::dto::Empty;
 use crate::dto::console::account::{AccountRow, UpdateWalletRequest};
 use crate::error::V2Error;
 use crate::services::deps::q;
-use crate::repositories::iap::InsertWalletLedgerParams;
 
 impl super::ConsoleService {
     pub async fn update_account_wallet(
@@ -46,21 +45,17 @@ impl super::ConsoleService {
             wallet.insert(currency.clone(), serde_json::json!(value));
         }
 
-        queries
-            .update_user_wallet(serde_json::Value::Object(wallet), id)
-            .await?;
-        queries
-            .insert_wallet_ledger(&InsertWalletLedgerParams {
-                id: Uuid::new_v4(),
-                user_id: id,
-                changeset: body.changeset.clone(),
-                metadata: if body.metadata.is_null() {
-                    serde_json::json!({})
-                } else {
-                    body.metadata.clone()
-                },
-            })
-            .await?;
+        let metadata = if body.metadata.is_null() {
+            serde_json::json!({})
+        } else {
+            body.metadata.clone()
+        };
+        let updated = queries
+            .apply_wallet_change(id, changes, metadata, Uuid::new_v4())
+            .await?
+            .ok_or_else(|| {
+                V2Error::failed_precondition("A currency balance cannot go negative.")
+            })?;
         super::audit(
             state,
             claims,
@@ -71,7 +66,6 @@ impl super::ConsoleService {
         )
         .await;
 
-        let updated = queries.get_user_by_id(id).await?;
         Ok(Json(AccountRow::from(updated)))
     }
 

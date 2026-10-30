@@ -220,6 +220,7 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
     let scoped_rooms = json_body(
         client
             .get(format!("{base}/api/dashboard/rooms?game_id={game_id}"))
+            .bearer_auth(&console)
             .send()
             .await
             .expect("scoped rooms query"),

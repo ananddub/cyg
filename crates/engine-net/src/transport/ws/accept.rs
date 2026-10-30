@@ -72,6 +72,7 @@ pub(super) fn on_listener_event(
                             game_port: pass.game_port,
                             udp_port: pass.udp_port,
                             schema_descriptor: pass.schema_descriptor,
+                            allowed_origins: pass.allowed_origins,
                         };
                         handle_client_greeting(
                             &mut client,

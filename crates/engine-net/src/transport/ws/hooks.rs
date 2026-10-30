@@ -48,6 +48,8 @@ pub(super) struct ServerCtx<'a> {
     /// Compact schema descriptor pushed right after the JOIN_ROOM handshake.
     /// Empty when the project has no generated schema.
     pub(super) schema_descriptor: &'a [u8],
+    /// Browser origins allowed on matchmake; see `WsTransport::set_allowed_origins`.
+    pub(super) allowed_origins: &'a [String],
 }
 
 /// Everything one `poll_events` pass mutates: field borrows of the transport
@@ -69,4 +71,5 @@ pub(super) struct Pass<'a> {
     pub(super) game_port: u16,
     pub(super) udp_port: u16,
     pub(super) schema_descriptor: &'a [u8],
+    pub(super) allowed_origins: &'a [String],
 }

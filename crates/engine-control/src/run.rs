@@ -116,13 +116,20 @@ fn refuse_default_secrets(game: &GameConfig, control: &ControlConfig) -> std::io
         ("session.server_key", s.server_key.as_str()),
         ("control.seat_secret", control.seat_secret.as_str()),
     ] {
-        if value.starts_with("default") || value == "ox-dev-seat-secret" {
+        if weak_secret(value) {
             defaults.push(name);
         }
     }
     let c = &control.console;
-    if c.password == "password" || c.signing_key.starts_with("default") {
+    if c.password.trim().len() < 8 || placeholder_secret(&c.password) || weak_secret(&c.signing_key)
+    {
         defaults.push("control.console.*");
+    }
+    let remote_db = s.database_endpoint.starts_with("ws")
+        || s.database_endpoint.starts_with("http")
+        || s.database_endpoint.starts_with("wss");
+    if remote_db && (s.database_pass.is_empty() || weak_secret(&s.database_pass)) {
+        defaults.push("session.database_pass");
     }
     if !defaults.is_empty() {
         return Err(std::io::Error::new(
@@ -134,6 +141,24 @@ fn refuse_default_secrets(game: &GameConfig, control: &ControlConfig) -> std::io
         ));
     }
     Ok(())
+}
+
+/// A documented default or template placeholder a stranger could guess.
+fn placeholder_secret(value: &str) -> bool {
+    let lower = value.trim().to_ascii_lowercase();
+    lower.is_empty()
+        || lower.starts_with("default")
+        || lower.starts_with("ox-dev")
+        || lower.contains("change-me")
+        || lower.contains("changeme")
+        || lower.contains("placeholder")
+        || matches!(lower.as_str(), "password" | "secret" | "test" | "letmein")
+}
+
+/// Signing keys and server credentials also need enough entropy to survive an
+/// offline guess; a short password is a login-policy question, not boot.
+fn weak_secret(value: &str) -> bool {
+    placeholder_secret(value) || value.trim().len() < 16
 }
 
 /// One log line's worth of `BootMaps` — which formats came from the console.

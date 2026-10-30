@@ -64,6 +64,9 @@ pub struct WsTransport {
     pub(super) advertised_udp_port: u16,
     pub(super) matchmake_hook: Option<MatchmakeHook>,
     pub(super) http_hook: Option<HttpHook>,
+    /// Exact browser origins allowed to call matchmake. Empty means
+    /// same-origin only; `*` re-opens the old reflect-anything behaviour.
+    pub(super) allowed_origins: Vec<String>,
     /// `cyg.schema.bin` bytes sent to each client after JOIN_ROOM.
     pub(super) schema_descriptor: Bytes,
 }
@@ -136,6 +139,7 @@ impl WsTransport {
             advertised_udp_port: 7778,
             matchmake_hook: None,
             http_hook: None,
+            allowed_origins: Vec::new(),
             schema_descriptor: Bytes::new(),
         })
     }
@@ -154,6 +158,13 @@ impl WsTransport {
     /// Override the unresponsive-client heartbeat (see [`HeartbeatConfig`]).
     pub fn set_heartbeat(&mut self, config: HeartbeatConfig) {
         self.heartbeat = config;
+    }
+
+    /// Allow these exact origins on matchmake (e.g. the game's web build).
+    /// Empty keeps same-origin only; `*` reflects every origin and should be
+    /// reserved for local development.
+    pub fn set_allowed_origins(&mut self, origins: Vec<String>) {
+        self.allowed_origins = origins;
     }
 
     /// Register static HTTP request handler: (path) -> Option<(content_type, body)>

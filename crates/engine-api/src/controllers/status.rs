@@ -51,8 +51,11 @@ impl MetricsController {
     }
 
     #[get("")]
-    async fn metrics(&self) -> Response {
+    async fn metrics(&self, headers: HeaderMap) -> Response {
         let state = current_state();
+        if let Err(err) = crate::app::middleware::server_key_or_console(&headers, &state) {
+            return err.into_response();
+        }
         let sample = state
             .latest_status
             .lock()

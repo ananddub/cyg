@@ -3,6 +3,7 @@ use std::time::Duration;
 use auto_route::controller;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use engine_dashboard::WsFrame;
 use futures::{SinkExt, StreamExt};
@@ -11,8 +12,10 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::ApiState;
+use crate::app::middleware::{bearer_token, console_token_claims};
 use crate::app::params::Params;
 use crate::controllers::dashboard::api::guard;
+use crate::error::V2Error;
 use crate::infra::realtime::{LiveTopic, Subscription};
 use crate::services::dashboard::frames;
 
@@ -20,6 +23,8 @@ use crate::services::dashboard::frames;
 struct DashboardScope {
     #[serde(default)]
     game_id: Option<Uuid>,
+    #[serde(default)]
+    token: Option<String>,
 }
 
 struct DashboardWsController;
@@ -34,9 +39,20 @@ impl DashboardWsController {
     async fn upgrade(
         &self,
         ws: WebSocketUpgrade,
+        headers: HeaderMap,
         Params(scope): Params<DashboardScope>,
     ) -> Response {
         let state = crate::current_state();
+        let token = scope
+            .token
+            .as_deref()
+            .or_else(|| bearer_token(&headers));
+        let Some(token) = token else {
+            return V2Error::unauthenticated("Console token required").into_response();
+        };
+        if let Err(err) = console_token_claims(token) {
+            return err.into_response();
+        }
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
         }

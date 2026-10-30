@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::ApiState;
+use crate::app::middleware::ConsoleAuthed;
 use crate::app::params::Params;
 use crate::error::V2Error;
 use crate::services::dashboard;
@@ -33,7 +34,7 @@ impl DashboardRestController {
     }
 
     #[get("/identity")]
-    async fn identity(&self) -> Response {
+    async fn identity(&self, _auth: ConsoleAuthed) -> Response {
         let state = crate::current_state();
         match tenant::resolve(&state).await {
             Ok(Some(game)) => Json(DashboardIdentity {
@@ -51,7 +52,7 @@ impl DashboardRestController {
     }
 
     #[get("/overview")]
-    async fn overview(&self, Params(scope): Params<DashboardScope>) -> Response {
+    async fn overview(&self, _auth: ConsoleAuthed, Params(scope): Params<DashboardScope>) -> Response {
         let state = crate::current_state();
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
@@ -60,7 +61,7 @@ impl DashboardRestController {
     }
 
     #[get("/rooms")]
-    async fn rooms(&self, Params(scope): Params<DashboardScope>) -> Response {
+    async fn rooms(&self, _auth: ConsoleAuthed, Params(scope): Params<DashboardScope>) -> Response {
         let state = crate::current_state();
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
@@ -70,7 +71,7 @@ impl DashboardRestController {
     }
 
     #[get("/workers")]
-    async fn workers(&self, Params(scope): Params<DashboardScope>) -> Response {
+    async fn workers(&self, _auth: ConsoleAuthed, Params(scope): Params<DashboardScope>) -> Response {
         let state = crate::current_state();
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
@@ -79,7 +80,7 @@ impl DashboardRestController {
     }
 
     #[get("/clients")]
-    async fn clients(&self, Params(scope): Params<DashboardScope>) -> Response {
+    async fn clients(&self, _auth: ConsoleAuthed, Params(scope): Params<DashboardScope>) -> Response {
         let state = crate::current_state();
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
@@ -88,7 +89,7 @@ impl DashboardRestController {
     }
 
     #[get("/ticks")]
-    async fn ticks(&self, Params(scope): Params<DashboardScope>) -> Response {
+    async fn ticks(&self, _auth: ConsoleAuthed, Params(scope): Params<DashboardScope>) -> Response {
         let state = crate::current_state();
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
@@ -97,6 +98,8 @@ impl DashboardRestController {
     }
 }
 
+/// Tenant scope for an already-authenticated dashboard caller: a claimed game
+/// must be one this process hosts, and no claim means this process's own game.
 pub(crate) async fn guard(state: &ApiState, claimed: Option<Uuid>) -> Result<(), V2Error> {
     match claimed {
         Some(game_id) => guards::require_hosted(state, game_id).await,

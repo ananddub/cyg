@@ -75,6 +75,7 @@ impl GameTransport for WsTransport {
                 game_port: self.bound_addr.port(),
                 udp_port: self.advertised_udp_port,
                 schema_descriptor: &self.schema_descriptor,
+                allowed_origins: &self.allowed_origins,
             };
             for event in events.iter() {
                 let tok = event.token();

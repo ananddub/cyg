@@ -9,6 +9,8 @@ pub(super) struct Greeting {
     pub(super) room_name: String,
     /// Request `Origin`, or `*` when the client sent none.
     pub(super) origin: String,
+    /// Request `Host` header, or empty when absent.
+    pub(super) host: String,
     /// `sessionId` query parameter — the SDK's seat-reservation id.
     pub(super) url_session_id: Option<String>,
     /// `options` query parameter (percent-encoded JSON from the SDK join call).
@@ -38,11 +40,13 @@ pub(super) fn parse_greeting(raw: &[u8]) -> Greeting {
     } else {
         String::new()
     };
-    let origin = req
-        .lines()
-        .find(|l| l.to_ascii_lowercase().starts_with("origin:"))
-        .and_then(|l| l.split_once(':').map(|(_, v)| v.trim().to_string()))
-        .unwrap_or_else(|| "*".to_string());
+    let header_value = |name: &str| {
+        req.lines()
+            .find(|l| l.to_ascii_lowercase().starts_with(name))
+            .and_then(|l| l.split_once(':').map(|(_, v)| v.trim().to_string()))
+    };
+    let origin = header_value("origin:").unwrap_or_else(|| "*".to_string());
+    let host = header_value("host:").unwrap_or_default();
     let url_session_id = {
         let path = req.split_whitespace().nth(1).unwrap_or("");
         path.split('?')
@@ -118,6 +122,7 @@ pub(super) fn parse_greeting(raw: &[u8]) -> Greeting {
         is_matchmake,
         room_name,
         origin,
+        host,
         url_session_id,
         url_options,
         url_method,
