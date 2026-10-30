@@ -8,13 +8,16 @@ impl super::super::StorageService {
         &self,
         state: &ApiState,
         auth: &Authed,
-        body: WriteRequest,
+        mut body: WriteRequest,
     ) -> Result<Json<StorageObjectAcks>, V2Error> {
         let owner = auth.0.uuid()?;
         if body.objects.is_empty() {
             return Ok(Json(StorageObjectAcks { acks: Vec::new() }));
         }
-        for object in &body.objects {
+        for object in &mut body.objects {
+            if let Ok(parsed) = serde_json::from_str::<Value>(&object.value) {
+                object.value = crate::moderation::sanitize_json(parsed).to_string();
+            }
             check_write(object)?;
         }
         // A write of many objects spends many units of the window, so one large

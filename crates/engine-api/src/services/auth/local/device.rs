@@ -26,12 +26,8 @@ pub async fn device(
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(DbError::NotFound) if create => {
-            if !crate::moderation::is_valid_username(username) {
-                return Err(V2Error::invalid_argument(
-                    "Username must be 3-20 characters and free of profanity.",
-                ));
-            }
-            let uid = create_device(state, id, username).await?;
+            let username = super::super::validate::creation_username(username)?;
+            let uid = create_device(state, id, &username).await?;
             crate::services::games::tenant::stamp_user(state, uid).await;
             emit(
                 state,
@@ -41,7 +37,7 @@ pub async fn device(
             )
             .await;
             quota::charge(state, uid, quota::LOGIN, 1).await?;
-            Ok(session(uid, username, true, vars))
+            Ok(session(uid, &username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),
         Err(e) => Err(lookup_failed(e)),
@@ -62,10 +58,11 @@ pub async fn custom(
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(DbError::NotFound) if create => {
+            let username = super::super::validate::creation_username(username)?;
             let user = queries
                 .create_user_with_custom_id(&CreateUserWithCustomIdParams {
                     id: Uuid::new_v4(),
-                    username: username.to_owned(),
+                    username,
                     custom_id: id.to_owned(),
                 })
                 .await
@@ -105,6 +102,7 @@ pub async fn email(
                 Ok(session(user.id, &user.username, false, vars))
             }
             Err(DbError::NotFound) if create => {
+                let username = super::super::validate::creation_username(&username)?;
                 let user = queries
                     .create_user_with_email(&CreateUserWithEmailParams {
                         id: Uuid::new_v4(),

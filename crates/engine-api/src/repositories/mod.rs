@@ -1,6 +1,7 @@
 pub mod account;
 pub mod auth;
 pub mod badge;
+pub mod report;
 pub mod channel;
 pub mod config_history;
 pub mod console;

@@ -21,6 +21,7 @@ pub fn ddl() -> Vec<&'static str> {
         ConsoleAclTemplate,
         ConsoleAuditLog,
         ConsoleUser,
+        ContentReport,
         DeliveryAttempt,
         DesyncReport,
         FeatureFlag,
@@ -59,6 +60,7 @@ pub fn ddl() -> Vec<&'static str> {
         Subscription,
         UserDevice,
         UserEdge,
+        UserInfraction,
         UserTombstone,
         Users,
         UsersNotes,
@@ -84,7 +86,7 @@ mod tests {
             ddl.iter()
                 .filter(|line| line.starts_with("DEFINE TABLE"))
                 .count(),
-            49
+            51
         );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {

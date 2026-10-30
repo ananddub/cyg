@@ -223,7 +223,21 @@ impl Queries {
                 ),
             )
             .await?;
-        Ok(rows.into_iter().next())
+        let applied: Option<Value> = self
+            .opt(
+                "SELECT VALUE id FROM wallet_ledger \
+                 WHERE id = type::record('wallet_ledger', <uuid>$ledger);",
+                params!(ledger = ledger_id.to_string()),
+            )
+            .await?;
+        if applied.is_none() {
+            return Ok(None);
+        }
+        self.opt(
+            "SELECT * FROM type::record('users', <uuid>$id);",
+            params!(id = user_id.to_string()),
+        )
+        .await
     }
 
     pub async fn insert_wallet_ledger(&self, p: &InsertWalletLedgerParams) -> Result<(), DbError> {

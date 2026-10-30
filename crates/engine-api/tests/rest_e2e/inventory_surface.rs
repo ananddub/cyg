@@ -4,6 +4,8 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     eprintln!("e2e: inventory");
     let alice = device_player(client, base, "inv-a").await;
     let bob = device_player(client, base, "inv-b").await;
+    // Defining items and granting them are privileged (console/server) calls,
+    // so they authenticate with the console session rather than a player token.
     let console = console_login(client, base).await;
     let item_id = format!("e2e-item-{}", letters_suffix());
     let inventory = format!("{base}/v2/inventory");

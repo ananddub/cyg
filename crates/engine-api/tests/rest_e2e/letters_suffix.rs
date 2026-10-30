@@ -16,6 +16,12 @@ pub fn accepts_username(candidate: &str) -> bool {
         .analyze()
         .is(Type::INAPPROPRIATE)
 }
+pub fn clean_username(prefix: &str) -> String {
+    (0..50)
+        .map(|_| format!("{prefix}{}", letters_suffix()))
+        .find(|candidate| accepts_username(candidate))
+        .unwrap_or_else(|| panic!("`{prefix}<suffix>` never yields a clean username"))
+}
 pub const CONSOLE_USER: &str = "e2e-admin";
 pub const CONSOLE_PASSWORD: &str = "e2e-password";
 pub const SERVER_KEY: &str = "e2e-server-key";

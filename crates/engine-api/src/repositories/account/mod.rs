@@ -6,6 +6,7 @@ use crate::db::{DbError, bytes, time};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+mod gdpr;
 mod queries;
 mod types;
 

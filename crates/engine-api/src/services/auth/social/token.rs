@@ -49,11 +49,7 @@ pub(crate) async fn token(
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(DbError::NotFound) if create => {
-            if !crate::moderation::is_valid_username(&username) {
-                return Err(V2Error::invalid_argument(
-                    "Username must be 3-20 characters and free of profanity.",
-                ));
-            }
+            validate::creation_username(&username)?;
             let user = create_user(&queries, kind, &profile, &username)
                 .await
                 .map_err(insert_failed)?;

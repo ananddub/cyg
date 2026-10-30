@@ -21,6 +21,7 @@ pub mod matchmake;
 pub mod notification;
 pub mod notify;
 pub mod quest;
+pub mod report;
 pub mod session;
 pub mod signaling;
 pub mod storage;

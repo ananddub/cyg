@@ -24,6 +24,7 @@ pub mod notify;
 pub mod quest;
 pub mod quota;
 pub mod realtime;
+pub mod report;
 pub mod rules;
 pub mod session;
 pub mod signaling;

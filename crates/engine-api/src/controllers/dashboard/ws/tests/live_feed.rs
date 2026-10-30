@@ -5,6 +5,7 @@ use futures::StreamExt;
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
+use super::live_socket::console_token;
 use crate::db::Datastore;
 use crate::serve;
 use crate::tests::games::db;
@@ -33,7 +34,11 @@ pub(crate) async fn a_scoped_socket_sees_its_tenants_rows_and_an_unscoped_one_se
     let port = listener.local_addr().expect("bound addr").port();
     let server = tokio::spawn(serve(listener, state, std::future::pending()));
 
-    let url = format!("ws://127.0.0.1:{port}/ws/dashboard?game_id={}", hosted.id);
+    let url = format!(
+        "ws://127.0.0.1:{port}/ws/dashboard?token={}&game_id={}",
+        console_token(),
+        hosted.id
+    );
     let (mut scoped, _) = connect_async(&url)
         .await
         .expect("dashboard socket connects");
@@ -64,9 +69,12 @@ pub(crate) async fn a_scoped_socket_sees_its_tenants_rows_and_an_unscoped_one_se
         "each topic counts on its own"
     );
 
-    let (mut unscoped, _) = connect_async(format!("ws://127.0.0.1:{port}/ws/dashboard"))
-        .await
-        .expect("unscoped socket connects");
+    let (mut unscoped, _) = connect_async(format!(
+        "ws://127.0.0.1:{port}/ws/dashboard?token={}",
+        console_token()
+    ))
+    .await
+    .expect("unscoped socket connects");
     assert_eq!(
         next_json(&mut unscoped).await["type"].as_str(),
         Some("hello")

@@ -31,6 +31,18 @@ pub fn username(raw: &str) -> Result<String, V2Error> {
     Ok(raw.to_owned())
 }
 
+/// Every path that creates a user must pass the name through this single gate:
+/// shape first (so its refusal strings stay verbatim), then the moderation rule.
+pub fn creation_username(raw: &str) -> Result<String, V2Error> {
+    let username = username(raw)?;
+    if !crate::moderation::is_valid_username(&username) {
+        return Err(V2Error::invalid_argument(
+            "Username must be 3-20 characters and free of profanity.",
+        ));
+    }
+    Ok(username)
+}
+
 fn generate() -> String {
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let mut rng = rand::thread_rng();

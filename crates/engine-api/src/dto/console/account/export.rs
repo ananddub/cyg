@@ -19,6 +19,20 @@ pub struct AccountExport {
     pub storage: Vec<ExportedStorage>,
     #[serde(default)]
     pub edges: Vec<ExportedEdge>,
+    #[serde(default)]
+    pub purchases: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub subscriptions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub inventory: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub leaderboard_records: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub group_memberships: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub notifications: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub messages: Vec<serde_json::Value>,
 }
 
 impl Default for AccountExport {
@@ -30,6 +44,13 @@ impl Default for AccountExport {
             wallet_ledger: Vec::new(),
             storage: Vec::new(),
             edges: Vec::new(),
+            purchases: Vec::new(),
+            subscriptions: Vec::new(),
+            inventory: Vec::new(),
+            leaderboard_records: Vec::new(),
+            group_memberships: Vec::new(),
+            notifications: Vec::new(),
+            messages: Vec::new(),
         }
     }
 }

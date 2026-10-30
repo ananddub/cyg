@@ -7,7 +7,7 @@ pub async fn device_auth(client: &Client, base: &str, pool: &Datastore) {
         base64::engine::general_purpose::STANDARD.encode(format!("{SERVER_KEY}:"))
     );
     let device_id = format!("e2e-device-{}", Uuid::new_v4());
-    let username = format!("e2e-player-{}", letters_suffix());
+    let username = clean_username("e2e-player-");
     let url = format!("{base}/v2/account/authenticate/device?username={username}&create=true");
 
     let created = json_body(

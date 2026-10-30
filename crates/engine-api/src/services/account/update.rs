@@ -29,12 +29,24 @@ impl super::AccountService {
             Some(raw) => serde_json::from_str(raw)
                 .map_err(|_| V2Error::invalid_argument("invalid account metadata"))?,
         };
-        let display_name = req.display_name.or(existing.display_name);
+        let metadata = crate::moderation::sanitize_json(metadata);
+        let display_name = req
+            .display_name
+            .map(|raw| crate::moderation::clean_text(&raw))
+            .or(existing.display_name);
         let avatar_url = req.avatar_url.or(existing.avatar_url);
         let lang_tag = req.lang_tag.or(Some(existing.lang_tag));
-        let location = req.location.or(existing.location);
+        let location = req
+            .location
+            .map(|raw| crate::moderation::clean_text(&raw))
+            .or(existing.location);
         let timezone = req.timezone.or(existing.timezone);
-        let username = req.username.unwrap_or(existing.username);
+        let username = match req.username {
+            Some(raw) if raw != existing.username => {
+                crate::services::auth::validate::creation_username(&raw)?
+            }
+            _ => existing.username,
+        };
         queries
             .update_account(&UpdateAccountParams {
                 display_name,

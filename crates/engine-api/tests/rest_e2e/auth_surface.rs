@@ -116,7 +116,7 @@ pub async fn auth_surface(client: &Client, base: &str, pool: &Datastore) {
     );
 
     let device_id = format!("e2e-auth-device-{}", Uuid::new_v4());
-    let username = format!("authplayer{}", letters_suffix());
+    let username = clean_username("authplayer");
     let created = json_body(
         client
             .post(url("/device", &format!("?username={username}&create=true")))
@@ -265,7 +265,7 @@ pub async fn auth_surface(client: &Client, base: &str, pool: &Datastore) {
         );
     }
     let custom_id = format!("custom-{}", letters_suffix());
-    let custom_name = format!("custom{}", letters_suffix());
+    let custom_name = clean_username("custom");
     let custom_created = json_body(
         client
             .post(url(
@@ -390,7 +390,7 @@ pub async fn auth_surface(client: &Client, base: &str, pool: &Datastore) {
         .await,
         "Password must be at least 8 characters long."
     );
-    let email_name = format!("mail{}", letters_suffix());
+    let email_name = clean_username("mail");
     let email = format!("{email_name}@example.com");
     let password = "e2e-password";
     let email_created = json_body(
