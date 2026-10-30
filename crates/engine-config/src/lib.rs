@@ -4,6 +4,7 @@
 mod console;
 mod control;
 mod game;
+mod iap;
 mod maps;
 mod module;
 mod netcode;
@@ -14,6 +15,7 @@ mod templates;
 pub use console::ConsoleConfig;
 pub use control::{AgonesConfig, ControlConfig};
 pub use game::{DEV_SEAT_SECRET, GameConfig, Runtime};
+pub use iap::IapConfig;
 pub use maps::{BootMaps, MapAsset, MapFormat};
 pub use module::BootModule;
 pub use netcode::{AoiConfig, RollbackConfig};

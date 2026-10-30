@@ -27,6 +27,10 @@ impl Harness {
                 signing_key: "e2e-console-signing-key".into(),
                 token_expiry_secs: 3_600,
             },
+            iap: IapConfig {
+                allow_unverified: true,
+                ..IapConfig::default()
+            },
             ..ControlConfig::default()
         };
         let game = GameConfig {

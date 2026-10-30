@@ -34,3 +34,12 @@ server_key = "change-me"
 [control.console]
 username = "admin"
 password = "change-me"
+
+# In-app purchase verification. With no credentials here, purchase endpoints
+# answer 503 instead of storing whatever the client sent. Fill these in for a
+# store you ship through, or set `allow_unverified = true` for local testing.
+[control.iap]
+# apple_shared_secret = "…"
+# google_service_account = '{"type":"service_account", …}'
+# google_package_name = "com.example.game"
+# allow_unverified = false

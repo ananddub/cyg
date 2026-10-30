@@ -7,7 +7,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use engine_api::db::{BlobStore, Datastore};
 use engine_bus::Bus;
-use engine_config::{ConsoleConfig, ControlConfig, GameConfig, SessionConfig};
+use engine_config::{ConsoleConfig, ControlConfig, GameConfig, IapConfig, SessionConfig};
 use uuid::Uuid;
 
 pub use reqwest::{Client, StatusCode};

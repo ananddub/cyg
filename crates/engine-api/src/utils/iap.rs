@@ -16,11 +16,6 @@ pub(crate) fn store_of(requested: Option<i16>, default: i16) -> i16 {
     requested.unwrap_or(default).clamp(0, 4)
 }
 
-pub(crate) fn environment_of(receipt: &str, store: i16) -> i16 {
-    let _ = (receipt, store);
-    0
-}
-
 pub(crate) fn decode_offset(cursor: Option<&str>) -> i64 {
     let Some(c) = cursor else { return 0 };
     let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(c) else {

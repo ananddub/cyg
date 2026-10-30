@@ -7,7 +7,7 @@ use base64::Engine as _;
 use chrono::{Duration as ChronoDuration, Utc};
 use engine_api::db::Datastore;
 use engine_bus::Bus;
-use engine_config::{ConsoleConfig, ControlConfig, GameConfig, SessionConfig};
+use engine_config::{ConsoleConfig, ControlConfig, GameConfig, IapConfig, SessionConfig};
 use reqwest::multipart::{Form, Part};
 use reqwest::{Client, StatusCode};
 use serde::de::DeserializeOwned;

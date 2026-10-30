@@ -84,6 +84,9 @@ impl V2Error {
     pub fn internal(message: impl Into<String>) -> V2Error {
         V2Error::new(INTERNAL, message)
     }
+    pub fn unavailable(message: impl Into<String>) -> V2Error {
+        V2Error::new(UNAVAILABLE, message)
+    }
     pub fn no_db() -> V2Error {
         V2Error::new(
             UNAVAILABLE,

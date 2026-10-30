@@ -1,7 +1,6 @@
 use axum::Json;
 use base64::Engine;
 use chrono::Utc;
-use serde_json::Value;
 use uuid::Uuid;
 
 use crate::ApiState;
@@ -12,8 +11,9 @@ use crate::dto::iap::{
 use crate::error::V2Error;
 use crate::repositories::iap::{InsertSubscriptionParams, ListPurchasesParams};
 use crate::services::deps::q;
-use crate::utils::iap::{decode_offset, environment_of, epoch, hex_id, store_of};
+use crate::utils::iap::{decode_offset, epoch, store_of};
 
+use super::verify::{self, APPLE, GOOGLE};
 use super::IapService;
 
 impl IapService {
@@ -23,7 +23,7 @@ impl IapService {
         claims: &Authed,
         body: SubscriptionRequest,
     ) -> Result<Json<SubscriptionResponse>, V2Error> {
-        record_subscription(state, claims.0.uuid()?, body, 0).await
+        record_subscription(state, claims.0.uuid()?, body, APPLE).await
     }
 
     pub async fn subscription_google(
@@ -32,7 +32,7 @@ impl IapService {
         claims: &Authed,
         body: SubscriptionRequest,
     ) -> Result<Json<SubscriptionResponse>, V2Error> {
-        record_subscription(state, claims.0.uuid()?, body, 1).await
+        record_subscription(state, claims.0.uuid()?, body, GOOGLE).await
     }
 
     pub async fn subscription_huawei(
@@ -101,7 +101,7 @@ async fn record_subscription(
     } else if body
         .purchase_token
         .as_deref()
-        .is_some_and(|t| !t.is_empty())
+        .is_some_and(|token| !token.is_empty())
     {
         body.purchase_token.clone().unwrap_or_default()
     } else {
@@ -109,18 +109,27 @@ async fn record_subscription(
             "receipt or purchase token is required",
         ));
     };
+    let store = store_of(body.store, default_store);
+    let verified = verify::verify_purchase(
+        &state.control.iap,
+        store,
+        &token,
+        body.product_id.as_deref(),
+        None,
+    )
+    .await?;
     let queries = q(state).await?;
     let row = queries
         .insert_subscription(&InsertSubscriptionParams {
-            original_transaction_id: hex_id(&token),
+            original_transaction_id: verified.transaction_id,
             user_id: uid,
-            store: store_of(body.store, default_store),
-            environment: environment_of(&token, default_store),
-            product_id: body.product_id.unwrap_or_default(),
-            purchase_time: Utc::now(),
-            expire_time: body.expire_time.unwrap_or_else(epoch),
+            store,
+            environment: verified.environment,
+            product_id: verified.product_id,
+            purchase_time: verified.purchase_time.unwrap_or_else(Utc::now),
+            expire_time: body.expire_time.or(verified.expire_time).unwrap_or_else(epoch),
             refund_time: epoch(),
-            raw_response: Value::String(token.clone()),
+            raw_response: verified.raw,
         })
         .await?;
     Ok(Json(SubscriptionResponse::from(&row)))

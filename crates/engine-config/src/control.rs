@@ -15,6 +15,7 @@ pub struct ControlConfig {
     pub agones: AgonesConfig,
     pub session: crate::session::SessionConfig,
     pub console: crate::console::ConsoleConfig,
+    pub iap: crate::iap::IapConfig,
 }
 
 /// `[control.agones]`: Kubernetes Dedicated Game Server sidecar client.
@@ -53,6 +54,7 @@ impl Default for ControlConfig {
             agones: AgonesConfig::default(),
             session: crate::session::SessionConfig::default(),
             console: crate::console::ConsoleConfig::default(),
+            iap: crate::iap::IapConfig::default(),
         }
     }
 }

@@ -244,5 +244,26 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
                 cfg.control.console.token_expiry_secs = v as i64;
             }
         }
+        if let Some(p) = c.get("iap").and_then(|v| v.as_table()) {
+            for (key, field) in [
+                ("apple_shared_secret", &mut cfg.control.iap.apple_shared_secret),
+                ("apple_verify_url", &mut cfg.control.iap.apple_verify_url),
+                ("apple_sandbox_url", &mut cfg.control.iap.apple_sandbox_url),
+                (
+                    "google_service_account",
+                    &mut cfg.control.iap.google_service_account,
+                ),
+                ("google_package_name", &mut cfg.control.iap.google_package_name),
+                ("google_token_url", &mut cfg.control.iap.google_token_url),
+                ("google_api_base", &mut cfg.control.iap.google_api_base),
+            ] {
+                if let Some(v) = p.get(key).and_then(|v| v.as_str()) {
+                    *field = v.to_string();
+                }
+            }
+            if let Some(v) = p.get("allow_unverified").and_then(|v| v.as_bool()) {
+                cfg.control.iap.allow_unverified = v;
+            }
+        }
     }
 }

@@ -135,5 +135,29 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     {
         cfg.control.console.token_expiry_secs = secs;
     }
+    for (name, field) in [
+        ("OX_IAP_APPLE_SHARED_SECRET", &mut cfg.control.iap.apple_shared_secret),
+        ("OX_IAP_APPLE_VERIFY_URL", &mut cfg.control.iap.apple_verify_url),
+        ("OX_IAP_APPLE_SANDBOX_URL", &mut cfg.control.iap.apple_sandbox_url),
+        (
+            "OX_IAP_GOOGLE_SERVICE_ACCOUNT",
+            &mut cfg.control.iap.google_service_account,
+        ),
+        (
+            "OX_IAP_GOOGLE_PACKAGE_NAME",
+            &mut cfg.control.iap.google_package_name,
+        ),
+        ("OX_IAP_GOOGLE_TOKEN_URL", &mut cfg.control.iap.google_token_url),
+        ("OX_IAP_GOOGLE_API_BASE", &mut cfg.control.iap.google_api_base),
+    ] {
+        if let Ok(v) = std::env::var(name)
+            && !v.is_empty()
+        {
+            *field = v;
+        }
+    }
+    if std::env::var("OX_IAP_ALLOW_UNVERIFIED").is_ok_and(|v| v == "1") {
+        cfg.control.iap.allow_unverified = true;
+    }
     Ok(cfg)
 }

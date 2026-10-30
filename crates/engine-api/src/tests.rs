@@ -26,13 +26,17 @@ use crate::infra::session_cache::SessionCache;
 use crate::infra::signaling::SignalHub;
 use crate::services::static_routes::StaticServer;
 use engine_bus::Bus;
-use engine_config::{ControlConfig, DEV_SEAT_SECRET, GameConfig, SessionConfig};
+use engine_config::{ControlConfig, DEV_SEAT_SECRET, GameConfig, IapConfig, SessionConfig};
 
 pub(super) fn v2_state() -> ApiState {
     let session = SessionConfig::default();
     jwt::configure(&session);
     let control = ControlConfig {
         session,
+        iap: IapConfig {
+            allow_unverified: true,
+            ..IapConfig::default()
+        },
         ..ControlConfig::default()
     };
     let bus = Bus::new(64, 64);

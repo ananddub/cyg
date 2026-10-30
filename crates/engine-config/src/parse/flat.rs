@@ -97,6 +97,18 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
                 .parse()
                 .unwrap_or(cfg.control.console.token_expiry_secs)
         }
+        "iap_apple_shared_secret" => cfg.control.iap.apple_shared_secret = value.to_string(),
+        "iap_apple_verify_url" => cfg.control.iap.apple_verify_url = value.to_string(),
+        "iap_apple_sandbox_url" => cfg.control.iap.apple_sandbox_url = value.to_string(),
+        "iap_google_service_account" => {
+            cfg.control.iap.google_service_account = value.to_string()
+        }
+        "iap_google_package_name" => cfg.control.iap.google_package_name = value.to_string(),
+        "iap_google_token_url" => cfg.control.iap.google_token_url = value.to_string(),
+        "iap_google_api_base" => cfg.control.iap.google_api_base = value.to_string(),
+        "iap_allow_unverified" => {
+            cfg.control.iap.allow_unverified = value.parse().unwrap_or(cfg.control.iap.allow_unverified)
+        }
         _ => {}
     }
 }

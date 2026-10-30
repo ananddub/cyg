@@ -62,6 +62,9 @@ scc = "3.8"
 ahash = "0.8"
 arc-swap = "1.9.2"
 rustrict = "0.7.39"
+# Store-side IAP verification and the Google OAuth token grant. rustls keeps the
+# container free of an OpenSSL runtime dependency.
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "form", "rustls", "http2"] }
 
 [dev-dependencies]
 # Same version axum's `ws` feature already pins, for the live-socket test.

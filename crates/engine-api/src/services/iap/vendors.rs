@@ -1,14 +1,14 @@
 use axum::Json;
-use serde_json::Value;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::iap::{PurchaseResponse, PurchaseTokenRequest};
 use crate::error::V2Error;
-use crate::utils::iap::{hex_id, store_of};
+use crate::utils::iap::store_of;
 
-use super::IapService;
 use super::purchases::record_purchase;
+use super::verify::{self, GOOGLE};
+use super::IapService;
 
 impl IapService {
     pub async fn purchase_google(
@@ -17,7 +17,7 @@ impl IapService {
         claims: &Authed,
         body: PurchaseTokenRequest,
     ) -> Result<Json<PurchaseResponse>, V2Error> {
-        record_token_purchase(state, claims, body, 1).await
+        record_token_purchase(state, claims, body, GOOGLE).await
     }
 
     pub async fn purchase_huawei(
@@ -58,15 +58,14 @@ pub(super) async fn record_token_purchase(
     if credential.is_empty() {
         return Err(V2Error::invalid_argument("purchase token cannot be empty"));
     }
-    let transaction_id = hex_id(credential);
-    let raw = Value::String(credential.to_owned());
-    record_purchase(
-        state,
-        claims.0.uuid()?,
-        transaction_id,
-        store_of(body.store, default_store),
-        body.product_id.unwrap_or_default(),
-        raw,
+    let store = store_of(body.store, default_store);
+    let verified = verify::verify_purchase(
+        &state.control.iap,
+        store,
+        credential,
+        body.product_id.as_deref(),
+        None,
     )
-    .await
+    .await?;
+    record_purchase(state, claims.0.uuid()?, verified, store).await
 }

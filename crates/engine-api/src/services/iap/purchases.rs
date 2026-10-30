@@ -1,7 +1,6 @@
 use axum::Json;
 use base64::Engine;
 use chrono::Utc;
-use serde_json::Value;
 use uuid::Uuid;
 
 use crate::ApiState;
@@ -10,8 +9,9 @@ use crate::dto::iap::{ListQuery, PurchaseListResponse, PurchaseRequest, Purchase
 use crate::error::V2Error;
 use crate::repositories::iap::{InsertPurchaseParams, ListPurchasesParams};
 use crate::services::deps::q;
-use crate::utils::iap::{decode_offset, environment_of, epoch, hex_id, store_of};
+use crate::utils::iap::{decode_offset, epoch, store_of};
 
+use super::verify;
 use super::IapService;
 
 impl IapService {
@@ -33,19 +33,19 @@ impl IapService {
         if body.receipt.is_empty() {
             return Err(V2Error::invalid_argument("receipt cannot be empty"));
         }
-        let transaction_id = body
-            .transaction_id
-            .clone()
-            .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| hex_id(&body.receipt));
-        let raw = Value::String(body.receipt.clone());
+        let verified = verify::verify_purchase(
+            &state.control.iap,
+            verify::APPLE,
+            &body.receipt,
+            body.product_id.as_deref(),
+            body.transaction_id.as_deref(),
+        )
+        .await?;
         record_purchase(
             state,
             claims.0.uuid()?,
-            transaction_id,
-            store_of(body.store, 0),
-            body.product_id.unwrap_or_default(),
-            raw,
+            verified,
+            store_of(body.store, verify::APPLE),
         )
         .await
     }
@@ -83,22 +83,20 @@ impl IapService {
 pub(super) async fn record_purchase(
     state: &ApiState,
     uid: Uuid,
-    transaction_id: String,
+    verified: verify::VerifiedPurchase,
     store: i16,
-    product_id: String,
-    raw: Value,
 ) -> Result<Json<PurchaseResponse>, V2Error> {
     let queries = q(state).await?;
     let row = queries
         .insert_purchase(&InsertPurchaseParams {
-            transaction_id,
+            transaction_id: verified.transaction_id,
             user_id: uid,
             store,
-            environment: environment_of(&raw.to_string(), store),
-            product_id,
-            purchase_time: Utc::now(),
+            environment: verified.environment,
+            product_id: verified.product_id,
+            purchase_time: verified.purchase_time.unwrap_or_else(Utc::now),
             refund_time: epoch(),
-            raw_response: raw,
+            raw_response: verified.raw,
         })
         .await?;
     Ok(Json(PurchaseResponse::from(&row)))

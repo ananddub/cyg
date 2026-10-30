@@ -11,7 +11,8 @@ use crate::dto::iap::{PurchaseResponse, SubscriptionResponse};
 use crate::error::V2Error;
 use crate::services::deps::q;
 use crate::repositories::iap::{InsertPurchaseParams, InsertSubscriptionParams};
-use crate::utils::iap::{environment_of, epoch, hex_id};
+use crate::services::iap::verify;
+use crate::utils::iap::{epoch, hex_id};
 
 use super::Vendor;
 
@@ -84,21 +85,33 @@ impl super::super::ConsoleService {
             ));
         }
         let uid = super::super::id(raw_id, "account")?;
+        let verified = verify::verify_purchase(
+            &state.control.iap,
+            vendor.store(),
+            credential,
+            body.product_id.as_deref(),
+            None,
+        )
+        .await?;
         let queries = q(state).await?;
         queries.get_user_by_id(uid).await?;
-        let product_id = body.product_id.clone().unwrap_or_default();
-        let transaction_id = hex_id(credential);
-        let raw = serde_json::Value::String(credential.to_owned());
+        let (product_id, transaction_id, environment, purchase_time, raw) = (
+            verified.product_id,
+            verified.transaction_id,
+            verified.environment,
+            verified.purchase_time.unwrap_or_else(Utc::now),
+            verified.raw,
+        );
         if subscription {
             let row = queries
                 .insert_subscription(&InsertSubscriptionParams {
                     original_transaction_id: transaction_id,
                     user_id: uid,
                     store: vendor.store(),
-                    environment: environment_of(credential, vendor.store()),
+                    environment,
                     product_id,
-                    purchase_time: Utc::now(),
-                    expire_time: epoch(),
+                    purchase_time,
+                    expire_time: verified.expire_time.unwrap_or_else(epoch),
                     refund_time: epoch(),
                     raw_response: raw,
                 })
@@ -123,9 +136,9 @@ impl super::super::ConsoleService {
                     transaction_id,
                     user_id: uid,
                     store: vendor.store(),
-                    environment: environment_of(credential, vendor.store()),
+                    environment,
                     product_id,
-                    purchase_time: Utc::now(),
+                    purchase_time,
                     refund_time: epoch(),
                     raw_response: raw,
                 })

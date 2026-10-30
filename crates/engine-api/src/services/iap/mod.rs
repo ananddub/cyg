@@ -3,6 +3,7 @@ use auto_di::singleton;
 pub mod purchases;
 pub mod subscriptions;
 pub mod vendors;
+pub(crate) mod verify;
 
 pub struct IapService;
 

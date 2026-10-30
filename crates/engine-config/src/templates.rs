@@ -99,6 +99,17 @@ username = "admin"
 password = "password"
 signing_key = "defaultconsolesigningkey"
 token_expires_sec = 3600
+
+# In-app purchase verification. A purchase is recorded only after the store's
+# own API confirms it. Apple needs the app-specific shared secret; Google needs
+# a service-account JSON key and the Android package name. A store with no
+# credentials answers 503 instead of trusting the client. `allow_unverified`
+# records client claims and is for local development only — never ship it set.
+[control.iap]
+# apple_shared_secret = "…"
+# google_service_account = '{"type":"service_account", …}'
+# google_package_name = "com.example.game"
+# allow_unverified = false
 "#;
 
 /// Historical flat-source template, kept for reference only. New projects use
