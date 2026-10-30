@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+mod backup;
 mod cook;
 mod schema;
 
@@ -100,6 +101,8 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        "backup" => backup_command(&dir, &args[1..]),
+        "restore" => restore_command(&args[1..]),
         "--help" | "-h" | "help" => print_help(),
         other => {
             tracing::info!("unknown command: {other}");
@@ -120,7 +123,11 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
     // 1. config
     let cfg = match engine_config::load_config(dir) {
         Ok(cfg) => {
-            tracing::info!("✓ config.toml parses (name '{}', tick {}Hz)", cfg.name, cfg.tick_rate);
+            tracing::info!(
+                "✓ config.toml parses (name '{}', tick {}Hz)",
+                cfg.name,
+                cfg.tick_rate
+            );
             Some(cfg)
         }
         Err(e) => {
@@ -145,7 +152,14 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
 
     // 3. room wasm + export names
     let required = [
-        "on_create", "on_join", "on_leave", "on_alloc", "on_input", "on_tick", "on_save", "on_load",
+        "on_create",
+        "on_join",
+        "on_leave",
+        "on_alloc",
+        "on_input",
+        "on_tick",
+        "on_save",
+        "on_load",
     ];
     let out = cfg.as_ref().map(|c| dir.join(&c.out));
     let wasm_path = out.filter(|p| p.exists());
@@ -153,14 +167,22 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
         Some(path) => {
             let bytes = std::fs::read(&path)?;
             match engine_wasm::WasmRuntime::new()
-                    .map_err(|e| e.to_string())
-                    .and_then(|r| r.compile(&bytes).map_err(|e| e.to_string()))
-                {
+                .map_err(|e| e.to_string())
+                .and_then(|r| r.compile(&bytes).map_err(|e| e.to_string()))
+            {
                 Ok(module) => {
-                    let exports: Vec<String> = module.exports().map(|e| e.name().to_string()).collect();
-                    let missing: Vec<&str> = required.iter().filter(|r| !exports.contains(&r.to_string())).copied().collect();
+                    let exports: Vec<String> =
+                        module.exports().map(|e| e.name().to_string()).collect();
+                    let missing: Vec<&str> = required
+                        .iter()
+                        .filter(|r| !exports.contains(&r.to_string()))
+                        .copied()
+                        .collect();
                     if missing.is_empty() {
-                        tracing::info!("✓ room wasm exports the full host ABI ({} exports)", exports.len());
+                        tracing::info!(
+                            "✓ room wasm exports the full host ABI ({} exports)",
+                            exports.len()
+                        );
                     } else {
                         tracing::info!(
                             "✗ room wasm is missing host exports: {}. The host looks up exactly these names (see sdk/server). Got: {}",
@@ -176,7 +198,10 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
                 }
             }
         }
-        None => tracing::info!("• room wasm not built yet (run: cyg-game run {})", dir.display()),
+        None => tracing::info!(
+            "• room wasm not built yet (run: cyg-game run {})",
+            dir.display()
+        ),
     }
 
     if check_schema {
@@ -191,8 +216,15 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
             }
             Some(session) => match schema_status(&session) {
                 Ok((applied, pending)) => {
-                    let at = applied.iter().max().map(|v| v.to_string()).unwrap_or_else(|| "base".into());
-                    tracing::info!("• schema at version {at}, {} pending step(s)", pending.len());
+                    let at = applied
+                        .iter()
+                        .max()
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "base".into());
+                    tracing::info!(
+                        "• schema at version {at}, {} pending step(s)",
+                        pending.len()
+                    );
                     for name in &pending {
                         tracing::info!("  pending: {name}");
                     }
@@ -206,19 +238,91 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
     }
 
     if problems > 0 {
-        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{problems} problem(s)")))
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{problems} problem(s)"),
+        ))
     } else {
         tracing::info!("\n✓ project looks healthy");
         Ok(())
     }
 }
 
-fn schema_status(session: &engine_config::SessionConfig) -> Result<(Vec<u64>, Vec<String>), String> {
+fn block_on<T>(future: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    runtime.block_on(async move {
+    runtime.block_on(future)
+}
+
+fn backup_command(dir: &Path, args: &[String]) {
+    if args.iter().any(|a| a == "--out")
+        && args.iter().position(|a| a == "--out") == Some(args.len() - 1)
+    {
+        tracing::info!("Usage: cyg-game backup [dir] [--out backups/]");
+        std::process::exit(1);
+    }
+    let out = args
+        .iter()
+        .position(|a| a == "--out")
+        .and_then(|i| args.get(i + 1))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("backups"));
+    let cfg = match engine_config::load_config(dir) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing::error!("✗ backup: {e}");
+            std::process::exit(1);
+        }
+    };
+    match block_on(backup::backup(&cfg.control.session, &out)) {
+        Ok(artifacts) => tracing::info!(
+            "✓ backup written to {} (checksum {})",
+            artifacts.archive.display(),
+            artifacts.checksum.display()
+        ),
+        Err(e) => {
+            tracing::error!("✗ backup: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn restore_command(args: &[String]) {
+    let force = args.iter().any(|a| a == "--force");
+    let positional: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
+    // `restore <archive>` and `restore <dir> <archive>` both mean "the last
+    // path is the archive"; the leading one is only a project directory.
+    let (dir, archive) = match positional.as_slice() {
+        [dir, archive] => (PathBuf::from(dir), PathBuf::from(archive)),
+        [archive] => (PathBuf::from("."), PathBuf::from(archive)),
+        _ => {
+            tracing::info!("Usage: cyg-game restore [dir] <archive.sql.gz> [--force]");
+            std::process::exit(1);
+        }
+    };
+    let dir = dir.as_path();
+    let cfg = match engine_config::load_config(dir) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing::error!("✗ restore: {e}");
+            std::process::exit(1);
+        }
+    };
+    match block_on(backup::restore(&cfg.control.session, &archive, force)) {
+        Ok(()) => tracing::info!("✓ restored {}", archive.display()),
+        Err(e) => {
+            tracing::error!("✗ restore: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn schema_status(
+    session: &engine_config::SessionConfig,
+) -> Result<(Vec<u64>, Vec<String>), String> {
+    block_on(async move {
         let user = (!session.database_user.is_empty()).then_some(session.database_user.as_str());
         let pass = (!session.database_pass.is_empty()).then_some(session.database_pass.as_str());
         let db = engine_api::db::Datastore::open(
@@ -233,13 +337,13 @@ fn schema_status(session: &engine_config::SessionConfig) -> Result<(Vec<u64>, Ve
         .map_err(|e| format!("{}: {e}", session.database_endpoint))?;
         let applied = engine_api::db::migrations::applied(&db)
             .await
-            .map_err(|e| format!("schema_version unreadable (boot the server once to create it): {e}"))?;
-        let pending = engine_api::db::migrations::pending(
-            &db,
-            engine_api::db::migrations::MIGRATIONS,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                format!("schema_version unreadable (boot the server once to create it): {e}")
+            })?;
+        let pending =
+            engine_api::db::migrations::pending(&db, engine_api::db::migrations::MIGRATIONS)
+                .await
+                .map_err(|e| e.to_string())?;
         Ok((applied.into_iter().map(|a| a.version).collect(), pending))
     })
 }
@@ -261,6 +365,8 @@ USAGE:
   cyg-game schema-debug [path]    inspect a compiled descriptor (--json)
   cyg-game doctor       [dir]    validate config, schema and wasm ABI exports
   cyg-game doctor --check-schema report pending SurrealDB schema migrations
+  cyg-game backup  [dir] [--out backups]  export the HTTP database to a timestamped gzip + sha256 sidecar
+  cyg-game restore [dir] <archive> [--force]  import a backup archive produced by backup
   cyg-game                        same as `run` in the current directory
 
 CONFIG:
@@ -769,8 +875,14 @@ fn init(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(&pkg)?;
     std::fs::write(src.join("index.ts"), ROOM_TEMPLATE)?;
     std::fs::write(src.join("schema/player.ts"), SCHEMA_TS_TEMPLATE)?;
-    std::fs::write(pkg.join("cyg-server.ts"), include_str!("../sdk/server/assemblyscript/cyg-server.ts"))?;
-    std::fs::write(pkg.join("cyg.d.ts"), include_str!("../sdk/server/typescript/cyg.d.ts"))?;
+    std::fs::write(
+        pkg.join("cyg-server.ts"),
+        include_str!("../sdk/server/assemblyscript/cyg-server.ts"),
+    )?;
+    std::fs::write(
+        pkg.join("cyg.d.ts"),
+        include_str!("../sdk/server/typescript/cyg.d.ts"),
+    )?;
     // The easy template is self-contained: server SDK, browser SDK and the
     // matching page all use CYG's own protocol (no Colyseus dependency).
     // VSCode/TS-server ko khush rakhta hai: pkg/ (AssemblyScript) exclude,
@@ -847,10 +959,7 @@ declare module "cyg" {
         "  {}/cyg.js   — browser SDK (Client, schema, messages)",
         dir.display()
     );
-    tracing::info!(
-        "  {}/cyg-client.d.ts — browser SDK types",
-        dir.display()
-    );
+    tracing::info!("  {}/cyg-client.d.ts — browser SDK types", dir.display());
     tracing::info!(
         "  {}/.gitignore      — ignores regenerable client bindings",
         dir.display()
@@ -864,27 +973,29 @@ declare module "cyg" {
 
 /// `cyg-game run [dir]` — compile (if needed) and serve.
 fn run(dir: &Path) -> std::io::Result<()> {
-    let cfg =
-        if dir.join("config.toml").exists() || dir.join("config.yml").exists() || dir.is_file() {
-            engine_config::load_config(dir)?
-        } else if dir == Path::new(".")
-            && !Path::new("config.toml").exists()
-            && !Path::new("config.yml").exists()
-        {
-            // No project here: run the built-in demo (headless room).
-            tracing::info!("[run] no config.toml found — running the built-in demo (headless room)");
-            GameConfig {
-                name: "game_room".into(),
-                source: PathBuf::from("crates/engine-net/examples/e2e/room.ts"),
-                out: PathBuf::new(), // pre-compiled wasm used below
-                ..GameConfig::default()
-            }
-        } else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("config.toml not found in {}", dir.display()),
-            ));
-        };
+    let cfg = if dir.join("config.toml").exists()
+        || dir.join("config.yml").exists()
+        || dir.is_file()
+    {
+        engine_config::load_config(dir)?
+    } else if dir == Path::new(".")
+        && !Path::new("config.toml").exists()
+        && !Path::new("config.yml").exists()
+    {
+        // No project here: run the built-in demo (headless room).
+        tracing::info!("[run] no config.toml found — running the built-in demo (headless room)");
+        GameConfig {
+            name: "game_room".into(),
+            source: PathBuf::from("crates/engine-net/examples/e2e/room.ts"),
+            out: PathBuf::new(), // pre-compiled wasm used below
+            ..GameConfig::default()
+        }
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("config.toml not found in {}", dir.display()),
+        ));
+    };
 
     // Demo mode uses the pre-compiled example wasm shipped with the repo.
     let (project_dir, cfg) = if cfg.out.as_os_str().is_empty() {
@@ -952,7 +1063,8 @@ fn run(dir: &Path) -> std::io::Result<()> {
             Ok(plane) => {
                 tracing::info!(
                     "[main] 🏛️  control plane on http://{}:{} (matchmake, /ws/signal, /status, statics)",
-                    cfg.control.bind_addr, plane.port
+                    cfg.control.bind_addr,
+                    plane.port
                 );
                 Some(plane)
             }
@@ -999,31 +1111,16 @@ fn generate_interfaces(dir: &Path) -> std::io::Result<()> {
     let ts_path = dir.join("cyg.d.ts");
     let readme_path = dir.join("README.md");
 
-    std::fs::write(
-        &lua_path,
-        include_str!("../sdk/server/lua/cyg.lua"),
-    )?;
+    std::fs::write(&lua_path, include_str!("../sdk/server/lua/cyg.lua"))?;
     std::fs::write(&c_path, include_str!("../sdk/server/c/cyg.h"))?;
-    std::fs::write(
-        &cpp_path,
-        include_str!("../sdk/server/cpp/cyg.hpp"),
-    )?;
-    std::fs::write(
-        &rust_path,
-        include_str!("../sdk/server/rust/cyg_room.rs"),
-    )?;
-    std::fs::write(
-        &csharp_path,
-        include_str!("../sdk/server/csharp/CYG.cs"),
-    )?;
+    std::fs::write(&cpp_path, include_str!("../sdk/server/cpp/cyg.hpp"))?;
+    std::fs::write(&rust_path, include_str!("../sdk/server/rust/cyg_room.rs"))?;
+    std::fs::write(&csharp_path, include_str!("../sdk/server/csharp/CYG.cs"))?;
     std::fs::write(
         &as_path,
         include_str!("../sdk/server/assemblyscript/cyg-server.ts"),
     )?;
-    std::fs::write(
-        &ts_path,
-        include_str!("../sdk/server/typescript/cyg.d.ts"),
-    )?;
+    std::fs::write(&ts_path, include_str!("../sdk/server/typescript/cyg.d.ts"))?;
     std::fs::write(&readme_path, include_str!("../sdk/server/README.md"))?;
 
     tracing::info!(

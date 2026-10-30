@@ -1977,6 +1977,7 @@ name = "cyg-gaming"
 version = "0.1.0"
 dependencies = [
  "bevy_ecs",
+ "chrono",
  "engine-api",
  "engine-bus",
  "engine-config",
@@ -1988,10 +1989,13 @@ dependencies = [
  "engine-server",
  "engine-spatial",
  "engine-wasm",
+ "flate2",
  "gltf",
  "hmac 0.13.0",
  "mimalloc",
  "rapier3d",
+ "reqwest 0.13.5",
+ "serde_json",
  "sha2 0.11.1",
  "tempfile",
  "tokio",
