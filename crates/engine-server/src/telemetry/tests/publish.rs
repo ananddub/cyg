@@ -20,6 +20,44 @@ fn publish_flows_to_bus_and_current() {
     assert!(bus.status_rx.try_recv().is_err());
 }
 
+/// The phase counts are what a scaler reads to decide whether these rooms are
+/// finishing or waiting, so they are derived from the published table itself.
+#[test]
+fn phase_aggregates_are_counted_from_the_rows() {
+    let bus = Bus::new(16, 16);
+    let mut r = Recorder::new();
+    r.last_publish = Instant::now() - Duration::from_secs(2);
+    let row = |name: &str, phase: engine_bus::RoomPhase| engine_bus::RoomTelemetry {
+        name: name.into(),
+        phase,
+        ..Default::default()
+    };
+    assert!(r.maybe_publish(
+        &bus,
+        PublishReport {
+            rooms: vec![
+                row("lobby", engine_bus::RoomPhase::Active),
+                row("arena", engine_bus::RoomPhase::Hibernating),
+                row("spare", engine_bus::RoomPhase::Hibernating),
+                row("fresh", engine_bus::RoomPhase::Created),
+                row("gone", engine_bus::RoomPhase::Closed),
+            ],
+            ..Default::default()
+        }
+    ));
+    let on_bus = bus.status_rx.try_recv().unwrap();
+    assert_eq!(on_bus.rooms_active, 1);
+    assert_eq!(on_bus.rooms_hibernating, 2);
+    assert_eq!(on_bus.rooms_created, 1);
+    // A `Closed` row has no aggregate: the room was disposed, and counting it
+    // would make the three states add up to more rooms than are live.
+    assert_eq!(on_bus.rooms.len(), 5);
+    assert_eq!(
+        on_bus.rooms_created + on_bus.rooms_active + on_bus.rooms_hibernating,
+        4
+    );
+}
+
 /// The histogram is the bar chart's only source, so it must count every tick
 /// of the window it describes and roll over with the rings.
 #[test]
@@ -51,14 +89,27 @@ fn nominal_period_and_idle_age_come_from_the_report() {
     let bus = Bus::new(16, 16);
     let mut r = Recorder::new();
     r.last_publish = Instant::now() - Duration::from_secs(2);
-    assert!(r.maybe_publish(&bus, PublishReport { tick_rate_hz: 128, players: 1, ..Default::default() }));
+    assert!(r.maybe_publish(
+        &bus,
+        PublishReport {
+            tick_rate_hz: 128,
+            players: 1,
+            ..Default::default()
+        }
+    ));
     let on_bus = bus.status_rx.try_recv().unwrap();
     assert_eq!(on_bus.nominal_tick_us, 7_812);
     assert_eq!(on_bus.empty_for_sec, 0, "occupied rooms are never idle");
 
     r.last_publish = Instant::now() - Duration::from_secs(2);
     r.empty_since = Some(Instant::now() - Duration::from_secs(7));
-    assert!(r.maybe_publish(&bus, PublishReport { tick_rate_hz: 64, ..Default::default() }));
+    assert!(r.maybe_publish(
+        &bus,
+        PublishReport {
+            tick_rate_hz: 64,
+            ..Default::default()
+        }
+    ));
     let idle = bus.status_rx.try_recv().unwrap();
     assert_eq!(idle.nominal_tick_us, 15_625);
     assert_eq!(idle.empty_for_sec, 7);

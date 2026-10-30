@@ -139,18 +139,26 @@ impl MetricsController {
                 "Inputs dropped",
                 snap.inputs_dropped.to_string(),
             );
-            let active = snap
-                .rooms
-                .iter()
-                .filter(|r| r.phase == engine_bus::RoomPhase::Active)
-                .count();
+            let phase_count = |phase: engine_bus::RoomPhase| {
+                snap.rooms.iter().filter(|row| row.phase == phase).count()
+            };
             out.push_str(
                 "# HELP cyg_rooms Live rooms by lifecycle phase\n# TYPE cyg_rooms gauge\n",
             );
-            out.push_str(&format!("cyg_rooms{{phase=\"active\"}} {active}\n"));
+            out.push_str(&format!(
+                "cyg_rooms{{phase=\"active\"}} {}\n",
+                phase_count(engine_bus::RoomPhase::Active)
+            ));
+            // Summed from the rows, not taken from `rooms.len() - active`: a room
+            // that never seated anybody is `created`, not one that lost its last
+            // player, and an autoscaler reads the two differently.
             out.push_str(&format!(
                 "cyg_rooms{{phase=\"hibernating\"}} {}\n",
-                snap.rooms.len() - active
+                phase_count(engine_bus::RoomPhase::Hibernating)
+            ));
+            out.push_str(&format!(
+                "cyg_rooms{{phase=\"created\"}} {}\n",
+                phase_count(engine_bus::RoomPhase::Created)
             ));
             out.push_str("# HELP cyg_tick_duration_us Tick wall time, current publish window\n# TYPE cyg_tick_duration_us histogram\n");
             let mut cumulative = 0u64;
@@ -217,6 +225,7 @@ impl MetricsController {
                 "# HELP cyg_rooms Live rooms by lifecycle phase\n# TYPE cyg_rooms gauge\n",
             );
             out.push_str("cyg_rooms{phase=\"active\"} 0\ncyg_rooms{phase=\"hibernating\"} 0\n");
+            out.push_str("cyg_rooms{phase=\"created\"} 0\n");
             out.push_str("# HELP cyg_tick_duration_us Tick wall time, current publish window\n# TYPE cyg_tick_duration_us histogram\n");
             for i in 0..engine_bus::TICK_HISTOGRAM_BUCKETS {
                 let le = (1u64 << (i + 1)) - 1;

@@ -520,6 +520,11 @@ pub struct GameRoom {
     pub(crate) sim_accum: Duration,
     pub(crate) acked_event_seq: HashMap<String, u16>,
     pub(crate) input_journal: VecDeque<JournalInput>,
+    /// Where the room sits in `Created -> Active -> Hibernating -> Closed`.
+    /// Only [`GameRoom::note_state`] and [`GameRoom::dispose`] move it, so the
+    /// state a report shows is a transition the machine allows, not a guess
+    /// made from the current player count.
+    pub(crate) state: engine_bus::RoomPhase,
     /// How many snapshots this room has exported. The match row carries it so a
     /// reader can tell whether the stored snapshot is the generation this match
     /// ended on or an older one. Counts from zero for the life of the process.
@@ -1635,6 +1640,7 @@ impl GameRoom {
             sim_accum: Duration::ZERO,
             acked_event_seq: HashMap::new(),
             input_journal: VecDeque::new(),
+            state: engine_bus::RoomPhase::Created,
             snapshot_seq: 0,
             result: None,
         })
@@ -1674,6 +1680,7 @@ impl GameRoom {
             sim_accum: Duration::ZERO,
             acked_event_seq: HashMap::new(),
             input_journal: VecDeque::new(),
+            state: engine_bus::RoomPhase::Created,
             snapshot_seq: 0,
             result: None,
         }
@@ -1695,15 +1702,46 @@ impl GameRoom {
         self.sessions.is_empty() && self.spectators.is_empty()
     }
 
-    /// The room's lifecycle phase as `/rooms` reports it. Derived from the same
-    /// membership the reap pass reads, so the two cannot disagree.
+    /// The room's lifecycle phase as `/rooms` reports it: the state the machine
+    /// moved the room to, not a re-derivation from membership.
     #[inline]
     pub fn phase(&self) -> engine_bus::RoomPhase {
-        if self.is_hibernating() {
-            engine_bus::RoomPhase::Hibernating
-        } else {
-            engine_bus::RoomPhase::Active
+        self.state
+    }
+
+    /// Records where membership leaves the room on the machine. Called once per
+    /// tick pass by the host loop and once per frame by the pinned sim plane,
+    /// before anything reads [`GameRoom::phase`] or decides to simulate.
+    ///
+    /// A room nobody ever joined stays `Created`: it has no match to have ended,
+    /// and calling it `Hibernating` would tell a scaler that players were there.
+    pub(crate) fn note_state(&mut self) {
+        if self.state == engine_bus::RoomPhase::Closed {
+            return;
         }
+        let next = if !self.is_hibernating() {
+            engine_bus::RoomPhase::Active
+        } else if self.state == engine_bus::RoomPhase::Created {
+            return;
+        } else {
+            engine_bus::RoomPhase::Hibernating
+        };
+        self.set_state(next);
+    }
+
+    /// Moves the room along the machine, refusing a step the transition table
+    /// does not allow. A refusal is logged rather than swallowed: a report that
+    /// shows a stale phase is a bug someone has to notice.
+    fn set_state(&mut self, next: engine_bus::RoomPhase) -> bool {
+        if self.state == next {
+            return false;
+        }
+        if !self.state.allows(next) {
+            tracing::warn!("[server] room refused {:?} -> {next:?}", self.state);
+            return false;
+        }
+        self.state = next;
+        true
     }
 
     /// Whether this room runs in zero-WASM relay mode.
@@ -1988,11 +2026,13 @@ impl GameRoom {
         !expired.is_empty()
     }
 
-    /// Run the guest's optional `onDispose` before the host drops the room.
+    /// Run the guest's optional `onDispose` before the host drops the room and
+    /// move the room to the machine's terminal state.
     pub(crate) fn dispose(&mut self) {
         if let Some(ref mut wasm) = self.wasm {
             let _ = wasm.raw_instance().call::<(), ()>("on_dispose", ());
         }
+        self.set_state(engine_bus::RoomPhase::Closed);
     }
 
     /// Patch-rate gate. Returns false when this tick's state frame must be
@@ -2549,6 +2589,74 @@ mod tests {
         let _ = room.join("sess_bob", 10.0, 10.0);
         assert!(!room.is_hibernating());
         assert!(!room.reap_check(Duration::from_secs(30)));
+    }
+
+    /// The phase a report shows is a move the machine allowed, so the states have
+    /// to follow membership in order: a spawn is not a hibernation, an emptied
+    /// room keeps its history, and nothing comes back from `Closed`.
+    #[test]
+    fn the_room_machine_walks_membership_in_order() {
+        let mut room = GameRoom::new_relay();
+        room.note_state();
+        assert_eq!(
+            room.phase(),
+            engine_bus::RoomPhase::Created,
+            "a room that never seated anybody is new, not emptied"
+        );
+
+        room.join("sess_alice", 1.0, 1.0);
+        room.note_state();
+        assert_eq!(room.phase(), engine_bus::RoomPhase::Active);
+
+        room.handle_disconnect("sess_alice");
+        room.note_state();
+        assert_eq!(room.phase(), engine_bus::RoomPhase::Hibernating);
+
+        room.join("sess_bob", 1.0, 1.0);
+        room.note_state();
+        assert_eq!(
+            room.phase(),
+            engine_bus::RoomPhase::Active,
+            "the next member wakes the same room, it is not a new one"
+        );
+
+        room.dispose();
+        assert_eq!(room.phase(), engine_bus::RoomPhase::Closed);
+        room.join("sess_carol", 1.0, 1.0);
+        room.note_state();
+        assert_eq!(
+            room.phase(),
+            engine_bus::RoomPhase::Closed,
+            "a disposed room has no way back on the machine"
+        );
+    }
+
+    /// The host's gate is `note_state` plus "only an Active room is simulated",
+    /// mirrored here: an empty room runs no guest work at all, and the pass that
+    /// sees its first member ticks on that same pass rather than the next one.
+    #[test]
+    fn only_an_active_room_is_simulated() {
+        let gated_tick = |room: &mut GameRoom| {
+            room.note_state();
+            if room.phase() != engine_bus::RoomPhase::Active {
+                return false;
+            }
+            room.tick(1.0 / 30.0, false).unwrap();
+            true
+        };
+
+        let mut room = GameRoom::new_relay();
+        assert!(!gated_tick(&mut room), "a Created room is not simulated");
+        assert_eq!(room.current_tick, 0);
+
+        room.join("sess_alice", 0.0, 0.0);
+        assert!(gated_tick(&mut room), "joining and ticking share one pass");
+        assert_eq!(room.current_tick, 1);
+
+        room.handle_disconnect("sess_alice");
+        assert!(!gated_tick(&mut room), "Hibernating is 0% CPU");
+        assert!(!gated_tick(&mut room));
+        assert_eq!(room.current_tick, 1, "an emptied room ticks no further");
     }
 
     /// `[lifecycle]` now picks the window, so the host's decision needs its own

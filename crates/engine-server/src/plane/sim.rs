@@ -385,6 +385,10 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         }
 
         // ---- fixed tick with catch-up cap
+        // Stepped once a frame, before the report is built: this plane owns one
+        // room and runs it whether or not peers are attached, so the phase the
+        // status row shows has to come from the machine, not from a guess.
+        room.note_state();
         let elapsed = last_tick.elapsed();
         if elapsed < period {
             // A quiet loop still has to age its sample: `publish_due` gates the

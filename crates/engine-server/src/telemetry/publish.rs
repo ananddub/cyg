@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwapOption;
-use engine_bus::{Bus, StatusSnapshot, TICK_HISTOGRAM_BUCKETS};
+use engine_bus::{Bus, RoomPhase, StatusSnapshot, TICK_HISTOGRAM_BUCKETS};
 use engine_dashboard::MAX_CLIENT_ROWS;
 
 use super::recorder::Recorder;
@@ -34,6 +34,19 @@ impl Recorder {
         snap.webrtc_sessions = report.webrtc_sessions;
         snap.udp_sessions = report.udp_sessions;
         snap.rooms = report.rooms;
+        // The phase counts are summed from the rows rather than handed over by
+        // the caller: a producer that forgot a field could otherwise publish
+        // aggregates that contradict the table printed right next to them.
+        for row in &snap.rooms {
+            match row.phase {
+                RoomPhase::Created => snap.rooms_created += 1,
+                RoomPhase::Active => snap.rooms_active += 1,
+                RoomPhase::Hibernating => snap.rooms_hibernating += 1,
+                // A disposed room leaves the host's map before this runs, so a
+                // `Closed` row is a report about a room nobody has anymore.
+                RoomPhase::Closed => {}
+            }
+        }
         snap.empty_for_sec = if report.players > 0
             || report.ws_sessions > 0
             || report.webrtc_sessions > 0

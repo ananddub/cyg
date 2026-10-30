@@ -26,7 +26,7 @@ window (`crates/engine-bus/src/telemetry.rs`, consumed by
 | `cyg_tick_duration_us` | histogram | Tick wall-time distribution; bucket `i` covers `[2^i, 2^(i+1))` µs, 12 buckets + `+Inf`; count/sum are window-scoped (`le` is an upper bound in µs) |
 | `cyg_kernel_to_sim_p50_us` / `_p99_us` | gauge | Latency from kernel receive to sim apply |
 | `cyg_players` | gauge | Players attached to rooms |
-| `cyg_rooms{phase="active\|hibernating"}` | gauge | Live rooms by lifecycle phase |
+| `cyg_rooms{phase="active\|hibernating\|created"}` | gauge | Live rooms by lifecycle phase (`created` = never seated anybody, `hibernating` = emptied with its idle window running) |
 | `cyg_ws_sessions` / `cyg_webrtc_sessions` / `cyg_udp_sessions` | gauge | Sessions per transport |
 | `cyg_deltas_sent` | gauge | Deltas sent in the window |
 | `cyg_deltas_dropped_full` | gauge | Deltas dropped because a session queue was full |

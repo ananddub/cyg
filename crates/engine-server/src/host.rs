@@ -2427,8 +2427,12 @@ pub fn run(
 
             for tick_idx in 0..ticks_to_run {
                 for (name, room) in server.rooms.iter_mut() {
-                    // Idle Hibernation (0% CPU for empty rooms)
-                    if room.is_hibernating() {
+                    // Idle Hibernation (0% CPU for empty rooms). The machine is
+                    // stepped here rather than at membership so the state every
+                    // reader sees is the one the guest just ticked under: a room
+                    // that got its first player becomes Active on this same pass.
+                    room.note_state();
+                    if room.state != engine_bus::RoomPhase::Active {
                         continue;
                     }
 
