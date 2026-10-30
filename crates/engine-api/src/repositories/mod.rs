@@ -9,6 +9,7 @@ pub mod iap;
 pub mod unlink;
 pub mod account;
 pub mod notification;
+pub mod report;
 pub mod channel;
 pub mod games;
 pub mod tenancy;

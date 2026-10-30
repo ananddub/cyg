@@ -13,6 +13,7 @@ pub async fn player_groups_boards_channels_iap_and_social_end_to_end() {
     iap_surface(&env).await;
     provider_auth_surface(&env).await;
     link_unlink_surface(&env).await;
+    report_surface(&env, &console).await;
 
     env.stop().await;
     eprintln!("gap: player group, leaderboard, tournament, index, channel, iap and social surfaces passed");

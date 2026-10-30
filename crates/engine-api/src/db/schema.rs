@@ -20,6 +20,7 @@ pub fn ddl() -> Vec<&'static str> {
         ConsoleAclTemplate,
         ConsoleAuditLog,
         ConsoleUser,
+        ContentReport,
         GameMaps,
         Games,
         GroupEdge,
@@ -40,6 +41,7 @@ pub fn ddl() -> Vec<&'static str> {
         Subscription,
         UserDevice,
         UserEdge,
+        UserInfraction,
         UserTombstone,
         Users,
         UsersNotes,
@@ -58,7 +60,7 @@ mod tests {
     #[test]
     fn every_table_is_schemaless_and_every_index_is_guarded() {
         let ddl = ddl();
-        assert_eq!(ddl.iter().filter(|line| line.starts_with("DEFINE TABLE")).count(), 27);
+        assert_eq!(ddl.iter().filter(|line| line.starts_with("DEFINE TABLE")).count(), 29);
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {
             assert!(line.contains("IF NOT EXISTS"), "{line}");

@@ -109,6 +109,12 @@ pub async fn every_migrated_path_is_still_registered() {
         ("GET", "/v2/notification"),
         ("DELETE", "/v2/notification"),
         ("DELETE", "/v2/notification/n"),
+        ("POST", "/v2/reports"),
+        ("GET", "/v2/reports"),
+        (
+            "PUT",
+            "/v2/reports/00000000-0000-0000-0000-000000000000/status",
+        ),
         ("GET", "/v2/channel/2.arena"),
         ("POST", "/v2/channel/2.arena/message"),
         ("PUT", "/v2/channel/2.arena/message/m"),

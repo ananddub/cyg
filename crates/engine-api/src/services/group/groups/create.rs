@@ -19,7 +19,8 @@ impl GroupService {
         auth: &Authed,
         body: CreateGroupRequest,
     ) -> Result<Json<GroupEnvelope>, V2Error> {
-        if body.name.is_empty() {
+        let name = crate::moderation::clean_text(&body.name);
+        if name.is_empty() {
             return Err(V2Error::invalid_argument("Group name must be set."));
         }
         let max_count = match body.max_count {
@@ -42,7 +43,7 @@ impl GroupService {
                 parsed
             }
         };
-        if let Ok(existing) = queries.get_group_by_name(&body.name).await {
+        if let Ok(existing) = queries.get_group_by_name(&name).await {
             if existing.disable_time.timestamp() <= 0 {
                 return Err(V2Error::already_exists("Group name is in use."));
             }
@@ -53,11 +54,15 @@ impl GroupService {
             .create_group(&CreateGroupParams {
                 id: Uuid::new_v4(),
                 creator_id: creator,
-                name: body.name,
-                description: body.description.unwrap_or_default(),
+                name,
+                description: crate::moderation::clean_text(
+                    &body.description.unwrap_or_default(),
+                ),
                 avatar_url: body.avatar_url.unwrap_or_default(),
                 lang_tag: body.lang_tag.unwrap_or_default(),
-                metadata: metadata_of(body.metadata.as_ref())?,
+                metadata: crate::moderation::sanitize_json(metadata_of(
+                    body.metadata.as_ref(),
+                )?),
                 max_count,
                 state: if open { GROUP_OPEN } else { GROUP_CLOSED },
             })

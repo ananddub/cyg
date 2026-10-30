@@ -16,6 +16,7 @@ pub mod maps;
 pub mod matchmake;
 pub mod notification;
 pub mod realtime;
+pub mod report;
 pub mod session;
 pub mod signaling;
 pub mod social;

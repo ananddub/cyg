@@ -136,12 +136,15 @@ impl InventoryService {
         let queries = crate::services::deps::q(state).await?;
         let max_stack = req.max_stack.unwrap_or(1).max(1);
         let rarity = req.rarity.unwrap_or_else(|| "common".to_string());
-        let properties = req.properties.unwrap_or_else(|| serde_json::json!({}));
+        let properties = crate::moderation::sanitize_json(
+            req.properties.unwrap_or_else(|| serde_json::json!({})),
+        );
+        let name = crate::moderation::clean_text(&req.name);
 
         queries
             .upsert_item_definition(
                 &req.item_id,
-                &req.name,
+                &name,
                 &req.category,
                 max_stack,
                 &rarity,

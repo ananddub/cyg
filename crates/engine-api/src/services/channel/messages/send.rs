@@ -24,6 +24,11 @@ impl ChannelService {
         let stream = stream_of_channel(channel_id)?;
         let uid = auth.0.uuid()?;
         assert_member(state, uid, &stream).await?;
+        if q(state).await?.active_infraction(uid, "mute").await?.is_some() {
+            return Err(V2Error::permission_denied(
+                "You are muted and cannot send messages.",
+            ));
+        }
         if !body.content.is_object() && !body.content.is_array() {
             return Err(V2Error::invalid_argument(
                 "Message content must be a JSON object.",

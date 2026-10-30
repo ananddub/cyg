@@ -37,9 +37,10 @@ impl GroupService {
                 "Specify at least one field to update.",
             ));
         }
-        if let Some(name) = body.name.as_deref() {
+        if let Some(raw) = body.name.as_deref() {
+            let name = crate::moderation::clean_text(raw);
             if name != group.name {
-                if let Ok(taken) = queries.get_group_by_name(name).await {
+                if let Ok(taken) = queries.get_group_by_name(&name).await {
                     if taken.disable_time.timestamp() <= 0 {
                         return Err(V2Error::invalid_argument("Group name is in use."));
                     }
@@ -49,15 +50,20 @@ impl GroupService {
 
         let metadata = match body.metadata.as_ref() {
             None => group.metadata.clone(),
-            Some(_) => metadata_of(body.metadata.as_ref())?,
+            Some(_) => crate::moderation::sanitize_json(metadata_of(body.metadata.as_ref())?),
         };
         queries
             .update_group(&UpdateGroupParams {
-                name: body.name.clone().unwrap_or(group.name.clone()),
-                description: body
-                    .description
-                    .clone()
-                    .unwrap_or(group.description.clone().unwrap_or_default()),
+                name: match body.name.as_deref() {
+                    Some(raw) => crate::moderation::clean_text(raw),
+                    None => group.name.clone(),
+                },
+                description: crate::moderation::clean_text(
+                    &body
+                        .description
+                        .clone()
+                        .unwrap_or(group.description.clone().unwrap_or_default()),
+                ),
                 avatar_url: body
                     .avatar_url
                     .clone()

@@ -13,6 +13,7 @@ mod channel_surface;
 mod iap_surface;
 mod provider_auth_surface;
 mod link_unlink_surface;
+mod report_surface;
 mod player_groups_boards_channels_iap_and_social_end_to_end;
 
 pub use harness::*;
@@ -24,4 +25,5 @@ pub use channel_surface::*;
 pub use iap_surface::*;
 pub use provider_auth_surface::*;
 pub use link_unlink_surface::*;
+pub use report_surface::*;
 pub use player_groups_boards_channels_iap_and_social_end_to_end::*;
