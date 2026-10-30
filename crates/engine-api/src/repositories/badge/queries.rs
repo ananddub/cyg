@@ -41,9 +41,10 @@ impl Queries {
         .await
     }
 
-    pub async fn delete_badge_definition(&self, badge_key: &str) -> Result<(), DbError> {
-        self.exec(
-            "DELETE type::record('badge_definition', $id)",
+    pub async fn delete_badge_definition(&self, badge_key: &str) -> Result<WriteResult, DbError> {
+        affected(
+            self,
+            "DELETE type::record('badge_definition', $id) RETURN BEFORE",
             params!(id = badge_key),
         )
         .await

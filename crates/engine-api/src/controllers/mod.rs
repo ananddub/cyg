@@ -16,6 +16,7 @@ pub mod marketplace;
 pub mod match_history;
 #[path = "match.rs"]
 pub mod match_routes;
+pub mod match_result;
 pub mod matchmake;
 pub mod notification;
 pub mod quest;

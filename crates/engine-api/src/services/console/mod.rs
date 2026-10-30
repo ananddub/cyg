@@ -10,6 +10,7 @@ use crate::services::deps::q;
 pub mod account;
 pub mod audit;
 pub mod auth;
+pub mod badge;
 pub mod board;
 pub mod economy;
 pub mod group;

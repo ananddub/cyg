@@ -310,6 +310,12 @@ pub async fn every_migrated_path_is_still_registered() {
         // /console/api-docs is a nested UI mount, not a controller route: it
         // answers GET and 404s everything else, so the 405 sweep skips it.
         ("GET", "/v2/console/logs/recent"),
+        ("POST", "/v2/match/00000000-0000-0000-0000-000000000000/result"),
+        ("GET", "/v2/badges"),
+        ("GET", "/v2/console/badges"),
+        ("POST", "/v2/console/badges"),
+        ("PUT", "/v2/console/badges/example"),
+        ("DELETE", "/v2/console/badges/example"),
     ];
 
     let mut paths: Vec<&str> = routes.iter().map(|(_, path)| *path).collect();

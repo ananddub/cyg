@@ -16,6 +16,7 @@ pub mod maps;
 pub mod marketplace;
 pub mod match_history;
 pub mod match_query;
+pub mod match_result;
 pub mod matchmake;
 pub mod notification;
 pub mod quest;

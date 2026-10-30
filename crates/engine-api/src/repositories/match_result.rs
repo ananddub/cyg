@@ -46,7 +46,9 @@ fn merge(field: &str, param: &str, operator: i16, descending: bool) -> String {
     match operator {
         DB_SET => format!("${param}"),
         DB_INCREMENT => format!("({current} + ${param})"),
-        DB_DECREMENT => format!("(IF {current} - ${param} < 0 THEN 0 ELSE {current} - ${param} END)"),
+        DB_DECREMENT => {
+            format!("(IF {current} - ${param} < 0 THEN 0 ELSE {current} - ${param} END)")
+        }
         _ => {
             let keeps = if descending { ">" } else { "<" };
             format!("(IF {current} {keeps} ${param} THEN {current} ELSE ${param} END)")
@@ -81,12 +83,20 @@ impl Queries {
                 format!("stat_id{index}"),
                 json!(player_stat_id(counter.user_id, &counter.stat)),
             );
-            args.insert(format!("stat_user{index}"), json!(counter.user_id.to_string()));
+            args.insert(
+                format!("stat_user{index}"),
+                json!(counter.user_id.to_string()),
+            );
             args.insert(format!("stat_name{index}"), json!(counter.stat.clone()));
             args.insert(format!("stat_delta{index}"), json!(counter.delta));
         }
         for (index, write) in scores.iter().enumerate() {
-            let score = merge("score", &format!("score{index}"), write.operator, write.descending);
+            let score = merge(
+                "score",
+                &format!("score{index}"),
+                write.operator,
+                write.descending,
+            );
             let subscore = merge(
                 "subscore",
                 &format!("subscore{index}"),
@@ -96,8 +106,10 @@ impl Queries {
             sql.push_str(&format!(
                 "UPDATE leaderboard_record SET score = {score}, subscore = {subscore}, \
                      num_score = {} + 1, update_time = $now, \
-                     username = IF $name{index} IS NULL THEN username ELSE $name{index} END, \
-                     metadata = IF $meta{index} IS NULL THEN metadata ELSE $meta{index} END \
+                     username = IF $name{index} IS NULL OR $name{index} IS NONE \
+                                    THEN username ELSE $name{index} END, \
+                     metadata = IF $meta{index} IS NULL OR $meta{index} IS NONE \
+                                    THEN metadata ELSE $meta{index} END \
                  WHERE leaderboard_id = $board{index} AND owner_id = $owner{index} \
                    AND expiry_time = $expiry{index} AND $present{index} RETURN NONE;",
                 held("num_score")
@@ -119,7 +131,13 @@ impl Queries {
             args.insert(format!("subscore{index}"), json!(write.subscore));
             args.insert(
                 format!("name{index}"),
-                json!(write.username.clone().map(Value::from).unwrap_or(Value::Null)),
+                json!(
+                    write
+                        .username
+                        .clone()
+                        .map(Value::from)
+                        .unwrap_or(Value::Null)
+                ),
             );
             args.insert(
                 format!("meta{index}"),
