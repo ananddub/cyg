@@ -33,6 +33,7 @@ pub fn ddl() -> Vec<&'static str> {
         Purchase,
         RoomModules,
         RoomPersistentSnapshot,
+        SchemaVersion,
         Setting,
         Storage,
         StorageIndex,
@@ -57,7 +58,7 @@ mod tests {
     #[test]
     fn every_table_is_schemaless_and_every_index_is_guarded() {
         let ddl = ddl();
-        assert_eq!(ddl.iter().filter(|line| line.starts_with("DEFINE TABLE")).count(), 26);
+        assert_eq!(ddl.iter().filter(|line| line.starts_with("DEFINE TABLE")).count(), 27);
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {
             assert!(line.contains("IF NOT EXISTS"), "{line}");

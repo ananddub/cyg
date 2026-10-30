@@ -8,11 +8,17 @@ pub fn router(state: &ApiState) -> Router {
         .with_state(state.clone())
 }
 
-pub async fn app(state: ApiState) -> Router {
+pub async fn app(state: ApiState) -> Result<Router, crate::db::DbError> {
     state::install_state(state.clone());
     if let Some(pool) = state.db.as_ref() {
         if let Err(err) = crate::services::games::ensure_schema(pool).await {
             tracing::error!("games: schema bootstrap failed: {err}");
+        }
+        let steps = crate::db::migrations::apply_migrations(pool, crate::db::migrations::MIGRATIONS)
+            .await
+            .inspect_err(|err| tracing::error!("boot aborted: schema migrations failed: {err}"))?;
+        if !steps.is_empty() {
+            tracing::info!("[migrations] {} step(s) applied", steps.len());
         }
         crate::services::games::ensure_tenant_schema(pool).await;
         match crate::services::games::tenant::resolve(&state).await {
@@ -45,7 +51,7 @@ pub async fn app(state: ApiState) -> Router {
             Err(err) => tracing::info!("auto_ws: skipping auto-registered sockets: {err}"),
         }
     }
-    state::with_plane_state(router, state, container)
+    Ok(state::with_plane_state(router, state, container))
 }
 
 fn register_plane(container: &auto_di::Container, state: &ApiState) {

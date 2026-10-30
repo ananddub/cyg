@@ -79,5 +79,5 @@ pub fn with_plane_state(
 
 #[doc(hidden)]
 pub async fn auto_router(state: ApiState) -> axum::Router {
-    crate::app::api::app(state).await
+    crate::app::api::app(state).await.expect("boot: schema migrations must succeed")
 }

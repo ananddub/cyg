@@ -3,6 +3,7 @@ pub mod bytes;
 pub mod error;
 pub mod exec;
 pub mod ids;
+pub mod migrations;
 pub mod schema;
 pub mod time;
 

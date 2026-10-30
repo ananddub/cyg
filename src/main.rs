@@ -47,6 +47,7 @@ fn main() {
     let cmd = args.first().map(String::as_str).unwrap_or("run");
     let dir = args
         .get(1)
+        .filter(|a| !a.starts_with("--"))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 
@@ -77,7 +78,8 @@ fn main() {
         }
         "schema" | "gen-schema" => schema_command(&args[1..]),
         "doctor" => {
-            if let Err(e) = doctor(&dir) {
+            let check_schema = args.iter().any(|a| a == "--check-schema");
+            if let Err(e) = doctor(&dir, check_schema) {
                 tracing::info!("✗ doctor found problems");
                 std::process::exit(1);
             }
@@ -109,7 +111,7 @@ fn main() {
 /// needs: config, schema, wasm presence and the exact ABI export names the
 /// host will look up. Catches contract mismatches (e.g. `tick()` vs
 /// `on_tick()`) in seconds instead of at room-join time.
-fn doctor(dir: &Path) -> std::io::Result<()> {
+fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
     let mut problems = 0usize;
     tracing::info!("🩺 cyg-game doctor — {}\n", dir.display());
 
@@ -175,12 +177,69 @@ fn doctor(dir: &Path) -> std::io::Result<()> {
         None => tracing::info!("• room wasm not built yet (run: cyg-game run {})", dir.display()),
     }
 
+    if check_schema {
+        match cfg.as_ref().map(|c| c.control.session.clone()) {
+            None => {
+                tracing::info!("✗ --check-schema needs a parseable config.toml");
+                problems += 1;
+            }
+            Some(session) if session.database_endpoint.is_empty() => {
+                tracing::info!("✗ --check-schema: no database endpoint is configured");
+                problems += 1;
+            }
+            Some(session) => match schema_status(&session) {
+                Ok((applied, pending)) => {
+                    let at = applied.iter().max().map(|v| v.to_string()).unwrap_or_else(|| "base".into());
+                    tracing::info!("• schema at version {at}, {} pending step(s)", pending.len());
+                    for name in &pending {
+                        tracing::info!("  pending: {name}");
+                    }
+                }
+                Err(e) => {
+                    tracing::info!("✗ --check-schema: {e}");
+                    problems += 1;
+                }
+            },
+        }
+    }
+
     if problems > 0 {
         Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{problems} problem(s)")))
     } else {
         tracing::info!("\n✓ project looks healthy");
         Ok(())
     }
+}
+
+fn schema_status(session: &engine_config::SessionConfig) -> Result<(Vec<u64>, Vec<String>), String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+    runtime.block_on(async move {
+        let user = (!session.database_user.is_empty()).then_some(session.database_user.as_str());
+        let pass = (!session.database_pass.is_empty()).then_some(session.database_pass.as_str());
+        let db = engine_api::db::Datastore::open(
+            &session.database_endpoint,
+            &session.database_ns,
+            &session.database_db,
+            user,
+            pass,
+            engine_api::db::KvBudget::default(),
+        )
+        .await
+        .map_err(|e| format!("{}: {e}", session.database_endpoint))?;
+        let applied = engine_api::db::migrations::applied(&db)
+            .await
+            .map_err(|e| format!("schema_version unreadable (boot the server once to create it): {e}"))?;
+        let pending = engine_api::db::migrations::pending(
+            &db,
+            engine_api::db::migrations::MIGRATIONS,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok((applied.into_iter().map(|a| a.version).collect(), pending))
+    })
 }
 
 fn print_help() {
@@ -199,6 +258,7 @@ USAGE:
   cyg-game schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|all)
   cyg-game schema-debug [path]    inspect a compiled descriptor (--json)
   cyg-game doctor       [dir]    validate config, schema and wasm ABI exports
+  cyg-game doctor --check-schema report pending SurrealDB schema migrations
   cyg-game                        same as `run` in the current directory
 
 CONFIG:

@@ -10,7 +10,13 @@ pub async fn serve(
     state: ApiState,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) {
-    let router = crate::app::api::app(state).await;
+    let router = match crate::app::api::app(state).await {
+        Ok(router) => router,
+        Err(err) => {
+            tracing::error!("[boot] refusing to serve with a half-migrated schema: {err}");
+            std::process::exit(1);
+        }
+    };
     let _ = axum::serve(
         listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),

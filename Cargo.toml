@@ -35,6 +35,7 @@ edition = "2024"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 engine-bus = { path = "crates/engine-bus" }
+engine-api = { path = "crates/engine-api" }
 engine-config = { path = "crates/engine-config" }
 engine-control = { path = "crates/engine-control" }
 engine-server = { path = "crates/engine-server" }
@@ -47,9 +48,9 @@ hmac = "0.13.0"
 sha2 = "0.11.1"
 gltf = "1.4"
 mimalloc = { version = "0.1.52", default-features = false }
+tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
-engine-api = { path = "crates/engine-api" }
 engine-core = { path = "crates/engine-core" }
 engine-nav = { path = "crates/engine-nav" }
 bevy_ecs = { version = "0.15", default-features = false }
