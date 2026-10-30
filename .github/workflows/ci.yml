@@ -204,15 +204,31 @@ jobs:
           tags: cyg-gaming:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: The image must boot and answer
+      - name: Boot the image and probe it
         run: |
-          docker run --rm -d --name cyg-ci -p 19224:19224 cyg-gaming:ci
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:19224/health >/dev/null; then
-              curl -fsS http://127.0.0.1:19224/readyz
-              echo; echo "the image serves /health and /readyz"; exit 0
+          set -euo pipefail
+          game=$(grep -m1 '^port' game/config.toml | tr -dc '0-9')
+          api=$(grep -m1 '^api_port' game/config.toml | tr -dc '0-9')
+          docker run --rm -d --name cyg-ci \
+            -p "${game}:${game}" -p "${api}:${api}" \
+            -e OX_SIGNING_KEY="$(openssl rand -hex 32)" \
+            -e OX_REFRESH_SIGNING_KEY="$(openssl rand -hex 32)" \
+            -e OX_SERVER_KEY="$(openssl rand -hex 32)" \
+            -e OX_SEAT_SECRET="$(openssl rand -hex 32)" \
+            -e OX_CONSOLE_SIGNING_KEY="$(openssl rand -hex 32)" \
+            -e OX_CONSOLE_USERNAME=ci \
+            -e OX_CONSOLE_PASSWORD="$(openssl rand -hex 16)" \
+            cyg-gaming:ci
+          # The boot guard refuses default secrets, so a container that stays up
+          # long enough to answer /readyz has proven config, secrets and schema.
+          for i in $(seq 1 40); do
+            if curl -fsS "http://127.0.0.1:${api}/readyz" > readyz.json; then
+              cat readyz.json
+              curl -fsS "http://127.0.0.1:${api}/health"
+              echo; echo "the image boots real secrets and reports /readyz ready"
+              exit 0
             fi
-            sleep 2
+            sleep 3
           done
           docker logs cyg-ci
           exit 1
