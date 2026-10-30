@@ -591,6 +591,56 @@ fn room_is_reapable(cfg: &engine_config::GameConfig, name: &str, udp_peers: usiz
     !cfg.lifecycle.is_persistent(name) && (name != cfg.name.as_str() || udp_peers == 0)
 }
 
+/// How long a cold start waits for one snapshot answer. The control plane pumps
+/// on a 250 ms beat, so this is that beat plus a database read; longer and a
+/// node with no datastore behind it would take seconds to come up for nothing.
+const REHYDRATE_WAIT: Duration = Duration::from_millis(750);
+
+/// Fill the room cache from the datastore before the loop serves anyone.
+///
+/// `persistent_snapshots` is process-local, so a restart — or a replacement pod
+/// for the same room — starts with nothing and every room would be born empty
+/// while its saved state sat in `room_persistent_snapshot`. Only the rooms the
+/// config means to keep (`[lifecycle] persistent_rooms`, plus the project's own
+/// room, which is the one a native UDP client attaches to) are asked for, and
+/// only while the process is still booting: `fetch_snapshot` waits, and a wait
+/// inside the tick loop would cost every other room its frames.
+fn rehydrate_persistent_rooms(
+    server: &mut GameServer,
+    bus: &Bus,
+    cfg: &engine_config::GameConfig,
+    wait: Duration,
+) {
+    if !cfg.permissions.storage {
+        // The manifest forbids saving, so there is nothing stored to find.
+        return;
+    }
+    let mut names: Vec<&str> = cfg
+        .lifecycle
+        .persistent_rooms
+        .iter()
+        .map(String::as_str)
+        .collect();
+    if !names.contains(&cfg.name.as_str()) {
+        names.push(cfg.name.as_str());
+    }
+    for name in names {
+        let Some(saved) = bus.fetch_snapshot(name, wait) else {
+            continue;
+        };
+        tracing::info!(
+            "[server] 🧊 rehydrating room '{name}' from the datastore ({} bytes, snapshot {}, saved by a {} backend)",
+            saved.bytes.len(),
+            saved.seq,
+            saved.backend
+        );
+        // `save_snapshot` is the same door the host writes through when it reaps
+        // a room, so `get_or_create` restores this exactly like a snapshot the
+        // node took itself.
+        server.save_snapshot(name, saved.bytes);
+    }
+}
+
 /// Queue one disposed room as a finished match. The host holds no database
 /// handle, so the row the console reads is made here and written by the control
 /// plane; `peak_players` is sampled per host tick by the caller, since a room
@@ -1245,6 +1295,8 @@ pub fn run(
             }
         }
     }
+
+    rehydrate_persistent_rooms(&mut server, &bus, &cfg, REHYDRATE_WAIT);
 
     let mut last_tick = Instant::now();
     // Live-tunable: a console tick-rate change (SettingsReload on the bus)
@@ -3141,10 +3193,83 @@ mod loop_transport_tests {
         );
     }
 
+    /// A restart leaves the room cache empty, and the state a previous run saved
+    /// is the only thing a cold process can start from. Booting therefore asks
+    /// the control plane for the rooms the config means to keep — and asks for no
+    /// others.
+    #[test]
+    fn a_cold_start_asks_the_store_for_its_persistent_rooms() {
+        let mut cfg = engine_config::GameConfig::default();
+        cfg.name = "arena".into();
+        cfg.lifecycle.persistent_rooms = vec!["lobby".into()];
+        let mut server = GameServer::new(
+            None,
+            16,
+            PhysicsWorld3D::default(),
+            engine_wasm::AbiPermissions::default(),
+        );
+        let bus = Bus::new(8, 8);
+
+        let reader = bus.clone();
+        let pump = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let fetch = reader.fetches_rx.recv().expect("a fetch arrives");
+                let saved = match fetch.room.as_str() {
+                    "lobby" => Some(RoomSnapshot {
+                        room: "lobby".into(),
+                        backend: "wasm".into(),
+                        seq: 3,
+                        bytes: vec![0xab, 0xcd],
+                    }),
+                    // The default room of this project was never saved.
+                    _ => None,
+                };
+                let _ = fetch.reply.send(saved);
+            }
+        });
+
+        rehydrate_persistent_rooms(&mut server, &bus, &cfg, Duration::from_secs(5));
+        pump.join().unwrap();
+
+        assert_eq!(server.load_snapshot("lobby"), Some(&vec![0xab, 0xcd]));
+        assert!(
+            !server.has_snapshot("arena"),
+            "a room with nothing stored starts empty, as it should"
+        );
+    }
+
+    /// Two ways the answer never comes: the manifest forbids saving, so asking is
+    /// pointless, and a host with no control plane behind it must boot anyway.
+    #[test]
+    fn a_cold_start_without_anything_to_restore_does_not_wait_on_it() {
+        let mut cfg = engine_config::GameConfig::default();
+        cfg.name = "arena".into();
+        cfg.lifecycle.persistent_rooms = vec!["lobby".into()];
+        cfg.permissions.storage = false;
+        let mut server = GameServer::new(None, 16, PhysicsWorld3D::default(), cfg.permissions);
+        let bus = Bus::new(8, 8);
+
+        rehydrate_persistent_rooms(&mut server, &bus, &cfg, Duration::from_secs(5));
+        assert!(
+            bus.fetches_rx.try_recv().is_err(),
+            "a game that cannot save is not asked for its saves"
+        );
+
+        // Storage back on, and nobody behind the queue: the bounded wait is the
+        // whole cost, and the rooms boot empty.
+        cfg.permissions.storage = true;
+        let started = Instant::now();
+        rehydrate_persistent_rooms(&mut server, &bus, &cfg, Duration::from_millis(20));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "an unanswered fetch cannot hang a boot"
+        );
+        assert!(!server.has_snapshot("lobby"));
+    }
+
     /// The grace window is the loop's, not the signal handler's: it opens on the
     /// first pass that sees the latch, tells the rooms exactly once, and only
-    /// then lets the process stop.
-    #[test]
+    /// then lets the process stop.    #[test]
     fn a_drain_gets_its_grace_window_before_the_loop_stops() {
         let grace = Duration::from_secs(15);
         let mut drain = Drain::new(grace);

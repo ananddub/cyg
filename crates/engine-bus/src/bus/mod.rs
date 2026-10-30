@@ -1,11 +1,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender, bounded};
 
 use crate::messages::{
     InputMsg, MapReload, MatchFinished, OutFrame, RoomSnapshot, SettingsReload, SimCommand,
-    SimEvent, WasmReload,
+    SimEvent, SnapshotFetch, WasmReload,
 };
 use crate::telemetry::StatusSnapshot;
 
@@ -35,6 +36,10 @@ const MATCH_CAP: usize = 64;
 /// is disposed, so at most one per room per pass; eight rooms closing inside one
 /// 250 ms pump beat is already a backlog an operator wants to see.
 const SNAPSHOT_CAP: usize = 8;
+/// Rooms asking the control plane for their saved state. Only a boot or a
+/// first-ever spawn reaches this queue, so eight in flight is already a node
+/// that is creating rooms faster than one SELECT can answer them.
+const FETCH_CAP: usize = 8;
 
 /// Inter-plane wiring. Each plane consumes its own ends directly; sends on
 /// `inputs` must go through [`Bus::push_input`] or the drop policy is lost.
@@ -76,6 +81,10 @@ pub struct Bus {
     /// [`Bus::push_snapshot`].
     pub snapshots_tx: Sender<RoomSnapshot>,
     pub snapshots_rx: Receiver<RoomSnapshot>,
+    /// sim → control plane: requests for a room's stored state, answered on the
+    /// `reply` each carries. See [`Bus::fetch_snapshot`].
+    pub fetches_tx: Sender<SnapshotFetch>,
+    pub fetches_rx: Receiver<SnapshotFetch>,
     /// Latched by whatever catches the process' termination signal and read by
     /// the loop that owns the rooms. A one-way latch, so an atomic beats a
     /// channel that every consumer would have to keep draining.
@@ -94,6 +103,7 @@ impl Bus {
         let (events_tx, events_rx) = bounded(EVENT_CAP);
         let (matches_tx, matches_rx) = bounded(MATCH_CAP);
         let (snapshots_tx, snapshots_rx) = bounded(SNAPSHOT_CAP);
+        let (fetches_tx, fetches_rx) = bounded(FETCH_CAP);
         Arc::new(Bus {
             inputs_tx,
             inputs_rx,
@@ -117,6 +127,8 @@ impl Bus {
             matches_dropped: AtomicU64::new(0),
             snapshots_tx,
             snapshots_rx,
+            fetches_tx,
+            fetches_rx,
             draining: AtomicBool::new(false),
         })
     }
@@ -196,6 +208,26 @@ impl Bus {
         };
         let _ = self.snapshots_rx.try_recv();
         let _ = self.snapshots_tx.try_send(snapshot);
+    }
+
+    /// Ask the control plane for a room's stored state and wait for the answer.
+    /// Unlike the queues above this one **blocks the caller**, so it belongs on a
+    /// path that is already off the tick: a process boot or a room spawn, never a
+    /// frame. The wait is bounded because a control plane that is not pumping (or
+    /// has no datastore at all) must turn into "the room starts empty", not a hang.
+    pub fn fetch_snapshot(&self, room: &str, wait: Duration) -> Option<RoomSnapshot> {
+        let (reply_tx, reply_rx) = bounded(1);
+        if self
+            .fetches_tx
+            .try_send(SnapshotFetch {
+                room: room.to_string(),
+                reply: reply_tx,
+            })
+            .is_err()
+        {
+            return None;
+        }
+        reply_rx.recv_timeout(wait).ok().flatten()
     }
 }
 

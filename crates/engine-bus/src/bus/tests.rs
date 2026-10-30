@@ -1,5 +1,6 @@
 use super::*;
 use crate::messages::{MatchFinished, SimEvent, Via};
+use std::time::Instant;
 
 fn input(seq: u16) -> InputMsg {
     InputMsg {
@@ -140,4 +141,59 @@ fn a_snapshot_rides_the_queue_with_its_backend_and_ordinal() {
     assert_eq!(saved.backend, "wasm");
     assert_eq!(saved.seq, 2);
     assert_eq!(saved.bytes, vec![9]);
+}
+
+/// The fetch is the only bus call that waits, so its two failure modes have to
+/// be answers rather than hangs: nobody pumping, and nobody holding the row.
+#[test]
+fn a_snapshot_fetch_is_answered_by_the_control_plane() {
+    let bus = Bus::new(2, 2);
+    let reader = bus.clone();
+    let answer = std::thread::spawn(move || {
+        let fetch = reader.fetches_rx.recv().expect("a request arrives");
+        assert_eq!(fetch.room, "arena");
+        let _ = fetch.reply.send(Some(RoomSnapshot {
+            room: fetch.room,
+            backend: "wasm".into(),
+            seq: 4,
+            bytes: vec![1, 2],
+        }));
+    });
+    let saved = bus
+        .fetch_snapshot("arena", Duration::from_secs(5))
+        .expect("the answer comes back on the reply");
+    assert_eq!(saved.backend, "wasm");
+    assert_eq!(saved.seq, 4);
+    assert_eq!(saved.bytes, vec![1, 2]);
+    // The request left the queue, so the slot is free again for the next room.
+    assert!(
+        bus.fetches_rx.try_recv().is_err(),
+        "the reader took the request"
+    );
+    answer.join().unwrap();
+}
+
+#[test]
+fn an_unanswered_fetch_gives_up_and_starts_the_room_empty() {
+    let bus = Bus::new(2, 2);
+    // Nobody reads `fetches_rx`: a host with no control plane behind it boots a
+    // room with no state, after waiting only as long as it said it would.
+    let started = Instant::now();
+    assert!(bus.fetch_snapshot("arena", Duration::from_millis(20)).is_none());
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the wait is bounded, not a hang"
+    );
+
+    // A `None` answer is a real one: the room never saved anything, and the
+    // host must not retry it every time somebody asks for the room.
+    let reader = bus.clone();
+    std::thread::spawn(move || {
+        let fetch = reader.fetches_rx.recv().unwrap();
+        let _ = fetch.reply.send(None);
+    });
+    assert!(
+        bus.fetch_snapshot("arena", Duration::from_secs(5))
+            .is_none()
+    );
 }

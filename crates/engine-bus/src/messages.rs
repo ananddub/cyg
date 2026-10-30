@@ -100,6 +100,17 @@ pub struct RoomSnapshot {
     pub bytes: Vec<u8>,
 }
 
+/// sim → control plane: the host is about to spawn a room it has no copy of in
+/// this process and asks for the state a previous run saved. The reply carries
+/// the stored row, or `None` when the room never persisted anything — which is
+/// also what a control plane that is not pumping leaves the host with, after
+/// [`Bus::fetch_snapshot`](crate::Bus::fetch_snapshot) gives up waiting.
+#[derive(Debug)]
+pub struct SnapshotFetch {
+    pub room: String,
+    pub reply: Sender<Option<RoomSnapshot>>,
+}
+
 /// Why the sim should hot-swap its room module: a console upload of a fresh
 /// version, or a rollback re-activating an older one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

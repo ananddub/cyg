@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use engine_bus::RoomSnapshot;
 use uuid::Uuid;
 
 use crate::ApiState;
@@ -45,6 +46,7 @@ pub async fn pump_events(state: ApiState) {
     let rx = state.bus.events_rx.clone();
     let matches_rx = state.bus.matches_rx.clone();
     let snapshots_rx = state.bus.snapshots_rx.clone();
+    let fetches_rx = state.bus.fetches_rx.clone();
     let mut ticker = tokio::time::interval(PUMP_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -132,6 +134,26 @@ pub async fn pump_events(state: ApiState) {
             {
                 tracing::warn!("[control] dropped a room snapshot: {err}");
             }
+        }
+        // A host spawning a room it has never seen asks for the state an earlier
+        // run saved. It is waiting on the answer, so a lookup that failed is
+        // answered with `None` rather than left to time out: "start empty" is
+        // the same outcome the host reaches on its own, and it reaches it sooner.
+        while let Ok(fetch) = fetches_rx.try_recv() {
+            let found = match q.load_room_snapshot(&fetch.room).await {
+                Ok(Some(row)) => Some(RoomSnapshot {
+                    room: row.room_name,
+                    backend: row.backend,
+                    seq: row.snapshot_seq,
+                    bytes: row.snapshot_bytes,
+                }),
+                Ok(None) => None,
+                Err(err) => {
+                    tracing::warn!("[control] snapshot fetch for '{}' failed: {err}", fetch.room);
+                    None
+                }
+            };
+            let _ = fetch.reply.send(found);
         }
     }
 }
