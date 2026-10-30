@@ -5,6 +5,15 @@ use super::registry::{HmacSha256, SeatRegistry};
 use super::token::Seat;
 
 impl SeatRegistry {
+    /// Constant-time MAC check against one secret.
+    fn mac_matches(&self, secret: &[u8], payload: &[u8], presented: &[u8]) -> bool {
+        let Ok(mut mac) = <HmacSha256 as Mac>::new_from_slice(secret) else {
+            return false;
+        };
+        mac.update(payload);
+        mac.verify_slice(presented).is_ok()
+    }
+
     pub(super) fn sign(&self, room: &str, expires_at: u64) -> String {
         let payload = format!("{room}:{expires_at}");
         let payload = payload.as_bytes();
@@ -39,10 +48,9 @@ impl SeatRegistry {
         }
         let payload = b64url_decode(payload_b64)?;
         let presented = b64url_decode(mac_b64)?;
-        let mut mac =
-            <HmacSha256 as Mac>::new_from_slice(&self.secret).expect("hmac accepts any key length");
-        mac.update(&payload);
-        if mac.verify_slice(&presented).is_err() {
+        if !self.mac_matches(&self.secret, &payload, &presented)
+            && (self.previous.is_empty() || !self.mac_matches(&self.previous, &payload, &presented))
+        {
             return None;
         }
         let text = std::str::from_utf8(&payload).ok()?;

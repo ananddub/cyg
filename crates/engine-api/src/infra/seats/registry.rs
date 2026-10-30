@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use engine_config::Rotation;
 use hmac::Hmac;
 use sha2::Sha256;
 
@@ -10,6 +11,10 @@ pub(super) type HmacSha256 = Hmac<Sha256>;
 
 pub struct SeatRegistry {
     pub(super) secret: Vec<u8>,
+    /// The seat secret this process retired. Seats are handed to a client and
+    /// then presented to whichever sim picks them up, so a rotation must keep
+    /// accepting the old HMAC until those seats expire on their own.
+    pub(super) previous: Vec<u8>,
     pub(super) by_token: HashMap<String, Seat>,
     pub(super) next_expiry: HashMap<String, u64>,
     pub(super) minted: u64,
@@ -24,8 +29,17 @@ impl SeatRegistry {
     }
 
     pub fn with_seat_bound(secret: &str, max_outstanding: usize) -> SeatRegistry {
+        SeatRegistry::with_previous(
+            secret,
+            &Rotation::global().previous_seat_secret,
+            max_outstanding,
+        )
+    }
+
+    pub fn with_previous(secret: &str, previous: &str, max_outstanding: usize) -> SeatRegistry {
         SeatRegistry {
             secret: secret.as_bytes().to_vec(),
+            previous: previous.as_bytes().to_vec(),
             by_token: HashMap::new(),
             next_expiry: HashMap::new(),
             minted: 0,

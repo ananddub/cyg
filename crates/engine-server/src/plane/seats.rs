@@ -31,6 +31,7 @@ pub enum SeatError {
 
 pub struct SeatRegistry {
     secret: Vec<u8>,
+    previous: Vec<u8>,
 }
 
 fn now_unix() -> u64 {
@@ -40,8 +41,7 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-const B64_ALPHABET: &[u8; 64] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const B64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 /// RFC4648 URL-safe base64, no padding. Tiny table-driven encoder: the payload
 /// is a short ASCII string and the MAC is 32 bytes, so throughput never matters.
@@ -101,16 +101,41 @@ fn b64url_decode(input: &str) -> Option<Vec<u8>> {
 
 impl SeatRegistry {
     pub fn new(secret: &str) -> SeatRegistry {
-        SeatRegistry { secret: secret.as_bytes().to_vec() }
+        SeatRegistry::with_previous(
+            secret,
+            &engine_config::Rotation::global().previous_seat_secret,
+        )
+    }
+
+    /// A seat is minted by the control plane and presented here, so the plane
+    /// must keep trusting the secret that was retired until those seats expire.
+    pub fn with_previous(secret: &str, previous: &str) -> SeatRegistry {
+        SeatRegistry {
+            secret: secret.as_bytes().to_vec(),
+            previous: previous.as_bytes().to_vec(),
+        }
+    }
+
+    fn mac_ok(&self, secret: &[u8], payload: &[u8], sig: &[u8]) -> bool {
+        let Ok(mut mac) = HmacSha256::new_from_slice(secret) else {
+            return false;
+        };
+        mac.update(payload);
+        // verify_slice is constant-time (and length-checked); never swap in ==.
+        mac.verify_slice(sig).is_ok()
     }
 
     pub fn mint(&self, room: &str, ttl_secs: u64) -> String {
         let payload = format!("{room}:{}", now_unix().saturating_add(ttl_secs));
-        let mut mac = HmacSha256::new_from_slice(&self.secret)
-            .expect("HMAC accepts keys of any length");
+        let mut mac =
+            HmacSha256::new_from_slice(&self.secret).expect("HMAC accepts keys of any length");
         mac.update(payload.as_bytes());
         let tag = mac.finalize().into_bytes();
-        format!("{}.{}", b64url_encode(payload.as_bytes()), b64url_encode(&tag))
+        format!(
+            "{}.{}",
+            b64url_encode(payload.as_bytes()),
+            b64url_encode(&tag)
+        )
     }
 
     pub fn verify(&self, token: &str) -> Option<SeatGrant> {
@@ -122,10 +147,11 @@ impl SeatRegistry {
         let payload = b64url_decode(payload_b64)?;
         let sig = b64url_decode(sig_b64)?;
 
-        let mut mac = HmacSha256::new_from_slice(&self.secret).ok()?;
-        mac.update(&payload);
-        // verify_slice is constant-time (and length-checked); never swap in ==.
-        mac.verify_slice(&sig).ok()?;
+        if !self.mac_ok(&self.secret, &payload, &sig)
+            && (self.previous.is_empty() || !self.mac_ok(&self.previous, &payload, &sig))
+        {
+            return None;
+        }
 
         let text = std::str::from_utf8(&payload).ok()?;
         let (room, exp) = text.rsplit_once(':')?;
@@ -133,7 +159,9 @@ impl SeatRegistry {
         if room.is_empty() || room.contains('.') || exp <= now_unix() {
             return None;
         }
-        Some(SeatGrant { room: room.to_string() })
+        Some(SeatGrant {
+            room: room.to_string(),
+        })
     }
 }
 
@@ -198,9 +226,35 @@ mod tests {
     }
 
     #[test]
+    fn a_seat_minted_with_the_retired_secret_verifies_until_the_window_closes() {
+        // Minted by the plane as it stood before the rotation.
+        let token = SeatRegistry::with_previous("old-secret", "").mint("tank-3d", 300);
+        assert_eq!(
+            SeatRegistry::with_previous("new-secret", "old-secret")
+                .verify(&token)
+                .expect("the retired secret is still trusted while seats live")
+                .room,
+            "tank-3d"
+        );
+        assert!(
+            SeatRegistry::with_previous("new-secret", "")
+                .verify(&token)
+                .is_none(),
+            "once the retired secret is dropped the seat must stop verifying"
+        );
+    }
+
+    #[test]
     fn garbage_rejected_no_panic() {
         for bad in [
-            "", ".", "..", "no-dot", "a.b", "A.B", "@@@.###", "AA==.AA==",
+            "",
+            ".",
+            "..",
+            "no-dot",
+            "a.b",
+            "A.B",
+            "@@@.###",
+            "AA==.AA==",
             "QQ.a", // len % 4 == 1 half
             "QQQ.aaa",
             &format!("{}.AAAAAAAA", b64url_encode(b"tank-3d:notanumber")),

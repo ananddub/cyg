@@ -73,7 +73,15 @@ pub fn server_key(headers: &HeaderMap, state: &crate::ApiState) -> Result<(), V2
     else {
         return Err(V2Error::unauthenticated("Server key invalid"));
     };
-    if parse_basic_user(value).as_deref() != Some(state.control.session.server_key.as_str()) {
+    let Some(presented) = parse_basic_user(value) else {
+        return Err(V2Error::unauthenticated("Server key invalid"));
+    };
+    // The retired key stays valid for one rotation window so a backend that has
+    // not redeployed yet is not cut off mid-rotation; `!=` would leak the key one
+    // byte at a time to anyone willing to measure attempts.
+    if !engine_config::Rotation::global()
+        .accepts_server_key(&state.control.session.server_key, &presented)
+    {
         return Err(V2Error::unauthenticated("Server key invalid"));
     }
     Ok(())

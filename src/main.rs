@@ -114,7 +114,8 @@ fn main() {
 
 /// `cyg-game doctor [dir]` — one command that validates everything a project
 /// needs: config, schema, wasm presence and the exact ABI export names the
-/// host will look up. Catches contract mismatches (e.g. `tick()` vs
+/// host will look up, plus the secrets the boot guard would refuse to start
+/// with. Catches contract mismatches (e.g. `tick()` vs
 /// `on_tick()`) in seconds instead of at room-join time.
 fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
     let mut problems = 0usize;
@@ -202,6 +203,38 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
             "• room wasm not built yet (run: cyg-game run {})",
             dir.display()
         ),
+    }
+
+    // 4. secrets. The boot guard refuses to start a plane on these, so asking
+    //    the same questions here names every problem before a deploy instead of
+    //    leaving them to a process that will not come up.
+    match cfg.as_ref() {
+        None => tracing::info!("• secrets not audited (config.toml did not parse)"),
+        Some(cfg) => {
+            let read_env = |name: &str| std::env::var(name).ok();
+            let checks = engine_config::audit_secrets(
+                &cfg.control,
+                engine_config::Rotation::global(),
+                &read_env,
+            );
+            let failed: Vec<&str> = checks
+                .iter()
+                .filter(|c| !c.ok)
+                .map(|c| c.detail.as_str())
+                .collect();
+            if failed.is_empty() {
+                tracing::info!(
+                    "✓ secrets are strong and no credential is accepted unverified ({} checks)",
+                    checks.len()
+                );
+            } else {
+                for detail in &failed {
+                    tracing::info!("✗ {detail}");
+                }
+                tracing::info!("  rotation runbook: docs/SECRETS.md");
+                problems += failed.len();
+            }
+        }
     }
 
     if check_schema {
@@ -363,7 +396,7 @@ USAGE:
   cyg-game schema        [dir]    compile schema.ts to server code + browser descriptor
   cyg-game schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|all)
   cyg-game schema-debug [path]    inspect a compiled descriptor (--json)
-  cyg-game doctor       [dir]    validate config, schema and wasm ABI exports
+  cyg-game doctor       [dir]    validate config, schema, wasm ABI exports and secrets
   cyg-game doctor --check-schema report pending SurrealDB schema migrations
   cyg-game backup  [dir] [--out backups]  export the HTTP database to a timestamped gzip + sha256 sidecar
   cyg-game restore [dir] <archive> [--force]  import a backup archive produced by backup

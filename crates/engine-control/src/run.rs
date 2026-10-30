@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use engine_api::{ApiState, gc_seats, pump, pump_events, serve, sweep_match_history};
 use engine_bus::Bus;
-use engine_config::{ControlConfig, GameConfig};
+use engine_config::{ControlConfig, GameConfig, placeholder_secret, weak_secret};
 
 use crate::plane::{ControlPlane, shutdown_signal};
 
