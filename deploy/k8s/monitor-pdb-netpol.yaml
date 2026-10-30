@@ -1,0 +1,68 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cyg
+  namespace: cyg
+  labels:
+    app.kubernetes.io/name: cyg-gaming
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cyg-gaming
+      app.kubernetes.io/component: control-plane
+  namespaceSelector:
+    matchNames:
+      - cyg
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      # /metrics answers only to the server key (or a console token), so the
+      # scraper needs it. The operator turns the Secret into a mountable
+      # credential; only the username half is checked by the server.
+      basicAuth:
+        name: cyg-secrets
+        key: OX_SERVER_KEY
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cyg
+  namespace: cyg
+spec:
+  # Rooms drain on SIGTERM, so losing every control-plane pod at once would
+  # still drop the players attached to them.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cyg-gaming
+      app.kubernetes.io/component: control-plane
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cyg
+  namespace: cyg
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cyg-gaming
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - { port: 8124, protocol: TCP }
+        - { port: 7777, protocol: TCP }
+        - { port: 7777, protocol: UDP }
+        - { port: 7778, protocol: UDP }
+        - { port: 7779, protocol: UDP }
+  egress:
+    - ports:
+        - { port: 8000, protocol: TCP }
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    # The Agones SDK sidecar on loopback and the WebRTC STUN/DTLS path out.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cyg-gaming

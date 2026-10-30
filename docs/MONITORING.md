@@ -104,3 +104,24 @@ groups:
 budget, sessions by transport, and the tick duration histogram as a heatmap
 (format the `le` buckets with the "heatmap" panel and `cyg_tick_duration_us_bucket`).
 Import it against the Prometheus data source; no templating beyond `$job`.
+
+## Probes
+
+`/health` answers as soon as the process exists, so it is the liveness probe:
+restarting a pod that cannot reach its datastore would only lose more rooms.
+
+`/readyz` is the readiness probe and answers 503 until all three checks pass:
+
+| check    | live when                                        |
+| -------- | ------------------------------------------------ |
+| database | `RETURN 1` succeeds (or no endpoint is configured) |
+| schema   | `migrations::pending` returns nothing              |
+| pump     | the status pump owns the snapshot queue            |
+
+```json
+{"status": "unready", "checks": {"database": "live", "schema": "1 pending", "pump": "running"}}
+```
+
+A pod whose schema has not been applied is deliberately kept out of rotation
+rather than serving reads from a half-migrated store. The Kubernetes manifests
+in `deploy/k8s/` wire both probes.

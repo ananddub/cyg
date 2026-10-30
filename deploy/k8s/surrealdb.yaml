@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: surrealdb
+  namespace: cyg
+  labels:
+    app.kubernetes.io/name: surrealdb
+spec:
+  serviceName: surrealdb
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: surrealdb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: surrealdb
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+        - name: surrealdb
+          # Pin the tag: a `latest` node can move the on-disk format under a
+          # PersistentVolumeClaim that still holds the old one.
+          image: surrealdb/surrealdb:v3.3.5
+          args:
+            - start
+            - --bind
+            - 0.0.0.0:8000
+            - --user
+            - $(SURREAL_USER)
+            - --pass
+            - $(SURREAL_PASS)
+            - surrealkv:///data/cyg
+          env:
+            - name: SURREAL_USER
+              valueFrom:
+                secretKeyRef: { name: cyg-secrets, key: SURREAL_USER }
+            - name: SURREAL_PASS
+              valueFrom:
+                secretKeyRef: { name: cyg-secrets, key: SURREAL_PASS }
+          ports:
+            - { name: sql, containerPort: 8000 }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: surrealdb
+  namespace: cyg
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: surrealdb
+  ports:
+    - { name: sql, port: 8000, targetPort: sql }

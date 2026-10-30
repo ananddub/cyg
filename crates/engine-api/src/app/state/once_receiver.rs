@@ -18,4 +18,10 @@ impl OnceReceiver {
     pub fn try_take(&self) -> Option<Receiver<StatusSnapshot>> {
         self.inner.lock().ok()?.take()
     }
+
+    /// Non-consuming peek. The status pump takes the queue once and keeps it
+    /// forever, so a taken receiver is how `/readyz` knows the pump is alive.
+    pub fn is_taken(&self) -> bool {
+        self.inner.lock().is_ok_and(|guard| guard.is_none())
+    }
 }

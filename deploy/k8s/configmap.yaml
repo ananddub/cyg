@@ -1,0 +1,41 @@
+# Secrets never live here: every credential is an OX_* environment variable
+# sourced from the Secret (see secret.template.yaml), so this file is safe to
+# commit and to diff in review.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cyg-config
+  namespace: cyg
+data:
+  config.toml: |
+    [game]
+    name = "orbioo-agario"
+    port = 7777
+    web_port = 8090
+    max_clients = 8
+    tick_rate = 30
+
+    [control]
+    enabled = true
+    bind_addr = "0.0.0.0"
+    api_port = 8124
+    workers = 2
+    rate_limit_rps = 20
+    rate_limit_burst = 40
+
+    [control.session]
+    # The Service DNS name; credentials come from the Secret.
+    database_endpoint = "http://surrealdb:8000"
+    database_ns = "cyg"
+    database_db = "cyg"
+    token_expires_sec = 60
+    refresh_token_expires_sec = 3600
+
+    [control.console]
+    token_expires_sec = 3600
+
+    # The room drains on SIGTERM (engine-control §3.7), so terminationGracePeriods
+    # in the pod spec is what bounds the drain.
+    [lifecycle]
+    reap_idle_secs = 30
+    room_max_seconds = 0

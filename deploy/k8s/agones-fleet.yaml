@@ -1,0 +1,113 @@
+apiVersion: agones.dev/v1
+kind: Fleet
+metadata:
+  name: cyg-room
+  namespace: cyg
+spec:
+  replicas: 4
+  scheduling: Packed
+  template:
+    spec:
+      # One room per pod: Agones marks the GameServer Allocated, the guest
+      # process keeps ticking, and §3.7's SIGTERM drain runs before deletion.
+      deployment:
+        replicas: 4
+      ports:
+        # `Direct` hands the pod a hostPort, which is what a raw-UDP player
+        # dials; the address Agones reports (status.address + the allocated
+        # port) is the one the matchmake reply must carry.
+        - { name: game-tcp, portPolicy: Direct, protocol: TCP, containerPort: 7777 }
+        - { name: game-udp, portPolicy: Direct, protocol: UDP, containerPort: 7777 }
+        - { name: engine-udp, portPolicy: Direct, protocol: UDP, containerPort: 7778 }
+        - { name: webrtc-udp, portPolicy: Direct, protocol: UDP, containerPort: 7779 }
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: cyg-gaming
+            app.kubernetes.io/component: room-host
+        spec:
+          terminationGracePeriodSeconds: 60
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            fsGroup: 10001
+          containers:
+            - name: game-server
+              image: ghcr.io/REPLACE_ME/cyg-gaming:REPLACE_ME_TAG
+              args: ["run", "/app/game"]
+              env:
+                - name: OX_AGONES
+                  value: "1"
+                - name: RUST_LOG
+                  value: info
+                - name: OX_LOG_FORMAT
+                  value: json
+                # Absent on purpose: refuse_default_secrets() must stay armed.
+                - name: OX_UDP_ADDR
+                  value: "0.0.0.0:7778"
+              envFrom:
+                - secretRef: { name: cyg-secrets }
+              volumeMounts:
+                - name: config
+                  mountPath: /app/game/config.toml
+                  subPath: config.toml
+                  readOnly: true
+              ports:
+                - { containerPort: 7777, protocol: TCP }
+                - { containerPort: 7777, protocol: UDP }
+                - { containerPort: 7778, protocol: UDP }
+                - { containerPort: 7779, protocol: UDP }
+              # Readiness is the control plane's own view: datastore reachable,
+              # schema current, status pump running. Agones gates allocation on
+              # the sidecar's /ready call, which this process makes itself when
+              # OX_AGONES=1.
+              readinessProbe:
+                httpGet: { path: /readyz, port: 8124 }
+                periodSeconds: 5
+              livenessProbe:
+                httpGet: { path: /health, port: 8124 }
+                periodSeconds: 15
+              resources:
+                requests: { cpu: 250m, memory: 256Mi }
+                limits: { cpu: "2", memory: 512Mi }
+            - name: agones-sdk
+              image: gcr.io/agones/agones-sidecar:1.47.0
+              volumeMounts:
+                - name: shared-volume
+                  mountPath: /shared
+          volumes:
+            - name: config
+              configMap:
+                name: cyg-config
+            - name: shared-volume
+              emptyDir: {}
+---
+apiVersion: autoscaling.agones.dev/v1
+kind: FleetAutoscaler
+metadata:
+  name: cyg-room
+  namespace: cyg
+spec:
+  fleetName: cyg-room
+  policy:
+    type: Buffer
+    buffer:
+      bufferLength: 2
+---
+apiVersion: agones.dev/v1
+kind: GameServerAllocation
+metadata:
+  name: allocate-cyg-room
+  namespace: cyg
+  annotations:
+    # kubectl create -f this file returns the chosen pod's address and ports;
+    # in production the matchmaker POSTs the same object to
+    # /apis/agones.dev/v1/namespaces/cyg/gameserverallocations.
+    description: one dedicated room host
+spec:
+  selectors:
+    - matchLabels:
+        agones.dev/fleet: cyg-room
+  required:
+    ports:
+      - { portPolicy: Listen, protocol: UDP, containerPort: 7778 }

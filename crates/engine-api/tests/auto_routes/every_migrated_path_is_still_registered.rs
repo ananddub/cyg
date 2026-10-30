@@ -8,6 +8,7 @@ pub async fn every_migrated_path_is_still_registered() {
         ("GET", "/health"),
         ("GET", "/auto/health"),
         ("GET", "/status"),
+        ("GET", "/readyz"),
         ("GET", "/api/rooms"),
         ("GET", "/api/dashboard/overview"),
         ("GET", "/api/dashboard/rooms"),

@@ -1,6 +1,11 @@
 use auto_route::controller;
 use axum::Json;
+use axum::response::Response;
 use serde_json::json;
+use std::sync::Arc;
+
+use crate::current_state;
+use crate::services::status::StatusService;
 
 struct HealthController;
 
@@ -16,5 +21,22 @@ impl HealthController {
             "status": "ok",
             "routing": "auto",
         }))
+    }
+}
+
+struct ReadyzController {
+    service: Arc<StatusService>,
+}
+
+#[controller("/readyz")]
+impl ReadyzController {
+    fn new(service: Arc<StatusService>) -> Self {
+        Self { service }
+    }
+
+    #[get("")]
+    async fn readyz(&self) -> Response {
+        let state = current_state();
+        self.service.readyz(&state).await
     }
 }

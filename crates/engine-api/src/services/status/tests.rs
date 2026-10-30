@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 mod counters;
 mod pump;
+mod readyz;
 mod rooms;
 mod status_json;
 
