@@ -27,14 +27,18 @@ pub fn ddl() -> Vec<&'static str> {
         IdempotencyKey,
         ItemDefinition,
         PlayerInventoryItem,
+        PlayerQuest,
+        PlayerStat,
         Leaderboard,
         LeaderboardRecord,
         Message,
         Notification,
         Purchase,
+        QuestDefinition,
         RoomModules,
         RoomPersistentSnapshot,
         SchemaVersion,
+        Season,
         Setting,
         Storage,
         StorageIndex,
@@ -63,7 +67,7 @@ mod tests {
             ddl.iter()
                 .filter(|line| line.starts_with("DEFINE TABLE"))
                 .count(),
-            28
+            32
         );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {

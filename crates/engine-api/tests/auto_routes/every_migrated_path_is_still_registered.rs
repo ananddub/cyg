@@ -240,6 +240,18 @@ pub async fn every_migrated_path_is_still_registered() {
             "DELETE",
             "/v2/console/acl/template/00000000-0000-0000-0000-000000000000",
         ),
+        ("POST", "/v2/events"),
+        ("GET", "/v2/quest"),
+        ("POST", "/v2/quest/claim"),
+        ("POST", "/v2/account/daily/claim"),
+        ("GET", "/v2/console/quests"),
+        ("POST", "/v2/console/quests"),
+        ("PUT", "/v2/console/quests/example"),
+        ("DELETE", "/v2/console/quests/example"),
+        ("GET", "/v2/console/seasons"),
+        ("POST", "/v2/console/seasons"),
+        ("PUT", "/v2/console/seasons/example"),
+        ("DELETE", "/v2/console/seasons/example"),
     ];
 
     let mut paths: Vec<&str> = routes.iter().map(|(_, path)| *path).collect();

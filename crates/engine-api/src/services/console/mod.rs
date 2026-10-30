@@ -18,6 +18,8 @@ pub mod leaderboard;
 pub mod matches;
 pub mod mfa;
 pub mod notification;
+pub mod quest;
+pub mod season;
 pub mod setting;
 pub mod status;
 pub mod storage;

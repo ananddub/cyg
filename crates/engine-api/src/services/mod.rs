@@ -16,6 +16,7 @@ pub mod maps;
 pub mod match_query;
 pub mod matchmake;
 pub mod notification;
+pub mod quest;
 pub mod realtime;
 pub mod session;
 pub mod signaling;

@@ -8,6 +8,7 @@ pub mod leaderboard;
 #[path = "match.rs"]
 pub mod matches;
 pub mod notification;
+pub mod quest;
 pub mod setting;
 pub mod status;
 pub mod storage;

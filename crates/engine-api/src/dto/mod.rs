@@ -14,6 +14,7 @@ pub mod link;
 pub mod matches;
 pub mod matchmake;
 pub mod notification;
+pub mod quest;
 pub mod session;
 pub mod signaling;
 pub mod storage;

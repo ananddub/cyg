@@ -15,6 +15,7 @@ pub mod leaderboard;
 pub mod link;
 pub mod models;
 pub mod notification;
+pub mod quest;
 pub mod session;
 pub mod storage;
 pub mod tenancy;
