@@ -68,7 +68,8 @@ pub async fn board_size(pool: &Datastore, id: &str) -> i64 {
     .await
     .unwrap_or(-1)
 }
-pub async fn seed_ledger(pool: &Datastore, id: Uuid, user_id: &str, changeset: Value) {    let now = engine_api::db::time::encode(Utc::now());
+pub async fn seed_ledger(pool: &Datastore, id: Uuid, user_id: &str, changeset: Value) {
+    let now = engine_api::db::time::encode(Utc::now());
     exec(
         pool,
         "CREATE type::record('wallet_ledger', <uuid>$id) CONTENT $row RETURN NOTHING",

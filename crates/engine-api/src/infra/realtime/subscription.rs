@@ -63,7 +63,10 @@ async fn retire(inner: &Inner, key: &TopicKey, generation: u64) {
     }
 }
 fn record_key(row: &serde_json::Value) -> String {
-    let id = row.get("id").and_then(serde_json::Value::as_str).unwrap_or_default();
+    let id = row
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
     match id.split_once(':') {
         Some((_, key)) => crate::db::exec::strip_key(key),
         None => id.to_string(),

@@ -120,9 +120,15 @@ mod tests {
             allow_unverified: true,
             ..SocialConfig::default()
         };
-        let first = profile(&config, Kind::Google, "token").await.expect("accepted");
-        let again = profile(&config, Kind::Google, "token").await.expect("stable");
-        let other = profile(&config, Kind::Google, "other").await.expect("accepted");
+        let first = profile(&config, Kind::Google, "token")
+            .await
+            .expect("accepted");
+        let again = profile(&config, Kind::Google, "token")
+            .await
+            .expect("stable");
+        let other = profile(&config, Kind::Google, "other")
+            .await
+            .expect("accepted");
         assert_eq!(first.id, again.id);
         assert_ne!(first.id, other.id);
         assert_eq!(first.id, hex_id("token"));

@@ -19,7 +19,10 @@ pub(crate) async fn string_keyed_records_use_natural_ids() {
 
     let found: Vec<NamedProbe> = db
         .query_params(
-            &format!("SELECT * FROM {}", super::super::record("probe_named", "key")),
+            &format!(
+                "SELECT * FROM {}",
+                super::super::record("probe_named", "key")
+            ),
             &BTreeMap::from([("key".to_string(), serde_json::json!("weekly"))]),
         )
         .await
@@ -30,9 +33,7 @@ pub(crate) async fn string_keyed_records_use_natural_ids() {
 #[tokio::test]
 pub(crate) async fn stored_timestamps_order_chronologically() {
     let db = memory().await;
-    db.apply([ProbeRow::define_table()])
-        .await
-        .expect("schema");
+    db.apply([ProbeRow::define_table()]).await.expect("schema");
 
     let base = chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 10, 29, 12, 0, 0).unwrap();
     for offset in [500, 0] {

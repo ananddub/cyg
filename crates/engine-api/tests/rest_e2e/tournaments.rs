@@ -697,7 +697,13 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     )
     .await;
     assert_eq!(message, "Tournament has reached max size.");
-    let records = count(pool, "leaderboard_record", Some("leaderboard_id = $board"), &[("board", json!(open_id))]).await;
+    let records = count(
+        pool,
+        "leaderboard_record",
+        Some("leaderboard_id = $board"),
+        &[("board", json!(open_id))],
+    )
+    .await;
     let size = board_size(pool, &open_id).await;
     assert_eq!((records, size), (2, 2), "the refused insert is rolled back");
 
@@ -712,7 +718,13 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
         "alpha deletes their record",
     )
     .await;
-    let records = count(pool, "leaderboard_record", Some("leaderboard_id = $board"), &[("board", json!(open_id))]).await;
+    let records = count(
+        pool,
+        "leaderboard_record",
+        Some("leaderboard_id = $board"),
+        &[("board", json!(open_id))],
+    )
+    .await;
     let size = board_size(pool, &open_id).await;
     assert_eq!((records, size), (1, 1));
     let reentered = write_record(client, base, &alpha.token, &open_id, json!({ "score": 7 })).await;

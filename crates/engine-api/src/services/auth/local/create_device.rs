@@ -1,6 +1,10 @@
 use super::*;
 
-pub(super) async fn create_device(state: &ApiState, device_id: &str, username: &str) -> Result<Uuid, V2Error> {
+pub(super) async fn create_device(
+    state: &ApiState,
+    device_id: &str,
+    username: &str,
+) -> Result<Uuid, V2Error> {
     let queries = q(state).await?;
     let id = Uuid::new_v4();
     let now = Utc::now();

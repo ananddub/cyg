@@ -20,6 +20,15 @@ pub struct MatchHistory {
     pub ended_at: DateTime<Utc>,
     pub ticks: i64,
     pub peak_players: i64,
+    /// Which snapshot of the room this match ended on: the ordinal of the last
+    /// state the host saved. `0` means the room never persisted one, so there is
+    /// nothing to replay from even if the event rows are there.
+    pub snapshot_seq: i64,
+    /// The guest's own outcome, byte for byte as `host_send` put it on the wire
+    /// (msgpack, event name `[gameplay] result_event`). Empty when the game
+    /// never declared one — the engine does not invent a score it was not told.
+    #[serde(with = "bytes::b64")]
+    pub result: Vec<u8>,
     #[serde(with = "time::iso")]
     pub create_time: DateTime<Utc>,
 }

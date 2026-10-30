@@ -17,6 +17,7 @@ macro_rules! schema_ddl {
 
 pub fn ddl() -> Vec<&'static str> {
     schema_ddl![
+        BadgeDefinition,
         ConsoleAclTemplate,
         ConsoleAuditLog,
         ConsoleUser,
@@ -76,7 +77,7 @@ mod tests {
             ddl.iter()
                 .filter(|line| line.starts_with("DEFINE TABLE"))
                 .count(),
-            41
+            42
         );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {

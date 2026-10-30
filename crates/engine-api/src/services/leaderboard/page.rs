@@ -92,7 +92,10 @@ pub(super) async fn record_page(
             prev = Some(Cursor::at_record(&board.id, expiry, &row, rank, false));
         }
         last = Some((row.clone(), rank));
-        records.push(RecordResponse::from_record(&row, if ranks { rank } else { 0 }));
+        records.push(RecordResponse::from_record(
+            &row,
+            if ranks { rank } else { 0 },
+        ));
     }
 
     if cursor.is_some_and(|c| !c.is_next) {

@@ -2,9 +2,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::*;
-use crate::repositories::console_mutations::{
-    InsertAuditLogParams, InsertConsoleUserParams,
-};
+use crate::repositories::console_mutations::{InsertAuditLogParams, InsertConsoleUserParams};
 use crate::tests::games::{db, skipped_without_database};
 
 #[tokio::test]
@@ -31,7 +29,10 @@ async fn console_users_and_accounts_list_from_their_tables() {
         .await
         .expect("the user resolves by email");
     assert_eq!(found.id, id);
-    assert_eq!(q.list_accounts(10, 0).await.expect("accounts list").len(), 0);
+    assert_eq!(
+        q.list_accounts(10, 0).await.expect("accounts list").len(),
+        0
+    );
 }
 
 #[tokio::test]

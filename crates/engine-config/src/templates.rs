@@ -46,12 +46,16 @@ allow_messaging = true
 #   peer_idle_ms     — drop a raw UDP peer silent this long.
 #   seat_hold_secs   — ceiling for `allowReconnection`, whatever the room asks.
 #   persistent_rooms — names never reaped for being empty (a lobby or hub).
+#   drain_grace_secs — how long the host keeps simulating after SIGTERM so peers
+#                      are told to leave and their rooms are saved. Keep it under
+#                      the pod's terminationGracePeriodSeconds.
 # [lifecycle]
 # room_max_seconds = 0
 # reap_idle_secs = 30
 # peer_idle_ms = 3000
 # seat_hold_secs = 120
 # persistent_rooms = ["lobby"]
+# drain_grace_secs = 15
 
 # Guest-timeout fuse. Room logic runs in this process, so a guest stuck in a
 # loop would stop the host loop and every other room on it; the engine cuts such
@@ -60,17 +64,26 @@ allow_messaging = true
 #   tick_budget_ms       — longest one guest call may run. A 30 Hz `on_tick`
 #                          needs ~33 ms, so this is a fuse, not a rate limit.
 #   epoch_deadline_ticks — how many slices the budget is checked on.
+#   max_ticks_per_frame  — how many ticks one pass may simulate after falling
+#                          behind. Catching up twenty ticks at once would freeze
+#                          the lobby for everyone else, so the backlog is dropped.
 # [watchdog]
 # enabled = true
 # tick_budget_ms = 500
 # epoch_deadline_ticks = 4
+# max_ticks_per_frame = 3
 
 # Event history. `host_send` messages are wire-only by default; listing an event
 # name here mirrors it to the control plane, where it is written to the
 # gameplay_event table and readable per match. Names are the game's own.
+#   result_event — the guest event whose last payload the host files as the
+#                  finished match's outcome, so a history listing can show who
+#                  won without replaying the room. Defaults to "match_result".
 # [gameplay]
 # record_events = ["discard", "deal", "match_end"]
 # event_ttl_days = 30
+# match_history_ttl_days = 90
+# result_event = "match_result"
 
 # Control plane (Tokio/Axum): matchmake, WS signaling, /status, statics.
 # `api_port` is its own port so the game WebSocket (`port`) and the website

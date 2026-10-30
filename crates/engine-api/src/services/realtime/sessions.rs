@@ -62,8 +62,11 @@ impl RealtimeSessionHub {
                 true
             });
             for id in joined {
-                let _ = crate::services::realtime::RealtimeMatchService::global()
-                    .leave_match(session, &id.simple().to_string(), None);
+                let _ = crate::services::realtime::RealtimeMatchService::global().leave_match(
+                    session,
+                    &id.simple().to_string(),
+                    None,
+                );
             }
             session.send_message(
                 None,
@@ -112,7 +115,7 @@ impl RealtimeSessionHub {
 mod tests {
     use super::*;
     use crate::infra::ws::envelope::Envelope;
-    use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+    use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
     fn registered_socket(uid: Uuid, name: &str) -> (Arc<Session>, UnboundedReceiver<String>) {
         let (tx, rx) = unbounded_channel::<String>();
@@ -134,13 +137,19 @@ mod tests {
             RealtimeSessionHub::global().sessions_of(uid).is_empty(),
             "the registry forgets the user"
         );
-        assert_eq!(RealtimeSessionHub::global().sessions_of(stranger.uid).len(), 1);
+        assert_eq!(
+            RealtimeSessionHub::global().sessions_of(stranger.uid).len(),
+            1
+        );
 
         for rx in [&mut rx_a] {
             let frame = rx.blocking_recv().expect("the error frame arrives");
             assert!(frame.contains("\"error\""), "frame: {frame}");
             assert!(frame.contains("Banned"), "frame: {frame}");
-            assert!(rx.blocking_recv().is_none(), "the socket is closed after the frame");
+            assert!(
+                rx.blocking_recv().is_none(),
+                "the socket is closed after the frame"
+            );
         }
         let _ = session_a;
     }
@@ -164,9 +173,14 @@ mod tests {
         let kicked = RealtimeSessionHub::global().kick_user(uid, "Banned");
         assert_eq!(kicked, 1);
 
-        if let Some(snapshot) = crate::services::realtime::RealtimeMatchService::get_snapshot(match_id) {
+        if let Some(snapshot) =
+            crate::services::realtime::RealtimeMatchService::get_snapshot(match_id)
+        {
             assert!(
-                snapshot.members.iter().all(|m| m.user_id != uid.to_string()),
+                snapshot
+                    .members
+                    .iter()
+                    .all(|m| m.user_id != uid.to_string()),
                 "the kicked member is gone: {:?}",
                 snapshot.members
             );
@@ -176,10 +190,12 @@ mod tests {
             frames.iter().any(|f| f.contains("\"error\"")),
             "the ban error frame rides: {frames:?}"
         );
-        let seen: Vec<String> =
-            (0..2).filter_map(|_| rx_bystander.blocking_recv()).collect();
+        let seen: Vec<String> = (0..2)
+            .filter_map(|_| rx_bystander.blocking_recv())
+            .collect();
         assert!(
-            seen.iter().any(|f| f.contains("match_presence") && f.contains("leaves")),
+            seen.iter()
+                .any(|f| f.contains("match_presence") && f.contains("leaves")),
             "the presence leave rides to the remaining member: {seen:?}"
         );
     }
@@ -192,6 +208,9 @@ mod tests {
         let session = Session::new(Uuid::new_v4(), uid, "dying".into(), tx);
         session.close();
         drop(rx);
-        session.send(&Envelope { cid: None, message: crate::infra::ws::envelope::EnvelopeMessage::Ping });
+        session.send(&Envelope {
+            cid: None,
+            message: crate::infra::ws::envelope::EnvelopeMessage::Ping,
+        });
     }
 }

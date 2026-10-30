@@ -12,7 +12,8 @@ impl RealtimeChatService {
         }
         let id = Uuid::parse_str(&req.message_id)
             .map_err(|_| V2Error::invalid_argument("Invalid message ID."))?;
-        let updated = crate::services::deps::q(&state).await?
+        let updated = crate::services::deps::q(&state)
+            .await?
             .update_channel_message(&UpdateChannelMessageParams {
                 content: req.content,
                 id,
@@ -65,7 +66,8 @@ impl RealtimeChatService {
         }
         let id = Uuid::parse_str(&req.message_id)
             .map_err(|_| V2Error::invalid_argument("Invalid message ID."))?;
-        let deleted = crate::services::deps::q(&state).await?
+        let deleted = crate::services::deps::q(&state)
+            .await?
             .delete_channel_message(id, s.uid)
             .await
             .map_err(|e| match e {

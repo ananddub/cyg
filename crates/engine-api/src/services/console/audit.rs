@@ -8,10 +8,10 @@ use crate::dto::console::audit::{
     AclTemplateRequest, AclTemplateRow, AuditLogQuery, AuditLogRow, AuditLogUsers,
 };
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::repositories::console_mutations::{
     InsertAclTemplateParams, ListAuditLogsFilteredParams, UpdateAclTemplateParams,
 };
+use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn list_audit_logs(
@@ -19,15 +19,14 @@ impl super::ConsoleService {
         state: &ApiState,
         query: AuditLogQuery,
     ) -> Result<Json<Vec<AuditLogRow>>, V2Error> {
-        let rows = q(state).await?
+        let rows = q(state)
+            .await?
             .list_audit_logs_filtered(&ListAuditLogsFilteredParams {
                 action: query.action.trim().to_owned(),
                 resource: query.resource.trim().to_owned(),
                 console_username: query.username.trim().to_owned(),
                 create_time_start: query.after.unwrap_or_else(super::never),
-                create_time_end: query
-                    .before
-                    .unwrap_or_else(crate::db::time::always),
+                create_time_end: query.before.unwrap_or_else(crate::db::time::always),
                 limit: query.limit(),
                 offset: query.offset(),
             })

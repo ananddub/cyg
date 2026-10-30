@@ -7,7 +7,8 @@ pub async fn delete_notification(
     game: Option<Uuid>,
     id: Uuid,
 ) -> Result<bool, V2Error> {
-    Ok(q(state).await?
+    Ok(q(state)
+        .await?
         .tenancy_delete_notification(game, id)
         .await
         .map_err(V2Error::from)?
@@ -18,13 +19,15 @@ pub async fn delete_subscriptions_for_product(
     game: Option<Uuid>,
     product_id: &str,
 ) -> Result<u64, V2Error> {
-    q(state).await?
+    q(state)
+        .await?
         .tenancy_delete_subscriptions_for_product(game, product_id)
         .await
         .map_err(V2Error::from)
 }
 pub(super) async fn by_id(state: &ApiState, id: Uuid) -> Result<Option<GameRow>, V2Error> {
-    Ok(q(state).await?
+    Ok(q(state)
+        .await?
         .tenancy_game_by_id(id)
         .await
         .map_err(V2Error::from)?
@@ -33,7 +36,8 @@ pub(super) async fn by_id(state: &ApiState, id: Uuid) -> Result<Option<GameRow>,
         .map(GameRow::from))
 }
 pub(super) async fn by_key(state: &ApiState, key: &str) -> Result<Option<GameRow>, V2Error> {
-    Ok(q(state).await?
+    Ok(q(state)
+        .await?
         .tenancy_game_by_key(key)
         .await
         .map_err(V2Error::from)?
@@ -42,7 +46,8 @@ pub(super) async fn by_key(state: &ApiState, key: &str) -> Result<Option<GameRow
         .map(GameRow::from))
 }
 pub(super) async fn by_name(state: &ApiState, name: &str) -> Result<Option<GameRow>, V2Error> {
-    Ok(q(state).await?
+    Ok(q(state)
+        .await?
         .tenancy_game_by_name_or_key(name)
         .await
         .map_err(V2Error::from)?
@@ -67,7 +72,8 @@ pub(super) async fn auto_register(state: &ApiState, name: &str) -> Result<GameRo
         .ok_or_else(|| V2Error::internal("Auto-registered game could not be re-read"))
 }
 pub(super) async fn sole_active(state: &ApiState) -> Result<Option<GameRow>, V2Error> {
-    let mut rows = q(state).await?
+    let mut rows = q(state)
+        .await?
         .tenancy_sole_active_games()
         .await
         .map_err(V2Error::from)?;

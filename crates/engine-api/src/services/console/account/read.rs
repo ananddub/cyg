@@ -4,8 +4,8 @@ use crate::ApiState;
 use crate::dto::console::Page;
 use crate::dto::console::account::{AccountNoteRow, AccountRow, WalletLedgerRow};
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::repositories::console::ListWalletLedgerParams;
+use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn list_accounts(
@@ -28,7 +28,8 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<AccountRow>, V2Error> {
-        let user = q(state).await?
+        let user = q(state)
+            .await?
             .get_user_by_id(super::account_id(id)?)
             .await?;
         Ok(Json(AccountRow::from(user)))
@@ -39,7 +40,8 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<Vec<AccountNoteRow>>, V2Error> {
-        let rows = q(state).await?
+        let rows = q(state)
+            .await?
             .list_user_notes(super::account_id(id)?)
             .await?;
         Ok(Json(rows.into_iter().map(AccountNoteRow::from).collect()))
@@ -51,7 +53,8 @@ impl super::ConsoleService {
         id: &str,
         page: Page,
     ) -> Result<Json<Vec<WalletLedgerRow>>, V2Error> {
-        let rows = q(state).await?
+        let rows = q(state)
+            .await?
             .list_wallet_ledger(&ListWalletLedgerParams {
                 user_id: super::account_id(id)?,
                 limit: page.limit(),

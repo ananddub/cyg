@@ -19,8 +19,7 @@ impl Queries {
             create_time: now,
             update_time: now,
         };
-        self.create("message", Key::Uuid(params.id), &message)
-            .await
+        self.create("message", Key::Uuid(params.id), &message).await
     }
     pub async fn list_channel_messages(
         &self,
@@ -70,10 +69,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn get_message_by_id(
-        &self,
-        id: Uuid,
-    ) -> Result<Message, DbError> {
+    pub async fn get_message_by_id(&self, id: Uuid) -> Result<Message, DbError> {
         self.one(
             "SELECT * FROM type::record('message', <uuid>$id) LIMIT 1",
             params!(id = id.to_string()),

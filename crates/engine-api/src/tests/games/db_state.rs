@@ -1,4 +1,3 @@
-
 pub(crate) mod db {
     use super::super::*;
 

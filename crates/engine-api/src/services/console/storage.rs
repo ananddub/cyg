@@ -63,7 +63,8 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let user_id = super::account_id(user_id)?;
-        if !q(state).await?
+        if !q(state)
+            .await?
             .storage_delete_object(collection, key, user_id)
             .await?
         {
@@ -89,10 +90,9 @@ impl super::ConsoleService {
         collection: &str,
     ) -> Result<Json<DeletedCount>, V2Error> {
         claims.require_admin()?;
-        let removed = crate::services::games::tenant::delete_storage_collection(
-            state, game, collection,
-        )
-        .await?;
+        let removed =
+            crate::services::games::tenant::delete_storage_collection(state, game, collection)
+                .await?;
         super::audit(
             state,
             claims,

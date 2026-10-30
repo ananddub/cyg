@@ -3,7 +3,11 @@ use super::*;
 pub async fn iap_surface(env: &Harness) {
     eprintln!("gap: player iap purchases and subscriptions");
     let buyer = device_player(&env.client, &env.base, "buyer").await;
-    let post = |path: &str| env.client.post(format!("{}{}", env.base, path)).bearer_auth(&buyer.token);
+    let post = |path: &str| {
+        env.client
+            .post(format!("{}{}", env.base, path))
+            .bearer_auth(&buyer.token)
+    };
 
     assert_eq!(
         refusal(
@@ -56,9 +60,19 @@ pub async fn iap_surface(env: &Harness) {
     )
     .await;
     assert_eq!(apple["product_id"], "gem.small");
-    assert_eq!(apple["transaction_id"].as_str().map(str::len), Some(32), "{apple}");
-    assert_eq!(apple["environment"], "UNKNOWN", "nothing here can name the vendor environment");
-    assert!(apple.get("refund_time").is_none(), "a fresh purchase has no refund");
+    assert_eq!(
+        apple["transaction_id"].as_str().map(str::len),
+        Some(32),
+        "{apple}"
+    );
+    assert_eq!(
+        apple["environment"], "UNKNOWN",
+        "nothing here can name the vendor environment"
+    );
+    assert!(
+        apple.get("refund_time").is_none(),
+        "a fresh purchase has no refund"
+    );
     for (label, path, body) in [
         (
             "POST /v2/iap/purchase/google",
@@ -121,7 +135,10 @@ pub async fn iap_surface(env: &Harness) {
             label,
         )
         .await;
-        assert_eq!(active["state"], 1, "no expiry and no refund is an active {label}");
+        assert_eq!(
+            active["state"], 1,
+            "no expiry and no refund is an active {label}"
+        );
     }
 
     let purchases = json_body(
@@ -135,7 +152,11 @@ pub async fn iap_surface(env: &Harness) {
         "GET /v2/iap/purchase",
     )
     .await;
-    assert_eq!(purchases["purchases"].as_array().map(Vec::len), Some(5), "{purchases}");
+    assert_eq!(
+        purchases["purchases"].as_array().map(Vec::len),
+        Some(5),
+        "{purchases}"
+    );
 
     let subscriptions = json_body(
         env.client

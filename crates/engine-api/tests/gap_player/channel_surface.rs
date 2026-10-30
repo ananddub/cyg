@@ -33,7 +33,11 @@ pub async fn channel_surface(env: &Harness) {
         "GET /v2/channel/{channelId} (empty room)",
     )
     .await;
-    assert_eq!(empty["messages"].as_array().map(Vec::len), Some(0), "{empty}");
+    assert_eq!(
+        empty["messages"].as_array().map(Vec::len),
+        Some(0),
+        "{empty}"
+    );
     assert_eq!(
         refusal(
             env.client
@@ -64,7 +68,10 @@ pub async fn channel_surface(env: &Harness) {
     assert_eq!(sent["channel_id"], room);
     assert_eq!(sent["sender_id"], author.uid);
     assert_eq!(sent["username"], author.username);
-    assert_eq!(json_string(&sent["content"]), json!({ "text": "gap first line" }));
+    assert_eq!(
+        json_string(&sent["content"]),
+        json!({ "text": "gap first line" })
+    );
     assert_eq!(sent["room_name"], room.strip_prefix("2...").unwrap());
     let message_id = sent["message_id"].as_str().expect("message id").to_owned();
     json_body(
@@ -116,11 +123,14 @@ pub async fn channel_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/channel/{room}?cursor=not-a-cursor", env.base))
+                .get(format!(
+                    "{}/v2/channel/{room}?cursor=not-a-cursor",
+                    env.base
+                ))
                 .bearer_auth(&author.token)
                 .send()
                 .await
-            .unwrap(),
+                .unwrap(),
             StatusCode::BAD_REQUEST,
             "the log refusing a malformed cursor",
         )
@@ -130,7 +140,10 @@ pub async fn channel_surface(env: &Harness) {
 
     let edited = json_body(
         env.client
-            .put(format!("{}/v2/channel/{room}/message/{message_id}", env.base))
+            .put(format!(
+                "{}/v2/channel/{room}/message/{message_id}",
+                env.base
+            ))
             .bearer_auth(&author.token)
             .json(&json!({ "content": { "text": "gap edited" } }))
             .send()
@@ -140,11 +153,17 @@ pub async fn channel_surface(env: &Harness) {
         "PUT /v2/channel/{channelId}/message/{messageId}",
     )
     .await;
-    assert_eq!(json_string(&edited["content"]), json!({ "text": "gap edited" }));
+    assert_eq!(
+        json_string(&edited["content"]),
+        json!({ "text": "gap edited" })
+    );
     assert_eq!(
         refusal(
             env.client
-                .put(format!("{}/v2/channel/{room}/message/{message_id}", env.base))
+                .put(format!(
+                    "{}/v2/channel/{room}/message/{message_id}",
+                    env.base
+                ))
                 .bearer_auth(&mate.token)
                 .json(&json!({ "content": { "text": "not yours" } }))
                 .send()
@@ -174,7 +193,10 @@ pub async fn channel_surface(env: &Harness) {
 
     let tomb = json_body(
         env.client
-            .delete(format!("{}/v2/channel/{room}/message/{message_id}", env.base))
+            .delete(format!(
+                "{}/v2/channel/{room}/message/{message_id}",
+                env.base
+            ))
             .bearer_auth(&author.token)
             .send()
             .await
@@ -183,12 +205,18 @@ pub async fn channel_surface(env: &Harness) {
         "DELETE /v2/channel/{channelId}/message/{messageId}",
     )
     .await;
-    assert_eq!(tomb["code"], 2, "the removal is a tombstone, not a vanishing");
+    assert_eq!(
+        tomb["code"], 2,
+        "the removal is a tombstone, not a vanishing"
+    );
     assert_eq!(tomb["content"], "{}");
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/channel/{room}/message/{message_id}", env.base))
+                .delete(format!(
+                    "{}/v2/channel/{room}/message/{message_id}",
+                    env.base
+                ))
                 .bearer_auth(&mate.token)
                 .send()
                 .await
@@ -215,7 +243,10 @@ pub async fn channel_surface(env: &Harness) {
         "create the talking group",
     )
     .await;
-    let gid = created["group"]["id"].as_str().expect("group id").to_owned();
+    let gid = created["group"]["id"]
+        .as_str()
+        .expect("group id")
+        .to_owned();
     let group_channel = format!("3.{gid}..");
     json_body(
         env.client

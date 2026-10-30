@@ -132,7 +132,11 @@ pub struct Purchase {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, somnia::SurrealRecord)]
 #[table("room_modules", schemaless)]
-#[index(name = "room_modules_game_version", fields = "game_id, version", unique)]
+#[index(
+    name = "room_modules_game_version",
+    fields = "game_id, version",
+    unique
+)]
 #[index(name = "idx_room_modules_game", fields = "game_id, version")]
 pub struct RoomModules {
     #[field(thing)]

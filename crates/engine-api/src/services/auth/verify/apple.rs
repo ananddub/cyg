@@ -29,9 +29,10 @@ pub(super) async fn verify(config: &SocialConfig, token: &str) -> Result<Profile
             response.status()
         )));
     }
-    let jwks: Value = response.json().await.map_err(|err| {
-        V2Error::unavailable(format!("Apple returned an unreadable JWKS: {err}"))
-    })?;
+    let jwks: Value = response
+        .json()
+        .await
+        .map_err(|err| V2Error::unavailable(format!("Apple returned an unreadable JWKS: {err}")))?;
     let claims = validate(token, &jwks, &config.apple_client_id)?;
     Ok(Profile {
         id: claims.sub,

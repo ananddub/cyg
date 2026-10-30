@@ -58,7 +58,11 @@ pub(crate) async fn a_scoped_socket_sees_its_tenants_rows_and_an_unscoped_one_se
     assert_eq!(frame["topic"].as_str(), Some("purchases"));
     assert_eq!(frame["action"].as_str(), Some("create"));
     assert_eq!(frame["record"].as_str(), Some("hosted-txn"));
-    assert_eq!(frame["seq"].as_u64(), Some(1), "each topic counts on its own");
+    assert_eq!(
+        frame["seq"].as_u64(),
+        Some(1),
+        "each topic counts on its own"
+    );
 
     let (mut unscoped, _) = connect_async(format!("ws://127.0.0.1:{port}/ws/dashboard"))
         .await
@@ -100,7 +104,10 @@ pub(crate) async fn insert_user(store: &Datastore, game: Uuid, username: &str) -
 pub(crate) async fn insert_purchase(store: &Datastore, game: Uuid, transaction_id: &str) {
     let params = BTreeMap::from([
         ("game".to_string(), serde_json::json!(game.to_string())),
-        ("transaction_id".to_string(), serde_json::json!(transaction_id)),
+        (
+            "transaction_id".to_string(),
+            serde_json::json!(transaction_id),
+        ),
     ]);
     store
         .exec_params(
@@ -111,7 +118,10 @@ pub(crate) async fn insert_purchase(store: &Datastore, game: Uuid, transaction_i
         .expect("a purchase row is created");
 }
 
-pub(crate) async fn next_of_type<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>, kind: &str) -> serde_json::Value
+pub(crate) async fn next_of_type<S>(
+    ws: &mut tokio_tungstenite::WebSocketStream<S>,
+    kind: &str,
+) -> serde_json::Value
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
@@ -123,7 +133,9 @@ where
     }
 }
 
-pub(crate) async fn next_json<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>) -> serde_json::Value
+pub(crate) async fn next_json<S>(
+    ws: &mut tokio_tungstenite::WebSocketStream<S>,
+) -> serde_json::Value
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {

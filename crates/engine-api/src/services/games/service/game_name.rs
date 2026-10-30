@@ -41,7 +41,9 @@ pub(super) fn game_status(raw: &str) -> Result<String, V2Error> {
         )))
     }
 }
-pub(super) fn config_value(raw: Option<&serde_json::Value>) -> Result<Option<serde_json::Value>, V2Error> {
+pub(super) fn config_value(
+    raw: Option<&serde_json::Value>,
+) -> Result<Option<serde_json::Value>, V2Error> {
     match raw {
         None => Ok(None),
         Some(value @ serde_json::Value::Object(_)) => Ok(Some(value.clone())),

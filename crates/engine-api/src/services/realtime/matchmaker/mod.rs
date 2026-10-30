@@ -17,11 +17,11 @@ use crate::infra::ws::envelope::{
 use crate::infra::ws::session::{self, Session};
 use scc::Guard;
 
+mod extract_mode;
 mod numeric_cmp;
 mod split_operator;
-mod extract_mode;
 mod stats;
-mod try_match;
 mod tests;
+mod try_match;
 
 pub use numeric_cmp::*;

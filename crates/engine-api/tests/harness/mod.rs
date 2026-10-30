@@ -13,10 +13,10 @@ use uuid::Uuid;
 pub use reqwest::{Client, StatusCode};
 pub use serde_json::{Value, json};
 
-mod harness;
 mod console_login;
+mod harness;
 mod seed_leaderboard;
 
-pub use harness::*;
 pub use console_login::*;
+pub use harness::*;
 pub use seed_leaderboard::*;

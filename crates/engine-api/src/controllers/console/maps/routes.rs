@@ -87,8 +87,8 @@ impl ConsoleMapsController {
             }
         }
 
-        let bytes = bytes
-            .ok_or_else(|| V2Error::invalid_argument("The upload needs a `file` field."))?;
+        let bytes =
+            bytes.ok_or_else(|| V2Error::invalid_argument("The upload needs a `file` field."))?;
         let filename = filename.unwrap_or_else(|| "map.bin".to_owned());
         let name = display_name.unwrap_or_else(|| filename.clone());
         let format = match declared_format.as_deref().filter(|f| !f.is_empty()) {
@@ -112,12 +112,15 @@ impl ConsoleMapsController {
                 })?
             }
         };
-        Ok(UploadParts { name, format, bytes })
+        Ok(UploadParts {
+            name,
+            format,
+            bytes,
+        })
     }
 
     pub(super) fn game_id(raw: &str) -> Result<Uuid, V2Error> {
-        Uuid::parse_str(raw)
-            .map_err(|_| V2Error::invalid_argument("gameId must be a UUID."))
+        Uuid::parse_str(raw).map_err(|_| V2Error::invalid_argument("gameId must be a UUID."))
     }
 
     pub(super) fn version(raw: &str) -> Result<i32, V2Error> {

@@ -132,10 +132,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let inbox = api_get(
         client,
-        format!(
-            "{base}/v2/notification?limit=10&sender_id={}",
-            alice.uid
-        ),
+        format!("{base}/v2/notification?limit=10&sender_id={}", alice.uid),
         &bob.token,
         "bob's friend-request notification",
     )
@@ -195,32 +192,29 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         &[("from", json!(b.to_string())), ("to", json!(a.to_string()))],
     )
     .await
-    .expect("bob's edge metadata")["metadata"].clone();
+    .expect("bob's edge metadata")["metadata"]
+        .clone();
     assert_eq!(bob_meta, json!({ "since": "accepted" }));
 
     let accepted = api_get(
         client,
-        format!(
-            "{base}/v2/notification?limit=10&sender_id={}",
-            bob.uid
-        ),
+        format!("{base}/v2/notification?limit=10&sender_id={}", bob.uid),
         &alice.token,
         "alice's acceptance notification",
     )
     .await;
-    assert!(accepted["notifications"]
-        .as_array()
-        .expect("alice has notifications")
-        .iter()
-        .any(|n| n["code"] == -3
-            && n["subject"] == format!("{} accepted your friend request", bob.username)));
+    assert!(
+        accepted["notifications"]
+            .as_array()
+            .expect("alice has notifications")
+            .iter()
+            .any(|n| n["code"] == -3
+                && n["subject"] == format!("{} accepted your friend request", bob.username))
+    );
 
     api_post_empty(
         client,
-        with_query(
-            &format!("{base}/v2/friend"),
-            &[("ids", carol.uid.as_str())],
-        ),
+        with_query(&format!("{base}/v2/friend"), &[("ids", carol.uid.as_str())]),
         &bob.token,
         "bob invites carol",
     )
@@ -249,9 +243,11 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         .find(|entry| entry["user"]["id"] == carol.uid)
         .expect("carol is reachable through bob");
     assert_eq!(entry["referrer"], bob.uid);
-    assert!(entries
-        .iter()
-        .all(|entry| entry["user"]["id"] != alice.uid && entry["user"]["id"] != bob.uid));
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry["user"]["id"] != alice.uid && entry["user"]["id"] != bob.uid)
+    );
     assert_eq!(fof["cursor"], "");
 
     assert_eq!(
@@ -305,10 +301,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_post_empty(
             client,
-            with_query(
-                &format!("{base}/v2/friend"),
-                &[("ids", carol.uid.as_str())],
-            ),
+            with_query(&format!("{base}/v2/friend"), &[("ids", carol.uid.as_str())],),
             &alice.token,
             "alice invites a player who blocked her",
         )
@@ -334,10 +327,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_delete(
             client,
-            with_query(
-                &format!("{base}/v2/friend"),
-                &[("ids", carol.uid.as_str())],
-            ),
+            with_query(&format!("{base}/v2/friend"), &[("ids", carol.uid.as_str())],),
             &bob.token,
             "bob deletes carol",
         )
@@ -355,20 +345,19 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         "carol's removal notification",
     )
     .await;
-    assert!(removed["notifications"]
-        .as_array()
-        .expect("carol has notifications")
-        .iter()
-        .any(|n| n["code"] == -9
-            && n["subject"] == format!("{} removed you as a friend", bob.username)));
+    assert!(
+        removed["notifications"]
+            .as_array()
+            .expect("carol has notifications")
+            .iter()
+            .any(|n| n["code"] == -9
+                && n["subject"] == format!("{} removed you as a friend", bob.username))
+    );
 
     assert_eq!(
         api_delete(
             client,
-            with_query(
-                &format!("{base}/v2/friend"),
-                &[("ids", bob.uid.as_str())],
-            ),
+            with_query(&format!("{base}/v2/friend"), &[("ids", bob.uid.as_str())],),
             &alice.token,
             "alice deletes bob",
         )

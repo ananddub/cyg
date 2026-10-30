@@ -11,10 +11,10 @@ use crate::error::V2Error;
 use crate::infra::ws::envelope::{Envelope, EnvelopeMessage, Presence};
 use crate::infra::ws::session::{self, Session};
 
+mod create;
+mod data_send_match;
+mod join_match;
 mod match_state;
 mod snapshot_of;
-mod join_match;
-mod data_send_match;
-mod create;
 
 pub use match_state::*;

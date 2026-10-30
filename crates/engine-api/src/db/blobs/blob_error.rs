@@ -14,7 +14,10 @@ impl fmt::Display for BlobError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BlobError::Unconfigured => {
-                write!(f, "the blob store is not configured (`[control.session] blobs`)")
+                write!(
+                    f,
+                    "the blob store is not configured (`[control.session] blobs`)"
+                )
             }
             BlobError::Config(message) => write!(f, "blob store configuration: {message}"),
             BlobError::InvalidKey(key) => write!(f, "invalid blob key `{key}`"),

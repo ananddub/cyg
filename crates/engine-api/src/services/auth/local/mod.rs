@@ -16,8 +16,8 @@ use crate::repositories::models::Users;
 use crate::services::deps::q;
 use crate::utils::auth::{existing, insert_failed, lookup_failed, session};
 
-mod device;
 mod create_device;
+mod device;
 
-pub use device::*;
 use create_device::*;
+pub use device::*;

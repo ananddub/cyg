@@ -13,11 +13,31 @@ pub async fn storage_index_surface(env: &Harness) {
     }
 
     for (label, body, message) in [
-        ("no name", json!({"collection": collection, "fields": ["hp"]}), "Storage index name must be set."),
-        ("no collection", json!({"name": index, "fields": ["hp"]}), "Storage index collection must be set."),
-        ("no fields", json!({"name": index, "collection": collection}), "Storage index fields must name at least one top-level key of the object value."),
-        ("five fields", json!({"name": index, "collection": collection, "fields": ["a","b","c","d","e"]}), "Storage index fields must name at most four top-level keys."),
-        ("zero max entries", json!({"name": index, "collection": collection, "fields": ["hp"], "maxEntries": 0}), "Storage index max entries must be greater than zero."),
+        (
+            "no name",
+            json!({"collection": collection, "fields": ["hp"]}),
+            "Storage index name must be set.",
+        ),
+        (
+            "no collection",
+            json!({"name": index, "fields": ["hp"]}),
+            "Storage index collection must be set.",
+        ),
+        (
+            "no fields",
+            json!({"name": index, "collection": collection}),
+            "Storage index fields must name at least one top-level key of the object value.",
+        ),
+        (
+            "five fields",
+            json!({"name": index, "collection": collection, "fields": ["a","b","c","d","e"]}),
+            "Storage index fields must name at most four top-level keys.",
+        ),
+        (
+            "zero max entries",
+            json!({"name": index, "collection": collection, "fields": ["hp"], "maxEntries": 0}),
+            "Storage index max entries must be greater than zero.",
+        ),
     ] {
         assert_eq!(
             refusal(
@@ -56,7 +76,10 @@ pub async fn storage_index_surface(env: &Harness) {
         "POST /v2/storage/index",
     )
     .await;
-    assert_eq!(defined["index"], index, "the definition names itself under `index`");
+    assert_eq!(
+        defined["index"], index,
+        "the definition names itself under `index`"
+    );
     assert_eq!(defined["collection"], collection);
     assert_eq!(defined["fields"], json!(["hp"]));
     assert_eq!(defined["max_entries"], 100);
@@ -108,8 +131,15 @@ pub async fn storage_index_surface(env: &Harness) {
         "POST /v2/storage/index/{indexId}/query (equality)",
     )
     .await;
-    assert_eq!(matched["objects"].as_array().map(Vec::len), Some(1), "{matched}");
-    assert_eq!(json_string(&matched["objects"][0]["value"]), json!({"hp": 200}));
+    assert_eq!(
+        matched["objects"].as_array().map(Vec::len),
+        Some(1),
+        "{matched}"
+    );
+    assert_eq!(
+        json_string(&matched["objects"][0]["value"]),
+        json!({"hp": 200})
+    );
     assert_eq!(matched["objects"][0]["key"], "obj-b");
     let ranged = json_body(
         env.client
@@ -170,7 +200,11 @@ pub async fn storage_index_surface(env: &Harness) {
             break;
         }
     }
-    assert_eq!(keys, vec!["obj-a", "obj-b", "obj-c"], "the walk saw each object once");
+    assert_eq!(
+        keys,
+        vec!["obj-a", "obj-b", "obj-c"],
+        "the walk saw each object once"
+    );
     assert_eq!(
         refusal(
             env.client
@@ -233,7 +267,10 @@ pub async fn storage_index_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/storage/index/e2e_missing_{suffix}/query", env.base))
+                .post(format!(
+                    "{}/v2/storage/index/e2e_missing_{suffix}/query",
+                    env.base
+                ))
                 .bearer_auth(&owner.token)
                 .json(&json!({ "query": "hp:100", "limit": 10 }))
                 .send()
@@ -278,7 +315,7 @@ pub async fn storage_index_surface(env: &Harness) {
                 .bearer_auth(&owner.token)
                 .send()
                 .await
-            .unwrap(),
+                .unwrap(),
             StatusCode::NOT_FOUND,
             "deleting the same definition twice",
         )

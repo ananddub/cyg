@@ -119,7 +119,10 @@ pub async fn friend_edge_state(pool: &Datastore, from: Uuid, to: Uuid) -> Option
         "SELECT VALUE state FROM user_edge
          WHERE (source_id = <uuid>$from OR source_id = $from)
            AND (destination_id = <uuid>$to OR destination_id = $to) LIMIT 1",
-        &[("from", json!(from.to_string())), ("to", json!(to.to_string()))],
+        &[
+            ("from", json!(from.to_string())),
+            ("to", json!(to.to_string())),
+        ],
     )
     .await
 }
@@ -129,7 +132,10 @@ pub async fn group_edge_state(pool: &Datastore, uid: Uuid, group: Uuid) -> Optio
         "SELECT VALUE state FROM group_edge
          WHERE (source_id = <uuid>$from OR source_id = $from)
            AND (destination_id = <uuid>$to OR destination_id = $to) LIMIT 1",
-        &[("from", json!(uid.to_string())), ("to", json!(group.to_string()))],
+        &[
+            ("from", json!(uid.to_string())),
+            ("to", json!(group.to_string())),
+        ],
     )
     .await
 }

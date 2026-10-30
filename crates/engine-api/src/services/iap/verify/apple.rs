@@ -2,9 +2,9 @@
 
 use engine_config::IapConfig;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{parse_ms, VerifiedPurchase};
+use super::{VerifiedPurchase, parse_ms};
 use crate::error::V2Error;
 
 #[derive(Deserialize)]
@@ -83,7 +83,9 @@ async fn post(url: &str, body: &Value) -> Result<Value, V2Error> {
         .map_err(|err| V2Error::unavailable(format!("Apple verification request failed: {err}")))?;
     let status = response.status();
     let value: Value = response.json().await.map_err(|err| {
-        V2Error::unavailable(format!("Apple verification returned an unreadable body: {err}"))
+        V2Error::unavailable(format!(
+            "Apple verification returned an unreadable body: {err}"
+        ))
     })?;
     if !status.is_success() && value.get("status").is_none() {
         return Err(V2Error::unavailable(format!(
@@ -95,7 +97,9 @@ async fn post(url: &str, body: &Value) -> Result<Value, V2Error> {
 
 fn parse(value: &Value) -> Result<AppleResponse, V2Error> {
     serde_json::from_value(value.clone()).map_err(|err| {
-        V2Error::unavailable(format!("Apple verification returned an unexpected body: {err}"))
+        V2Error::unavailable(format!(
+            "Apple verification returned an unexpected body: {err}"
+        ))
     })
 }
 
@@ -129,7 +133,7 @@ fn select(
 mod tests {
     use axum::routing::post;
     use axum::{Json, Router};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::*;
 
@@ -175,7 +179,9 @@ mod tests {
         );
         let base = serve(app).await;
         let config = config(&format!("{base}/verify"), &format!("{base}/sandbox"));
-        let purchase = verify(&config, "receipt", None, None).await.expect("verified");
+        let purchase = verify(&config, "receipt", None, None)
+            .await
+            .expect("verified");
         assert_eq!(purchase.transaction_id, "2001");
         assert_eq!(purchase.product_id, "gem.small");
         assert_eq!(purchase.environment, 2);

@@ -60,15 +60,17 @@ pub async fn delivery_surface(env: &Harness, console: &str, taker: &Receiver, do
 
     assert!(taker.wait_for(1).await, "the receiver never saw a delivery");
     let hit = taker.last();
-    assert!(hit.valid, "the receiver refused a live delivery's signature");
+    assert!(
+        hit.valid,
+        "the receiver refused a live delivery's signature"
+    );
     let body: Value = serde_json::from_str(&hit.body).expect("the delivery body is JSON");
     assert_eq!(body["event"], json!("account.created"));
     assert_eq!(body["event_id"], json!(event_id));
     assert_eq!(body["payload"]["user_id"], json!(first.uid));
     assert_eq!(body["payload"]["method"], json!("device"));
     assert!(
-        hit.timestamp.chars().all(|digit| digit.is_ascii_digit())
-            && !hit.timestamp.is_empty(),
+        hit.timestamp.chars().all(|digit| digit.is_ascii_digit()) && !hit.timestamp.is_empty(),
         "the timestamp header is not wall seconds: {}",
         hit.timestamp
     );
@@ -121,17 +123,21 @@ pub async fn delivery_surface(env: &Harness, console: &str, taker: &Receiver, do
         let deferred = count(
             env.db(),
             "webhook_delivery",
-            Some(
-                "endpoint_id = $endpoint AND status = 'queued' AND next_retry_at > $horizon",
-            ),
-            &[("endpoint", json!(down_id)), ("horizon", json!(stamp(horizon)))],
+            Some("endpoint_id = $endpoint AND status = 'queued' AND next_retry_at > $horizon"),
+            &[
+                ("endpoint", json!(down_id)),
+                ("horizon", json!(stamp(horizon))),
+            ],
         )
         .await;
         if deferred > 0 {
             paused = true;
             break;
         }
-        if dead_delivery(env, console, &down_id, &down_event).await.is_some() {
+        if dead_delivery(env, console, &down_id, &down_event)
+            .await
+            .is_some()
+        {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -200,7 +206,12 @@ pub async fn delivery_surface(env: &Harness, console: &str, taker: &Receiver, do
     );
 }
 
-async fn dead_delivery(env: &Harness, console: &str, endpoint_id: &str, event_id: &str) -> Option<Value> {
+async fn dead_delivery(
+    env: &Harness,
+    console: &str,
+    endpoint_id: &str,
+    event_id: &str,
+) -> Option<Value> {
     let rows = deliveries_of(env, console, endpoint_id).await;
     let row = rows
         .iter()

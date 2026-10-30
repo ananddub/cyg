@@ -64,6 +64,13 @@ impl super::QuestService {
                     .project_player_quest(user_id, &quest.id, total, mark)
                     .await?;
                 if crosses && projected.is_some() {
+                    crate::services::webhook::emit(
+                        state,
+                        "quest.completed",
+                        &format!("{user_id}:{}", quest.id),
+                        serde_json::json!({ "user_id": user_id, "quest_key": quest.id }),
+                    )
+                    .await;
                     completed.push(CompletedQuest {
                         user_id,
                         quest_key: quest.id.clone(),

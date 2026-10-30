@@ -128,8 +128,26 @@ async fn an_index_filters_and_sorts_stored_values() {
     };
     let q = state.q.as_ref().expect("the fixture opens queries");
     let owner = Uuid::new_v4();
-    insert_row(q, owner, "players", "a", r#"{"level":3,"name":"ann"}"#, Some(2), None).await;
-    insert_row(q, owner, "players", "b", r#"{"level":9,"name":"bob"}"#, Some(2), None).await;
+    insert_row(
+        q,
+        owner,
+        "players",
+        "a",
+        r#"{"level":3,"name":"ann"}"#,
+        Some(2),
+        None,
+    )
+    .await;
+    insert_row(
+        q,
+        owner,
+        "players",
+        "b",
+        r#"{"level":9,"name":"bob"}"#,
+        Some(2),
+        None,
+    )
+    .await;
 
     q.storage_insert_index(&StorageIndexContent {
         name: "by-level".to_string(),

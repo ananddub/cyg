@@ -32,7 +32,12 @@ async fn connect_datastore(session: &SessionConfig) -> Option<Arc<Datastore>> {
     .await
     {
         Ok(db) => {
-            tracing::info!("[database] {} ({}/{})", session.database_endpoint, session.database_ns, session.database_db);
+            tracing::info!(
+                "[database] {} ({}/{})",
+                session.database_endpoint,
+                session.database_ns,
+                session.database_db
+            );
             Some(Arc::new(db))
         }
         Err(err) => {

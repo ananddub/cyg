@@ -56,6 +56,14 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "persistent_rooms" => {
             cfg.lifecycle.persistent_rooms = crate::social::split_ids(value);
         }
+        "drain_grace_secs" => {
+            cfg.lifecycle.drain_grace_secs =
+                value.parse().unwrap_or(cfg.lifecycle.drain_grace_secs)
+        }
+        "max_ticks_per_frame" => {
+            cfg.watchdog.max_ticks_per_frame =
+                value.parse().unwrap_or(cfg.watchdog.max_ticks_per_frame)
+        }
         "watchdog_enabled" => cfg.watchdog.enabled = value.parse().unwrap_or(cfg.watchdog.enabled),
         "tick_budget_ms" => {
             cfg.watchdog.tick_budget_ms = value.parse().unwrap_or(cfg.watchdog.tick_budget_ms)
@@ -68,9 +76,13 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
             cfg.gameplay.record_events = crate::social::split_ids(value);
         }
         "event_ttl_days" => {
-            cfg.gameplay.event_ttl_days =
-                value.parse().unwrap_or(cfg.gameplay.event_ttl_days);
+            cfg.gameplay.event_ttl_days = value.parse().unwrap_or(cfg.gameplay.event_ttl_days);
         }
+        "match_history_ttl_days" => {
+            cfg.gameplay.match_history_ttl_days =
+                value.parse().unwrap_or(cfg.gameplay.match_history_ttl_days);
+        }
+        "result_event" => cfg.gameplay.result_event = value.to_string(),
         "control_enabled" => cfg.control.enabled = value.parse().unwrap_or(cfg.control.enabled),
         "api_port" => cfg.control.api_port = value.parse().unwrap_or(cfg.control.api_port),
         "control_bind_addr" => cfg.control.bind_addr = value.to_string(),

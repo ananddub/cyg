@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -169,6 +169,8 @@ async fn serve(
 fn field(head: &str, name: &str) -> Option<String> {
     head.lines().find_map(|line| {
         let (key, value) = line.split_once(':')?;
-        key.trim().eq_ignore_ascii_case(name).then(|| value.trim().to_owned())
+        key.trim()
+            .eq_ignore_ascii_case(name)
+            .then(|| value.trim().to_owned())
     })
 }

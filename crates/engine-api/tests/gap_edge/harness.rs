@@ -41,7 +41,11 @@ impl PlainWs {
         let _ = tokio::time::timeout(Duration::from_secs(2), self.ws.send(Raw::Close(None))).await;
     }
 }
-pub async fn expect_text(resp: reqwest::Response, status: StatusCode, what: &str) -> (String, String) {
+pub async fn expect_text(
+    resp: reqwest::Response,
+    status: StatusCode,
+    what: &str,
+) -> (String, String) {
     let actual = resp.status();
     let content_type = resp
         .headers()

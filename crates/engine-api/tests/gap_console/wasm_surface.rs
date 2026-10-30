@@ -169,7 +169,11 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         .await
         .expect("the blob reads")
         .expect("and is present");
-    assert_eq!(bytes, ROOM_MODULE.to_vec(), "the binary round-trips byte for byte");
+    assert_eq!(
+        bytes,
+        ROOM_MODULE.to_vec(),
+        "the binary round-trips byte for byte"
+    );
     assert_eq!(first["abi"]["valid"], true);
     assert_eq!(
         first["abi"]["exports_missing"]
@@ -661,7 +665,10 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/console/games/{}", env.base, promoted_game.id))
+                .delete(format!(
+                    "{}/v2/console/games/{}",
+                    env.base, promoted_game.id
+                ))
                 .bearer_auth(viewer)
                 .send()
                 .await
@@ -674,7 +681,10 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     );
     let archived = json_body(
         env.client
-            .delete(format!("{}/v2/console/games/{}", env.base, promoted_game.id))
+            .delete(format!(
+                "{}/v2/console/games/{}",
+                env.base, promoted_game.id
+            ))
             .bearer_auth(console)
             .send()
             .await

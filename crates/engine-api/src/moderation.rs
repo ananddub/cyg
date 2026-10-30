@@ -17,11 +17,11 @@ pub fn sanitize_json(value: serde_json::Value) -> serde_json::Value {
     use serde_json::Value;
     match value {
         Value::String(text) => Value::String(clean_text(&text)),
-        Value::Array(items) => {
-            Value::Array(items.into_iter().map(sanitize_json).collect())
-        }
+        Value::Array(items) => Value::Array(items.into_iter().map(sanitize_json).collect()),
         Value::Object(map) => Value::Object(
-            map.into_iter().map(|(k, v)| (k, sanitize_json(v))).collect(),
+            map.into_iter()
+                .map(|(k, v)| (k, sanitize_json(v)))
+                .collect(),
         ),
         other => other,
     }

@@ -33,7 +33,10 @@ pub(crate) async fn a_live_socket_receives_hello_then_a_snapshot() {
     let state = ApiState::new(Path::new("."), &game, &control, Bus::new(16, 16), port).await;
     let server = tokio::spawn(serve(listener, state, std::future::pending()));
 
-    let url = format!("ws://127.0.0.1:{port}/ws/dashboard?token={}", console_token());
+    let url = format!(
+        "ws://127.0.0.1:{port}/ws/dashboard?token={}",
+        console_token()
+    );
     let (mut ws, _) = connect_async(&url)
         .await
         .expect("dashboard socket connects");
@@ -67,12 +70,17 @@ pub(crate) async fn a_socket_without_a_console_token_is_refused() {
 
     let url = format!("ws://127.0.0.1:{port}/ws/dashboard");
     let refused = connect_async(&url).await;
-    assert!(refused.is_err(), "the handshake must be refused without a token");
+    assert!(
+        refused.is_err(),
+        "the handshake must be refused without a token"
+    );
 
     server.abort();
 }
 
-pub(crate) async fn next_json<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>) -> serde_json::Value
+pub(crate) async fn next_json<S>(
+    ws: &mut tokio_tungstenite::WebSocketStream<S>,
+) -> serde_json::Value
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {

@@ -6,8 +6,8 @@ use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::leaderboard::{LeaderboardRecordRow, LeaderboardRow};
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::repositories::leaderboard::DeleteLeaderboardRecordParams;
+use crate::services::deps::q;
 use crate::utils::leaderboard::types::is_tournament;
 use crate::utils::leaderboard::window::record_window;
 use uuid::Uuid;
@@ -62,7 +62,8 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<Vec<LeaderboardRecordRow>>, V2Error> {
-        let rows = q(state).await?
+        let rows = q(state)
+            .await?
             .list_all_leaderboard_records(id, MAX_RECORDS)
             .await?;
         Ok(Json(

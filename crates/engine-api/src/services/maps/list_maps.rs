@@ -4,7 +4,8 @@ use super::*;
 
 impl MapService {
     pub async fn list_maps(&self, state: &ApiState, game_id: Uuid) -> Result<Vec<MapDto>, V2Error> {
-        let rows: Vec<ListGameMapsRow> = q(state).await?
+        let rows: Vec<ListGameMapsRow> = q(state)
+            .await?
             .list_game_maps(game_id)
             .await
             .map_err(V2Error::from)?;
@@ -40,7 +41,11 @@ impl MapService {
         let now = Utc::now();
         let id = Uuid::new_v4();
         let key = map_key(game_id, version, format.as_str());
-        blobs(state).await?.put(&key, &bytes).await.map_err(V2Error::from)?;
+        blobs(state)
+            .await?
+            .put(&key, &bytes)
+            .await
+            .map_err(V2Error::from)?;
         let data = json!({
             "game_id": game_id.to_string(),
             "version": version,
@@ -114,7 +119,8 @@ impl MapService {
                 "Map version {version} bytes are missing."
             )));
         };
-        let bytes = blobs(state).await?
+        let bytes = blobs(state)
+            .await?
             .get(&key)
             .await
             .map_err(V2Error::from)?

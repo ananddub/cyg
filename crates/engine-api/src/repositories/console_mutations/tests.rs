@@ -72,9 +72,6 @@ async fn disabling_a_console_user_stamps_the_time() {
     q.set_console_user_disabled(Utc::now(), id)
         .await
         .expect("the user disables");
-    let row = q
-        .find_console_user_by_id(id)
-        .await
-        .expect("the row reads");
+    let row = q.find_console_user_by_id(id).await.expect("the row reads");
     assert!(row.disable_time > DateTime::from_timestamp(0, 0).unwrap());
 }

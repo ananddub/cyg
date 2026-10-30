@@ -77,8 +77,14 @@ async fn rooms_reports_every_live_room_and_its_phase() {
     assert_eq!(rows[0]["closesInSec"], 288);
     assert_eq!(rows[1]["name"], "lobby");
     assert_eq!(rows[1]["phase"], "hibernating");
-    assert!(rows[1]["closesInSec"].is_null(), "an unlimited room has no countdown");
-    assert!(rows[1]["ready"].as_bool().unwrap(), "an empty room takes joins");
+    assert!(
+        rows[1]["closesInSec"].is_null(),
+        "an unlimited room has no countdown"
+    );
+    assert!(
+        rows[1]["ready"].as_bool().unwrap(),
+        "an empty room takes joins"
+    );
 }
 
 #[test]

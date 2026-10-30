@@ -11,8 +11,8 @@ use crate::services::auth::verify;
 
 pub use gamecenter::game_center;
 pub(crate) use gamecenter::game_center_fields;
-pub use unsigned::instant_game;
 pub(crate) use token::token;
+pub use unsigned::instant_game;
 
 pub(crate) async fn provider(
     state: &ApiState,
@@ -30,5 +30,13 @@ pub(crate) async fn provider(
         .and_then(|token| token.as_str())
         .unwrap_or_default()
         .to_owned();
-    token::token(state, kind, &token, requested_username, create, account.vars).await
+    token::token(
+        state,
+        kind,
+        &token,
+        requested_username,
+        create,
+        account.vars,
+    )
+    .await
 }

@@ -11,9 +11,16 @@ async fn an_item_definition_upserts_and_reads_back() {
     };
     let q = state.q.as_ref().expect("the fixture opens queries");
 
-    q.upsert_item_definition("potion", "Potion", "consumable", 99, "common", &json!({"heal": 5}))
-        .await
-        .expect("a definition registers");
+    q.upsert_item_definition(
+        "potion",
+        "Potion",
+        "consumable",
+        99,
+        "common",
+        &json!({"heal": 5}),
+    )
+    .await
+    .expect("a definition registers");
     let row = q
         .get_item_definition("potion")
         .await
@@ -111,7 +118,7 @@ async fn a_room_snapshot_saves_and_loads() {
             .expect("the lookup runs")
             .is_none()
     );
-    q.save_room_snapshot(&room, "tank-3d", b"snapshot", 12)
+    q.save_room_snapshot(&room, "tank-3d", b"snapshot", 12, 4)
         .await
         .expect("the snapshot saves");
 
@@ -122,5 +129,6 @@ async fn a_room_snapshot_saves_and_loads() {
         .expect("the snapshot exists");
     assert_eq!(row.backend, "tank-3d");
     assert_eq!(row.entity_count, 12);
+    assert_eq!(row.snapshot_seq, 4);
     assert_eq!(row.snapshot_bytes, b"snapshot");
 }

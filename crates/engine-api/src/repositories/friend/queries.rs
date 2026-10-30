@@ -1,10 +1,7 @@
 use super::*;
 
 impl Queries {
-    pub async fn add_friend_edge(
-        &self,
-        params: &AddFriendEdgeParams,
-    ) -> Result<(), DbError> {
+    pub async fn add_friend_edge(&self, params: &AddFriendEdgeParams) -> Result<(), DbError> {
         let edge = UserEdge {
             source_id: params.source_id,
             position: params.position,
@@ -50,10 +47,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn block_user_edges(
-        &self,
-        params: &BlockUserEdgesParams,
-    ) -> Result<(), DbError> {
+    pub async fn block_user_edges(&self, params: &BlockUserEdgesParams) -> Result<(), DbError> {
         let edge = UserEdge {
             source_id: params.source_id,
             position: params.position,
@@ -384,10 +378,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn insert_friend_edge(
-        &self,
-        params: &InsertFriendEdgeParams,
-    ) -> Result<(), DbError> {
+    pub async fn insert_friend_edge(&self, params: &InsertFriendEdgeParams) -> Result<(), DbError> {
         let edge = UserEdge {
             source_id: params.source_id,
             position: params.position,

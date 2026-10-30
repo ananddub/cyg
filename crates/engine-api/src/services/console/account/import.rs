@@ -6,12 +6,12 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::account::AccountExport;
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::repositories::console::ListStorageRow;
 use crate::repositories::console_mutations::{
     ImportAccountParams, ImportDeviceParams, ImportLedgerParams, ImportNoteParams, ListUserEdgesRow,
 };
 use crate::repositories::models::Users;
+use crate::services::deps::q;
 
 use super::conflict::import_conflict;
 
@@ -140,7 +140,8 @@ impl super::ConsoleService {
                 .collect(),
         };
 
-        q(state).await?
+        q(state)
+            .await?
             .import_account_bundle(&params)
             .await
             .map_err(import_conflict)?;

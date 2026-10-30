@@ -52,7 +52,11 @@ impl DashboardRestController {
     }
 
     #[get("/overview")]
-    async fn overview(&self, _auth: ConsoleAuthed, Params(scope): Params<DashboardScope>) -> Response {
+    async fn overview(
+        &self,
+        _auth: ConsoleAuthed,
+        Params(scope): Params<DashboardScope>,
+    ) -> Response {
         let state = crate::current_state();
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
@@ -71,7 +75,11 @@ impl DashboardRestController {
     }
 
     #[get("/workers")]
-    async fn workers(&self, _auth: ConsoleAuthed, Params(scope): Params<DashboardScope>) -> Response {
+    async fn workers(
+        &self,
+        _auth: ConsoleAuthed,
+        Params(scope): Params<DashboardScope>,
+    ) -> Response {
         let state = crate::current_state();
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
@@ -80,7 +88,11 @@ impl DashboardRestController {
     }
 
     #[get("/clients")]
-    async fn clients(&self, _auth: ConsoleAuthed, Params(scope): Params<DashboardScope>) -> Response {
+    async fn clients(
+        &self,
+        _auth: ConsoleAuthed,
+        Params(scope): Params<DashboardScope>,
+    ) -> Response {
         let state = crate::current_state();
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();

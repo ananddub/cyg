@@ -33,7 +33,9 @@ async fn plane() -> (u16, String, tokio::task::JoinHandle<()>) {
     (port, session, server)
 }
 
-pub(crate) async fn next_json<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>) -> serde_json::Value
+pub(crate) async fn next_json<S>(
+    ws: &mut tokio_tungstenite::WebSocketStream<S>,
+) -> serde_json::Value
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {

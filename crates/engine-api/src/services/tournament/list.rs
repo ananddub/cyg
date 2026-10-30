@@ -107,7 +107,10 @@ impl super::TournamentService {
         if let Some(board) = &anchor {
             binds.insert("anchor_start".to_string(), ts(board.start_time));
             binds.insert("anchor_end".to_string(), ts(board.end_time));
-            binds.insert("anchor_category".to_string(), serde_json::json!(board.category));
+            binds.insert(
+                "anchor_category".to_string(),
+                serde_json::json!(board.category),
+            );
             binds.insert("anchor_id".to_string(), serde_json::json!(board.id));
         }
         let rows = queries

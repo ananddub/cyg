@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) async fn groups_by_id(queries: &Queries, ids: &[Uuid]) -> Result<HashMap<Uuid, Groups>, DbError> {
+pub(super) async fn groups_by_id(
+    queries: &Queries,
+    ids: &[Uuid],
+) -> Result<HashMap<Uuid, Groups>, DbError> {
     let mut unique = ids.to_vec();
     unique.sort();
     unique.dedup();

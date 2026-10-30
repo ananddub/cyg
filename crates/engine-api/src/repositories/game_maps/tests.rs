@@ -35,7 +35,9 @@ async fn a_game_map_versions_activates_and_deletes() {
     .expect("the map inserts");
 
     assert_eq!(
-        q.latest_game_map_version(game).await.expect("the version reads"),
+        q.latest_game_map_version(game)
+            .await
+            .expect("the version reads"),
         Some(1)
     );
     let row = q

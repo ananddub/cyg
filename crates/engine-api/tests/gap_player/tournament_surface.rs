@@ -242,8 +242,8 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
             .bearer_auth(&other.token)
             .json(&json!({ "score": 130 }))
             .send()
-        .await
-        .unwrap(),
+            .await
+            .unwrap(),
         StatusCode::OK,
         "the second entrant scoring",
     )
@@ -280,7 +280,10 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
 
     let standing = json_body(
         env.client
-            .get(format!("{}/v2/tournament/{joined_id}/owner/{}", env.base, other.uid))
+            .get(format!(
+                "{}/v2/tournament/{joined_id}/owner/{}",
+                env.base, other.uid
+            ))
             .bearer_auth(&entrant.token)
             .send()
             .await
@@ -300,7 +303,10 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/tournament/{joined_id}/owner/not-a-uuid", env.base))
+                .get(format!(
+                    "{}/v2/tournament/{joined_id}/owner/not-a-uuid",
+                    env.base
+                ))
                 .bearer_auth(&entrant.token)
                 .send()
                 .await
@@ -334,12 +340,26 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
         "the round after the delete",
     )
     .await;
-    assert_eq!(after["records"].as_array().map(Vec::len), Some(1), "{after}");
+    assert_eq!(
+        after["records"].as_array().map(Vec::len),
+        Some(1),
+        "{after}"
+    );
     assert_eq!(after["records"][0]["owner_id"], entrant.uid);
 
     for (label, id, status, message) in [
-        ("listing a plain board as a round", &plain_id, StatusCode::NOT_FOUND, "Tournament not found."),
-        ("writing to a round that does not exist", &format!("e2e_gap_missing_{suffix}"), StatusCode::NOT_FOUND, "Tournament not found."),
+        (
+            "listing a plain board as a round",
+            &plain_id,
+            StatusCode::NOT_FOUND,
+            "Tournament not found.",
+        ),
+        (
+            "writing to a round that does not exist",
+            &format!("e2e_gap_missing_{suffix}"),
+            StatusCode::NOT_FOUND,
+            "Tournament not found.",
+        ),
     ] {
         assert_eq!(
             refusal(

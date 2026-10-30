@@ -30,7 +30,8 @@ impl ChannelService {
             ));
         }
         let content = crate::moderation::sanitize_json(body.content);
-        let msg = q(state).await?
+        let msg = q(state)
+            .await?
             .insert_channel_message(&InsertChannelMessageParams {
                 id: Uuid::new_v4(),
                 sender_id: uid,

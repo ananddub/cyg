@@ -20,11 +20,9 @@ pub(super) async fn verify(config: &SocialConfig, token: &str) -> Result<Profile
             "access_token",
             &format!("{}|{}", config.facebook_app_id, config.facebook_app_secret),
         );
-    let response = super::client()
-        .get(url)
-        .send()
-        .await
-        .map_err(|err| V2Error::unavailable(format!("Facebook token verification failed: {err}")))?;
+    let response = super::client().get(url).send().await.map_err(|err| {
+        V2Error::unavailable(format!("Facebook token verification failed: {err}"))
+    })?;
     if !response.status().is_success() {
         return Err(vendor::profile("Facebook"));
     }
@@ -64,7 +62,7 @@ mod tests {
     use axum::extract::Query;
     use axum::routing::get;
     use axum::{Json, Router};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::*;
 
@@ -93,7 +91,10 @@ mod tests {
             query.get("access_token").map(String::as_str),
             Some("app-1|secret")
         );
-        assert_eq!(query.get("input_token").map(String::as_str), Some("user-token"));
+        assert_eq!(
+            query.get("input_token").map(String::as_str),
+            Some("user-token")
+        );
         Json(json!({
             "data": { "app_id": "app-1", "is_valid": true, "user_id": "fb-user-1" },
         }))
@@ -108,7 +109,9 @@ mod tests {
     #[tokio::test]
     async fn a_valid_token_resolves_the_facebook_user() {
         let base = serve(Router::new().route("/debug_token", get(valid))).await;
-        let profile = verify(&config(&base), "user-token").await.expect("verified");
+        let profile = verify(&config(&base), "user-token")
+            .await
+            .expect("verified");
         assert_eq!(profile.id, "fb-user-1");
     }
 

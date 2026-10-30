@@ -1,6 +1,12 @@
 use super::*;
 
-pub async fn write_record(client: &Client, base: &str, token: &str, id: &str, body: Value) -> Value {
+pub async fn write_record(
+    client: &Client,
+    base: &str,
+    token: &str,
+    id: &str,
+    body: Value,
+) -> Value {
     json_body(
         client
             .post(format!("{base}/v2/tournament/{id}"))

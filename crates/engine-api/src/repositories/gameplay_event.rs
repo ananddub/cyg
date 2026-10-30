@@ -67,9 +67,9 @@ impl Queries {
         }
     }
 
-    /// Both history tables age out together: a match older than the retention
-    /// window has no replay value, and its rows are the bulk of the store.
-    pub async fn prune_match_history(&self, older_than: DateTime<Utc>) -> Result<(), DbError> {
+    /// The event stream and its desync evidence age out on one window: one
+    /// without the other is a gap no operator can interpret.
+    pub async fn prune_event_history(&self, older_than: DateTime<Utc>) -> Result<(), DbError> {
         self.exec(
             "DELETE gameplay_event WHERE create_time < $cutoff",
             params!(cutoff = ts(older_than)),
@@ -77,6 +77,35 @@ impl Queries {
         .await?;
         self.exec(
             "DELETE desync_report WHERE create_time < $cutoff",
+            params!(cutoff = ts(older_than)),
+        )
+        .await
+    }
+
+    pub async fn record_match(&self, row: &MatchHistory) -> Result<(), DbError> {
+        self.create("match_history", Key::Uuid(row.id), row)
+            .await
+            .map(|_| ())
+    }
+
+    /// One room's finished matches, newest first — the same room name runs a
+    /// new match every few minutes, so a list and not a single row is correct.
+    pub async fn list_match_history(
+        &self,
+        room: &str,
+        limit: i64,
+    ) -> Result<Vec<MatchHistory>, DbError> {
+        self.all(
+            "SELECT * FROM match_history WHERE room = $room \
+             ORDER BY ended_at DESC LIMIT $limit",
+            params!(room = room.to_string(), limit = bounded(limit)),
+        )
+        .await
+    }
+
+    pub async fn prune_match_history(&self, older_than: DateTime<Utc>) -> Result<(), DbError> {
+        self.exec(
+            "DELETE match_history WHERE ended_at < $cutoff",
             params!(cutoff = ts(older_than)),
         )
         .await

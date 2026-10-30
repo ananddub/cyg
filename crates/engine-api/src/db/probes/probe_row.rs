@@ -17,16 +17,9 @@ pub(crate) struct NamedProbe {
     pub(crate) title: String,
 }
 pub(crate) async fn memory() -> Datastore {
-    Datastore::open(
-        "mem://",
-        "probe",
-        "probe",
-        None,
-        None,
-        KvBudget::default(),
-    )
-    .await
-    .expect("open mem://")
+    Datastore::open("mem://", "probe", "probe", None, None, KvBudget::default())
+        .await
+        .expect("open mem://")
 }
 #[tokio::test]
 pub(crate) async fn bytes_round_trip() {
@@ -119,11 +112,7 @@ pub(crate) async fn schemaless_rows_round_trip_into_records() {
     let at = chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 10, 29, 12, 0, 0).unwrap();
     let owner = uuid::Uuid::new_v4();
     let id = uuid::Uuid::new_v4();
-    let row = ProbeRow {
-        id,
-        owner,
-        at,
-    };
+    let row = ProbeRow { id, owner, at };
     let stored = db
         .create("probe_row", Key::Uuid(id), &row)
         .await

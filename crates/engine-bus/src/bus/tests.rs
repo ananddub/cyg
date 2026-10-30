@@ -1,5 +1,5 @@
 use super::*;
-use crate::messages::{SimEvent, Via};
+use crate::messages::{MatchFinished, SimEvent, Via};
 
 fn input(seq: u16) -> InputMsg {
     InputMsg {
@@ -81,10 +81,34 @@ fn a_full_event_history_queue_loses_the_oldest_row_not_the_newest() {
         "seq 1 was discarded"
     );
     assert_eq!(
-        bus.events_rx.iter().last().unwrap().seq,
+        // `try_iter`, not `iter`: the sender is still alive, so a blocking
+        // iterator would wait for a disconnect that never comes.
+        bus.events_rx.try_iter().last().unwrap().seq,
         EVENT_CAP as u64 + 1,
         "the fresh event is the one kept"
     );
+}
+
+#[test]
+fn a_finished_match_is_queued_for_the_history_table() {
+    let bus = Bus::new(2, 2);
+    bus.push_match(MatchFinished {
+        room: "arena".into(),
+        game_id: "tank-3d".into(),
+        end_reason: "duration".into(),
+        started_at_unix: 1,
+        ended_at_unix: 90,
+        ticks: 2700,
+        peak_players: 4,
+        snapshot_seq: 3,
+        result: b"{\"winner\":2}".to_vec(),
+    });
+    let row = bus.matches_rx.try_recv().expect("the match is queued");
+    assert_eq!(row.end_reason, "duration");
+    assert_eq!(row.ticks, 2700);
+    assert_eq!(row.snapshot_seq, 3);
+    assert_eq!(row.result, b"{\"winner\":2}".to_vec());
+    assert_eq!(bus.matches_dropped(), 0);
 }
 
 #[test]
@@ -98,4 +122,22 @@ fn a_drain_request_latches_for_every_reader() {
         bus.clone().is_draining(),
         "the other plane sees the same latch"
     );
+}
+
+/// The control plane cannot tell a WASM save from an ECS save by looking at the
+/// bytes, and a match row points at a save by its ordinal, so both ride along.
+#[test]
+fn a_snapshot_rides_the_queue_with_its_backend_and_ordinal() {
+    let bus = Bus::new(2, 2);
+    bus.push_snapshot(RoomSnapshot {
+        room: "arena".into(),
+        backend: "wasm".into(),
+        seq: 2,
+        bytes: vec![9],
+    });
+    let saved = bus.snapshots_rx.try_recv().expect("the snapshot is queued");
+    assert_eq!(saved.room, "arena");
+    assert_eq!(saved.backend, "wasm");
+    assert_eq!(saved.seq, 2);
+    assert_eq!(saved.bytes, vec![9]);
 }

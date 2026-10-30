@@ -317,9 +317,7 @@ fn delete_lookup(owner: Uuid, ids: &[ObjectId]) -> (String, BTreeMap<String, Val
         if index > 0 {
             wanted.push_str(" OR ");
         }
-        wanted.push_str(&format!(
-            "(collection = $c{index} AND `key` = $k{index})"
-        ));
+        wanted.push_str(&format!("(collection = $c{index} AND `key` = $k{index})"));
         params.insert(format!("c{index}"), json!(id.collection));
         params.insert(format!("k{index}"), json!(id.key));
     }
@@ -462,12 +460,12 @@ fn index_query(
 
     let limit = bind(&page, params);
     let start = bind(&offset, params);
-    let tail = format!(
-        " ORDER BY {} LIMIT {limit} START {start}",
-        order.join(", ")
-    );
+    let tail = format!(" ORDER BY {} LIMIT {limit} START {start}", order.join(", "));
     if computed.is_empty() {
-        format!("{} FROM storage WHERE {filters}{tail}", projection.trim_start())
+        format!(
+            "{} FROM storage WHERE {filters}{tail}",
+            projection.trim_start()
+        )
     } else {
         format!(
             "{} FROM (SELECT *, {} FROM storage WHERE {filters}){tail}",
@@ -511,10 +509,7 @@ fn term_sql(term: &StorageIndexTerm, params: &mut BTreeMap<String, Value>, sql: 
             for (bound, lower_side) in bounds {
                 let value = if numeric {
                     bind(
-                        &bound
-                            .number
-                            .as_deref()
-                            .and_then(|n| n.parse::<f64>().ok()),
+                        &bound.number.as_deref().and_then(|n| n.parse::<f64>().ok()),
                         params,
                     )
                 } else {

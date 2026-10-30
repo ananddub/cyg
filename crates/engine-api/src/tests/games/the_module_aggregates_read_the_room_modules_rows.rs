@@ -9,9 +9,19 @@ pub(crate) async fn the_module_aggregates_read_the_room_modules_rows() {
     let game = db::create(&state, "modules").await;
     let sha = hex::encode([7u8; 32]);
 
-    db::insert_module(&state, &pool, game.id, 1, "room-v1.wasm", &wasm_bytes(), None, &sha, true)
-        .await
-        .expect("the first version of a module is stored");
+    db::insert_module(
+        &state,
+        &pool,
+        game.id,
+        1,
+        "room-v1.wasm",
+        &wasm_bytes(),
+        None,
+        &sha,
+        true,
+    )
+    .await
+    .expect("the first version of a module is stored");
 
     assert_eq!(
         GamesService::module_count(&state, game.id)
@@ -121,7 +131,10 @@ pub(crate) async fn the_module_aggregates_read_the_room_modules_rows() {
             .expect("and present")
         }
     };
-    let store = state.blobs.as_ref().expect("the test plane has a blob store");
+    let store = state
+        .blobs
+        .as_ref()
+        .expect("the test plane has a blob store");
     let v1 = read(1).await;
     assert_eq!(
         v1["blob_key"],

@@ -62,7 +62,8 @@ impl From<StoredObject> for ListStorageRow {
     }
 }
 
-pub(crate) const STORAGE_COLUMNS: &str = "id, collection, key, user_id, value, version, read, write, create_time, update_time";
+pub(crate) const STORAGE_COLUMNS: &str =
+    "id, collection, key, user_id, value, version, read, write, create_time, update_time";
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub(crate) struct AuditUsernameCount {

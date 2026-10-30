@@ -9,7 +9,7 @@ mod token;
 use engine_config::IapConfig;
 use serde_json::Value;
 
-use super::{parse_ms, parse_rfc3339, VerifiedPurchase};
+use super::{VerifiedPurchase, parse_ms, parse_rfc3339};
 use crate::error::V2Error;
 use crate::utils::iap::hex_id;
 
@@ -55,8 +55,9 @@ pub(super) async fn verify(
 
 fn endpoint(config: &IapConfig, tail: &[&str]) -> Result<reqwest::Url, V2Error> {
     let base = format!("{}/", config.google_api_base.trim_end_matches('/'));
-    let mut url = reqwest::Url::parse(&base)
-        .map_err(|err| V2Error::unavailable(format!("[control.iap] google_api_base is invalid: {err}")))?;
+    let mut url = reqwest::Url::parse(&base).map_err(|err| {
+        V2Error::unavailable(format!("[control.iap] google_api_base is invalid: {err}"))
+    })?;
     {
         let mut segments = url.path_segments_mut().map_err(|_| {
             V2Error::unavailable("[control.iap] google_api_base cannot be a base URL.")
@@ -86,7 +87,9 @@ async fn lookup(url: reqwest::Url, access: &str) -> Result<Option<Value>, V2Erro
         )));
     }
     let value = response.json().await.map_err(|err| {
-        V2Error::unavailable(format!("Google purchase lookup returned an unreadable body: {err}"))
+        V2Error::unavailable(format!(
+            "Google purchase lookup returned an unreadable body: {err}"
+        ))
     })?;
     Ok(Some(value))
 }

@@ -69,9 +69,7 @@ pub(super) async fn wires(
     board: &Leaderboard,
     rows: &[LeaderboardRecord],
 ) -> Result<Vec<RecordResponse>, V2Error> {
-    let ranks = ranks(queries, board, rows)
-        .await
-        .map_err(V2Error::from)?;
+    let ranks = ranks(queries, board, rows).await.map_err(V2Error::from)?;
     Ok(rows
         .iter()
         .zip(ranks)

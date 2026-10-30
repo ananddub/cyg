@@ -45,7 +45,9 @@ pub(crate) async fn verify_purchase(
         APPLE if config.apple_configured() => {
             apple::verify(config, credential, product_id, transaction_id).await
         }
-        GOOGLE if config.google_configured() => google::verify(config, credential, product_id).await,
+        GOOGLE if config.google_configured() => {
+            google::verify(config, credential, product_id).await
+        }
         _ if config.allow_unverified => {
             tracing::warn!("[iap] recording an unverified purchase for store {store}");
             Ok(unverified(store, credential, product_id, transaction_id))

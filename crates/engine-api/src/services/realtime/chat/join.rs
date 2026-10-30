@@ -92,7 +92,8 @@ impl RealtimeChatService {
         let secs = now.timestamp();
 
         if persistent {
-            let _ = crate::services::deps::q(&state).await?
+            let _ = crate::services::deps::q(&state)
+                .await?
                 .insert_channel_message(&InsertChannelMessageParams {
                     id,
                     sender_id: s.uid,

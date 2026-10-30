@@ -19,7 +19,11 @@ impl StaticRoutesService {
         let s = &state.statics;
         let client = s.project_root().join("cyg-client.js");
         let legacy = s.project_root().join("cyg.js");
-        match s.read(&client).or_else(|| s.read(&legacy)).or_else(|| s.default_for("/cyg.js")) {
+        match s
+            .read(&client)
+            .or_else(|| s.read(&legacy))
+            .or_else(|| s.default_for("/cyg.js"))
+        {
             Some(body) => file_response("/cyg.js", body),
             None => not_found(),
         }

@@ -28,7 +28,9 @@ impl fmt::Display for DbError {
             DbError::Connection(message) => write!(f, "database connection: {message}"),
             DbError::Query(message) => write!(f, "query: {message}"),
             DbError::Deserialize(message) => write!(f, "deserialize: {message}"),
-            DbError::Unique(index) => write!(f, "unique index `{index}` already contains this value"),
+            DbError::Unique(index) => {
+                write!(f, "unique index `{index}` already contains this value")
+            }
             DbError::NotFound => write!(f, "record not found"),
         }
     }
@@ -81,8 +83,12 @@ mod tests {
 
     #[test]
     fn reads_the_index_name() {
-        let message = "Database index `users_username_unique` already contains 'a', with record `users:1`";
-        assert_eq!(unique_index(message).as_deref(), Some("users_username_unique"));
+        let message =
+            "Database index `users_username_unique` already contains 'a', with record `users:1`";
+        assert_eq!(
+            unique_index(message).as_deref(),
+            Some("users_username_unique")
+        );
     }
 
     #[test]
@@ -99,8 +105,7 @@ mod tests {
 
     #[test]
     fn reads_a_text_key_clash_through_nested_quotes() {
-        let message =
-            "Database record `user_device:`e2e-second-device-970203d4`` already exists";
+        let message = "Database record `user_device:`e2e-second-device-970203d4`` already exists";
         assert_eq!(record_key(message).as_deref(), Some("user_device_pkey"));
     }
 }

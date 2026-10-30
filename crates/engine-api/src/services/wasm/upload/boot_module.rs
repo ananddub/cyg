@@ -23,7 +23,8 @@ impl WasmService {
         let Some(game_id) = tenant::game_id(state).await? else {
             return Ok(None);
         };
-        let Some(row) = q(state).await?
+        let Some(row) = q(state)
+            .await?
             .active_room_module(game_id)
             .await
             .map_err(V2Error::from)?
@@ -34,11 +35,7 @@ impl WasmService {
             tracing::warn!("[wasm] active module v{} has no stored bytes", row.version);
             return Ok(None);
         };
-        let Some(bytes) = blobs(state).await?
-            .get(&key)
-            .await
-            .map_err(V2Error::from)?
-        else {
+        let Some(bytes) = blobs(state).await?.get(&key).await.map_err(V2Error::from)? else {
             tracing::warn!("[wasm] {key} is missing from the blob store");
             return Ok(None);
         };

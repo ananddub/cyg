@@ -4,7 +4,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use crossbeam_channel::{Receiver, Sender, bounded};
 
 use crate::messages::{
-    InputMsg, MapReload, OutFrame, SettingsReload, SimCommand, SimEvent, WasmReload,
+    InputMsg, MapReload, MatchFinished, OutFrame, RoomSnapshot, SettingsReload, SimCommand,
+    SimEvent, WasmReload,
 };
 use crate::telemetry::StatusSnapshot;
 
@@ -26,6 +27,14 @@ const SETTINGS_CAP: usize = 8;
 /// `host_send` body, bounded upstream at 64 KiB, so the worst case here is
 /// ~16 MiB of retained bytes.
 const EVENT_CAP: usize = 256;
+/// Finished matches waiting to be written. One row per room, at the moment the
+/// room is disposed, so a small cap is generous: it only has to survive the
+/// control plane being briefly busy.
+const MATCH_CAP: usize = 64;
+/// Saved room states waiting for the database. A snapshot is taken when a room
+/// is disposed, so at most one per room per pass; eight rooms closing inside one
+/// 250 ms pump beat is already a backlog an operator wants to see.
+const SNAPSHOT_CAP: usize = 8;
 
 /// Inter-plane wiring. Each plane consumes its own ends directly; sends on
 /// `inputs` must go through [`Bus::push_input`] or the drop policy is lost.
@@ -58,6 +67,15 @@ pub struct Bus {
     pub events_tx: Sender<SimEvent>,
     pub events_rx: Receiver<SimEvent>,
     events_dropped: AtomicU64,
+    /// sim → control plane: matches that ended, for the history table. Same
+    /// never-block-the-tick rule as [`Bus::push_event`].
+    pub matches_tx: Sender<MatchFinished>,
+    pub matches_rx: Receiver<MatchFinished>,
+    matches_dropped: AtomicU64,
+    /// sim → control plane: saved room states to persist. See
+    /// [`Bus::push_snapshot`].
+    pub snapshots_tx: Sender<RoomSnapshot>,
+    pub snapshots_rx: Receiver<RoomSnapshot>,
     /// Latched by whatever catches the process' termination signal and read by
     /// the loop that owns the rooms. A one-way latch, so an atomic beats a
     /// channel that every consumer would have to keep draining.
@@ -74,6 +92,8 @@ impl Bus {
         let (map_reloads_tx, map_reloads_rx) = bounded(MAP_RELOAD_CAP);
         let (settings_tx, settings_rx) = bounded(SETTINGS_CAP);
         let (events_tx, events_rx) = bounded(EVENT_CAP);
+        let (matches_tx, matches_rx) = bounded(MATCH_CAP);
+        let (snapshots_tx, snapshots_rx) = bounded(SNAPSHOT_CAP);
         Arc::new(Bus {
             inputs_tx,
             inputs_rx,
@@ -92,6 +112,11 @@ impl Bus {
             events_tx,
             events_rx,
             events_dropped: AtomicU64::new(0),
+            matches_tx,
+            matches_rx,
+            matches_dropped: AtomicU64::new(0),
+            snapshots_tx,
+            snapshots_rx,
             draining: AtomicBool::new(false),
         })
     }
@@ -138,6 +163,39 @@ impl Bus {
     /// Events discarded because the control plane was not draining the queue.
     pub fn events_dropped(&self) -> u64 {
         self.events_dropped.load(Ordering::Relaxed)
+    }
+
+    /// Queue one finished match for the history table. Disposing a room is not
+    /// the tick's hot path, but it is on the loop that closes rooms, so this
+    /// keeps the same non-blocking contract as [`push_event`](Self::push_event).
+    pub fn push_match(&self, match_: MatchFinished) {
+        let match_ = match self.matches_tx.try_send(match_) {
+            Ok(()) => return,
+            Err(crossbeam_channel::TrySendError::Full(m)) => m,
+            Err(_) => return,
+        };
+        let _ = self.matches_rx.try_recv();
+        self.matches_dropped.fetch_add(1, Ordering::Relaxed);
+        let _ = self.matches_tx.try_send(match_);
+    }
+
+    /// Matches discarded because the control plane was not draining the queue.
+    pub fn matches_dropped(&self) -> u64 {
+        self.matches_dropped.load(Ordering::Relaxed)
+    }
+
+    /// Hand one saved room state to the control plane. A snapshot is written
+    /// when a room is disposed — at most one per room — so this queue is allowed
+    /// to be blunt: on full it drops the **oldest** saved state, which is the
+    /// one a newer save has already superseded.
+    pub fn push_snapshot(&self, snapshot: RoomSnapshot) {
+        let snapshot = match self.snapshots_tx.try_send(snapshot) {
+            Ok(()) => return,
+            Err(crossbeam_channel::TrySendError::Full(s)) => s,
+            Err(_) => return,
+        };
+        let _ = self.snapshots_rx.try_recv();
+        let _ = self.snapshots_tx.try_send(snapshot);
     }
 }
 

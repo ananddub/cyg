@@ -49,10 +49,19 @@ pub async fn backfill(state: &ApiState, game_id: Uuid) {
     };
     for (table, claimed) in [
         ("users", queries.backfill_users_game(game_id).await),
-        ("leaderboard", queries.backfill_leaderboard_game(game_id).await),
+        (
+            "leaderboard",
+            queries.backfill_leaderboard_game(game_id).await,
+        ),
         ("purchase", queries.backfill_purchases_game(game_id).await),
-        ("subscription", queries.backfill_subscriptions_game(game_id).await),
-        ("wallet_ledger", queries.backfill_wallet_ledger_game(game_id).await),
+        (
+            "subscription",
+            queries.backfill_subscriptions_game(game_id).await,
+        ),
+        (
+            "wallet_ledger",
+            queries.backfill_wallet_ledger_game(game_id).await,
+        ),
     ] {
         match claimed {
             Ok(done) => {
@@ -94,7 +103,8 @@ pub async fn list_accounts(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<Users>, V2Error> {
-    q(state).await?
+    q(state)
+        .await?
         .tenancy_accounts(game, limit, offset)
         .await
         .map_err(V2Error::from)

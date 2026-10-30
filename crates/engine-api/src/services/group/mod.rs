@@ -19,4 +19,3 @@ pub(crate) async fn fetch_group(queries: &Queries, id: Uuid) -> Result<Groups, V
         other => V2Error::from(other),
     })
 }
-

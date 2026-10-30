@@ -1,7 +1,12 @@
 use super::*;
 
 impl Queries {
-    async fn guarded_unlink(&self, id: Uuid, column: &str, assignment: &str) -> Result<Uuid, DbError> {
+    async fn guarded_unlink(
+        &self,
+        id: Uuid,
+        column: &str,
+        assignment: &str,
+    ) -> Result<Uuid, DbError> {
         let user: Users = self
             .one(
                 "SELECT * FROM type::record('users', <uuid>$id) LIMIT 1",
@@ -36,66 +41,42 @@ impl Queries {
         Ok(updated.id)
     }
 
-    pub async fn unlink_email(
-        &self,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn unlink_email(&self, id: Uuid) -> Result<Uuid, DbError> {
         self.guarded_unlink(id, "email", "email = $unset, password = $unset")
             .await
     }
 
-    pub async fn unlink_custom_id(
-        &self,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn unlink_custom_id(&self, id: Uuid) -> Result<Uuid, DbError> {
         self.guarded_unlink(id, "custom_id", "custom_id = $unset")
             .await
     }
 
-    pub async fn unlink_apple(
-        &self,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn unlink_apple(&self, id: Uuid) -> Result<Uuid, DbError> {
         self.guarded_unlink(id, "apple_id", "apple_id = $unset")
             .await
     }
 
-    pub async fn unlink_google(
-        &self,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn unlink_google(&self, id: Uuid) -> Result<Uuid, DbError> {
         self.guarded_unlink(id, "google_id", "google_id = $unset")
             .await
     }
 
-    pub async fn unlink_steam(
-        &self,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn unlink_steam(&self, id: Uuid) -> Result<Uuid, DbError> {
         self.guarded_unlink(id, "steam_id", "steam_id = $unset")
             .await
     }
 
-    pub async fn unlink_facebook(
-        &self,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn unlink_facebook(&self, id: Uuid) -> Result<Uuid, DbError> {
         self.guarded_unlink(id, "facebook_id", "facebook_id = $unset")
             .await
     }
 
-    pub async fn unlink_gamecenter(
-        &self,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn unlink_gamecenter(&self, id: Uuid) -> Result<Uuid, DbError> {
         self.guarded_unlink(id, "gamecenter_id", "gamecenter_id = $unset")
             .await
     }
 
-    pub async fn unlink_facebook_instant(
-        &self,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn unlink_facebook_instant(&self, id: Uuid) -> Result<Uuid, DbError> {
         self.guarded_unlink(
             id,
             "facebook_instant_game_id",
@@ -104,11 +85,7 @@ impl Queries {
         .await
     }
 
-    pub async fn unlink_device(
-        &self,
-        id: &str,
-        user_id: Uuid,
-    ) -> Result<String, DbError> {
+    pub async fn unlink_device(&self, id: &str, user_id: Uuid) -> Result<String, DbError> {
         let user: Users = self
             .one(
                 "SELECT * FROM type::record('users', <uuid>$id) LIMIT 1",
@@ -136,11 +113,7 @@ impl Queries {
         Ok(deleted.id)
     }
 
-    pub async fn unlink_provider(
-        &self,
-        provider: &str,
-        user_id: Uuid,
-    ) -> Result<String, DbError> {
+    pub async fn unlink_provider(&self, provider: &str, user_id: Uuid) -> Result<String, DbError> {
         let user: Users = self
             .one(
                 "SELECT * FROM type::record('users', <uuid>$id) LIMIT 1",

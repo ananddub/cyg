@@ -131,7 +131,7 @@ pub(crate) async fn switching_engine_type_flips_the_derived_backend_mode_both_wa
 
     let to_wasm: UpdateGameRequest =
         serde_json::from_value(json!({"engine_type": "custom"})).expect("an engine patch");
-    let patched = GamesService::update_game(&state, game.id, &to_wasm)
+    let patched = GamesService::update_game(&state, game.id, &to_wasm, None)
         .await
         .expect("a Unity game can become an authoritative one");
     assert_eq!(patched.engine_type, "custom");
@@ -142,7 +142,7 @@ pub(crate) async fn switching_engine_type_flips_the_derived_backend_mode_both_wa
 
     let back: UpdateGameRequest =
         serde_json::from_value(json!({"engine_type": "godot"})).expect("a second engine patch");
-    let patched = GamesService::update_game(&state, game.id, &back)
+    let patched = GamesService::update_game(&state, game.id, &back, None)
         .await
         .expect("and the way back is the same patch");
     assert_eq!(patched.engine_type, "godot");
@@ -150,7 +150,7 @@ pub(crate) async fn switching_engine_type_flips_the_derived_backend_mode_both_wa
 
     let renamed: UpdateGameRequest =
         serde_json::from_value(json!({"name": "Renamed Relay"})).expect("a name patch");
-    let patched = GamesService::update_game(&state, game.id, &renamed)
+    let patched = GamesService::update_game(&state, game.id, &renamed, None)
         .await
         .expect("a rename is applied");
     assert_eq!(patched.backend_mode, "relay", "a rename keeps the mode");

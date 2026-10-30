@@ -78,7 +78,10 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
         "record a Google purchase",
     )
     .await;
-    assert_eq!(google["transaction_id"], md5_hex(&format!("e2e-google-{suffix}")));
+    assert_eq!(
+        google["transaction_id"],
+        md5_hex(&format!("e2e-google-{suffix}"))
+    );
     assert_eq!(google["product_id"], "gem");
 
     let huawei = api_post(
@@ -89,7 +92,10 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
         "record a Huawei purchase",
     )
     .await;
-    assert_eq!(huawei["transaction_id"], md5_hex(&format!("e2e-huawei-{suffix}")));
+    assert_eq!(
+        huawei["transaction_id"],
+        md5_hex(&format!("e2e-huawei-{suffix}"))
+    );
 
     let facebook = api_post(
         client,
@@ -128,14 +134,22 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
         .as_array()
         .expect("purchases")
         .iter()
-        .map(|row| row["transaction_id"].as_str().expect("transaction").to_owned())
+        .map(|row| {
+            row["transaction_id"]
+                .as_str()
+                .expect("transaction")
+                .to_owned()
+        })
         .collect();
     assert_eq!(seen.len(), 3);
     let cursor = first["next_cursor"]
         .as_str()
         .expect("a purchase cursor")
         .to_owned();
-    assert_eq!(cursor, base64::engine::general_purpose::STANDARD.encode("3"));
+    assert_eq!(
+        cursor,
+        base64::engine::general_purpose::STANDARD.encode("3")
+    );
     let second = api_get(
         client,
         with_query(
@@ -151,7 +165,12 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
             .as_array()
             .expect("purchases")
             .iter()
-            .map(|row| row["transaction_id"].as_str().expect("transaction").to_owned()),
+            .map(|row| {
+                row["transaction_id"]
+                    .as_str()
+                    .expect("transaction")
+                    .to_owned()
+            }),
     );
     assert_eq!(seen.len(), 6);
     let cursor = second["next_cursor"]
@@ -173,12 +192,18 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let recovered = api_get(
         client,
-        with_query(&format!("{iap}/purchase"), &[("limit", "3"), ("cursor", "garbage")]),
+        with_query(
+            &format!("{iap}/purchase"),
+            &[("limit", "3"), ("cursor", "garbage")],
+        ),
         &alice.token,
         "purchase page with a malformed cursor",
     )
     .await;
-    assert_eq!(recovered["purchases"].as_array().expect("purchases").len(), 3);
+    assert_eq!(
+        recovered["purchases"].as_array().expect("purchases").len(),
+        3
+    );
 
     exec(
         pool,
@@ -229,7 +254,10 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
     .await;
     assert_eq!(subscription["product_id"], "sub-a");
     assert_eq!(subscription["transaction_id"], md5_hex(&apple_token));
-    assert_eq!(subscription["original_transaction_id"], md5_hex(&apple_token));
+    assert_eq!(
+        subscription["original_transaction_id"],
+        md5_hex(&apple_token)
+    );
     assert_eq!(subscription["expiration_time"], 1_893_456_000_i64);
     assert_eq!(subscription["state"], 1);
     assert_eq!(subscription["environment"], "UNKNOWN");
@@ -393,7 +421,10 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
         .as_str()
         .expect("a subscription cursor")
         .to_owned();
-    assert_eq!(cursor, base64::engine::general_purpose::STANDARD.encode("2"));
+    assert_eq!(
+        cursor,
+        base64::engine::general_purpose::STANDARD.encode("2")
+    );
     let page = api_get(
         client,
         with_query(
@@ -405,7 +436,10 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
     )
     .await;
     assert_eq!(
-        page["subscriptions"].as_array().expect("subscriptions").len(),
+        page["subscriptions"]
+            .as_array()
+            .expect("subscriptions")
+            .len(),
         1
     );
 }

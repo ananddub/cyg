@@ -10,6 +10,10 @@ pub async fn serve(
     state: ApiState,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) {
+    // Facts are queued by the requests that make them true; this is the half that
+    // owes them to somebody else's receiver. It stops with the server, because a
+    // process that is no longer answering HTTP has no business sending either.
+    let outbox = tokio::spawn(crate::services::webhook::delivery_loop(state.clone()));
     let router = match crate::app::api::app(state).await {
         Ok(router) => router,
         Err(err) => {
@@ -23,4 +27,5 @@ pub async fn serve(
     )
     .with_graceful_shutdown(shutdown)
     .await;
+    outbox.abort();
 }

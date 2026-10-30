@@ -43,9 +43,15 @@ mod tests {
 
         assert_eq!(store.get(key).await.unwrap(), None, "nothing stored yet");
         store.put(key, b"first").await.unwrap();
-        assert_eq!(store.get(key).await.unwrap().as_deref(), Some(&b"first"[..]));
+        assert_eq!(
+            store.get(key).await.unwrap().as_deref(),
+            Some(&b"first"[..])
+        );
         store.put(key, b"second").await.unwrap();
-        assert_eq!(store.get(key).await.unwrap().as_deref(), Some(&b"second"[..]));
+        assert_eq!(
+            store.get(key).await.unwrap().as_deref(),
+            Some(&b"second"[..])
+        );
 
         store.delete(key).await.unwrap();
         assert_eq!(store.get(key).await.unwrap(), None);
@@ -81,7 +87,10 @@ mod tests {
 
         assert_eq!(store.get(key).await.unwrap(), None, "nothing stored yet");
         store.put(key, b"arena").await.unwrap();
-        assert_eq!(store.get(key).await.unwrap().as_deref(), Some(&b"arena"[..]));
+        assert_eq!(
+            store.get(key).await.unwrap().as_deref(),
+            Some(&b"arena"[..])
+        );
         store.delete(key).await.unwrap();
         assert_eq!(store.get(key).await.unwrap(), None);
     }

@@ -27,8 +27,11 @@ pub(crate) async fn a_game_key_is_unique_and_a_name_is_not() {
         let id = Uuid::new_v4().to_string();
         let pool = pool.clone();
         async move {
-            pool.exec_params(insert, &crate::repositories::db::params! { id = id, row = row })
-                .await
+            pool.exec_params(
+                insert,
+                &crate::repositories::db::params! { id = id, row = row },
+            )
+            .await
         }
     };
 

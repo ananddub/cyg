@@ -59,10 +59,7 @@ impl Queries {
             .opt(
                 "DELETE wallet_ledger WHERE id = type::record('wallet_ledger', <uuid>$id) \
                     AND user_id = $user_id RETURN BEFORE",
-                params!(
-                    id = ledger_id.to_string(),
-                    user_id = user_id.to_string(),
-                ),
+                params!(id = ledger_id.to_string(), user_id = user_id.to_string(),),
             )
             .await?;
         Ok(deleted.is_some())

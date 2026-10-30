@@ -8,7 +8,8 @@ pub async fn list_groups(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<Groups>, V2Error> {
-    q(state).await?
+    q(state)
+        .await?
         .tenancy_groups(game, limit, offset)
         .await
         .map_err(V2Error::from)
@@ -20,7 +21,8 @@ pub async fn list_boards(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<Leaderboard>, V2Error> {
-    q(state).await?
+    q(state)
+        .await?
         .tenancy_boards(game, category, limit, offset)
         .await
         .map_err(V2Error::from)
@@ -31,7 +33,8 @@ pub async fn list_storage(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ListStorageRow>, V2Error> {
-    q(state).await?
+    q(state)
+        .await?
         .tenancy_storage(game, limit, offset)
         .await
         .map_err(V2Error::from)

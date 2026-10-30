@@ -8,14 +8,22 @@ pub async fn provider_auth_surface(env: &Harness) {
     for (label, path) in [
         ("POST /v2/account/authenticate/apple", "/apple"),
         ("POST /v2/account/authenticate/facebook", "/facebook"),
-        ("POST /v2/account/authenticate/facebookinstantgame", "/facebookinstantgame"),
+        (
+            "POST /v2/account/authenticate/facebookinstantgame",
+            "/facebookinstantgame",
+        ),
         ("POST /v2/account/authenticate/gamecenter", "/gamecenter"),
         ("POST /v2/account/authenticate/google", "/google"),
         ("POST /v2/account/authenticate/steam", "/steam"),
     ] {
         assert_eq!(
             refusal(
-                env.client.post(url(path)).json(&json!({ "token": "vendor-token" })).send().await.unwrap(),
+                env.client
+                    .post(url(path))
+                    .json(&json!({ "token": "vendor-token" }))
+                    .send()
+                    .await
+                    .unwrap(),
                 StatusCode::UNAUTHORIZED,
                 &format!("{label} without the server key"),
             )
@@ -72,7 +80,11 @@ pub async fn provider_auth_surface(env: &Harness) {
     );
 
     for (label, path, provider) in [
-        ("POST /v2/account/authenticate/facebook", "/facebook", "Facebook"),
+        (
+            "POST /v2/account/authenticate/facebook",
+            "/facebook",
+            "Facebook",
+        ),
         ("POST /v2/account/authenticate/google", "/google", "Google"),
     ] {
         assert_eq!(

@@ -132,7 +132,10 @@ pub async fn dashboard_assets(env: &Harness) {
             "hashed dashboard assets are advertised immutable: {cache}"
         );
     } else {
-        eprintln!("gap: no dashboard build under {} — serving check skipped", assets_dir.display());
+        eprintln!(
+            "gap: no dashboard build under {} — serving check skipped",
+            assets_dir.display()
+        );
     }
 
     let (typed, body) = expect_text(

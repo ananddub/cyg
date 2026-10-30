@@ -41,7 +41,8 @@ impl WasmService {
         version: i32,
     ) -> Result<(), V2Error> {
         self.require_wasm_mode(state, game_id).await?;
-        let flags = q(state).await?
+        let flags = q(state)
+            .await?
             .room_module_active_flag(game_id, version)
             .await
             .map_err(V2Error::from)?;
@@ -58,7 +59,8 @@ impl WasmService {
             }
             Some(false) => {}
         }
-        let deleted = q(state).await?
+        let deleted = q(state)
+            .await?
             .delete_room_module(game_id, version)
             .await
             .map_err(V2Error::from)?;

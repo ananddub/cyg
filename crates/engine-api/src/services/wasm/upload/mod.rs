@@ -11,12 +11,12 @@ use crate::dto::console::wasm::{AbiReport, ModuleDto, UploadResponse};
 use crate::error::V2Error;
 use crate::repositories::games::ListRoomModulesRow;
 
-mod require_wasm_mode;
-mod service;
 mod activate_module;
 mod boot_module;
-mod validate_binary;
+mod require_wasm_mode;
+mod service;
 mod sha256_hex;
+mod validate_binary;
 
 pub use service::*;
 use sha256_hex::*;

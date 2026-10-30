@@ -18,7 +18,7 @@ use crate::services::deps::q;
 use crate::utils::iap::{decode_offset, epoch, store_of};
 
 use super::IapService;
-use super::entitlements::is_active;
+use super::entitlements::{is_active, state_of};
 use super::verify::{self, APPLE, GOOGLE};
 
 impl IapService {
@@ -168,5 +168,26 @@ async fn record_subscription(
             raw_response: verified.raw,
         })
         .await?;
+    // A renewal rewrites the same row, so the expiry is what makes this fact a
+    // different one from the record that landed last month.
+    crate::services::webhook::emit(
+        state,
+        "subscription.state_changed",
+        &format!(
+            "{}:{}",
+            row.original_transaction_id,
+            row.expire_time.timestamp()
+        ),
+        serde_json::json!({
+            "user_id": row.user_id,
+            "original_transaction_id": row.original_transaction_id,
+            "product_id": row.product_id,
+            "store": row.store,
+            "expire_time": row.expire_time,
+            "state": state_of(&row, &Utc::now()),
+            "active": is_active(&row, Utc::now()),
+        }),
+    )
+    .await;
     Ok(Json(SubscriptionResponse::from(&row)))
 }

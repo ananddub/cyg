@@ -27,7 +27,8 @@ impl super::ConsoleService {
     }
 
     pub async fn get_group(&self, state: &ApiState, id: &str) -> Result<Json<GroupRow>, V2Error> {
-        let group = q(state).await?
+        let group = q(state)
+            .await?
             .get_group_by_id(super::account_id(id)?)
             .await?;
         Ok(Json(GroupRow::from(group)))
@@ -38,7 +39,8 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<Vec<GroupMemberRow>>, V2Error> {
-        let rows = q(state).await?
+        let rows = q(state)
+            .await?
             .list_group_users(super::account_id(id)?, MAX_MEMBERS)
             .await?;
         Ok(Json(rows.into_iter().map(GroupMemberRow::from).collect()))

@@ -12,8 +12,13 @@ async fn a_tombstone_stores_and_is_removed() {
     let user = Uuid::new_v4();
     assert!(q.get_user_tombstone(user).await.is_err(), "nothing yet");
 
-    q.create_tombstone(user).await.expect("the tombstone stores");
-    let row = q.get_user_tombstone(user).await.expect("the tombstone reads");
+    q.create_tombstone(user)
+        .await
+        .expect("the tombstone stores");
+    let row = q
+        .get_user_tombstone(user)
+        .await
+        .expect("the tombstone reads");
     assert_eq!(row.user_id, user);
 
     q.delete_user_tombstone(user)

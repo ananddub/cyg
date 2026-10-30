@@ -65,6 +65,23 @@ impl MarketplaceService {
             reverse_sale(&queries, &sold, auth.uid(), &seed).await;
             return Err(err);
         }
+        crate::services::webhook::emit(
+            state,
+            "marketplace.trade.settled",
+            &sold.id.to_string(),
+            serde_json::json!({
+                "kind": "sale",
+                "listing_id": sold.id,
+                "seller_id": sold.seller_id,
+                "buyer_id": auth.uid(),
+                "instance_id": sold.instance_id,
+                "item_id": sold.item_id,
+                "quantity": sold.quantity,
+                "currency": sold.price_currency,
+                "price": sold.price,
+            }),
+        )
+        .await;
         Ok(Json(ListingResponse {
             success: true,
             listing: ListingRow::from(sold),
@@ -115,12 +132,7 @@ async fn refund_buyer(queries: &Arc<Queries>, listing: &MarketListing, buyer: Uu
 
 /// Undoes a sale the buyer was charged for: the item goes back on escrow, the
 /// listing reopens, and the buyer's money returns.
-async fn reverse_sale(
-    queries: &Arc<Queries>,
-    listing: &MarketListing,
-    buyer: Uuid,
-    seed: &str,
-) {
+async fn reverse_sale(queries: &Arc<Queries>, listing: &MarketListing, buyer: Uuid, seed: &str) {
     let _ = queries
         .move_held_item(listing.instance_id, buyer, escrow_holder())
         .await;

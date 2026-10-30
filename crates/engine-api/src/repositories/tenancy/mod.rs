@@ -6,7 +6,9 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::console::{ListLeaderboardsByCategoryParams, ListStorageRow, StoredObject, STORAGE_COLUMNS};
+use super::console::{
+    ListLeaderboardsByCategoryParams, ListStorageRow, STORAGE_COLUMNS, StoredObject,
+};
 use super::db::{Queries, params};
 use super::games::{GAME_COLUMNS, InsertGameRow, WriteResult, affected};
 use super::group::ListGroupsParams;

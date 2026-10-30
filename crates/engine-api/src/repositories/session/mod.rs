@@ -1,9 +1,9 @@
 #![allow(unused_imports, dead_code)]
 
-use uuid::Uuid;
 use super::db::{Queries, params};
 use super::models::*;
 use crate::db::DbError;
+use uuid::Uuid;
 
 mod queries;
 mod types;

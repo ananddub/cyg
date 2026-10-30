@@ -24,12 +24,7 @@ impl super::super::ConsoleService {
             V2Error::invalid_argument(format!("Unknown IAP vendor: {vendor_name}"))
         })?;
         let key = config_key(vendor_name);
-        if q(state).await?
-            .delete_setting(&key)
-            .await?
-            .rows_affected()
-            == 0
-        {
+        if q(state).await?.delete_setting(&key).await?.rows_affected() == 0 {
             return Err(V2Error::not_found(format!(
                 "No stored {} IAP configuration.",
                 vendor.label()

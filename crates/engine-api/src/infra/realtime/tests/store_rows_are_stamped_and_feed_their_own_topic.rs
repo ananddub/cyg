@@ -39,7 +39,10 @@ pub(crate) async fn store_rows_are_stamped_and_feed_their_own_topic() {
     let event = next(&mut purchases).await;
     assert_eq!(event.topic, "purchases");
     assert_eq!(event.action, "create");
-    assert_eq!(event.record, "buyer-txn", "the other tenant's row stays out");
+    assert_eq!(
+        event.record, "buyer-txn",
+        "the other tenant's row stays out"
+    );
 
     let params = std::collections::BTreeMap::from([(
         "transaction_id".to_string(),
@@ -83,7 +86,10 @@ pub(crate) async fn the_file_backed_engine_feeds_changes_too() {
     let hub = RealtimeHub::new(Some(Arc::clone(&db)));
     let game = Uuid::new_v4();
 
-    let mut sub = hub.subscribe(LiveTopic::Users, game).await.expect("subscribed");
+    let mut sub = hub
+        .subscribe(LiveTopic::Users, game)
+        .await
+        .expect("subscribed");
     insert_user(&db, game, "persisted").await;
     let event = next(&mut sub).await;
     assert_eq!(event.action, "create");

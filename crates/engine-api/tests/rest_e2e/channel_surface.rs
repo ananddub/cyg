@@ -69,7 +69,10 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(first["persistent"], true);
     assert_eq!(first["room_name"], room_label);
     assert_eq!(json_string(&first["content"]), json!({ "text": "hello" }));
-    let first_id = first["message_id"].as_str().expect("first message id").to_owned();
+    let first_id = first["message_id"]
+        .as_str()
+        .expect("first message id")
+        .to_owned();
 
     let second = api_post(
         client,
@@ -79,7 +82,10 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
         "send the second room message",
     )
     .await;
-    let second_id = second["message_id"].as_str().expect("second message id").to_owned();
+    let second_id = second["message_id"]
+        .as_str()
+        .expect("second message id")
+        .to_owned();
     assert_eq!(second["sender_id"], bob.uid);
 
     let third = api_post(
@@ -90,7 +96,10 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
         "send the third room message",
     )
     .await;
-    let third_id = third["message_id"].as_str().expect("third message id").to_owned();
+    let third_id = third["message_id"]
+        .as_str()
+        .expect("third message id")
+        .to_owned();
 
     let page = api_get(
         client,
@@ -144,11 +153,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
         client
             .get(with_query(
                 &format!("{base}/v2/channel/{room}"),
-                &[
-                    ("limit", "2"),
-                    ("cursor", &next),
-                    ("forward", "false"),
-                ],
+                &[("limit", "2"), ("cursor", &next), ("forward", "false")],
             ))
             .bearer_auth(&alice.token)
             .send()
@@ -353,7 +358,10 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
         "read a group channel as a member",
     )
     .await;
-    assert_eq!(member_page["messages"].as_array().expect("messages").len(), 1);
+    assert_eq!(
+        member_page["messages"].as_array().expect("messages").len(),
+        1
+    );
     assert_eq!(member_page["messages"][0]["group_id"], gid);
     assert!(member_page["messages"][0].get("user_id_one").is_none());
     api_post_empty(
@@ -379,7 +387,10 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
         pool,
         "message",
         Some("(stream_label = $label OR (stream_subject = <uuid>$gid OR stream_subject = $gid))"),
-        &[("label", json!(room_label.as_str())), ("gid", json!(gid.as_str()))],
+        &[
+            ("label", json!(room_label.as_str())),
+            ("gid", json!(gid.as_str())),
+        ],
     )
     .await;
     assert_eq!(stored, 4, "3 room rows plus 1 group row");

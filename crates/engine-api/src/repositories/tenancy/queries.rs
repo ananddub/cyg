@@ -19,7 +19,10 @@ impl Queries {
         .await
     }
 
-    pub async fn tenancy_game_by_key(&self, game_key: &str) -> Result<Vec<TenancyGameRow>, DbError> {
+    pub async fn tenancy_game_by_key(
+        &self,
+        game_key: &str,
+    ) -> Result<Vec<TenancyGameRow>, DbError> {
         self.all(
             &format!("SELECT {GAME_COLUMNS} FROM games WHERE game_key = $game_key"),
             params!(game_key = game_key),
@@ -86,10 +89,7 @@ impl Queries {
                  WHERE (game_id IS NONE OR game_id IS NULL) AND user_id IN $user_ids \
                  RETURN AFTER"
             ),
-            params!(
-                game_id = game_id.to_string(),
-                user_ids = user_ids,
-            ),
+            params!(game_id = game_id.to_string(), user_ids = user_ids,),
         )
         .await
     }
@@ -114,10 +114,7 @@ impl Queries {
                  WHERE game_id IS NONE OR game_id IS NULL RETURN AFTER",
                 record_uuid("users", "id")
             ),
-            params!(
-                game_id = game_id.to_string(),
-                id = id.to_string(),
-            ),
+            params!(game_id = game_id.to_string(), id = id.to_string(),),
         )
         .await
     }
@@ -231,11 +228,7 @@ impl Queries {
                              ORDER BY update_time DESC, collection ASC, id ASC \
                              LIMIT $limit START $offset"
                         ),
-                        params!(
-                            user_ids = user_ids,
-                            limit = limit,
-                            offset = offset,
-                        ),
+                        params!(user_ids = user_ids, limit = limit, offset = offset,),
                     )
                     .await?;
                 Ok(rows.into_iter().map(ListStorageRow::from).collect())
@@ -283,11 +276,7 @@ impl Queries {
                              WHERE collection = $collection AND user_id IN $user_ids \
                              ORDER BY id ASC, user_id ASC LIMIT $limit"
                         ),
-                        params!(
-                            collection = collection,
-                            user_ids = user_ids,
-                            limit = limit,
-                        ),
+                        params!(collection = collection, user_ids = user_ids, limit = limit,),
                     )
                     .await?;
                 Ok(rows.into_iter().map(ListStorageRow::from).collect())
@@ -309,11 +298,7 @@ impl Queries {
                     "SELECT * FROM purchase WHERE user_id IN $user_ids \
                      ORDER BY purchase_time DESC, transaction_id ASC \
                      LIMIT $limit START $offset",
-                    params!(
-                        user_ids = user_ids,
-                        limit = limit,
-                        offset = offset,
-                    ),
+                    params!(user_ids = user_ids, limit = limit, offset = offset,),
                 )
                 .await
             }
@@ -334,11 +319,7 @@ impl Queries {
                     "SELECT * FROM subscription WHERE user_id IN $user_ids \
                      ORDER BY purchase_time DESC, original_transaction_id ASC \
                      LIMIT $limit START $offset",
-                    params!(
-                        user_ids = user_ids,
-                        limit = limit,
-                        offset = offset,
-                    ),
+                    params!(user_ids = user_ids, limit = limit, offset = offset,),
                 )
                 .await
             }
@@ -354,10 +335,7 @@ impl Queries {
             .opt(
                 "SELECT id FROM type::record('users', <uuid>$user_id) \
                  WHERE game_id = $game",
-                params!(
-                    user_id = user_id.to_string(),
-                    game = game_id.to_string(),
-                ),
+                params!(user_id = user_id.to_string(), game = game_id.to_string(),),
             )
             .await?;
         Ok(row.is_some())
@@ -399,10 +377,7 @@ impl Queries {
             .opt(
                 "SELECT VALUE id FROM type::record('leaderboard', $board_id) \
                  WHERE game_id = $game",
-                params!(
-                    board_id = board_id,
-                    game = game_id.to_string(),
-                ),
+                params!(board_id = board_id, game = game_id.to_string(),),
             )
             .await?;
         Ok(row.is_some())
@@ -426,10 +401,7 @@ impl Queries {
                 self.all(
                     "DELETE notification WHERE id = type::record('notification', <uuid>$id) \
                      AND user_id IN $user_ids RETURN BEFORE",
-                    params!(
-                        id = id.to_string(),
-                        user_ids = user_ids,
-                    ),
+                    params!(id = id.to_string(), user_ids = user_ids,),
                 )
                 .await?
             }
@@ -455,10 +427,7 @@ impl Queries {
                 self.all(
                     "DELETE subscription WHERE product_id = $product_id \
                      AND user_id IN $user_ids RETURN BEFORE",
-                    params!(
-                        product_id = product_id,
-                        user_ids = user_ids,
-                    ),
+                    params!(product_id = product_id, user_ids = user_ids,),
                 )
                 .await?
             }
@@ -484,10 +453,7 @@ impl Queries {
                 self.all(
                     "DELETE storage WHERE collection = $collection \
                      AND user_id IN $user_ids RETURN BEFORE",
-                    params!(
-                        collection = collection,
-                        user_ids = user_ids,
-                    ),
+                    params!(collection = collection, user_ids = user_ids,),
                 )
                 .await?
             }

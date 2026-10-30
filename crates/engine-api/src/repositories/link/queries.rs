@@ -1,10 +1,7 @@
 use super::*;
 
 impl Queries {
-    pub async fn link_email(
-        &self,
-        params: &LinkEmailParams,
-    ) -> Result<Uuid, DbError> {
+    pub async fn link_email(&self, params: &LinkEmailParams) -> Result<Uuid, DbError> {
         update_returning_id(
             self,
             "UPDATE type::record('users', <uuid>$id) \
@@ -18,11 +15,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn link_custom_id(
-        &self,
-        custom_id: &str,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn link_custom_id(&self, custom_id: &str, id: Uuid) -> Result<Uuid, DbError> {
         update_returning_id(
             self,
             "UPDATE type::record('users', <uuid>$id) \
@@ -35,11 +28,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn link_apple(
-        &self,
-        apple_id: &str,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn link_apple(&self, apple_id: &str, id: Uuid) -> Result<Uuid, DbError> {
         update_returning_id(
             self,
             "UPDATE type::record('users', <uuid>$id) \
@@ -52,10 +41,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn link_google(
-        &self,
-        params: &LinkGoogleParams,
-    ) -> Result<Uuid, DbError> {
+    pub async fn link_google(&self, params: &LinkGoogleParams) -> Result<Uuid, DbError> {
         update_returning_id(
             self,
             "UPDATE type::record('users', <uuid>$id) SET \
@@ -76,11 +62,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn link_steam(
-        &self,
-        steam_id: &str,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn link_steam(&self, steam_id: &str, id: Uuid) -> Result<Uuid, DbError> {
         update_returning_id(
             self,
             "UPDATE type::record('users', <uuid>$id) \
@@ -93,10 +75,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn link_facebook(
-        &self,
-        params: &LinkFacebookParams,
-    ) -> Result<Uuid, DbError> {
+    pub async fn link_facebook(&self, params: &LinkFacebookParams) -> Result<Uuid, DbError> {
         update_returning_id(
             self,
             "UPDATE type::record('users', <uuid>$id) SET \
@@ -117,11 +96,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn link_gamecenter(
-        &self,
-        gamecenter_id: &str,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn link_gamecenter(&self, gamecenter_id: &str, id: Uuid) -> Result<Uuid, DbError> {
         update_returning_id(
             self,
             "UPDATE type::record('users', <uuid>$id) \
@@ -155,22 +130,14 @@ impl Queries {
         )
         .await
     }
-    pub async fn import_email(
-        &self,
-        email: &str,
-        id: Uuid,
-    ) -> Result<(), DbError> {
+    pub async fn import_email(&self, email: &str, id: Uuid) -> Result<(), DbError> {
         self.exec(
             "UPDATE type::record('users', <uuid>$id) SET email = $email",
             params!(email = email, id = id.to_string()),
         )
         .await
     }
-    pub async fn import_email_if_empty(
-        &self,
-        email: &str,
-        id: Uuid,
-    ) -> Result<(), DbError> {
+    pub async fn import_email_if_empty(&self, email: &str, id: Uuid) -> Result<(), DbError> {
         self.exec(
             "UPDATE type::record('users', <uuid>$id) SET email = $email \
              WHERE email IS NONE OR email IS NULL OR email = ''",
@@ -178,11 +145,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn count_owned_device(
-        &self,
-        id: &str,
-        user_id: Uuid,
-    ) -> Result<i64, DbError> {
+    pub async fn count_owned_device(&self, id: &str, user_id: Uuid) -> Result<i64, DbError> {
         Ok(self
             .opt::<i64>(
                 "RETURN array::len((SELECT id FROM user_device \
@@ -218,10 +181,7 @@ impl Queries {
             Err(DbError::NotFound)
         }
     }
-    pub async fn touch_user(
-        &self,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn touch_user(&self, id: Uuid) -> Result<Uuid, DbError> {
         let user: Users = self
             .one(
                 "UPDATE type::record('users', <uuid>$id) \

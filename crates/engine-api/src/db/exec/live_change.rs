@@ -71,9 +71,15 @@ pub(super) fn capabilities() -> Capabilities {
     Capabilities::new().with_experimental_features_allowed(&[ExperimentalFeature::Files])
 }
 pub fn is_embedded(endpoint: &str) -> bool {
-    ["mem://", "surrealkv://", "rocksdb://", "indxdb://", "tikv://"]
-        .iter()
-        .any(|scheme| endpoint.starts_with(scheme))
+    [
+        "mem://",
+        "surrealkv://",
+        "rocksdb://",
+        "indxdb://",
+        "tikv://",
+    ]
+    .iter()
+    .any(|scheme| endpoint.starts_with(scheme))
 }
 pub(super) fn report_budget(endpoint: &str, budget: &KvBudget) {
     let describe = |mib: Option<u64>| match mib {
@@ -86,7 +92,9 @@ pub(super) fn report_budget(endpoint: &str, budget: &KvBudget) {
         describe(budget.cache_mib),
     );
 }
-pub(super) fn decode_rows<T: DeserializeOwned>(value: serde_json::Value) -> Result<Vec<T>, DbError> {
+pub(super) fn decode_rows<T: DeserializeOwned>(
+    value: serde_json::Value,
+) -> Result<Vec<T>, DbError> {
     match value {
         serde_json::Value::Null => Ok(Vec::new()),
         serde_json::Value::Array(items) => items
@@ -112,10 +120,7 @@ fn normalize_id(value: &mut serde_json::Value) {
     let Some((_, key)) = id.split_once(':') else {
         return;
     };
-    map.insert(
-        "id".to_string(),
-        serde_json::Value::String(strip_key(key)),
-    );
+    map.insert("id".to_string(), serde_json::Value::String(strip_key(key)));
 }
 pub(crate) fn strip_key(key: &str) -> String {
     let key = key.trim();

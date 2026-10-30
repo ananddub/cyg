@@ -9,7 +9,8 @@ impl MapService {
         game_id: Uuid,
         version: i32,
     ) -> Result<(), V2Error> {
-        let flags = q(state).await?
+        let flags = q(state)
+            .await?
             .game_map_active_flag(game_id, version)
             .await
             .map_err(V2Error::from)?;
@@ -26,7 +27,8 @@ impl MapService {
             }
             Some(false) => {}
         }
-        let deleted = q(state).await?
+        let deleted = q(state)
+            .await?
             .delete_game_map(game_id, version)
             .await
             .map_err(V2Error::from)?;
@@ -46,7 +48,8 @@ impl MapService {
         let Some(game_id) = crate::services::games::tenant::game_id(state).await? else {
             return Ok(BootMaps::default());
         };
-        let rows = q(state).await?
+        let rows = q(state)
+            .await?
             .load_active_game_maps(game_id)
             .await
             .map_err(V2Error::from)?;
@@ -58,7 +61,11 @@ impl MapService {
                 continue;
             };
             let Some(key) = row.blob_key else {
-                tracing::warn!("[maps] version {} of {} has no stored bytes", row.version, row.name);
+                tracing::warn!(
+                    "[maps] version {} of {} has no stored bytes",
+                    row.version,
+                    row.name
+                );
                 continue;
             };
             let bytes = match blobs.get(&key).await {

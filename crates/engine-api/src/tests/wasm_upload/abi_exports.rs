@@ -1,6 +1,7 @@
 use super::*;
 
-pub(crate) const HOST_SOURCE: &str = include_str!("../../../../../crates/engine-server/src/rooms.rs");
+pub(crate) const HOST_SOURCE: &str =
+    include_str!("../../../../../crates/engine-server/src/rooms.rs");
 pub(crate) fn abi_exports() -> Vec<String> {
     let runtime_source = HOST_SOURCE
         .split("#[cfg(test)]")

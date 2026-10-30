@@ -102,9 +102,7 @@ impl BlobStore {
                 let Some(Some(value)) = rows.into_iter().next() else {
                     return Ok(None);
                 };
-                bytes::decode(value)
-                    .map(Some)
-                    .map_err(BlobError::Bucket)
+                bytes::decode(value).map(Some).map_err(BlobError::Bucket)
             }
         }
     }

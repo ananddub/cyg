@@ -119,10 +119,7 @@ pub async fn auth_surface(client: &Client, base: &str, pool: &Datastore) {
     let username = format!("authplayer{}", letters_suffix());
     let created = json_body(
         client
-            .post(url(
-                "/device",
-                &format!("?username={username}&create=true"),
-            ))
+            .post(url("/device", &format!("?username={username}&create=true")))
             .header(reqwest::header::AUTHORIZATION, &key)
             .json(&json!({ "id": device_id }))
             .send()
@@ -160,7 +157,10 @@ pub async fn auth_surface(client: &Client, base: &str, pool: &Datastore) {
     exec(
         pool,
         "UPDATE type::record('users', <uuid>$id) SET disable_time = $when RETURN NOTHING",
-        &[("id", json!(uid)), ("when", json!(engine_api::db::time::encode(Utc::now())))],
+        &[
+            ("id", json!(uid)),
+            ("when", json!(engine_api::db::time::encode(Utc::now()))),
+        ],
     )
     .await;
     assert_eq!(
@@ -181,7 +181,10 @@ pub async fn auth_surface(client: &Client, base: &str, pool: &Datastore) {
     exec(
         pool,
         "UPDATE type::record('users', <uuid>$id) SET disable_time = $when RETURN NOTHING",
-        &[("id", json!(uid)), ("when", json!(engine_api::db::time::EPOCH))],
+        &[
+            ("id", json!(uid)),
+            ("when", json!(engine_api::db::time::EPOCH)),
+        ],
     )
     .await;
     let provider_device = format!("e2e-provider-device-{}", Uuid::new_v4());
@@ -392,7 +395,10 @@ pub async fn auth_surface(client: &Client, base: &str, pool: &Datastore) {
     let password = "e2e-password";
     let email_created = json_body(
         client
-            .post(url("/email", &format!("?username={email_name}&create=true")))
+            .post(url(
+                "/email",
+                &format!("?username={email_name}&create=true"),
+            ))
             .header(reqwest::header::AUTHORIZATION, &key)
             .json(&json!({ "email": email, "password": password }))
             .send()
@@ -493,7 +499,11 @@ pub async fn auth_surface(client: &Client, base: &str, pool: &Datastore) {
     );
 
     for provider in ["apple", "steam"] {
-        let label = if provider == "apple" { "Apple" } else { "Steam" };
+        let label = if provider == "apple" {
+            "Apple"
+        } else {
+            "Steam"
+        };
         assert_eq!(
             refusal(
                 client

@@ -14,11 +14,10 @@ pub(super) async fn verify(config: &SocialConfig, token: &str) -> Result<Profile
         ))
     })?;
     url.query_pairs_mut().append_pair("id_token", token);
-    let response = super::client()
-        .get(url)
-        .send()
-        .await
-        .map_err(|err| V2Error::unavailable(format!("Google token verification failed: {err}")))?;
+    let response =
+        super::client().get(url).send().await.map_err(|err| {
+            V2Error::unavailable(format!("Google token verification failed: {err}"))
+        })?;
     if !response.status().is_success() {
         return Err(vendor::profile("Google"));
     }
@@ -66,7 +65,7 @@ mod tests {
     use axum::extract::Query;
     use axum::routing::get;
     use axum::{Json, Router};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::*;
 
@@ -89,8 +88,13 @@ mod tests {
         }
     }
 
-    async fn tokeninfo(Query(query): Query<std::collections::HashMap<String, String>>) -> Json<Value> {
-        assert_eq!(query.get("id_token").map(String::as_str), Some("google-token"));
+    async fn tokeninfo(
+        Query(query): Query<std::collections::HashMap<String, String>>,
+    ) -> Json<Value> {
+        assert_eq!(
+            query.get("id_token").map(String::as_str),
+            Some("google-token")
+        );
         Json(json!({
             "aud": "client-1",
             "sub": "google-user-1",
@@ -103,10 +107,15 @@ mod tests {
     #[tokio::test]
     async fn a_valid_id_token_resolves_the_google_subject() {
         let base = serve(Router::new().route("/tokeninfo", get(tokeninfo))).await;
-        let profile = verify(&config(&base), "google-token").await.expect("verified");
+        let profile = verify(&config(&base), "google-token")
+            .await
+            .expect("verified");
         assert_eq!(profile.id, "google-user-1");
         assert_eq!(profile.display_name.as_deref(), Some("Ada"));
-        assert_eq!(profile.avatar_url.as_deref(), Some("https://example.test/ada.png"));
+        assert_eq!(
+            profile.avatar_url.as_deref(),
+            Some("https://example.test/ada.png")
+        );
     }
 
     #[tokio::test]

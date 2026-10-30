@@ -6,9 +6,9 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::auth::{MfaCodeRequest, MfaEnrolmentResponse};
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::repositories::console_mutations::{FindConsoleUserMfaRow, SetConsoleUserMfaParams};
 use crate::repositories::db::Queries;
+use crate::services::deps::q;
 use crate::utils::totp;
 
 use super::RECOVERY_CODES;

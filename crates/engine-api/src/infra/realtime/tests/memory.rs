@@ -12,9 +12,12 @@ pub(crate) async fn insert_user(db: &Datastore, game: Uuid, username: &str) {
         ("game".to_string(), serde_json::json!(game.to_string())),
         ("username".to_string(), serde_json::json!(username)),
     ]);
-    db.exec_params("CREATE users SET game_id = $game, username = $username", &params)
-        .await
-        .expect("a user row is created");
+    db.exec_params(
+        "CREATE users SET game_id = $game, username = $username",
+        &params,
+    )
+    .await
+    .expect("a user row is created");
 }
 pub(crate) async fn create_user(db: &Datastore, game: Uuid, username: &str) -> Uuid {
     let id = Uuid::new_v4();
@@ -47,9 +50,19 @@ pub(crate) async fn one_query_feeds_every_subscriber_of_the_tenant() {
     let game = Uuid::new_v4();
     let other = Uuid::new_v4();
 
-    let mut first = hub.subscribe(LiveTopic::Users, game).await.expect("subscribed");
-    let mut second = hub.subscribe(LiveTopic::Users, game).await.expect("subscribed");
-    assert_eq!(hub.topic_count().await, 1, "both sockets share one live query");
+    let mut first = hub
+        .subscribe(LiveTopic::Users, game)
+        .await
+        .expect("subscribed");
+    let mut second = hub
+        .subscribe(LiveTopic::Users, game)
+        .await
+        .expect("subscribed");
+    assert_eq!(
+        hub.topic_count().await,
+        1,
+        "both sockets share one live query"
+    );
 
     insert_user(&db, other, "someone-else").await;
     insert_user(&db, game, "player").await;
@@ -59,11 +72,15 @@ pub(crate) async fn one_query_feeds_every_subscriber_of_the_tenant() {
     assert_eq!(event.action, "create");
     assert_eq!(event.seq, 1);
     let same = next(&mut second).await;
-    assert_eq!(same.record, event.record, "both subscribers see the same row");
+    assert_eq!(
+        same.record, event.record,
+        "both subscribers see the same row"
+    );
 
-    let params = std::collections::BTreeMap::from([
-        ("game".to_string(), serde_json::json!(game.to_string())),
-    ]);
+    let params = std::collections::BTreeMap::from([(
+        "game".to_string(),
+        serde_json::json!(game.to_string()),
+    )]);
     db.exec_params(
         "UPDATE users SET username = $name WHERE game_id = $game",
         &std::collections::BTreeMap::from([
@@ -78,12 +95,9 @@ pub(crate) async fn one_query_feeds_every_subscriber_of_the_tenant() {
     assert_eq!(updated.record, event.record);
     assert_eq!(updated.seq, 2);
 
-    db.exec_params(
-        "DELETE users WHERE game_id = $game",
-        &params,
-    )
-    .await
-    .expect("the row is deleted");
+    db.exec_params("DELETE users WHERE game_id = $game", &params)
+        .await
+        .expect("the row is deleted");
     let deleted = next(&mut first).await;
     assert_eq!(deleted.action, "delete");
     assert_eq!(deleted.record, event.record);
@@ -98,8 +112,14 @@ pub(crate) async fn the_last_subscriber_leaving_kills_the_query() {
     let hub = RealtimeHub::new(Some(Arc::clone(&db)));
     let game = Uuid::new_v4();
 
-    let first = hub.subscribe(LiveTopic::Users, game).await.expect("subscribed");
-    let second = hub.subscribe(LiveTopic::Users, game).await.expect("subscribed");
+    let first = hub
+        .subscribe(LiveTopic::Users, game)
+        .await
+        .expect("subscribed");
+    let second = hub
+        .subscribe(LiveTopic::Users, game)
+        .await
+        .expect("subscribed");
     drop(first);
     assert_eq!(hub.topic_count().await, 1, "one subscriber still watches");
 
@@ -112,7 +132,10 @@ pub(crate) async fn the_last_subscriber_leaving_kills_the_query() {
     .await
     .expect("the retired query leaves the registry");
 
-    let mut third = hub.subscribe(LiveTopic::Users, game).await.expect("resubscribed");
+    let mut third = hub
+        .subscribe(LiveTopic::Users, game)
+        .await
+        .expect("resubscribed");
     assert_eq!(hub.topic_count().await, 1);
     insert_user(&db, game, "after-restart").await;
     assert_eq!(next(&mut third).await.action, "create");
@@ -130,7 +153,11 @@ pub(crate) async fn without_a_datastore_there_is_nothing_to_watch() {
 pub(crate) fn every_topic_is_named_once_and_bound_to_its_tenant() {
     let mut names = std::collections::HashSet::new();
     for topic in LiveTopic::ALL {
-        assert!(names.insert(topic.name()), "{} is claimed twice", topic.name());
+        assert!(
+            names.insert(topic.name()),
+            "{} is claimed twice",
+            topic.name()
+        );
         assert!(
             topic.statement().contains("WHERE game_id = $game"),
             "{} must filter on the bound tenant",

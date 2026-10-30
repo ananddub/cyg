@@ -80,7 +80,13 @@ pub async fn member_state(env: &Harness, token: &str, group_id: &str, uid: &str)
         .find(|row| row["user"]["id"] == uid)
         .map(|row| row["state"].as_i64().expect("member state") as i16)
 }
-pub async fn member_in_state(env: &Harness, token: &str, group_id: &str, uid: &str, state: i16) -> bool {
+pub async fn member_in_state(
+    env: &Harness,
+    token: &str,
+    group_id: &str,
+    uid: &str,
+    state: i16,
+) -> bool {
     let page = json_body(
         env.client
             .get(format!(

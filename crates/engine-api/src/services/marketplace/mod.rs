@@ -11,6 +11,7 @@ use crate::services::quest::reward::payout_uuid;
 
 pub mod listings;
 pub mod sale;
+pub mod wager_refund;
 pub mod wagers;
 
 pub struct MarketplaceService;

@@ -87,7 +87,10 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         "create an open group",
     )
     .await;
-    let open_id = created["group"]["id"].as_str().expect("group id").to_owned();
+    let open_id = created["group"]["id"]
+        .as_str()
+        .expect("group id")
+        .to_owned();
     let open = Uuid::parse_str(&open_id).expect("group uuid");
     assert_eq!(created["group"]["creator_id"], owner.uid);
     assert_eq!(created["group"]["name"], open_name);
@@ -187,11 +190,13 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         "discovering open groups",
     )
     .await;
-    assert!(discover["groups"]
-        .as_array()
-        .expect("group list")
-        .iter()
-        .any(|group| group["id"] == open_id));
+    assert!(
+        discover["groups"]
+            .as_array()
+            .expect("group list")
+            .iter()
+            .any(|group| group["id"] == open_id)
+    );
     assert!(discover["groups"].as_array().unwrap().len() <= 1);
 
     let bad_bool = refusal(
@@ -205,7 +210,10 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         "an unparseable open filter",
     )
     .await;
-    assert!(bad_bool.starts_with("invalid query parameter"), "{bad_bool}");
+    assert!(
+        bad_bool.starts_with("invalid query parameter"),
+        "{bad_bool}"
+    );
     assert_eq!(
         refusal(
             client
@@ -245,7 +253,10 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         .await,
         json!({})
     );
-    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, Some(2));
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&member1), open).await,
+        Some(2)
+    );
     assert_eq!(group_count(pool, open).await, 2);
     assert_eq!(
         refusal(
@@ -296,16 +307,16 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         "member2 joins the freed slot",
     )
     .await;
-    assert_eq!(group_edge_state(pool, uuid_of(&member2), open).await, Some(2));
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&member2), open).await,
+        Some(2)
+    );
     assert_eq!(group_count(pool, open).await, 2);
 
     assert_eq!(
         api_post_empty(
             client,
-            format!(
-                "{base}/v2/group/{open_id}/ban?user_ids={}",
-                member2.uid
-            ),
+            format!("{base}/v2/group/{open_id}/ban?user_ids={}", member2.uid),
             &owner.token,
             "owner bans member2",
         )
@@ -383,7 +394,10 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         .await,
         json!({})
     );
-    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, Some(2));
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&member1), open).await,
+        Some(2)
+    );
     assert_eq!(group_count(pool, open).await, 2);
 
     let roster = api_get(
@@ -431,7 +445,9 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/group/{open_id}/user?cursor=not-a-cursor"))
+                .get(format!(
+                    "{base}/v2/group/{open_id}/user?cursor=not-a-cursor"
+                ))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -450,7 +466,10 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         "owner promotes member1",
     )
     .await;
-    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, Some(1));
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&member1), open).await,
+        Some(1)
+    );
     let admins = api_get(
         client,
         format!("{base}/v2/group/{open_id}/user?state=1"),
@@ -487,7 +506,10 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         "owner demotes member1",
     )
     .await;
-    assert_eq!(group_edge_state(pool, uuid_of(&member1), open).await, Some(2));
+    assert_eq!(
+        group_edge_state(pool, uuid_of(&member1), open).await,
+        Some(2)
+    );
 
     assert_eq!(
         api_post_empty(
@@ -543,10 +565,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(group_count(pool, closed_uuid).await, 1);
     let request = api_get(
         client,
-        format!(
-            "{base}/v2/notification?limit=10&sender_id={}",
-            outsider.uid
-        ),
+        format!("{base}/v2/notification?limit=10&sender_id={}", outsider.uid),
         &owner.token,
         "the owner's join-request notification",
     )
@@ -591,10 +610,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(group_count(pool, closed_uuid).await, 2);
     let added = api_get(
         client,
-        format!(
-            "{base}/v2/notification?limit=10&sender_id={}",
-            owner.uid
-        ),
+        format!("{base}/v2/notification?limit=10&sender_id={}", owner.uid),
         &outsider.token,
         "the added player's notification",
     )
@@ -699,11 +715,13 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         "the outsider's groups",
     )
     .await;
-    assert!(groups["user_groups"]
-        .as_array()
-        .expect("a user-group page")
-        .iter()
-        .any(|entry| entry["group"]["id"] == closed_id && entry["state"] == 2));
+    assert!(
+        groups["user_groups"]
+            .as_array()
+            .expect("a user-group page")
+            .iter()
+            .any(|entry| entry["group"]["id"] == closed_id && entry["state"] == 2)
+    );
     let only_member = api_get(
         client,
         format!("{base}/v2/user/{}/group?state=2", outsider.uid),
@@ -711,11 +729,13 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         "the outsider's memberships",
     )
     .await;
-    assert!(only_member["user_groups"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|entry| entry["state"] == 2));
+    assert!(
+        only_member["user_groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry["state"] == 2)
+    );
     let none = api_get(
         client,
         format!("{base}/v2/user/{}/group?state=0", outsider.uid),
@@ -842,11 +862,13 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         "the owner's groups after a delete",
     )
     .await;
-    assert!(owner_groups["user_groups"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|entry| entry["group"]["id"] != closed_id));
+    assert!(
+        owner_groups["user_groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| entry["group"]["id"] != closed_id)
+    );
 
     assert_eq!(
         api_delete(

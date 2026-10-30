@@ -20,7 +20,17 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
         (&auth_id, 1, true, true),
         (&unranked_id, 1, false, false),
     ] {
-        seed_board_opts(pool, id, sort_order, authoritative, enable_ranks, 0, 0, false).await;
+        seed_board_opts(
+            pool,
+            id,
+            sort_order,
+            authoritative,
+            enable_ranks,
+            0,
+            0,
+            false,
+        )
+        .await;
     }
     seed_board_opts(pool, &tournament_id, 1, false, true, 0, 0, true).await;
 
@@ -117,8 +127,17 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     assert!(page["prev_cursor"].is_string());
     assert!(page.get("next_cursor").is_none());
 
-    let default_page = api_get(client, url(&desc_id), &alice.token, "default leaderboard page").await;
-    assert_eq!(default_page["records"].as_array().expect("records").len(), 1);
+    let default_page = api_get(
+        client,
+        url(&desc_id),
+        &alice.token,
+        "default leaderboard page",
+    )
+    .await;
+    assert_eq!(
+        default_page["records"].as_array().expect("records").len(),
+        1
+    );
 
     let owners = format!("{},{}", alice.uid, bob.uid);
     let owned = api_get(
@@ -138,7 +157,10 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     assert_eq!(owner_scores, vec!["100", "50"]);
 
     for (pairs, what) in [
-        (vec![("owner_ids", "not-a-uuid")], "list with a malformed owner"),
+        (
+            vec![("owner_ids", "not-a-uuid")],
+            "list with a malformed owner",
+        ),
         (vec![("limit", "0")], "list with a zero limit"),
         (vec![("limit", "1001")], "list above the page ceiling"),
         (vec![("limit", "abc")], "list with a non-numeric limit"),
@@ -221,10 +243,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     assert_eq!(cursor_page["records"].as_array().expect("records").len(), 1);
     let no_record = api_get(
         client,
-        format!(
-            "{base}/v2/leaderboard/{desc_id}/owner/{}",
-            Uuid::new_v4()
-        ),
+        format!("{base}/v2/leaderboard/{desc_id}/owner/{}", Uuid::new_v4()),
         &alice.token,
         "a haystack for a player with no record",
     )
@@ -233,7 +252,10 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     for (pairs, what) in [
         (vec![("limit", "0")], "haystack with a zero limit"),
         (vec![("limit", "101")], "haystack above its ceiling"),
-        (vec![("expiry", "abc")], "haystack with a non-numeric expiry"),
+        (
+            vec![("expiry", "abc")],
+            "haystack with a non-numeric expiry",
+        ),
     ] {
         refusal(
             client
@@ -252,9 +274,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     }
     refusal(
         client
-            .get(format!(
-                "{base}/v2/leaderboard/{desc_id}/owner/not-a-uuid"
-            ))
+            .get(format!("{base}/v2/leaderboard/{desc_id}/owner/not-a-uuid"))
             .bearer_auth(&alice.token)
             .send()
             .await
@@ -264,9 +284,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     )
     .await;
 
-    let ops = |score: i64, operator: i64| {
-        json!({ "score": score, "operator": operator })
-    };
+    let ops = |score: i64, operator: i64| json!({ "score": score, "operator": operator });
     let written = api_post(client, url(&ops_id), &alice.token, ops(10, 0), "best 10").await;
     assert_eq!(written["score"], "10");
     api_post(client, url(&ops_id), &alice.token, ops(30, 0), "best 30").await;
@@ -276,10 +294,27 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     let set = api_post(client, url(&ops_id), &alice.token, ops(40, 2), "set 40").await;
     assert_eq!(set["score"], "40");
     assert_eq!(set["num_score"], 3);
-    let increment = api_post(client, url(&ops_id), &alice.token, ops(45, 3), "increment 45").await;
+    let increment = api_post(
+        client,
+        url(&ops_id),
+        &alice.token,
+        ops(45, 3),
+        "increment 45",
+    )
+    .await;
     assert_eq!(increment["score"], "85");
-    let decrement = api_post(client, url(&ops_id), &alice.token, ops(100, 4), "decrement 100").await;
-    assert!(decrement.get("score").is_none(), "a decrement floors at zero");
+    let decrement = api_post(
+        client,
+        url(&ops_id),
+        &alice.token,
+        ops(100, 4),
+        "decrement 100",
+    )
+    .await;
+    assert!(
+        decrement.get("score").is_none(),
+        "a decrement floors at zero"
+    );
     refusal(
         client
             .post(url(&ops_id))
@@ -304,15 +339,16 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
         "write a non-object metadata value",
     )
     .await;
-    let empty_record = api_post(client, url(&ops_id), &alice.token, json!({}), "empty record").await;
-    assert_eq!(empty_record["owner_id"], alice.uid);
-    let removed = api_delete(
+    let empty_record = api_post(
         client,
         url(&ops_id),
         &alice.token,
-        "delete an own record",
+        json!({}),
+        "empty record",
     )
     .await;
+    assert_eq!(empty_record["owner_id"], alice.uid);
+    let removed = api_delete(client, url(&ops_id), &alice.token, "delete an own record").await;
     assert_eq!(removed, json!({}));
     let after_delete = api_get(
         client,
@@ -424,7 +460,12 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
             .await
             .unwrap(),
     ] {
-        refusal(response, StatusCode::NOT_FOUND, "address an unknown leaderboard").await;
+        refusal(
+            response,
+            StatusCode::NOT_FOUND,
+            "address an unknown leaderboard",
+        )
+        .await;
     }
 
     exec(

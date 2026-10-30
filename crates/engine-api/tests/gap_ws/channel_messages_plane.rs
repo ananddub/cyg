@@ -45,10 +45,10 @@ pub async fn channel_messages_plane(env: &Harness, a: &mut WsClient, b: &mut WsC
              AND (stream_descriptor = <uuid>$nil OR stream_descriptor = $nil) \
              AND stream_label = $label",
         ),
-        &[(
-            "nil",
-            json!(Uuid::nil().to_string()),
-        ), ("label", json!("lobby-db"))],
+        &[
+            ("nil", json!(Uuid::nil().to_string())),
+            ("label", json!("lobby-db")),
+        ],
     )
     .await;
     assert!(

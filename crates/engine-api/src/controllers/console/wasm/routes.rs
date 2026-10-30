@@ -16,7 +16,8 @@ impl ConsoleWasmController {
             Ok(upload) => upload,
             Err(e) => return e.into_response(),
         };
-        match self.service
+        match self
+            .service
             .upload_module(
                 &state,
                 game_id,

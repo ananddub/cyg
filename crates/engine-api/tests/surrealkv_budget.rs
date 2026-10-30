@@ -39,7 +39,9 @@ impl<S: Subscriber> Layer<S> for Lines {
 #[tokio::test]
 async fn surrealkv_applies_the_configured_budget() {
     let lines = Lines::default();
-    let guard = tracing_subscriber::registry().with(lines.clone()).set_default();
+    let guard = tracing_subscriber::registry()
+        .with(lines.clone())
+        .set_default();
 
     let root = std::env::temp_dir().join(format!("cyg-kv-budget-{}", uuid::Uuid::new_v4()));
     let endpoint = format!("surrealkv://{}", root.display());

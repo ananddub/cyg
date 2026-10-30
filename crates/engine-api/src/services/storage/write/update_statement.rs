@@ -1,6 +1,10 @@
 use super::*;
 
-pub(super) fn inserted(version: &str, write: i16, now: chrono::DateTime<chrono::Utc>) -> WriteResult {
+pub(super) fn inserted(
+    version: &str,
+    write: i16,
+    now: chrono::DateTime<chrono::Utc>,
+) -> WriteResult {
     WriteResult {
         write,
         version: version.to_owned(),

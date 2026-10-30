@@ -14,6 +14,9 @@ pub struct LifecycleConfig {
     pub seat_hold_secs: u64,
     /// Room names that are never reaped for being empty.
     pub persistent_rooms: Vec<String>,
+    /// How long the host keeps simulating after SIGTERM, so peers are told to
+    /// leave and their state is saved instead of the process simply stopping.
+    pub drain_grace_secs: u64,
 }
 
 const MAX_WINDOW_SECONDS: u64 = 7 * 24 * 60 * 60;
@@ -26,6 +29,7 @@ impl Default for LifecycleConfig {
             peer_idle_ms: 3_000,
             seat_hold_secs: 120,
             persistent_rooms: Vec::new(),
+            drain_grace_secs: 15,
         }
     }
 }
@@ -39,8 +43,44 @@ impl LifecycleConfig {
         self.reap_idle_secs = self.reap_idle_secs.clamp(1, MAX_WINDOW_SECONDS);
         self.peer_idle_ms = self.peer_idle_ms.clamp(250, 10 * 60 * 1000);
         self.seat_hold_secs = self.seat_hold_secs.clamp(1, MAX_WINDOW_SECONDS);
-        self.persistent_rooms
-            .retain(|name| !name.trim().is_empty());
+        self.persistent_rooms.retain(|name| !name.trim().is_empty());
+        // A drain longer than the pod's termination deadline would be cut off
+        // anyway, so the ceiling is the widest grace period the manifests ask for.
+        self.drain_grace_secs = self.drain_grace_secs.clamp(1, 300);
+    }
+
+    /// How long a raw UDP peer may go silent before the plane drops it.
+    pub fn peer_idle(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.peer_idle_ms)
+    }
+
+    /// Read the windows from the environment on top of the shipped defaults:
+    /// the pinned sim plane is configured by env alone, and it must honour the
+    /// same peer-idle window the host loop does.
+    pub fn from_env() -> LifecycleConfig {
+        let mut lifecycle = LifecycleConfig::default();
+        lifecycle.apply_env();
+        lifecycle.clamp();
+        lifecycle
+    }
+
+    pub fn apply_env(&mut self) {
+        for (name, field) in [
+            ("OX_ROOM_MAX_SECONDS", &mut self.room_max_seconds),
+            ("OX_REAP_IDLE_SECS", &mut self.reap_idle_secs),
+            ("OX_PEER_IDLE_MS", &mut self.peer_idle_ms),
+            ("OX_SEAT_HOLD_SECS", &mut self.seat_hold_secs),
+            ("OX_DRAIN_GRACE_SECS", &mut self.drain_grace_secs),
+        ] {
+            if let Ok(value) = std::env::var(name)
+                && let Ok(parsed) = value.parse()
+            {
+                *field = parsed;
+            }
+        }
+        if let Ok(value) = std::env::var("OX_PERSISTENT_ROOMS") {
+            self.persistent_rooms = crate::social::split_ids(&value);
+        }
     }
 
     /// Deadline for a room created at `born`, or `None` when unlimited.
@@ -67,6 +107,7 @@ mod tests {
         assert_eq!(config.reap_idle_secs, 30);
         assert_eq!(config.peer_idle_ms, 3_000);
         assert_eq!(config.seat_hold_secs, 120);
+        assert_eq!(config.drain_grace_secs, 15);
     }
 
     #[test]
@@ -77,6 +118,7 @@ mod tests {
             peer_idle_ms: 1,
             seat_hold_secs: u64::MAX,
             persistent_rooms: vec!["lobby".into(), "  ".into()],
+            drain_grace_secs: 0,
         };
         config.clamp();
         assert_eq!(config.room_max_seconds, MAX_WINDOW_SECONDS);
@@ -84,6 +126,7 @@ mod tests {
         assert_eq!(config.peer_idle_ms, 250);
         assert_eq!(config.seat_hold_secs, MAX_WINDOW_SECONDS);
         assert_eq!(config.persistent_rooms, vec!["lobby".to_string()]);
+        assert_eq!(config.drain_grace_secs, 1);
     }
 
     #[test]
@@ -94,6 +137,9 @@ mod tests {
             room_max_seconds: 90,
             ..LifecycleConfig::default()
         };
-        assert_eq!(timed.closes_at(born), Some(born + std::time::Duration::from_secs(90)));
+        assert_eq!(
+            timed.closes_at(born),
+            Some(born + std::time::Duration::from_secs(90))
+        );
     }
 }

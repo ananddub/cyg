@@ -5,7 +5,7 @@ pub struct Match {
     pub label: String,
     pub open: bool,
     pub tick_rate: i32,
-    pub members: HashMap<Uuid , Presence>,
+    pub members: HashMap<Uuid, Presence>,
     pub tokens: HashSet<String>,
     pub ephemeral: bool,
 }

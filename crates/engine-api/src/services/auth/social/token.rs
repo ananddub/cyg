@@ -56,6 +56,17 @@ pub(crate) async fn token(
                 .await
                 .map_err(insert_failed)?;
             crate::services::games::tenant::stamp_user(state, user.id).await;
+            crate::services::webhook::emit(
+                state,
+                "account.created",
+                &user.id.to_string(),
+                serde_json::json!({
+                    "user_id": user.id,
+                    "username": user.username,
+                    "method": kind.label(),
+                }),
+            )
+            .await;
             Ok(session(user.id, &user.username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),

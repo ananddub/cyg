@@ -24,7 +24,10 @@ pub async fn group_surface(env: &Harness) {
         "create the ladder group",
     )
     .await;
-    let gid = created["group"]["id"].as_str().expect("group id").to_owned();
+    let gid = created["group"]["id"]
+        .as_str()
+        .expect("group id")
+        .to_owned();
 
     members_call(
         env,
@@ -36,15 +39,18 @@ pub async fn group_surface(env: &Harness) {
     members_call(
         env,
         &lead.token,
-        &format!(
-            "/v2/group/{gid}/add?user_ids={},{}",
-            two.uid, three.uid
-        ),
+        &format!("/v2/group/{gid}/add?user_ids={},{}", two.uid, three.uid),
         "add two more members in one call",
     )
     .await;
-    assert_eq!(member_state(env, &lead.token, &gid, &one.uid).await, Some(2));
-    assert_eq!(member_state(env, &lead.token, &gid, &lead.uid).await, Some(0));
+    assert_eq!(
+        member_state(env, &lead.token, &gid, &one.uid).await,
+        Some(2)
+    );
+    assert_eq!(
+        member_state(env, &lead.token, &gid, &lead.uid).await,
+        Some(0)
+    );
 
     expect(
         env.client
@@ -65,7 +71,10 @@ pub async fn group_surface(env: &Harness) {
         "POST /v2/group/{groupId}/promote",
     )
     .await;
-    assert_eq!(member_state(env, &lead.token, &gid, &one.uid).await, Some(1));
+    assert_eq!(
+        member_state(env, &lead.token, &gid, &one.uid).await,
+        Some(1)
+    );
     members_call(
         env,
         &lead.token,
@@ -73,7 +82,10 @@ pub async fn group_surface(env: &Harness) {
         "POST /v2/group/{groupId}/demote",
     )
     .await;
-    assert_eq!(member_state(env, &lead.token, &gid, &one.uid).await, Some(2));
+    assert_eq!(
+        member_state(env, &lead.token, &gid, &one.uid).await,
+        Some(2)
+    );
 
     assert_eq!(
         refusal(
@@ -294,15 +306,39 @@ pub async fn group_surface(env: &Harness) {
         "the state filter keeps only members: {members}"
     );
     for (label, query, status, message) in [
-        ("limit=0", "limit=0", StatusCode::BAD_REQUEST, "Invalid limit - limit must be between 1 and 100."),
-        ("limit=101", "limit=101", StatusCode::BAD_REQUEST, "Invalid limit - limit must be between 1 and 100."),
-        ("state=5", "state=5", StatusCode::BAD_REQUEST, "Invalid state - state must be between 0 and 4."),
-        ("cursor=not-a-cursor", "cursor=not-a-cursor", StatusCode::BAD_REQUEST, "Cursor is invalid."),
+        (
+            "limit=0",
+            "limit=0",
+            StatusCode::BAD_REQUEST,
+            "Invalid limit - limit must be between 1 and 100.",
+        ),
+        (
+            "limit=101",
+            "limit=101",
+            StatusCode::BAD_REQUEST,
+            "Invalid limit - limit must be between 1 and 100.",
+        ),
+        (
+            "state=5",
+            "state=5",
+            StatusCode::BAD_REQUEST,
+            "Invalid state - state must be between 0 and 4.",
+        ),
+        (
+            "cursor=not-a-cursor",
+            "cursor=not-a-cursor",
+            StatusCode::BAD_REQUEST,
+            "Cursor is invalid.",
+        ),
     ] {
         assert_eq!(
             refusal(
                 env.client
-                    .get(format!("{}/v2/group/{gid}/user?{query}", env.base, query = query))
+                    .get(format!(
+                        "{}/v2/group/{gid}/user?{query}",
+                        env.base,
+                        query = query
+                    ))
                     .bearer_auth(&lead.token)
                     .send()
                     .await
@@ -346,7 +382,10 @@ pub async fn group_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/group/{gid}/add?user_ids=not-a-uuid", env.base))
+                .post(format!(
+                    "{}/v2/group/{gid}/add?user_ids=not-a-uuid",
+                    env.base
+                ))
                 .bearer_auth(&lead.token)
                 .send()
                 .await
@@ -360,7 +399,11 @@ pub async fn group_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/group/{gid}/ban?user_ids={}", env.base, Uuid::new_v4()))
+                .post(format!(
+                    "{}/v2/group/{gid}/ban?user_ids={}",
+                    env.base,
+                    Uuid::new_v4()
+                ))
                 .bearer_auth(&lead.token)
                 .send()
                 .await

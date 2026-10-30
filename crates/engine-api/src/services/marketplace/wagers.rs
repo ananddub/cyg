@@ -123,52 +123,31 @@ impl MarketplaceService {
             let _ = queries.reopen_wager(wager_id).await;
             return Err(err);
         }
+        crate::services::webhook::emit(
+            state,
+            "marketplace.trade.settled",
+            &format!("{wager_id}:settled"),
+            serde_json::json!({
+                "kind": "wager.settled",
+                "wager_id": settled.id,
+                "room": settled.room,
+                "winner": req.winner,
+                "players": settled.players,
+                "currency": settled.currency,
+                "pool": pool,
+            }),
+        )
+        .await;
         Ok(Json(WagerResponse {
             success: true,
             wager: WagerRow::from(settled),
-        }))
-    }
-
-    pub async fn refund_wager(
-        &self,
-        state: &ApiState,
-        wager_id: Uuid,
-    ) -> Result<Json<WagerResponse>, V2Error> {
-        let queries = q(state).await?;
-        let wager = closed_once(&queries, wager_id).await?;
-        let refunded = queries
-            .flip_wager(wager.id, "refunded", &json!({}))
-            .await?
-            .ok_or_else(|| V2Error::failed_precondition("This wager is already closed."))?;
-        let mut failure = None;
-        for player in &refunded.players {
-            let seed = format!("wager:{wager_id}/refund/{player}");
-            if let Err(err) = transfer(
-                &queries,
-                *player,
-                &refunded.currency,
-                refunded.amount_each,
-                &seed,
-            )
-            .await
-                && failure.is_none()
-            {
-                failure = Some(err);
-            }
-        }
-        if let Some(err) = failure {
-            return Err(err);
-        }
-        Ok(Json(WagerResponse {
-            success: true,
-            wager: WagerRow::from(refunded),
         }))
     }
 }
 
 /// Reads a wager and refuses up front when it is missing or already closed;
 /// the guarded flip stays as the real single-flight backstop.
-async fn closed_once(
+pub(super) async fn closed_once(
     queries: &std::sync::Arc<crate::repositories::db::Queries>,
     wager_id: Uuid,
 ) -> Result<Wager, V2Error> {

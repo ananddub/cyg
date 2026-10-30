@@ -277,9 +277,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
 
     let one = api_get(
         client,
-        format!(
-            "{base}/v2/storage/{collection}/a/00000000-0000-0000-0000-000000000000"
-        ),
+        format!("{base}/v2/storage/{collection}/a/00000000-0000-0000-0000-000000000000"),
         &alice.token,
         "read an own object by its full key",
     )
@@ -358,7 +356,10 @@ pub async fn storage_surface(client: &Client, base: &str) {
         .map(|object| object["key"].as_str().expect("key").to_owned())
         .collect();
     assert_eq!(keys, vec!["a", "a"]);
-    let cursor = page["cursor"].as_str().expect("a listing cursor").to_owned();
+    let cursor = page["cursor"]
+        .as_str()
+        .expect("a listing cursor")
+        .to_owned();
     let page = api_get(
         client,
         with_query(
@@ -446,9 +447,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     assert_eq!(keys, vec!["a", "c", "ro"]);
     refusal(
         client
-            .get(format!(
-                "{base}/v2/storage/{collection}/not-a-uuid"
-            ))
+            .get(format!("{base}/v2/storage/{collection}/not-a-uuid"))
             .bearer_auth(&alice.token)
             .send()
             .await

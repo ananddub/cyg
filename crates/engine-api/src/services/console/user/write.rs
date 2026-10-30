@@ -8,8 +8,8 @@ use crate::dto::console::user::{
     ConsoleUserView, CreateConsoleUserRequest, UpdateConsoleUserRequest,
 };
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::repositories::console_mutations::{InsertConsoleUserParams, UpdateConsoleUserParams};
+use crate::services::deps::q;
 
 use super::{check_password, named, operator_conflict, role_from};
 

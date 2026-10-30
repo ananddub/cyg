@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::services::social;
 use crate::repositories::storage::StorageRow;
+use crate::services::social;
 use crate::utils::storage::WriteResult;
 
 fn is_zero(value: &i32) -> bool {

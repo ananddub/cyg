@@ -1,10 +1,7 @@
 use super::*;
 
 impl Queries {
-    pub async fn create_group(
-        &self,
-        params: &CreateGroupParams,
-    ) -> Result<Groups, DbError> {
+    pub async fn create_group(&self, params: &CreateGroupParams) -> Result<Groups, DbError> {
         let now = Utc::now();
         let group = Groups {
             id: params.id,
@@ -23,10 +20,7 @@ impl Queries {
         };
         self.create("groups", Key::Uuid(params.id), &group).await
     }
-    pub async fn get_group_by_id(
-        &self,
-        id: Uuid,
-    ) -> Result<Groups, DbError> {
+    pub async fn get_group_by_id(&self, id: Uuid) -> Result<Groups, DbError> {
         self.one(
             "SELECT * FROM type::record('groups', <uuid>$id) \
              WHERE disable_time = $epoch LIMIT 1",
@@ -34,20 +28,14 @@ impl Queries {
         )
         .await
     }
-    pub async fn get_group_by_name(
-        &self,
-        name: &str,
-    ) -> Result<Groups, DbError> {
+    pub async fn get_group_by_name(&self, name: &str) -> Result<Groups, DbError> {
         self.one(
             "SELECT * FROM groups WHERE name = $name LIMIT 1",
             params!(name = name),
         )
         .await
     }
-    pub async fn update_group(
-        &self,
-        params: &UpdateGroupParams,
-    ) -> Result<(), DbError> {
+    pub async fn update_group(&self, params: &UpdateGroupParams) -> Result<(), DbError> {
         self.exec(
             "UPDATE type::record('groups', <uuid>$id) SET \
                 name = $name, description = $description, avatar_url = $avatar_url, \
@@ -78,20 +66,15 @@ impl Queries {
         )
         .await
     }
-    pub async fn delete_group(
-        &self,
-        id: Uuid,
-    ) -> Result<(), DbError> {        self.exec(
+    pub async fn delete_group(&self, id: Uuid) -> Result<(), DbError> {
+        self.exec(
             "UPDATE type::record('groups', <uuid>$id) \
              SET disable_time = $now, update_time = $now",
             params!(now = time::encode(Utc::now()), id = id.to_string()),
         )
         .await
     }
-    pub async fn join_group_edge(
-        &self,
-        params: &JoinGroupEdgeParams,
-    ) -> Result<(), DbError> {
+    pub async fn join_group_edge(&self, params: &JoinGroupEdgeParams) -> Result<(), DbError> {
         let edge = GroupEdge {
             source_id: params.source_id,
             position: params.position,
@@ -185,10 +168,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn list_groups(
-        &self,
-        params: &ListGroupsParams,
-    ) -> Result<Vec<Groups>, DbError> {
+    pub async fn list_groups(&self, params: &ListGroupsParams) -> Result<Vec<Groups>, DbError> {
         self.all(
             "SELECT * FROM groups WHERE disable_time = $epoch \
                AND ($lang_tag = '' OR lang_tag = $lang_tag) \
@@ -304,10 +284,7 @@ impl Queries {
         self.all(
             "SELECT VALUE source_id FROM group_edge \
              WHERE destination_id = $destination_id AND state <= $state",
-            params!(
-                destination_id = destination_id.to_string(),
-                state = state,
-            ),
+            params!(destination_id = destination_id.to_string(), state = state,),
         )
         .await
     }
@@ -431,10 +408,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn expand_group_edge_count(
-        &self,
-        id: Uuid,
-    ) -> Result<i32, DbError> {
+    pub async fn expand_group_edge_count(&self, id: Uuid) -> Result<i32, DbError> {
         let group: Groups = self
             .one(
                 "UPDATE type::record('groups', <uuid>$id) \
@@ -445,10 +419,7 @@ impl Queries {
             .await?;
         Ok(group.edge_count)
     }
-    pub async fn shrink_group_edge_count(
-        &self,
-        id: Uuid,
-    ) -> Result<(), DbError> {
+    pub async fn shrink_group_edge_count(&self, id: Uuid) -> Result<(), DbError> {
         self.exec(
             "UPDATE type::record('groups', <uuid>$id) \
              SET edge_count = edge_count - 1, update_time = $now \
@@ -466,18 +437,12 @@ impl Queries {
             .opt::<i64>(
                 "RETURN array::len((SELECT id FROM group_edge \
                  WHERE destination_id = $destination_id AND state = $state))",
-                params!(
-                    destination_id = destination_id.to_string(),
-                    state = state,
-                ),
+                params!(destination_id = destination_id.to_string(), state = state,),
             )
             .await?
             .unwrap_or(0))
     }
-    pub async fn promote_group_edge(
-        &self,
-        params: &PromoteGroupEdgeParams,
-    ) -> Result<(), DbError> {
+    pub async fn promote_group_edge(&self, params: &PromoteGroupEdgeParams) -> Result<(), DbError> {
         self.shift_group_edge_state(
             "state = state - 1",
             "AND state > 0 AND state > $state AND state <= 2",
@@ -487,10 +452,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn demote_group_edge(
-        &self,
-        params: &DemoteGroupEdgeParams,
-    ) -> Result<(), DbError> {
+    pub async fn demote_group_edge(&self, params: &DemoteGroupEdgeParams) -> Result<(), DbError> {
         self.shift_group_edge_state(
             "state = state + 1",
             "AND state >= $state AND state < 2",
@@ -529,19 +491,13 @@ impl Queries {
                 &format!(
                     "UPDATE type::record('group_edge', <uuid>$id) SET {set}, update_time = $now"
                 ),
-                params!(
-                    id = edge.id.to_string(),
-                    now = time::encode(Utc::now()),
-                ),
+                params!(id = edge.id.to_string(), now = time::encode(Utc::now()),),
             )
             .await?;
         }
         Ok(())
     }
-    pub async fn ban_group_edge(
-        &self,
-        params: &BanGroupEdgeParams,
-    ) -> Result<(), DbError> {
+    pub async fn ban_group_edge(&self, params: &BanGroupEdgeParams) -> Result<(), DbError> {
         let edge = GroupEdge {
             source_id: params.source_id,
             position: params.position,

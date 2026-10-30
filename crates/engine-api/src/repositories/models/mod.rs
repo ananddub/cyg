@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::db::{bytes, time};
 
+mod badge;
 mod console_acl_template;
 mod economy;
 mod gameplay_event;
@@ -20,6 +21,7 @@ mod schema_version;
 mod users;
 mod webhook;
 
+pub use badge::*;
 pub use console_acl_template::*;
 pub use economy::*;
 pub use gameplay_event::*;

@@ -50,7 +50,8 @@ impl StorageService {
         }
         let page = i64::from(limit).min(window);
 
-        let rows = q(state).await?
+        let rows = q(state)
+            .await?
             .storage_index_page(&def, &terms, &sorts, auth.uid(), page + 1, offset)
             .await
             .map_err(V2Error::from)?;

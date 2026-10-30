@@ -15,7 +15,9 @@ pub async fn player_groups_boards_channels_iap_and_social_end_to_end() {
     link_unlink_surface(&env).await;
 
     env.stop().await;
-    eprintln!("gap: player group, leaderboard, tournament, index, channel, iap and social surfaces passed");
+    eprintln!(
+        "gap: player group, leaderboard, tournament, index, channel, iap and social surfaces passed"
+    );
 }
 #[allow(dead_code)]
 pub fn _stamp_marker(t: DateTime<Utc>) -> String {

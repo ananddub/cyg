@@ -1,9 +1,7 @@
 use super::*;
 
 impl Queries {
-    pub async fn count_console_users(
-        &self,
-    ) -> Result<i64, DbError> {
+    pub async fn count_console_users(&self) -> Result<i64, DbError> {
         Ok(self
             .opt::<i64>(
                 "RETURN array::len((SELECT id FROM console_user))",
@@ -144,13 +142,13 @@ impl Queries {
 }
 
 impl Queries {
-    pub async fn delete_acl_template(
-        &self,
-        id: Uuid,
-    ) -> Result<WriteResult, DbError> {
+    pub async fn delete_acl_template(&self, id: Uuid) -> Result<WriteResult, DbError> {
         affected(
             self,
-            &format!("DELETE {} RETURN BEFORE", record_uuid("console_acl_template", "id")),
+            &format!(
+                "DELETE {} RETURN BEFORE",
+                record_uuid("console_acl_template", "id")
+            ),
             params!(id = id.to_string()),
         )
         .await
@@ -179,10 +177,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn insert_audit_log(
-        &self,
-        params_in: &InsertAuditLogParams,
-    ) -> Result<(), DbError> {
+    pub async fn insert_audit_log(&self, params_in: &InsertAuditLogParams) -> Result<(), DbError> {
         let row = ConsoleAuditLog {
             id: params_in.id,
             console_user_id: params_in.console_user_id,
@@ -201,11 +196,7 @@ impl Queries {
 }
 
 impl Queries {
-    pub async fn delete_user_note(
-        &self,
-        id: Uuid,
-        user_id: Uuid,
-    ) -> Result<WriteResult, DbError> {
+    pub async fn delete_user_note(&self, id: Uuid, user_id: Uuid) -> Result<WriteResult, DbError> {
         affected(
             self,
             "DELETE users_notes WHERE id = type::record('users_notes', <uuid>$id) \
@@ -239,10 +230,7 @@ impl Queries {
             .await?;
         Ok(rows.into_iter().map(ListStorageRow::from).collect())
     }
-    pub async fn list_user_edges(
-        &self,
-        source_id: Uuid,
-    ) -> Result<Vec<ListUserEdgesRow>, DbError> {
+    pub async fn list_user_edges(&self, source_id: Uuid) -> Result<Vec<ListUserEdgesRow>, DbError> {
         self.all(
             "SELECT destination_id, state, position, metadata FROM user_edge \
              WHERE source_id = $source_id ORDER BY state ASC, position ASC",
@@ -284,10 +272,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn delete_setting(
-        &self,
-        name: &str,
-    ) -> Result<WriteResult, DbError> {
+    pub async fn delete_setting(&self, name: &str) -> Result<WriteResult, DbError> {
         affected(
             self,
             "DELETE type::record('setting', $name) RETURN BEFORE",
@@ -330,10 +315,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn find_acl_template(
-        &self,
-        id: Uuid,
-    ) -> Result<ConsoleAclTemplate, DbError> {
+    pub async fn find_acl_template(&self, id: Uuid) -> Result<ConsoleAclTemplate, DbError> {
         self.one(
             &format!(
                 "SELECT id, name, description, acl, create_time, update_time FROM {}",
@@ -346,11 +328,7 @@ impl Queries {
 }
 
 impl Queries {
-    pub async fn update_console_user_password(
-        &self,
-        d: &[u8],
-        id: Uuid,
-    ) -> Result<(), DbError> {
+    pub async fn update_console_user_password(&self, d: &[u8], id: Uuid) -> Result<(), DbError> {
         self.exec(
             "UPDATE type::record('console_user', <uuid>$id) SET password = $password, \
                 update_time = $now",
@@ -398,10 +376,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn clear_console_user_mfa(
-        &self,
-        id: Uuid,
-    ) -> Result<WriteResult, DbError> {
+    pub async fn clear_console_user_mfa(&self, id: Uuid) -> Result<WriteResult, DbError> {
         affected(
             self,
             "UPDATE type::record('console_user', <uuid>$id) SET mfa_secret = NULL, \
@@ -427,10 +402,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn reset_console_user_mfa_factor(
-        &self,
-        id: Uuid,
-    ) -> Result<WriteResult, DbError> {
+    pub async fn reset_console_user_mfa_factor(&self, id: Uuid) -> Result<WriteResult, DbError> {
         affected(
             self,
             "UPDATE type::record('console_user', <uuid>$id) SET mfa_secret = NULL, \
@@ -589,10 +561,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn delete_console_user(
-        &self,
-        id: Uuid,
-    ) -> Result<(), DbError> {
+    pub async fn delete_console_user(&self, id: Uuid) -> Result<(), DbError> {
         self.exec(
             &format!("DELETE {}", record_uuid("console_user", "id")),
             params!(id = id.to_string()),
@@ -616,10 +585,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn insert_user_note(
-        &self,
-        params_in: &InsertUserNoteParams,
-    ) -> Result<(), DbError> {
+    pub async fn insert_user_note(&self, params_in: &InsertUserNoteParams) -> Result<(), DbError> {
         let now = Utc::now();
         let row = UsersNotes {
             id: params_in.id,

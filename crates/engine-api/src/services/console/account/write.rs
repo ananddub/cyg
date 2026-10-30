@@ -7,8 +7,8 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::account::{AddNoteRequest, BanAccountRequest};
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::repositories::console_mutations::{InsertUserNoteAnonymousParams, InsertUserNoteParams};
+use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn ban_account(
@@ -86,6 +86,17 @@ impl super::ConsoleService {
             "account",
             Some(id),
             &format!("Deleted account {}.", user.username),
+        )
+        .await;
+        crate::services::webhook::emit(
+            state,
+            "account.deleted",
+            &id.to_string(),
+            serde_json::json!({
+                "user_id": id,
+                "username": user.username,
+                "method": "console",
+            }),
         )
         .await;
         Ok(Json(Empty {}))

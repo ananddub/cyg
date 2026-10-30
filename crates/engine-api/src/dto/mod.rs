@@ -2,6 +2,7 @@ use serde::Serialize;
 
 pub mod account;
 pub mod auth;
+pub mod badge;
 pub mod channel;
 pub mod console;
 pub mod friend;
@@ -14,6 +15,7 @@ pub mod marketplace;
 pub mod match_history;
 #[path = "match.rs"]
 pub mod matches;
+pub mod match_result;
 pub mod matchmake;
 pub mod notification;
 pub mod quest;

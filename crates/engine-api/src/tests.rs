@@ -9,6 +9,7 @@ mod storage;
 mod storage_index;
 mod unlinks;
 mod wasm_upload;
+mod webhook;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

@@ -20,21 +20,13 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
         "Auth token required"
     );
     for (route, body, message) in [
-        (
-            "device",
-            json!({}),
-            "Device ID is required.",
-        ),
+        ("device", json!({}), "Device ID is required."),
         (
             "device",
             json!({ "id": "short" }),
             "Device ID invalid, must be 10-128 bytes.",
         ),
-        (
-            "custom",
-            json!({}),
-            "Custom ID is required.",
-        ),
+        ("custom", json!({}), "Custom ID is required."),
         (
             "custom",
             json!({ "id": "short" }),

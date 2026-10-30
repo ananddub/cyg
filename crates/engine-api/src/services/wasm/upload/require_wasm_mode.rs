@@ -35,7 +35,8 @@ impl WasmService {
         let id = Uuid::new_v4();
         let now = Utc::now();
         let key = module_key(game_id, version);
-        blobs(state).await?
+        blobs(state)
+            .await?
             .put(&key, &params.binary_bytes)
             .await
             .map_err(V2Error::from)?;
@@ -72,7 +73,8 @@ impl WasmService {
         game_id: Uuid,
     ) -> Result<Vec<ModuleDto>, V2Error> {
         self.require_wasm_mode(state, game_id).await?;
-        let rows: Vec<ListRoomModulesRow> = q(state).await?
+        let rows: Vec<ListRoomModulesRow> = q(state)
+            .await?
             .list_room_modules(game_id)
             .await
             .map_err(V2Error::from)?;
@@ -84,7 +86,8 @@ impl WasmService {
         game_id: Uuid,
         version: i32,
     ) -> Result<(String, Vec<u8>), V2Error> {
-        let row = q(state).await?
+        let row = q(state)
+            .await?
             .find_room_module_bytes(game_id, version)
             .await
             .map_err(V2Error::from)?
@@ -96,7 +99,8 @@ impl WasmService {
                 "Module version {version} bytes are missing."
             )));
         };
-        let bytes = blobs(state).await?
+        let bytes = blobs(state)
+            .await?
             .get(&key)
             .await
             .map_err(V2Error::from)?

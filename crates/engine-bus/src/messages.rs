@@ -57,6 +57,49 @@ pub struct SimEvent {
     pub payload: Vec<u8>,
 }
 
+/// One match the host just disposed: how long it ran, how many people it held,
+/// and why it ended. The host has no database handle, so this rides the bus and
+/// the control plane turns it into a `match_history` row.
+#[derive(Clone, Debug)]
+pub struct MatchFinished {
+    pub room: String,
+    /// The game this process serves, so history stays readable after the room
+    /// name is reused by a later match.
+    pub game_id: String,
+    /// `empty` | `duration` | `drain` — the host's own close reasons.
+    pub end_reason: String,
+    /// Wall seconds, because `Instant` means nothing across a process restart.
+    pub started_at_unix: i64,
+    pub ended_at_unix: i64,
+    pub ticks: i64,
+    /// Most seats held at once, sampled once per host tick.
+    pub peak_players: i64,
+    /// Ordinal of the last snapshot this room exported, so the match row names
+    /// the state generation a replay starts from. `0` when the room never
+    /// persisted anything (no `storage` capability, or a relay room).
+    pub snapshot_seq: i64,
+    /// The guest's own outcome: the payload of the last `host_send` whose event
+    /// name matched `[gameplay] result_event`. Raw wire bytes — msgpack, the
+    /// engine never decodes it — and empty when the game declared no result.
+    pub result: Vec<u8>,
+}
+
+/// A room's saved state, handed over where the host would otherwise have kept it
+/// in its own process memory. The control plane writes it to
+/// `room_persistent_snapshot`, so a snapshot survives the node that took it and
+/// a replay can start from real state instead of a guess.
+#[derive(Clone, Debug)]
+pub struct RoomSnapshot {
+    pub room: String,
+    /// Which backend produced the bytes: the format is backend-specific, and a
+    /// reader cannot tell `wasm` from `ecs` by looking.
+    pub backend: String,
+    /// Which export of this room's state these bytes are, matching the
+    /// `snapshot_seq` the match row points at.
+    pub seq: i64,
+    pub bytes: Vec<u8>,
+}
+
 /// Why the sim should hot-swap its room module: a console upload of a fresh
 /// version, or a rollback re-activating an older one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -21,13 +21,12 @@ struct TokenResponse {
 }
 
 pub(super) async fn access_token(config: &IapConfig) -> Result<String, V2Error> {
-    let account: ServiceAccount = serde_json::from_str(&config.google_service_account).map_err(
-        |err| {
+    let account: ServiceAccount =
+        serde_json::from_str(&config.google_service_account).map_err(|err| {
             V2Error::unavailable(format!(
                 "[control.iap] google_service_account is not a service-account JSON document: {err}"
             ))
-        },
-    )?;
+        })?;
     let token_uri = account
         .token_uri
         .filter(|uri| !uri.is_empty())
@@ -40,17 +39,15 @@ pub(super) async fn access_token(config: &IapConfig) -> Result<String, V2Error> 
         "iat": now,
         "exp": now + 3_600,
     });
-    let key = jsonwebtoken::EncodingKey::from_rsa_pem(account.private_key.as_bytes()).map_err(
-        |err| {
+    let key =
+        jsonwebtoken::EncodingKey::from_rsa_pem(account.private_key.as_bytes()).map_err(|err| {
             V2Error::unavailable(format!(
                 "[control.iap] google_service_account private_key is not a PEM RSA key: {err}"
             ))
-        },
-    )?;
+        })?;
     let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
-    let assertion = jsonwebtoken::encode(&header, &claims, &key).map_err(|err| {
-        V2Error::internal(format!("Failed to sign the Google assertion: {err}"))
-    })?;
+    let assertion = jsonwebtoken::encode(&header, &claims, &key)
+        .map_err(|err| V2Error::internal(format!("Failed to sign the Google assertion: {err}")))?;
     let response = super::super::client()
         .post(&token_uri)
         .form(&[

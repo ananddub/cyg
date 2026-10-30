@@ -21,11 +21,11 @@ pub async fn build_rooms_scoped(state: &ApiState, target_game_id: Option<Uuid>) 
             let is_current = state.game.name == game.name;
             let game_clients = if is_current { clients } else { 0 };
             let game_status = if game_clients > 0 { "live" } else { "empty" }.to_string();
-            let max_clients = game
-                .config
-                .get("max_clients")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(state.game.max_clients.max(0) as u64) as u32;
+            let max_clients =
+                game.config
+                    .get("max_clients")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(state.game.max_clients.max(0) as u64) as u32;
             let tick_rate = game
                 .config
                 .get("tick_rate")

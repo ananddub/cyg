@@ -81,6 +81,9 @@ impl BootMaps {
     /// `true` when no map came from the console — the common local-project
     /// case, and the signal for the host to read its local files in peace.
     pub fn is_empty(&self) -> bool {
-        self.oxcl.is_none() && self.map2d.is_none() && self.map3d.is_none() && self.navmesh.is_none()
+        self.oxcl.is_none()
+            && self.map2d.is_none()
+            && self.map3d.is_none()
+            && self.navmesh.is_none()
     }
 }

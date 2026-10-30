@@ -242,29 +242,21 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     if std::env::var("OX_SOCIAL_ALLOW_UNVERIFIED").is_ok_and(|v| v == "1") {
         cfg.control.social.allow_unverified = true;
     }
-    for (name, field) in [
-        ("OX_ROOM_MAX_SECONDS", &mut cfg.lifecycle.room_max_seconds),
-        ("OX_REAP_IDLE_SECS", &mut cfg.lifecycle.reap_idle_secs),
-        ("OX_PEER_IDLE_MS", &mut cfg.lifecycle.peer_idle_ms),
-        ("OX_SEAT_HOLD_SECS", &mut cfg.lifecycle.seat_hold_secs),
-    ] {
-        if let Ok(v) = std::env::var(name)
-            && let Ok(secs) = v.parse::<u64>()
-        {
-            *field = secs;
-        }
-    }
-    if let Ok(v) = std::env::var("OX_PERSISTENT_ROOMS") {
-        cfg.lifecycle.persistent_rooms = crate::social::split_ids(&v);
-    }
     if let Ok(v) = std::env::var("OX_RECORD_EVENTS") {
         cfg.gameplay.record_events = crate::social::split_ids(&v);
     }
     if let Ok(v) = std::env::var("OX_EVENT_TTL_DAYS") {
-        cfg.gameplay.event_ttl_days = v
+        cfg.gameplay.event_ttl_days = v.trim().parse().unwrap_or(cfg.gameplay.event_ttl_days);
+    }
+    if let Ok(v) = std::env::var("OX_MATCH_HISTORY_TTL_DAYS") {
+        cfg.gameplay.match_history_ttl_days = v
             .trim()
             .parse()
-            .unwrap_or(cfg.gameplay.event_ttl_days);
+            .unwrap_or(cfg.gameplay.match_history_ttl_days);
+    }
+    cfg.lifecycle.apply_env();
+    if let Ok(v) = std::env::var("OX_RESULT_EVENT") {
+        cfg.gameplay.result_event = v;
     }
     cfg.watchdog.apply_env();
     clamp_windows(&mut cfg);
@@ -357,5 +349,18 @@ record_events = ["discard", "deal"]
     fn flat_record_events_are_trimmed_and_de_duplicated() {
         let cfg = parse_config("record_events: discard,  discard ,\n");
         assert_eq!(cfg.gameplay.record_events, ["discard"]);
+    }
+
+    #[test]
+    fn both_retention_windows_are_read_from_the_same_block() {
+        let cfg = parse_config(
+            r#"
+[gameplay]
+event_ttl_days = 14
+match_history_ttl_days = 365
+"#,
+        );
+        assert_eq!(cfg.gameplay.event_ttl_days, 14);
+        assert_eq!(cfg.gameplay.match_history_ttl_days, 365);
     }
 }

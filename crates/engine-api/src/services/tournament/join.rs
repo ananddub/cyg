@@ -12,7 +12,9 @@ use crate::repositories::db::{Queries, params, ts};
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
 use crate::services::deps::q;
 use crate::utils::leaderboard::{at, calculate};
-use crate::utils::tournament::statement::{EXISTS_SQL, JOIN_SIZE_SQL, RELEASE_SIZE_SQL, joined_row};
+use crate::utils::tournament::statement::{
+    EXISTS_SQL, JOIN_SIZE_SQL, RELEASE_SIZE_SQL, joined_row,
+};
 use crate::utils::tournament::types::{INACTIVE_JOIN, JOIN_FAILED, MAX_SIZE_JOIN};
 
 impl super::TournamentService {

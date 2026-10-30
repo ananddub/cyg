@@ -15,4 +15,3 @@ pub use somnia::Key;
 
 #[cfg(test)]
 mod probes;
-

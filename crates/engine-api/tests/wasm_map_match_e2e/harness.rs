@@ -77,8 +77,11 @@ impl TestWsClient {
 
     async fn liveness(&mut self) {
         let cid = self.next_cid();
-        self.send_raw(json!({"cid": cid, "type": "ping"}).to_string()).await;
-        let pong = self.take_reply(&cid, Some("pong"), Duration::from_secs(5)).await;
+        self.send_raw(json!({"cid": cid, "type": "ping"}).to_string())
+            .await;
+        let pong = self
+            .take_reply(&cid, Some("pong"), Duration::from_secs(5))
+            .await;
         assert_eq!(pong["type"], "pong");
     }
 
@@ -110,7 +113,12 @@ impl TestWsClient {
         self.send_event(tag, payload).await;
     }
 
-    async fn take_where(&mut self, want: &dyn Fn(&Value) -> bool, describe: &str, timeout_dur: Duration) -> Value {
+    async fn take_where(
+        &mut self,
+        want: &dyn Fn(&Value) -> bool,
+        describe: &str,
+        timeout_dur: Duration,
+    ) -> Value {
         if let Some(index) = self.pending.iter().position(want) {
             return self.pending.remove(index);
         }
@@ -124,7 +132,10 @@ impl TestWsClient {
                 .await
                 .unwrap_or_else(|_| panic!("{}: timeout waiting for {describe}", self.name));
             let Some(Ok(Raw::Text(text))) = msg else {
-                panic!("{}: socket closed mid-read while waiting for {describe}", self.name);
+                panic!(
+                    "{}: socket closed mid-read while waiting for {describe}",
+                    self.name
+                );
             };
             let frame: Value = serde_json::from_str(&text).expect("frame is JSON");
             if want(&frame) {
@@ -134,7 +145,12 @@ impl TestWsClient {
         }
     }
 
-    pub(crate) async fn take_reply(&mut self, cid: &str, want_type: Option<&str>, timeout_dur: Duration) -> Value {
+    pub(crate) async fn take_reply(
+        &mut self,
+        cid: &str,
+        want_type: Option<&str>,
+        timeout_dur: Duration,
+    ) -> Value {
         let want = want_type.map(str::to_owned);
         let cid = cid.to_owned();
         self.take_where(

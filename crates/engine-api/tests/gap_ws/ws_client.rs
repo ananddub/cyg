@@ -1,7 +1,13 @@
 use super::*;
 
 impl WsClient {
-    pub(crate) async fn connect(port: u16, token: &str, name: &str, uid: Uuid, user: &str) -> WsClient {
+    pub(crate) async fn connect(
+        port: u16,
+        token: &str,
+        name: &str,
+        uid: Uuid,
+        user: &str,
+    ) -> WsClient {
         let url = format!("ws://127.0.0.1:{port}/ws?token={token}");
         let (ws, _) = tokio_tungstenite::connect_async(&url)
             .await
@@ -88,7 +94,12 @@ impl WsClient {
         }
     }
 
-    pub(crate) async fn take_reply(&mut self, cid: &str, want_type: Option<&str>, describe: &str) -> Value {
+    pub(crate) async fn take_reply(
+        &mut self,
+        cid: &str,
+        want_type: Option<&str>,
+        describe: &str,
+    ) -> Value {
         let want = want_type.map(str::to_owned);
         let cid = cid.to_owned();
         self.take_where(

@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use reqwest::multipart::{Form, Part};
-use uuid::Uuid;
 use tokio_tungstenite::tungstenite::Message as Raw;
+use uuid::Uuid;
 #[path = "../harness/mod.rs"]
 mod harness_shared;
 pub use harness_shared::*;

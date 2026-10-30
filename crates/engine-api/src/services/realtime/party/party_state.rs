@@ -6,7 +6,7 @@ pub struct PartyState {
     pub leader_sid: Uuid,
     pub open: bool,
     pub max_size: i32,
-    pub members: HashMap<Uuid , Presence>,
+    pub members: HashMap<Uuid, Presence>,
 }
 pub struct RealtimePartyService {
     pub parties: FastMap<Uuid, PartyState>,

@@ -46,9 +46,7 @@ pub mod b64_opt {
         }
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        input: D,
-    ) -> Result<Option<Vec<u8>>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(input: D) -> Result<Option<Vec<u8>>, D::Error> {
         let value = serde_json::Value::deserialize(input)?;
         match value {
             serde_json::Value::Null => Ok(None),

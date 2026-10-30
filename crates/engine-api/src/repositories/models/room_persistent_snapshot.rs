@@ -9,6 +9,10 @@ pub struct RoomPersistentSnapshot {
     #[serde(with = "bytes::b64")]
     pub snapshot_bytes: Vec<u8>,
     pub entity_count: i32,
+    /// Which save of the room this row is, taken from the host's own counter.
+    /// A match row's `snapshot_seq` points at it, so a reader can tell a replay
+    /// base that is current from one the host failed to replace.
+    pub snapshot_seq: i64,
     #[serde(with = "time::iso")]
     pub saved_at: DateTime<Utc>,
 }

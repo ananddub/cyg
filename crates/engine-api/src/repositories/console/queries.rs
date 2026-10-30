@@ -1,10 +1,7 @@
 use super::*;
 
 impl Queries {
-    pub async fn find_console_user(
-        &self,
-        username: &str,
-    ) -> Result<FindConsoleUserRow, DbError> {
+    pub async fn find_console_user(&self, username: &str) -> Result<FindConsoleUserRow, DbError> {
         self.one(
             "SELECT id, username, email, acl, metadata, create_time, update_time, disable_time, mfa_required \
              FROM console_user WHERE username = $username OR email = $username LIMIT 1",
@@ -24,20 +21,14 @@ impl Queries {
         )
         .await
     }
-    pub async fn list_accounts(
-        &self,
-        limit: i64,
-        offset: i64,
-    ) -> Result<Vec<Users>, DbError> {
+    pub async fn list_accounts(&self, limit: i64, offset: i64) -> Result<Vec<Users>, DbError> {
         self.all(
             "SELECT * FROM users ORDER BY create_time DESC, id ASC LIMIT $limit START $offset",
             params!(limit = limit, offset = offset),
         )
         .await
     }
-    pub async fn count_accounts(
-        &self,
-    ) -> Result<i64, DbError> {
+    pub async fn count_accounts(&self) -> Result<i64, DbError> {
         Ok(self
             .opt::<i64>(
                 "RETURN array::len((SELECT id FROM users))",
@@ -61,10 +52,7 @@ impl Queries {
         )
         .await
     }
-    pub async fn list_user_notes(
-        &self,
-        user_id: Uuid,
-    ) -> Result<Vec<UsersNotes>, DbError> {
+    pub async fn list_user_notes(&self, user_id: Uuid) -> Result<Vec<UsersNotes>, DbError> {
         self.all(
             "SELECT id, user_id, create_time, update_time, note, create_id, update_id FROM users_notes \
              WHERE user_id = $user_id ORDER BY create_time DESC",
@@ -147,9 +135,7 @@ impl Queries {
 }
 
 impl Queries {
-    pub async fn list_storage_collections(
-        &self,
-    ) -> Result<Vec<String>, DbError> {
+    pub async fn list_storage_collections(&self) -> Result<Vec<String>, DbError> {
         #[derive(serde::Deserialize)]
         pub(super) struct CollectionRow {
             pub(super) collection: String,
@@ -164,9 +150,7 @@ impl Queries {
         collections.sort();
         Ok(collections)
     }
-    pub async fn list_settings(
-        &self,
-    ) -> Result<Vec<Setting>, DbError> {
+    pub async fn list_settings(&self) -> Result<Vec<Setting>, DbError> {
         self.all(
             "SELECT name, value, update_time FROM setting ORDER BY name ASC",
             std::collections::BTreeMap::new(),
@@ -201,9 +185,7 @@ impl Queries {
         });
         Ok(rows.into_iter().map(|row| row.console_username).collect())
     }
-    pub async fn list_acl_templates(
-        &self,
-    ) -> Result<Vec<ConsoleAclTemplate>, DbError> {
+    pub async fn list_acl_templates(&self) -> Result<Vec<ConsoleAclTemplate>, DbError> {
         self.all(
             "SELECT id, name, description, acl, create_time, update_time FROM console_acl_template \
              ORDER BY name ASC",

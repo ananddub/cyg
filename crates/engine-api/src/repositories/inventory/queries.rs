@@ -171,12 +171,14 @@ impl Queries {
         backend: &str,
         snapshot_bytes: &[u8],
         entity_count: i32,
+        snapshot_seq: i64,
     ) -> Result<(), DbError> {
         let row = RoomPersistentSnapshot {
             room_name: room_name.to_string(),
             backend: backend.to_string(),
             snapshot_bytes: snapshot_bytes.to_vec(),
             entity_count,
+            snapshot_seq,
             saved_at: Utc::now(),
         };
         self.exec(

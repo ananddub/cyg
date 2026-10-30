@@ -24,7 +24,8 @@ const PAGE_CURSOR: &str = "  AND (
         AND category = $anchor_category AND id > type::record('leaderboard', $anchor_id))
   )";
 
-const PAGE_ORDER: &str = "ORDER BY start_time ASC, end_time DESC, category ASC, id ASC LIMIT $limit";
+const PAGE_ORDER: &str =
+    "ORDER BY start_time ASC, end_time DESC, category ASC, id ASC LIMIT $limit";
 
 pub(crate) fn page_sql(has_anchor: bool) -> String {
     if has_anchor {
@@ -42,8 +43,7 @@ pub(crate) const DELETE_SQL: &str = "DELETE leaderboard_record
 WHERE leaderboard_id = $leaderboard_id AND owner_id = $owner_id
   AND expiry_time = $expiry_time RETURN BEFORE";
 
-pub(crate) const JOIN_SIZE_SQL: &str =
-    "UPDATE type::record('leaderboard', $leaderboard_id) SET size = size + 1 \
+pub(crate) const JOIN_SIZE_SQL: &str = "UPDATE type::record('leaderboard', $leaderboard_id) SET size = size + 1 \
      WHERE size < max_size RETURN AFTER";
 
 pub(crate) const RELEASE_SIZE_SQL: &str =
@@ -102,7 +102,10 @@ pub(crate) fn entered_row(write: &Write<'_>, now: DateTime<Utc>) -> LeaderboardR
         score: write.abs.0,
         subscore: write.abs.1,
         num_score: 1,
-        metadata: write.metadata.clone().unwrap_or_else(|| serde_json::json!({})),
+        metadata: write
+            .metadata
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({})),
         create_time: now,
         update_time: now,
         expiry_time: write.expiry,

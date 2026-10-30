@@ -19,8 +19,8 @@ use crate::infra::ws::session::{self, Session};
 use crate::repositories::channel::{InsertChannelMessageParams, UpdateChannelMessageParams};
 use crate::utils::channel::{MODE_DM, MODE_GROUP, Stream, stream_of_channel};
 
-mod channel_state;
 mod channel_json;
+mod channel_state;
 mod join;
 mod message_update;
 

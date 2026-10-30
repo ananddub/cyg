@@ -26,10 +26,8 @@ impl super::super::StorageService {
         let queries = q(state).await?;
         let mut acks: Vec<Option<StorageObjectAck>> = vec![None; ordered.len()];
         let mut statements: Vec<String> = Vec::new();
-        let mut params = BTreeMap::<String, Value>::from([(
-            "owner".to_string(),
-            json!(owner.to_string()),
-        )]);
+        let mut params =
+            BTreeMap::<String, Value>::from([("owner".to_string(), json!(owner.to_string()))]);
         for (index, object) in ordered.iter() {
             let current = queries
                 .storage_current(&object.collection, &object.key, owner)

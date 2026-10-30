@@ -1,7 +1,7 @@
 use auto_di::singleton;
 
-pub mod rooms;
 pub mod readyz;
+pub mod rooms;
 pub mod snapshot;
 
 #[cfg(test)]

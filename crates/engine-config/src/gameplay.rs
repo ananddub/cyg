@@ -1,5 +1,21 @@
 /// Default retention for mirrored history, in days.
 const DEFAULT_EVENT_TTL_DAYS: u32 = 30;
+/// Default retention for finished matches, in days.
+const DEFAULT_MATCH_HISTORY_TTL_DAYS: u32 = 90;
+/// The guest event whose payload the host files as the match's outcome. A game
+/// that names its own result event sets `result_event`; until then this is the
+/// convention the SDK docs use.
+const DEFAULT_RESULT_EVENT: &str = "match_result";
+
+/// A retention window an operator can actually write: `0` is "use the default"
+/// and a decade is a typo, not a policy.
+fn bounded_ttl(days: u32, default: u32) -> u32 {
+    match days {
+        0 => default,
+        1..=3650 => days,
+        _ => 3650,
+    }
+}
 
 /// `[gameplay]` block: which guest `host_send` messages the engine mirrors to
 /// the control plane for persistence. Empty by default — an unlisted event is
@@ -15,6 +31,12 @@ pub struct GameplayConfig {
     /// default; the control plane clamps the rest, so a typo cannot delete the
     /// history a game depends on or keep it forever.
     pub event_ttl_days: u32,
+    /// Days a finished match stays in `match_history`. Match rows are one per
+    /// room and tiny next to the event stream, so they outlive it by default.
+    pub match_history_ttl_days: u32,
+    /// Event name whose last payload becomes the match row's `result`, so a
+    /// history listing shows who won without replaying the room.
+    pub result_event: String,
 }
 
 impl GameplayConfig {
@@ -26,10 +48,12 @@ impl GameplayConfig {
         }
         self.record_events.retain(|name| !name.is_empty());
         self.record_events.dedup();
-        self.event_ttl_days = match self.event_ttl_days {
-            0 => DEFAULT_EVENT_TTL_DAYS,
-            1..=3650 => self.event_ttl_days,
-            _ => 3650,
+        self.event_ttl_days = bounded_ttl(self.event_ttl_days, DEFAULT_EVENT_TTL_DAYS);
+        self.match_history_ttl_days =
+            bounded_ttl(self.match_history_ttl_days, DEFAULT_MATCH_HISTORY_TTL_DAYS);
+        self.result_event = match self.result_event.trim() {
+            "" => DEFAULT_RESULT_EVENT.to_string(),
+            named => named.to_string(),
         };
     }
 
@@ -91,5 +115,37 @@ mod tests {
         };
         week.normalize();
         assert_eq!(week.event_ttl_days, 7);
+    }
+
+    #[test]
+    fn match_history_outlives_the_event_stream_by_default() {
+        let mut config = GameplayConfig::default();
+        config.normalize();
+        assert_eq!(config.event_ttl_days, DEFAULT_EVENT_TTL_DAYS);
+        assert_eq!(
+            config.match_history_ttl_days,
+            DEFAULT_MATCH_HISTORY_TTL_DAYS
+        );
+
+        let mut absurd = GameplayConfig {
+            match_history_ttl_days: 40_000,
+            ..Default::default()
+        };
+        absurd.normalize();
+        assert_eq!(absurd.match_history_ttl_days, 3650);
+    }
+
+    #[test]
+    fn the_result_event_has_a_name_even_when_the_game_says_nothing() {
+        let mut unset = GameplayConfig::default();
+        unset.normalize();
+        assert_eq!(unset.result_event, DEFAULT_RESULT_EVENT);
+
+        let mut named = GameplayConfig {
+            result_event: " game_over ".into(),
+            ..Default::default()
+        };
+        named.normalize();
+        assert_eq!(named.result_event, "game_over");
     }
 }

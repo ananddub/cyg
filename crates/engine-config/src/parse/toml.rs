@@ -140,6 +140,9 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
                 .map(str::to_owned)
                 .collect();
         }
+        if let Some(v) = l.get("drain_grace_secs").and_then(|v| v.as_integer()) {
+            cfg.lifecycle.drain_grace_secs = v.max(0) as u64;
+        }
     }
 
     if let Some(w) = table.get("watchdog").and_then(|v| v.as_table()) {
@@ -151,6 +154,9 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
         }
         if let Some(v) = w.get("epoch_deadline_ticks").and_then(|v| v.as_integer()) {
             cfg.watchdog.epoch_deadline_ticks = v.max(0) as u64;
+        }
+        if let Some(v) = w.get("max_ticks_per_frame").and_then(|v| v.as_integer()) {
+            cfg.watchdog.max_ticks_per_frame = v.max(0) as u32;
         }
     }
 
@@ -164,6 +170,12 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
         }
         if let Some(v) = g.get("event_ttl_days").and_then(|v| v.as_integer()) {
             cfg.gameplay.event_ttl_days = v.max(0) as u32;
+        }
+        if let Some(v) = g.get("match_history_ttl_days").and_then(|v| v.as_integer()) {
+            cfg.gameplay.match_history_ttl_days = v.max(0) as u32;
+        }
+        if let Some(v) = g.get("result_event").and_then(|v| v.as_str()) {
+            cfg.gameplay.result_event = v.to_string();
         }
     }
 

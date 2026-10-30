@@ -11,8 +11,8 @@ use crate::repositories::iap::{InsertPurchaseParams, ListPurchasesParams};
 use crate::services::deps::q;
 use crate::utils::iap::{decode_offset, epoch, store_of};
 
-use super::verify;
 use super::IapService;
+use super::verify;
 
 impl IapService {
     pub async fn validate_apple_legacy(
@@ -99,5 +99,18 @@ pub(super) async fn record_purchase(
             raw_response: verified.raw,
         })
         .await?;
+    crate::services::webhook::emit(
+        state,
+        "iap.purchase.verified",
+        &row.transaction_id,
+        serde_json::json!({
+            "user_id": row.user_id,
+            "transaction_id": row.transaction_id,
+            "product_id": row.product_id,
+            "store": row.store,
+            "environment": row.environment,
+        }),
+    )
+    .await;
     Ok(Json(PurchaseResponse::from(&row)))
 }

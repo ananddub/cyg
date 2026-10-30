@@ -178,7 +178,10 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
         .map(|object| object["key"].as_str().expect("key").to_owned())
         .collect();
     assert_eq!(keys, vec!["k1"]);
-    assert_eq!(json_string(&matched["objects"][0]["value"])["name"], "sword");
+    assert_eq!(
+        json_string(&matched["objects"][0]["value"])["name"],
+        "sword"
+    );
 
     let ranged = api_post(
         client,

@@ -28,7 +28,10 @@ pub(crate) async fn every_wasm_route_promotes_a_relay_game_that_reaches_it() {
         .list_modules(&state, listed.id)
         .await
         .expect("a relay game's listing is answered, not refused");
-    assert!(modules.is_empty(), "answered with the modules it has: {modules:?}");
+    assert!(
+        modules.is_empty(),
+        "answered with the modules it has: {modules:?}"
+    );
     let detail = crate::services::games::GamesService::get_game(&state, listed.id)
         .await
         .expect("the listed game reads back");
@@ -79,10 +82,13 @@ pub(crate) async fn the_wasm_gate_promotes_the_stored_mode_on_every_contact() {
 
     let back: crate::dto::console::games::UpdateGameRequest =
         serde_json::from_value(serde_json::json!({"engine_type": "unity"})).expect("a patch back");
-    let moved = crate::services::games::GamesService::update_game(&state, game.id, &back)
+    let moved = crate::services::games::GamesService::update_game(&state, game.id, &back, None)
         .await
         .expect("the console moves the game back to the relay");
-    assert_eq!(moved.backend_mode, "relay", "the patch is honest about the plane");
+    assert_eq!(
+        moved.backend_mode, "relay",
+        "the patch is honest about the plane"
+    );
 
     service
         .list_modules(&state, game.id)

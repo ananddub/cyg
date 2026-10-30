@@ -19,7 +19,10 @@ fn test_moderation_username_validation() {
     assert!(is_valid_username("ProGamer123"));
 
     assert!(!is_valid_username("ab"), "Too short (< 3 chars)");
-    assert!(!is_valid_username("a".repeat(21).as_str()), "Too long (> 20 chars)");
+    assert!(
+        !is_valid_username("a".repeat(21).as_str()),
+        "Too long (> 20 chars)"
+    );
 
     assert!(!is_valid_username("fucker99"), "Contains offensive term");
     assert!(!is_valid_username("asshole"), "Contains offensive term");

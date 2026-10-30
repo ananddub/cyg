@@ -95,7 +95,11 @@ pub async fn link_unlink_surface(env: &Harness) {
     );
     assert_eq!(
         refusal(
-            post("/facebookinstantgame").json(&json!({})).send().await.unwrap(),
+            post("/facebookinstantgame")
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap(),
             StatusCode::BAD_REQUEST,
             "POST /v2/account/link/facebookinstantgame with no signature",
         )

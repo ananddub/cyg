@@ -11,9 +11,9 @@ use crate::error::V2Error;
 use crate::infra::ws::envelope::{Envelope, EnvelopeMessage, ErrorMsg, Party, Presence};
 use crate::infra::ws::session::{self, Session};
 
+mod close;
+mod leave;
 mod party_state;
 mod wire_of;
-mod leave;
-mod close;
 
 pub use party_state::*;

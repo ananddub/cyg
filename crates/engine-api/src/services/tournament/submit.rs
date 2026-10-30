@@ -77,7 +77,10 @@ async fn write_round(
     binds.insert("username".to_string(), json!(username));
     binds.insert("update_time".to_string(), ts(Utc::now()));
 
-    let counters: Option<Attempts> = queries.opt(UPDATE_SQL, binds).await.map_err(write_failure)?;
+    let counters: Option<Attempts> = queries
+        .opt(UPDATE_SQL, binds)
+        .await
+        .map_err(write_failure)?;
     match counters {
         Some(Attempts {
             num_score,
@@ -89,11 +92,7 @@ async fn write_round(
     }
 }
 
-async fn enter(
-    queries: &Queries,
-    board: &Leaderboard,
-    write: &Write<'_>,
-) -> Result<(), V2Error> {
+async fn enter(queries: &Queries, board: &Leaderboard, write: &Write<'_>) -> Result<(), V2Error> {
     let room: Option<Leaderboard> = queries
         .opt(JOIN_SIZE_SQL, params!(leaderboard_id = &board.id))
         .await

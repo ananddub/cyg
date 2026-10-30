@@ -1,5 +1,6 @@
 pub mod account;
 pub mod auth;
+pub mod badge;
 pub mod channel;
 pub mod config_history;
 pub mod console;
@@ -17,6 +18,7 @@ pub mod inventory;
 pub mod leaderboard;
 pub mod link;
 pub mod marketplace;
+pub mod match_result;
 pub mod models;
 pub mod notification;
 pub mod quest;

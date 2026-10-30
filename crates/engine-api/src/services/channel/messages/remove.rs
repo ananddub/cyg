@@ -25,7 +25,8 @@ impl ChannelService {
         assert_member(state, auth.0.uuid()?, &stream).await?;
         let id = Uuid::parse_str(message_id)
             .map_err(|_| V2Error::invalid_argument("Invalid message ID."))?;
-        let msg = q(state).await?
+        let msg = q(state)
+            .await?
             .delete_channel_message(id, auth.0.uuid()?)
             .await
             .map_err(|e| match e {

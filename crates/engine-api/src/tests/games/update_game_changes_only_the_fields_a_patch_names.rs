@@ -18,7 +18,7 @@ pub(crate) async fn update_game_changes_only_the_fields_a_patch_names() {
 
     let renamed: UpdateGameRequest = serde_json::from_value(json!({"name": "Renamed Arena"}))
         .expect("a name-only patch deserializes");
-    let patched = GamesService::update_game(&state, game.id, &renamed)
+    let patched = GamesService::update_game(&state, game.id, &renamed, None)
         .await
         .expect("a patch that names one field is applied");
 
@@ -41,13 +41,13 @@ pub(crate) async fn update_game_changes_only_the_fields_a_patch_names() {
     let patched: UpdateGameRequest =
         serde_json::from_value(json!({"status": "suspended", "config": {"tick_rate": 64}}))
             .expect("a status-plus-config patch deserializes");
-    let patched = GamesService::update_game(&state, game.id, &patched)
+    let patched = GamesService::update_game(&state, game.id, &patched, None)
         .await
         .expect("the second patch is applied");
     assert_eq!(patched.status, "suspended");
     assert_eq!(patched.config["tick_rate"], json!(64));
 
-    let err = GamesService::update_game(&state, Uuid::new_v4(), &renamed)
+    let err = GamesService::update_game(&state, Uuid::new_v4(), &renamed, None)
         .await
         .expect_err("a patch to no game is not a write");
     assert_eq!(err.kind, NOT_FOUND, "{err:?}");

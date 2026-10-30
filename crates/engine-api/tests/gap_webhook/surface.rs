@@ -75,7 +75,12 @@ pub async fn endpoint_surface(env: &Harness, console: &str, hook: &str) {
         .await
         .unwrap();
     assert_eq!(
-        refusal(no_events, StatusCode::BAD_REQUEST, "an endpoint that hears nothing").await,
+        refusal(
+            no_events,
+            StatusCode::BAD_REQUEST,
+            "an endpoint that hears nothing"
+        )
+        .await,
         "A webhook endpoint subscribes to at least one event."
     );
 
@@ -106,7 +111,10 @@ pub async fn endpoint_surface(env: &Harness, console: &str, hook: &str) {
         "the secret is answered once, at creation"
     );
     assert_eq!(
-        created["endpoint"]["events"].as_array().expect("events").len(),
+        created["endpoint"]["events"]
+            .as_array()
+            .expect("events")
+            .len(),
         1,
         "a duplicated event is queued once"
     );
@@ -133,7 +141,10 @@ pub async fn endpoint_surface(env: &Harness, console: &str, hook: &str) {
         "the signing spec",
     )
     .await;
-    assert_eq!(spec["signing"]["signature_header"], json!("X-CYG-Signature"));
+    assert_eq!(
+        spec["signing"]["signature_header"],
+        json!("X-CYG-Signature")
+    );
     assert_eq!(spec["signing"]["replay_window_seconds"], json!(300));
     assert_eq!(spec["events"].as_array().expect("events").len(), 8);
 
@@ -153,7 +164,10 @@ pub async fn endpoint_surface(env: &Harness, console: &str, hook: &str) {
     .await;
     assert_eq!(moved["label"], json!("everything"));
     assert!(moved.get("secret").is_none(), "an edit is not a reveal");
-    assert_eq!(moved["create_time"], row["create_time"], "an edit is the same endpoint");
+    assert_eq!(
+        moved["create_time"], row["create_time"],
+        "an edit is the same endpoint"
+    );
 
     let dropped = json_body(
         env.client
@@ -166,7 +180,11 @@ pub async fn endpoint_surface(env: &Harness, console: &str, hook: &str) {
         "delete an endpoint",
     )
     .await;
-    assert_eq!(dropped, json!({}), "a delete answers nothing but its own 200");
+    assert_eq!(
+        dropped,
+        json!({}),
+        "a delete answers nothing but its own 200"
+    );
     assert!(endpoint_rows(env, console).await.is_empty());
 
     let gone = env

@@ -10,15 +10,17 @@ async fn upsert(
     };
     match next_record(write, &current, descending) {
         Some(row) => update_record(queries, write, &row).await,
-        None => read_existing(
-            queries,
-            GetLeaderboardRecordParams {
-                leaderboard_id: write.leaderboard_id.to_string(),
-                owner_id: write.owner_id,
-                expiry_time: write.expiry,
-            },
-        )
-        .await,
+        None => {
+            read_existing(
+                queries,
+                GetLeaderboardRecordParams {
+                    leaderboard_id: write.leaderboard_id.to_string(),
+                    owner_id: write.owner_id,
+                    expiry_time: write.expiry,
+                },
+            )
+            .await
+        }
     }
 }
 pub(super) fn failed(error: DbError) -> V2Error {

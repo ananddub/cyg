@@ -1,10 +1,10 @@
-
 #[cfg(test)]
 mod tests {
     use super::super::*;
 
     fn good_2d() -> Vec<u8> {
-        br#"{"arena_width": 800, "arena_height": 600, "obstacles": [{"x":0,"y":0,"w":10,"h":10}]}"#.to_vec()
+        br#"{"arena_width": 800, "arena_height": 600, "obstacles": [{"x":0,"y":0,"w":10,"h":10}]}"#
+            .to_vec()
     }
 
     #[test]
@@ -42,7 +42,8 @@ mod tests {
             bytes
         };
         assert!(MapService::ensure_valid_format(MapFormat::Oxcl, &cooked).is_ok());
-        let err = MapService::ensure_valid_format(MapFormat::Oxcl, b"glTF raw scene bytes").unwrap_err();
+        let err =
+            MapService::ensure_valid_format(MapFormat::Oxcl, b"glTF raw scene bytes").unwrap_err();
         assert!(err.message.contains("OXCL"), "{}", err.message);
     }
 

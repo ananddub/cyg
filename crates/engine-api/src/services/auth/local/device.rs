@@ -1,4 +1,5 @@
 use super::*;
+use crate::services::webhook::emit;
 
 pub async fn device(
     state: &ApiState,
@@ -30,6 +31,13 @@ pub async fn device(
             }
             let uid = create_device(state, id, username).await?;
             crate::services::games::tenant::stamp_user(state, uid).await;
+            emit(
+                state,
+                "account.created",
+                &uid.to_string(),
+                serde_json::json!({ "user_id": uid, "username": username, "method": "device" }),
+            )
+            .await;
             Ok(session(uid, username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),
@@ -59,6 +67,13 @@ pub async fn custom(
                 .await
                 .map_err(insert_failed)?;
             crate::services::games::tenant::stamp_user(state, user.id).await;
+            emit(
+                state,
+                "account.created",
+                &user.id.to_string(),
+                serde_json::json!({ "user_id": user.id, "username": user.username, "method": "custom_id" }),
+            )
+            .await;
             Ok(session(user.id, &user.username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),
@@ -94,6 +109,13 @@ pub async fn email(
                     .await
                     .map_err(insert_failed)?;
                 crate::services::games::tenant::stamp_user(state, user.id).await;
+                emit(
+                    state,
+                    "account.created",
+                    &user.id.to_string(),
+                    serde_json::json!({ "user_id": user.id, "username": user.username, "method": "email" }),
+                )
+                .await;
                 Ok(session(user.id, &user.username, true, vars))
             }
             Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),

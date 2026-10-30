@@ -41,7 +41,10 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
     eprintln!("Step 3: Uploading & validating WASM room module");
     let wasm_bytes = test_module_bytes();
     let form = Form::new()
-        .part("file", Part::bytes(wasm_bytes.clone()).file_name("room_logic.wasm"))
+        .part(
+            "file",
+            Part::bytes(wasm_bytes.clone()).file_name("room_logic.wasm"),
+        )
         .text("source_code", "// isolated test wasm room");
 
     let wasm_res = json_body(
@@ -60,7 +63,10 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
     assert_eq!(wasm_res["abi"]["valid"], true, "WASM ABI must be valid");
     assert_eq!(wasm_res["abi"]["wasm_magic_ok"], true);
     assert_eq!(wasm_res["module"]["version"], 1);
-    assert_eq!(wasm_res["module"]["is_active"], true, "Uploaded module must be active");
+    assert_eq!(
+        wasm_res["module"]["is_active"], true,
+        "Uploaded module must be active"
+    );
     eprintln!("✓ WASM room module uploaded and validated: version=1 active=true");
 
     eprintln!("Step 4: Uploading 3D Arena Map (tank3d_arena)");
@@ -96,7 +102,10 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
     let map_version = map_res["map"]["version"].as_i64().expect("map version");
     assert_eq!(map_res["map"]["name"], "tank_arena.json");
     assert_eq!(map_res["map"]["format"], "map3d");
-    assert_eq!(map_res["map"]["is_active"], true, "Uploaded map must be active");
+    assert_eq!(
+        map_res["map"]["is_active"], true,
+        "Uploaded map must be active"
+    );
     eprintln!("✓ Map uploaded: version={map_version}, format=map3d, active=true");
 
     let stored = row(
@@ -132,7 +141,9 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
     eprintln!("Step 5: Testing Matchmaker joinOrCreate reservation");
     let seat = json_body(
         client
-            .post(format!("{base}/api/matchmake/joinOrCreate/tank-arena-alpha"))
+            .post(format!(
+                "{base}/api/matchmake/joinOrCreate/tank-arena-alpha"
+            ))
             .json(&json!({
                 "game_id": &game_id,
                 "game_key": &game_key
@@ -176,7 +187,9 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
         )
         .await;
 
-    let ack1 = p1.take_reply(&cid1, Some("match_create_ack"), Duration::from_secs(5)).await;
+    let ack1 = p1
+        .take_reply(&cid1, Some("match_create_ack"), Duration::from_secs(5))
+        .await;
     let match_id = ack1["match_id"].as_str().expect("match_id").to_owned();
     eprintln!("✓ Realtime match spawned: match_id={match_id}");
 
@@ -193,11 +206,15 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
         .send_event("match_join", json!({"match_id": &match_id}))
         .await;
 
-    let ack2 = p2.take_reply(&cid2, Some("match_join"), Duration::from_secs(5)).await;
+    let ack2 = p2
+        .take_reply(&cid2, Some("match_join"), Duration::from_secs(5))
+        .await;
     assert_eq!(ack2["match_id"].as_str(), Some(match_id.as_str()));
     eprintln!("✓ Player 2 joined match successfully");
 
-    let presence = p1.take_event("match_presence_event", Duration::from_secs(5)).await;
+    let presence = p1
+        .take_event("match_presence_event", Duration::from_secs(5))
+        .await;
     assert_eq!(presence["match_id"].as_str(), Some(match_id.as_str()));
     eprintln!("✓ Player 1 received peer presence event");
 

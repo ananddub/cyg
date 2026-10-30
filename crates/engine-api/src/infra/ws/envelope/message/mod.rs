@@ -11,8 +11,8 @@ use super::matchmaker::{MatchmakerAdd, MatchmakerMatched};
 use super::party::Party;
 use super::presence::{Presence, StatusPresence};
 
-mod envelope_message;
 mod default_open;
+mod envelope_message;
 
-pub use envelope_message::*;
 use default_open::*;
+pub use envelope_message::*;

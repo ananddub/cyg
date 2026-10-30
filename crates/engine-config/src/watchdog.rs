@@ -22,6 +22,11 @@ pub struct WatchdogConfig {
     /// How many slices the budget is cut into. The fuse can only fire on a slice
     /// boundary, so more slices mean a sharper deadline and more epoch churn.
     pub epoch_deadline_ticks: u64,
+    /// How many ticks the host may simulate in one pass after falling behind.
+    /// Catching up is what the fuse exists to bound: a room that missed twenty
+    /// ticks should drop the backlog, not spend the next second freezing the
+    /// lobby for everyone else.
+    pub max_ticks_per_frame: u32,
 }
 
 impl Default for WatchdogConfig {
@@ -30,6 +35,7 @@ impl Default for WatchdogConfig {
             enabled: true,
             tick_budget_ms: 500,
             epoch_deadline_ticks: 4,
+            max_ticks_per_frame: 3,
         }
     }
 }
@@ -41,6 +47,7 @@ impl WatchdogConfig {
     pub fn clamp(&mut self) {
         self.tick_budget_ms = self.tick_budget_ms.clamp(250, 60_000);
         self.epoch_deadline_ticks = self.epoch_deadline_ticks.clamp(1, 64);
+        self.max_ticks_per_frame = self.max_ticks_per_frame.clamp(1, 16);
     }
 
     /// How often the epoch pump advances, so that `epoch_deadline_ticks` slices
@@ -68,6 +75,11 @@ impl WatchdogConfig {
             && let Ok(ticks) = v.parse()
         {
             self.epoch_deadline_ticks = ticks;
+        }
+        if let Ok(v) = std::env::var("OX_MAX_TICKS_PER_FRAME")
+            && let Ok(cap) = v.parse()
+        {
+            self.max_ticks_per_frame = cap;
         }
     }
 
@@ -114,17 +126,21 @@ mod tests {
             enabled: true,
             tick_budget_ms: 1,
             epoch_deadline_ticks: 0,
+            max_ticks_per_frame: 0,
         };
         watchdog.clamp();
         assert_eq!(watchdog.tick_budget_ms, 250);
         assert_eq!(watchdog.epoch_deadline_ticks, 1);
+        assert_eq!(watchdog.max_ticks_per_frame, 1);
         assert_eq!(watchdog.epoch_period(), Duration::from_millis(250));
 
         let mut huge = WatchdogConfig {
             tick_budget_ms: u64::MAX,
+            max_ticks_per_frame: u32::MAX,
             ..WatchdogConfig::default()
         };
         huge.clamp();
         assert_eq!(huge.tick_budget_ms, 60_000);
+        assert_eq!(huge.max_ticks_per_frame, 16);
     }
 }

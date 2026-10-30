@@ -10,21 +10,18 @@ use crate::utils::vendor;
 
 pub(super) async fn verify(config: &SocialConfig, token: &str) -> Result<Profile, V2Error> {
     let base = config.steam_api_url.trim_end_matches('/');
-    let mut url = reqwest::Url::parse(&format!(
-        "{base}/ISteamUserAuth/AuthenticateUserTicket/v1/"
-    ))
-    .map_err(|err| {
-        V2Error::unavailable(format!("[control.social] steam_api_url is invalid: {err}"))
-    })?;
+    let mut url = reqwest::Url::parse(&format!("{base}/ISteamUserAuth/AuthenticateUserTicket/v1/"))
+        .map_err(|err| {
+            V2Error::unavailable(format!("[control.social] steam_api_url is invalid: {err}"))
+        })?;
     url.query_pairs_mut()
         .append_pair("key", &config.steam_web_api_key)
         .append_pair("appid", &config.steam_app_id.to_string())
         .append_pair("ticket", token);
-    let response = super::client()
-        .get(url)
-        .send()
-        .await
-        .map_err(|err| V2Error::unavailable(format!("Steam ticket verification failed: {err}")))?;
+    let response =
+        super::client().get(url).send().await.map_err(|err| {
+            V2Error::unavailable(format!("Steam ticket verification failed: {err}"))
+        })?;
     if !response.status().is_success() {
         return Err(vendor::profile("Steam"));
     }
@@ -61,7 +58,7 @@ mod tests {
     use axum::extract::Query;
     use axum::routing::get;
     use axum::{Json, Router};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::*;
 
@@ -100,22 +97,17 @@ mod tests {
 
     #[tokio::test]
     async fn a_valid_ticket_resolves_the_steam_id() {
-        let base = serve(Router::new().route(
-            "/ISteamUserAuth/AuthenticateUserTicket/v1/",
-            get(ok),
-        ))
-        .await;
+        let base =
+            serve(Router::new().route("/ISteamUserAuth/AuthenticateUserTicket/v1/", get(ok))).await;
         let profile = verify(&config(&base), "ticket").await.expect("verified");
         assert_eq!(profile.id, "76561198000000001");
     }
 
     #[tokio::test]
     async fn an_invalid_ticket_is_refused() {
-        let base = serve(Router::new().route(
-            "/ISteamUserAuth/AuthenticateUserTicket/v1/",
-            get(invalid),
-        ))
-        .await;
+        let base =
+            serve(Router::new().route("/ISteamUserAuth/AuthenticateUserTicket/v1/", get(invalid)))
+                .await;
         let error = verify(&config(&base), "ticket")
             .await
             .expect_err("invalid ticket");

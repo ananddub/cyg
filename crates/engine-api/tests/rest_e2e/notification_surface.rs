@@ -6,12 +6,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     let bob = device_player(client, base, "no-b").await;
     let charlie = device_player(client, base, "no-c").await;
 
-    let add = |username: &str| {
-        with_query(
-            &format!("{base}/v2/friend"),
-            &[("usernames", username)],
-        )
-    };
+    let add = |username: &str| with_query(&format!("{base}/v2/friend"), &[("usernames", username)]);
 
     api_post_empty(
         client,
@@ -84,7 +79,11 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     for row in &rows {
         assert_eq!(row["sender_id"], alice.uid);
         assert_eq!(row["persistent"], true);
-        assert!(row["create_time"].as_str().is_some_and(|t| t.ends_with('Z')));
+        assert!(
+            row["create_time"]
+                .as_str()
+                .is_some_and(|t| t.ends_with('Z'))
+        );
     }
     let by_code = |page: &Value, code: i16| -> Value {
         page["notifications"]
@@ -96,7 +95,10 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
             .clone()
     };
     let invite = by_code(&bob_page, -2);
-    assert_eq!(json_string(&invite["content"]), json!({ "username": alice.username }));
+    assert_eq!(
+        json_string(&invite["content"]),
+        json!({ "username": alice.username })
+    );
     assert_eq!(
         invite["subject"],
         format!("{} wants to add you as a friend", alice.username)
@@ -106,9 +108,15 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         json_string(&added["content"]),
         json!({ "group_id": gid, "name": group_name })
     );
-    assert_eq!(added["subject"], format!("You've been added to group {group_name}"));
+    assert_eq!(
+        added["subject"],
+        format!("You've been added to group {group_name}")
+    );
     let removed = by_code(&bob_page, -9);
-    assert_eq!(json_string(&removed["content"]), json!({ "username": alice.username }));
+    assert_eq!(
+        json_string(&removed["content"]),
+        json!({ "username": alice.username })
+    );
     assert_eq!(
         removed["subject"],
         format!("{} removed you as a friend", alice.username)
@@ -139,7 +147,10 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         format!("User {} wants to join your group", bob.username)
     );
     let accepted = by_code(&alice_page, -3);
-    assert_eq!(json_string(&accepted["content"]), json!({ "username": bob.username }));
+    assert_eq!(
+        json_string(&accepted["content"]),
+        json!({ "username": bob.username })
+    );
 
     let filtered = api_get(
         client,
@@ -151,7 +162,13 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         "filter notifications by code",
     )
     .await;
-    assert_eq!(filtered["notifications"].as_array().expect("notifications").len(), 1);
+    assert_eq!(
+        filtered["notifications"]
+            .as_array()
+            .expect("notifications")
+            .len(),
+        1
+    );
     assert_eq!(filtered["notifications"][0]["code"], -2);
     let by_sender = api_get(
         client,
@@ -163,7 +180,13 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         "filter notifications by sender",
     )
     .await;
-    assert_eq!(by_sender["notifications"].as_array().expect("notifications").len(), 3);
+    assert_eq!(
+        by_sender["notifications"]
+            .as_array()
+            .expect("notifications")
+            .len(),
+        3
+    );
     refusal(
         client
             .get(with_query(
@@ -216,7 +239,13 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         "default notification page",
     )
     .await;
-    assert_eq!(default_page["notifications"].as_array().expect("notifications").len(), 1);
+    assert_eq!(
+        default_page["notifications"]
+            .as_array()
+            .expect("notifications")
+            .len(),
+        1
+    );
 
     let mut seen: Vec<String> = Vec::new();
     let mut cursor = String::new();
@@ -253,7 +282,12 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     )
     .await;
     assert!(charlie_page.get("notifications").is_none());
-    assert!(!charlie_page["cacheable_cursor"].as_str().unwrap_or("").is_empty());
+    assert!(
+        !charlie_page["cacheable_cursor"]
+            .as_str()
+            .unwrap_or("")
+            .is_empty()
+    );
 
     let single = removed["id"].as_str().expect("notification id").to_owned();
     api_delete(
@@ -312,7 +346,12 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     )
     .await;
     assert!(cleared.get("notifications").is_none());
-    assert!(!cleared["cacheable_cursor"].as_str().unwrap_or("").is_empty());
+    assert!(
+        !cleared["cacheable_cursor"]
+            .as_str()
+            .unwrap_or("")
+            .is_empty()
+    );
 
     api_post_empty(client, add(&bob.username), &alice.token, "invite bob again").await;
     let invite = api_get(
@@ -356,8 +395,20 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     )
     .await;
 
-    api_post_empty(client, add(&bob.username), &alice.token, "invite bob once more").await;
-    api_delete(client, add(&bob.username), &alice.token, "remove bob once more").await;
+    api_post_empty(
+        client,
+        add(&bob.username),
+        &alice.token,
+        "invite bob once more",
+    )
+    .await;
+    api_delete(
+        client,
+        add(&bob.username),
+        &alice.token,
+        "remove bob once more",
+    )
+    .await;
     let pairs = api_get(
         client,
         with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),

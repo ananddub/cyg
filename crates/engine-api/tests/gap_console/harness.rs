@@ -41,7 +41,13 @@ pub async fn create_game(env: &Harness, console: &str, name: &str, engine: &str)
             .to_owned(),
     }
 }
-pub async fn upload_module(env: &Harness, token: &str, game: &str, path: &str, body: Form) -> Value {
+pub async fn upload_module(
+    env: &Harness,
+    token: &str,
+    game: &str,
+    path: &str,
+    body: Form,
+) -> Value {
     json_body(
         env.client
             .post(format!("{}/v2/console/games/{game}/wasm{path}", env.base))
@@ -58,7 +64,12 @@ pub async fn upload_module(env: &Harness, token: &str, game: &str, path: &str, b
 pub fn module_form(bytes: Vec<u8>) -> Form {
     Form::new().part("file", Part::bytes(bytes).file_name("room_logic.wasm"))
 }
-pub async fn console_login_as(env: &Harness, username: &str, password: &str, extra: Value) -> String {
+pub async fn console_login_as(
+    env: &Harness,
+    username: &str,
+    password: &str,
+    extra: Value,
+) -> String {
     let mut body = json!({ "username": username, "password": password });
     if let Value::Object(map) = extra {
         for (key, value) in map {

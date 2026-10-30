@@ -24,7 +24,8 @@ impl super::ConsoleService {
         state: &ApiState,
         page: Page,
     ) -> Result<Json<Vec<ConsoleUserView>>, V2Error> {
-        let rows = q(state).await?
+        let rows = q(state)
+            .await?
             .list_console_users(page.limit(), page.offset())
             .await?;
         Ok(Json(rows.into_iter().map(ConsoleUserView::from).collect()))

@@ -96,7 +96,10 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(first["score"], "500", "the int64 comes back as a string");
     assert_eq!(first["subscore"], "7");
     assert_eq!(json_string(&first["metadata"]), json!({"a": 1}));
-    assert_eq!(first["rank"], "1", "with ranks on, the write names the standing");
+    assert_eq!(
+        first["rank"], "1",
+        "with ranks on, the write names the standing"
+    );
 
     let ignored = json_body(
         env.client
@@ -122,8 +125,8 @@ pub async fn leaderboard_surface(env: &Harness) {
                 .bearer_auth(&lead.token)
                 .json(&body)
                 .send()
-            .await
-            .unwrap(),
+                .await
+                .unwrap(),
             StatusCode::OK,
             &format!("the {:?} operator", body["operator"]),
         )
@@ -157,7 +160,11 @@ pub async fn leaderboard_surface(env: &Harness) {
     let rows = page["records"].as_array().expect("a page").clone();
     assert_eq!(rows.len(), 1, "{page}");
     assert_eq!(rows[0]["score"], "650", "the board reads in score order");
-    assert_ne!(page["next_cursor"], json!(""), "a page that cut records off hands back a cursor");
+    assert_ne!(
+        page["next_cursor"],
+        json!(""),
+        "a page that cut records off hands back a cursor"
+    );
     let wide = json_body(
         env.client
             .get(format!("{}/v2/leaderboard/{board}?limit=10", env.base))
@@ -186,13 +193,36 @@ pub async fn leaderboard_surface(env: &Harness) {
         "GET /v2/leaderboard/{leaderboardId}?owner_ids= (batch)",
     )
     .await;
-    assert_eq!(owners["owner_records"].as_array().map(Vec::len), Some(2), "{owners}");
-    assert!(owners.get("records").is_none(), "an un-paged owner batch lists no page");
+    assert_eq!(
+        owners["owner_records"].as_array().map(Vec::len),
+        Some(2),
+        "{owners}"
+    );
+    assert!(
+        owners.get("records").is_none(),
+        "an un-paged owner batch lists no page"
+    );
     for (label, query, message) in [
-        ("limit=0", "limit=0", "Invalid limit - limit must be between 1 and 1000."),
-        ("limit=abc", "limit=abc", "Invalid limit - limit must be between 1 and 1000."),
-        ("a bad owner id", "owner_ids=not-a-uuid", "One or more owner IDs are invalid."),
-        ("a bad expiry", "expiry=soon", "Invalid expiry - expiry must be a UNIX timestamp."),
+        (
+            "limit=0",
+            "limit=0",
+            "Invalid limit - limit must be between 1 and 1000.",
+        ),
+        (
+            "limit=abc",
+            "limit=abc",
+            "Invalid limit - limit must be between 1 and 1000.",
+        ),
+        (
+            "a bad owner id",
+            "owner_ids=not-a-uuid",
+            "One or more owner IDs are invalid.",
+        ),
+        (
+            "a bad expiry",
+            "expiry=soon",
+            "Invalid expiry - expiry must be a UNIX timestamp.",
+        ),
     ] {
         assert_eq!(
             refusal(
@@ -213,7 +243,10 @@ pub async fn leaderboard_surface(env: &Harness) {
 
     let hay = json_body(
         env.client
-            .get(format!("{}/v2/leaderboard/{board}/owner/{}", env.base, rival.uid))
+            .get(format!(
+                "{}/v2/leaderboard/{board}/owner/{}",
+                env.base, rival.uid
+            ))
             .bearer_auth(&lead.token)
             .send()
             .await
@@ -234,7 +267,10 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/leaderboard/{board}/owner/not-a-uuid", env.base))
+                .get(format!(
+                    "{}/v2/leaderboard/{board}/owner/not-a-uuid",
+                    env.base
+                ))
                 .bearer_auth(&lead.token)
                 .send()
                 .await
@@ -248,7 +284,11 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         json_body(
             env.client
-                .get(format!("{}/v2/leaderboard/{board}/owner/{}", env.base, Uuid::new_v4()))
+                .get(format!(
+                    "{}/v2/leaderboard/{board}/owner/{}",
+                    env.base,
+                    Uuid::new_v4()
+                ))
                 .bearer_auth(&lead.token)
                 .send()
                 .await
@@ -275,11 +315,14 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         json_body(
             env.client
-                .get(format!("{}/v2/leaderboard/{board}/owner/{}", env.base, lead.uid))
+                .get(format!(
+                    "{}/v2/leaderboard/{board}/owner/{}",
+                    env.base, lead.uid
+                ))
                 .bearer_auth(&lead.token)
                 .send()
                 .await
-            .unwrap(),
+                .unwrap(),
             StatusCode::OK,
             "the deleted owner's haystack",
         )
@@ -298,7 +341,11 @@ pub async fn leaderboard_surface(env: &Harness) {
         "the board after the record delete",
     )
     .await;
-    assert_eq!(survivors["records"].as_array().map(Vec::len), Some(1), "{survivors}");
+    assert_eq!(
+        survivors["records"].as_array().map(Vec::len),
+        Some(1),
+        "{survivors}"
+    );
     assert_eq!(survivors["records"][0]["owner_id"], rival.uid);
     for (label, call) in [
         (

@@ -28,10 +28,7 @@ impl Queries {
         .await
     }
 
-    pub async fn latest_room_module_version(
-        &self,
-        game_id: Uuid,
-    ) -> Result<Option<i32>, DbError> {
+    pub async fn latest_room_module_version(&self, game_id: Uuid) -> Result<Option<i32>, DbError> {
         self.opt(
             "SELECT VALUE version FROM room_modules WHERE game_id = $game_id \
              ORDER BY version DESC LIMIT 1",
@@ -80,10 +77,7 @@ impl Queries {
              WHERE game_id = $game_id AND is_active; \
              UPDATE room_modules SET is_active = true \
              WHERE game_id = $game_id AND version = $version",
-            params!(
-                game_id = game_id.to_string(),
-                version = version,
-            ),
+            params!(game_id = game_id.to_string(), version = version,),
         )
         .await
     }
@@ -105,27 +99,18 @@ impl Queries {
     }
     pub async fn count_games(&self) -> Result<i64, DbError> {
         Ok(self
-            .opt::<i64>(
-                "RETURN array::len((SELECT id FROM games))",
-                BTreeMap::new(),
-            )
+            .opt::<i64>("RETURN array::len((SELECT id FROM games))", BTreeMap::new())
             .await?
             .unwrap_or(0))
     }
     pub async fn find_game_by_id(&self, id: Uuid) -> Result<Vec<FindGameByIdRow>, DbError> {
         self.all(
-            &format!(
-                "SELECT {GAME_COLUMNS} FROM {}",
-                record_uuid("games", "id")
-            ),
+            &format!("SELECT {GAME_COLUMNS} FROM {}", record_uuid("games", "id")),
             params!(id = id.to_string()),
         )
         .await
     }
-    pub async fn find_game_by_key(
-        &self,
-        game_key: &str,
-    ) -> Result<Vec<FindGameByKeyRow>, DbError> {
+    pub async fn find_game_by_key(&self, game_key: &str) -> Result<Vec<FindGameByKeyRow>, DbError> {
         self.all(
             &format!("SELECT {GAME_COLUMNS} FROM games WHERE game_key = $game_key"),
             params!(game_key = game_key),
@@ -134,10 +119,7 @@ impl Queries {
     }
     pub async fn find_game_secret_by_id(&self, id: Uuid) -> Result<Vec<String>, DbError> {
         self.all(
-            &format!(
-                "SELECT VALUE api_key FROM {}",
-                record_uuid("games", "id")
-            ),
+            &format!("SELECT VALUE api_key FROM {}", record_uuid("games", "id")),
             params!(id = id.to_string()),
         )
         .await
@@ -175,10 +157,7 @@ impl Queries {
                 "UPDATE {} SET status = 'archived', updated_at = $updated_at RETURN AFTER",
                 record_uuid("games", "id")
             ),
-            params!(
-                updated_at = time::encode(Utc::now()),
-                id = id.to_string(),
-            ),
+            params!(updated_at = time::encode(Utc::now()), id = id.to_string(),),
         )
         .await
     }

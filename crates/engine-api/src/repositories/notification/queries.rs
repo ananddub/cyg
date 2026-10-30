@@ -68,27 +68,17 @@ impl Queries {
         )
         .await
     }
-    pub async fn delete_notification(
-        &self,
-        user_id: Uuid,
-        id: Uuid,
-    ) -> Result<Uuid, DbError> {
+    pub async fn delete_notification(&self, user_id: Uuid, id: Uuid) -> Result<Uuid, DbError> {
         let deleted: Notification = self
             .one(
                 "DELETE notification WHERE user_id = $user_id \
                  AND id = type::record('notification', <uuid>$id) RETURN BEFORE",
-                params!(
-                    user_id = user_id.to_string(),
-                    id = id.to_string(),
-                ),
+                params!(user_id = user_id.to_string(), id = id.to_string(),),
             )
             .await?;
         Ok(deleted.id)
     }
-    pub async fn delete_notification_by_id(
-        &self,
-        id: Uuid,
-    ) -> Result<bool, DbError> {
+    pub async fn delete_notification_by_id(&self, id: Uuid) -> Result<bool, DbError> {
         let deleted: Option<Notification> = self
             .opt(
                 "DELETE type::record('notification', <uuid>$id) RETURN BEFORE",
@@ -97,10 +87,7 @@ impl Queries {
             .await?;
         Ok(deleted.is_some())
     }
-    pub async fn delete_notifications(
-        &self,
-        user_id: Uuid,
-    ) -> Result<(), DbError> {
+    pub async fn delete_notifications(&self, user_id: Uuid) -> Result<(), DbError> {
         self.exec(
             "DELETE notification WHERE user_id = $user_id",
             params!(user_id = user_id.to_string()),
