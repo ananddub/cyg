@@ -14,6 +14,7 @@ pub async fn serve(
     // owes them to somebody else's receiver. It stops with the server, because a
     // process that is no longer answering HTTP has no business sending either.
     let outbox = tokio::spawn(crate::services::webhook::delivery_loop(state.clone()));
+    let delivery = tokio::spawn(crate::services::notify::delivery_loop(state.clone()));
     let router = match crate::app::api::app(state).await {
         Ok(router) => router,
         Err(err) => {
@@ -28,4 +29,5 @@ pub async fn serve(
     .with_graceful_shutdown(shutdown)
     .await;
     outbox.abort();
+    delivery.abort();
 }

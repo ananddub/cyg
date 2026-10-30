@@ -2966,6 +2966,7 @@ dependencies = [
  "rand 0.8.8",
  "reqwest 0.13.5",
  "rust-embed",
+ "rustls",
  "rustrict",
  "scc",
  "serde",
@@ -2978,12 +2979,14 @@ dependencies = [
  "surrealdb-cnf",
  "surrealdb-core",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite 0.29.0",
  "tower",
  "tracing",
  "tracing-subscriber",
  "uuid",
  "wasmparser 0.217.1",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]

@@ -4,6 +4,7 @@ pub mod gc;
 pub mod jwt;
 pub mod liveops;
 pub mod logfeed;
+pub mod notify;
 pub mod pump;
 pub mod rate_limit;
 pub mod realtime;

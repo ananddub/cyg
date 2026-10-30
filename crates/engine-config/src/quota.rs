@@ -7,6 +7,10 @@ pub const LOGIN: &str = "login";
 pub const CHANNEL_SEND: &str = "channel.send";
 pub const STORAGE_WRITE: &str = "storage.write";
 pub const WEBHOOK_RETRY: &str = "webhook.retry";
+/// One message carried to a vendor: a push post or an SMTP conversation. It is
+/// charged to the account being reached, because that is the account whose
+/// inbox a broken loop could otherwise refill without limit.
+pub const NOTIFY_SEND: &str = "notify.send";
 
 /// One window: at most `cap` charges may be spent per `period_secs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +71,13 @@ impl Default for QuotaConfig {
                 QuotaScope {
                     cap: 30,
                     period_secs: 60,
+                },
+            ),
+            (
+                NOTIFY_SEND,
+                QuotaScope {
+                    cap: 120,
+                    period_secs: 3600,
                 },
             ),
         ]

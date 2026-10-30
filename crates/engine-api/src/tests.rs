@@ -6,6 +6,7 @@ pub(crate) mod games;
 mod gateway;
 mod iap;
 mod links;
+mod notify;
 mod server;
 mod storage;
 mod storage_index;

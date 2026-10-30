@@ -15,6 +15,12 @@ pub(crate) struct LiveOps {
     pub webhook_poll_ms: u64,
     pub webhook_circuit_trips: i64,
     pub webhook_circuit_cooldown_ms: u64,
+    pub notify_max_attempts: i64,
+    pub notify_backoff_ms: i64,
+    pub notify_timeout_ms: u64,
+    pub notify_concurrency: usize,
+    pub notify_poll_ms: u64,
+    pub notify_unsubscribe_days: i64,
 }
 
 fn env_i64(name: &str, default: i64, min: i64, max: i64) -> i64 {
@@ -60,5 +66,11 @@ pub(crate) fn config() -> &'static LiveOps {
             100,
             3_600_000,
         ),
+        notify_max_attempts: env_i64("OX_NOTIFY_MAX_ATTEMPTS", 5, 1, 24),
+        notify_backoff_ms: env_i64("OX_NOTIFY_BACKOFF_MS", 2_000, 100, 3_600_000),
+        notify_timeout_ms: env_u64("OX_NOTIFY_TIMEOUT_MS", 10_000, 250, 120_000),
+        notify_concurrency: env_usize("OX_NOTIFY_CONCURRENCY", 4, 1, 32),
+        notify_poll_ms: env_u64("OX_NOTIFY_POLL_MS", 1_000, 50, 60_000),
+        notify_unsubscribe_days: env_i64("OX_NOTIFY_UNSUBSCRIBE_DAYS", 365, 1, 3_650),
     })
 }

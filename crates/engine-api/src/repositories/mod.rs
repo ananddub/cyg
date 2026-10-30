@@ -22,6 +22,7 @@ pub mod marketplace;
 pub mod match_result;
 pub mod models;
 pub mod notification;
+pub mod notify;
 pub mod quest;
 pub mod quota;
 pub mod room_registry;

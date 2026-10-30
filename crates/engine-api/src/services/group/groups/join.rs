@@ -66,7 +66,7 @@ impl GroupService {
                 .unwrap_or_default()
             {
                 social::notify_with(
-                    &queries,
+                    state,
                     admin,
                     uid,
                     format!("User {} wants to join your group", auth.0.un),

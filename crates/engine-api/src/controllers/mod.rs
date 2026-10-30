@@ -20,6 +20,7 @@ pub mod match_routes;
 pub mod match_result;
 pub mod matchmake;
 pub mod notification;
+pub mod notify;
 pub mod quest;
 pub mod realtime;
 pub mod session;

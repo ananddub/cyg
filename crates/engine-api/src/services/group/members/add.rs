@@ -65,7 +65,7 @@ impl GroupMemberService {
                 })
                 .await?;
             social::notify_with(
-                &queries,
+                state,
                 target,
                 auth.0.uuid()?,
                 format!("You've been added to group {}", group.name),

@@ -278,7 +278,10 @@ pub async fn every_migrated_path_is_still_registered() {
         ("PUT", "/v2/console/webhooks/example"),
         ("DELETE", "/v2/console/webhooks/example"),
         ("GET", "/v2/console/webhooks/example/deliveries"),
-        ("POST", "/v2/console/webhooks/example/deliveries/example/retry"),
+        (
+            "POST",
+            "/v2/console/webhooks/example/deliveries/example/retry",
+        ),
         ("GET", "/v2/match/arena/events"),
         ("GET", "/v2/match/arena/history"),
         ("GET", "/v2/console/desync"),
@@ -289,7 +292,10 @@ pub async fn every_migrated_path_is_still_registered() {
         ("GET", "/v2/console/rules/example"),
         ("POST", "/v2/console/rules/example/publish/1"),
         ("DELETE", "/v2/console/rules/example"),
-        ("GET", "/v2/console/games/00000000-0000-0000-0000-000000000000/config/history"),
+        (
+            "GET",
+            "/v2/console/games/00000000-0000-0000-0000-000000000000/config/history",
+        ),
         (
             "GET",
             "/v2/console/games/00000000-0000-0000-0000-000000000000/config/1",
@@ -311,7 +317,10 @@ pub async fn every_migrated_path_is_still_registered() {
         // /console/api-docs is a nested UI mount, not a controller route: it
         // answers GET and 404s everything else, so the 405 sweep skips it.
         ("GET", "/v2/console/logs/recent"),
-        ("POST", "/v2/match/00000000-0000-0000-0000-000000000000/result"),
+        (
+            "POST",
+            "/v2/match/00000000-0000-0000-0000-000000000000/result",
+        ),
         ("GET", "/v2/badges"),
         ("GET", "/v2/console/badges"),
         ("POST", "/v2/console/badges"),
@@ -333,6 +342,14 @@ pub async fn every_migrated_path_is_still_registered() {
         (
             "DELETE",
             "/v2/console/flags/example/overrides/00000000-0000-0000-0000-000000000000",
+        ),
+        ("GET", "/v2/notify/preferences"),
+        ("PUT", "/v2/notify/preferences"),
+        ("GET", "/v2/notify/unsubscribe"),
+        ("POST", "/v2/notify/test"),
+        (
+            "GET",
+            "/v2/notify/test/00000000-0000-0000-0000-000000000000",
         ),
     ];
 

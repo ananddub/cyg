@@ -7,7 +7,7 @@ use crate::repositories::models::PlayerQuota;
 use crate::repositories::quota::quota_id;
 
 /// The scope names a route charges, and the windows an operator tunes.
-pub use engine_config::quota::{CHANNEL_SEND, LOGIN, STORAGE_WRITE, WEBHOOK_RETRY};
+pub use engine_config::quota::{CHANNEL_SEND, LOGIN, NOTIFY_SEND, STORAGE_WRITE, WEBHOOK_RETRY};
 
 /// A charge reads, decides, and writes, so concurrent requests on one account
 /// converge on the row instead of queueing behind a lock. Three passes covers

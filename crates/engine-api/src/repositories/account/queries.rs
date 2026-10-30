@@ -82,6 +82,8 @@ impl Queries {
             "DELETE user_device WHERE user_id = $id; \
              DELETE message WHERE sender_id = $id; \
              DELETE notification WHERE user_id = $id; \
+             DELETE notification_preference WHERE user_id = $id; \
+             DELETE delivery_attempt WHERE user_id = $id; \
              DELETE users_notes WHERE user_id = $id; \
              DELETE wallet_ledger WHERE user_id = $id; \
              DELETE storage WHERE user_id = $id; \

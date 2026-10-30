@@ -47,7 +47,7 @@ impl FriendService {
                     queries.increment_user_edge_count(-1, me).await?;
                     queries.increment_user_edge_count(-1, target).await?;
                     social::notify(
-                        &queries,
+                        state,
                         target,
                         me,
                         &auth.0.un,

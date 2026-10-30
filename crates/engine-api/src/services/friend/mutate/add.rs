@@ -70,7 +70,7 @@ impl FriendService {
                         .await?;
                 }
                 social::notify(
-                    &queries,
+                    state,
                     target,
                     me,
                     &auth.0.un,
@@ -109,7 +109,7 @@ impl FriendService {
                     })
                     .await?;
                 social::notify(
-                    &queries,
+                    state,
                     target,
                     me,
                     &auth.0.un,
