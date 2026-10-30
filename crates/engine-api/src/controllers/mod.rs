@@ -1,4 +1,5 @@
 pub mod account;
+pub mod api_docs;
 pub mod auth;
 pub mod channel;
 pub mod console;
@@ -12,9 +13,9 @@ pub mod inventory;
 pub mod leaderboard;
 pub mod link;
 pub mod marketplace;
+pub mod match_history;
 #[path = "match.rs"]
 pub mod match_routes;
-pub mod match_history;
 pub mod matchmake;
 pub mod notification;
 pub mod quest;

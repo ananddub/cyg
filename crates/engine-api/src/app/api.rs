@@ -4,6 +4,10 @@ use crate::{ApiState, app::state};
 
 pub fn router(state: &ApiState) -> Router {
     Router::new()
+        .nest_service(
+            "/console/api-docs",
+            auto_route::scalar_routes("/console/api-docs", "/openapi.json"),
+        )
         .fallback(crate::controllers::static_routes::fallback)
         .with_state(state.clone())
 }
@@ -14,20 +18,19 @@ pub async fn app(state: ApiState) -> Result<Router, crate::db::DbError> {
         if let Err(err) = crate::services::games::ensure_schema(pool).await {
             tracing::error!("games: schema bootstrap failed: {err}");
         }
-        let steps = crate::db::migrations::apply_migrations(pool, crate::db::migrations::MIGRATIONS)
-            .await
-            .inspect_err(|err| tracing::error!("boot aborted: schema migrations failed: {err}"))?;
+        let steps =
+            crate::db::migrations::apply_migrations(pool, crate::db::migrations::MIGRATIONS)
+                .await
+                .inspect_err(|err| {
+                    tracing::error!("boot aborted: schema migrations failed: {err}")
+                })?;
         if !steps.is_empty() {
             tracing::info!("[migrations] {} step(s) applied", steps.len());
         }
         crate::services::games::ensure_tenant_schema(pool).await;
         match crate::services::games::tenant::resolve(&state).await {
             Ok(Some(game)) => {
-                tracing::info!(
-                    "[tenancy] hosting '{}' ({})",
-                    game.name,
-                    game.game_key
-                );
+                tracing::info!("[tenancy] hosting '{}' ({})", game.name, game.game_key);
                 crate::services::games::tenant::backfill(&state, game.id).await;
             }
             Ok(None) => tracing::warn!(
