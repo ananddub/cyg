@@ -80,20 +80,37 @@ impl Queries {
         .await
     }
 
+    /// Erases every row the account owns or is a named party of, and writes the
+    /// tombstone, as a single transaction: a half-erased GDPR deletion is no
+    /// deletion at all. `room_persistent_snapshot` is deliberately untouched —
+    /// it is keyed by room, not by user, so it is not this account's data.
     pub async fn delete_account(&self, id: Uuid) -> Result<(), DbError> {
-        self.exec(
-            "DELETE user_device WHERE user_id = $id; \
-             DELETE message WHERE sender_id = $id; \
-             DELETE notification WHERE user_id = $id; \
-             DELETE users_notes WHERE user_id = $id; \
-             DELETE wallet_ledger WHERE user_id = $id; \
-             DELETE storage WHERE user_id = $id; \
-             DELETE storage_index WHERE user_id = $id; \
-             DELETE user_edge WHERE source_id = $id OR destination_id = $id; \
-             DELETE type::record('users', <uuid>$id)",
-            params!(id = id.to_string()),
-        )
-        .await
+        self.datastore()
+            .query_transaction::<serde_json::Value>(
+                "BEGIN TRANSACTION; \
+                 DELETE user_device WHERE user_id = $id; \
+                 DELETE message WHERE sender_id = $id OR stream_subject = $id OR stream_descriptor = $id; \
+                 DELETE notification WHERE user_id = $id; \
+                 DELETE users_notes WHERE user_id = $id; \
+                 DELETE wallet_ledger WHERE user_id = $id; \
+                 DELETE storage WHERE user_id = $id; \
+                 DELETE storage_index WHERE user_id = $id; \
+                 DELETE user_edge WHERE source_id = $id OR destination_id = $id; \
+                 DELETE group_edge WHERE source_id = $id OR destination_id = $id; \
+                 DELETE purchase WHERE user_id = $id; \
+                 DELETE subscription WHERE user_id = $id; \
+                 DELETE player_inventory_item WHERE user_id = $id; \
+                 DELETE leaderboard_record WHERE owner_id = $id; \
+                 UPSERT type::record('user_tombstone', <uuid>$id) SET user_id = <uuid>$id, create_time = $now; \
+                 DELETE type::record('users', <uuid>$id); \
+                 COMMIT",
+                &params!(
+                    id = id.to_string(),
+                    now = time::encode(chrono::Utc::now()),
+                ),
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn create_tombstone(&self, user_id: Uuid) -> Result<(), DbError> {

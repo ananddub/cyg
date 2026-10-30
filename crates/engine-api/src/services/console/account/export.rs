@@ -49,6 +49,7 @@ impl super::ConsoleService {
             wallet_ledger: ledger.into_iter().map(WalletLedgerRow::from).collect(),
             storage: storage.into_iter().map(exported_storage).collect(),
             edges: edges.into_iter().map(exported_edge).collect(),
+            ..Default::default()
         }))
     }
 }

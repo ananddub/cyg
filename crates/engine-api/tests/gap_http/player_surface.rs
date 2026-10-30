@@ -218,4 +218,21 @@ pub async fn player_surface(env: &Harness) {
     )
     .await;
     assert_eq!(tombstones, 1, "the tombstone remembers the deletion");
+    for (table, filter) in [
+        ("wallet_ledger", "(user_id = <uuid>$user OR user_id = $user)"),
+        ("user_device", "(user_id = <uuid>$user OR user_id = $user)"),
+        ("storage", "(user_id = <uuid>$user OR user_id = $user)"),
+        ("notification", "(user_id = <uuid>$user OR user_id = $user)"),
+        ("user_edge", "(source_id = <uuid>$user OR destination_id = <uuid>$user)"),
+        ("purchase", "(user_id = <uuid>$user OR user_id = $user)"),
+        ("subscription", "(user_id = <uuid>$user OR user_id = $user)"),
+        ("player_inventory_item", "(user_id = <uuid>$user OR user_id = $user)"),
+        ("leaderboard_record", "(owner_id = <uuid>$user OR owner_id = $user)"),
+    ] {
+        assert_eq!(
+            count(env.db(), table, Some(filter), &[("user", json!(player.uid))]).await,
+            0,
+            "{table} rows survive the erase"
+        );
+    }
 }

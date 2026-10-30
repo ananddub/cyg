@@ -2,13 +2,16 @@ use std::sync::Arc;
 
 use auto_route::controller;
 use axum::extract::Json;
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 
-use crate::app::middleware::Authed;
+use crate::app::middleware::{Authed, server_key_or_console};
 use crate::app::params::{Body, Params};
 use crate::current_state;
 
-use crate::dto::account::{GetAccountQuery, UpdateAccountRequest, UpdatePlayerWalletRequest};
+use crate::dto::account::{
+    EraseRequest, GetAccountQuery, UpdateAccountRequest, UpdatePlayerWalletRequest,
+};
 use crate::services::account::AccountService;
 
 type JsonBody<T> = axum::extract::Json<T>;
@@ -53,6 +56,24 @@ impl AccountController {
             .delete_account(&state, &auth)
             .await
             .into_response()
+    }
+
+    #[get("/export")]
+    async fn export(&self, auth: Authed) -> Response {
+        let state = current_state();
+        self.service
+            .export_account(&state, &auth)
+            .await
+            .into_response()
+    }
+
+    #[post("/delete")]
+    async fn delete_by_id(&self, headers: HeaderMap, Json(body): JsonBody<EraseRequest>) -> Response {
+        let state = current_state();
+        if let Err(err) = server_key_or_console(&headers, &state) {
+            return err.into_response();
+        }
+        self.service.erase(&state, body.user_id).await.into_response()
     }
 
     #[get("/wallet")]

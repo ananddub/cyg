@@ -58,7 +58,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(devices[0]["provider"], "");
     assert!(devices[0]["vars"]["push_token_ios"].is_string());
 
-    let renamed = format!("renamed{}", letters_suffix());
+    let renamed = clean_username("renamed");
     let updated = json_body(
         client
             .put(format!("{base}/v2/account"))
@@ -406,6 +406,55 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     );
 
     let doomed = device_player(client, base, "del").await;
+    // The session cache invalidates by whole seconds, so let one tick pass
+    // between minting the doomed player's tokens and erasing the account.
+    tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
+    let console = console_login(client, base).await;
+    json_body(
+        client
+            .post(format!("{base}/v2/console/account/{}/wallet", doomed.uid))
+            .bearer_auth(&console)
+            .json(&json!({ "changeset": { "gold": 40 }, "metadata": { "reason": "e2e" } }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "credit the doomed account",
+    )
+    .await;
+    let snapshot = json_body(
+        client
+            .get(format!("{base}/v2/account/export"))
+            .bearer_auth(&doomed.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "export the account",
+    )
+    .await;
+    assert_eq!(snapshot["account"]["id"], doomed.uid);
+    assert_eq!(snapshot["account"]["username"], doomed.username);
+    assert_eq!(snapshot["devices"][0]["id"], doomed.device_id);
+    assert_eq!(snapshot["account"]["wallet"]["gold"].as_f64(), Some(40.0));
+    assert_eq!(snapshot["wallet_ledger"].as_array().unwrap().len(), 1);
+    for field in [
+        "notes",
+        "storage",
+        "edges",
+        "purchases",
+        "subscriptions",
+        "inventory",
+        "leaderboard_records",
+        "group_memberships",
+        "notifications",
+        "messages",
+    ] {
+        assert!(
+            snapshot[field].is_array(),
+            "{field} must be a list in the export: {snapshot}"
+        );
+    }
     let deleted = json_body(
         client
             .delete(format!("{base}/v2/account"))
@@ -426,11 +475,11 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
                 .send()
                 .await
                 .unwrap(),
-            StatusCode::NOT_FOUND,
-            "read a deleted account",
+            StatusCode::UNAUTHORIZED,
+            "a deleted account's session token is revoked",
         )
         .await,
-        "Entity not found."
+        "Auth token invalid"
     );
     let tombstoned = count(
         pool,
@@ -448,4 +497,31 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     )
     .await;
     assert_eq!(remaining, 0);
+    assert_eq!(
+        refusal(
+            client
+                .post(format!("{base}/v2/account/session/refresh"))
+                .header(reqwest::header::AUTHORIZATION, server_key_header())
+                .json(&json!({ "token": doomed.refresh_token }))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "erasing the account also drops its sessions",
+        )
+        .await,
+        "Refresh token invalid or expired."
+    );
+    for (table, filter) in [
+        ("wallet_ledger", "(user_id = <uuid>$u OR user_id = $u)"),
+        ("user_device", "(user_id = <uuid>$u OR user_id = $u)"),
+        ("storage", "(user_id = <uuid>$u OR user_id = $u)"),
+        ("user_edge", "(source_id = <uuid>$u OR destination_id = <uuid>$u)"),
+    ] {
+        assert_eq!(
+            count(pool, table, Some(filter), &[("u", json!(doomed.uid))]).await,
+            0,
+            "{table} rows survive the erase"
+        );
+    }
 }

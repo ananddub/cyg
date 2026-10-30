@@ -6,6 +6,7 @@ use super::db::{Queries, params};
 use super::models::*;
 use crate::db::{DbError, bytes, time};
 
+mod gdpr;
 mod queries;
 mod types;
 

@@ -1,8 +1,16 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::dto::console::account::WalletLedgerRow;
 use crate::repositories::account::ListDevicePushTokensRow;
 use crate::repositories::models::Users;
+
+/// Body for the service-driven `POST /v2/account/delete` erasure route.
+#[derive(Debug, Deserialize)]
+pub struct EraseRequest {
+    #[serde(alias = "userId")]
+    pub user_id: Uuid,
+}
 
 #[derive(Debug, Default, Deserialize)]
 pub struct WalletLedgerMetadataItem {

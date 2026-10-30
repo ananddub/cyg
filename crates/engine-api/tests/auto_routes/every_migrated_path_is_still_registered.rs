@@ -31,6 +31,8 @@ pub async fn every_migrated_path_is_still_registered() {
         ("GET", "/v2/account"),
         ("PUT", "/v2/account"),
         ("DELETE", "/v2/account"),
+        ("GET", "/v2/account/export"),
+        ("POST", "/v2/account/delete"),
         ("POST", "/v2/account/session/refresh"),
         ("POST", "/v2/session/logout"),
         ("POST", "/v2/account/link"),
