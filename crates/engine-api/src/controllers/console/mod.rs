@@ -15,6 +15,7 @@ pub mod mfa;
 pub mod notification;
 pub mod password;
 pub mod quest;
+pub mod room;
 pub mod rules;
 pub mod setting;
 pub mod status;

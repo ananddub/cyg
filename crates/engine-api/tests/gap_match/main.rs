@@ -10,6 +10,7 @@ pub use harness_shared::*;
 
 mod badge_surface;
 mod result;
+mod room_registry;
 
 pub use badge_surface::*;
 pub use result::*;

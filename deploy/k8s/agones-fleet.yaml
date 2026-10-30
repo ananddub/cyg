@@ -45,6 +45,12 @@ spec:
                 # Absent on purpose: refuse_default_secrets() must stay armed.
                 - name: OX_UDP_ADDR
                   value: "0.0.0.0:7778"
+                # Every container's root process is pid 1, so the compiled-in
+                # fallback would name this node cyg_1 and every other node too.
+                # A registry row that two nodes both claim is no ownership at all.
+                - name: OX_NODE_ID
+                  valueFrom:
+                    fieldRef: { fieldPath: metadata.name }
               envFrom:
                 - secretRef: { name: cyg-secrets }
               volumeMounts:

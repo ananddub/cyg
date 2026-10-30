@@ -11,6 +11,7 @@ use crate::ApiState;
 use crate::current_state;
 
 use crate::services::matchmake::MatchmakeService;
+use crate::services::matchmake::handoff;
 
 pub const MAX_BODY_BYTES: usize = 4096;
 
@@ -32,7 +33,7 @@ impl MatchmakeController {
         body: String,
     ) -> Result<Response, ApiError> {
         let state = current_state();
-        handle(&self.service, &state, peer, path, body)
+        handle(&self.service, &state, peer, path, body).await
     }
 
     #[post("/matchmake/{method}/{room}")]
@@ -43,11 +44,11 @@ impl MatchmakeController {
         body: String,
     ) -> Result<Response, ApiError> {
         let state = current_state();
-        handle(&self.service, &state, peer, path, body)
+        handle(&self.service, &state, peer, path, body).await
     }
 }
 
-fn handle(
+async fn handle(
     service: &MatchmakeService,
     state: &ApiState,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -57,6 +58,10 @@ fn handle(
     if body.len() > MAX_BODY_BYTES {
         return Ok(StatusCode::PAYLOAD_TOO_LARGE.into_response());
     }
+    // Asked before the seat is minted: a room another node runs must not get a
+    // second copy here, and the ticket this reply would carry is what sends the
+    // client to the copy that exists.
+    handoff::guard(state, &method, &room).await?;
     Ok(service
         .reserve(state, peer.ip(), &method, &room, &body)?
         .into_response())

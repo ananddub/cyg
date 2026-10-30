@@ -668,6 +668,32 @@ fn report_match(
     });
 }
 
+/// Tell the control plane which node runs this room. The host holds no database
+/// handle, so the `room_registry` row the console and the matchmake handoff read
+/// is made here and written by the pump.
+///
+/// A live room is re-claimed once per status beat rather than once at spawn: the
+/// row's freshness is what a reader uses to tell a running room from one whose
+/// pod was deleted without ever getting to say `Closed`.
+pub(crate) fn report_ownership(
+    bus: &Bus,
+    node: &str,
+    game_id: &str,
+    name: &str,
+    room: &GameRoom,
+    state: engine_bus::RoomPhase,
+) {
+    bus.push_ownership(engine_bus::RoomOwnership {
+        room: name.to_string(),
+        node: node.to_string(),
+        game: game_id.to_string(),
+        state,
+        peers: (room.sessions.len() + room.spectators.len()) as i64,
+        tick: room.current_tick as i64,
+        snapshot_seq: room.snapshot_seq as i64,
+    });
+}
+
 fn backend_label(backend: RoomBackend) -> &'static str {
     match backend {
         RoomBackend::Relay => "relay",
@@ -736,6 +762,16 @@ fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport, bus: &Bus
             &name,
             DRAIN_REASON,
             room.sessions.len() as u32,
+        );
+        // A pod that drains cleanly gives the name back on the way out, so the
+        // replacement does not have to wait for the lease on this row to expire.
+        report_ownership(
+            bus,
+            &engine_config::node_id(),
+            game_id,
+            &name,
+            &room,
+            engine_bus::RoomPhase::Closed,
         );
         room.dispose();
         tracing::info!("[server] room '{name}' drained and state saved (shutdown)");
@@ -1354,6 +1390,9 @@ pub fn run(
         .clone()
         .or(cfg.game_key.clone())
         .unwrap_or_else(|| cfg.name.clone());
+    // Which node this is, spelled the way the control plane spells it: a room
+    // claimed here is read back as ours by whoever asks the registry.
+    let node_id = engine_config::node_id();
     // Room name → most seats held at once since spawn, sampled once per
     // housekeeping pass. Rooms leave it when they are disposed.
     let mut match_peaks: HashMap<String, u32> = HashMap::new();
@@ -2870,6 +2909,16 @@ pub fn run(
                         .remove(&name)
                         .unwrap_or(room.sessions.len() as u32);
                     report_match(&bus, &game_id, &room, &name, reason.label(), peak);
+                    // The room is out of the map, so no later beat re-claims it:
+                    // this row is the registry's last word on the name.
+                    report_ownership(
+                        &bus,
+                        &node_id,
+                        &game_id,
+                        &name,
+                        &room,
+                        engine_bus::RoomPhase::Closed,
+                    );
                     // Last guest callback: flush scores / release resources.
                     room.dispose();
                     tracing::info!(
@@ -2890,6 +2939,10 @@ pub fn run(
             let mut webrtc_live = 0u32;
             for (room_name, room) in &server.rooms {
                 players += room.sessions.len() as u32;
+                // The beat that reports the room to the dashboard is also the
+                // heartbeat the room registry leases on: one loop, one set of
+                // numbers, so the two readers cannot disagree about a phase.
+                report_ownership(&bus, &node_id, &game_id, room_name, room, room.phase());
                 rooms.push(RoomTelemetry {
                     name: room_name.clone(),
                     phase: room.phase(),
@@ -3269,7 +3322,8 @@ mod loop_transport_tests {
 
     /// The grace window is the loop's, not the signal handler's: it opens on the
     /// first pass that sees the latch, tells the rooms exactly once, and only
-    /// then lets the process stop.    #[test]
+    /// then lets the process stop.
+    #[test]
     fn a_drain_gets_its_grace_window_before_the_loop_stops() {
         let grace = Duration::from_secs(15);
         let mut drain = Drain::new(grace);
@@ -3314,6 +3368,55 @@ mod loop_transport_tests {
             .expect("a drained room is a finished match");
         assert_eq!(match_.end_reason, DRAIN_REASON);
         assert_eq!(match_.game_id, "tank-3d");
+
+        // A pod that drains on purpose gives every name back: the replacement
+        // must not have to wait out the lease on a row for a room that is gone.
+        let mut names: Vec<String> = Vec::new();
+        while let Ok(row) = bus.ownership_rx.try_recv() {
+            assert_eq!(row.state, engine_bus::RoomPhase::Closed);
+            assert_eq!(row.node, engine_config::node_id());
+            names.push(row.room);
+        }
+        names.sort();
+        assert_eq!(
+            names,
+            vec!["arena".to_string(), "lobby".to_string()],
+            "every drained room's name came back to the registry"
+        );
+    }
+
+    /// The room registry is written by the host that runs the room, so the claim
+    /// has to name that host, the room's own phase, and how many peers sit in it
+    /// — that is the whole of what a reader uses to decide whether the room is
+    /// somebody else's.
+    #[test]
+    fn a_beat_claims_the_room_for_this_node() {
+        let mut server = GameServer::new(
+            None,
+            16,
+            PhysicsWorld3D::default(),
+            engine_wasm::AbiPermissions::default(),
+        );
+        server.get_or_create("arena").expect("relay room");
+        let bus = Bus::new(8, 8);
+
+        let room = server.rooms.get("arena").expect("the room is live");
+        report_ownership(
+            &bus,
+            "tank-3d-7f9c",
+            "tank-3d",
+            "arena",
+            room,
+            room.phase(),
+        );
+
+        let row = bus.ownership_rx.try_recv().expect("the claim is queued");
+        assert_eq!(row.room, "arena");
+        assert_eq!(row.node, "tank-3d-7f9c");
+        assert_eq!(row.game, "tank-3d");
+        assert_eq!(row.state, engine_bus::RoomPhase::Created);
+        assert_eq!(row.peers, 0);
+        assert_eq!(row.snapshot_seq, 0, "a room that never saved has no ordinal");
     }
 
     /// A snapshot is read back as bytes that must be decoded, so the queue has to

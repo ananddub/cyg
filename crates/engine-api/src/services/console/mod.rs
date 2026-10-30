@@ -22,6 +22,7 @@ pub mod matches;
 pub mod mfa;
 pub mod notification;
 pub mod quest;
+pub mod room;
 pub mod rules;
 pub mod season;
 pub mod setting;

@@ -197,3 +197,61 @@ fn an_unanswered_fetch_gives_up_and_starts_the_room_empty() {
             .is_none()
     );
 }
+
+/// The registry row a host writes is made here and stored by the control plane;
+/// the backend and the ordinal ride along because a reader cannot tell which
+/// lifecycle stage a name is in by looking at the room count.
+#[test]
+fn an_ownership_row_rides_the_queue_with_its_phase_and_ordinal() {
+    let bus = Bus::new(2, 2);
+    bus.push_ownership(crate::RoomOwnership {
+        room: "arena".into(),
+        node: "tank-3d-7f9c".into(),
+        game: "tank-3d".into(),
+        state: crate::RoomPhase::Active,
+        peers: 3,
+        tick: 1_200,
+        snapshot_seq: 2,
+    });
+
+    let row = bus.ownership_rx.try_recv().expect("the claim is queued");
+    assert_eq!(row.room, "arena");
+    assert_eq!(row.node, "tank-3d-7f9c");
+    assert_eq!(row.state, crate::RoomPhase::Active);
+    assert_eq!(row.peers, 3);
+    assert_eq!(row.tick, 1_200);
+    assert_eq!(row.snapshot_seq, 2);
+    assert_eq!(bus.ownership_dropped(), 0);
+}
+
+/// A release must survive a queue that is already full: dropping the `Closed`
+/// row would leave the room's name claimed by a node that just gave it up, and
+/// the next peer would be sent away from a room nobody is holding.
+#[test]
+fn a_full_ownership_queue_loses_the_oldest_beat_and_keeps_the_release() {
+    let bus = Bus::new(2, 2);
+    let row = |tick: i64| crate::RoomOwnership {
+        room: "arena".into(),
+        node: "tank-3d-7f9c".into(),
+        game: "tank-3d".into(),
+        state: crate::RoomPhase::Active,
+        peers: 1,
+        tick,
+        snapshot_seq: 0,
+    };
+    for tick in 0..super::OWNERSHIP_CAP as i64 {
+        bus.push_ownership(row(tick));
+    }
+    let mut release = row(super::OWNERSHIP_CAP as i64);
+    release.state = crate::RoomPhase::Closed;
+    bus.push_ownership(release);
+
+    assert_eq!(bus.ownership_dropped(), 1, "one stale beat was discarded");
+    let mut rows = Vec::new();
+    while let Ok(row) = bus.ownership_rx.try_recv() {
+        rows.push(row);
+    }
+    assert_eq!(rows.len(), super::OWNERSHIP_CAP);
+    assert_eq!(rows[0].tick, 1, "the oldest beat went, the next one stayed");
+    assert_eq!(rows[rows.len() - 1].state, crate::RoomPhase::Closed);
+}

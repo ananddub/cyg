@@ -240,6 +240,9 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     // rollback knobs yet, so the defaults (enabled = false, journal 256) keep
     // the legacy newest-wins behavior the plane had.
     let plane_game_cfg = GameConfig::default();
+    // This plane is named by its room, not by a game: `OX_ROOM` is the only
+    // identity it is given, so a registry claim calls the room's own game that.
+    let node_id = engine_config::node_id();
     let mut recorder = Recorder::new();
     let mut events = Events::with_capacity(32);
     let mut last_tick = Instant::now();
@@ -404,6 +407,14 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                     cfg.max_players,
                 );
                 recorder.maybe_publish(&bus, report);
+                crate::host::report_ownership(
+                    &bus,
+                    &node_id,
+                    &cfg.room_name,
+                    &cfg.room_name,
+                    &room,
+                    room.phase(),
+                );
             }
             if sweep_start.elapsed() >= Duration::from_millis(200) {
                 udp.sweep();
@@ -570,6 +581,14 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                 cfg.max_players,
             );
             recorder.maybe_publish(&bus, report);
+            crate::host::report_ownership(
+                &bus,
+                &node_id,
+                &cfg.room_name,
+                &cfg.room_name,
+                &room,
+                room.phase(),
+            );
         }
         let _ = native_send_failed; // unknown-peer sends: counted, no user to blame yet
     }

@@ -11,13 +11,25 @@ use engine_bus::RoomSnapshot;
 use uuid::Uuid;
 
 use crate::ApiState;
-use crate::repositories::models::{DesyncReport, GameplayEvent, MatchHistory};
+use crate::repositories::models::{DesyncReport, GameplayEvent, MatchHistory, RoomRegistry};
 
 const PUMP_INTERVAL: Duration = Duration::from_millis(250);
 const SWEEP_INTERVAL: Duration = Duration::from_secs(3600);
 /// The engine's own event: two checksums that disagreed, little-endian.
 const DESYNC_EVENT: &str = "desync";
 const CHECKSUM_PAIR_LEN: usize = 16;
+
+/// The lifecycle name a host reported, as the registry stores it. Exhaustive on
+/// purpose: a fifth phase should fail the build here rather than be filed under
+/// some name no reader would think to query for.
+fn phase_name(phase: engine_bus::RoomPhase) -> &'static str {
+    match phase {
+        engine_bus::RoomPhase::Created => "created",
+        engine_bus::RoomPhase::Active => "active",
+        engine_bus::RoomPhase::Hibernating => "hibernating",
+        engine_bus::RoomPhase::Closed => "closed",
+    }
+}
 
 /// The host reports wall seconds because an `Instant` cannot survive a restart.
 fn stamp(secs: i64) -> DateTime<Utc> {
@@ -47,6 +59,7 @@ pub async fn pump_events(state: ApiState) {
     let matches_rx = state.bus.matches_rx.clone();
     let snapshots_rx = state.bus.snapshots_rx.clone();
     let fetches_rx = state.bus.fetches_rx.clone();
+    let ownership_rx = state.bus.ownership_rx.clone();
     let mut ticker = tokio::time::interval(PUMP_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -154,6 +167,31 @@ pub async fn pump_events(state: ApiState) {
                 }
             };
             let _ = fetch.reply.send(found);
+        }
+        // An ownership row is the host's heartbeat for one room: the same name
+        // refreshes its own row every beat, so the table holds one row per live
+        // room and `update_time` is how long the answer has been true. A released
+        // room's row is deleted rather than marked, because a reader that has to
+        // remember to filter a status string is a reader that will forget.
+        while let Ok(row) = ownership_rx.try_recv() {
+            let stored = if row.state == engine_bus::RoomPhase::Closed {
+                q.release_room(&row.room).await
+            } else {
+                q.claim_room(&RoomRegistry {
+                    room_id: row.room.clone(),
+                    node_id: row.node,
+                    game_id: row.game,
+                    state: phase_name(row.state).to_string(),
+                    peers: row.peers,
+                    tick: row.tick,
+                    snapshot_seq: row.snapshot_seq,
+                    update_time: Utc::now(),
+                })
+                .await
+            };
+            if let Err(err) = stored {
+                tracing::warn!("[control] dropped the registry row for '{}': {err}", row.room);
+            }
         }
     }
 }

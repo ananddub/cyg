@@ -152,6 +152,7 @@ pub async fn every_migrated_path_is_still_registered() {
         ("GET", "/v2/console/purchase"),
         ("GET", "/v2/console/subscription"),
         ("GET", "/v2/console/setting"),
+        ("GET", "/v2/console/room"),
         ("GET", "/v2/console/audit/log"),
         ("GET", "/v2/console/acl/template"),
         ("GET", "/v2/console/status"),

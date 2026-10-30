@@ -11,6 +11,7 @@ pub mod leaderboard;
 pub mod matches;
 pub mod notification;
 pub mod quest;
+pub mod room;
 pub mod rules;
 pub mod setting;
 pub mod status;

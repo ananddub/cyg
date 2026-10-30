@@ -111,6 +111,34 @@ pub struct SnapshotFetch {
     pub reply: Sender<Option<RoomSnapshot>>,
 }
 
+/// sim → control plane: this node runs this room. One row per live room per
+/// status beat, plus a final one with
+/// [`RoomPhase::Closed`](crate::RoomPhase::Closed) when the room is disposed,
+/// which is what frees the name for another node.
+///
+/// The host holds no database handle, so it cannot write the registry: the row
+/// is made here and stored by the control plane's pump. The beat is the point —
+/// a node that dies without saying so stops refreshing its rows, and a reader
+/// that finds a stale one is looking at an owner that no longer exists.
+#[derive(Clone, Debug)]
+pub struct RoomOwnership {
+    pub room: String,
+    /// The host's own name (`OX_NODE_ID`, else its process id) — what a reader
+    /// compares against its own to tell "mine" from "someone else's".
+    pub node: String,
+    /// The game the host was booted for, as its config names it.
+    pub game: String,
+    /// Where the room sits in its lifecycle, so the registry reads as more than
+    /// a list of names.
+    pub state: crate::telemetry::RoomPhase,
+    /// Sessions attached, spectators included.
+    pub peers: i64,
+    pub tick: i64,
+    /// How many times this room's state has been saved here. A replacement node
+    /// reads it to tell a handover from a re-creation of the same name.
+    pub snapshot_seq: i64,
+}
+
 /// Why the sim should hot-swap its room module: a console upload of a fresh
 /// version, or a rollback re-activating an older one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

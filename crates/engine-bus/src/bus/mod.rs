@@ -5,8 +5,8 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender, bounded};
 
 use crate::messages::{
-    InputMsg, MapReload, MatchFinished, OutFrame, RoomSnapshot, SettingsReload, SimCommand,
-    SimEvent, SnapshotFetch, WasmReload,
+    InputMsg, MapReload, MatchFinished, OutFrame, RoomOwnership, RoomSnapshot, SettingsReload,
+    SimCommand, SimEvent, SnapshotFetch, WasmReload,
 };
 use crate::telemetry::StatusSnapshot;
 
@@ -40,6 +40,11 @@ const SNAPSHOT_CAP: usize = 8;
 /// first-ever spawn reaches this queue, so eight in flight is already a node
 /// that is creating rooms faster than one SELECT can answer them.
 const FETCH_CAP: usize = 8;
+/// Ownership rows: one per live room per status beat, plus a release when a room
+/// dies. A node hosts a handful of rooms, and a beat that finds this queue full
+/// is looking at a pump that stopped — the row already in the store stays the
+/// truth for the rest of its lease, so losing a beat is late rather than wrong.
+const OWNERSHIP_CAP: usize = 32;
 
 /// Inter-plane wiring. Each plane consumes its own ends directly; sends on
 /// `inputs` must go through [`Bus::push_input`] or the drop policy is lost.
@@ -85,6 +90,11 @@ pub struct Bus {
     /// `reply` each carries. See [`Bus::fetch_snapshot`].
     pub fetches_tx: Sender<SnapshotFetch>,
     pub fetches_rx: Receiver<SnapshotFetch>,
+    /// sim → control plane: which node runs which room. See
+    /// [`Bus::push_ownership`].
+    pub ownership_tx: Sender<RoomOwnership>,
+    pub ownership_rx: Receiver<RoomOwnership>,
+    ownership_dropped: AtomicU64,
     /// Latched by whatever catches the process' termination signal and read by
     /// the loop that owns the rooms. A one-way latch, so an atomic beats a
     /// channel that every consumer would have to keep draining.
@@ -104,6 +114,7 @@ impl Bus {
         let (matches_tx, matches_rx) = bounded(MATCH_CAP);
         let (snapshots_tx, snapshots_rx) = bounded(SNAPSHOT_CAP);
         let (fetches_tx, fetches_rx) = bounded(FETCH_CAP);
+        let (ownership_tx, ownership_rx) = bounded(OWNERSHIP_CAP);
         Arc::new(Bus {
             inputs_tx,
             inputs_rx,
@@ -129,6 +140,9 @@ impl Bus {
             snapshots_rx,
             fetches_tx,
             fetches_rx,
+            ownership_tx,
+            ownership_rx,
+            ownership_dropped: AtomicU64::new(0),
             draining: AtomicBool::new(false),
         })
     }
@@ -208,6 +222,28 @@ impl Bus {
         };
         let _ = self.snapshots_rx.try_recv();
         let _ = self.snapshots_tx.try_send(snapshot);
+    }
+
+    /// Queue one room's ownership row for the registry. Same never-block contract
+    /// as [`push_event`](Self::push_event): the beat that reports a room is not
+    /// allowed to stop because the control plane is behind. Drop-oldest keeps the
+    /// newest claim, which matters most for the `Closed` release — it is always
+    /// the last thing pushed for a room, and dropping it would leave the name
+    /// claimed by a node that no longer has it.
+    pub fn push_ownership(&self, row: RoomOwnership) {
+        let row = match self.ownership_tx.try_send(row) {
+            Ok(()) => return,
+            Err(crossbeam_channel::TrySendError::Full(r)) => r,
+            Err(_) => return,
+        };
+        let _ = self.ownership_rx.try_recv();
+        self.ownership_dropped.fetch_add(1, Ordering::Relaxed);
+        let _ = self.ownership_tx.try_send(row);
+    }
+
+    /// Ownership rows discarded because the control plane was not draining.
+    pub fn ownership_dropped(&self) -> u64 {
+        self.ownership_dropped.load(Ordering::Relaxed)
     }
 
     /// Ask the control plane for a room's stored state and wait for the answer.

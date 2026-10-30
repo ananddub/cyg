@@ -46,6 +46,9 @@ spec:
             # OX_ALLOW_DEFAULT_SECRETS is deliberately absent: the boot guard in
             # engine-control refuses default signing keys, seat secret, server
             # key and console password unless it is set to 1.
+            - name: OX_NODE_ID
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
           envFrom:
             - secretRef:
                 name: cyg-secrets

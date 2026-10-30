@@ -94,6 +94,25 @@ sets `OX_AGONES=1` so the server talks to the `agones-sdk` sidecar on
 The response carries `address`/`port`; the `FleetAutoscaler` (Buffer 2) grows
 and shrinks the Fleet from demand.
 
+## Room ownership across nodes
+
+Each pod names itself with `OX_NODE_ID` from the downward API (`metadata.name`);
+without it every container would be pid 1 and every node would be `cyg_1`, so a
+registry row would say nothing about who owns the room. A host pushes one
+ownership row per status beat over the bus and the control plane writes it to
+`room_registry` (`room_id`, `node_id`, `game_id`, `state`, `peers`, `tick`,
+`snapshot_seq`, `update_time`); closing or draining a room deletes the row.
+
+- A row is trusted for 10 s past `update_time`. A node that dies stops
+  refreshing, the lease lapses, and the room name becomes claimable again —
+  there is no cleanup job.
+- `POST /api/matchmake/{method}/{room}` on a room leased to another node answers
+  `409 room '<name>' is running on node '<id>'; attach there`. `reconnect` and
+  `rejoin` are exempt: the seat ticket is HMAC'd with the shared
+  `OX_SEAT_SECRET`, so it is portable and the player lands on the owning node.
+- `GET /v2/console/room` (console auth) lists every row with a `stale` flag for
+  a lease that has lapsed, which is how you tell a dead host from a quiet one.
+
 ## 7. Verify
 
     kubectl -n cyg get pods,svc,ingress,fleet,fleetautoscaler
