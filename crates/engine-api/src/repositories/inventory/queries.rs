@@ -1,10 +1,7 @@
 use super::*;
 
 impl Queries {
-    pub async fn list_inventory(
-        &self,
-        user_id: Uuid,
-    ) -> Result<Vec<PlayerInventoryItem>, DbError> {
+    pub async fn list_inventory(&self, user_id: Uuid) -> Result<Vec<PlayerInventoryItem>, DbError> {
         self.all(
             "SELECT * FROM player_inventory_item WHERE user_id = $user_id \
              ORDER BY slot_index ASC, created_at ASC",
@@ -111,6 +108,44 @@ impl Queries {
             )
             .await
         }
+    }
+
+    pub async fn find_inventory_stack(
+        &self,
+        user_id: Uuid,
+        item_id: &str,
+        quantity: i32,
+        max_stack: i32,
+    ) -> Result<Option<PlayerInventoryItem>, DbError> {
+        self.opt(
+            "SELECT * FROM player_inventory_item WHERE user_id = $user_id \
+             AND item_id = $item_id AND quantity + $quantity <= $max_stack \
+             ORDER BY updated_at DESC LIMIT 1",
+            params!(
+                user_id = user_id.to_string(),
+                item_id = item_id,
+                quantity = quantity,
+                max_stack = max_stack,
+            ),
+        )
+        .await
+    }
+
+    pub async fn bump_inventory_quantity(
+        &self,
+        instance_id: Uuid,
+        delta: i32,
+    ) -> Result<Option<PlayerInventoryItem>, DbError> {
+        self.opt(
+            "UPDATE type::record('player_inventory_item', <uuid>$instance_id) \
+             SET quantity = quantity + $delta, updated_at = $updated_at RETURN AFTER",
+            params!(
+                instance_id = instance_id.to_string(),
+                delta = delta,
+                updated_at = ts(Utc::now()),
+            ),
+        )
+        .await
     }
 
     pub async fn set_inventory_slot(

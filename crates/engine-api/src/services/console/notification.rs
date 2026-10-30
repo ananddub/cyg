@@ -8,8 +8,8 @@ use crate::dto::console::notification::{
     NotificationQuery, NotificationRow, SendNotificationRequest,
 };
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::repositories::console_mutations::InsertNotificationParams;
+use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn list_notifications(
@@ -19,7 +19,8 @@ impl super::ConsoleService {
     ) -> Result<Json<Vec<NotificationRow>>, V2Error> {
         let user_id = super::account_id(&query.user_id)?;
         crate::utils::guards::require_account(state, query.game_id, user_id).await?;
-        let rows = q(state).await?
+        let rows = q(state)
+            .await?
             .list_notifications_for_user(user_id, query.limit())
             .await?;
         Ok(Json(rows.into_iter().map(NotificationRow::from).collect()))
@@ -31,6 +32,7 @@ impl super::ConsoleService {
         claims: &ConsoleAuthed,
         game: Option<Uuid>,
         body: SendNotificationRequest,
+        id: Uuid,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let user_id = super::account_id(&body.user_id)?;
@@ -44,7 +46,7 @@ impl super::ConsoleService {
         queries.get_user_by_id(user_id).await?;
         queries
             .insert_notification(&InsertNotificationParams {
-                id: Uuid::new_v4(),
+                id,
                 user_id,
                 subject: subject.to_owned(),
                 content: if body.content.is_null() {

@@ -97,8 +97,9 @@ impl Datastore {
         Ok(self.query(q).await?.into_iter().next())
     }
     /// Runs a multi-statement transaction and decodes the first statement that
-    /// returned rows. `BEGIN`/`LET`/`COMMIT` answer empty, so a guarded `IF`
-    /// block yields its own rows or nothing when the guard refused.
+    /// returned rows. `BEGIN`, `LET`, `IF` and `COMMIT` answer a bare null
+    /// rather than nothing, so those placeholders are skipped: a guarded write
+    /// yields its own rows, or nothing at all when the guard refused.
     pub async fn query_transaction<T>(
         &self,
         surql: &str,
@@ -110,7 +111,10 @@ impl Datastore {
         let statements = self.run(surql, Some(params)).await?;
         let rows = statements
             .into_iter()
-            .find(|statement| matches!(statement, serde_json::Value::Array(rows) if !rows.is_empty()))
+            .find(|statement| {
+                matches!(statement, serde_json::Value::Array(rows)
+                    if rows.iter().any(|row| !row.is_null()))
+            })
             .unwrap_or(serde_json::Value::Array(Vec::new()));
         decode_rows(rows)
     }
@@ -151,7 +155,8 @@ impl Datastore {
             ("key".to_string(), key_value),
             ("data".to_string(), payload(data)?),
         ]);
-        let surql = format!("CREATE type::record('{table}', {key_expr}) CONTENT $data RETURN AFTER");
+        let surql =
+            format!("CREATE type::record('{table}', {key_expr}) CONTENT $data RETURN AFTER");
         let rows = self.query_params(&surql, &params).await?;
         rows.into_iter()
             .next()

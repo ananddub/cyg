@@ -4,6 +4,7 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     eprintln!("e2e: inventory");
     let alice = device_player(client, base, "inv-a").await;
     let bob = device_player(client, base, "inv-b").await;
+    let console = console_login(client, base).await;
     let item_id = format!("e2e-item-{}", letters_suffix());
     let inventory = format!("{base}/v2/inventory");
 
@@ -13,7 +14,7 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     let defined = api_post(
         client,
         format!("{inventory}/define"),
-        &alice.token,
+        &console,
         json!({
             "item_id": item_id,
             "name": "E2E Sword",
@@ -33,23 +34,20 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     assert!(defined["item"].is_null());
 
     refusal(
-        client
-            .post(format!("{inventory}/grant"))
-            .bearer_auth(&alice.token)
-            .json(&json!({ "item_id": format!("{item_id}-missing") }))
-            .send()
-            .await
-            .unwrap(),
+        server_grant(
+            client,
+            &inventory,
+            json!({ "user_id": alice.uid, "item_id": format!("{item_id}-missing") }),
+        )
+        .await,
         StatusCode::NOT_FOUND,
         "grant an undefined item",
     )
     .await;
 
-    let granted = api_post(
-        client,
-        format!("{inventory}/grant"),
-        &alice.token,
-        json!({ "item_id": item_id, "quantity": 99, "metadata": { "bound": true } }),
+    let granted = json_body(
+        server_grant(client, &inventory, json!({ "user_id": alice.uid, "item_id": item_id, "quantity": 99, "metadata": { "bound": true } })).await,
+        StatusCode::OK,
         "grant an item beyond its stack",
     )
     .await;
@@ -63,11 +61,14 @@ pub async fn inventory_surface(client: &Client, base: &str) {
         .expect("instance id")
         .to_owned();
 
-    let zero = api_post(
-        client,
-        format!("{inventory}/grant"),
-        &alice.token,
-        json!({ "item_id": item_id, "quantity": 0 }),
+    let zero = json_body(
+        server_grant(
+            client,
+            &inventory,
+            json!({ "user_id": alice.uid, "item_id": item_id, "quantity": 0 }),
+        )
+        .await,
+        StatusCode::OK,
         "grant zero of an item",
     )
     .await;
@@ -77,11 +78,14 @@ pub async fn inventory_surface(client: &Client, base: &str) {
         .expect("instance id")
         .to_owned();
 
-    let bob_item = api_post(
-        client,
-        format!("{inventory}/grant"),
-        &alice.token,
-        json!({ "user_id": bob.uid, "item_id": item_id, "quantity": 2 }),
+    let bob_item = json_body(
+        server_grant(
+            client,
+            &inventory,
+            json!({ "user_id": bob.uid, "item_id": item_id, "quantity": 2 }),
+        )
+        .await,
+        StatusCode::OK,
         "grant an item to another account",
     )
     .await;
@@ -207,4 +211,14 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     let items = bob_listing["items"].as_array().expect("items");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["instance_id"], bob_instance);
+}
+
+async fn server_grant(client: &Client, inventory: &str, body: Value) -> reqwest::Response {
+    client
+        .post(format!("{inventory}/grant"))
+        .header(reqwest::header::AUTHORIZATION, server_key_header())
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
 }

@@ -102,6 +102,7 @@ impl InventoryService {
         state: &ApiState,
         target_user: Uuid,
         req: GrantItemRequest,
+        instance_id: Uuid,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
         let queries = crate::services::deps::q(state).await?;
 
@@ -116,7 +117,22 @@ impl InventoryService {
         let slot = req.slot_index.unwrap_or(-1);
         let metadata = req.metadata.unwrap_or_else(|| serde_json::json!({}));
 
-        let instance_id = Uuid::new_v4();
+        if def.max_stack > 1
+            && let Some(stack) = queries
+                .find_inventory_stack(target_user, &req.item_id, qty, def.max_stack)
+                .await?
+        {
+            queries
+                .bump_inventory_quantity(stack.instance_id, qty)
+                .await?;
+            let item = queries.get_inventory_item(stack.instance_id).await?;
+            return Ok(Json(InventoryOperationResponse {
+                success: true,
+                message: format!("granted {}x {}", qty, def.name),
+                item,
+            }));
+        }
+
         let item = queries
             .grant_inventory_item(instance_id, target_user, &req.item_id, qty, slot, &metadata)
             .await?;

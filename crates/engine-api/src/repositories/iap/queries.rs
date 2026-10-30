@@ -129,16 +129,14 @@ impl Queries {
             "SELECT * FROM subscription WHERE user_id = $user_id \
                AND product_id = $product_id \
              ORDER BY purchase_time DESC, original_transaction_id ASC LIMIT 1",
-            params!(
-                user_id = user_id.to_string(),
-                product_id = product_id,
-            ),
+            params!(user_id = user_id.to_string(), product_id = product_id,),
         )
         .await
     }
     pub async fn list_all_subscriptions(
         &self,
-        limit: i64,        offset: i64,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<Subscription>, DbError> {
         self.all(
             "SELECT * FROM subscription ORDER BY purchase_time DESC, \
@@ -169,45 +167,48 @@ impl Queries {
 
 impl Queries {
     /// Applies a wallet changeset and writes its ledger entry in one
-    /// transaction. Empty result means the guard refused: unknown account or a
-    /// currency would go negative. A racing adjustment cannot slip between the
-    /// read and the write because the check lives inside the same transaction.
+    /// transaction. `deltas` is what the caller asked for, `base` the balance
+    /// each delta was computed against and `result` the balance to store. Both
+    /// statements carry the same guard, so either both write or neither does:
+    /// an empty result means an unknown account, a currency that would go
+    /// negative, or a balance that moved since it was read.
     pub async fn apply_wallet_change(
         &self,
         user_id: Uuid,
-        changes: &serde_json::Map<String, serde_json::Value>,
+        deltas: &serde_json::Map<String, serde_json::Value>,
+        base: &serde_json::Map<String, serde_json::Value>,
+        result: &serde_json::Map<String, serde_json::Value>,
         metadata: serde_json::Value,
         ledger_id: Uuid,
     ) -> Result<Option<Users>, DbError> {
         let now = Utc::now();
         let game_id = self.account_game_id(user_id).await?;
-        let ledger = serde_json::json!({
-            "id": ledger_id,
-            "user_id": user_id,
-            "changeset": changes,
-            "metadata": metadata,
-            "create_time": time::encode(now),
-            "update_time": time::encode(now),
-            "game_id": game_id,
-        });
+        const GUARD: &str = "array::all(object::keys($result), |$c| ((wallet[$c] ?? 0) = $base[$c]) AND $result[$c] >= 0)";
         let rows: Vec<Users> = self
             .db
             .query_transaction(
-                "BEGIN TRANSACTION; \
-                 LET $uid = type::record('users', <uuid>$id); \
-                 LET $exists = array::len((SELECT VALUE id FROM $uid)) > 0; \
-                 LET $wallet = (SELECT VALUE wallet FROM $uid)[0] ?? {}; \
-                 LET $ok = $exists AND array::all(array::keys($changes), |$c| (($wallet[$c] ?? 0) + $changes[$c]) >= 0); \
-                 IF $ok THEN \
-                     CREATE type::record('wallet_ledger', <uuid>$ledger) CONTENT $ledger_data RETURN NONE; \
-                     UPDATE $uid SET wallet = object::extend($wallet, $changes), update_time = $update_time RETURN AFTER; \
-                 END; \
-                 COMMIT TRANSACTION;",
+                &format!(
+                    "BEGIN TRANSACTION; \
+                     INSERT INTO wallet_ledger ( \
+                         SELECT type::record('wallet_ledger', <uuid>$ledger) AS id, \
+                                $user AS user_id, $changeset AS changeset, $metadata AS metadata, \
+                                $now AS create_time, $now AS update_time, $game_id AS game_id \
+                         FROM type::record('users', <uuid>$id) WHERE {GUARD}) RETURN NONE; \
+                     UPDATE type::record('users', <uuid>$id) \
+                         SET wallet = object::extend(wallet, $result), update_time = $update_time \
+                         WHERE {GUARD} RETURN AFTER; \
+                     COMMIT TRANSACTION;"
+                ),
                 &params!(
                     id = user_id.to_string(),
+                    user = user_id,
                     ledger = ledger_id.to_string(),
-                    changes = serde_json::Value::Object(changes.clone()),
-                    ledger_data = ledger,
+                    changeset = serde_json::Value::Object(deltas.clone()),
+                    metadata = metadata,
+                    now = time::encode(now),
+                    game_id = game_id,
+                    base = serde_json::Value::Object(base.clone()),
+                    result = serde_json::Value::Object(result.clone()),
                     update_time = ts(now),
                 ),
             )

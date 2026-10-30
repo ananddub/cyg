@@ -15,6 +15,7 @@ impl super::ConsoleService {
         claims: &ConsoleAuthed,
         id: &str,
         body: UpdateWalletRequest,
+        ledger_id: Uuid,
     ) -> Result<Json<AccountRow>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
@@ -27,7 +28,9 @@ impl super::ConsoleService {
         if changes.is_empty() {
             return Err(V2Error::invalid_argument("The changeset cannot be empty."));
         }
-        let mut wallet = user.wallet.as_object().cloned().unwrap_or_default();
+        let wallet = user.wallet.as_object().cloned().unwrap_or_default();
+        let mut base = serde_json::Map::new();
+        let mut result = serde_json::Map::new();
         for (currency, delta) in changes {
             let delta = delta.as_f64().ok_or_else(|| {
                 V2Error::invalid_argument(format!("The {currency} amount must be a number."))
@@ -42,7 +45,8 @@ impl super::ConsoleService {
                     "The {currency} balance cannot go negative."
                 )));
             }
-            wallet.insert(currency.clone(), serde_json::json!(value));
+            base.insert(currency.clone(), serde_json::json!(held));
+            result.insert(currency.clone(), serde_json::json!(value));
         }
 
         let metadata = if body.metadata.is_null() {
@@ -51,7 +55,7 @@ impl super::ConsoleService {
             body.metadata.clone()
         };
         let updated = queries
-            .apply_wallet_change(id, changes, metadata, Uuid::new_v4())
+            .apply_wallet_change(id, changes, &base, &result, metadata, ledger_id)
             .await?
             .ok_or_else(|| {
                 V2Error::failed_precondition("A currency balance cannot go negative.")
@@ -82,7 +86,8 @@ impl super::ConsoleService {
         if wallet_id.is_nil() {
             return Err(V2Error::invalid_argument("Invalid wallet ledger id."));
         }
-        let removed = q(state).await?
+        let removed = q(state)
+            .await?
             .delete_wallet_ledger(wallet_id, id)
             .await
             .map_err(V2Error::from)?;

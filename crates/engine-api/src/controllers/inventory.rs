@@ -4,7 +4,7 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
 
-use crate::app::middleware::{Authed, ConsoleAuthed, server_key_or_console};
+use crate::app::middleware::{Authed, ConsoleAuthed, server_key, server_key_or_console};
 use crate::current_state;
 use crate::dto::inventory::{
     ConsumeItemRequest, DefineItemRequest, EquipItemRequest, GrantItemRequest,
@@ -62,10 +62,46 @@ impl InventoryController {
             )
             .into_response();
         };
-        self.service
-            .grant_item(&state, target, body)
-            .await
-            .into_response()
+        let actor = grant_actor(&headers, &state);
+        let quantity = body.quantity.unwrap_or(1).to_string();
+        let slot = body.slot_index.unwrap_or(-1).to_string();
+        let metadata = body
+            .metadata
+            .as_ref()
+            .map(|m| m.to_string())
+            .unwrap_or_default();
+        let mut claim = match crate::services::idempotency::begin(
+            &state,
+            &headers,
+            "inventory.grant",
+            &actor,
+            &[
+                &target.to_string(),
+                &body.item_id,
+                &quantity,
+                &slot,
+                &metadata,
+            ],
+        )
+        .await
+        {
+            Ok(claim) => claim,
+            Err(err) => return err.into_response(),
+        };
+        if let Some(saved) = claim.replayed() {
+            return axum::Json(saved).into_response();
+        }
+        let instance_id = claim.operation_uuid().unwrap_or_else(uuid::Uuid::new_v4);
+        let result = self
+            .service
+            .grant_item(&state, target, body, instance_id)
+            .await;
+        let stored = result
+            .as_ref()
+            .ok()
+            .and_then(|json| serde_json::to_value(&json.0).ok());
+        claim.settle(stored).await;
+        result.into_response()
     }
 
     #[post("/define")]
@@ -79,5 +115,15 @@ impl InventoryController {
         }
         let state = current_state();
         self.service.define_item(&state, body).await.into_response()
+    }
+}
+
+fn grant_actor(headers: &HeaderMap, state: &crate::ApiState) -> String {
+    if server_key(headers, state).is_ok() {
+        return "server".to_owned();
+    }
+    match crate::app::middleware::console_claims(headers) {
+        Ok(claims) => format!("console:{}", claims.uuid().unwrap_or_else(uuid::Uuid::nil)),
+        Err(_) => "server".to_owned(),
     }
 }

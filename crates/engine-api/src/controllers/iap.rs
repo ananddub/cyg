@@ -3,6 +3,7 @@ use std::sync::Arc;
 use auto_route::controller;
 use axum::Json;
 use axum::extract::Path;
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 
 use crate::app::middleware::Authed;
@@ -13,6 +14,51 @@ use crate::services::iap::IapService;
 
 type JsonBody<T> = axum::extract::Json<T>;
 type QueryParams<T> = axum::extract::Query<T>;
+
+macro_rules! idempotent_purchase {
+    ($state:expr, $headers:expr, $auth:expr, $parts:expr, $call:expr) => {{
+        let mut claim = match crate::services::idempotency::begin(
+            &$state,
+            &$headers,
+            "iap.purchase",
+            &$auth.uid().to_string(),
+            $parts,
+        )
+        .await
+        {
+            Ok(claim) => claim,
+            Err(err) => return err.into_response(),
+        };
+        if let Some(saved) = claim.replayed() {
+            return Json(saved).into_response();
+        }
+        let result = $call.await;
+        let stored = result
+            .as_ref()
+            .ok()
+            .and_then(|json| serde_json::to_value(&json.0).ok());
+        claim.settle(stored).await;
+        return result.into_response();
+    }};
+}
+
+fn receipt_parts(body: &PurchaseRequest) -> Vec<String> {
+    vec![
+        body.receipt.clone(),
+        body.product_id.clone().unwrap_or_default(),
+        body.transaction_id.clone().unwrap_or_default(),
+        body.store.unwrap_or(-1).to_string(),
+    ]
+}
+
+fn token_parts(body: &PurchaseTokenRequest) -> Vec<String> {
+    vec![
+        body.credential().to_owned(),
+        body.product_id.clone().unwrap_or_default(),
+        body.purchase_id.clone().unwrap_or_default(),
+        body.store.unwrap_or(-1).to_string(),
+    ]
+}
 
 struct IapController {
     service: Arc<IapService>,
@@ -28,78 +74,108 @@ impl IapController {
     async fn validate_apple_legacy(
         &self,
         auth: Authed,
+        headers: HeaderMap,
         Json(body): JsonBody<PurchaseRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .validate_apple_legacy(&state, &auth, body)
-            .await
-            .into_response()
+        let parts = receipt_parts(&body);
+        idempotent_purchase!(
+            state,
+            headers,
+            auth,
+            &parts.iter().map(String::as_str).collect::<Vec<_>>(),
+            self.service.validate_apple_legacy(&state, &auth, body)
+        )
     }
 
     #[post("/purchase/apple")]
     async fn purchase_apple(
         &self,
         auth: Authed,
+        headers: HeaderMap,
         Json(body): JsonBody<PurchaseRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .purchase_apple(&state, &auth, body)
-            .await
-            .into_response()
+        let parts = receipt_parts(&body);
+        idempotent_purchase!(
+            state,
+            headers,
+            auth,
+            &parts.iter().map(String::as_str).collect::<Vec<_>>(),
+            self.service.purchase_apple(&state, &auth, body)
+        )
     }
 
     #[post("/purchase/google")]
     async fn purchase_google(
         &self,
         auth: Authed,
+        headers: HeaderMap,
         Json(body): JsonBody<PurchaseTokenRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .purchase_google(&state, &auth, body)
-            .await
-            .into_response()
+        let parts = token_parts(&body);
+        idempotent_purchase!(
+            state,
+            headers,
+            auth,
+            &parts.iter().map(String::as_str).collect::<Vec<_>>(),
+            self.service.purchase_google(&state, &auth, body)
+        )
     }
 
     #[post("/purchase/huawei")]
     async fn purchase_huawei(
         &self,
         auth: Authed,
+        headers: HeaderMap,
         Json(body): JsonBody<PurchaseTokenRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .purchase_huawei(&state, &auth, body)
-            .await
-            .into_response()
+        let parts = token_parts(&body);
+        idempotent_purchase!(
+            state,
+            headers,
+            auth,
+            &parts.iter().map(String::as_str).collect::<Vec<_>>(),
+            self.service.purchase_huawei(&state, &auth, body)
+        )
     }
 
     #[post("/purchase/facebookinstant")]
     async fn purchase_facebook_instant(
         &self,
         auth: Authed,
+        headers: HeaderMap,
         Json(body): JsonBody<PurchaseTokenRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .purchase_facebook_instant(&state, &auth, body)
-            .await
-            .into_response()
+        let parts = token_parts(&body);
+        idempotent_purchase!(
+            state,
+            headers,
+            auth,
+            &parts.iter().map(String::as_str).collect::<Vec<_>>(),
+            self.service.purchase_facebook_instant(&state, &auth, body)
+        )
     }
 
     #[post("/purchase/samsung")]
     async fn purchase_samsung(
         &self,
         auth: Authed,
+        headers: HeaderMap,
         Json(body): JsonBody<PurchaseTokenRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .purchase_samsung(&state, &auth, body)
-            .await
-            .into_response()
+        let parts = token_parts(&body);
+        idempotent_purchase!(
+            state,
+            headers,
+            auth,
+            &parts.iter().map(String::as_str).collect::<Vec<_>>(),
+            self.service.purchase_samsung(&state, &auth, body)
+        )
     }
 
     #[get("/purchase")]

@@ -1,6 +1,7 @@
 pub mod console;
 pub mod gc;
 pub mod jwt;
+pub mod liveops;
 pub mod pump;
 pub mod rate_limit;
 pub mod realtime;

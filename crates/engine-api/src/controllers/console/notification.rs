@@ -38,14 +38,40 @@ impl ConsoleNotificationController {
     async fn send(
         &self,
         auth: ConsoleAuthed,
+        headers: axum::http::HeaderMap,
         Params(scope): Params<GameScope>,
         Body(body): Body<SendNotificationRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .send_notification(&state, &auth, scope.id(), body)
-            .await
-            .into_response()
+        let actor = format!("console:{}", auth.0.uuid().unwrap_or_else(uuid::Uuid::nil));
+        let content = body.content.to_string();
+        let code = body.code.to_string();
+        let mut claim = match crate::services::idempotency::begin(
+            &state,
+            &headers,
+            "console.notification.send",
+            &actor,
+            &[&body.user_id, &body.subject, &code, &content],
+        )
+        .await
+        {
+            Ok(claim) => claim,
+            Err(err) => return err.into_response(),
+        };
+        if let Some(saved) = claim.replayed() {
+            return axum::Json(saved).into_response();
+        }
+        let id = claim.operation_uuid().unwrap_or_else(uuid::Uuid::new_v4);
+        let result = self
+            .service
+            .send_notification(&state, &auth, scope.id(), body, id)
+            .await;
+        let stored = result
+            .as_ref()
+            .ok()
+            .and_then(|json| serde_json::to_value(&json.0).ok());
+        claim.settle(stored).await;
+        result.into_response()
     }
 
     #[delete("/{id}")]

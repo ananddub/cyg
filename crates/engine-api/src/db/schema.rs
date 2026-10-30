@@ -24,6 +24,7 @@ pub fn ddl() -> Vec<&'static str> {
         Games,
         GroupEdge,
         Groups,
+        IdempotencyKey,
         ItemDefinition,
         PlayerInventoryItem,
         Leaderboard,
@@ -58,7 +59,12 @@ mod tests {
     #[test]
     fn every_table_is_schemaless_and_every_index_is_guarded() {
         let ddl = ddl();
-        assert_eq!(ddl.iter().filter(|line| line.starts_with("DEFINE TABLE")).count(), 27);
+        assert_eq!(
+            ddl.iter()
+                .filter(|line| line.starts_with("DEFINE TABLE"))
+                .count(),
+            28
+        );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {
             assert!(line.contains("IF NOT EXISTS"), "{line}");

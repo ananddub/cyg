@@ -38,6 +38,21 @@ pub fn accepts_username(candidate: &str) -> bool {
         .analyze()
         .is(Type::INAPPROPRIATE)
 }
+pub fn device_username(label: &str) -> String {
+    (0..50)
+        .map(|_| {
+            let mut candidate = format!("e2e-{label}-{}", letters_suffix());
+            // The server caps usernames at 20 characters, so a long label loses
+            // the tail of the random suffix rather than the request.
+            candidate.truncate(20);
+            while candidate.ends_with('-') {
+                candidate.pop();
+            }
+            candidate
+        })
+        .find(|candidate| accepts_username(candidate))
+        .unwrap_or_else(|| panic!("`e2e-{label}-<suffix>` never yields a clean username"))
+}
 pub fn jwt_uid(token: &Value) -> String {
     let token = token.as_str().expect("session token");
     let payload = token.split('.').nth(1).expect("JWT payload segment");
@@ -56,10 +71,7 @@ pub struct Player {
 }
 pub async fn device_player(client: &Client, base: &str, label: &str) -> Player {
     let device_id = format!("e2e-{label}-{}", Uuid::new_v4());
-    let username = (0..50)
-        .map(|_| format!("e2e-{label}-{}", letters_suffix()))
-        .find(|candidate| accepts_username(candidate))
-        .unwrap_or_else(|| panic!("`e2e-{label}-<suffix>` never yields a clean username"));
+    let username = device_username(label);
     let body = json_body(
         client
             .post(format!(
@@ -110,18 +122,10 @@ pub async fn scalar<T: serde::de::DeserializeOwned>(
         .into_iter()
         .next()
 }
-pub async fn row(
-    db: &Datastore,
-    surql: &str,
-    params: &[(&str, Value)],
-) -> Option<Value> {
+pub async fn row(db: &Datastore, surql: &str, params: &[(&str, Value)]) -> Option<Value> {
     scalar::<Value>(db, surql, params).await
 }
-pub async fn rows(
-    db: &Datastore,
-    surql: &str,
-    params: &[(&str, Value)],
-) -> Vec<Value> {
+pub async fn rows(db: &Datastore, surql: &str, params: &[(&str, Value)]) -> Vec<Value> {
     let bound = bind(params);
     db.query_params::<Value>(surql, &bound)
         .await
