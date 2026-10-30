@@ -510,6 +510,36 @@ fn live_tick_rate(tick_interval: Duration) -> u32 {
     (1.0 / tick_interval.as_secs_f64()).round().max(1.0) as u32
 }
 
+/// Consume one movement sample's worth of budget for a session, sized from the
+/// tick rate the loop actually runs at. A client that posts faster than the
+/// room simulates loses the surplus samples: its seat keeps working, the flood
+/// never reaches the guest.
+fn input_budget_allows(
+    rates: &mut HashMap<String, netcode::InputRateLimiter>,
+    tick_interval: Duration,
+    session: &str,
+) -> bool {
+    rates
+        .entry(session.to_string())
+        .or_insert_with(|| netcode::InputRateLimiter::for_tick_rate(live_tick_rate(tick_interval)))
+        .allow(Instant::now())
+}
+
+/// Budget plus shape gate for the raw UDP movement lane — the same two
+/// authority checks `apply_input` runs, without the journal this lane never had.
+fn udp_input_allowed(
+    rates: &mut HashMap<SocketAddr, netcode::InputRateLimiter>,
+    tick_interval: Duration,
+    peer: SocketAddr,
+    sample: &[u8; 20],
+) -> bool {
+    let budget = rates
+        .entry(peer)
+        .or_insert_with(|| netcode::InputRateLimiter::for_tick_rate(live_tick_rate(tick_interval)))
+        .allow(Instant::now());
+    budget && netcode::validate_input_payload(sample)
+}
+
 /// Link and pre-instantiate a console module the control plane fetched.
 ///
 /// The payload must hash to the digest the database recorded: a mismatch means
@@ -1585,6 +1615,11 @@ pub fn run(
                     {
                         if let Ok(input) = engine_webrtc_protocol::InputFrame::decode(data) {
                             last_input_at.insert(client_id.to_string(), Instant::now());
+                            if !input_budget_allows(&mut rtc_input_rates, tick_interval, &client_id)
+                            {
+                                recorder.inputs_dropped += 1;
+                                continue;
+                            }
                             if transport.is_rtc_connected(&client_id) && input.seq % 120 == 1 {
                                 tracing::debug!(
                                     "[server] ℹ️ Player {id} sent a stamped input frame (seq {})",
@@ -1595,7 +1630,7 @@ pub fn run(
                             // With rollback on, a genuinely late seq rewinds and replays instead of dropping.
                             let mut payload_20 = [0u8; 20];
                             payload_20.copy_from_slice(&data[3..23]);
-                            netcode::apply_input(
+                            if netcode::apply_input(
                                 room,
                                 cfg,
                                 tick_interval.as_secs_f64(),
@@ -1603,7 +1638,11 @@ pub fn run(
                                 id,
                                 input.seq,
                                 &payload_20,
-                            );
+                            )
+                            .is_err()
+                            {
+                                recorder.inputs_dropped += 1;
+                            }
                         }
                         continue;
                     }
@@ -1612,16 +1651,26 @@ pub fn run(
                     // ([seq u16 LE][20B payload])×count — N samples, one packet.
                     // Cuts header overhead ~75% on lossy/mobile paths; samples
                     // apply sequentially through the existing input path.
-                    if data.len() > 3 && data[0] == 0x26 {
-                        let samples = (data.len() - 3) / 22;
-                        if samples > 0 && data.len() == 3 + samples * 22 {
+                    if data.len() > 3 && data[0] == netcode::OP_INPUT_BATCH {
+                        if let Some(samples) = netcode::batch_sample_count(data) {
                             last_input_at.insert(client_id.to_string(), Instant::now());
                             for i in 0..samples {
+                                if !input_budget_allows(
+                                    &mut rtc_input_rates,
+                                    tick_interval,
+                                    &client_id,
+                                ) {
+                                    recorder.inputs_dropped += 1;
+                                    // The tail of this packet is one burst the
+                                    // room cannot simulate; newest-wins would
+                                    // throw it away a sample later anyway.
+                                    break;
+                                }
                                 let off = 3 + i * 22;
                                 let seq = u16::from_le_bytes([data[off], data[off + 1]]);
                                 let mut payload_20 = [0u8; 20];
                                 payload_20.copy_from_slice(&data[off + 2..off + 22]);
-                                netcode::apply_input(
+                                if netcode::apply_input(
                                     room,
                                     cfg,
                                     tick_interval.as_secs_f64(),
@@ -1629,7 +1678,11 @@ pub fn run(
                                     id,
                                     seq,
                                     &payload_20,
-                                );
+                                )
+                                .is_err()
+                                {
+                                    recorder.inputs_dropped += 1;
+                                }
                             }
                         }
                         continue;
@@ -1798,6 +1851,14 @@ pub fn run(
                         }
 
                         if data.len() == 20 {
+                            let Ok(sample) = <&[u8; 20]>::try_from(data) else {
+                                continue;
+                            };
+                            if !udp_input_allowed(&mut udp_input_rates, tick_interval, peer_addr, sample)
+                            {
+                                recorder.inputs_dropped += 1;
+                                continue;
+                            }
                             if let Some(ref mut wasm) = room.wasm {
                                 if let Ok(ptr) = wasm.on_alloc(data.len() as i32) {
                                     let _ = wasm.write_memory(ptr as u32, data);
@@ -1818,6 +1879,14 @@ pub fn run(
                             continue;
                         }
                         if data.len() == 20 {
+                            let Ok(sample) = <&[u8; 20]>::try_from(data) else {
+                                continue;
+                            };
+                            if !udp_input_allowed(&mut udp_input_rates, tick_interval, peer_addr, sample)
+                            {
+                                recorder.inputs_dropped += 1;
+                                continue;
+                            }
                             if let Some(ref mut wasm) = room.wasm {
                                 if let Ok(ptr) = wasm.on_alloc(data.len() as i32) {
                                     let _ = wasm.write_memory(ptr as u32, data);
@@ -1869,12 +1938,16 @@ pub fn run(
                     resupplied,
                 } => {
                     last_input_at.insert(client_id.clone(), Instant::now());
+                    if !input_budget_allows(&mut rtc_input_rates, tick_interval, &client_id) {
+                        recorder.inputs_dropped += 1;
+                        continue;
+                    }
                     if !resupplied && seq % 120 == 1 {
                         tracing::debug!(
                             "[server] ⚡ WebRTC UDP input stream active for player {id} (seq {seq})"
                         );
                     }
-                    netcode::apply_input(
+                    if netcode::apply_input(
                         room,
                         cfg,
                         tick_interval.as_secs_f64(),
@@ -1882,7 +1955,11 @@ pub fn run(
                         id,
                         seq,
                         &payload,
-                    );
+                    )
+                    .is_err()
+                    {
+                        recorder.inputs_dropped += 1;
+                    }
                 }
                 Inbound::Event { raw } => {
                     let Ok(mut event) = engine_webrtc_protocol::EventFrame::decode(&raw) else {
@@ -2680,6 +2757,50 @@ mod loop_transport_tests {
         let mut t = transport();
         drain_rooms(&mut server, &mut t);
         assert!(server.rooms.is_empty(), "a drained room kept its slot");
+    }
+
+    /// One flooding seat may not spend the room's budget for everyone else:
+    /// the bucket is per session, so the quiet seat keeps every sample.
+    #[test]
+    fn a_flooded_session_loses_only_its_own_surplus() {
+        let tick = Duration::from_secs_f64(1.0 / 30.0);
+        let mut rates: HashMap<String, netcode::InputRateLimiter> = HashMap::new();
+
+        let flood = (0..1_000)
+            .filter(|_| input_budget_allows(&mut rates, tick, "sess_flood"))
+            .count();
+        assert!(
+            flood < 200,
+            "a 1000-sample burst at 30 Hz should cost the flooder its surplus, got {flood}"
+        );
+        assert!(flood > 0, "the flooder's first samples must still simulate");
+
+        for _ in 0..30 {
+            assert!(
+                input_budget_allows(&mut rates, tick, "sess_quiet"),
+                "a second seat lost budget to the first one's flood"
+            );
+        }
+    }
+
+    /// The raw UDP lane has no journal to hide behind, so a NaN sample must be
+    /// refused there too, and its budget is the same per-peer shape.
+    #[test]
+    fn the_udp_lane_gates_budget_and_sample_shape() {
+        let tick = Duration::from_secs_f64(1.0 / 30.0);
+        let peer: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+        let mut rates: HashMap<SocketAddr, netcode::InputRateLimiter> = HashMap::new();
+
+        let mut clean = [0u8; 20];
+        clean[12..16].copy_from_slice(&0.5f32.to_le_bytes());
+        assert!(udp_input_allowed(&mut rates, tick, peer, &clean));
+
+        let mut nan = clean;
+        nan[4..8].copy_from_slice(&f32::NAN.to_le_bytes());
+        assert!(
+            !udp_input_allowed(&mut rates, tick, peer, &nan),
+            "a NaN aim lane reached the guest"
+        );
     }
 }
 

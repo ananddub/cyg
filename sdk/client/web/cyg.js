@@ -2848,8 +2848,9 @@
          *  false when no unreliable path is open (the delta lane drops stale
          *  frames by design — the caller re-sends or re-thinks). */
         /** Input batching: N 20-byte samples in one unreliable packet
-       *  ([0x26][count][seq u16][20B]×N) — 75% header overhead cut on
-       *  lossy/mobile paths. samples: Array of { seq, payload: Uint8Array(20) }. */
+       *  ([0x26][count][pad][seq u16 LE][20B]×N) — 75% header overhead cut on
+       *  lossy/mobile paths. A batch over the server's 64-sample cap is refused
+       *  whole, so keep N ≤ 64. samples: Array of { seq, payload: Uint8Array(20) }. */
       sendInputBatch(samples) {
         if (!this._inputBatchCh && this.serverChUnreliable) { /* noop shim */ }
         const ch = this.serverChUnreliable || this.serverCh;
@@ -2861,8 +2862,8 @@
         let off = 3;
         for (let i = 0; i < count; i++) {
           const seq = samples[i].seq & 0xffff;
-          pkt[off] = (seq >> 8) & 0xff;
-          pkt[off + 1] = seq & 0xff;
+          pkt[off] = seq & 0xff;
+          pkt[off + 1] = (seq >> 8) & 0xff;
           pkt.set(samples[i].payload.subarray(0, 20), off + 2);
           off += 22;
         }

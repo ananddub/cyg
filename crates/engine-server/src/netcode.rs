@@ -81,6 +81,70 @@ pub fn wrap_delta_into(
     out.extend_from_slice(&server_tick.to_le_bytes());
 }
 
+/// Server-side bound on the four float lanes of a movement input. Guests read
+/// those bytes as angles and velocities, so a NaN or 1e30 sample is written
+/// into the simulated world and replicated to every other client — the host
+/// refuses it before the guest ever sees it.
+pub const MAX_INPUT_AXIS: f32 = 10_000.0;
+
+/// How far a client may push its input counter ahead of the newest sample the
+/// host accepted from it, in samples. Past that the host cannot order the
+/// sample against anything it has, so it re-anchors on the client's counter
+/// (the client is the only source of its own continuity) and says so.
+pub const MAX_SEQ_AHEAD: u16 = 512;
+
+/// Batched-input opcode: `[0x26][count u8]([seq u16 LE][20B payload])×count`.
+pub const OP_INPUT_BATCH: u8 = 0x26;
+
+/// Samples accepted in one `[0x26]` batch packet. Every sample costs the guest
+/// an `on_alloc` plus an `on_input`, so this byte is a multiplier on cost.
+pub const MAX_BATCHED_INPUTS: usize = 64;
+
+/// Why the host refused an inbound input sample.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputRejection {
+    /// The session does not hold that player id in this room.
+    NotSeated,
+    /// A float lane was non-finite or outside [`MAX_INPUT_AXIS`].
+    Malformed,
+}
+
+impl InputRejection {
+    pub fn label(self) -> &'static str {
+        match self {
+            InputRejection::NotSeated => "not-seated",
+            InputRejection::Malformed => "malformed",
+        }
+    }
+}
+
+/// Shape check on the 20-byte movement sample: `[flags u32][yaw][pitch][mx][mz]`.
+pub fn validate_input_payload(payload: &[u8; 20]) -> bool {
+    [4usize, 8, 12, 16].iter().all(|off| {
+        let lane = f32::from_le_bytes(payload[*off..*off + 4].try_into().unwrap());
+        lane.is_finite() && lane.abs() <= MAX_INPUT_AXIS
+    })
+}
+
+/// How many samples one `[0x26][count]([seq u16 LE][20B])×count` packet
+/// carries, or `None` when the packet contradicts its own header: a length that
+/// is not a whole number of samples, a count byte that disagrees with the
+/// length, or more samples than [`MAX_BATCHED_INPUTS`]. A batch that does not
+/// describe itself is refused whole, never partially applied.
+pub fn batch_sample_count(data: &[u8]) -> Option<usize> {
+    if data.len() <= 3 || data[0] != OP_INPUT_BATCH {
+        return None;
+    }
+    let samples = (data.len() - 3) / 22;
+    if samples == 0 || data.len() != 3 + samples * 22 {
+        return None;
+    }
+    if samples != data[1] as usize || samples > MAX_BATCHED_INPUTS {
+        return None;
+    }
+    Some(samples)
+}
+
 /// Hand one 20-byte movement input to the guest and journal it.
 pub fn deliver_input(room: &mut GameRoom, id: i64, payload: &[u8; 20]) {
     if let Some(ref mut wasm) = room.wasm {
@@ -92,6 +156,13 @@ pub fn deliver_input(room: &mut GameRoom, id: i64, payload: &[u8; 20]) {
 }
 
 /// Apply a movement input from one session.
+///
+/// The input is refused outright before the guest sees it when the session does
+/// not hold that player id, or when the sample's float lanes are not finite
+/// within [`MAX_INPUT_AXIS`]; the `Err` carries which, for the caller's drop
+/// counter. Everything else that is *superseded* (stale seq, duplicate resend,
+/// a rewind too far behind) returns `Ok` — those are normal outcomes, not
+/// refusals.
 ///
 /// Newest seqs flow straight through, exactly like the legacy newest-wins rule.
 /// A seq *behind* the newest is either a redundant resend (already journaled —
@@ -108,10 +179,30 @@ pub fn apply_input(
     id: i64,
     seq: u16,
     payload: &[u8; 20],
-) {
+) -> Result<(), InputRejection> {
+    if room.sessions.get(session) != Some(&id) {
+        tracing::warn!(
+            "[server] ⛔ {session} drove player {id}, which it does not seat — input refused"
+        );
+        return Err(InputRejection::NotSeated);
+    }
+    if !validate_input_payload(payload) {
+        tracing::warn!(
+            "[server] ⛔ malformed input from {session} (player {id}, seq {seq}) — input refused"
+        );
+        return Err(InputRejection::Malformed);
+    }
+
     let last = room.last_input_seq.entry(session.to_string()).or_insert(0);
 
     if *last == 0 || engine_webrtc_protocol::is_newer(*last, seq) {
+        let jump = seq.wrapping_sub(*last);
+        if *last != 0 && jump > MAX_SEQ_AHEAD {
+            tracing::warn!(
+                "[server] ⏩ re-anchoring player {id}: input seq jumped {jump} samples ({} -> {seq})",
+                *last
+            );
+        }
         *last = seq;
         deliver_input(room, id, payload);
         let tick = room.current_tick;
@@ -125,11 +216,11 @@ pub fn apply_input(
         while room.input_journal.len() > cfg.rollback.journal_size {
             room.input_journal.pop_front();
         }
-        return;
+        return Ok(());
     }
 
     if !cfg.rollback.enabled || seq == *last || room.wasm.is_none() {
-        return; // legacy newest-wins drop or pure unity relay mode
+        return Ok(()); // legacy newest-wins drop or pure unity relay mode
     }
     // Duplicate resend — it is already in the journal.
     if room
@@ -137,7 +228,7 @@ pub fn apply_input(
         .iter()
         .any(|j| j.session == session && j.seq == seq)
     {
-        return;
+        return Ok(());
     }
     // The input slots in right after its predecessor. No predecessor inside the
     // journal window means we cannot place it; drop it like the old behavior did.
@@ -150,37 +241,37 @@ pub fn apply_input(
             "[dbg] late seq {seq}: no predecessor in journal ({} entries)",
             room.input_journal.len()
         );
-        return;
+        return Ok(());
     };
     let pred_tick = room.input_journal[pred_idx].tick;
     let gap = room.current_tick.saturating_sub(pred_tick);
     if gap == 0 || gap > cfg.rollback.max_replay_ticks {
-        return;
+        return Ok(());
     }
 
     // Restore the guest from the checkpoint blob via the guest's own
     // save()/load() contract — no raw linear-memory copy in the host.
     let Some(ckpt) = room.rollback_buffer.blob_for(pred_tick) else {
-        return; // checkpoint aged out of the ring window
+        return Ok(()); // checkpoint aged out of the ring window
     };
     let Some(ref mut wasm) = room.wasm else {
-        return;
+        return Ok(());
     };
     // Rule 5 (fault isolation): this path is client-reachable (any out-of-order
     // seq can trigger a rewind), so a guest trap here must drop the replay,
     // never kill the host loop.
     let Ok(load_ptr_i32) = wasm.on_alloc(ckpt.len() as i32) else {
         tracing::error!("[server] ⚠️ rollback replay dropped: guest on_alloc failed");
-        return;
+        return Ok(());
     };
     let load_ptr = load_ptr_i32 as u32 as usize;
     if let Err(e) = wasm.write_memory(load_ptr as u32, ckpt) {
         tracing::error!("[server] ⚠️ rollback replay dropped: checkpoint write failed: {e}");
-        return;
+        return Ok(());
     }
     if let Err(e) = wasm.on_load(load_ptr as i32, ckpt.len() as i32) {
         tracing::warn!("[server] ⚠️ rollback replay dropped: guest trap in on_load: {e}");
-        return;
+        return Ok(());
     }
 
     // Insert the late input right behind its predecessor, keeping the journal
@@ -235,6 +326,7 @@ pub fn apply_input(
         "[server] ⏪ late input seq {seq} (player {id}): rewound {} ticks, re-delivered {redelivered} inputs, resimulated to tick {cur}",
         target - pred_tick
     );
+    Ok(())
 }
 
 /// One 72-byte player record from the tank-3d delta layout:
@@ -340,7 +432,6 @@ pub fn record_channel_ack(room: &mut GameRoom, client_id: &str, ack: engine_webr
 /// Canonical Unity CYG OpCodes
 pub const CYG_OP_LEAVE_ROOM: u8 = 3;
 
-
 /// Wire-protocol *header* codes (`CYGWireProtocol` in
 /// `sdk/client/unity/Runtime/Transport/CYGTransport.cs`). These are the bytes the
 /// transport writes in the frame header — they are **not** the canonical
@@ -438,6 +529,20 @@ pub struct InputRateLimiter {
 }
 
 impl InputRateLimiter {
+    /// Samples a client may post per simulated tick before the surplus is
+    /// dropped. A browser samples every rendered frame, so this is headroom
+    /// for an 8x refresh, not permission to flood: at the default 30 Hz tick
+    /// the budget is 240 samples/s and a 500-per-tick poster still loses 96%.
+    pub const SAMPLES_PER_TICK: u32 = 8;
+
+    /// Input budget for one session in a room ticking at `tick_rate` Hz. The
+    /// burst is a quarter second of samples, so a stall-then-burst client
+    /// (tab refocus, network hiccup) is not punished for arriving all at once.
+    pub fn for_tick_rate(tick_rate: u32) -> Self {
+        let rate = tick_rate.saturating_mul(Self::SAMPLES_PER_TICK).max(64);
+        Self::new(rate, (rate / 4).max(8) as f64)
+    }
+
     pub fn new(rate_per_sec: u32, burst: f64) -> Self {
         let rate = rate_per_sec.max(1) as f64;
         let burst = burst.max(1.0);
@@ -481,6 +586,136 @@ mod tests {
         assert!(limiter.allow(now));
         assert!(!limiter.allow(now), "burst exhausted");
         assert!(limiter.allow(now + std::time::Duration::from_millis(250)));
+    }
+
+    fn sample(flags: u32, yaw: f32, pitch: f32, mx: f32, mz: f32) -> [u8; 20] {
+        let mut p = [0u8; 20];
+        p[0..4].copy_from_slice(&flags.to_le_bytes());
+        p[4..8].copy_from_slice(&yaw.to_le_bytes());
+        p[8..12].copy_from_slice(&pitch.to_le_bytes());
+        p[12..16].copy_from_slice(&mx.to_le_bytes());
+        p[16..20].copy_from_slice(&mz.to_le_bytes());
+        p
+    }
+
+    /// A relay room has no guest, so nothing here can be blamed on wasm: the
+    /// authority checks are the host's own.
+    fn seated_room() -> GameRoom {
+        let mut room = GameRoom::new_relay();
+        room.sessions.insert("sess_alice".to_string(), 1);
+        room
+    }
+
+    fn batch(count: usize) -> Vec<u8> {
+        // [0x26][count][pad] then 22 bytes per sample — the layout both SDK
+        // writers emit, spare byte included.
+        let mut out = vec![OP_INPUT_BATCH, count as u8, 0];
+        out.extend(
+            std::iter::repeat_n(sample(0, 0.0, 0.0, 1.0, 0.0), count)
+                .flat_map(|p| [&[0u8; 2][..], &p[..]].concat()),
+        );
+        out
+    }
+
+    #[test]
+    fn an_input_for_a_seat_the_session_does_not_hold_is_refused() {
+        let cfg = engine_config::GameConfig::default();
+        let mut room = seated_room();
+        let payload = sample(0, 0.0, 0.0, 1.0, 0.0);
+
+        assert_eq!(
+            apply_input(&mut room, &cfg, 0.033, "sess_bob", 2, 1, &payload),
+            Err(InputRejection::NotSeated)
+        );
+        assert!(
+            room.last_input_seq.is_empty(),
+            "a refused input moved the baseline"
+        );
+        assert_eq!(
+            apply_input(&mut room, &cfg, 0.033, "sess_alice", 1, 1, &payload),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_non_finite_or_absurd_axis_is_refused_before_the_guest_sees_it() {
+        let cfg = engine_config::GameConfig::default();
+        let mut room = seated_room();
+
+        for (label, bad) in [
+            ("NaN", f32::NAN),
+            ("Inf", f32::INFINITY),
+            ("out of range", MAX_INPUT_AXIS * 2.0),
+        ] {
+            let payload = sample(0, 0.0, bad, 0.0, 0.0);
+            assert!(!validate_input_payload(&payload), "{label} lane accepted");
+            assert_eq!(
+                apply_input(&mut room, &cfg, 0.033, "sess_alice", 1, 5, &payload),
+                Err(InputRejection::Malformed),
+                "{label} reached the guest"
+            );
+        }
+        assert!(
+            room.last_input_seq.is_empty(),
+            "a refused input moved the baseline"
+        );
+    }
+
+    /// A client that goes quiet for longer than the sequence window keeps its
+    /// seat: the jump is logged and the baseline follows the client, because
+    /// dropping every future sample would lock the seat out for the match.
+    #[test]
+    fn a_seq_beyond_the_window_re_anchors_instead_of_locking_the_seat_out() {
+        let cfg = engine_config::GameConfig::default();
+        let mut room = seated_room();
+        let payload = sample(0, 0.0, 0.0, 1.0, 0.0);
+        let jumped = 5u16.wrapping_add(MAX_SEQ_AHEAD).wrapping_add(4000);
+
+        assert_eq!(
+            apply_input(&mut room, &cfg, 0.033, "sess_alice", 1, 5, &payload),
+            Ok(())
+        );
+        assert_eq!(
+            apply_input(&mut room, &cfg, 0.033, "sess_alice", 1, jumped, &payload),
+            Ok(())
+        );
+        assert_eq!(room.last_input_seq["sess_alice"], jumped);
+    }
+
+    #[test]
+    fn the_input_budget_is_sized_from_the_tick_rate() {
+        // 30 Hz × 8 samples per tick = 240/s, burst a quarter second = 60.
+        let mut limiter = InputRateLimiter::for_tick_rate(30);
+        let now = Instant::now();
+        let allowed = (0..1_000).filter(|_| limiter.allow(now)).count();
+        assert_eq!(allowed, 60, "burst is a quarter second of samples");
+        assert!(
+            limiter.allow(now + std::time::Duration::from_millis(500)),
+            "half a second of refill should accept again"
+        );
+    }
+
+    #[test]
+    fn a_batch_that_contradicts_its_header_is_refused_whole() {
+        let good = batch(3);
+        assert_eq!(batch_sample_count(&good), Some(3));
+
+        let mut truncated = good.clone();
+        truncated.truncate(good.len() - 5);
+        assert_eq!(batch_sample_count(&truncated), None, "partial sample");
+
+        let mut lying_count = good.clone();
+        lying_count[1] = 4;
+        assert_eq!(batch_sample_count(&lying_count), None, "count byte disagrees");
+
+        assert_eq!(batch_sample_count(&batch(1)), Some(1));
+        assert_eq!(batch_sample_count(&[]), None);
+        assert_eq!(batch_sample_count(&[OP_INPUT_BATCH, 0]), None, "empty batch");
+        assert_eq!(
+            batch_sample_count(&batch(MAX_BATCHED_INPUTS + 1)),
+            None,
+            "over the per-packet cap"
+        );
     }
 
     fn schema_section(kind: u8, hash: u32, body: &[u8]) -> Vec<u8> {

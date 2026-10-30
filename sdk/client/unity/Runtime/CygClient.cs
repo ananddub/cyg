@@ -230,7 +230,8 @@ namespace CYG
         }
 
         /// Input batching — N movement samples ek packet me (lossy networks pe 4x kam packets).
-        /// Layout: [0x26][count u8]([seq u16][20B payload])×count — server sequential apply karta hai.
+        /// Layout: [0x26][count u8][pad]([seq u16 LE][20B payload])×count — server sequential apply karta hai.
+        /// Server ke MAX_BATCHED_INPUTS (64) se upar wala batch poora reject hota hai.
         public void SendInputBatch((ushort seq, byte[] payload)[] samples)
         {
             var pkt = new byte[3 + samples.Length * 22];
@@ -238,7 +239,7 @@ namespace CYG
             int off = 3;
             foreach (var (seq, payload) in samples)
             {
-                pkt[off] = (byte)(seq >> 8); pkt[off + 1] = (byte)(seq & 0xFF);
+                pkt[off] = (byte)(seq & 0xFF); pkt[off + 1] = (byte)(seq >> 8);
                 Buffer.BlockCopy(payload, 0, pkt, off + 2, 20);
                 off += 22;
             }

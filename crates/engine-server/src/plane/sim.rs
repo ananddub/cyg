@@ -332,7 +332,7 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                 browser_players.insert(msg.player_id);
             }
             last_input_at.insert(session.clone(), Instant::now());
-            netcode::apply_input(
+            if netcode::apply_input(
                 &mut room,
                 &plane_game_cfg,
                 dt,
@@ -340,7 +340,11 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                 msg.player_id,
                 msg.seq,
                 &msg.payload,
-            );
+            )
+            .is_err()
+            {
+                recorder.inputs_dropped += 1;
+            }
         }
 
         // ---- fixed tick with catch-up cap
