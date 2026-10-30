@@ -2,14 +2,13 @@ use auto_di::singleton;
 use axum::Json;
 use axum::http::HeaderMap;
 
-use super::{local, social, validate};
+use super::{local, social, validate, verify};
 use crate::ApiState;
 use crate::app::middleware::server_key;
 use crate::dto::auth;
 use crate::dto::auth::AuthQuery;
 use crate::dto::session::SessionResponse;
 use crate::error::V2Error;
-use crate::utils::vendor;
 
 pub struct AuthService;
 
@@ -75,10 +74,18 @@ impl AuthService {
         state: &ApiState,
         headers: &HeaderMap,
         query: &AuthQuery,
-        _account: auth::TokenAccount,
+        account: auth::TokenAccount,
     ) -> Result<Json<SessionResponse>, V2Error> {
-        authorize(headers, state, query)?;
-        Err(vendor::unconfigured("Apple"))
+        let create = authorize(headers, state, query)?;
+        social::token(
+            state,
+            verify::Kind::Apple,
+            &account.token,
+            &query.username,
+            create,
+            account.vars,
+        )
+        .await
     }
 
     pub async fn steam(
@@ -86,10 +93,18 @@ impl AuthService {
         state: &ApiState,
         headers: &HeaderMap,
         query: &AuthQuery,
-        _account: auth::TokenAccount,
+        account: auth::TokenAccount,
     ) -> Result<Json<SessionResponse>, V2Error> {
-        authorize(headers, state, query)?;
-        Err(vendor::unconfigured("Steam"))
+        let create = authorize(headers, state, query)?;
+        social::token(
+            state,
+            verify::Kind::Steam,
+            &account.token,
+            &query.username,
+            create,
+            account.vars,
+        )
+        .await
     }
 
     pub async fn facebook(
@@ -99,8 +114,16 @@ impl AuthService {
         query: &AuthQuery,
         account: auth::TokenAccount,
     ) -> Result<Json<SessionResponse>, V2Error> {
-        authorize(headers, state, query)?;
-        social::token("Facebook", &account.token, &query.username)
+        let create = authorize(headers, state, query)?;
+        social::token(
+            state,
+            verify::Kind::Facebook,
+            &account.token,
+            &query.username,
+            create,
+            account.vars,
+        )
+        .await
     }
 
     pub async fn google(
@@ -110,8 +133,16 @@ impl AuthService {
         query: &AuthQuery,
         account: auth::TokenAccount,
     ) -> Result<Json<SessionResponse>, V2Error> {
-        authorize(headers, state, query)?;
-        social::token("Google", &account.token, &query.username)
+        let create = authorize(headers, state, query)?;
+        social::token(
+            state,
+            verify::Kind::Google,
+            &account.token,
+            &query.username,
+            create,
+            account.vars,
+        )
+        .await
     }
 
     pub async fn facebook_instant_game(
@@ -143,7 +174,7 @@ impl AuthService {
         query: &AuthQuery,
         account: auth::ProviderAccount,
     ) -> Result<Json<SessionResponse>, V2Error> {
-        authorize(headers, state, query)?;
-        social::provider(&account.provider, &query.username)
+        let create = authorize(headers, state, query)?;
+        social::provider(state, account, &query.username, create).await
     }
 }

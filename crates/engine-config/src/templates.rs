@@ -110,6 +110,20 @@ token_expires_sec = 3600
 # google_service_account = '{"type":"service_account", …}'
 # google_package_name = "com.example.game"
 # allow_unverified = false
+
+# Third-party sign-in (/v2/account/authenticate/{apple,facebook,google,steam}).
+# A provider with no credentials stays closed: Apple and Steam answer 400
+# "not configured", Google and Facebook answer 401 "could not authenticate".
+# `allow_unverified` maps any token to a hashed identity and is for local
+# development only — never ship it set.
+[control.social]
+# google_client_ids = "android-client-id,web-client-id"
+# apple_client_id = "com.example.game"
+# facebook_app_id = "…"
+# facebook_app_secret = "…"
+# steam_app_id = 0
+# steam_web_api_key = "…"
+# allow_unverified = false
 "#;
 
 /// Historical flat-source template, kept for reference only. New projects use
