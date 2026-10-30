@@ -159,5 +159,48 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     if std::env::var("OX_IAP_ALLOW_UNVERIFIED").is_ok_and(|v| v == "1") {
         cfg.control.iap.allow_unverified = true;
     }
+    for (name, field) in [
+        (
+            "OX_SOCIAL_GOOGLE_TOKENINFO_URL",
+            &mut cfg.control.social.google_tokeninfo_url,
+        ),
+        ("OX_SOCIAL_APPLE_CLIENT_ID", &mut cfg.control.social.apple_client_id),
+        ("OX_SOCIAL_APPLE_KEYS_URL", &mut cfg.control.social.apple_keys_url),
+        (
+            "OX_SOCIAL_FACEBOOK_APP_ID",
+            &mut cfg.control.social.facebook_app_id,
+        ),
+        (
+            "OX_SOCIAL_FACEBOOK_APP_SECRET",
+            &mut cfg.control.social.facebook_app_secret,
+        ),
+        (
+            "OX_SOCIAL_FACEBOOK_GRAPH_URL",
+            &mut cfg.control.social.facebook_graph_url,
+        ),
+        (
+            "OX_SOCIAL_STEAM_WEB_API_KEY",
+            &mut cfg.control.social.steam_web_api_key,
+        ),
+        ("OX_SOCIAL_STEAM_API_URL", &mut cfg.control.social.steam_api_url),
+    ] {
+        if let Ok(v) = std::env::var(name)
+            && !v.is_empty()
+        {
+            *field = v;
+        }
+    }
+    if let Ok(v) = std::env::var("OX_SOCIAL_GOOGLE_CLIENT_IDS") {
+        cfg.control.social.google_client_ids = crate::social::split_ids(&v);
+    }
+    if let Ok(v) = std::env::var("OX_SOCIAL_STEAM_APP_ID")
+        && let Ok(app_id) = v.parse()
+        && app_id > 0
+    {
+        cfg.control.social.steam_app_id = app_id;
+    }
+    if std::env::var("OX_SOCIAL_ALLOW_UNVERIFIED").is_ok_and(|v| v == "1") {
+        cfg.control.social.allow_unverified = true;
+    }
     Ok(cfg)
 }

@@ -109,6 +109,28 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "iap_allow_unverified" => {
             cfg.control.iap.allow_unverified = value.parse().unwrap_or(cfg.control.iap.allow_unverified)
         }
+        "social_google_client_ids" => {
+            cfg.control.social.google_client_ids = crate::social::split_ids(value)
+        }
+        "social_google_tokeninfo_url" => {
+            cfg.control.social.google_tokeninfo_url = value.to_string()
+        }
+        "social_apple_client_id" => cfg.control.social.apple_client_id = value.to_string(),
+        "social_apple_keys_url" => cfg.control.social.apple_keys_url = value.to_string(),
+        "social_facebook_app_id" => cfg.control.social.facebook_app_id = value.to_string(),
+        "social_facebook_app_secret" => cfg.control.social.facebook_app_secret = value.to_string(),
+        "social_facebook_graph_url" => cfg.control.social.facebook_graph_url = value.to_string(),
+        "social_steam_app_id" => {
+            cfg.control.social.steam_app_id =
+                value.parse().unwrap_or(cfg.control.social.steam_app_id)
+        }
+        "social_steam_web_api_key" => cfg.control.social.steam_web_api_key = value.to_string(),
+        "social_steam_api_url" => cfg.control.social.steam_api_url = value.to_string(),
+        "social_allow_unverified" => {
+            cfg.control.social.allow_unverified = value
+                .parse()
+                .unwrap_or(cfg.control.social.allow_unverified)
+        }
         _ => {}
     }
 }
