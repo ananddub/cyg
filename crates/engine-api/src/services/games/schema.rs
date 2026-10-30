@@ -6,5 +6,3 @@ pub static DEFAULT_GAME_CONFIG_JSON: &str =
 pub async fn ensure_schema(db: &Datastore) -> Result<(), DbError> {
     crate::db::schema::ensure_schema(db).await
 }
-
-pub async fn ensure_tenant_schema(_db: &Datastore) {}

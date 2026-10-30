@@ -69,6 +69,8 @@ impl FriendController {
             .into_response()
     }
 
+    // Intentionally open: both imports are pure refusals until a vendor graph
+    // key is configured, so there is no state for an anonymous caller to touch.
     #[post("/facebook")]
     async fn import_facebook_friends(&self) -> Response {
         self.service.import_facebook_friends().await.into_response()

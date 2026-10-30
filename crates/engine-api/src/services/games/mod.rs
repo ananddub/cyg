@@ -2,7 +2,7 @@ pub mod schema;
 pub mod service;
 pub mod tenant;
 
-pub use schema::{ensure_schema, ensure_tenant_schema};
+pub use schema::ensure_schema;
 pub use service::GamesService;
 
 pub const GAME_KEY_PREFIX: &str = "gm_";

@@ -20,7 +20,6 @@ pub async fn app(state: ApiState) -> Result<Router, crate::db::DbError> {
         if !steps.is_empty() {
             tracing::info!("[migrations] {} step(s) applied", steps.len());
         }
-        crate::services::games::ensure_tenant_schema(pool).await;
         match crate::services::games::tenant::resolve(&state).await {
             Ok(Some(game)) => {
                 tracing::info!(
