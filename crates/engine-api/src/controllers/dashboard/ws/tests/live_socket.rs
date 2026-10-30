@@ -10,7 +10,7 @@ use super::overview_keys;
 use crate::infra::console::{ConsoleRole, mint};
 use crate::{ApiState, serve};
 
-fn console_token() -> String {
+pub(crate) fn console_token() -> String {
     mint("tester", "tester", "tester@example.com", ConsoleRole::Admin)
 }
 
