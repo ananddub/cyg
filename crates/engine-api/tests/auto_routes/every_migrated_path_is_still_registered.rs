@@ -317,6 +317,23 @@ pub async fn every_migrated_path_is_still_registered() {
         ("POST", "/v2/console/badges"),
         ("PUT", "/v2/console/badges/example"),
         ("DELETE", "/v2/console/badges/example"),
+        ("GET", "/v2/flags"),
+        ("GET", "/v2/console/flags"),
+        ("POST", "/v2/console/flags"),
+        ("PUT", "/v2/console/flags/example"),
+        ("DELETE", "/v2/console/flags/example"),
+        ("POST", "/v2/console/flags/example/rollout"),
+        ("POST", "/v2/console/flags/example/stop"),
+        ("GET", "/v2/console/flags/example/variants"),
+        ("POST", "/v2/console/flags/example/variants"),
+        ("PUT", "/v2/console/flags/example/variants/control"),
+        ("DELETE", "/v2/console/flags/example/variants/control"),
+        ("GET", "/v2/console/flags/example/overrides"),
+        ("PUT", "/v2/console/flags/example/overrides"),
+        (
+            "DELETE",
+            "/v2/console/flags/example/overrides/00000000-0000-0000-0000-000000000000",
+        ),
     ];
 
     let mut paths: Vec<&str> = routes.iter().map(|(_, path)| *path).collect();

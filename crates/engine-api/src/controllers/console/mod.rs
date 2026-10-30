@@ -3,6 +3,7 @@ pub mod audit;
 pub mod auth;
 pub mod badge;
 pub mod economy;
+pub mod flag;
 pub mod games;
 pub mod group;
 pub mod iap;

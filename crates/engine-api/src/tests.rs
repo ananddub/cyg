@@ -1,6 +1,7 @@
 mod authenticate;
 mod badge;
 mod console;
+mod flag;
 pub(crate) mod games;
 mod gateway;
 mod iap;

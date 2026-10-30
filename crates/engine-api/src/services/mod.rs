@@ -6,6 +6,7 @@ pub mod dashboard;
 pub(crate) mod deps;
 pub mod friend;
 pub mod games;
+pub mod flag;
 pub mod group;
 pub mod iap;
 pub(crate) mod idempotency;

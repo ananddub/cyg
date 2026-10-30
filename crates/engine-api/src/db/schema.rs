@@ -22,6 +22,9 @@ pub fn ddl() -> Vec<&'static str> {
         ConsoleAuditLog,
         ConsoleUser,
         DesyncReport,
+        FeatureFlag,
+        FlagOverride,
+        FlagVariant,
         GameConfigVersion,
         GameMaps,
         Games,
@@ -79,7 +82,7 @@ mod tests {
             ddl.iter()
                 .filter(|line| line.starts_with("DEFINE TABLE"))
                 .count(),
-            44
+            47
         );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {

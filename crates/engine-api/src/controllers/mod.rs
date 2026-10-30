@@ -5,6 +5,7 @@ pub mod channel;
 pub mod console;
 pub mod dashboard;
 pub mod events;
+pub mod flag;
 pub mod friend;
 pub mod group;
 pub mod health;

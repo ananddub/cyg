@@ -5,6 +5,7 @@ pub mod auth;
 pub mod badge;
 pub mod channel;
 pub mod console;
+pub mod flag;
 pub mod friend;
 pub mod group;
 pub mod iap;

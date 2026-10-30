@@ -7,6 +7,7 @@ pub mod console;
 pub mod console_mutations;
 pub mod db;
 pub mod economy;
+pub mod flag;
 pub mod friend;
 pub mod game_maps;
 pub mod gameplay_event;
