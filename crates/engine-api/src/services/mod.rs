@@ -20,6 +20,7 @@ pub mod match_result;
 pub mod matchmake;
 pub mod notification;
 pub mod quest;
+pub mod quota;
 pub mod realtime;
 pub mod rules;
 pub mod session;

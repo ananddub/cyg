@@ -10,7 +10,7 @@ fn bucket_count_and_queue_are_both_bounded() {
         l.allow(walk.next());
     }
     assert!(l.tracked() <= MAX_BUCKETS, "tracked {}", l.tracked());
-    assert_eq!(l.order.len(), l.tracked(), "one queue entry per bucket");
+    assert_eq!(l.ips.order.len(), l.tracked(), "one queue entry per bucket");
     assert!(l.tracked() > 0, "reclaiming does not empty the limiter");
     let mut slow = IpRateLimiter::with_rates(0.0001, 1.0);
     let mut walk = SourceWalk { n: 0 };
@@ -18,7 +18,7 @@ fn bucket_count_and_queue_are_both_bounded() {
         slow.allow(walk.next());
     }
     assert_eq!(slow.tracked(), MAX_BUCKETS);
-    assert_eq!(slow.order.len(), slow.tracked());
+    assert_eq!(slow.ips.order.len(), slow.tracked());
 }
 
 #[test]
@@ -43,12 +43,12 @@ fn a_flood_at_the_ceiling_costs_bounded_work_per_request() {
 #[test]
 fn a_reclaimable_slot_is_found_even_at_the_back_of_the_rotation() {
     let (mut l, mut walk) = flood_to_ceiling();
-    let stale = *l.order.back().unwrap();
-    let burst = l.burst;
-    l.buckets.get_mut(&stale).unwrap().tokens = burst;
+    let stale = *l.ips.order.back().unwrap();
+    let burst = l.ips.burst;
+    l.ips.buckets.get_mut(&stale).unwrap().tokens = burst;
     let limit = (MAX_BUCKETS / MAKEROOM_SCAN_BUDGET) as u32 + 2;
     let mut admissions = 0u32;
-    while l.buckets.contains_key(&stale) {
+    while l.ips.buckets.contains_key(&stale) {
         admissions += 1;
         assert!(admissions <= limit, "the rotation never reached the slot");
         l.allow(walk.next());

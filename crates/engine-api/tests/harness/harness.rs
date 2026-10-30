@@ -4,6 +4,38 @@ pub const CONSOLE_USER: &str = "e2e-admin";
 pub const CONSOLE_PASSWORD: &str = "e2e-password";
 pub const SERVER_KEY: &str = "e2e-server-key";
 pub const GAME_NAME: &str = "e2e-game";
+
+/// The control block every suite boots from: an ephemeral API port, `mem://`,
+/// and the shared server key, console login, and signing keys.
+pub fn control_config(port: u16) -> ControlConfig {
+    ControlConfig {
+        api_port: port,
+        seat_secret: "e2e-seat-secret".into(),
+        rate_limit_rps: 1000,
+        rate_limit_burst: 1000,
+        session: SessionConfig {
+            database_endpoint: "mem://".into(),
+            signing_key: "e2e-signing-key".into(),
+            refresh_signing_key: "e2e-refresh-signing-key".into(),
+            server_key: SERVER_KEY.into(),
+            token_expiry_secs: 3_600,
+            refresh_expiry_secs: 7_200,
+            ..SessionConfig::default()
+        },
+        console: ConsoleConfig {
+            username: CONSOLE_USER.into(),
+            password: CONSOLE_PASSWORD.into(),
+            signing_key: "e2e-console-signing-key".into(),
+            token_expiry_secs: 3_600,
+        },
+        iap: IapConfig {
+            allow_unverified: true,
+            ..IapConfig::default()
+        },
+        ..ControlConfig::default()
+    }
+}
+
 pub struct Harness {
     pub base: String,
     pub port: u16,
@@ -16,37 +48,18 @@ pub struct Harness {
 }
 impl Harness {
     pub async fn start() -> Harness {
+        Self::start_with(control_config).await
+    }
+
+    /// The same plane over a control block the suite wrote for itself: quotas,
+    /// rate limits, or any other window a test needs tuned.
+    pub async fn start_with(build: impl FnOnce(u16) -> ControlConfig) -> Harness {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
             .expect("bind an ephemeral API port");
         let port = listener.local_addr().expect("listener address").port();
 
-        let control = ControlConfig {
-            api_port: port,
-            seat_secret: "e2e-seat-secret".into(),
-            rate_limit_rps: 1000,
-            rate_limit_burst: 1000,
-            session: SessionConfig {
-                database_endpoint: "mem://".into(),
-                signing_key: "e2e-signing-key".into(),
-                refresh_signing_key: "e2e-refresh-signing-key".into(),
-                server_key: SERVER_KEY.into(),
-                token_expiry_secs: 3_600,
-                refresh_expiry_secs: 7_200,
-                ..SessionConfig::default()
-            },
-            console: ConsoleConfig {
-                username: CONSOLE_USER.into(),
-                password: CONSOLE_PASSWORD.into(),
-                signing_key: "e2e-console-signing-key".into(),
-                token_expiry_secs: 3_600,
-            },
-            iap: IapConfig {
-                allow_unverified: true,
-                ..IapConfig::default()
-            },
-            ..ControlConfig::default()
-        };
+        let control = build(port);
         let game = GameConfig {
             name: GAME_NAME.into(),
             port: 7777,

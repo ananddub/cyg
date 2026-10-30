@@ -101,16 +101,20 @@ impl ApiState {
             control.session.token_expiry_secs,
             control.session.refresh_expiry_secs,
         ));
+        // The per-account bucket stays off with the quotas, so a plane that has
+        // not opted in cannot start refusing authenticated traffic.
+        let mut limiter =
+            rate_limit::IpRateLimiter::new(control.rate_limit_rps, control.rate_limit_burst);
+        if control.quotas.enabled {
+            limiter.set_player_rates(control.quotas.player_rps, control.quotas.player_burst);
+        }
         ApiState {
             control: Arc::new(control.clone()),
             game: Arc::new(game.clone()),
             seats: Arc::new(std::sync::Mutex::new(seats::SeatRegistry::new(
                 &control.seat_secret,
             ))),
-            limiter: Arc::new(std::sync::Mutex::new(rate_limit::IpRateLimiter::new(
-                control.rate_limit_rps,
-                control.rate_limit_burst,
-            ))),
+            limiter: Arc::new(std::sync::Mutex::new(limiter)),
             signals: signaling::SignalHub::new(game.voice_ice_servers.clone()),
             statics: Arc::new(crate::services::static_routes::StaticServer::new(
                 project_dir,

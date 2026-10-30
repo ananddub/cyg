@@ -11,6 +11,7 @@ use crate::repositories::models::{WebhookDelivery, WebhookEndpoint};
 use crate::repositories::webhook::QUEUED;
 use crate::services::console::{audit, id};
 use crate::services::deps::q;
+use crate::services::quota;
 
 use super::WebhookService;
 
@@ -94,6 +95,11 @@ impl WebhookService {
         claims.require_write()?;
         let endpoint_id = id(endpoint_id, "webhook endpoint")?;
         let delivery_id = id(delivery_id, "webhook delivery")?;
+        // An operator re-queue costs an outbound post, so it is charged like a
+        // player's spend. An id that is no account id cannot be bucketed.
+        if let Some(actor) = claims.0.uuid() {
+            quota::charge(state, actor, quota::WEBHOOK_RETRY, 1).await?;
+        }
         let queries = q(state).await?;
         let Some(row) = queries.delivery(delivery_id).await? else {
             return Err(V2Error::not_found("Webhook delivery not found."));

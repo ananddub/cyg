@@ -1,5 +1,15 @@
 use crate::game::{GameConfig, Runtime};
 
+/// `[control.quotas]` keys that configure the limiter rather than name a scope.
+const QUOTA_KEYS: &[&str] = &[
+    "enabled",
+    "exempt_console",
+    "player_rps",
+    "player_burst",
+    "default_cap",
+    "default_window_secs",
+];
+
 pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
     let int = |k: &str| table.get(k).and_then(|v| v.as_integer());
     let float = |k: &str| {
@@ -380,6 +390,57 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
             }
             if let Some(v) = s.get("allow_unverified").and_then(|v| v.as_bool()) {
                 cfg.control.social.allow_unverified = v;
+            }
+        }
+        if let Some(q) = c.get("quotas").and_then(|v| v.as_table()) {
+            if let Some(v) = q.get("enabled").and_then(|v| v.as_bool()) {
+                cfg.control.quotas.enabled = v;
+            }
+            if let Some(v) = q.get("exempt_console").and_then(|v| v.as_bool()) {
+                cfg.control.quotas.exempt_console = v;
+            }
+            for (key, field) in [
+                ("player_rps", &mut cfg.control.quotas.player_rps),
+                ("player_burst", &mut cfg.control.quotas.player_burst),
+            ] {
+                if let Some(v) = q.get(key).and_then(|v| v.as_integer()).filter(|v| *v > 0) {
+                    *field = v as u32;
+                }
+            }
+            if let Some(v) = q.get("default_cap").and_then(|v| v.as_integer()) {
+                cfg.control.quotas.fallback.cap = v.max(0) as u32;
+            }
+            if let Some(v) = q
+                .get("default_window_secs")
+                .and_then(|v| v.as_integer())
+                .filter(|v| *v > 0)
+            {
+                cfg.control.quotas.fallback.period_secs = v as u64;
+            }
+            // Any other key names a charged scope: an integer is its cap and
+            // keeps that scope's window, a table sets both.
+            for (name, value) in q {
+                if QUOTA_KEYS.contains(&name.as_str()) {
+                    continue;
+                }
+                let mut scope = cfg.control.quotas.window(name);
+                if let Some(cap) = value.as_integer() {
+                    scope.cap = cap.max(0) as u32;
+                } else if let Some(t) = value.as_table() {
+                    if let Some(cap) = t.get("cap").and_then(|v| v.as_integer()) {
+                        scope.cap = cap.max(0) as u32;
+                    }
+                    if let Some(secs) = t
+                        .get("period_secs")
+                        .and_then(|v| v.as_integer())
+                        .filter(|v| *v > 0)
+                    {
+                        scope.period_secs = secs as u64;
+                    }
+                } else {
+                    continue;
+                }
+                cfg.control.quotas.scopes.insert(name.clone(), scope);
             }
         }
     }

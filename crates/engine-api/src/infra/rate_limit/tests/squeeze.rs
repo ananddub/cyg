@@ -25,7 +25,7 @@ fn the_ceiling_drops_refilled_buckets_rather_than_exhausted_ones() {
         !l.allow(first),
         "an exhausted source must not be handed a fresh bucket by eviction"
     );
-    assert_eq!(l.order.len(), l.tracked(), "the queue tracks the map");
+    assert_eq!(l.ips.order.len(), l.tracked(), "the queue tracks the map");
     assert_eq!(l.squeezed(), 0, "first had a bucket, it was just empty");
 }
 

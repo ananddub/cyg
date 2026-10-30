@@ -363,4 +363,46 @@ match_history_ttl_days = 365
         assert_eq!(cfg.gameplay.event_ttl_days, 14);
         assert_eq!(cfg.gameplay.match_history_ttl_days, 365);
     }
+
+    /// A bare number is a scope's cap and keeps that scope's window; a table sets
+    /// both. Anything the game did not name falls back to the default window.
+    #[test]
+    fn a_quota_block_tunes_the_windows_it_names() {
+        use crate::quota::{self, QuotaConfig};
+        let cfg = parse_config(
+            r#"
+[control.quotas]
+enabled = true
+player_rps = 5
+player_burst = 7
+login = 3
+[control.quotas."channel.send"]
+cap = 10
+period_secs = 30
+"#,
+        );
+        let quotas = &cfg.control.quotas;
+        assert!(quotas.enabled);
+        assert!(
+            quotas.exempt_console,
+            "exemption holds until an operator drops it"
+        );
+        assert_eq!(quotas.player_rps, 5);
+        assert_eq!(quotas.player_burst, 7);
+        assert_eq!(quotas.window(quota::LOGIN).cap, 3);
+        assert_eq!(
+            quotas.window(quota::LOGIN).period_secs,
+            QuotaConfig::default().window(quota::LOGIN).period_secs
+        );
+        assert_eq!(quotas.window(quota::CHANNEL_SEND).cap, 10);
+        assert_eq!(quotas.window(quota::CHANNEL_SEND).period_secs, 30);
+        assert_eq!(quotas.window("nobody.listed.this").cap, 60, "the fallback");
+    }
+
+    #[test]
+    fn a_quota_scope_can_be_switched_off_with_a_zero_cap() {
+        use crate::quota;
+        let cfg = parse_config("[control.quotas]\nenabled = true\nlogin = 0\n");
+        assert_eq!(cfg.control.quotas.window(quota::LOGIN).cap, 0);
+    }
 }

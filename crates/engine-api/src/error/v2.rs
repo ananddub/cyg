@@ -48,6 +48,8 @@ impl ErrorKind {
 pub struct V2Error {
     pub kind: ErrorKind,
     pub message: String,
+    /// Sent as `Retry-After` when set; only a quota refusal knows the wait.
+    pub retry_after: Option<u32>,
 }
 
 impl V2Error {
@@ -55,7 +57,15 @@ impl V2Error {
         V2Error {
             kind,
             message: message.into(),
+            retry_after: None,
         }
+    }
+    pub fn resource_exhausted(message: impl Into<String>) -> V2Error {
+        V2Error::new(RESOURCE_EXHAUSTED, message)
+    }
+    pub fn with_retry_after(mut self, secs: u32) -> V2Error {
+        self.retry_after = Some(secs);
+        self
     }
     pub fn invalid_argument(message: impl Into<String>) -> V2Error {
         V2Error::new(INVALID_ARGUMENT, message)
@@ -170,6 +180,13 @@ impl IntoResponse for V2Error {
             },
         });
         let mut response = (status, body).into_response();
+        if let Some(secs) = self.retry_after {
+            if let Ok(value) = axum::http::HeaderValue::from_str(&secs.to_string()) {
+                response
+                    .headers_mut()
+                    .insert(axum::http::header::RETRY_AFTER, value);
+            }
+        }
         if status == StatusCode::UNAUTHORIZED {
             response.headers_mut().insert(
                 axum::http::header::WWW_AUTHENTICATE,

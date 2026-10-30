@@ -16,6 +16,7 @@ use crate::repositories::auth::{
 use crate::repositories::db::Queries;
 use crate::repositories::models::Users;
 use crate::services::deps::q;
+use crate::services::quota;
 use crate::utils::auth::{existing, insert_failed, lookup_failed, session};
 
 pub(crate) async fn token(
@@ -44,6 +45,7 @@ pub(crate) async fn token(
     match found {
         Ok(user) => {
             let user = existing(user)?;
+            quota::charge(state, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(DbError::NotFound) if create => {
@@ -67,6 +69,7 @@ pub(crate) async fn token(
                 }),
             )
             .await;
+            quota::charge(state, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),

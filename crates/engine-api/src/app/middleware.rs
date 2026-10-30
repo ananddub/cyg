@@ -1,6 +1,7 @@
 use axum::extract::FromRequestParts;
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
+use axum::response::IntoResponse;
 use base64::Engine;
 use tracing::Instrument;
 use uuid::Uuid;
@@ -160,6 +161,50 @@ pub fn console_token_claims(token: &str) -> Result<ConsoleClaims, V2Error> {
         return Err(invalid());
     }
     Ok(claims)
+}
+
+/// The account a request speaks for. A token that verifies as neither a player
+/// session nor an unexempted operator is the handler's problem, not the
+/// limiter's: it answers with the refusal its own route already gives.
+fn bucketed(headers: &HeaderMap, state: &crate::ApiState) -> Option<Uuid> {
+    if auth_headers(headers) != 1 {
+        return None;
+    }
+    if let Ok(claims) = session_claims(headers, state) {
+        return claims.uuid().ok();
+    }
+    if state.control.quotas.exempt_console {
+        return None;
+    }
+    console_claims(headers).ok()?.uuid()
+}
+
+/// The per-account request bucket, applied to the whole plane instead of to the
+/// expensive handlers one by one. Off with the quotas.
+pub async fn player_rate_limit(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let state = crate::current_state();
+    if !state.control.quotas.enabled {
+        return next.run(request).await;
+    }
+    if let Some(refusal) = rate_refusal(&state, request.headers()) {
+        return refusal.into_response();
+    }
+    next.run(request).await
+}
+
+/// `None` means the request goes through — either it has tokens left or it is
+/// not the limiter's to judge.
+fn rate_refusal(state: &crate::ApiState, headers: &HeaderMap) -> Option<V2Error> {
+    let uid = bucketed(headers, state)?;
+    let mut limiter = state.limiter.lock().ok()?;
+    if limiter.allow_player(uid) {
+        return None;
+    }
+    let secs = limiter.retry_after_player(uid).max(1);
+    Some(V2Error::resource_exhausted("This account is asking too quickly.").with_retry_after(secs))
 }
 
 pub const REQUEST_ID_HEADER: &str = "x-request-id";

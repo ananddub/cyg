@@ -1,4 +1,5 @@
 use super::*;
+use crate::services::quota;
 use crate::services::webhook::emit;
 
 pub async fn device(
@@ -21,6 +22,7 @@ pub async fn device(
                 .await
                 .map_err(lookup_failed)?;
             let user = existing(user)?;
+            quota::charge(state, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(DbError::NotFound) if create => {
@@ -38,6 +40,7 @@ pub async fn device(
                 serde_json::json!({ "user_id": uid, "username": username, "method": "device" }),
             )
             .await;
+            quota::charge(state, uid, quota::LOGIN, 1).await?;
             Ok(session(uid, username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),
@@ -55,6 +58,7 @@ pub async fn custom(
     match queries.get_user_by_custom_id(id).await {
         Ok(user) => {
             let user = existing(user)?;
+            quota::charge(state, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(DbError::NotFound) if create => {
@@ -74,6 +78,7 @@ pub async fn custom(
                 serde_json::json!({ "user_id": user.id, "username": user.username, "method": "custom_id" }),
             )
             .await;
+            quota::charge(state, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),
@@ -95,6 +100,7 @@ pub async fn email(
         } => match queries.get_user_by_email(&email).await {
             Ok(user) => {
                 let user = existing(user)?;
+                quota::charge(state, user.id, quota::LOGIN, 1).await?;
                 check_password(&password, &user.password)?;
                 Ok(session(user.id, &user.username, false, vars))
             }
@@ -116,6 +122,7 @@ pub async fn email(
                     serde_json::json!({ "user_id": user.id, "username": user.username, "method": "email" }),
                 )
                 .await;
+                quota::charge(state, user.id, quota::LOGIN, 1).await?;
                 Ok(session(user.id, &user.username, true, vars))
             }
             Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),
@@ -129,6 +136,7 @@ pub async fn email(
                 }
                 Err(e) => return Err(lookup_failed(e)),
             };
+            quota::charge(state, user.id, quota::LOGIN, 1).await?;
             check_password(&password, &user.password)?;
             Ok(session(user.id, &user.username, false, vars))
         }

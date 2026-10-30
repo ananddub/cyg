@@ -57,8 +57,7 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
             cfg.lifecycle.persistent_rooms = crate::social::split_ids(value);
         }
         "drain_grace_secs" => {
-            cfg.lifecycle.drain_grace_secs =
-                value.parse().unwrap_or(cfg.lifecycle.drain_grace_secs)
+            cfg.lifecycle.drain_grace_secs = value.parse().unwrap_or(cfg.lifecycle.drain_grace_secs)
         }
         "max_ticks_per_frame" => {
             cfg.watchdog.max_ticks_per_frame =
@@ -96,6 +95,20 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         }
         "rate_limit_burst" => {
             cfg.control.rate_limit_burst = value.parse().unwrap_or(cfg.control.rate_limit_burst)
+        }
+        "quotas_enabled" => {
+            cfg.control.quotas.enabled = value.parse().unwrap_or(cfg.control.quotas.enabled)
+        }
+        "quota_exempt_console" => {
+            cfg.control.quotas.exempt_console =
+                value.parse().unwrap_or(cfg.control.quotas.exempt_console)
+        }
+        "quota_player_rps" => {
+            cfg.control.quotas.player_rps = value.parse().unwrap_or(cfg.control.quotas.player_rps)
+        }
+        "quota_player_burst" => {
+            cfg.control.quotas.player_burst =
+                value.parse().unwrap_or(cfg.control.quotas.player_burst)
         }
         "agones_enabled" => {
             cfg.control.agones.enabled = value.parse().unwrap_or(cfg.control.agones.enabled)

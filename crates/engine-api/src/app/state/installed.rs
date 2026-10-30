@@ -72,6 +72,9 @@ pub fn with_plane_state(
 ) -> axum::Router {
     router
         .layer(axum::middleware::from_fn(
+            crate::app::middleware::player_rate_limit,
+        ))
+        .layer(axum::middleware::from_fn(
             crate::app::middleware::request_id,
         ))
         .layer(axum::middleware::from_fn(attach_state))

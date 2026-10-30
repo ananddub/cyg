@@ -1,5 +1,6 @@
 mod basics;
 mod ceilings;
+mod player;
 mod retry;
 mod squeeze;
 

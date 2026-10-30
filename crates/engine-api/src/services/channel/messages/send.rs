@@ -7,6 +7,7 @@ use crate::dto::channel::{MessageResponse, SendRequest};
 use crate::error::V2Error;
 use crate::repositories::channel::InsertChannelMessageParams;
 use crate::services::deps::q;
+use crate::services::quota;
 
 use crate::utils::channel::stream_of_channel;
 
@@ -30,6 +31,7 @@ impl ChannelService {
             ));
         }
         let content = crate::moderation::sanitize_json(body.content);
+        quota::charge(state, uid, quota::CHANNEL_SEND, 1).await?;
         let msg = q(state)
             .await?
             .insert_channel_message(&InsertChannelMessageParams {

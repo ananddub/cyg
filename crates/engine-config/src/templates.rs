@@ -99,6 +99,24 @@ rate_limit_rps = 20
 rate_limit_burst = 40
 # seat_secret = "change-me"   # prefer the OX_SEAT_SECRET environment variable
 
+# Per-player quotas. Each charged route spends from a named window, and the
+# over-cap refusal carries a Retry-After. Off until a game opts in: a cap that
+# fires on chat or storage writes is an operator's decision.
+# player_rps/player_burst is the in-process bucket every authenticated request
+# passes through; the windows below are the durable per-account budgets.
+[control.quotas]
+enabled = false
+exempt_console = true
+player_rps = 20
+player_burst = 40
+# A scope key is either a cap (keeping that scope's window) or a table:
+# login = 20
+# [control.quotas."channel.send"]
+# cap = 60
+# period_secs = 60
+# default_cap = 60          # window for a scope nobody listed
+# default_window_secs = 60
+
 # Agones sidecar lifecycle: Ready, Allocated and the Health ping loop.
 [control.agones]
 enabled = false

@@ -1,4 +1,5 @@
 use crate::services::deps::q;
+use crate::services::quota;
 
 use super::*;
 
@@ -16,6 +17,15 @@ impl super::super::StorageService {
         for object in &body.objects {
             check_write(object)?;
         }
+        // A write of many objects spends many units of the window, so one large
+        // batch cannot stand in for a thousand small ones.
+        quota::charge(
+            state,
+            owner,
+            quota::STORAGE_WRITE,
+            body.objects.len() as u32,
+        )
+        .await?;
 
         let mut ordered: Vec<(usize, WriteObject)> = body.objects.into_iter().enumerate().collect();
         ordered.sort_by(|a, b| {

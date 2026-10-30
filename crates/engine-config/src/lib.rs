@@ -13,6 +13,8 @@ mod netcode;
 /// The node's own name, for the room registry's owner column.
 pub mod node;
 mod parse;
+/// Per-player quota knobs and the scope names the API charges.
+pub mod quota;
 mod rotation;
 mod secret_audit;
 mod session;
