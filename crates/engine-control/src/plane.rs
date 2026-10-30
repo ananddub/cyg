@@ -16,6 +16,10 @@ pub struct ControlPlane {
     /// The hosted game's active map assets, fetched from `game_maps` while the
     /// plane came up (empty without a database or uploaded maps).
     pub(crate) boot_maps: engine_config::BootMaps,
+    /// The hosted game's active room module, fetched from `room_modules` and
+    /// the blob store while the plane came up (`None` without a database, an
+    /// uploaded module, or readable bytes).
+    pub(crate) boot_module: Option<engine_config::BootModule>,
 }
 
 impl ControlPlane {
@@ -36,6 +40,12 @@ impl ControlPlane {
     /// local project files are the fallback either way.
     pub fn boot_maps(&self) -> engine_config::BootMaps {
         self.boot_maps.clone()
+    }
+
+    /// The hosted game's active room module, fetched once while the plane came
+    /// up. `None` means the host keeps its locally compiled module.
+    pub fn boot_module(&self) -> Option<engine_config::BootModule> {
+        self.boot_module.clone()
     }
 }
 

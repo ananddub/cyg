@@ -50,6 +50,19 @@ pub fn spawn(
         );
     }
 
+    // The console's active room module, fetched the same way: the host runs
+    // these bytes instead of whatever the project folder last compiled.
+    let boot_module =
+        runtime.block_on(engine_api::services::wasm::WasmService::load_boot_module(&state));
+    if let Some(module) = boot_module.as_ref() {
+        tracing::info!(
+            "[control] 📦 active room module from console: v{} ({} bytes, sha256 {}…)",
+            module.version,
+            module.bytes.len(),
+            &module.sha256[..module.sha256.len().min(12)]
+        );
+    }
+
     // One consumer of the bus status queue, so `/status` always has the newest
     // sample without touching the simulation thread's lock-free path.
     runtime.spawn(pump(state.clone()));
@@ -77,7 +90,13 @@ pub fn spawn(
         });
     }
 
-    Ok(ControlPlane { runtime, state, port, boot_maps })
+    Ok(ControlPlane {
+        runtime,
+        state,
+        port,
+        boot_maps,
+        boot_module,
+    })
 }
 
 /// Refuse to boot the control plane on well-known default secrets. A default-

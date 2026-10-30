@@ -256,6 +256,12 @@ experimental SurrealDB feature: a **remote** server must be started with
 after a restart and per-process — use `s3:` or a shared `file:` path for
 multi-replica deployments.
 
+The host loop runs the game's **active** module from the console: the control
+plane fetches it at boot and every upload/activation publishes the version's
+bytes on the reload bus, so live rooms hot-swap onto them after a SHA-256 check
+against the row. The project folder's compiled `room_logic.wasm` is the
+fallback when no module has been uploaded.
+
 ### Realtime (change feed)
 
 Console views do not poll the database for account rows. SurrealDB's

@@ -79,12 +79,14 @@ impl WasmService {
         game_key: &str,
         module: &ModuleDto,
         kind: ReloadKind,
+        bytes: Vec<u8>,
     ) {
         let _ = state.bus.reloads_tx.try_send(WasmReload {
             game_id: game_id.to_string(),
             game_key: game_key.to_owned(),
             version: module.version,
             sha256: module.sha256.clone(),
+            bytes,
             kind,
         });
     }

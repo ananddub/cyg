@@ -45,9 +45,10 @@ pub enum ReloadKind {
 }
 
 /// Control plane → sim: the active WASM module for one game changed and live
-/// rooms should be swapped onto it (Level 1 hot-reload). Identity only — the
-/// bytes stay in `room_modules`; the reader fetches the version it is told to
-/// load (engine-api `WasmService::get_module_bytes`).
+/// rooms should be swapped onto it (Level 1 hot-reload). The bytes ride along
+/// like [`MapReload`]: the sim thread has no database handle, and a reload is
+/// rare enough that one module on the queue is cheaper than an async fetch
+/// bridge out of the tick loop.
 #[derive(Clone, Debug)]
 pub struct WasmReload {
     /// `games.id` as text; the bus carries no database-handle types.
@@ -57,14 +58,16 @@ pub struct WasmReload {
     pub game_key: String,
     /// The newly active `room_modules.version`.
     pub version: i32,
-    /// SHA-256 hex of that version's binary — the integrity anchor the sim can
-    /// verify whatever it loads against.
+    /// SHA-256 hex of that version's binary — the integrity anchor the reader
+    /// checks the payload against before swapping.
     pub sha256: String,
+    /// The version's `.wasm` bytes, exactly as the blob store holds them.
+    pub bytes: Vec<u8>,
     pub kind: ReloadKind,
 }
 
-/// Control plane → sim: the active MAP for one game changed. Unlike wasm, the
-/// bytes ride along — a map is small, applied only at room spawn (new rooms
+/// Control plane → sim: the active MAP for one game changed. Like [`WasmReload`]
+/// the bytes ride along — a map is small, applied only at room spawn (new rooms
 /// clone the host's arena), and making the reader re-fetch over SQL buys
 /// nothing. Formats mirror `game_maps.format` (`oxcl`, `map2d`, `map3d`,
 /// `navmesh`).

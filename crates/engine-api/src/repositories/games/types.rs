@@ -41,6 +41,13 @@ pub struct FindRoomModuleBytesRow {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ActiveRoomModuleRow {
+    pub version: i32,
+    pub sha256: String,
+    pub blob_key: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeletedRoomModuleRow {
     pub blob_key: Option<String>,
 }

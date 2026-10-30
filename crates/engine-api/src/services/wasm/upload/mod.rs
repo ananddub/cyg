@@ -14,6 +14,7 @@ use crate::repositories::games::ListRoomModulesRow;
 mod require_wasm_mode;
 mod service;
 mod activate_module;
+mod boot_module;
 mod validate_binary;
 mod sha256_hex;
 

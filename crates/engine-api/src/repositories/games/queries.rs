@@ -226,6 +226,17 @@ impl Queries {
         )
         .await
     }
+    pub async fn active_room_module(
+        &self,
+        game_id: Uuid,
+    ) -> Result<Option<ActiveRoomModuleRow>, DbError> {
+        self.opt(
+            "SELECT version, sha256, blob_key FROM room_modules \
+             WHERE game_id = $game_id AND is_active LIMIT 1",
+            params!(game_id = game_id.to_string()),
+        )
+        .await
+    }
     pub async fn room_module_active_flag(
         &self,
         game_id: Uuid,

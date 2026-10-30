@@ -204,6 +204,11 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(promoted_request.kind, ReloadKind::Upload);
     assert_eq!(promoted_request.version, 1);
     assert_eq!(promoted_request.sha256, digest);
+    assert_eq!(
+        promoted_request.bytes,
+        ROOM_MODULE.to_vec(),
+        "the sim plane is handed the module itself, not an identity it cannot resolve"
+    );
     let published: Vec<_> = drained
         .into_iter()
         .filter(|request| request.game_id == wasm_game.id)
@@ -215,6 +220,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         assert_eq!(request.game_id, wasm_game.id, "{request:?}");
         assert_eq!(request.game_key, wasm_game.key, "{request:?}");
         assert_eq!(request.sha256, digest, "{request:?}");
+        assert_eq!(request.bytes, ROOM_MODULE.to_vec(), "{request:?}");
     }
 
     let listing = json_body(
@@ -276,6 +282,11 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(rolled_back_request.kind, ReloadKind::Rollback);
     assert_eq!(rolled_back_request.version, 1);
     assert_eq!(rolled_back_request.sha256, digest);
+    assert_eq!(
+        rolled_back_request.bytes,
+        ROOM_MODULE.to_vec(),
+        "a rollback hands the older version's bytes to the sim as well"
+    );
     let detail = json_body(
         env.client
             .get(format!("{}/v2/console/games/{}", env.base, wasm_game.id))
@@ -308,6 +319,11 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let activated_request = reloads(env).pop().expect("the activation published");
     assert_eq!(activated_request.kind, ReloadKind::Upload);
     assert_eq!(activated_request.version, 2);
+    assert_eq!(
+        activated_request.bytes,
+        ROOM_MODULE.to_vec(),
+        "activation re-reads the stored bytes for the sim"
+    );
 
     assert_eq!(
         refusal(

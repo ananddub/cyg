@@ -25,7 +25,7 @@ use engine_physics::PhysicsWorld3D;
 use engine_wasm::WasmRuntime;
 
 use crate::netcode;
-use crate::rooms::{self, GameRoom, GameServer};
+use crate::rooms::{self, GameRoom, GameServer, RoomHostData};
 use crate::telemetry::{PublishReport, Recorder};
 
 /// Pre-framed spectator "you are watching" confirm: `["delta"]` with id 0.
@@ -471,6 +471,50 @@ fn live_tick_rate(tick_interval: Duration) -> u32 {
     (1.0 / tick_interval.as_secs_f64()).round().max(1.0) as u32
 }
 
+/// Link and pre-instantiate a console module the control plane fetched.
+///
+/// The payload must hash to the digest the database recorded: a mismatch means
+/// the bytes are not the version the console activated, so nothing is swapped.
+fn prepare_console_module(
+    runtime: &WasmRuntime,
+    sha256: &str,
+    bytes: &[u8],
+    permissions: engine_wasm::AbiPermissions,
+) -> Result<engine_wasm::WasmPreInstance<RoomHostData>, String> {
+    use sha2::{Digest, Sha256};
+
+    let digest: String = Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    if !digest.eq_ignore_ascii_case(sha256) {
+        return Err(format!(
+            "sha256 mismatch: the bytes hash to {digest}, the row says {sha256}"
+        ));
+    }
+    let module = runtime.compile(bytes).map_err(|e| e.to_string())?;
+    let linker = rooms::build_host_linker(runtime, permissions);
+    runtime.prepare(&linker, &module).map_err(|e| e.to_string())
+}
+
+/// The project folder's compiled module — the fallback when the console holds
+/// no active version, and the source for the dev file watcher.
+fn prepare_file_module(
+    runtime: &WasmRuntime,
+    wasm_path: &Path,
+    permissions: engine_wasm::AbiPermissions,
+) -> Option<engine_wasm::WasmPreInstance<RoomHostData>> {
+    let module = runtime
+        .load_or_compile_cached(wasm_path)
+        .map_err(|e| tracing::info!("[server] load room module: {e}"))
+        .ok()?;
+    let linker = rooms::build_host_linker(runtime, permissions);
+    runtime
+        .prepare(&linker, &module)
+        .map_err(|e| tracing::info!("[server] load room module: {e}"))
+        .ok()
+}
+
 pub fn run(
     project_dir: &Path,
     wasm_path: &Path,
@@ -478,6 +522,7 @@ pub fn run(
     bus: Arc<Bus>,
     signals: Option<engine_api::infra::signaling::SignalHub>,
     boot_maps: engine_config::BootMaps,
+    boot_module: Option<engine_config::BootModule>,
 ) -> std::io::Result<()> {
     // ------------------------------------------------------------------
     // WASM runtime — the room logic module (hot-swappable).
@@ -812,19 +857,42 @@ pub fn run(
     // Link + pre-instantiate once; every room spawn after this is one
     // `InstancePre::instantiate` instead of rebuilding 12 host imports.
     //
-    // A missing or broken room module is not fatal: a project that ships only
-    // Unity C# gameplay has no `room.ts`, and the server still has to boot and
-    // serve Unity-relay rooms. We log it and carry on with `pre = None`.
-    let pre = runtime
-        .load_or_compile_cached(wasm_path)
-        .and_then(|module| {
-            let linker = rooms::build_host_linker(&runtime, cfg.permissions);
-            runtime.prepare(&linker, &module)
-        })
-        .map_err(|e| tracing::info!("[server] load room module: {e}"))
-        .ok();
+    // The console's active module wins over the project folder: it is what the
+    // operator activated, and the local file may predate it. A module that
+    // fails to link (or whose bytes miss the recorded digest) logs and falls
+    // back to the file, so a broken upload cannot take the server down.
+    //
+    // A missing or broken room module is not fatal either: a project that ships
+    // only Unity C# gameplay has no `room.ts`, and the server still has to boot
+    // and serve Unity-relay rooms. We log it and carry on with `pre = None`.
+    let mut console_active = false;
+    let pre = match boot_module.as_ref() {
+        Some(module) => {
+            match prepare_console_module(&runtime, &module.sha256, &module.bytes, cfg.permissions) {
+                Ok(pre) => {
+                    console_active = true;
+                    tracing::info!(
+                        "[server] 📦 room module v{} from the console loaded in {:.2?} ({} bytes)",
+                        module.version,
+                        wasm_load_start.elapsed(),
+                        module.bytes.len()
+                    );
+                    Some(pre)
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "[server] ⚠️ console room module v{} rejected: {e} — using {}",
+                        module.version,
+                        wasm_path.display()
+                    );
+                    prepare_file_module(&runtime, wasm_path, cfg.permissions)
+                }
+            }
+        }
+        None => prepare_file_module(&runtime, wasm_path, cfg.permissions),
+    };
     let wasm_available = pre.is_some();
-    if wasm_available {
+    if wasm_available && !console_active {
         let is_aot = wasm_path.with_extension("cwasm").exists();
         tracing::info!(
             "[server] ⚡ room module loaded in {:.2?} (mode: {})",
@@ -835,7 +903,7 @@ pub fn run(
                 "JIT compiled (.wasm)"
             }
         );
-    } else {
+    } else if !wasm_available {
         tracing::info!(
             "[server] 🧩 no room module — running Unity-relay rooms only (WASM rooms disabled)"
         );
@@ -2320,12 +2388,11 @@ pub fn run(
 
             // 0. Control-plane reloads: the console's wasm upload/activate
             // endpoints (`/v2/console/games/{gameId}/wasm*`, engine-api
-            // `WasmService`) publish a `WasmReload` on this bus whenever the
-            // active `room_modules` row changes. Drain them and force the same
-            // Level 1 in-memory swap the file watcher drives below.
-            let mut console_reload = false;
+            // `WasmService`) publish a `WasmReload` carrying the version's
+            // bytes whenever the active `room_modules` row changes. Only the
+            // newest request matters — older ones describe superseded versions.
+            let mut latest_reload: Option<engine_bus::WasmReload> = None;
             while let Ok(reload) = bus.reloads_rx.try_recv() {
-                console_reload = true;
                 tracing::info!(
                     "[server] 📦 console wasm reload: game '{}' {} v{} (sha256 {}…)",
                     reload.game_key,
@@ -2336,13 +2403,30 @@ pub fn run(
                     reload.version,
                     &reload.sha256[..reload.sha256.len().min(12)]
                 );
+                latest_reload = Some(reload);
             }
-            if console_reload && !wasm_available {
-                tracing::warn!(
-                    "[server] ⚠️ console reload ignored: this plane booted without a \
-                     room module at {} — nothing to hot-swap onto yet",
-                    wasm_path.display()
-                );
+            if let Some(reload) = latest_reload {
+                match prepare_console_module(
+                    &runtime,
+                    &reload.sha256,
+                    &reload.bytes,
+                    cfg.permissions,
+                ) {
+                    Ok(pre) => {
+                        console_active = true;
+                        server.hot_reload(pre, cfg.width, cfg.height);
+                        tracing::info!(
+                            "[server] 🔥 console module v{} swapped into live rooms",
+                            reload.version
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "[server] ⚠️ console reload v{} rejected: {e}",
+                            reload.version
+                        );
+                    }
+                }
             }
 
             // 0a. Console settings changes: only live-tunable knobs ride the
@@ -2418,14 +2502,11 @@ pub fn run(
 
             // 2. Detect changes in compiled wasm (either from step 1 or external compiler).
             // Skipped when the process booted without a room module — there is
-            // nothing to hot-swap onto. A step-0 console reload forces the same
-            // path even when the file mtime is unchanged.
-            if wasm_available {
+            // nothing to hot-swap onto — and once a console module is active:
+            // the uploaded version is authoritative, the local file is not.
+            if !console_active && wasm_available {
                 if let Ok(current) = std::fs::metadata(wasm_path).and_then(|m| m.modified()) {
-                    if console_reload
-                        || loaded_wasm_time != Some(current)
-                        || recompilation_triggered
-                    {
+                    if loaded_wasm_time != Some(current) || recompilation_triggered {
                         match runtime
                             .load_or_compile_cached(wasm_path)
                             .and_then(|module| {
@@ -2492,5 +2573,62 @@ mod loop_transport_tests {
         assert_eq!(sanitize_room_name("smoke?sessionId=alice&token=x"), "smoke");
         assert_eq!(sanitize_room_name("smoke?room=ignored"), "smoke");
         assert_eq!(sanitize_room_name("smoke/sessionId=alice"), "smoke/");
+    }
+}
+
+#[cfg(test)]
+mod console_module_tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    /// The module the console suites upload, so both halves of the path talk
+    /// about the same bytes.
+    const MODULE: &[u8] = include_bytes!("../../engine-net/examples/e2e/room_logic.wasm");
+
+    fn digest(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    #[test]
+    fn an_uploaded_module_is_prepared_and_hot_swapped_onto_the_host() {
+        let runtime = WasmRuntime::new().expect("a wasmtime runtime");
+        let pre = prepare_console_module(
+            &runtime,
+            &digest(MODULE),
+            MODULE,
+            engine_wasm::AbiPermissions::default(),
+        )
+        .expect("the console's bytes link against the host imports");
+
+        let mut server = GameServer::new(
+            None,
+            8,
+            PhysicsWorld3D::default(),
+            engine_wasm::AbiPermissions::default(),
+        );
+        server.hot_reload(pre, 100.0, 100.0);
+        let room = server.get_or_create("uploaded").expect("a room spawns");
+        assert!(
+            room.is_wasm(),
+            "rooms spawned after the swap run the uploaded module"
+        );
+    }
+
+    #[test]
+    fn bytes_that_do_not_match_the_recorded_digest_are_refused() {
+        let runtime = WasmRuntime::new().expect("a wasmtime runtime");
+        let err = match prepare_console_module(
+            &runtime,
+            &digest(b"some other module"),
+            MODULE,
+            engine_wasm::AbiPermissions::default(),
+        ) {
+            Ok(_) => panic!("the payload must hash to the version the row recorded"),
+            Err(err) => err,
+        };
+        assert!(err.contains("sha256 mismatch"), "{err}");
     }
 }

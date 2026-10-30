@@ -912,7 +912,16 @@ fn run(dir: &Path) -> std::io::Result<()> {
         .as_ref()
         .map(|plane| plane.boot_maps())
         .unwrap_or_default();
-    engine_server::host::run(&project_dir, &wasm_path, &cfg, bus, signals, boot_maps)
+    let boot_module = _control.as_ref().and_then(|plane| plane.boot_module());
+    engine_server::host::run(
+        &project_dir,
+        &wasm_path,
+        &cfg,
+        bus,
+        signals,
+        boot_maps,
+        boot_module,
+    )
 }
 
 /// `cyg-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.

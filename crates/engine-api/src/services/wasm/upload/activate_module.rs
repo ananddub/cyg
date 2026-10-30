@@ -22,6 +22,7 @@ impl WasmService {
                 "Module version {version} not found."
             )));
         };
+        let (_, bytes) = self.get_module_bytes(state, game_id, version).await?;
 
         queries
             .activate_room_module(game_id, version)
@@ -30,7 +31,7 @@ impl WasmService {
 
         let mut module = module_dto(row);
         module.is_active = true;
-        Self::publish_reload(state, game_id, &game_key, &module, kind);
+        Self::publish_reload(state, game_id, &game_key, &module, kind, bytes);
         Ok(module)
     }
     pub async fn delete_module(
@@ -93,13 +94,20 @@ impl WasmService {
                 game_id,
                 InsertModuleParams {
                     filename,
-                    binary_bytes,
+                    binary_bytes: binary_bytes.clone(),
                     source_code,
                     sha256: sha256.clone(),
                 },
             )
             .await?;
-        Self::publish_reload(state, game_id, &game_key, &module, ReloadKind::Upload);
+        Self::publish_reload(
+            state,
+            game_id,
+            &game_key,
+            &module,
+            ReloadKind::Upload,
+            binary_bytes,
+        );
         Ok(UploadResponse {
             module,
             abi: report,

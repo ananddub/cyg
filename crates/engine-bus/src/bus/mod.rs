@@ -8,8 +8,10 @@ use crate::telemetry::StatusSnapshot;
 const COMMAND_CAP: usize = 256;
 const STATUS_CAP: usize = 8;
 /// Hot-reload requests are rare and must never be dropped by a busy input path;
-/// a small dedicated queue with its own capacity keeps them independent.
-const RELOAD_CAP: usize = 32;
+/// a small dedicated queue keeps them independent. Each entry now carries the
+/// module bytes (the console caps an upload at 16 MiB), so the slot count is
+/// deliberately tiny: four in-flight modules bound the worst case at 64 MiB.
+const RELOAD_CAP: usize = 4;
 /// Map activations are rarer still; one queue so a map flip never sits behind
 /// wasm reloads.
 const MAP_RELOAD_CAP: usize = 8;
