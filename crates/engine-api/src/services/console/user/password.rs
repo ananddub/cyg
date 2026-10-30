@@ -5,6 +5,7 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::user::{ChangeConsolePasswordRequest, SetConsolePasswordRequest};
 use crate::error::V2Error;
+use crate::services::deps::q;
 
 use super::check_password;
 
@@ -20,7 +21,7 @@ impl super::ConsoleService {
         let id = super::id(id, "console user")?;
         check_password(&body.password)?;
 
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let view = self.view(&queries, id).await?;
         queries
             .update_console_user_password(&crate::infra::jwt::hash_password(&body.password)?, id)
@@ -50,7 +51,7 @@ impl super::ConsoleService {
             self.must_be_another(claims, id, "disable")?;
         }
 
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let view = self.view(&queries, id).await?;
         let at = if disabled {
             chrono::Utc::now()
@@ -88,7 +89,7 @@ impl super::ConsoleService {
                 "The bootstrap console account has no password to change.",
             ));
         };
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let row = queries
             .find_console_user_mfa_by_id(id)
             .await

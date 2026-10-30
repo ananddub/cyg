@@ -12,10 +12,9 @@ use crate::db::time;
 use crate::error::V2Error;
 use crate::repositories::game_maps::{ListGameMapsRow, StoredGameMapRow};
 
-mod q;
 mod list_maps;
+mod service;
 mod delete_map;
 mod tests;
 
-pub use q::*;
-pub(crate) use crate::services::deps::{blobs, q};
+pub use service::*;

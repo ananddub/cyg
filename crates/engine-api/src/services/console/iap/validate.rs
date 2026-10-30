@@ -9,6 +9,7 @@ use crate::dto::console::iap::{
 };
 use crate::dto::iap::{PurchaseResponse, SubscriptionResponse};
 use crate::error::V2Error;
+use crate::services::deps::q;
 use crate::repositories::iap::{InsertPurchaseParams, InsertSubscriptionParams};
 use crate::utils::iap::{environment_of, epoch, hex_id};
 
@@ -83,7 +84,7 @@ impl super::super::ConsoleService {
             ));
         }
         let uid = super::super::id(raw_id, "account")?;
-        let queries = super::super::queries(state).await?;
+        let queries = q(state).await?;
         queries.get_user_by_id(uid).await?;
         let product_id = body.product_id.clone().unwrap_or_default();
         let transaction_id = hex_id(credential);

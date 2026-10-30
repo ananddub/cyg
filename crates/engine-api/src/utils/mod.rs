@@ -1,9 +1,12 @@
 pub mod auth;
 pub mod channel;
+pub(crate) mod config;
 pub mod dashboard;
 pub mod friend;
 pub mod group;
+pub(crate) mod guards;
 pub mod iap;
+pub(crate) mod ids;
 pub mod leaderboard;
 pub mod link;
 pub mod matchmake;

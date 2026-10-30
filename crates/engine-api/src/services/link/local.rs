@@ -52,33 +52,6 @@ fn custom_id(raw: &str) -> Result<(), V2Error> {
     Ok(())
 }
 
-fn email_fields(email: &str, password: &str) -> Result<String, V2Error> {
-    if email.is_empty() || password.is_empty() {
-        return Err(V2Error::invalid_argument(
-            "Email address and password is required.",
-        ));
-    }
-    if validate::has_space_or_control(email) {
-        return Err(V2Error::invalid_argument(
-            "Invalid email address, no spaces or control characters allowed.",
-        ));
-    }
-    if password.len() < 8 {
-        return Err(V2Error::invalid_argument(
-            "Password must be at least 8 characters long.",
-        ));
-    }
-    if !validate::has_email_shape(email) {
-        return Err(V2Error::invalid_argument("Invalid email address format."));
-    }
-    if email.len() < 10 || email.len() > 255 {
-        return Err(V2Error::invalid_argument(
-            "Invalid email address, must be 10-255 bytes.",
-        ));
-    }
-    Ok(email.to_lowercase())
-}
-
 impl super::LinkService {
     pub async fn device(
         &self,
@@ -118,7 +91,7 @@ impl super::LinkService {
         account: auth::EmailAccount,
     ) -> Result<Json<Empty>, V2Error> {
         let uid = bearer(headers, state)?;
-        let email = email_fields(&account.email, &account.password)?;
+        let email = validate::email_fields(&account.email, &account.password)?;
         let queries = q(state).await?;
         queries
             .link_email(&LinkEmailParams {

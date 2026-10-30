@@ -5,10 +5,11 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::setting::{SettingRow, UpdateSettingRequest};
 use crate::error::V2Error;
+use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn list_settings(&self, state: &ApiState) -> Result<Json<Vec<SettingRow>>, V2Error> {
-        let rows = super::queries(state).await?.list_settings().await?;
+        let rows = q(state).await?.list_settings().await?;
         Ok(Json(rows.into_iter().map(SettingRow::from).collect()))
     }
 
@@ -24,7 +25,7 @@ impl super::ConsoleService {
             return Err(V2Error::invalid_argument("A setting needs a name."));
         }
 
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         queries.upsert_setting(name, body.value).await?;
         super::audit(
             state,
@@ -55,7 +56,7 @@ impl super::ConsoleService {
         if name.is_empty() {
             return Err(V2Error::invalid_argument("A setting needs a name."));
         }
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         if queries.delete_setting(name).await?.rows_affected() == 0 {
             return Err(V2Error::not_found("Setting not found."));
         }

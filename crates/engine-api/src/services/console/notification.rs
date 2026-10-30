@@ -8,6 +8,7 @@ use crate::dto::console::notification::{
     NotificationQuery, NotificationRow, SendNotificationRequest,
 };
 use crate::error::V2Error;
+use crate::services::deps::q;
 use crate::repositories::console_mutations::InsertNotificationParams;
 
 impl super::ConsoleService {
@@ -17,8 +18,8 @@ impl super::ConsoleService {
         query: NotificationQuery,
     ) -> Result<Json<Vec<NotificationRow>>, V2Error> {
         let user_id = super::account_id(&query.user_id)?;
-        crate::services::games::tenant::require_account(state, query.game_id, user_id).await?;
-        let rows = super::queries(state).await?
+        crate::utils::guards::require_account(state, query.game_id, user_id).await?;
+        let rows = q(state).await?
             .list_notifications_for_user(user_id, query.limit())
             .await?;
         Ok(Json(rows.into_iter().map(NotificationRow::from).collect()))
@@ -33,13 +34,13 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let user_id = super::account_id(&body.user_id)?;
-        crate::services::games::tenant::require_account(state, game, user_id).await?;
+        crate::utils::guards::require_account(state, game, user_id).await?;
         let subject = body.subject.trim();
         if subject.is_empty() {
             return Err(V2Error::invalid_argument("A notification needs a subject."));
         }
 
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         queries.get_user_by_id(user_id).await?;
         queries
             .insert_notification(&InsertNotificationParams {

@@ -112,6 +112,33 @@ pub fn email_login(email: &str, password: &str, requested: &str) -> Result<Login
     })
 }
 
+pub(crate) fn email_fields(email: &str, password: &str) -> Result<String, V2Error> {
+    if email.is_empty() || password.is_empty() {
+        return Err(V2Error::invalid_argument(
+            "Email address and password is required.",
+        ));
+    }
+    if has_space_or_control(email) {
+        return Err(V2Error::invalid_argument(
+            "Invalid email address, no spaces or control characters allowed.",
+        ));
+    }
+    if password.len() < 8 {
+        return Err(V2Error::invalid_argument(
+            "Password must be at least 8 characters long.",
+        ));
+    }
+    if !has_email_shape(email) {
+        return Err(V2Error::invalid_argument("Invalid email address format."));
+    }
+    if email.len() < 10 || email.len() > 255 {
+        return Err(V2Error::invalid_argument(
+            "Invalid email address, must be 10-255 bytes.",
+        ));
+    }
+    Ok(email.to_lowercase())
+}
+
 pub(crate) fn has_email_shape(raw: &str) -> bool {
     let bytes = raw.as_bytes();
     (1..bytes.len()).any(|at| {

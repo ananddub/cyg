@@ -12,7 +12,7 @@ npm install
 npm run dev        # http://localhost:5173 (landing) · /docs.html (docs)
 ```
 
-The site is a Vite multi-page app: `index.html` (landing) + `docs.html` (full documentation — quick start, writing a game, the 14-part A-to-Z developer guide, netcode/ports tables, 1-core benchmarks, honest comparison, architecture). Nav "Docs" and the footer link point to it — same domain, no external redirect.
+The site is a Vite multi-page app: `index.html` (landing) + `docs.html` (full documentation — quick start (install script / docker / source), writing a game, the 16-part A-to-Z developer guide (incl. complete Schema DSL reference + SurrealDB/blobs/LIVE SELECT realtime section), netcode/ports tables, 1-core benchmarks, honest comparison, architecture). Nav "Docs" and the footer link point to it — same domain, no external redirect.
 
 Build / preview:
 
@@ -42,9 +42,9 @@ Static output in `dist/` — works on any static host:
 | `src/components/Architecture.jsx` | "One process" diagram — control plane (Axum) / game host loop / animated lock-free bus with packet dots. |
 | `src/components/CodeSection.jsx` | Tabbed code viewer (`room.ts` / `client.js` / `schema.ts`) with highlight.js — uses the current `schema()` / `t.number()` / `t.map()` API. |
 | `src/components/ConsolePreview.jsx` | The **real** web console — actual captures from the engine repo's `docs/screenshots/`, presented straight (border + deep shadow + soft brand glow) with view tabs (Live telemetry / WASM studio). No mock data. |
-| `src/components/TechStack.jsx` | "Built on proven technology" logo wall — Rust, WebAssembly, WebRTC, AssemblyScript, PostgreSQL, Redis, Docker, Kubernetes (simple-icons) + Rapier2D/3D, QUIC, WebTransport, Axum, ECS, str0m, wasmtime sigils. |
+| `src/components/TechStack.jsx` | "Built on proven technology" logo wall — Rust, WebAssembly, WebRTC, AssemblyScript, SurrealDB (embedded), Docker, Kubernetes (simple-icons) + Rapier2D/3D, QUIC, WebTransport, Axum, ECS, str0m, wasmtime sigils. |
 | `src/components/Benchmarks.jsx` | Scroll-triggered bars, **all measured in a strict 1-core / 2 GB cgroup, published below measured**: ~1.5k combat · ~5k combined tick · ~7k Rapier2D · ~10k ECS · ~15k Rapier3D CCU/core — plus real capacity cards (~4k combat CCU per $10/mo VPS, 100×100 rooms×players on 2-core/2 GB, 0.76× tick budget, 93 MB peak RAM). |
-| `src/components/Quickstart.jsx` | Auto-typing terminal loop (`cyg-gaming init` → `doctor` → `run`) + 3-step guide. |
+| `src/components/Quickstart.jsx` | Auto-typing terminal loop (curl install script → `cyg-gaming init` → `doctor` → `run`) + 3-step guide (install binary / scaffold / run). |
 | `src/components/CTA.jsx` / `Footer.jsx` | Closing CTA + sitemap footer (with Rust trademark attribution). |
 
 All copy and numbers are grounded in the engine repo — benchmark figures are the published

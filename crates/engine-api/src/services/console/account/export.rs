@@ -7,6 +7,7 @@ use crate::dto::console::account::{
     WalletLedgerRow,
 };
 use crate::error::V2Error;
+use crate::services::deps::q;
 use crate::repositories::console::{ListStorageRow, ListWalletLedgerParams};
 use crate::repositories::console_mutations::ListUserEdgesRow;
 
@@ -21,7 +22,7 @@ impl super::ConsoleService {
     ) -> Result<Json<AccountExport>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let user = queries.get_user_by_id(id).await?;
         let devices = queries.list_user_devices(id).await?;
         let notes = queries.list_user_notes(id).await?;

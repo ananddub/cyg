@@ -1,3 +1,6 @@
+use crate::services::deps::q;
+use crate::utils::config::configured;
+
 use super::*;
 
 pub async fn resolve(state: &ApiState) -> Result<Option<GameRow>, V2Error> {
@@ -39,10 +42,6 @@ pub async fn resolve(state: &ApiState) -> Result<Option<GameRow>, V2Error> {
 }
 pub async fn game_id(state: &ApiState) -> Result<Option<Uuid>, V2Error> {
     Ok(resolve(state).await?.map(|game| game.id))
-}
-pub async fn require_hosted(state: &ApiState, claimed: Uuid) -> Result<(), V2Error> {
-    let _ = crate::services::games::GamesService::find_game(state, claimed).await?;
-    Ok(())
 }
 pub async fn backfill(state: &ApiState, game_id: Uuid) {
     let Ok(queries) = q(state).await else {

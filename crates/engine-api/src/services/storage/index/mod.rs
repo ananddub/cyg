@@ -4,7 +4,7 @@ mod query;
 
 use axum::Json;
 
-use super::queries;
+use crate::services::deps::q;
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
@@ -65,7 +65,7 @@ impl super::StorageService {
             user_id: auth.uid(),
             create_time: chrono::Utc::now(),
         };
-        let row = queries(state).await?
+        let row = q(state).await?
             .storage_insert_index(&content)
             .await
             .map_err(|err| match &err {
@@ -84,7 +84,7 @@ impl super::StorageService {
         state: &ApiState,
         _auth: &Authed,
     ) -> Result<Json<StorageIndexDefinitions>, V2Error> {
-        let rows = queries(state).await?
+        let rows = q(state).await?
             .storage_indexes()
             .await
             .map_err(V2Error::from)?;
@@ -105,7 +105,7 @@ impl super::StorageService {
                 "Only the player who created this index can delete it.",
             ));
         }
-        queries(state).await?
+        q(state).await?
             .storage_delete_index(name)
             .await
             .map_err(V2Error::from)?;
@@ -117,7 +117,7 @@ impl super::StorageService {
         state: &ApiState,
         name: &str,
     ) -> Result<StorageIndexRow, V2Error> {
-        queries(state).await?
+        q(state).await?
             .storage_index(name)
             .await
             .map_err(V2Error::from)?

@@ -12,7 +12,7 @@ use crate::utils::storage::CURSOR_MESSAGE;
 
 use super::order::resolve_order;
 use super::parse;
-use super::queries;
+use crate::services::deps::q;
 
 const DEFAULT_LIMIT: i32 = 100;
 const MAX_LIMIT: i32 = 100;
@@ -50,7 +50,7 @@ impl StorageService {
         }
         let page = i64::from(limit).min(window);
 
-        let rows = queries(state).await?
+        let rows = q(state).await?
             .storage_index_page(&def, &terms, &sorts, auth.uid(), page + 1, offset)
             .await
             .map_err(V2Error::from)?;

@@ -4,7 +4,7 @@ mod reply;
 use axum::Json;
 use uuid::Uuid;
 
-use super::queries;
+use crate::services::deps::q;
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::storage::{ListQuery, StorageObjectList};
@@ -29,7 +29,7 @@ impl super::StorageService {
         }
         let limit = social::limit(req.limit, 1, MAX_LIST_LIMIT, LIST_LIMIT_MESSAGE)?;
         let after = resume(req.cursor.as_ref())?;
-        let rows = queries(state).await?
+        let rows = q(state).await?
             .storage_listing(
                 StorageListing::PublicAll,
                 collection,
@@ -62,7 +62,7 @@ impl super::StorageService {
         };
         let limit = social::limit(req.limit, 1, MAX_LIST_LIMIT, LIST_LIMIT_MESSAGE)?;
         let after = resume(req.cursor.as_ref())?;
-        let rows = queries(state).await?
+        let rows = q(state).await?
             .storage_listing(listing, collection, Some(owner), after.as_ref(), limit)
             .await
             .map_err(V2Error::from)?;

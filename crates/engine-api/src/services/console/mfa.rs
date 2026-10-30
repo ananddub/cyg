@@ -6,6 +6,7 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::auth::{MfaCodeRequest, MfaEnrolmentResponse};
 use crate::error::V2Error;
+use crate::services::deps::q;
 use crate::repositories::console_mutations::{FindConsoleUserMfaRow, SetConsoleUserMfaParams};
 use crate::repositories::db::Queries;
 use crate::utils::totp;
@@ -48,7 +49,7 @@ impl super::ConsoleService {
         state: &ApiState,
         claims: &ConsoleAuthed,
     ) -> Result<Json<MfaEnrolmentResponse>, V2Error> {
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let row = self.console_row(&queries, claims).await?;
 
         let secret = totp::generate_secret();
@@ -90,7 +91,7 @@ impl super::ConsoleService {
         claims: &ConsoleAuthed,
         body: MfaCodeRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let row = self.console_row(&queries, claims).await?;
         let Some(secret) = row.mfa_secret.as_deref().map(String::from_utf8_lossy) else {
             return Err(V2Error::failed_precondition("MFA has not been enrolled."));
@@ -116,7 +117,7 @@ impl super::ConsoleService {
         claims: &ConsoleAuthed,
         body: MfaCodeRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let row = self.console_row(&queries, claims).await?;
         self.verify_second_factor(&queries, &row, &body.code)
             .await?;

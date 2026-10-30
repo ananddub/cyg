@@ -16,11 +16,10 @@ use crate::utils::status::client_host;
 use super::schema::DEFAULT_GAME_CONFIG_JSON;
 use crate::repositories::games::{InsertGameParams, ListGamesRow, UpdateGameParams};
 
-mod q;
 mod create_game;
 mod update_game;
 mod game_name;
+mod service;
 
-pub use q::*;
-pub(crate) use crate::services::deps::q;
+pub use service::*;
 pub use game_name::*;

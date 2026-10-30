@@ -9,8 +9,9 @@ use crate::repositories::db::Queries;
 use crate::repositories::group::{DemoteGroupEdgeParams, PromoteGroupEdgeParams};
 use crate::services::deps::q;
 use crate::utils::group::{ROLE_ADMIN, group_id};
+use crate::utils::guards::require_role;
 
-use super::super::{fetch_group, require_role};
+use super::super::fetch_group;
 use super::GroupMemberService;
 use crate::dto::group::UsersQuery;
 

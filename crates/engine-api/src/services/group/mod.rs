@@ -20,21 +20,3 @@ pub(crate) async fn fetch_group(queries: &Queries, id: Uuid) -> Result<Groups, V
     })
 }
 
-pub(crate) async fn require_role(
-    queries: &Queries,
-    uid: Uuid,
-    gid: Uuid,
-    max_role: i16,
-) -> Result<i16, V2Error> {
-    let role = queries
-        .get_group_edge_state(uid, gid)
-        .await
-        .map_err(|e| match e {
-            DbError::NotFound => V2Error::not_found("Group not found or permission denied."),
-            other => V2Error::from(other),
-        })?;
-    if role > max_role {
-        return Err(V2Error::not_found("Group not found or permission denied."));
-    }
-    Ok(role)
-}

@@ -12,7 +12,7 @@ use crate::dto::console::account::{
     AccountExport, AddNoteRequest, BanAccountRequest, UpdateWalletRequest,
 };
 use crate::services::console::ConsoleService;
-use crate::services::games::tenant;
+use crate::utils::guards;
 
 mod controller;
 mod routes;

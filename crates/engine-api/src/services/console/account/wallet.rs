@@ -6,6 +6,7 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::account::{AccountRow, UpdateWalletRequest};
 use crate::error::V2Error;
+use crate::services::deps::q;
 use crate::repositories::iap::InsertWalletLedgerParams;
 
 impl super::ConsoleService {
@@ -18,7 +19,7 @@ impl super::ConsoleService {
     ) -> Result<Json<AccountRow>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let user = queries.get_user_by_id(id).await?;
 
         let changes = body.changeset.as_object().ok_or_else(|| {
@@ -87,7 +88,7 @@ impl super::ConsoleService {
         if wallet_id.is_nil() {
             return Err(V2Error::invalid_argument("Invalid wallet ledger id."));
         }
-        let removed = super::queries(state).await?
+        let removed = q(state).await?
             .delete_wallet_ledger(wallet_id, id)
             .await
             .map_err(V2Error::from)?;

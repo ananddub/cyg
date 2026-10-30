@@ -8,8 +8,9 @@ use crate::error::V2Error;
 use crate::repositories::group::UpdateGroupParams;
 use crate::services::deps::q;
 use crate::utils::group::{ROLE_SUPERADMIN, group_id, metadata_of};
+use crate::utils::guards::require_role;
 
-use super::super::{fetch_group, require_role};
+use super::super::fetch_group;
 use super::{GROUP_CLOSED, GROUP_OPEN, GroupService};
 
 impl GroupService {

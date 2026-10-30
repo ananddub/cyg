@@ -4,6 +4,8 @@ import SectionHead from './SectionHead.jsx'
 
 /* typed lines: cmd = typed char-by-char, out = printed instantly */
 const SCRIPT = [
+  { type: 'cmd', text: 'curl -fsSL https://raw.githubusercontent.com/ananddub/cyg/main/scripts/install.sh | sh' },
+  { type: 'out', text: '✓ cyg-gaming installed (latest release binary)', cls: 'text-oxide' },
   { type: 'cmd', text: 'cyg-gaming init my-game && cd my-game' },
   { type: 'out', text: '✓ scaffolded room.ts · schema.ts · SDK · website', cls: 'text-oxide' },
   { type: 'cmd', text: 'cyg-gaming doctor' },
@@ -12,7 +14,7 @@ const SCRIPT = [
   { type: 'out', text: '✓ room.ts → room_logic.wasm (41 kB) · schema descriptor emitted', cls: 'text-oxide' },
   { type: 'out', text: '▶ game data   0.0.0.0:7779  (WebRTC · UDP · QUIC · 128 Hz)', cls: 'text-frost' },
   { type: 'out', text: '▶ control     0.0.0.0:8124  (console → /dashboard/)', cls: 'text-frost' },
-  { type: 'out', text: '▶ rooms: 1 active · 0 clients · tick p99 0.04 ms', cls: 'text-ember' },
+  { type: 'out', text: '▶ rooms: 1 active · 0 clients · embedded SurrealDB ready', cls: 'text-ember' },
 ]
 
 function useTerminal() {
@@ -64,11 +66,13 @@ function useTerminal() {
 const STEPS = [
   {
     n: '01',
-    title: 'Get the stack',
+    title: 'Install the binary',
     body: (
       <>
-        <code className="text-oxide">just up</code> starts Postgres + Redis + the server in Docker —
-        that's the whole setup.
+        One line: <code className="text-oxide">curl … install.sh | sh</code> — or{' '}
+        <code className="text-oxide">docker pull dubeyanand/cyg-gaming</code>, or{' '}
+        <code className="text-oxide">just up</code> from source. SurrealDB is embedded, nothing else
+        to install.
       </>
     ),
   },

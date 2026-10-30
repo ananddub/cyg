@@ -10,6 +10,7 @@ use crate::app::params::Params;
 use crate::error::V2Error;
 use crate::services::dashboard;
 use crate::services::games::tenant;
+use crate::utils::guards;
 
 struct DashboardRestController;
 
@@ -98,7 +99,7 @@ impl DashboardRestController {
 
 pub(crate) async fn guard(state: &ApiState, claimed: Option<Uuid>) -> Result<(), V2Error> {
     match claimed {
-        Some(game_id) => tenant::require_hosted(state, game_id).await,
+        Some(game_id) => guards::require_hosted(state, game_id).await,
         None => Ok(()),
     }
 }

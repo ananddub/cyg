@@ -80,7 +80,7 @@ pub(crate) fn the_settings_defaults_are_the_ones_the_sdk_declares() {
          document's default has to be the client's own word"
     );
 
-    let service = include_str!("../../services/games/service/q.rs");
+    let service = include_str!("../../services/games/service/service.rs");
     assert!(
         service.contains("DEFAULT_ROOM_NAME: &str = \"cyg_room\"")
             && service.contains("SERVER_WS_PATH: &str = \"/ws\""),

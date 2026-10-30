@@ -1,3 +1,5 @@
+use crate::services::deps::q;
+
 use super::*;
 
 pub async fn delete_notification(
@@ -20,9 +22,6 @@ pub async fn delete_subscriptions_for_product(
         .tenancy_delete_subscriptions_for_product(game, product_id)
         .await
         .map_err(V2Error::from)
-}
-pub(super) fn configured(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
 }
 pub(super) async fn by_id(state: &ApiState, id: Uuid) -> Result<Option<GameRow>, V2Error> {
     Ok(q(state).await?

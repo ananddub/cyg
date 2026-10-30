@@ -7,6 +7,7 @@ use crate::app::middleware::bearer_token;
 use crate::dto::Empty;
 use crate::dto::console::auth::{AuthenticateRequest, ConsoleSessionResponse, LogoutRequest};
 use crate::error::V2Error;
+use crate::services::deps::q;
 use crate::infra::console::{self, ConsoleRole};
 
 impl super::ConsoleService {
@@ -28,7 +29,7 @@ impl super::ConsoleService {
             ));
         }
 
-        let queries = super::queries(state)
+        let queries = q(state)
             .await
             .map_err(|_| invalid_credentials())?;
         let Ok(row) = queries.find_console_user_mfa(username).await else {

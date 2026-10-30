@@ -41,7 +41,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), id).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), id).await {
             return err.into_response();
         }
         self.service
@@ -62,7 +62,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), id).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), id).await {
             return err.into_response();
         }
         self.service
@@ -83,7 +83,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), id).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), id).await {
             return err.into_response();
         }
         self.service
@@ -120,7 +120,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
@@ -141,7 +141,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
@@ -162,7 +162,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
@@ -184,7 +184,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
@@ -205,7 +205,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
@@ -226,7 +226,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, page.game_id, parsed).await {
+        if let Err(err) = guards::require_account(&state, page.game_id, parsed).await {
             return err.into_response();
         }
         self.service
@@ -248,7 +248,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
@@ -269,7 +269,7 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
             return err.into_response();
         }
         self.service

@@ -4,6 +4,7 @@ use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::error::V2Error;
+use crate::services::deps::q;
 
 use super::Vendor;
 
@@ -23,7 +24,7 @@ impl super::super::ConsoleService {
             V2Error::invalid_argument(format!("Unknown IAP vendor: {vendor_name}"))
         })?;
         let key = config_key(vendor_name);
-        if super::super::queries(state).await?
+        if q(state).await?
             .delete_setting(&key)
             .await?
             .rows_affected()

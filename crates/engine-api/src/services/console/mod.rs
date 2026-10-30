@@ -4,9 +4,8 @@ use uuid::Uuid;
 
 use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
-use crate::error::V2Error;
 use crate::repositories::console_mutations::InsertAuditLogParams;
-use crate::repositories::db::Queries;
+use crate::services::deps::q;
 
 pub mod account;
 pub mod audit;
@@ -35,17 +34,7 @@ impl ConsoleService {
     }
 }
 
-pub(super) async fn queries(state: &ApiState) -> Result<std::sync::Arc<Queries>, V2Error> {
-    crate::services::deps::q(state).await
-}
-
-pub(crate) fn id(raw: &str, what: &str) -> Result<Uuid, V2Error> {
-    Uuid::parse_str(raw).map_err(|_| V2Error::invalid_argument(format!("Invalid {what} id.")))
-}
-
-pub(crate) fn account_id(raw: &str) -> Result<Uuid, V2Error> {
-    id(raw, "account")
-}
+pub(crate) use crate::utils::ids::{account as account_id, parse_uuid as id};
 
 pub(super) fn never() -> DateTime<Utc> {
     DateTime::from_timestamp(0, 0).expect("the epoch is a valid timestamp")
@@ -82,7 +71,7 @@ pub(super) async fn insert_audit(
     target: Option<Uuid>,
     message: &str,
 ) {
-    let Ok(queries) = queries(state).await else {
+    let Ok(queries) = q(state).await else {
         return;
     };
     let _ = queries

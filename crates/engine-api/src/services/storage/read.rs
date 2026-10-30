@@ -1,7 +1,7 @@
 use axum::Json;
 use uuid::Uuid;
 
-use super::queries;
+use crate::services::deps::q;
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::storage::{ObjectIdsRequest, ReadQuery, StorageObject, StorageObjects};
@@ -28,7 +28,7 @@ impl super::StorageService {
             wanted.push((id.collection.clone(), id.key.clone(), read_owner(id, caller)?));
         }
 
-        let queries = queries(state).await?;
+        let queries = q(state).await?;
         let mut rows = queries
             .storage_objects(caller, &wanted)
             .await
@@ -65,7 +65,7 @@ impl super::StorageService {
         let owner = if parsed == Uuid::nil() { caller } else { parsed };
         let version = req.version.filter(|v| !v.is_empty());
 
-        let row = queries(state).await?
+        let row = q(state).await?
             .storage_object(caller, collection, key, owner, version.as_deref())
             .await
             .map_err(V2Error::from)?

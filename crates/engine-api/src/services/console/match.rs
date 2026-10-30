@@ -16,7 +16,7 @@ impl super::ConsoleService {
         page: Page,
     ) -> Result<Json<ConsoleMatchList>, V2Error> {
         if let Some(game) = page.game_id {
-            crate::services::games::tenant::require_hosted(state, game).await?;
+            crate::utils::guards::require_hosted(state, game).await?;
         }
         let mut rows: Vec<ConsoleMatchRow> = RealtimeMatchService::list_snapshots_all()
             .iter()
@@ -37,7 +37,7 @@ impl super::ConsoleService {
         id: &str,
     ) -> Result<Json<ConsoleMatchState>, V2Error> {
         if let Some(game) = game {
-            crate::services::games::tenant::require_hosted(state, game).await?;
+            crate::utils::guards::require_hosted(state, game).await?;
         }
         let id = match_id(id)?;
         let snapshot = RealtimeMatchService::get_snapshot(id).ok_or_else(|| {
@@ -59,7 +59,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         if let Some(game) = game {
-            crate::services::games::tenant::require_hosted(state, game).await?;
+            crate::utils::guards::require_hosted(state, game).await?;
         }
         let id = match_id(id)?;
         if !RealtimeMatchService::terminate_match(id) {

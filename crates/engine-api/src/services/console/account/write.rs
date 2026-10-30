@@ -7,6 +7,7 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::account::{AddNoteRequest, BanAccountRequest};
 use crate::error::V2Error;
+use crate::services::deps::q;
 use crate::repositories::console_mutations::{InsertUserNoteAnonymousParams, InsertUserNoteParams};
 
 impl super::ConsoleService {
@@ -19,7 +20,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let user = queries.get_user_by_id(id).await?;
         queries.set_account_disabled(Utc::now(), id).await?;
 
@@ -51,7 +52,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let user = queries.get_user_by_id(id).await?;
         queries.set_account_disabled(super::never(), id).await?;
         super::audit(
@@ -74,7 +75,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let user = queries.get_user_by_id(id).await?;
         queries.create_tombstone(id).await?;
         queries.delete_account(id).await?;
@@ -103,7 +104,7 @@ impl super::ConsoleService {
         if note.is_empty() {
             return Err(V2Error::invalid_argument("A note cannot be empty."));
         }
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         queries.get_user_by_id(id).await?;
         match claims.0.uuid() {
             Some(author) => {
@@ -148,7 +149,7 @@ impl super::ConsoleService {
         claims.require_write()?;
         let id = super::account_id(id)?;
         let note_id = super::id(note_id, "note")?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         if queries.delete_user_note(note_id, id).await?.rows_affected() == 0 {
             return Err(V2Error::not_found("Note not found."));
         }

@@ -1,6 +1,6 @@
 import {
   siRust, siWebassembly, siWebrtc, siAssemblyscript,
-  siPostgresql, siRedis, siDocker, siKubernetes,
+  siSurrealdb, siDocker, siKubernetes,
 } from 'simple-icons'
 import Reveal from './Reveal.jsx'
 
@@ -9,8 +9,7 @@ const LOGOS = [
   { icon: siWebassembly, name: 'WebAssembly' },
   { icon: siWebrtc, name: 'WebRTC' },
   { icon: siAssemblyscript, name: 'AssemblyScript' },
-  { icon: siPostgresql, name: 'PostgreSQL' },
-  { icon: siRedis, name: 'Redis' },
+  { icon: siSurrealdb, name: 'SurrealDB' },
   { icon: siDocker, name: 'Docker' },
   { icon: siKubernetes, name: 'Kubernetes' },
 ]

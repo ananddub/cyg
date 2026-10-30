@@ -4,7 +4,6 @@ use axum::Json;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::queries;
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;

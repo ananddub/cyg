@@ -4,6 +4,7 @@ use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::error::V2Error;
+use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn clear_console_user_mfa(
@@ -14,7 +15,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
         let id = super::id(id, "console user")?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let view = self.view(&queries, id).await?;
         queries.clear_console_user_mfa(id).await?;
         super::audit(
@@ -38,7 +39,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
         let id = super::id(id, "console user")?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let view = self.view(&queries, id).await?;
         queries
             .set_console_user_mfa_required(id, required)
@@ -72,7 +73,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
         let id = super::id(id, "console user")?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let view = self.view(&queries, id).await?;
         queries
             .reset_console_user_mfa_factor(id)

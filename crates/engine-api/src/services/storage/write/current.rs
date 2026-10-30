@@ -1,3 +1,5 @@
+use crate::services::deps::q;
+
 use super::*;
 
 impl super::super::StorageService {
@@ -21,7 +23,7 @@ impl super::super::StorageService {
                 .cmp(&(b.1.collection.as_str(), b.1.key.as_str()))
         });
 
-        let queries = queries(state).await?;
+        let queries = q(state).await?;
         let mut acks: Vec<Option<StorageObjectAck>> = vec![None; ordered.len()];
         let mut statements: Vec<String> = Vec::new();
         let mut params = BTreeMap::<String, Value>::from([(

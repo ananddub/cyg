@@ -1,7 +1,9 @@
+use crate::services::deps::q;
+
 use super::*;
 
 pub(super) async fn remove_board(state: &ApiState, id: &str) -> Result<(), V2Error> {
-    let queries = super::super::queries(state).await?;
+    let queries = q(state).await?;
     let removed = queries.delete_board(id).await.map_err(V2Error::from)?;
     if removed.is_empty() {
         return Err(V2Error::not_found(BOARD_NOT_FOUND));

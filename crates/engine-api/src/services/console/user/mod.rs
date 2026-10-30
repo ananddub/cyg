@@ -12,8 +12,9 @@ use crate::dto::console::user::ConsoleUserView;
 use crate::error::V2Error;
 use crate::infra::console::ConsoleRole;
 use crate::repositories::db::Queries;
+use crate::services::deps::q;
 
-pub(super) use super::{ConsoleService, audit, id, never, queries};
+pub(super) use super::{ConsoleService, audit, id, never};
 
 const MIN_PASSWORD_LEN: usize = 12;
 
@@ -23,7 +24,7 @@ impl super::ConsoleService {
         state: &ApiState,
         page: Page,
     ) -> Result<Json<Vec<ConsoleUserView>>, V2Error> {
-        let rows = super::queries(state).await?
+        let rows = q(state).await?
             .list_console_users(page.limit(), page.offset())
             .await?;
         Ok(Json(rows.into_iter().map(ConsoleUserView::from).collect()))

@@ -9,7 +9,7 @@ use crate::app::params::Params;
 use crate::current_state;
 use crate::dto::console::{GameScope, Page};
 use crate::services::console::ConsoleService;
-use crate::services::games::tenant;
+use crate::utils::guards;
 
 struct ConsoleGroupController {
     service: Arc<ConsoleService>,
@@ -99,5 +99,5 @@ async fn guard(
     raw: &str,
 ) -> Result<(), crate::error::V2Error> {
     let id = crate::services::console::account_id(raw)?;
-    tenant::require_group(state, game, id).await
+    guards::require_group(state, game, id).await
 }

@@ -6,6 +6,7 @@ use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::group::{GroupExport, GroupMemberRow, GroupRow};
 use crate::error::V2Error;
+use crate::services::deps::q;
 
 const MAX_MEMBERS: i64 = 1000;
 
@@ -26,7 +27,7 @@ impl super::ConsoleService {
     }
 
     pub async fn get_group(&self, state: &ApiState, id: &str) -> Result<Json<GroupRow>, V2Error> {
-        let group = super::queries(state).await?
+        let group = q(state).await?
             .get_group_by_id(super::account_id(id)?)
             .await?;
         Ok(Json(GroupRow::from(group)))
@@ -37,7 +38,7 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<Vec<GroupMemberRow>>, V2Error> {
-        let rows = super::queries(state).await?
+        let rows = q(state).await?
             .list_group_users(super::account_id(id)?, MAX_MEMBERS)
             .await?;
         Ok(Json(rows.into_iter().map(GroupMemberRow::from).collect()))
@@ -51,7 +52,7 @@ impl super::ConsoleService {
     ) -> Result<Json<GroupExport>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let group = queries.get_group_by_id(id).await?;
         let members = queries.list_group_users(id, MAX_MEMBERS).await?;
         Ok(Json(GroupExport {
@@ -68,7 +69,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let group = queries.get_group_by_id(id).await?;
         queries.delete_group(id).await?;
         super::audit(

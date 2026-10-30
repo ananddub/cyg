@@ -3,12 +3,13 @@ use axum::Json;
 use crate::ApiState;
 use crate::dto::console::status::{RouteRow, StatusResponse};
 use crate::error::V2Error;
+use crate::services::deps::q;
 
 const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
 
 impl super::ConsoleService {
     pub async fn status(&self, state: &ApiState) -> Result<Json<StatusResponse>, V2Error> {
-        let (accounts, console_users, database) = match super::queries(state).await {
+        let (accounts, console_users, database) = match q(state).await {
             Ok(queries) => (
                 queries.count_accounts().await.unwrap_or(0),
                 queries.count_console_users().await.unwrap_or(0),

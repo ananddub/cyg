@@ -7,6 +7,7 @@ use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::storage::{DeletedCount, StorageObjectRow};
 use crate::error::V2Error;
+use crate::services::deps::q;
 
 const MAX_IN_COLLECTION: i64 = 500;
 
@@ -62,7 +63,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let user_id = super::account_id(user_id)?;
-        if !super::queries(state).await?
+        if !q(state).await?
             .storage_delete_object(collection, key, user_id)
             .await?
         {

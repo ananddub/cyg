@@ -10,8 +10,9 @@ use crate::repositories::group::JoinGroupEdgeParams;
 use crate::services::deps::q;
 use crate::services::social;
 use crate::utils::group::{ROLE_ADMIN, ROLE_MEMBER, group_id};
+use crate::utils::guards::require_role;
 
-use super::super::{fetch_group, require_role};
+use super::super::fetch_group;
 use super::GroupMemberService;
 use crate::dto::group::UsersQuery;
 

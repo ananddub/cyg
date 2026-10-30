@@ -1,3 +1,5 @@
+use crate::services::deps::q;
+
 use super::*;
 
 impl super::super::ConsoleService {
@@ -16,7 +18,7 @@ impl super::super::ConsoleService {
         let write = BoardWrite::resolve(&body, BoardWrite::defaults(), id)?;
 
         let row = definition::tournament_row(&write, game, Utc::now());
-        let board = super::super::queries(state).await?
+        let board = q(state).await?
             .create("leaderboard", Key::String(write.id.clone()), &row)
             .await
             .map_err(|e| {
@@ -48,7 +50,7 @@ impl super::super::ConsoleService {
         let current = tournament_row(state, id).await?;
         let write = BoardWrite::resolve(&body, BoardWrite::stored(&current), id.to_owned())?;
 
-        let board = super::super::queries(state).await?
+        let board = q(state).await?
             .update_tournament(&crate::repositories::leaderboard::UpdateTournamentParams {
                 id: write.id.clone(),
                 title: write.title.clone(),
@@ -105,7 +107,7 @@ impl super::super::ConsoleService {
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
-        let current = super::super::queries(state).await?
+        let current = q(state).await?
             .get_leaderboard(id)
             .await
             .map_err(missing_board)?;
@@ -125,7 +127,7 @@ impl super::super::ConsoleService {
     }
 }
 async fn tournament_row(state: &ApiState, id: &str) -> Result<Leaderboard, V2Error> {
-    let current = super::super::queries(state).await?
+    let current = q(state).await?
         .get_leaderboard(id)
         .await
         .map_err(|e| match e {

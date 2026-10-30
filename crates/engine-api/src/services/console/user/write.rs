@@ -8,6 +8,7 @@ use crate::dto::console::user::{
     ConsoleUserView, CreateConsoleUserRequest, UpdateConsoleUserRequest,
 };
 use crate::error::V2Error;
+use crate::services::deps::q;
 use crate::repositories::console_mutations::{InsertConsoleUserParams, UpdateConsoleUserParams};
 
 use super::{check_password, named, operator_conflict, role_from};
@@ -24,7 +25,7 @@ impl super::ConsoleService {
         let role = role_from(&body.role)?;
         check_password(&body.password)?;
 
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let id = Uuid::new_v4();
         queries
             .insert_console_user(&InsertConsoleUserParams {
@@ -62,7 +63,7 @@ impl super::ConsoleService {
         let (username, email) = named(&body.username, &body.email)?;
         let role = role_from(&body.role)?;
 
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         self.view(&queries, id).await?;
         queries
             .update_console_user(&UpdateConsoleUserParams {
@@ -98,7 +99,7 @@ impl super::ConsoleService {
         let id = super::id(id, "console user")?;
         self.must_be_another(claims, id, "delete")?;
 
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let view = self.view(&queries, id).await?;
         queries.delete_console_user(id).await?;
         super::audit(

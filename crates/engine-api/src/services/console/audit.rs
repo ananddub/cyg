@@ -8,6 +8,7 @@ use crate::dto::console::audit::{
     AclTemplateRequest, AclTemplateRow, AuditLogQuery, AuditLogRow, AuditLogUsers,
 };
 use crate::error::V2Error;
+use crate::services::deps::q;
 use crate::repositories::console_mutations::{
     InsertAclTemplateParams, ListAuditLogsFilteredParams, UpdateAclTemplateParams,
 };
@@ -18,7 +19,7 @@ impl super::ConsoleService {
         state: &ApiState,
         query: AuditLogQuery,
     ) -> Result<Json<Vec<AuditLogRow>>, V2Error> {
-        let rows = super::queries(state).await?
+        let rows = q(state).await?
             .list_audit_logs_filtered(&ListAuditLogsFilteredParams {
                 action: query.action.trim().to_owned(),
                 resource: query.resource.trim().to_owned(),
@@ -38,7 +39,7 @@ impl super::ConsoleService {
         &self,
         state: &ApiState,
     ) -> Result<Json<AuditLogUsers>, V2Error> {
-        let usernames = super::queries(state).await?.audit_usernames().await?;
+        let usernames = q(state).await?.audit_usernames().await?;
         Ok(Json(AuditLogUsers { usernames }))
     }
 
@@ -46,7 +47,7 @@ impl super::ConsoleService {
         &self,
         state: &ApiState,
     ) -> Result<Json<Vec<AclTemplateRow>>, V2Error> {
-        let rows = super::queries(state).await?.list_acl_templates().await?;
+        let rows = q(state).await?.list_acl_templates().await?;
         Ok(Json(rows.into_iter().map(AclTemplateRow::from).collect()))
     }
 
@@ -63,7 +64,7 @@ impl super::ConsoleService {
             description: body.description.trim().to_owned(),
             acl: template_acl(body.acl)?,
         };
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         queries
             .insert_acl_template(&params)
             .await
@@ -97,7 +98,7 @@ impl super::ConsoleService {
             description: body.description.trim().to_owned(),
             acl: template_acl(body.acl)?,
         };
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         queries
             .find_acl_template(id)
             .await
@@ -128,7 +129,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
         let id = super::id(id, "template")?;
-        let queries = super::queries(state).await?;
+        let queries = q(state).await?;
         let row = queries
             .find_acl_template(id)
             .await

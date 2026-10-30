@@ -1,6 +1,6 @@
 use axum::Json;
 
-use super::queries;
+use crate::services::deps::q;
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::Empty;
@@ -27,7 +27,7 @@ impl super::StorageService {
         });
 
         let owner = auth.0.uuid()?;
-        let queries = queries(state).await?;
+        let queries = q(state).await?;
         let rows = queries
             .storage_deletable(owner, &ids)
             .await

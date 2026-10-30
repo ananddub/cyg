@@ -9,7 +9,7 @@ use crate::app::params::Params;
 use crate::current_state;
 use crate::dto::console::{GameScope, Page};
 use crate::services::console::ConsoleService;
-use crate::services::games::tenant;
+use crate::utils::guards;
 
 struct ConsoleStorageController {
     service: Arc<ConsoleService>,
@@ -69,7 +69,7 @@ impl ConsoleStorageController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = tenant::require_account(&state, scope.id(), owner).await {
+        if let Err(err) = guards::require_account(&state, scope.id(), owner).await {
             return err.into_response();
         }
         self.service
