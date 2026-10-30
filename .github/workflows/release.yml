@@ -1,0 +1,155 @@
+name: Release
+
+# Builds the archives scripts/install.sh expects to find on a GitHub release:
+#   cyg-gaming-<target-triple>.tar.gz   (linux, macos)
+#   cyg-gaming-x86_64-pc-windows-msvc.zip
+# Each archive contains a top-level directory of the same base name holding the
+# binary, README and LICENSE — the installer untars and moves
+# `cyg-gaming-<triple>/cyg-gaming`.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Tag to publish (vX.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: "1.99.0"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive: tar
+          - os: macos-14
+            target: x86_64-apple-darwin
+            archive: tar
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: dashboard/pnpm-lock.yaml
+      - name: Build the console (engine-api embeds dashboard/dist)
+        working-directory: dashboard
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Out-of-tree dependency preflight
+        shell: bash
+        run: |
+          if grep -q '^\[patch\.crates-io\]' Cargo.toml; then
+            target=$(grep -m1 -o 'auto-di = { path = "[^"]*"' Cargo.toml | cut -d'"' -f2)
+            if [ ! -d "$target" ]; then
+              echo "Cargo.toml patches auto-di to $target, which is not in this" \
+                "repository. Vendor or publish it before releases can build." >&2
+              exit 1
+            fi
+          fi
+      - name: Pin the toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustup target add "${{ matrix.target }}"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-${{ matrix.os }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: release-${{ matrix.os }}-${{ matrix.target }}-
+      - name: Build
+        run: cargo build --release --bin cyg-gaming --target ${{ matrix.target }}
+      - name: Package tar.gz
+        if: matrix.archive == 'tar'
+        shell: bash
+        run: |
+          name="cyg-gaming-${{ matrix.target }}"
+          mkdir -p "$name"
+          cp "target/${{ matrix.target }}/release/cyg-gaming" "$name/"
+          cp README.md LICENSE "$name/"
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - name: Package zip
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $name = "cyg-gaming-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $name | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/cyg-gaming.exe" $name
+          Copy-Item README.md,LICENSE $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" |
+            Out-File -Encoding ascii "$name.zip.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            cyg-gaming-*.tar.gz
+            cyg-gaming-*.tar.gz.sha256
+            cyg-gaming-*.zip
+            cyg-gaming-*.zip.sha256
+          if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-24.04
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Every archive must carry a checksum
+        run: |
+          shopt -s nullglob
+          for a in dist/*.tar.gz dist/*.zip; do
+            [ -f "$a.sha256" ] || { echo "missing sidecar for $a"; exit 1; }
+            echo "ok $a"
+          done
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          case "$VERSION" in
+            v[0-9]*) ;;
+            *) echo "refusing to publish a tag that is not vX.Y.Z: $VERSION" >&2; exit 1 ;;
+          esac
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" dist/* --clobber
+          else
+            gh release create "$VERSION" dist/* --title "$VERSION" --generate-notes
+          fi

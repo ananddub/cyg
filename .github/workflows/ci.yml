@@ -1,0 +1,218 @@
+name: CI
+
+# The gates are the ones `just ci` runs locally, in the same order. Nothing here
+# pushes or publishes; release.yml owns that.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned so a rustfmt/clippy change upstream cannot break the queue. Bump
+  # deliberately, in its own commit.
+  RUST_TOOLCHAIN: "1.99.0"
+  BASE_REF: ${{ github.base_ref || 'main' }}
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # Tests talk to embedded mem:// stores; nothing here needs a live SurrealDB.
+  RUST_BACKTRACE: "1"
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: dashboard/pnpm-lock.yaml
+      - name: Install
+        working-directory: dashboard
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        working-directory: dashboard
+        run: pnpm lint
+      # engine-api embeds dashboard/dist at compile time, so this must run before
+      # any cargo step that builds the API crate.
+      - name: Build
+        working-directory: dashboard
+        run: pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: dashboard/dist
+          retention-days: 1
+
+  rust:
+    runs-on: ubuntu-24.04
+    needs: dashboard
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The format ratchet diffs against the base commit.
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: dashboard-dist
+          path: dashboard/dist
+      - name: Pin the toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustc -V
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ env.RUST_TOOLCHAIN }}-${{ github.job }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ env.RUST_TOOLCHAIN }}-${{ github.job }}-
+            cargo-${{ env.RUST_TOOLCHAIN }}-
+      - name: Out-of-tree dependency preflight
+        run: |
+          if ! grep -q '^\[patch\.crates-io\]' Cargo.toml; then
+            exit 0
+          fi
+          target=$(grep -m1 -o 'auto-di = { path = "[^"]*"' Cargo.toml | cut -d'"' -f2)
+          if [ ! -d "$target" ]; then
+            echo "::error::Cargo.toml patches auto-di to $target, a directory that only" \
+              "exists on one workstation. Vendor it under crates/auto/ or publish it" \
+              "before cargo jobs here can pass."
+            exit 1
+          fi
+      - name: Format (files this change touches)
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            base=$(git rev-parse FETCH_HEAD)
+          else
+            base=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+          fi
+          mapfile -t files < <(git diff --name-only "$base" HEAD -- '*.rs')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no Rust files changed"
+            exit 0
+          fi
+          printf 'checking %d changed Rust files\n' "${#files[@]}"
+          printf '%s\n' "${files[@]}"
+          rustfmt --edition 2024 --check "${files[@]}"
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Check
+        run: cargo check --workspace --all-targets
+      - name: Test
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --release --bin cyg-gaming
+      # The 500 MB budget is a deployment constraint, not a preference: a fatter
+      # binary is the first thing that breaks the container.
+      - name: Binary fits the size budget
+        run: |
+          size=$(stat -c%s target/release/cyg-gaming)
+          echo "cyg-gaming is $((size / 1024 / 1024)) MiB"
+          [ "$size" -lt $((150 * 1024 * 1024)) ] || {
+            echo "the release binary broke the size budget" >&2
+            exit 1
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cyg-gaming-linux-x86_64
+          path: target/release/cyg-gaming
+          retention-days: 3
+
+  # The manifests are the deployment; a typo in one of them is a broken rollout
+  # discovered at 3am, so parse them here instead.
+  manifests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet pyyaml
+      - name: Parse Kubernetes and Agones manifests
+        run: |
+          python - <<'PY'
+          import glob, sys, yaml
+          failed = False
+          for path in sorted(glob.glob("deploy/k8s/*.yaml")):
+              try:
+                  docs = [d for d in yaml.safe_load_all(open(path)) if d]
+              except Exception as err:
+                  print(f"FAIL {path}: {err}")
+                  failed = True
+                  continue
+              for doc in docs:
+                  for field in ("apiVersion", "kind", "metadata"):
+                      if field not in doc:
+                          print(f"FAIL {path}: {doc.get('kind', '?')} has no {field}")
+                          failed = True
+                  print(f"ok   {path}: {doc['kind']}/{doc['metadata'].get('name', '?')}")
+              if "secret.template.yaml" not in path:
+                  text = open(path).read()
+                  if "REPLACE_ME" in text:
+                      print(f"FAIL {path}: ships a placeholder secret")
+                      failed = True
+                  if "OX_ALLOW_DEFAULT_SECRETS" in text:
+                      print(f"FAIL {path}: must not set OX_ALLOW_DEFAULT_SECRETS")
+                      failed = True
+          sys.exit(1 if failed else 0)
+          PY
+      - name: Shell scripts parse
+        run: |
+          for s in scripts/*.sh deploy/entrypoint.sh; do bash -n "$s" || exit 1; done
+
+  # Building the image is the only way to notice the Dockerfile drifted from the
+  # binary's actual runtime needs.
+  image:
+    runs-on: ubuntu-24.04
+    needs: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cyg-gaming-linux-x86_64
+          path: target/release
+      - name: Stage a game project
+        run: |
+          chmod +x target/release/cyg-gaming
+          mkdir -p game
+          cp -r examples/blaster/. game/
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: false
+          load: true
+          tags: cyg-gaming:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: The image must boot and answer
+        run: |
+          docker run --rm -d --name cyg-ci -p 19224:19224 cyg-gaming:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:19224/health >/dev/null; then
+              curl -fsS http://127.0.0.1:19224/readyz
+              echo; echo "the image serves /health and /readyz"; exit 0
+            fi
+            sleep 2
+          done
+          docker logs cyg-ci
+          exit 1

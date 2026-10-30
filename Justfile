@@ -79,6 +79,33 @@ build-dashboard:
     cd dashboard && pnpm build
     @echo "💡 Done! Changes are immediately live at http://localhost:19224/dashboard/"
 
+# Install dashboard deps then build dist (cargo embeds dashboard/dist at compile time)
+dashboard:
+    cd dashboard && pnpm install --frozen-lockfile && pnpm build
+
+# Format the whole tree (CI gates only the files a change touches)
+fmt:
+    cargo fmt --all
+
+# The same check, without writing
+fmt-check:
+    cargo fmt --all --check
+
+# Lints, as CI runs them
+clippy:
+    cargo clippy --workspace --all-targets -- -D warnings
+
+# Compile everything, tests and examples included
+check:
+    cargo check --workspace --all-targets
+
+# Full test suite (embedded mem:// stores; no SurrealDB needed)
+test:
+    cargo test --workspace
+
+# Everything .github/workflows/ci.yml runs, in order (`just fmt` for the rest)
+ci: clippy check test
+
 # Run health check & diagnostics for a game project
 doctor target=game:
     #!/usr/bin/env bash
