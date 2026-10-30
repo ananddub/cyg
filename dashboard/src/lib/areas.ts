@@ -9,11 +9,13 @@
 import {
   Activity,
   Bell,
+  Coins,
   CreditCard,
   Cpu,
   Database,
   Fingerprint,
   Gamepad2,
+  History,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -21,9 +23,11 @@ import {
   RefreshCw,
   ScrollText,
   Settings,
+  SlidersHorizontal,
   ShieldAlert,
   ShieldCheck,
   Swords,
+  Terminal,
   Trophy,
   UserCog,
   Users,
@@ -48,19 +52,23 @@ export const CONSOLE_AREAS: ConsoleArea[] = [
 
   // Inside one game.
   { group: "Project", id: "project", label: "Project", icon: LayoutDashboard },
+  { group: "Project", id: "config-history", label: "Config History", icon: History },
   { group: "Monitoring", id: "runtime", label: "Overview & Realtime", icon: Activity },
   { group: "Monitoring", id: "rooms", label: "Game Rooms", icon: Layers },
   { group: "Monitoring", id: "clients", label: "Connected Clients", icon: Users },
   { group: "Monitoring", id: "matches", label: "Matches & Matchmaking", icon: Swords },
   { group: "Monitoring", id: "cores", label: "Simulation Cores", icon: Cpu },
   { group: "Monitoring", id: "limits", label: "Limits & Guardrails", icon: ShieldAlert },
+  { group: "Monitoring", id: "logs", label: "Live Logs", icon: Terminal },
   { group: "Players", id: "accounts", label: "Accounts", icon: UserCog },
   { group: "Players", id: "groups", label: "Groups", icon: UsersRound },
   { group: "Players", id: "notifications", label: "Notifications", icon: Bell },
   { group: "Game Data", id: "leaderboards", label: "Leaderboards", icon: Trophy },
   { group: "Game Data", id: "tournaments", label: "Tournaments", icon: Medal },
   { group: "Game Data", id: "storage", label: "Storage", icon: Database },
+  { group: "Game Data", id: "rules", label: "Rules", icon: SlidersHorizontal },
   { group: "Monetization", id: "purchases", label: "Purchases", icon: CreditCard },
+  { group: "Monetization", id: "economy", label: "Economy", icon: Coins },
   { group: "Monetization", id: "subscriptions", label: "Subscriptions", icon: RefreshCw },
 
   // Console administration stays at the landing scope: it is about operators,
@@ -83,6 +91,7 @@ const GLOBAL_AREA_IDS = new Set([
 
 const GAME_AREA_IDS = new Set([
   "project",
+  "config-history",
   "runtime",
   "rooms",
   "clients",
@@ -95,8 +104,11 @@ const GAME_AREA_IDS = new Set([
   "leaderboards",
   "tournaments",
   "storage",
+  "rules",
   "purchases",
+  "economy",
   "subscriptions",
+  "logs",
 ])
 
 /** The areas the landing (no game selected) sidebar offers. */

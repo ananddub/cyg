@@ -36,6 +36,80 @@ import { dash, formatTime } from "@/lib/format"
 import { useSession } from "@/lib/session"
 
 import { gameMapsPath } from "./routes"
+import { OxclMeshPreview } from "./mesh-preview-lazy"
+
+interface MapPreviewResponse {
+  name: string
+  version: number
+  format: string
+  sha256: string
+  mesh?: { vertices: [number, number, number][]; indices: number[] } | null
+  note?: string | null
+}
+
+/** The stored-bytes 3D preview: the server parses the OXCL mesh, the browser
+ * renders it through the lazily-loaded WebGL viewer. A format without a
+ * preview answers with a note, which is exactly what this shows. */
+function MeshPreviewModal({
+  gameId,
+  map,
+  onClose,
+}: {
+  gameId: string
+  map: GameMapInfo
+  onClose: () => void
+}) {
+  const [preview, setPreview] = useState<MapPreviewResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const token = useSession()?.token ?? ""
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${gameMapsPath(gameId)}/${map.version}/preview`, {
+      headers: { accept: "application/json", authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Preview failed (${response.status})`)
+        return (await response.json()) as MapPreviewResponse
+      })
+      .then((body) => {
+        if (!cancelled) setPreview(body)
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [gameId, map.version, token])
+
+  return (
+    <Modal
+      open
+      title={`🗺️ ${map.name || "Map"} v${map.version} (${FORMAT_LABELS[map.format] ?? map.format})`}
+      description={preview?.note ?? undefined}
+      onClose={onClose}
+      footer={
+        <Button variant="outline" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      {error !== null ? (
+        <p className="px-4 py-8 text-center text-sm text-red-400">{error}</p>
+      ) : preview === null ? (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">Loading…</p>
+      ) : preview.mesh !== null && preview.mesh !== undefined ? (
+        <OxclMeshPreview mesh={preview.mesh} />
+      ) : (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+          {preview.note ?? "This format has no preview."}
+        </p>
+      )}
+    </Modal>
+  )
+}
 
 /** One stored `game_maps` row, without its bytes. */
 export interface GameMapInfo {
@@ -1035,6 +1109,7 @@ export function MapsUploadPanel({ gameId }: { gameId: string }) {
 export function MapsPanel({ gameId }: { gameId: string }) {
   const [activating, setActivating] = useState<GameMapInfo | null>(null)
   const [removing, setRemoving] = useState<GameMapInfo | null>(null)
+  const [previewing, setPreviewing] = useState<GameMapInfo | null>(null)
 
   const maps = useConsoleQuery<GameMapInfo[]>(`game-maps-${gameId}`, gameMapsPath(gameId), {}, gameId !== "")
 
@@ -1077,6 +1152,10 @@ export function MapsPanel({ gameId }: { gameId: string }) {
               Activate v{row.version}
             </Button>
           )}
+          <Button size="xs" variant="outline" onClick={() => setPreviewing(row)}>
+            <Eye className="size-3.5" />
+            3D
+          </Button>
           {!row.is_active && (
             <Button size="xs" variant="ghost" onClick={() => setRemoving(row)}>
               Delete
@@ -1115,6 +1194,10 @@ export function MapsPanel({ gameId }: { gameId: string }) {
         path={`${gameMapsPath(gameId)}/${activating?.version ?? 0}/activate`}
         success={`v${activating?.version ?? ""} is the active map.`}
       />
+
+      {previewing !== null && (
+        <MeshPreviewModal gameId={gameId} map={previewing} onClose={() => setPreviewing(null)} />
+      )}
 
       <ConfirmAction
         open={removing !== null}

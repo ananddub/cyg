@@ -30,6 +30,9 @@ import { GamesView, GAMES_ENDPOINT, type Game, type GameList } from "@/component
 import { GameProjectView } from "@/components/console/views/games/project"
 import { LeaderboardsView } from "@/components/console/views/leaderboards"
 import { MatchesView } from "@/components/console/views/matches"
+import { ConfigHistoryView } from "@/components/console/views/config-history"
+import { EconomyView } from "@/components/console/views/economy"
+import { LogsView } from "@/components/console/views/logs"
 import {
   ClientsView,
   CoresView,
@@ -38,6 +41,7 @@ import {
   RuntimeView,
 } from "@/components/console/views/monitoring"
 import { PurchasesView, SubscriptionsView } from "@/components/console/views/monetization"
+import { RulesView } from "@/components/console/views/rules"
 import { NotificationsView } from "@/components/console/views/notifications"
 import { SecurityView } from "@/components/console/views/security"
 import { StorageView } from "@/components/console/views/storage"
@@ -382,6 +386,14 @@ function GameAreaView({
   switch (area) {
     case "project":
       return <GameProjectView gameId={gameId} onArchived={onBack} />
+    case "config-history":
+      return <ConfigHistoryView gameId={gameId} />
+    case "logs":
+      return <LogsView />
+    case "rules":
+      return <RulesView />
+    case "economy":
+      return <EconomyView />
     case "rooms":
       return <RoomsView data={data} />
     case "clients":

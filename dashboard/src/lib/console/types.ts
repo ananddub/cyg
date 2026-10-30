@@ -292,3 +292,73 @@ export interface ConsoleMatchState {
   tick: number;
   state: string;
 }
+
+/** `console.RuleRow`: one stored version of one rule set. */
+export interface ConsoleRule {
+  key: string;
+  game_id: string | null;
+  version: number;
+  sha256: string;
+  is_active: boolean;
+  body: unknown;
+  create_time: string;
+}
+
+/** `console.RuleDryRunResult`. */
+export interface ConsoleRuleDryRun {
+  matched: boolean;
+  evaluated_against: unknown;
+  error: string | null;
+}
+
+/** `console.ConfigVersionRow` in list form (no body). */
+export interface ConsoleConfigVersion {
+  game_id: string;
+  version: number;
+  sha256: string;
+  is_active: boolean;
+  author: string | null;
+  create_time: string;
+  body?: unknown;
+}
+
+/** `console.TimelineEntry`: one merged row of a player's feed. */
+export interface ConsoleTimelineEntry {
+  id: string;
+  kind: string;
+  at: string;
+  summary: string;
+  detail: unknown;
+}
+
+export interface ConsoleTimelinePage {
+  account_id: string;
+  entries: ConsoleTimelineEntry[];
+  next_cursor: string | null;
+}
+
+/** `console.EconomySummary` and its parts. */
+export interface ConsoleEconomySummary {
+  from: string;
+  to: string;
+  window_days: number;
+  purchases: { total: number; by_environment: Record<string, number> };
+  wallet: { credits: number; debits: number; net_by_currency: Record<string, number> };
+  quests: { completed: number; claimed: number };
+  market: {
+    listings_created: number;
+    trades_settled: number;
+    wagers_held: number;
+    wagers_settled: number;
+    wagers_refunded: number;
+  };
+  empty: boolean;
+}
+
+/** `engine_dashboard::models::log::LogLine` over the mirror feed. */
+export interface ConsoleLogLine {
+  atMs: number;
+  level: string;
+  target: string;
+  message: string;
+}

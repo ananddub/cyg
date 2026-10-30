@@ -33,6 +33,13 @@ export const CONSOLE_ENDPOINTS = {
   settings: "/v2/console/setting",
   auditLog: "/v2/console/audit/log",
   aclTemplates: "/v2/console/acl/template",
+  rules: "/v2/console/rules",
+  ruleDryRun: "/v2/console/rules/dry-run",
+  logsRecent: "/v2/console/logs/recent",
+  timeline: "/v2/console/timeline",
+  economySummary: "/v2/console/economy/summary",
+  openapiSpec: "/openapi.json",
+  apiDocs: "/console/api-docs",
 } as const;
 
 const REQUEST_TIMEOUT_MS = 8000;

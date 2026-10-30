@@ -22,6 +22,7 @@ import { dash, formatTime, shortId } from "@/lib/format"
 
 import { AddNoteDialog, BanDialog, WalletDialog } from "./write-dialogs"
 import { DeleteAccountDialog, DeleteNoteDialog, UnbanDialog } from "./confirm-dialogs"
+import { AccountTimeline } from "./timeline"
 import { WalletLedgerPanel } from "./wallet-panel"
 
 const ACCOUNT = CONSOLE_ENDPOINTS.accounts
@@ -115,6 +116,8 @@ export function AccountDetail({ id, onDeleted }: { id: string; onDeleted: () => 
       </Panel>
 
       <WalletLedgerPanel id={id} onAdjust={() => setAction("wallet")} />
+
+      <AccountTimeline id={id} />
 
       <Panel
         title="Operator notes"
