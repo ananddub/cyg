@@ -33,6 +33,7 @@ impl Recorder {
         snap.ws_sessions = report.ws_sessions;
         snap.webrtc_sessions = report.webrtc_sessions;
         snap.udp_sessions = report.udp_sessions;
+        snap.rooms = report.rooms;
         snap.empty_for_sec = if report.players > 0
             || report.ws_sessions > 0
             || report.webrtc_sessions > 0

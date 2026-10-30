@@ -1,6 +1,7 @@
 use super::*;
 use crate::services::status::rooms::rooms;
 use crate::utils::status::client_host;
+use engine_bus::{RoomPhase, RoomTelemetry};
 
 #[tokio::test]
 async fn rooms_lists_the_hosted_room_with_its_ports() {
@@ -14,6 +15,7 @@ async fn rooms_lists_the_hosted_room_with_its_ports() {
     for key in [
         "name",
         "clients",
+        "phase",
         "maxClients",
         "ready",
         "tickHz",
@@ -37,6 +39,46 @@ async fn rooms_lists_the_hosted_room_with_its_ports() {
     assert_eq!(room["serverId"].as_str(), Some("http://arena.example:8124"));
     assert_eq!(room["hasSimSample"].as_bool(), Some(false));
     assert!(room["ageMs"].is_null(), "no sample means no age");
+    assert!(room["phase"].is_null(), "no sample means no observed phase");
+}
+
+/// Once the host publishes its room table, `/rooms` reports each room rather
+/// than collapsing them into one game-named row.
+#[tokio::test]
+async fn rooms_reports_every_live_room_and_its_phase() {
+    let state = state();
+    *state.latest_status.lock().unwrap() = Some(StatusSnapshot {
+        players: 3,
+        rooms: vec![
+            RoomTelemetry {
+                name: "arena".into(),
+                phase: RoomPhase::Active,
+                clients: 3,
+                tick: 90,
+                age_sec: 12,
+                closes_in_sec: Some(288),
+                ..Default::default()
+            },
+            RoomTelemetry {
+                name: "lobby".into(),
+                phase: RoomPhase::Hibernating,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    });
+    let body = json_of(rooms(&state, axum::http::HeaderMap::new()).await).await;
+    let rows = body.as_array().expect("room list");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["name"], "arena");
+    assert_eq!(rows[0]["phase"], "active");
+    assert_eq!(rows[0]["clients"], 3);
+    assert_eq!(rows[0]["tick"], 90);
+    assert_eq!(rows[0]["closesInSec"], 288);
+    assert_eq!(rows[1]["name"], "lobby");
+    assert_eq!(rows[1]["phase"], "hibernating");
+    assert!(rows[1]["closesInSec"].is_null(), "an unlimited room has no countdown");
+    assert!(rows[1]["ready"].as_bool().unwrap(), "an empty room takes joins");
 }
 
 #[test]

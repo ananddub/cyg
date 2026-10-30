@@ -16,7 +16,9 @@ use std::time::{Duration, Instant};
 use mio::{Events, Poll};
 use engine_wasm::WasmRuntime;
 
-use engine_bus::{Bus, FrameKind, OutFrame, PeerId, SessionTelemetry, SimCommand, Via};
+use engine_bus::{
+    Bus, FrameKind, OutFrame, PeerId, RoomTelemetry, SessionTelemetry, SimCommand, Via,
+};
 use engine_config::{AoiConfig, GameConfig};
 use engine_physics::PhysicsWorld3D;
 use engine_spatial::aoi;
@@ -99,6 +101,7 @@ fn drop_peer(
 /// thread owns. There is no WebSocket here, so this path never fills
 /// `ws_sessions`.
 fn publish_report(
+    room_name: &str,
     room: &GameRoom,
     browser_players: &HashSet<i64>,
     last_input_at: &HashMap<PeerId, Instant>,
@@ -129,6 +132,17 @@ fn publish_report(
         webrtc_sessions: browser,
         udp_sessions: players.saturating_sub(browser),
         sessions,
+        // One room per pinned plane, and its length is not configurable on
+        // this path: `PlaneConfig` comes from the environment, not `[lifecycle]`.
+        rooms: vec![RoomTelemetry {
+            name: room_name.to_string(),
+            phase: room.phase(),
+            clients: players,
+            spectators: room.spectators.len() as u32,
+            tick: room.current_tick,
+            age_sec: room.born.elapsed().as_secs(),
+            closes_in_sec: None,
+        }],
         session_cap: max_players.max(0) as usize,
     }
 }
@@ -336,7 +350,15 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             // row build so this stays off the per-poll path.
             if recorder.publish_due() {
                 let report =
-                    publish_report(&room, &browser_players, &last_input_at, cfg.tick_hz, measured_hz, cfg.max_players);
+                    publish_report(
+                        &cfg.room_name,
+                        &room,
+                        &browser_players,
+                        &last_input_at,
+                        cfg.tick_hz,
+                        measured_hz,
+                        cfg.max_players,
+                    );
                 recorder.maybe_publish(&bus, report);
             }
             if sweep_start.elapsed() >= Duration::from_millis(200) {
@@ -472,7 +494,15 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             status_start = Instant::now();
             last_input_at.retain(|peer, _| room.sessions.contains_key(peer));
             let report =
-                publish_report(&room, &browser_players, &last_input_at, cfg.tick_hz, measured_hz, cfg.max_players);
+                publish_report(
+                    &cfg.room_name,
+                    &room,
+                    &browser_players,
+                    &last_input_at,
+                    cfg.tick_hz,
+                    measured_hz,
+                    cfg.max_players,
+                );
             recorder.maybe_publish(&bus, report);
         }
         let _ = native_send_failed; // unknown-peer sends: counted, no user to blame yet

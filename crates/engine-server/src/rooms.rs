@@ -1615,6 +1615,17 @@ impl GameRoom {
         self.sessions.is_empty() && self.spectators.is_empty()
     }
 
+    /// The room's lifecycle phase as `/rooms` reports it. Derived from the same
+    /// membership the reap pass reads, so the two cannot disagree.
+    #[inline]
+    pub fn phase(&self) -> engine_bus::RoomPhase {
+        if self.is_hibernating() {
+            engine_bus::RoomPhase::Hibernating
+        } else {
+            engine_bus::RoomPhase::Active
+        }
+    }
+
     /// Whether this room runs in zero-WASM relay mode.
     #[inline]
     pub fn is_relay(&self) -> bool {

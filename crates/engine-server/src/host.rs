@@ -17,7 +17,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use engine_bus::{Bus, SessionTelemetry};
+use engine_bus::{Bus, RoomTelemetry, SessionTelemetry};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc::contract::Inbound;
 use engine_net::transport::{GameTransport, TransportEvent, WebRtcServer, WebRtcTransport};
@@ -2348,10 +2348,29 @@ pub fn run(
         if publish_start.elapsed() >= Duration::from_secs(1) {
             let window_sec = publish_start.elapsed().as_secs_f64().max(1e-9);
             let mut sessions: Vec<SessionTelemetry> = Vec::new();
+            let mut rooms: Vec<RoomTelemetry> = Vec::with_capacity(server.rooms.len());
             let mut players = 0u32;
             let mut webrtc_live = 0u32;
-            for room in server.rooms.values() {
+            for (room_name, room) in &server.rooms {
                 players += room.sessions.len() as u32;
+                rooms.push(RoomTelemetry {
+                    name: room_name.clone(),
+                    phase: room.phase(),
+                    clients: room.sessions.len() as u32,
+                    spectators: room.spectators.len() as u32,
+                    tick: room.current_tick,
+                    age_sec: room.born.elapsed().as_secs(),
+                    // `None` while the room has no configured length, so a
+                    // reader never sees a countdown the host will not honour.
+                    closes_in_sec: cfg.lifecycle.closes_at(room.born).map(|deadline| {
+                        let now = Instant::now();
+                        if now >= deadline {
+                            0
+                        } else {
+                            (deadline - now).as_secs()
+                        }
+                    }),
+                });
                 let members = room.sessions.iter().map(|(s, &id)| (s, Some(id)));
                 let watching = room.spectators.iter().map(|s| (s, None));
                 for (session, player_id) in members.chain(watching) {
@@ -2371,6 +2390,9 @@ pub fn run(
                     });
                 }
             }
+            // The room map is a HashMap: sort so a polling dashboard sees the
+            // same row order every second instead of a reshuffling table.
+            rooms.sort_by(|a, b| a.name.cmp(&b.name));
             for (&addr, &(id, ref _sess, last_seen)) in &udp_peers {
                 sessions.push(SessionTelemetry {
                     session: addr.to_string(),
@@ -2395,6 +2417,7 @@ pub fn run(
                     webrtc_sessions: webrtc_live,
                     udp_sessions: udp_peers.len() as u32,
                     sessions,
+                    rooms,
                     session_cap: cfg.max_clients.max(0) as usize,
                 },
             ) {

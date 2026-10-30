@@ -11,4 +11,6 @@ pub use messages::{
     FrameKind, InputMsg, MapReload, OutFrame, PeerId, ReloadKind, SettingsReload, SimCommand, Via,
     WasmReload,
 };
-pub use telemetry::{SessionTelemetry, StatusSnapshot, TICK_HISTOGRAM_BUCKETS};
+pub use telemetry::{
+    RoomPhase, RoomTelemetry, SessionTelemetry, StatusSnapshot, TICK_HISTOGRAM_BUCKETS,
+};

@@ -18,6 +18,35 @@ pub struct SessionTelemetry {
     pub idle_ms: Option<u64>,
 }
 
+/// Where one room sits in its lifecycle. A disposed room leaves the host's map
+/// and is not reported at all, so `Hibernating` — empty, idle window running,
+/// 0% CPU — is as close to `Closed` as a live room gets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RoomPhase {
+    /// Members or spectators are attached; the room ticks.
+    #[default]
+    Active,
+    /// Empty for `[lifecycle] reap_idle_secs`, its idle window counting down.
+    Hibernating,
+}
+
+/// One row of the room table: the host's view of a single live room.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomTelemetry {
+    pub name: String,
+    pub phase: RoomPhase,
+    pub clients: u32,
+    pub spectators: u32,
+    pub tick: u64,
+    /// Seconds since the room was created.
+    pub age_sec: u64,
+    /// Seconds before `[lifecycle] room_max_seconds` closes it; `None` when the
+    /// room length is unlimited, so a dashboard cannot render a fake countdown.
+    pub closes_in_sec: Option<u64>,
+}
+
 /// Sim → status sink: latest-wins snapshot for `/status`, `/api/dashboard/*`
 /// and the log line. Field names are a wire contract.
 #[derive(Clone, Debug, Default, Serialize)]
@@ -47,6 +76,9 @@ pub struct StatusSnapshot {
     pub webrtc_sessions: u32,
     pub udp_sessions: u32,
     pub sessions: Vec<SessionTelemetry>,
+    /// One row per live room, so the control plane can see which rooms are
+    /// hibernating instead of guessing from the aggregate player count.
+    pub rooms: Vec<RoomTelemetry>,
     /// Per-producer counter; readers use it to detect gaps.
     pub seq: u64,
     /// [`crate::clock::mono_ns`] milliseconds — same epoch as the readers'.
@@ -81,12 +113,13 @@ mod tests {
             "webrtc_sessions",
             "udp_sessions",
             "sessions",
+            "rooms",
             "seq",
             "updated_ms",
         ] {
             assert!(map.contains_key(key), "missing wire key {key:?}");
         }
-        assert_eq!(map.len(), 21);
+        assert_eq!(map.len(), 22);
         assert_eq!(
             map["tick_histogram"].as_array().unwrap().len(),
             TICK_HISTOGRAM_BUCKETS
@@ -99,6 +132,39 @@ mod tests {
         let map = value.as_object().unwrap();
         for key in ["session", "transport", "playerId", "ackedSeq", "idleMs"] {
             assert!(map.contains_key(key), "missing key {key:?}");
+        }
+    }
+
+    #[test]
+    fn room_telemetry_names_its_phase_on_the_wire() {
+        assert_eq!(
+            serde_json::to_value(RoomPhase::default()).unwrap(),
+            serde_json::json!("active")
+        );
+        let row = RoomTelemetry {
+            name: "lobby".into(),
+            phase: RoomPhase::Hibernating,
+            clients: 0,
+            spectators: 1,
+            tick: 4_200,
+            age_sec: 90,
+            closes_in_sec: Some(30),
+        };
+        let value = serde_json::to_value(&row).unwrap();
+        assert_eq!(value["phase"], serde_json::json!("hibernating"));
+        for key in [
+            "name",
+            "phase",
+            "clients",
+            "spectators",
+            "tick",
+            "ageSec",
+            "closesInSec",
+        ] {
+            assert!(
+                value.as_object().unwrap().contains_key(key),
+                "missing key {key:?}"
+            );
         }
     }
 }
