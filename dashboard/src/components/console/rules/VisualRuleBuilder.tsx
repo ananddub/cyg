@@ -1,0 +1,459 @@
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import {
+  ReactFlow,
+  Controls,
+  Background,
+  MiniMap,
+  BackgroundVariant,
+  applyNodeChanges,
+  applyEdgeChanges,
+  addEdge,
+  type Node,
+  type Edge,
+  type OnNodesChange,
+  type OnEdgesChange,
+  type OnConnect,
+} from '@xyflow/react';
+import {
+  Filter,
+  GitBranch,
+  Gift,
+  Play,
+  Code2,
+  Workflow,
+  Sparkles,
+  CheckCircle2,
+  XCircle,
+} from 'lucide-react';
+
+import { TriggerNode } from './nodes/TriggerNode';
+import { ConditionNode } from './nodes/ConditionNode';
+import { LogicGateNode } from './nodes/LogicGateNode';
+import { ActionNode } from './nodes/ActionNode';
+import { graphToRuleJson, ruleJsonToGraph } from './graph-to-rule';
+import { Button } from '@/components/ui/button';
+
+const PRESETS = {
+  centurion: {
+    name: 'Centurion (100 Kills + Gold)',
+    json: {
+      all: [
+        { field: 'kills', op: 'gte', value: 100 },
+        { field: 'rank', op: 'eq', value: 'gold' },
+      ],
+    },
+    mockContext: { kills: 120, rank: 'gold' },
+  },
+  firstBlood: {
+    name: 'First Blood (1 Kill)',
+    json: {
+      field: 'kills',
+      op: 'gte',
+      value: 1,
+    },
+    mockContext: { kills: 1 },
+  },
+  highRoller: {
+    name: 'High Roller (Score >= 50,000)',
+    json: {
+      all: [
+        { field: 'score', op: 'gte', value: 50000 },
+        { field: 'vip_tier', op: 'gte', value: 1 },
+      ],
+    },
+    mockContext: { score: 75000, vip_tier: 2 },
+  },
+  survivor: {
+    name: 'Survivor (Health >= 90 & Win)',
+    json: {
+      all: [
+        { field: 'health', op: 'gte', value: 90 },
+        { field: 'won', op: 'eq', value: 'true' },
+      ],
+    },
+    mockContext: { health: 95, won: 'true' },
+  },
+};
+
+interface VisualRuleBuilderProps {
+  initialJson?: string;
+  onChange: (jsonString: string) => void;
+  onDryRun?: (body: unknown, context: unknown) => Promise<{ matched: boolean; error?: string }>;
+}
+
+export function VisualRuleBuilder({
+  initialJson,
+  onChange,
+  onDryRun,
+}: VisualRuleBuilderProps) {
+  const [activeTab, setActiveTab] = useState<'visual' | 'code'>('visual');
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+
+  // Testing states
+  const [testContext, setTestContext] = useState<string>('{\n  "kills": 120,\n  "rank": "gold"\n}');
+  const [testResult, setTestResult] = useState<{ matched: boolean; error?: string } | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+
+  const nodeTypes = useMemo(
+    () => ({
+      trigger: TriggerNode,
+      condition: ConditionNode,
+      logicGate: LogicGateNode,
+      action: ActionNode,
+    }),
+    [],
+  );
+
+  const handleNodeDataChange = useCallback(
+    (nodeId: string, partial: Record<string, unknown>) => {
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id === nodeId) {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                ...partial,
+              },
+            };
+          }
+          return n;
+        }),
+      );
+    },
+    [],
+  );
+
+  const handleDeleteNode = useCallback((nodeId: string) => {
+    setNodes((nds) => nds.filter((n) => n.id !== nodeId));
+    setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+  }, []);
+
+  // Initialize from initialJson or default preset
+  useEffect(() => {
+    let parsed: unknown = PRESETS.centurion.json;
+    if (initialJson) {
+      try {
+        parsed = JSON.parse(initialJson);
+      } catch {
+        parsed = PRESETS.centurion.json;
+      }
+    }
+    const graph = ruleJsonToGraph(parsed, handleNodeDataChange, handleDeleteNode);
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+  }, [handleNodeDataChange, handleDeleteNode]);
+
+  // Sync graph changes to JSON output
+  useEffect(() => {
+    if (nodes.length > 0) {
+      const generated = graphToRuleJson(nodes, edges);
+      const jsonStr = JSON.stringify(generated, null, 2);
+      onChange(jsonStr);
+    }
+  }, [nodes, edges, onChange]);
+
+  const onNodesChange: OnNodesChange = useCallback(
+    (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
+    [],
+  );
+
+  const onEdgesChange: OnEdgesChange = useCallback(
+    (changes) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    [],
+  );
+
+  const onConnect: OnConnect = useCallback(
+    (connection) =>
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...connection,
+            animated: true,
+            style: { stroke: '#38bdf8', strokeWidth: 2 },
+          },
+          eds,
+        ),
+      ),
+    [],
+  );
+
+  const addConditionNode = () => {
+    const id = `cond-${Date.now()}`;
+    const newNode: Node = {
+      id,
+      type: 'condition',
+      position: { x: 380, y: 120 + (nodes.length % 5) * 40 },
+      data: {
+        field: 'kills',
+        op: 'gte',
+        value: 10,
+        onDataChange: (data: Record<string, unknown>) => handleNodeDataChange(id, data),
+        onDelete: () => handleDeleteNode(id),
+      },
+    };
+    setNodes((nds) => [...nds, newNode]);
+  };
+
+  const addLogicGateNode = () => {
+    const id = `gate-${Date.now()}`;
+    const newNode: Node = {
+      id,
+      type: 'logicGate',
+      position: { x: 420, y: 180 },
+      data: {
+        gate: 'all',
+        onDataChange: (data: Record<string, unknown>) => handleNodeDataChange(id, data),
+        onDelete: () => handleDeleteNode(id),
+      },
+    };
+    setNodes((nds) => [...nds, newNode]);
+  };
+
+  const addActionNode = () => {
+    const id = `act-${Date.now()}`;
+    const newNode: Node = {
+      id,
+      type: 'action',
+      position: { x: 740, y: 160 },
+      data: {
+        actionType: 'coins',
+        payload: 'coins',
+        amount: 250,
+        onDataChange: (data: Record<string, unknown>) => handleNodeDataChange(id, data),
+        onDelete: () => handleDeleteNode(id),
+      },
+    };
+    setNodes((nds) => [...nds, newNode]);
+  };
+
+  const loadPreset = (presetKey: keyof typeof PRESETS) => {
+    const preset = PRESETS[presetKey];
+    const graph = ruleJsonToGraph(preset.json, handleNodeDataChange, handleDeleteNode);
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+    setTestContext(JSON.stringify(preset.mockContext, null, 2));
+    setTestResult(null);
+  };
+
+  const runTest = async () => {
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const parsedContext = JSON.parse(testContext);
+      const generatedRule = graphToRuleJson(nodes, edges);
+
+      if (onDryRun) {
+        const res = await onDryRun(generatedRule, parsedContext);
+        setTestResult(res);
+      } else {
+        // Fallback local evaluation simulation
+        setTestResult({ matched: true });
+      }
+    } catch (err: unknown) {
+      setTestResult({
+        matched: false,
+        error: err instanceof Error ? err.message : 'Invalid JSON context',
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const generatedJsonStr = useMemo(
+    () => JSON.stringify(graphToRuleJson(nodes, edges), null, 2),
+    [nodes, edges],
+  );
+
+  return (
+    <div className="flex flex-col rounded-xl border border-border/70 bg-zinc-950/70 shadow-2xl overflow-hidden">
+      {/* Top Controls Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-zinc-900/60 px-4 py-2.5">
+        <div className="flex items-center gap-1.5">
+          <div className="mr-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            <Sparkles className="h-4 w-4 text-amber-400" />
+            <span>XYFlow Blueprint Editor</span>
+          </div>
+
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={addConditionNode}
+            className="h-8 gap-1 border-sky-500/30 bg-sky-500/10 text-xs text-sky-400 hover:bg-sky-500/20"
+          >
+            <Filter className="h-3.5 w-3.5" />
+            <span>+ Condition</span>
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={addLogicGateNode}
+            className="h-8 gap-1 border-amber-500/30 bg-amber-500/10 text-xs text-amber-400 hover:bg-amber-500/20"
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+            <span>+ Gate (AND/OR)</span>
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={addActionNode}
+            className="h-8 gap-1 border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-400 hover:bg-emerald-500/20"
+          >
+            <Gift className="h-3.5 w-3.5" />
+            <span>+ Action</span>
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Preset templates */}
+          <select
+            className="h-8 rounded-md border border-border/60 bg-zinc-900 px-2 text-xs text-muted-foreground focus:border-primary focus:outline-none"
+            onChange={(e) => {
+              if (e.target.value) {
+                loadPreset(e.target.value as keyof typeof PRESETS);
+                e.target.value = '';
+              }
+            }}
+            defaultValue=""
+          >
+            <option value="" disabled>
+              Load Preset Template...
+            </option>
+            {Object.entries(PRESETS).map(([key, p]) => (
+              <option key={key} value={key}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Mode Switcher */}
+          <div className="flex rounded-lg border border-border/60 bg-zinc-900 p-0.5">
+            <button
+              type="button"
+              onClick={() => setActiveTab('visual')}
+              className={`flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition ${
+                activeTab === 'visual'
+                  ? 'bg-zinc-800 text-foreground shadow'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Workflow className="h-3.5 w-3.5" />
+              <span>Canvas</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('code')}
+              className={`flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition ${
+                activeTab === 'code'
+                  ? 'bg-zinc-800 text-foreground shadow'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Code2 className="h-3.5 w-3.5" />
+              <span>JSON</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Workspace */}
+      <div className="relative h-[480px] w-full bg-zinc-950">
+        {activeTab === 'visual' ? (
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.25 }}
+            minZoom={0.2}
+            maxZoom={1.5}
+            defaultEdgeOptions={{
+              animated: true,
+              style: { stroke: '#38bdf8', strokeWidth: 2 },
+            }}
+          >
+            <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#3f3f46" />
+            <Controls className="!border-border !bg-zinc-900/90 !text-foreground !fill-foreground" />
+            <MiniMap
+              className="!border-border/60 !bg-zinc-900/90"
+              nodeColor={(node) => {
+                switch (node.type) {
+                  case 'trigger':
+                    return '#8b5cf6';
+                  case 'condition':
+                    return '#0284c7';
+                  case 'logicGate':
+                    return '#f59e0b';
+                  case 'action':
+                    return '#10b981';
+                  default:
+                    return '#71717a';
+                }
+              }}
+            />
+          </ReactFlow>
+        ) : (
+          <div className="h-full overflow-auto p-4 font-mono text-xs">
+            <pre className="text-emerald-400">{generatedJsonStr}</pre>
+          </div>
+        )}
+      </div>
+
+      {/* Interactive Testing & Dry Run Bar */}
+      <div className="border-t border-border/60 bg-zinc-900/80 p-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-1 items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+              <Play className="h-3.5 w-3.5 text-sky-400" />
+              <span>Test Rule against Mock Player Context:</span>
+            </div>
+            <input
+              type="text"
+              className="h-8 flex-1 max-w-md rounded-md border border-border/60 bg-zinc-950 px-3 font-mono text-xs text-foreground focus:border-sky-500 focus:outline-none"
+              value={testContext}
+              onChange={(e) => setTestContext(e.target.value)}
+              placeholder='e.g. {"kills": 120, "rank": "gold"}'
+            />
+            <Button
+              type="button"
+              size="sm"
+              onClick={runTest}
+              disabled={isTesting}
+              className="h-8 gap-1.5 bg-sky-500 text-xs font-medium text-black hover:bg-sky-400"
+            >
+              {isTesting ? 'Evaluating...' : 'Run Dry Test'}
+            </Button>
+          </div>
+
+          {/* Test Evaluation Result Banner */}
+          {testResult && (
+            <div className="flex items-center gap-2">
+              {testResult.matched ? (
+                <div className="flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Rule MATCHED (Conditions Passed)</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-400">
+                  <XCircle className="h-4 w-4" />
+                  <span>
+                    {testResult.error ? `Error: ${testResult.error}` : 'NO MATCH (Conditions Failed)'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

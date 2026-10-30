@@ -11,6 +11,7 @@ import { Field, JsonBlock, Mono, PageHeading, Panel } from "@/components/console
 import { useConsoleMutation, useConsoleQuery, queryError } from "@/hooks/use-console"
 import { CONSOLE_ENDPOINTS, type ConsoleRule, type ConsoleRuleDryRun } from "@/lib/console"
 import { formatTime } from "@/lib/format"
+import { VisualRuleBuilder } from "@/components/console/rules/VisualRuleBuilder"
 
 const SAMPLE = JSON.stringify(
   {
@@ -103,6 +104,23 @@ export function RulesView() {
     )
   }
 
+  const handleVisualDryRun = async (ruleBody: unknown, context: unknown) => {
+    try {
+      const result = await dryRun.mutateAsync({
+        method: "POST",
+        path: CONSOLE_ENDPOINTS.ruleDryRun,
+        body: {
+          body: ruleBody,
+          context,
+        },
+        success: "Dry run evaluated",
+      })
+      return { matched: result.matched, error: result.error ?? undefined }
+    } catch (err: unknown) {
+      return { matched: false, error: err instanceof Error ? err.message : "Dry run failed" }
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <PageHeading
@@ -113,33 +131,38 @@ export function RulesView() {
         title="Rule sets"
         actions={
           <Button size="sm" onClick={() => setCreating((value) => !value)}>
-            New rule
+            {creating ? "Close editor" : "New rule (Visual Builder)"}
           </Button>
         }
       >
         {creating && (
-          <div className="border-b border-border/40 bg-muted/20 p-4">
-            <div className="grid gap-3 md:grid-cols-[1fr_3fr]">
-              <Field label="Key">
-                <input
-                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
-                  placeholder="vip_wall_breaker"
-                  value={key}
-                  onChange={(event) => setKey(event.target.value)}
-                />
-              </Field>
-              <Field label="Body (all / any / not tree)">
-                <textarea rows={8} className="w-full rounded-md border border-border bg-background p-3 font-mono text-xs" value={body} onChange={(event) => setBody(event.target.value)} />
-              </Field>
+          <div className="border-b border-border/40 bg-muted/20 p-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="w-full max-w-sm">
+                <Field label="Rule Key Identifier">
+                  <input
+                    className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm font-mono"
+                    placeholder="e.g. quest_centurion or vip_wall_breaker"
+                    value={key}
+                    onChange={(event) => setKey(event.target.value)}
+                  />
+                </Field>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setCreating(false)}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={submitDraft} disabled={key.trim() === ""}>
+                  Draft version
+                </Button>
+              </div>
             </div>
-            <div className="mt-3 flex justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setCreating(false)}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={submitDraft} disabled={key.trim() === ""}>
-                Draft version
-              </Button>
-            </div>
+
+            <VisualRuleBuilder
+              initialJson={body}
+              onChange={setBody}
+              onDryRun={handleVisualDryRun}
+            />
           </div>
         )}
         {rules.isError ? (
@@ -220,15 +243,30 @@ export function RulesView() {
                     <div className="mt-3 space-y-2">
                       {versions.map((rule) => (
                         <div key={rule.version} className="rounded-md border border-border/40 p-3">
-                          <div className="mb-2 flex items-center gap-3">
-                            <Mono>v{rule.version}</Mono>
-                            {rule.is_active ? (
-                              <Mono className="text-emerald-300">active</Mono>
-                            ) : (
-                              <Mono className="text-muted-foreground">draft</Mono>
-                            )}
-                            <Mono className="text-muted-foreground">{rule.sha256.slice(0, 12)}</Mono>
-                            <Mono className="text-muted-foreground">{formatTime(rule.create_time)}</Mono>
+                          <div className="mb-2 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Mono>v{rule.version}</Mono>
+                              {rule.is_active ? (
+                                <Mono className="text-emerald-300">active</Mono>
+                              ) : (
+                                <Mono className="text-muted-foreground">draft</Mono>
+                              )}
+                              <Mono className="text-muted-foreground">{rule.sha256.slice(0, 12)}</Mono>
+                              <Mono className="text-muted-foreground">{formatTime(rule.create_time)}</Mono>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-sky-400 hover:text-sky-300"
+                              onClick={() => {
+                                setKey(ruleKey)
+                                setBody(JSON.stringify(rule.body, null, 2))
+                                setCreating(true)
+                                window.scrollTo({ top: 0, behavior: "smooth" })
+                              }}
+                            >
+                              Load in Visual Editor
+                            </Button>
                           </div>
                           <JsonBlock value={rule.body} />
                         </div>
