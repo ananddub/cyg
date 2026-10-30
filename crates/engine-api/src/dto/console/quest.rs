@@ -16,6 +16,8 @@ pub struct QuestDefinitionRequest {
     #[serde(default)]
     pub season: Option<String>,
     #[serde(default)]
+    pub requires_product: Option<String>,
+    #[serde(default)]
     pub active_from: Option<DateTime<Utc>>,
     #[serde(default)]
     pub active_to: Option<DateTime<Utc>>,
@@ -30,6 +32,7 @@ pub struct QuestDefinitionRow {
     pub goal_amount: i64,
     pub reward: serde_json::Value,
     pub season: Option<String>,
+    pub requires_product: Option<String>,
     pub active_from: DateTime<Utc>,
     pub active_to: DateTime<Utc>,
     pub update_time: DateTime<Utc>,
@@ -67,6 +70,7 @@ impl From<QuestDefinition> for QuestDefinitionRow {
             goal_amount: row.goal_amount,
             reward: row.reward,
             season: row.season,
+            requires_product: row.requires_product,
             active_from: row.active_from,
             active_to: row.active_to,
             update_time: row.update_time,

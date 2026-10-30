@@ -147,6 +147,18 @@ async fn draft(
             Some(key)
         }
     };
+    let requires_product = match body.requires_product.as_deref() {
+        None => None,
+        Some(raw) => {
+            let product = raw.trim();
+            if product.is_empty() || product.len() > 128 {
+                return Err(V2Error::invalid_argument(
+                    "A quest's required product is 1-128 characters.",
+                ));
+            }
+            Some(product.to_string())
+        }
+    };
     let active_from = body.active_from.unwrap_or_else(super::never);
     let active_to = body.active_to.unwrap_or_else(open_ended);
     if active_from >= active_to {
@@ -162,6 +174,7 @@ async fn draft(
         goal_amount: body.goal_amount,
         reward: body.reward,
         season,
+        requires_product,
         active_from,
         active_to,
         create_time,

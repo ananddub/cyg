@@ -1,13 +1,16 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use auto_di::singleton;
 use axum::Json;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::quest::{ClaimQuestRequest, QuestClaimResponse, QuestListResponse, QuestRow};
 use crate::error::V2Error;
+use crate::repositories::db::Queries;
 use crate::repositories::models::QuestDefinition;
 use crate::services::deps::q;
 
@@ -18,8 +21,8 @@ pub(crate) mod payout;
 pub(crate) mod reward;
 
 pub(crate) use catalog::{
-    definition_of, open_seasons, owned_definitions, progress_by_quest, runs_now, stats_by_player,
-    visible,
+    definition_of, entitled, open_seasons, owned_definitions, progress_by_quest, runs_now,
+    stats_by_player,
 };
 pub(crate) use reward::parse_reward;
 
@@ -43,16 +46,23 @@ impl QuestService {
         let progress = progress_by_quest(&queries, auth.uid()).await?;
         let stats = stats_by_player(&queries, auth.uid()).await?;
         let seasons = open_seasons(&queries, now).await?;
-        let quests = visible(&owned_definitions(&queries, state).await?, &seasons, now)
-            .into_iter()
-            .map(|definition| {
-                QuestRow::new(
-                    definition,
-                    progress.get(&definition.id),
-                    counted(definition, &stats),
-                )
-            })
-            .collect();
+        let products =
+            crate::services::iap::entitlements::active_products(&queries, auth.uid(), now).await?;
+        let quests = entitled(
+            &owned_definitions(&queries, state).await?,
+            &seasons,
+            now,
+            &products,
+        )
+        .into_iter()
+        .map(|definition| {
+            QuestRow::new(
+                definition,
+                progress.get(&definition.id),
+                counted(definition, &stats),
+            )
+        })
+        .collect();
         Ok(Json(QuestListResponse { quests }))
     }
 
@@ -72,6 +82,13 @@ impl QuestService {
         if !runs_now(&definition, &open_seasons(&queries, now).await?, now) {
             return Err(V2Error::failed_precondition(
                 "This quest is outside its running window.",
+            ));
+        }
+        if let Some(product) = definition.requires_product.as_deref()
+            && !subscribed_to(&queries, auth.uid(), now, product).await?
+        {
+            return Err(V2Error::failed_precondition(
+                "This quest is part of a subscription track that is not active.",
             ));
         }
         let reward = parse_reward(&definition.reward)?;
@@ -130,4 +147,17 @@ impl QuestService {
 /// moment the season opens.
 fn counted(definition: &QuestDefinition, stats: &BTreeMap<String, i64>) -> i64 {
     stats.get(&definition.goal_kind).copied().unwrap_or(0)
+}
+
+async fn subscribed_to(
+    queries: &Arc<Queries>,
+    user_id: Uuid,
+    now: DateTime<Utc>,
+    product: &str,
+) -> Result<bool, V2Error> {
+    Ok(
+        crate::services::iap::entitlements::active_products(queries, user_id, now)
+            .await?
+            .contains(product),
+    )
 }

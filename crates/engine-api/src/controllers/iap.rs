@@ -235,6 +235,15 @@ impl IapController {
             .into_response()
     }
 
+    #[get("/subscription/active")]
+    async fn active_subscriptions(&self, auth: Authed) -> Response {
+        let state = current_state();
+        self.service
+            .active_entitlements(&state, &auth)
+            .await
+            .into_response()
+    }
+
     #[get("/subscription/{product_id}")]
     async fn subscription_by_product(
         &self,

@@ -1,7 +1,8 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::repositories::models::{Purchase, Subscription};
+use crate::services::iap::entitlements::{is_active, state_of};
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
@@ -141,6 +142,38 @@ impl SubscriptionResponse {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct ActiveSubscriptionResponse {
+    pub success: bool,
+    pub active: bool,
+    pub products: Vec<String>,
+    pub subscriptions: Vec<ActiveSubscriptionRow>,
+}
+
+/// One stored subscription row as the enforcement sees it.
+#[derive(Debug, Serialize)]
+pub struct ActiveSubscriptionRow {
+    pub product_id: String,
+    pub original_transaction_id: String,
+    pub store: i16,
+    pub state: i32,
+    pub expire_time: i64,
+    pub needs_revalidation: bool,
+}
+
+impl ActiveSubscriptionRow {
+    pub(crate) fn new(row: &Subscription, now: &DateTime<Utc>, stale_after: Duration) -> Self {
+        Self {
+            product_id: row.product_id.clone(),
+            original_transaction_id: row.original_transaction_id.clone(),
+            store: row.store,
+            state: state_of(row, now),
+            expire_time: row.expire_time.timestamp(),
+            needs_revalidation: is_active(row, *now) && *now - row.update_time > stale_after,
+        }
+    }
+}
+
 impl From<&Purchase> for PurchaseResponse {
     fn from(p: &Purchase) -> Self {
         PurchaseResponse {
@@ -165,13 +198,7 @@ impl From<&Subscription> for SubscriptionResponse {
             refund_time: (s.refund_time.timestamp() > 0).then(|| s.refund_time.timestamp()),
             environment: environment_name(s.environment),
             original_transaction_id: s.original_transaction_id.clone(),
-            state: if s.refund_time.timestamp() > 0 {
-                0
-            } else if s.expire_time.timestamp() > 0 && s.expire_time < Utc::now() {
-                3
-            } else {
-                1
-            },
+            state: state_of(s, &Utc::now()),
         }
     }
 }

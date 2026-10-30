@@ -86,6 +86,7 @@ pub async fn every_migrated_path_is_still_registered() {
         ("POST", "/v2/iap/subscription/huawei"),
         ("GET", "/v2/iap/subscription"),
         ("GET", "/v2/iap/subscription/season-pass"),
+        ("GET", "/v2/iap/subscription/active"),
         ("GET", "/v2/friend"),
         ("POST", "/v2/friend"),
         ("DELETE", "/v2/friend"),

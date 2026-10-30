@@ -14,6 +14,7 @@ pub struct QuestRow {
     pub state: String,
     pub reward: serde_json::Value,
     pub season: Option<String>,
+    pub requires_product: Option<String>,
     pub active_from: DateTime<Utc>,
     pub active_to: DateTime<Utc>,
 }
@@ -72,10 +73,6 @@ pub struct IngestEventsResponse {
     pub completed: Vec<CompletedQuest>,
 }
 
-/// A definition joined to the asking player's progress. A quest nobody has
-/// touched yet still lists, at zero and available.
-/// A definition joined to the asking player's progress. A quest nobody has
-/// touched yet still lists, at zero and available.
 /// A definition joined to the asking player's counters. A quest nobody has
 /// touched yet still lists, at zero and available.
 impl QuestRow {
@@ -107,6 +104,7 @@ impl QuestRow {
             progress,
             reward: definition.reward.clone(),
             season: definition.season.clone(),
+            requires_product: definition.requires_product.clone(),
             active_from: definition.active_from,
             active_to: definition.active_to,
         }

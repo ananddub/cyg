@@ -120,6 +120,16 @@ impl Queries {
         )
         .await
     }
+    /// Every row the account has, including the expired and refunded ones:
+    /// enforcement has to be able to see what it is refusing.
+    pub async fn subscriptions_of(&self, user_id: Uuid) -> Result<Vec<Subscription>, DbError> {
+        self.all(
+            "SELECT * FROM subscription WHERE user_id = $user_id \
+             ORDER BY purchase_time DESC, original_transaction_id ASC LIMIT 200",
+            params!(user_id = user_id.to_string()),
+        )
+        .await
+    }
     pub async fn subscription_by_product(
         &self,
         user_id: Uuid,

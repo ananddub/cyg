@@ -12,6 +12,8 @@ pub struct QuestDefinition {
     pub goal_amount: i64,
     pub reward: serde_json::Value,
     pub season: Option<String>,
+    /// A store product whose active subscription unlocks this track.
+    pub requires_product: Option<String>,
     #[serde(with = "time::iso")]
     pub active_from: DateTime<Utc>,
     #[serde(with = "time::iso")]

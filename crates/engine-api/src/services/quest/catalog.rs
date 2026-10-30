@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -50,6 +50,23 @@ pub(crate) fn visible<'a>(
     definitions
         .iter()
         .filter(|definition| runs_now(definition, seasons, now))
+        .collect()
+}
+
+/// Of the visible definitions, the ones this player's live subscriptions pay
+/// for: a quest that names a product nobody is subscribed to is not offered.
+pub(crate) fn entitled<'a>(
+    definitions: &'a [QuestDefinition],
+    seasons: &BTreeMap<String, Season>,
+    now: DateTime<Utc>,
+    products: &BTreeSet<String>,
+) -> Vec<&'a QuestDefinition> {
+    visible(definitions, seasons, now)
+        .into_iter()
+        .filter(|definition| match definition.requires_product.as_deref() {
+            None => true,
+            Some(product) => products.contains(product),
+        })
         .collect()
 }
 

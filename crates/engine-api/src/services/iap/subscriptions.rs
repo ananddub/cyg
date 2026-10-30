@@ -1,20 +1,25 @@
+use std::collections::BTreeSet;
+
 use axum::Json;
 use base64::Engine;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::iap::{
-    ListQuery, SubscriptionListResponse, SubscriptionRequest, SubscriptionResponse,
+    ActiveSubscriptionResponse, ActiveSubscriptionRow, ListQuery, SubscriptionListResponse,
+    SubscriptionRequest, SubscriptionResponse,
 };
 use crate::error::V2Error;
+use crate::infra::liveops;
 use crate::repositories::iap::{InsertSubscriptionParams, ListPurchasesParams};
 use crate::services::deps::q;
 use crate::utils::iap::{decode_offset, epoch, store_of};
 
-use super::verify::{self, APPLE, GOOGLE};
 use super::IapService;
+use super::entitlements::is_active;
+use super::verify::{self, APPLE, GOOGLE};
 
 impl IapService {
     pub async fn subscription_apple(
@@ -88,6 +93,34 @@ impl IapService {
             .ok_or_else(|| V2Error::not_found("Subscription not found."))?;
         Ok(Json(SubscriptionResponse::from(&row)))
     }
+
+    /// What the account is entitled to right now, and which rows the server has
+    /// not heard from the store about in too long to trust on sight.
+    pub async fn active_entitlements(
+        &self,
+        state: &ApiState,
+        claims: &Authed,
+    ) -> Result<Json<ActiveSubscriptionResponse>, V2Error> {
+        let queries = q(state).await?;
+        let now = Utc::now();
+        let rows = queries.subscriptions_of(claims.0.uuid()?).await?;
+        let stale_after = Duration::days(liveops::config().subscription_revalidation_days);
+        let products: BTreeSet<String> = rows
+            .iter()
+            .filter(|row| is_active(row, now))
+            .map(|row| row.product_id.clone())
+            .collect();
+        let subscriptions = rows
+            .iter()
+            .map(|row| ActiveSubscriptionRow::new(row, &now, stale_after))
+            .collect();
+        Ok(Json(ActiveSubscriptionResponse {
+            success: true,
+            active: !products.is_empty(),
+            products: products.into_iter().collect(),
+            subscriptions,
+        }))
+    }
 }
 
 async fn record_subscription(
@@ -127,7 +160,10 @@ async fn record_subscription(
             environment: verified.environment,
             product_id: verified.product_id,
             purchase_time: verified.purchase_time.unwrap_or_else(Utc::now),
-            expire_time: body.expire_time.or(verified.expire_time).unwrap_or_else(epoch),
+            expire_time: body
+                .expire_time
+                .or(verified.expire_time)
+                .unwrap_or_else(epoch),
             refund_time: epoch(),
             raw_response: verified.raw,
         })
