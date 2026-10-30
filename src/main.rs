@@ -27,21 +27,27 @@ use std::path::{Path, PathBuf};
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod backup;
+mod cli;
 mod cook;
 mod schema;
 
 fn init_logging() {
+    use tracing_subscriber::prelude::*;
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let builder = tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    let fmt = tracing_subscriber::fmt::layer()
         .with_target(false)
         .with_writer(std::io::stderr);
-    if std::env::var("OX_LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json")) {
-        builder.json().init();
+    let fmt = if std::env::var("OX_LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json")) {
+        fmt.json().boxed()
     } else {
-        builder.compact().init();
-    }
+        fmt.compact().boxed()
+    };
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt)
+        .with(engine_api::infra::logfeed::layer())
+        .init();
 }
 
 fn main() {
@@ -103,6 +109,36 @@ fn main() {
         }
         "backup" => backup_command(&dir, &args[1..]),
         "restore" => restore_command(&args[1..]),
+        "migrate" => cli::migrate::run(&dir),
+        "openapi" => cli::openapi::run(&args[1..]),
+        "secrets" => match args.get(1).map(String::as_str) {
+            Some("audit") => cli::secrets::run(&dir),
+            _ => {
+                tracing::info!("Usage: cyg-game secrets audit [dir]");
+                std::process::exit(1);
+            }
+        },
+        "config" => match args.get(1).map(String::as_str) {
+            Some("diff") => cli::config_diff::run(&args[2..], &dir),
+            _ => {
+                tracing::info!("Usage: cyg-game config diff <a.json> <b.json|live> [--game <id>]");
+                std::process::exit(1);
+            }
+        },
+        "rules" => match args.get(1).map(String::as_str) {
+            Some("check") => cli::rules_check::run(&args[2..], &dir),
+            _ => {
+                tracing::info!("Usage: cyg-game rules check --file <rules.json>");
+                std::process::exit(1);
+            }
+        },
+        "logs" => match args.get(1).map(String::as_str) {
+            Some("tail") => cli::logs_tail::run(&args[2..]),
+            _ => {
+                tracing::info!("Usage: cyg-game logs tail --token <console token>");
+                std::process::exit(1);
+            }
+        },
         "--help" | "-h" | "help" => print_help(),
         other => {
             tracing::info!("unknown command: {other}");
@@ -211,29 +247,7 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
     match cfg.as_ref() {
         None => tracing::info!("• secrets not audited (config.toml did not parse)"),
         Some(cfg) => {
-            let read_env = |name: &str| std::env::var(name).ok();
-            let checks = engine_config::audit_secrets(
-                &cfg.control,
-                engine_config::Rotation::global(),
-                &read_env,
-            );
-            let failed: Vec<&str> = checks
-                .iter()
-                .filter(|c| !c.ok)
-                .map(|c| c.detail.as_str())
-                .collect();
-            if failed.is_empty() {
-                tracing::info!(
-                    "✓ secrets are strong and no credential is accepted unverified ({} checks)",
-                    checks.len()
-                );
-            } else {
-                for detail in &failed {
-                    tracing::info!("✗ {detail}");
-                }
-                tracing::info!("  rotation runbook: docs/SECRETS.md");
-                problems += failed.len();
-            }
+            problems += cli::secrets::audit(cfg.control.clone());
         }
     }
 
@@ -400,6 +414,12 @@ USAGE:
   cyg-game doctor --check-schema report pending SurrealDB schema migrations
   cyg-game backup  [dir] [--out backups]  export the HTTP database to a timestamped gzip + sha256 sidecar
   cyg-game restore [dir] <archive> [--force]  import a backup archive produced by backup
+  cyg-game migrate [dir]                  apply pending schema migrations, then exit
+  cyg-game openapi [--out spec.json] [--check golden.json]  emit / verify the OpenAPI spec
+  cyg-game secrets audit [dir]            run the boot guard's secret checks
+  cyg-game config diff <a.json> <b.json|live> [--game <id>]  key-path config diff
+  cyg-game rules check --file <rules.json>  validate a rule document
+  cyg-game logs tail [--url base] [--token t] [--limit n]   newest mirrored log lines
   cyg-game                        same as `run` in the current directory
 
 CONFIG:

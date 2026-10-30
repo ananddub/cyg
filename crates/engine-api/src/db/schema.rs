@@ -21,6 +21,7 @@ pub fn ddl() -> Vec<&'static str> {
         ConsoleAuditLog,
         ConsoleUser,
         DesyncReport,
+        GameConfigVersion,
         GameMaps,
         Games,
         GameplayEvent,
@@ -34,12 +35,14 @@ pub fn ddl() -> Vec<&'static str> {
         Leaderboard,
         LeaderboardRecord,
         MarketListing,
+        MatchHistory,
         Message,
         Notification,
         Purchase,
         QuestDefinition,
         RoomModules,
         RoomPersistentSnapshot,
+        RulesDefinition,
         SchemaVersion,
         Season,
         Setting,
@@ -53,6 +56,8 @@ pub fn ddl() -> Vec<&'static str> {
         UsersNotes,
         WalletLedger,
         Wager,
+        WebhookEndpoint,
+        WebhookDelivery,
     ]
 }
 
@@ -71,7 +76,7 @@ mod tests {
             ddl.iter()
                 .filter(|line| line.starts_with("DEFINE TABLE"))
                 .count(),
-            36
+            41
         );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {

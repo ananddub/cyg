@@ -44,7 +44,30 @@ impl ConsoleMapsController {
             Ok(id) => id,
             Err(e) => return e.into_response(),
         };
-        self.service.list_maps(&state, game_id).await.map(Json).into_response()
+        self.service
+            .list_maps(&state, game_id)
+            .await
+            .map(Json)
+            .into_response()
+    }
+
+    #[get("/{version}/preview")]
+    async fn preview(
+        &self,
+        _auth: ConsoleAuthed,
+        Path((game_id, version)): Path<(String, String)>,
+    ) -> Response {
+        let state = current_state();
+        let parsed =
+            Self::game_id(&game_id).and_then(|id| Self::version(&version).map(|v| (id, v)));
+        let (game_id, version) = match parsed {
+            Ok(pair) => pair,
+            Err(e) => return e.into_response(),
+        };
+        self.service
+            .preview_map(&state, game_id, version)
+            .await
+            .into_response()
     }
 
     #[post("/{version}/activate")]

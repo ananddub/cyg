@@ -11,9 +11,9 @@ pub mod inventory;
 pub mod leaderboard;
 pub mod link;
 pub mod marketplace;
+pub mod match_history;
 #[path = "match.rs"]
 pub mod matches;
-pub mod match_history;
 pub mod matchmake;
 pub mod notification;
 pub mod quest;
@@ -23,6 +23,7 @@ pub mod storage;
 pub mod storage_index;
 pub mod tournament;
 pub mod user;
+pub mod webhook;
 
 #[derive(Debug, Default, Serialize)]
 pub struct Empty {}

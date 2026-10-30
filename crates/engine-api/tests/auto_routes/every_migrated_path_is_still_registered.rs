@@ -271,8 +271,45 @@ pub async fn every_migrated_path_is_still_registered() {
         ("POST", "/v2/console/seasons"),
         ("PUT", "/v2/console/seasons/example"),
         ("DELETE", "/v2/console/seasons/example"),
+        ("GET", "/v2/console/webhooks"),
+        ("POST", "/v2/console/webhooks"),
+        ("GET", "/v2/console/webhooks/spec"),
+        ("PUT", "/v2/console/webhooks/example"),
+        ("DELETE", "/v2/console/webhooks/example"),
+        ("GET", "/v2/console/webhooks/example/deliveries"),
+        ("POST", "/v2/console/webhooks/example/deliveries/example/retry"),
         ("GET", "/v2/match/arena/events"),
+        ("GET", "/v2/match/arena/history"),
         ("GET", "/v2/console/desync"),
+        ("GET", "/v2/console/match/arena/replay"),
+        ("GET", "/v2/console/rules"),
+        ("POST", "/v2/console/rules"),
+        ("POST", "/v2/console/rules/dry-run"),
+        ("GET", "/v2/console/rules/example"),
+        ("POST", "/v2/console/rules/example/publish/1"),
+        ("DELETE", "/v2/console/rules/example"),
+        ("GET", "/v2/console/games/00000000-0000-0000-0000-000000000000/config/history"),
+        (
+            "GET",
+            "/v2/console/games/00000000-0000-0000-0000-000000000000/config/1",
+        ),
+        (
+            "POST",
+            "/v2/console/games/00000000-0000-0000-0000-000000000000/config/rollback/1",
+        ),
+        (
+            "GET",
+            "/v2/console/timeline/00000000-0000-0000-0000-000000000000",
+        ),
+        ("GET", "/v2/console/economy/summary"),
+        (
+            "GET",
+            "/v2/console/games/00000000-0000-0000-0000-000000000000/maps/1/preview",
+        ),
+        ("GET", "/openapi.json"),
+        // /console/api-docs is a nested UI mount, not a controller route: it
+        // answers GET and 404s everything else, so the 405 sweep skips it.
+        ("GET", "/v2/console/logs/recent"),
     ];
 
     let mut paths: Vec<&str> = routes.iter().map(|(_, path)| *path).collect();

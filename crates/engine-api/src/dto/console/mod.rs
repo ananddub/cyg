@@ -1,6 +1,8 @@
 pub mod account;
 pub mod audit;
 pub mod auth;
+pub mod config_history;
+pub mod economy;
 pub mod games;
 pub mod group;
 pub mod iap;
@@ -9,9 +11,11 @@ pub mod leaderboard;
 pub mod matches;
 pub mod notification;
 pub mod quest;
+pub mod rules;
 pub mod setting;
 pub mod status;
 pub mod storage;
+pub mod timeline;
 pub mod user;
 pub mod wasm;
 

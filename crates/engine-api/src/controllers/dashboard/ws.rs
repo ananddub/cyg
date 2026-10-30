@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use auto_route::controller;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use engine_dashboard::WsFrame;
@@ -43,10 +43,7 @@ impl DashboardWsController {
         Params(scope): Params<DashboardScope>,
     ) -> Response {
         let state = crate::current_state();
-        let token = scope
-            .token
-            .as_deref()
-            .or_else(|| bearer_token(&headers));
+        let token = scope.token.as_deref().or_else(|| bearer_token(&headers));
         let Some(token) = token else {
             return V2Error::unauthenticated("Console token required").into_response();
         };
@@ -110,6 +107,7 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
     };
 
     let mut dropped = 0usize;
+    let mut log_feed: Option<tokio::task::JoinHandle<()>> = None;
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ticker.tick().await;
@@ -125,6 +123,22 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
             }
             msg = stream.next() => match msg {
                 None | Some(Err(_)) | Some(Ok(Message::Close(_))) => break,
+                Some(Ok(Message::Text(text))) => {
+                    match log_request(&text) {
+                        LogRequest::Subscribe(level) => {
+                            if let Some(running) = log_feed.take() {
+                                running.abort();
+                            }
+                            log_feed = Some(spawn_log_feed(tx.clone(), level));
+                        }
+                        LogRequest::Unsubscribe => {
+                            if let Some(running) = log_feed.take() {
+                                running.abort();
+                            }
+                        }
+                        LogRequest::None => {}
+                    }
+                }
                 Some(Ok(_)) => {}
             },
         }
@@ -134,6 +148,9 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
     for feed in feeds {
         feed.abort();
     }
+    if let Some(running) = log_feed.take() {
+        running.abort();
+    }
     writer.abort();
     if dropped > 0 {
         tracing::info!(
@@ -142,7 +159,89 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
     }
 }
 
-fn spawn_feed(mut subscription: Subscription, tx: mpsc::Sender<WsFrame>) -> tokio::task::JoinHandle<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum LogLevel {
+    Error = 0,
+    Warn = 1,
+    Info = 2,
+    Debug = 3,
+    Trace = 4,
+}
+
+fn level_rank(name: &str) -> Option<LogLevel> {
+    match name.to_ascii_lowercase().as_str() {
+        "error" => Some(LogLevel::Error),
+        "warn" | "warning" => Some(LogLevel::Warn),
+        "info" => Some(LogLevel::Info),
+        "debug" => Some(LogLevel::Debug),
+        "trace" => Some(LogLevel::Trace),
+        _ => None,
+    }
+}
+
+enum LogRequest {
+    Subscribe(LogLevel),
+    Unsubscribe,
+    None,
+}
+
+fn log_request(text: &axum::extract::ws::Utf8Bytes) -> LogRequest {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text.as_str()) else {
+        return LogRequest::None;
+    };
+    match value.get("type").and_then(serde_json::Value::as_str) {
+        Some("logs.subscribe") => {
+            let level = value
+                .get("level")
+                .and_then(serde_json::Value::as_str)
+                .and_then(level_rank)
+                .unwrap_or(LogLevel::Info);
+            LogRequest::Subscribe(level)
+        }
+        Some("logs.unsubscribe") => LogRequest::Unsubscribe,
+        _ => LogRequest::None,
+    }
+}
+
+/// Mirrors the log feed to one socket. A client that stops reading is skipped
+/// past (the channel lags) rather than slow: the socket keeps its telemetry.
+fn spawn_log_feed(tx: mpsc::Sender<WsFrame>, max: LogLevel) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut feed = crate::infra::logfeed::subscribe();
+        loop {
+            let Ok(first) = feed.recv().await else {
+                continue;
+            };
+            let mut lines = Vec::with_capacity(16);
+            if level_rank(&first.level).is_some_and(|rank| rank <= max) {
+                lines.push(first);
+            }
+            while lines.len() < 50 {
+                match feed.try_recv() {
+                    Ok(next) => {
+                        if level_rank(&next.level).is_some_and(|rank| rank <= max) {
+                            lines.push(next);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            if lines.is_empty() {
+                continue;
+            }
+            let frame = WsFrame::Logs { lines };
+            match tokio::time::timeout(SEND_GRACE, tx.send(frame)).await {
+                Ok(Ok(())) | Err(_) => {}
+                Ok(Err(_)) => return,
+            }
+        }
+    })
+}
+
+fn spawn_feed(
+    mut subscription: Subscription,
+    tx: mpsc::Sender<WsFrame>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         while let Some(event) = subscription.recv().await {
             let frame = WsFrame::Live {

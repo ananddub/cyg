@@ -51,7 +51,58 @@ impl ConsoleGamesController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        answer(GamesService::update_game(&state, id, &body).await)
+        answer(GamesService::update_game(&state, id, &body, Some(&auth.0.username)).await)
+    }
+
+    #[get("/{gameId}/config/history")]
+    async fn config_history(&self, _auth: ConsoleAuthed, Path(game_id): Path<String>) -> Response {
+        let state = current_state();
+        let id = match parse_id(&game_id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        answer(GamesService::config_history(&state, id).await)
+    }
+
+    #[get("/{gameId}/config/{version}")]
+    async fn config_version(
+        &self,
+        _auth: ConsoleAuthed,
+        Path((game_id, version)): Path<(String, String)>,
+    ) -> Response {
+        let state = current_state();
+        let id = match parse_id(&game_id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        let Ok(version) = version.parse::<i64>() else {
+            return V2Error::invalid_argument("A config version is a number.").into_response();
+        };
+        answer(GamesService::config_version(&state, id, version).await)
+    }
+
+    #[post("/{gameId}/config/rollback/{version}")]
+    async fn rollback_config(
+        &self,
+        auth: ConsoleAuthed,
+        Path((game_id, version)): Path<(String, String)>,
+    ) -> Response {
+        let state = current_state();
+        if let Err(err) = auth.require_write() {
+            return err.into_response();
+        }
+        let id = match parse_id(&game_id) {
+            Ok(id) => id,
+            Err(err) => return err.into_response(),
+        };
+        let Ok(version) = version.parse::<i64>() else {
+            return V2Error::invalid_argument("A config version is a number.").into_response();
+        };
+        let operator = auth
+            .0
+            .uuid()
+            .map(|id| (id, auth.0.username.clone(), auth.0.email.clone()));
+        answer(GamesService::rollback_config(&state, id, version, operator).await)
     }
 
     #[delete("/{gameId}")]

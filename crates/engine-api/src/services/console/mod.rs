@@ -11,18 +11,22 @@ pub mod account;
 pub mod audit;
 pub mod auth;
 pub mod board;
+pub mod economy;
 pub mod group;
 pub mod iap;
 pub mod leaderboard;
+pub mod logs;
 #[path = "match.rs"]
 pub mod matches;
 pub mod mfa;
 pub mod notification;
 pub mod quest;
+pub mod rules;
 pub mod season;
 pub mod setting;
 pub mod status;
 pub mod storage;
+pub mod timeline;
 pub mod user;
 
 pub struct ConsoleService;
