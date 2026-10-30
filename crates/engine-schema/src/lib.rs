@@ -925,9 +925,7 @@ fn emit_world(out: &mut String, root: &RootState) {
 
     for field in &root.scalars {
         let ty = match field.kind {
-            WireKind::Array => {
-                array_assemblyscript_type(field.element.unwrap_or(WireKind::F64))
-            }
+            WireKind::Array => array_assemblyscript_type(field.element.unwrap_or(WireKind::F64)),
             other => other.assemblyscript_type(),
         };
         let suffix = field.kind.value_suffix();
@@ -971,11 +969,7 @@ fn field_typescript_type(field: &SchemaField) -> String {
     }
 }
 
-fn emit_client_dts(
-    schemas: &[SchemaDef],
-    root: Option<&RootState>,
-    source_name: &str,
-) -> String {
+fn emit_client_dts(schemas: &[SchemaDef], root: Option<&RootState>, source_name: &str) -> String {
     let mut out = String::new();
     out.push_str(HEADER);
     out.push('\n');

@@ -149,9 +149,8 @@ impl SchemaAoi {
                 let mut collections = Vec::with_capacity(count);
                 for _ in 0..count {
                     let id = u16::from_le_bytes(full.get(offset..offset + 2)?.try_into().ok()?);
-                    let hash = u32::from_le_bytes(
-                        full.get(offset + 2..offset + 6)?.try_into().ok()?,
-                    );
+                    let hash =
+                        u32::from_le_bytes(full.get(offset + 2..offset + 6)?.try_into().ok()?);
                     let len =
                         u32::from_le_bytes(full.get(offset + 6..offset + 10)?.try_into().ok()?)
                             as usize;
@@ -255,7 +254,8 @@ impl SchemaAoi {
         let far2 = far * far;
         let far_tick = aoi.skip_ticks <= 1 || tick % aoi.skip_ticks == 0;
         let keep = |row: &RowView| {
-            row.id == viewer_id || distance2(row.pos, viewer_pos) <= near2
+            row.id == viewer_id
+                || distance2(row.pos, viewer_pos) <= near2
                 || (far_tick && distance2(row.pos, viewer_pos) <= far2)
         };
 

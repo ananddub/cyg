@@ -1,8 +1,8 @@
 //! Splitting one delta body into MTU-safe stamped frames.
 
 use engine_webrtc_protocol::{
-    DELTA_HEADER_LEN, FragmentAssembler, MAX_DELTA_BODY, MAX_DELTA_CHUNK, MAX_FRAGMENTS, MAX_FRAME,
-    DeltaHeader,
+    DELTA_HEADER_LEN, DeltaHeader, FragmentAssembler, MAX_DELTA_BODY, MAX_DELTA_CHUNK,
+    MAX_FRAGMENTS, MAX_FRAME,
 };
 
 use super::{DeltaTooLarge, split_delta};
@@ -39,7 +39,11 @@ fn exactly_one_chunk_is_not_fragmented() {
     let mut frames = Vec::new();
     assert_eq!(split_delta(11, 3, &body, &mut frames).unwrap(), 1);
     assert_eq!(frames[0].len(), DELTA_HEADER_LEN + MAX_DELTA_CHUNK);
-    assert_eq!(frames[0].len(), MAX_FRAME, "one chunk fills the MTU exactly");
+    assert_eq!(
+        frames[0].len(),
+        MAX_FRAME,
+        "one chunk fills the MTU exactly"
+    );
     let (header, chunk) = DeltaHeader::parse(&frames[0]).unwrap();
     assert_eq!(header.frag_total, 1);
     assert_eq!(chunk, body.as_slice());
@@ -64,7 +68,10 @@ fn one_byte_over_the_boundary_fragments_twice() {
 fn two_hundred_fifty_five_chunks_is_the_last_legal_delta() {
     let body = vec![0x33u8; MAX_DELTA_BODY];
     let mut frames = Vec::new();
-    assert_eq!(split_delta(200, 7, &body, &mut frames).unwrap(), MAX_FRAGMENTS);
+    assert_eq!(
+        split_delta(200, 7, &body, &mut frames).unwrap(),
+        MAX_FRAGMENTS
+    );
     assert_eq!(frames.len(), 255);
     let mut seen = vec![false; 255];
     for f in &frames {
@@ -90,7 +97,10 @@ fn two_hundred_fifty_six_chunks_is_refused_not_truncated() {
             max: MAX_DELTA_BODY,
         })
     );
-    assert!(frames.is_empty(), "a refused delta must not leave partial frames");
+    assert!(
+        frames.is_empty(),
+        "a refused delta must not leave partial frames"
+    );
 }
 
 /// The headline MTU guarantee: a delta far bigger than one packet only ever
@@ -103,7 +113,11 @@ fn an_oversized_delta_produces_only_mtu_safe_frames() {
     let mut frames = Vec::new();
     let count = split_delta(640, 99, &body, &mut frames).unwrap() as u8;
     for f in &frames {
-        assert!(f.len() <= MAX_FRAME, "a {} B frame exceeds the MTU", f.len());
+        assert!(
+            f.len() <= MAX_FRAME,
+            "a {} B frame exceeds the MTU",
+            f.len()
+        );
         let (header, _) = DeltaHeader::parse(f).unwrap();
         assert_eq!(header.frag_total, count);
         assert_eq!(header.tick, 99);

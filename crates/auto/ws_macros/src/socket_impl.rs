@@ -14,7 +14,10 @@ struct Hook {
     handler: syn::Ident,
 }
 
-pub(crate) fn expand(path: LitStr, mut item_impl: ItemImpl) -> syn::Result<proc_macro2::TokenStream> {
+pub(crate) fn expand(
+    path: LitStr,
+    mut item_impl: ItemImpl,
+) -> syn::Result<proc_macro2::TokenStream> {
     validate_impl(&item_impl)?;
     let self_ty = item_impl.self_ty.as_ref().clone();
     let type_name = type_ident(&self_ty)?;
@@ -178,11 +181,15 @@ fn collect(
             }
             None if connect => {
                 validate_arity(&function.sig, 1, "a #[connect] hook")?;
-                connects.push(Hook { handler: function.sig.ident.clone() });
+                connects.push(Hook {
+                    handler: function.sig.ident.clone(),
+                });
             }
             None => {
                 validate_arity(&function.sig, 1, "a #[disconnect] hook")?;
-                disconnects.push(Hook { handler: function.sig.ident.clone() });
+                disconnects.push(Hook {
+                    handler: function.sig.ident.clone(),
+                });
             }
         }
     }

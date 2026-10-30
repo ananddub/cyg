@@ -202,7 +202,10 @@ pub fn parse(source: &str) -> Result<TsSchema, Vec<SchemaDiagnostic>> {
                             ),
                         });
                     }
-                    if schemas.iter().all(|schema| schema.name != collection.schema) {
+                    if schemas
+                        .iter()
+                        .all(|schema| schema.name != collection.schema)
+                    {
                         parser.diagnostics.push(SchemaDiagnostic {
                             line: 1,
                             column: 1,
@@ -494,7 +497,8 @@ fn resolve_declarations(
                     continue;
                 }
                 for field in base.schema.fields {
-                    if let Some(existing) = fields.iter().find(|candidate| candidate.name == field.name)
+                    if let Some(existing) =
+                        fields.iter().find(|candidate| candidate.name == field.name)
                     {
                         self.diagnostics.push(SchemaDiagnostic {
                             line: field.line,
@@ -511,7 +515,8 @@ fn resolve_declarations(
             }
 
             for field in own_fields {
-                if let Some(existing) = fields.iter().find(|candidate| candidate.name == field.name) {
+                if let Some(existing) = fields.iter().find(|candidate| candidate.name == field.name)
+                {
                     self.diagnostics.push(SchemaDiagnostic {
                         line: field.line,
                         column: field.column,
@@ -799,7 +804,9 @@ impl Parser {
             }
             let option_token = self.tokens.get(self.pos + 1).cloned();
             let option = match option_token.as_ref().map(|token| &token.kind) {
-                Some(TokenKind::Ident(name)) if name == "extend" || name == "version" => name.clone(),
+                Some(TokenKind::Ident(name)) if name == "extend" || name == "version" => {
+                    name.clone()
+                }
                 _ => break,
             };
             let token = option_token.unwrap();
@@ -848,7 +855,9 @@ impl Parser {
                                 number.column,
                                 "schema version does not fit in a 32-bit unsigned integer",
                             ),
-                            Err(_) => self.error(number.line, number.column, "invalid schema version"),
+                            Err(_) => {
+                                self.error(number.line, number.column, "invalid schema version")
+                            }
                         }
                     }
                     _ => {
@@ -919,7 +928,9 @@ impl Parser {
             _ => return None,
         };
         match &self.tokens[schema_pos - 3].kind {
-            TokenKind::Ident(keyword) if keyword == "const" || keyword == "let" || keyword == "var" => {
+            TokenKind::Ident(keyword)
+                if keyword == "const" || keyword == "let" || keyword == "var" =>
+            {
                 Some(name)
             }
             _ => None,
@@ -1062,7 +1073,9 @@ impl Parser {
             "quantized" | "angle" => {
                 "t.quantized()/t.angle() are not supported by OXS2 state sync yet"
             }
-            _ => "unknown schema type; use t.number, t.float32, t.int8/16/32/64, t.uint8/16/32, t.boolean, t.string, t.array(t.*) or t.ref",
+            _ => {
+                "unknown schema type; use t.number, t.float32, t.int8/16/32/64, t.uint8/16/32, t.boolean, t.string, t.array(t.*) or t.ref"
+            }
         };
         self.error(type_token.line, type_token.column, message);
         None
@@ -1081,7 +1094,11 @@ impl Parser {
         let element = if self.is_ident("t") {
             self.advance();
             if !self.eat_symbol('.') {
-                self.error(inner.line, inner.column, "expected '.' after `t`, e.g. t.array(t.u32())");
+                self.error(
+                    inner.line,
+                    inner.column,
+                    "expected '.' after `t`, e.g. t.array(t.u32())",
+                );
                 self.skip_balanced('(', ')');
                 return None;
             }
@@ -1089,7 +1106,11 @@ impl Parser {
             let elem_name = match &elem_token.kind {
                 TokenKind::Ident(name) => name.clone(),
                 _ => {
-                    self.error(elem_token.line, elem_token.column, "expected an array element type after `t.`");
+                    self.error(
+                        elem_token.line,
+                        elem_token.column,
+                        "expected an array element type after `t.`",
+                    );
                     self.skip_balanced('(', ')');
                     return None;
                 }
@@ -1281,7 +1302,10 @@ impl Parser {
         if self.peek_symbol(0, '(')
             && self.peek_symbol(1, ')')
             && self.peek_symbol(2, '=')
-            && matches!(self.tokens.get(self.pos + 3).map(|token| &token.kind), Some(TokenKind::Symbol('>')))
+            && matches!(
+                self.tokens.get(self.pos + 3).map(|token| &token.kind),
+                Some(TokenKind::Symbol('>'))
+            )
         {
             self.pos += 4;
             return self.parse_literal();
@@ -1557,29 +1581,33 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_containers_and_field_version() {
-        let errors = parse(
-            r#"const Bad = schema({ samples: t.array(t.int64()) }, "Bad");"#,
-        )
-        .unwrap_err();
+        let errors =
+            parse(r#"const Bad = schema({ samples: t.array(t.int64()) }, "Bad");"#).unwrap_err();
         assert!(errors.iter().any(|e| e.message.contains("loses precision")));
 
-        let errors = parse(
-            r#"const Bad = schema({ names: t.array(t.string()) }, "Bad");"#,
-        )
-        .unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("numeric or boolean")));
+        let errors =
+            parse(r#"const Bad = schema({ names: t.array(t.string()) }, "Bad");"#).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("numeric or boolean"))
+        );
 
-        let errors = parse(
-            r#"const Bad = schema({ items: t.set(t.number()) }, "Bad");"#,
-        )
-        .unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("collections are not supported")));
+        let errors =
+            parse(r#"const Bad = schema({ items: t.set(t.number()) }, "Bad");"#).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("collections are not supported"))
+        );
 
-        let errors = parse(
-            r#"const Bad = schema({ hp: t.uint8().version(2) }, "Bad");"#,
-        )
-        .unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("applies to the whole schema")));
+        let errors =
+            parse(r#"const Bad = schema({ hp: t.uint8().version(2) }, "Bad");"#).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("applies to the whole schema"))
+        );
     }
 
     #[test]
@@ -1621,7 +1649,11 @@ mod tests {
             .iter()
             .map(|field| field.name.as_str())
             .collect();
-        assert_eq!(names, ["x", "hp", "name", "score"], "base fields come first");
+        assert_eq!(
+            names,
+            ["x", "hp", "name", "score"],
+            "base fields come first"
+        );
         assert_eq!(parsed.schemas[2].version, 3);
         assert_eq!(parsed.schemas[1].version, 1);
     }
@@ -1635,15 +1667,27 @@ mod tests {
             "#,
         )
         .unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("already inherited")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("already inherited"))
+        );
 
         let errors = parse(r#"const Child = schema({ x: t.number() }, "Child").extend(Missing);"#)
             .unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("extends unknown schema")));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("extends unknown schema"))
+        );
 
-        let errors = parse(r#"const Bad = schema({ target: t.ref(Missing) }, "Bad");"#)
-            .unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("references unknown schema")));
+        let errors =
+            parse(r#"const Bad = schema({ target: t.ref(Missing) }, "Bad");"#).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("references unknown schema"))
+        );
 
         let cycle = parse(
             r#"
@@ -1657,12 +1701,12 @@ mod tests {
 
     #[test]
     fn rejects_out_of_range_defaults_and_duplicate_fields() {
-        let errors = parse(r#"const Bad = schema({ hp: t.uint8().default(300) }, "Bad");"#)
-            .unwrap_err();
+        let errors =
+            parse(r#"const Bad = schema({ hp: t.uint8().default(300) }, "Bad");"#).unwrap_err();
         assert!(errors.iter().any(|e| e.message.contains("out of range")));
 
-        let errors = parse(r#"const Bad = schema({ x: t.number(), x: t.number() }, "Bad");"#)
-            .unwrap_err();
+        let errors =
+            parse(r#"const Bad = schema({ x: t.number(), x: t.number() }, "Bad");"#).unwrap_err();
         assert!(errors.iter().any(|e| e.message.contains("more than once")));
     }
 
@@ -1679,7 +1723,11 @@ mod tests {
             }, "State");
         "#;
         let parsed = parse(source).expect("multi root parses");
-        assert_eq!(parsed.schemas.len(), 2, "root scalars are not an entity schema");
+        assert_eq!(
+            parsed.schemas.len(),
+            2,
+            "root scalars are not an entity schema"
+        );
         let root = parsed.root.expect("root world");
         assert_eq!(root.name, "State");
         assert_eq!(root.scalars.len(), 2);
@@ -1700,7 +1748,11 @@ mod tests {
             "#,
         )
         .unwrap_err();
-        assert!(duplicate.iter().any(|e| e.message.contains("more than once")));
+        assert!(
+            duplicate
+                .iter()
+                .any(|e| e.message.contains("more than once"))
+        );
 
         let unknown = parse(
             r#"

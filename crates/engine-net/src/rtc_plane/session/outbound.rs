@@ -23,8 +23,8 @@ impl RtcSession {
         let cid = self
             .ch_unreliable
             .ok_or(RtcPlaneError::ChannelNotOpen(LABEL_UNRELIABLE.into()))?;
-        let total = delta_fragment_count(body.len())
-            .ok_or(RtcPlaneError::DeltaTooLarge(body.len()))?;
+        let total =
+            delta_fragment_count(body.len()).ok_or(RtcPlaneError::DeltaTooLarge(body.len()))?;
 
         let mut out = Vec::new();
         let mut frame = Vec::new();

@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use bytes::BytesMut;
 use quinn_proto::{
-    ClientConfig, Connection, ConnectionError, ConnectionHandle, Dir, DatagramEvent, Endpoint,
+    ClientConfig, Connection, ConnectionError, ConnectionHandle, DatagramEvent, Dir, Endpoint,
     EndpointConfig, Event, ServerConfig, StreamEvent, Transmit,
 };
 
@@ -112,9 +112,7 @@ impl QuicEngine {
         remote: SocketAddr,
         server_name: &str,
     ) -> Result<ConnectionHandle, quinn_proto::ConnectError> {
-        let (handle, conn) = self
-            .endpoint
-            .connect(now, config, remote, server_name)?;
+        let (handle, conn) = self.endpoint.connect(now, config, remote, server_name)?;
         self.connections.insert(handle, conn);
         Ok(handle)
     }
@@ -124,14 +122,10 @@ impl QuicEngine {
         // The endpoint APPENDS into the shared scratch buffer, so it must start
         // empty on every call — reusing it without clearing grows it forever.
         self.buf.clear();
-        match self.endpoint.handle(
-            now,
-            from,
-            None,
-            None,
-            BytesMut::from(data),
-            &mut self.buf,
-        ) {
+        match self
+            .endpoint
+            .handle(now, from, None, None, BytesMut::from(data), &mut self.buf)
+        {
             Some(DatagramEvent::Response(transmit)) => self.push_transmit(transmit),
             Some(DatagramEvent::ConnectionEvent(handle, event)) => {
                 if let Some(conn) = self.connections.get_mut(&handle) {
@@ -149,12 +143,10 @@ impl QuicEngine {
     pub fn accept_pending(&mut self, now: Instant) -> Vec<ConnectionHandle> {
         let mut accepted = Vec::new();
         while let Some(incoming) = self.pending.pop_front() {
-            match self.endpoint.accept(
-                incoming,
-                now,
-                &mut self.buf,
-                self.server_config.clone(),
-            ) {
+            match self
+                .endpoint
+                .accept(incoming, now, &mut self.buf, self.server_config.clone())
+            {
                 Ok((handle, conn)) => {
                     self.connections.insert(handle, conn);
                     accepted.push(handle);
@@ -271,7 +263,9 @@ impl QuicEngine {
 
     /// Open one bidirectional stream (client-initiated requests).
     pub fn open_bi(&mut self, handle: ConnectionHandle) -> Option<quinn_proto::StreamId> {
-        self.connections.get_mut(&handle).and_then(|conn| conn.streams().open(Dir::Bi))
+        self.connections
+            .get_mut(&handle)
+            .and_then(|conn| conn.streams().open(Dir::Bi))
     }
 
     /// Reliable lane: write on a stream (client-opened or accepted).
@@ -302,7 +296,11 @@ impl QuicEngine {
         self.connections
             .get_mut(&handle)
             .map(|conn| {
-                conn.close(now, 0u32.into(), bytes::Bytes::copy_from_slice(reason.as_bytes()));
+                conn.close(
+                    now,
+                    0u32.into(),
+                    bytes::Bytes::copy_from_slice(reason.as_bytes()),
+                );
                 true
             })
             .unwrap_or(false)
@@ -310,15 +308,13 @@ impl QuicEngine {
 
     /// The peer's socket address, once the connection exists.
     pub fn remote_addr(&self, handle: ConnectionHandle) -> Option<SocketAddr> {
-        self.connections.get(&handle).map(|conn| conn.remote_address())
+        self.connections
+            .get(&handle)
+            .map(|conn| conn.remote_address())
     }
 
     /// Unreliable lane: one datagram toward the peer.
-    pub fn datagram_send(
-        &mut self,
-        handle: ConnectionHandle,
-        bytes: Vec<u8>,
-    ) -> bool {
+    pub fn datagram_send(&mut self, handle: ConnectionHandle, bytes: Vec<u8>) -> bool {
         self.connections
             .get_mut(&handle)
             .map(|conn| conn.datagrams().send(bytes.into(), true).is_ok())
@@ -369,8 +365,8 @@ pub fn frame_bytes(payload: &[u8]) -> Vec<u8> {
 /// The endpoint reset key QUIC stateless resets need, from ring's HMAC.
 pub fn endpoint_config() -> EndpointConfig {
     let rng = ring::rand::SystemRandom::new();
-    let key = ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &rng)
-        .expect("ring hmac key generation");
+    let key =
+        ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &rng).expect("ring hmac key generation");
     EndpointConfig::new(Arc::new(key))
 }
 
@@ -432,7 +428,12 @@ mod tests {
 
         fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
             use rustls::SignatureScheme::*;
-            vec![RSA_PSS_SHA256, ECDSA_NISTP256_SHA256, ED25519, RSA_PKCS1_SHA256]
+            vec![
+                RSA_PSS_SHA256,
+                ECDSA_NISTP256_SHA256,
+                ED25519,
+                RSA_PKCS1_SHA256,
+            ]
         }
     }
 
@@ -441,8 +442,8 @@ mod tests {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(TrustAnything))
             .with_no_client_auth();
-        let crypto = quinn_proto::crypto::rustls::QuicClientConfig::try_from(tls)
-            .expect("client crypto");
+        let crypto =
+            quinn_proto::crypto::rustls::QuicClientConfig::try_from(tls).expect("client crypto");
         ClientConfig::new(Arc::new(crypto))
     }
 
@@ -501,8 +502,10 @@ mod tests {
     #[test]
     fn handshake_stream_echo_and_datagram_roundtrip_in_memory() {
         let mut now = Instant::now();
-        let mut server =
-            QuicEngine::server(endpoint_config(), self_signed_server_config().expect("cert"));
+        let mut server = QuicEngine::server(
+            endpoint_config(),
+            self_signed_server_config().expect("cert"),
+        );
         let mut client = QuicEngine::client(endpoint_config());
 
         let handle = client
@@ -547,7 +550,10 @@ mod tests {
         assert_eq!(bytes, b"ping-frame", "frame arrived intact");
 
         let server_handle = server.connections.keys().next().copied().unwrap();
-        assert!(server.stream_write(server_handle, id, b"pong-frame"), "server echoed");
+        assert!(
+            server.stream_write(server_handle, id, b"pong-frame"),
+            "server echoed"
+        );
         wire(&mut server, &mut client, &mut now);
 
         let echoed = drain(&mut client).into_iter().any(|e| match e {
@@ -565,7 +571,10 @@ mod tests {
         });
         assert!(server_got, "datagram reached the server");
 
-        assert!(server.datagram_send(server.connections.keys().next().copied().unwrap(), b"back".to_vec()));
+        assert!(server.datagram_send(
+            server.connections.keys().next().copied().unwrap(),
+            b"back".to_vec()
+        ));
         wire(&mut server, &mut client, &mut now);
         let client_got = drain(&mut client).into_iter().any(|e| match e {
             QuicEvent::Datagram { bytes, .. } => bytes == b"back",

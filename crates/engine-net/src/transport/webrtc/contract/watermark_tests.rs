@@ -21,7 +21,10 @@ fn stale_seq_is_counted_and_never_moves_the_mark_backwards() {
     assert_eq!(mark.get(), Some(2), "the mark only moves forward");
 
     // Wrap-safe, exactly like the host's newest-wins rule: from 2, 65535 is *behind* and 0 is ahead.
-    assert!(!mark.advance(u16::MAX), "65535 is behind 2 in the wrap window");
+    assert!(
+        !mark.advance(u16::MAX),
+        "65535 is behind 2 in the wrap window"
+    );
     assert!(mark.advance(3));
 }
 

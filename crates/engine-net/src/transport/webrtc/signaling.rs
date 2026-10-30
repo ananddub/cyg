@@ -13,7 +13,8 @@ impl WebRtcServer {
     /// Process an SDP Offer received from a client via WebSocket signaling.
     /// Creates a dedicated `str0m::Rtc` instance and returns the SDP Answer.
     pub fn handle_offer(&mut self, client_id: &str, sdp: &str) -> Result<String, String> {
-        let offer = SdpOffer::from_sdp_string(sdp).map_err(|e| format!("invalid SDP offer: {e:?}"))?;
+        let offer =
+            SdpOffer::from_sdp_string(sdp).map_err(|e| format!("invalid SDP offer: {e:?}"))?;
         let now = Instant::now();
 
         let mut rtc = Rtc::builder().build(now);
@@ -56,7 +57,10 @@ impl WebRtcServer {
                 Candidate::from_sdp_string(stripped)
             })
             .or_else(|_| {
-                let stripped = trimmed.trim_start_matches("a=").trim_start_matches("candidate:").trim();
+                let stripped = trimmed
+                    .trim_start_matches("a=")
+                    .trim_start_matches("candidate:")
+                    .trim();
                 Candidate::from_sdp_string(stripped)
             });
 

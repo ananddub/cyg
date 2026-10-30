@@ -109,7 +109,10 @@ impl std::fmt::Display for SignalError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BufferTooShort { expected, actual } => {
-                write!(f, "signal frame too short: expected at least {expected}, got {actual}")
+                write!(
+                    f,
+                    "signal frame too short: expected at least {expected}, got {actual}"
+                )
             }
             Self::InvalidMagic(m) => {
                 write!(f, "invalid signal magic byte: 0x{m:02X} (expected 'W')")
@@ -117,7 +120,10 @@ impl std::fmt::Display for SignalError {
             Self::UnsupportedVersion(v) => write!(f, "unsupported signal protocol version {v}"),
             Self::UnknownKind(k) => write!(f, "unknown signal kind: {k}"),
             Self::PayloadTooLarge { limit, actual } => {
-                write!(f, "signal body too large: {actual} bytes exceeds limit of {limit}")
+                write!(
+                    f,
+                    "signal body too large: {actual} bytes exceeds limit of {limit}"
+                )
             }
         }
     }
@@ -138,7 +144,13 @@ pub struct SignalFrame {
 
 impl SignalFrame {
     pub fn new(kind: SignalKind, from: u32, to: u32, payload: Bytes) -> Self {
-        Self { version: SIGNAL_VERSION, kind, from, to, payload }
+        Self {
+            version: SIGNAL_VERSION,
+            kind,
+            from,
+            to,
+            payload,
+        }
     }
 
     /// Cheap probe before the full decode — also how the server distinguishes a
@@ -174,7 +186,10 @@ impl SignalFrame {
         let kind = SignalKind::from_u8(buf[2]).ok_or(SignalError::UnknownKind(buf[2]))?;
         let body = buf.len() - SIGNAL_HEADER_LEN;
         if body > MAX_SIGNAL_PAYLOAD {
-            return Err(SignalError::PayloadTooLarge { limit: MAX_SIGNAL_PAYLOAD, actual: body });
+            return Err(SignalError::PayloadTooLarge {
+                limit: MAX_SIGNAL_PAYLOAD,
+                actual: body,
+            });
         }
         let mut cursor = &buf[3..SIGNAL_HEADER_LEN];
         Ok(Self {
@@ -258,7 +273,10 @@ impl VoiceMesh {
         if let Some(&previous_entity) = self.by_session.get(session_id) {
             self.by_entity.remove(&previous_entity);
         }
-        let is_new = self.by_entity.insert(entity_id, session_id.into()).is_none();
+        let is_new = self
+            .by_entity
+            .insert(entity_id, session_id.into())
+            .is_none();
         self.by_session.insert(session_id.into(), entity_id);
         is_new
     }
@@ -308,7 +326,10 @@ impl VoiceMesh {
     pub fn for_each_peer(&self, except: u32, mut f: impl FnMut(SignalTarget<'_>)) {
         for (&entity_id, session) in &self.by_entity {
             if entity_id != except {
-                f(SignalTarget { entity_id, session_id: session });
+                f(SignalTarget {
+                    entity_id,
+                    session_id: session,
+                });
             }
         }
     }
@@ -331,7 +352,10 @@ impl VoiceMesh {
         }
         match self.session_of(to) {
             Some(session_id) if to != from => {
-                f(SignalTarget { entity_id: to, session_id });
+                f(SignalTarget {
+                    entity_id: to,
+                    session_id,
+                });
                 true
             }
             _ => false,
@@ -391,7 +415,10 @@ mod tests {
         );
         assert_eq!(
             SignalFrame::decode(&wire.slice(0..5)),
-            Err(SignalError::BufferTooShort { expected: SIGNAL_HEADER_LEN, actual: 5 })
+            Err(SignalError::BufferTooShort {
+                expected: SIGNAL_HEADER_LEN,
+                actual: 5
+            })
         );
     }
 
@@ -445,7 +472,9 @@ mod tests {
         mesh.join(3, "session-three");
 
         let mut direct = Vec::new();
-        let hit = mesh.route(1, 2, |t| direct.push((t.entity_id, t.session_id.to_string())));
+        let hit = mesh.route(1, 2, |t| {
+            direct.push((t.entity_id, t.session_id.to_string()))
+        });
         assert!(hit);
         assert_eq!(direct, vec![(2, "session-two".to_string())]);
 

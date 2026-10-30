@@ -1,6 +1,6 @@
+use ahash::RandomState;
 use auto_di::BoxFuture;
 use socketioxide::SocketIo;
-use ahash::RandomState;
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, OnceLock},
@@ -28,12 +28,14 @@ pub(crate) static LIVE_ENDPOINT_CACHE: OnceLock<moka::future::Cache<String, serd
     OnceLock::new();
 
 #[inline]
-pub(crate) fn latest_channels() -> &'static FastMap<String, tokio::sync::watch::Sender<serde_json::Value>> {
+pub(crate) fn latest_channels()
+-> &'static FastMap<String, tokio::sync::watch::Sender<serde_json::Value>> {
     LATEST_CHANNELS.get_or_init(|| FastMap::with_hasher(RandomState::new()))
 }
 
 #[inline]
-pub(crate) fn stream_channels() -> &'static FastMap<String, tokio::sync::mpsc::Sender<serde_json::Value>> {
+pub(crate) fn stream_channels()
+-> &'static FastMap<String, tokio::sync::mpsc::Sender<serde_json::Value>> {
     STREAM_CHANNELS.get_or_init(|| FastMap::with_hasher(RandomState::new()))
 }
 
@@ -43,7 +45,8 @@ pub(crate) fn stream_history() -> &'static FastMap<String, StreamHistory> {
 }
 
 #[inline]
-pub(crate) fn subscription_refresh_gates() -> &'static FastMap<String, Arc<tokio::sync::Mutex<()>>> {
+pub(crate) fn subscription_refresh_gates() -> &'static FastMap<String, Arc<tokio::sync::Mutex<()>>>
+{
     SUBSCRIPTION_REFRESH_GATES.get_or_init(|| FastMap::with_hasher(RandomState::new()))
 }
 

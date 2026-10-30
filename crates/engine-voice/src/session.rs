@@ -3,11 +3,11 @@
 //! Manages active participants, mute/deafen states, team rosters, and coordinates
 //! Proximity, Team, Global, and Whisper channels.
 
-use std::collections::HashMap;
-use std::time::Instant;
 use crate::jitter::VoiceJitterEstimator;
 use crate::packet::{VoiceChannelMode, VoicePacket};
 use crate::spatial::{DistanceModel, RoutedVoiceFrame, SpatialVoiceRouter};
+use std::collections::HashMap;
+use std::time::Instant;
 
 /// State of an active voice participant.
 #[derive(Debug, Clone)]
@@ -54,12 +54,7 @@ impl VoiceRoom {
     }
 
     /// Add or update a participant in the voice room.
-    pub fn join_participant(
-        &mut self,
-        entity_id: u32,
-        team_id: Option<u16>,
-        position: [f64; 3],
-    ) {
+    pub fn join_participant(&mut self, entity_id: u32, team_id: Option<u16>, position: [f64; 3]) {
         let p = VoiceParticipant::new(entity_id, team_id, position);
         self.participants.insert(entity_id, p);
         self.spatial_router.update_participant(entity_id, position);
@@ -108,22 +103,19 @@ impl VoiceRoom {
     /// - Speaker mute states (returns empty if muted).
     /// - Listener deafen states (deafened listeners receive no packets).
     /// - Channel modes: Proximity (3D KD-Tree), TeamOnly, Global, Whisper.
-    pub fn dispatch_packet(
-        &mut self,
-        packet: &VoicePacket,
-        now: Instant,
-    ) -> Vec<RoutedVoiceFrame> {
+    pub fn dispatch_packet(&mut self, packet: &VoicePacket, now: Instant) -> Vec<RoutedVoiceFrame> {
         // Speaker verification
-        let (speaker_muted, speaker_pos, speaker_team) = match self.participants.get_mut(&packet.speaker_id) {
-            Some(p) => {
-                if p.is_muted {
-                    return Vec::new();
+        let (speaker_muted, speaker_pos, speaker_team) =
+            match self.participants.get_mut(&packet.speaker_id) {
+                Some(p) => {
+                    if p.is_muted {
+                        return Vec::new();
+                    }
+                    p.jitter.record_packet(packet.seq, packet.timestamp, now);
+                    (p.is_muted, p.position, p.team_id)
                 }
-                p.jitter.record_packet(packet.seq, packet.timestamp, now);
-                (p.is_muted, p.position, p.team_id)
-            }
-            None => return Vec::new(),
-        };
+                None => return Vec::new(),
+            };
 
         if speaker_muted {
             return Vec::new();
@@ -131,7 +123,9 @@ impl VoiceRoom {
 
         match packet.channel_mode {
             VoiceChannelMode::Proximity => {
-                let frames = self.spatial_router.route_proximity_packet(packet, speaker_pos);
+                let frames = self
+                    .spatial_router
+                    .route_proximity_packet(packet, speaker_pos);
                 // Filter out any listeners that are currently deafened
                 frames
                     .into_iter()
@@ -165,7 +159,8 @@ impl VoiceRoom {
                 let mut out = Vec::new();
                 if let Some(speaker_t) = speaker_team {
                     for (&id, p) in &self.participants {
-                        if id != packet.speaker_id && !p.is_deafened && p.team_id == Some(speaker_t) {
+                        if id != packet.speaker_id && !p.is_deafened && p.team_id == Some(speaker_t)
+                        {
                             out.push(RoutedVoiceFrame {
                                 listener_id: id,
                                 speaker_id: packet.speaker_id,
@@ -196,8 +191,8 @@ impl VoiceRoom {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use crate::packet::voice_flags;
+    use bytes::Bytes;
 
     #[test]
     fn test_voice_room_team_and_mute_filtering() {

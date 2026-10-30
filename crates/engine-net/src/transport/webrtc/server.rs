@@ -50,8 +50,15 @@ impl WebRtcServer {
         // If socket was bound to 0.0.0.0, resolve local destination to matching announced candidate
         if local.ip().is_unspecified() {
             if from.ip().is_loopback() {
-                local = SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), local.port());
-            } else if let Some(cand) = self.announced_candidates.iter().find(|c| !c.addr().ip().is_loopback()) {
+                local = SocketAddr::new(
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                    local.port(),
+                );
+            } else if let Some(cand) = self
+                .announced_candidates
+                .iter()
+                .find(|c| !c.addr().ip().is_loopback())
+            {
                 local = cand.addr();
             } else if let Some(cand) = self.announced_candidates.first() {
                 local = cand.addr();

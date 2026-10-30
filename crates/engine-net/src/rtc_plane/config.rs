@@ -10,6 +10,8 @@ pub struct PlaneConfig {
 
 impl Default for PlaneConfig {
     fn default() -> Self {
-        Self { session_inbox_capacity: 512 }
+        Self {
+            session_inbox_capacity: 512,
+        }
     }
 }

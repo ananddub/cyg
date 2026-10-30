@@ -9,11 +9,11 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
-use engine_webrtc_protocol::MAX_FRAME;
-use engine_webrtc_protocol::channel::{MAX_DELTA_CHUNK, delta_fragment_count};
 use engine_net::rtc_plane::{
     Plane, PlaneConfig, PlaneHandle, RtcDownlink, RtcPlaneError, RtcSession,
 };
+use engine_webrtc_protocol::MAX_FRAME;
+use engine_webrtc_protocol::channel::{MAX_DELTA_CHUNK, delta_fragment_count};
 
 fn loopback_any() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)
@@ -33,7 +33,10 @@ async fn plane_offer_lookup_and_nonblocking_downlink() {
         .create_session("s1".into(), "p1".into())
         .await
         .expect("create session");
-    assert!(offer.contains("m=application"), "offer must negotiate a datachannel m-line");
+    assert!(
+        offer.contains("m=application"),
+        "offer must negotiate a datachannel m-line"
+    );
 
     // id -> session lookup the bridge needs.
     assert_eq!(handle.session_count(), 1);
@@ -50,7 +53,10 @@ async fn plane_offer_lookup_and_nonblocking_downlink() {
         body: vec![7u8; 5_000],
     });
     assert!(accepted, "delta for a known player should enter the inbox");
-    assert!(start.elapsed() < Duration::from_millis(50), "send_delta must not block");
+    assert!(
+        start.elapsed() < Duration::from_millis(50),
+        "send_delta must not block"
+    );
 
     // Unknown player is dropped, not queued, not an error path that panics.
     assert!(!handle.send_delta(&RtcDownlink {
@@ -100,7 +106,9 @@ fn session_pump_timeout_is_driven_not_busy() {
 
     // A delta written before any peer connected is a no-op that still returns Ok
     // (the write is discarded by str0m), so the producer never errors mid-flight.
-    let out = session.send_delta(1, 1, &[0u8; 100]).expect("delta on closed chan is a no-op");
+    let out = session
+        .send_delta(1, 1, &[0u8; 100])
+        .expect("delta on closed chan is a no-op");
     for o in out {
         if let engine_net::rtc_plane::Outbound::Datagram { contents, .. } = o {
             assert!(contents.len() <= MAX_FRAME);

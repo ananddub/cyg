@@ -27,7 +27,9 @@ pub(super) fn on_listener_event(
                 // READABLE only: WRITABLE is added on send backpressure
                 // (level-triggered epoll would spin on an always-writable
                 // socket, one busy event per client per poll).
-                pass.poll.registry().register(&mut stream, token, Interest::READABLE)?;
+                pass.poll
+                    .registry()
+                    .register(&mut stream, token, Interest::READABLE)?;
 
                 // Read the client's first bytes (HTTP request) straight into the BytesMut — no stack copy.
                 let mut first_bytes: BytesMut = BytesMut::new();

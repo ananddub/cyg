@@ -120,10 +120,9 @@ impl RtcSession {
     pub fn accept_answer(&mut self, sdp: &str) -> Result<Vec<Outbound>, RtcPlaneError> {
         let answer = SdpAnswer::from_sdp_string(sdp)
             .map_err(|e| RtcPlaneError::Signaling(format!("invalid answer: {e:?}")))?;
-        let pending = self
-            .pending
-            .take()
-            .ok_or(RtcPlaneError::Signaling("no pending offer to answer".into()))?;
+        let pending = self.pending.take().ok_or(RtcPlaneError::Signaling(
+            "no pending offer to answer".into(),
+        ))?;
         self.rtc
             .sdp_api()
             .accept_answer(pending, answer)
@@ -169,10 +168,12 @@ impl RtcSession {
         if self.ch_reliable == Some(id) {
             return Some(PlaneChannel::Reliable);
         }
-        self.channel_labels.get(&id).and_then(|label| match label.as_str() {
-            LABEL_UNRELIABLE => Some(PlaneChannel::Unreliable),
-            LABEL_RELIABLE => Some(PlaneChannel::Reliable),
-            _ => None,
-        })
+        self.channel_labels
+            .get(&id)
+            .and_then(|label| match label.as_str() {
+                LABEL_UNRELIABLE => Some(PlaneChannel::Unreliable),
+                LABEL_RELIABLE => Some(PlaneChannel::Reliable),
+                _ => None,
+            })
     }
 }

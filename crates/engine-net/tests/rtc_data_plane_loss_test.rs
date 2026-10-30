@@ -15,7 +15,7 @@
 use std::collections::{HashMap, HashSet};
 
 use engine_webrtc_protocol::channel::{
-    FRAGMENT_TTL_MS, MAX_DELTA_BODY, MAX_DELTA_CHUNK, DeltaHeader, FragmentAssembler,
+    DeltaHeader, FRAGMENT_TTL_MS, FragmentAssembler, MAX_DELTA_BODY, MAX_DELTA_CHUNK,
     delta_fragment_count, write_delta_frame,
 };
 use engine_webrtc_protocol::frames::is_newer;
@@ -111,12 +111,22 @@ fn build_pipe() -> Pipe {
             }
             let mut wire = Vec::new();
             write_delta_frame(&mut wire, seq, t, idx as u8, total, chunk);
-            events.push(FragEvent { arrival_ms: emit_ms + jitter, seq, wire });
+            events.push(FragEvent {
+                arrival_ms: emit_ms + jitter,
+                seq,
+                wire,
+            });
         }
     }
     // One transport's arrival order is the jittered clock, ties keep emit order.
     events.sort_by_key(|e| (e.arrival_ms, e.seq, e.wire[7]));
-    Pipe { events, expected, mangled, fragments_total, fragments_dropped }
+    Pipe {
+        events,
+        expected,
+        mangled,
+        fragments_total,
+        fragments_dropped,
+    }
 }
 
 #[derive(Default)]
@@ -201,9 +211,15 @@ fn lossy_pipe_delivers_complete_sequenced_deltas() {
         .copied()
         .collect();
     let delivered: HashSet<u16> = got.seqs.iter().copied().collect();
-    let starved: Vec<u16> = whole.iter().filter(|s| !delivered.contains(s)).copied().collect();
+    let starved: Vec<u16> = whole
+        .iter()
+        .filter(|s| !delivered.contains(s))
+        .copied()
+        .collect();
 
-    println!("--- rtc loss pipe (Rust, seed 0x{SEED:X}, {LOSS_PCT}% drop, ≤{JITTER_MS} ms jitter) ---");
+    println!(
+        "--- rtc loss pipe (Rust, seed 0x{SEED:X}, {LOSS_PCT}% drop, ≤{JITTER_MS} ms jitter) ---"
+    );
     println!(
         "ticks={TICKS} fragments={} dropped={} delivered={} stale_frames={} intact_but_superseded={} last_delivered={}",
         pipe.fragments_total,
@@ -222,11 +238,26 @@ fn lossy_pipe_delivers_complete_sequenced_deltas() {
         mangled_delivered == 0
     );
 
-    assert!(byte_exact, "a delivered delta must be the server's exact bytes");
-    assert!(monotonic, "delivered seqs must strictly increase (wrap-safe)");
-    assert!(no_duplicates, "a delta must reach the game layer at most once");
-    assert_eq!(mangled_delivered, 0, "a delta missing a fragment must never be delivered");
-    assert!(got.stale_after > 0, "with reordering, stale late frames must have been exercised");
+    assert!(
+        byte_exact,
+        "a delivered delta must be the server's exact bytes"
+    );
+    assert!(
+        monotonic,
+        "delivered seqs must strictly increase (wrap-safe)"
+    );
+    assert!(
+        no_duplicates,
+        "a delta must reach the game layer at most once"
+    );
+    assert_eq!(
+        mangled_delivered, 0,
+        "a delta missing a fragment must never be delivered"
+    );
+    assert!(
+        got.stale_after > 0,
+        "with reordering, stale late frames must have been exercised"
+    );
     // Newest-wins honesty: with 150 ms jitter on an 8 ms tick, most intact deltas
     // arrive behind the delivery frontier and are legitimately discarded. The
     // property that matters is that the frontier keeps advancing and the newest
@@ -248,8 +279,14 @@ fn ttl_evicts_a_stalled_partial() {
     assert!(assembler.insert(&header, chunk, 1_000).is_none());
 
     // The line goes quiet: no newer delta supersedes the partial, only the TTL.
-    assert!(!assembler.cleanup(1_000 + FRAGMENT_TTL_MS), "TTL is strict 'greater than'");
-    assert!(assembler.cleanup(1_000 + FRAGMENT_TTL_MS + 1), "stalled chunks must be evicted");
+    assert!(
+        !assembler.cleanup(1_000 + FRAGMENT_TTL_MS),
+        "TTL is strict 'greater than'"
+    );
+    assert!(
+        assembler.cleanup(1_000 + FRAGMENT_TTL_MS + 1),
+        "stalled chunks must be evicted"
+    );
 
     // The chunks that finally arrive after eviction find no half-built delta to
     // join, so the delta stays incomplete rather than delivering a corrupt body.
@@ -260,7 +297,10 @@ fn ttl_evicts_a_stalled_partial() {
     let mut wire2 = Vec::new();
     write_delta_frame(&mut wire2, 10, 10, 2, 3, &[0xc5]);
     let (h2, c2) = DeltaHeader::parse(&wire2).unwrap();
-    assert!(assembler.insert(&h2, c2, 5_001).is_none(), "fragment 0 was evicted, so this must not close");
+    assert!(
+        assembler.insert(&h2, c2, 5_001).is_none(),
+        "fragment 0 was evicted, so this must not close"
+    );
     assert_eq!(assembler.assembled(), 0);
 }
 
@@ -293,10 +333,25 @@ fn backpressure_newest_wins_for_a_stalled_consumer() {
     feed(119, 2_020, &mut assembler);
     feed(120, 2_030, &mut assembler);
 
-    assert_eq!(applied, Some((120, 120)), "the consumer must land on the newest tick");
-    assert_eq!(assembler.assembled(), 21, "100..120 delivered once each, the 119 retransmit not twice");
-    assert!(assembler.stale() >= 3, "late stragglers must be counted stale, got {}", assembler.stale());
-    println!("backpressure (codec surface): newest tick applied, {} stale frames dropped, queue length 1", assembler.stale());
+    assert_eq!(
+        applied,
+        Some((120, 120)),
+        "the consumer must land on the newest tick"
+    );
+    assert_eq!(
+        assembler.assembled(),
+        21,
+        "100..120 delivered once each, the 119 retransmit not twice"
+    );
+    assert!(
+        assembler.stale() >= 3,
+        "late stragglers must be counted stale, got {}",
+        assembler.stale()
+    );
+    println!(
+        "backpressure (codec surface): newest tick applied, {} stale frames dropped, queue length 1",
+        assembler.stale()
+    );
 }
 
 #[test]

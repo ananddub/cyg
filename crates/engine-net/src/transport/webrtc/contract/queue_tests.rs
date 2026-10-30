@@ -27,7 +27,10 @@ fn backpressure_drops_the_oldest_delta_whole() {
     assert_eq!(queue.dropped_frames(), 1);
     assert_eq!(queue.frames(), MAX_QUEUED_FRAMES);
     assert_eq!(queue.peek().unwrap().seq, Some(1), "newest wins");
-    assert_eq!(queue.items.iter().map(|d| d.seq.unwrap()).max().unwrap(), 2000);
+    assert_eq!(
+        queue.items.iter().map(|d| d.seq.unwrap()).max().unwrap(),
+        2000
+    );
 }
 
 /// A whole delta is evicted rather than half of it, so the receiver is not
@@ -48,7 +51,11 @@ fn a_multi_frame_delta_is_evicted_as_one_unit() {
         tick: Some(2),
         frames: VecDeque::from(vec![frame(2, 2, 0, 1, &[0u8; 10]); 2]),
     };
-    assert_eq!(queue.push(newer, 3), (1, 2), "the older delta left entirely");
+    assert_eq!(
+        queue.push(newer, 3),
+        (1, 2),
+        "the older delta left entirely"
+    );
     assert_eq!(queue.len(), 1);
     assert_eq!(queue.frames(), 2);
     assert_eq!(queue.peek().unwrap().seq, Some(2));
@@ -92,7 +99,11 @@ fn superseded_deltas_leave_the_queue_oldest_first() {
             8,
         );
     }
-    assert_eq!(queue.purge_older_than(11), 2, "10 and 11 itself were both replaced");
+    assert_eq!(
+        queue.purge_older_than(11),
+        2,
+        "10 and 11 itself were both replaced"
+    );
     assert_eq!(queue.len(), 1);
     assert_eq!(queue.peek().unwrap().seq, Some(12));
     assert_eq!(queue.frames(), 1);

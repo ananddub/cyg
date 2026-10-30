@@ -12,11 +12,24 @@ use super::types::RtcPlaneError;
 /// `Datagram` and `Delta` share an `Arc<[u8]>` so a broadcast does not clone the
 /// payload once per session.
 pub(crate) enum SessionInbound {
-    Datagram { from: SocketAddr, bytes: Arc<[u8]> },
-    Delta { seq: u16, tick: u32, body: Arc<[u8]> },
-    Reliable { body: Arc<[u8]> },
-    Answer { sdp: String },
-    Candidate { sdp: String },
+    Datagram {
+        from: SocketAddr,
+        bytes: Arc<[u8]>,
+    },
+    Delta {
+        seq: u16,
+        tick: u32,
+        body: Arc<[u8]>,
+    },
+    Reliable {
+        body: Arc<[u8]>,
+    },
+    Answer {
+        sdp: String,
+    },
+    Candidate {
+        sdp: String,
+    },
     Close,
 }
 
@@ -29,12 +42,20 @@ pub(crate) enum PlaneCommand {
     },
     /// `apply_answer` / `add_candidate` / `close_session` resolve the session id
     /// to its inbox inside the demux (the sole owner of the live session map).
-    Forward { session_id: Arc<str>, msg: SessionInbound },
+    Forward {
+        session_id: Arc<str>,
+        msg: SessionInbound,
+    },
     Shutdown,
 }
 
 /// Session→demux notices (remote-address binding / teardown).
 pub(crate) enum SessionNotice {
-    RemoteAddrBound { session_id: Arc<str>, addr: SocketAddr },
-    Gone { session_id: Arc<str> },
+    RemoteAddrBound {
+        session_id: Arc<str>,
+        addr: SocketAddr,
+    },
+    Gone {
+        session_id: Arc<str>,
+    },
 }

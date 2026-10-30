@@ -62,11 +62,7 @@ pub(super) fn parse_greeting(raw: &[u8]) -> Greeting {
         let path = req.split_whitespace().nth(1).unwrap_or("");
         path.split('?')
             .nth(1)
-            .and_then(|query| {
-                query
-                    .split('&')
-                    .find_map(|kv| kv.strip_prefix("options="))
-            })
+            .and_then(|query| query.split('&').find_map(|kv| kv.strip_prefix("options=")))
             .map(percent_decode)
     };
     let url_method = req

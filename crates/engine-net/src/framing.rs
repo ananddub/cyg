@@ -126,9 +126,7 @@ pub fn iter_frames(buf: &[u8]) -> impl Iterator<Item = (OpCode, &[u8])> {
 /// Decode frames in place from a borrowed buffer, yielding opcodes with
 /// payload byte ranges. Pair with `Bytes::slice(range)` to hand out
 /// zero-copy views of a datagram held as [`Bytes`].
-pub fn iter_frame_ranges(
-    buf: &[u8],
-) -> impl Iterator<Item = (OpCode, std::ops::Range<usize>)> {
+pub fn iter_frame_ranges(buf: &[u8]) -> impl Iterator<Item = (OpCode, std::ops::Range<usize>)> {
     let mut pos = 0usize;
     std::iter::from_fn(move || {
         if buf.len() < pos + 3 {

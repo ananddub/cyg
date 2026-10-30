@@ -219,7 +219,9 @@ impl ReliableLane {
         }
         if self.window.len() >= MAX_INFLIGHT_EVENTS {
             self.counts.rejected += 1;
-            return Err(QueueError::WindowFull { inflight: self.window.len() });
+            return Err(QueueError::WindowFull {
+                inflight: self.window.len(),
+            });
         }
         self.last_seq = Some(seq);
         self.counts.queued += 1;
@@ -380,7 +382,8 @@ mod tests {
             if !self.accept {
                 return false;
             }
-            self.sent.push(EventFrame::decode(bytes).expect("event wire").seq);
+            self.sent
+                .push(EventFrame::decode(bytes).expect("event wire").seq);
             true
         }
     }
@@ -388,7 +391,10 @@ mod tests {
     #[test]
     fn a_queued_event_goes_out_once_and_is_not_resent_before_the_timeout() {
         let mut lane = ReliableLane::new();
-        let mut sink = Sink { accept: true, ..Sink::default() };
+        let mut sink = Sink {
+            accept: true,
+            ..Sink::default()
+        };
 
         lane.queue(7, wire(7), 0).unwrap();
         lane.pump(0, |b| sink.take(b));
@@ -397,13 +403,20 @@ mod tests {
         assert_eq!(lane.counts().resent, 0);
 
         lane.pump(lane.rto() / 2, |b| sink.take(b));
-        assert_eq!(sink.sent.len(), 1, "no resend while the ack is still owed time");
+        assert_eq!(
+            sink.sent.len(),
+            1,
+            "no resend while the ack is still owed time"
+        );
     }
 
     #[test]
     fn an_unacked_event_is_retransmitted_with_a_bounded_backoff() {
         let mut lane = ReliableLane::new();
-        let mut sink = Sink { accept: true, ..Sink::default() };
+        let mut sink = Sink {
+            accept: true,
+            ..Sink::default()
+        };
         lane.queue(1, wire(1), 0).unwrap();
 
         let rto = lane.rto();
@@ -415,7 +428,11 @@ mod tests {
             clock += rto << round.min(MAX_BACKOFF_SHIFT);
             lane.pump(clock, |b| sink.take(b));
         }
-        assert_eq!(sink.sent, vec![1; 8], "one datagram per deadline (the first is the send itself)");
+        assert_eq!(
+            sink.sent,
+            vec![1; 8],
+            "one datagram per deadline (the first is the send itself)"
+        );
         assert_eq!(lane.counts().sent, 1);
         assert_eq!(lane.counts().resent, 7);
 
@@ -432,7 +449,10 @@ mod tests {
     #[test]
     fn the_window_is_strictly_ordered_behind_an_un_due_head() {
         let mut lane = ReliableLane::new();
-        let mut sink = Sink { accept: true, ..Sink::default() };
+        let mut sink = Sink {
+            accept: true,
+            ..Sink::default()
+        };
         lane.queue(1, wire(1), 0).unwrap();
         lane.pump(0, |b| sink.take(b));
         assert_eq!(sink.sent, vec![1]);
@@ -450,13 +470,20 @@ mod tests {
         let head_due = lane.next_due().expect("two events outstanding");
         assert_eq!(head_due, lane.rto());
         lane.pump(head_due, |b| sink.take(b));
-        assert_eq!(sink.sent, vec![1, 1, 2], "the head resends, then 2 goes in order");
+        assert_eq!(
+            sink.sent,
+            vec![1, 1, 2],
+            "the head resends, then 2 goes in order"
+        );
     }
 
     #[test]
     fn a_cumulative_ack_releases_the_prefix_and_nothing_is_resent() {
         let mut lane = ReliableLane::new();
-        let mut sink = Sink { accept: true, ..Sink::default() };
+        let mut sink = Sink {
+            accept: true,
+            ..Sink::default()
+        };
         for seq in 1..=5 {
             lane.queue(seq, wire(seq), 0).unwrap();
         }
@@ -471,7 +498,10 @@ mod tests {
 
         sink.sent.clear();
         lane.pump(lane.next_due().unwrap() - 1, |b| sink.take(b));
-        assert!(sink.sent.is_empty(), "the new head is not due yet, so 5 stays quiet");
+        assert!(
+            sink.sent.is_empty(),
+            "the new head is not due yet, so 5 stays quiet"
+        );
         lane.pump(lane.next_due().unwrap(), |b| sink.take(b));
         assert_eq!(sink.sent, vec![5], "only the still-unacked event is resent");
     }
@@ -493,7 +523,10 @@ mod tests {
     #[test]
     fn an_ack_of_a_retransmitted_event_does_not_measure_the_round_trip() {
         let mut lane = ReliableLane::new();
-        let mut sink = Sink { accept: true, ..Sink::default() };
+        let mut sink = Sink {
+            accept: true,
+            ..Sink::default()
+        };
         lane.queue(1, wire(1), 0).unwrap();
         lane.pump(0, |b| sink.take(b));
         let resent = lane.rto();
@@ -527,7 +560,11 @@ mod tests {
         assert_eq!(lane.rto(), 1075, "the timeout followed the estimate");
 
         // And the floor still applies to an absurdly fast peer.
-        assert_eq!(ReliableLane::rto_from(1.0), MIN_RTO, "a 1 ms sample cannot produce a sub-floor timeout");
+        assert_eq!(
+            ReliableLane::rto_from(1.0),
+            MIN_RTO,
+            "a 1 ms sample cannot produce a sub-floor timeout"
+        );
         assert_eq!(ReliableLane::rto_from(90_000.0), MAX_RTO);
     }
 
@@ -540,11 +577,17 @@ mod tests {
 
         // Dead-on at the lifetime boundary: both go, oldest first, and the lane
         // stops sending afterwards rather than resending into the void.
-        let mut sink = Sink { accept: true, ..Sink::default() };
+        let mut sink = Sink {
+            accept: true,
+            ..Sink::default()
+        };
         lane.pump(EVENT_LIFETIME, |b| sink.take(b));
         assert_eq!(lane.inflight(), 0);
         assert_eq!(lane.counts().expired, 2);
-        assert!(sink.sent.is_empty(), "an expired event is never transmitted");
+        assert!(
+            sink.sent.is_empty(),
+            "an expired event is never transmitted"
+        );
 
         // The window is free again, and a fresh seq still queues (last_seq is
         // kept so a late old seq cannot re-enter).
@@ -564,17 +607,32 @@ mod tests {
         }
         assert_eq!(lane.inflight(), MAX_INFLIGHT_EVENTS);
         assert_eq!(
-            lane.queue(MAX_INFLIGHT_EVENTS as u16, wire(MAX_INFLIGHT_EVENTS as u16), 0),
-            Err(QueueError::WindowFull { inflight: MAX_INFLIGHT_EVENTS })
+            lane.queue(
+                MAX_INFLIGHT_EVENTS as u16,
+                wire(MAX_INFLIGHT_EVENTS as u16),
+                0
+            ),
+            Err(QueueError::WindowFull {
+                inflight: MAX_INFLIGHT_EVENTS
+            })
         );
         assert_eq!(lane.counts().rejected, 1);
-        assert_eq!(lane.counts().queued, MAX_INFLIGHT_EVENTS as u64, "a refusal does not queue");
+        assert_eq!(
+            lane.counts().queued,
+            MAX_INFLIGHT_EVENTS as u64,
+            "a refusal does not queue"
+        );
 
         // Freeing the head makes room: the producer keeps working after one ack.
         lane.pump(0, |_| true);
         assert_eq!(lane.ack(0, 10), 1);
         assert!(
-            lane.queue(MAX_INFLIGHT_EVENTS as u16, wire(MAX_INFLIGHT_EVENTS as u16), 10).is_ok()
+            lane.queue(
+                MAX_INFLIGHT_EVENTS as u16,
+                wire(MAX_INFLIGHT_EVENTS as u16),
+                10
+            )
+            .is_ok()
         );
     }
 
@@ -594,7 +652,10 @@ mod tests {
         // Empty and oversize are producer bugs, refused with the count.
         for bad in [vec![0u8; 0], vec![0u8; MAX_RELIABLE_BYTES + 1]] {
             let len = bad.len();
-            assert_eq!(lane.queue(seq, bad, 0), Err(QueueError::TooBig { bytes: len }));
+            assert_eq!(
+                lane.queue(seq, bad, 0),
+                Err(QueueError::TooBig { bytes: len })
+            );
         }
         assert_eq!(lane.counts().rejected, 2);
         assert_eq!(lane.inflight(), 7);
@@ -603,15 +664,26 @@ mod tests {
     #[test]
     fn a_refused_send_leaves_the_event_due_so_the_next_pass_retries_it() {
         let mut lane = ReliableLane::new();
-        let mut sink = Sink { accept: false, ..Sink::default() };
+        let mut sink = Sink {
+            accept: false,
+            ..Sink::default()
+        };
         lane.queue(1, wire(1), 0).unwrap();
         lane.pump(0, |b| sink.take(b));
-        assert_eq!(lane.counts().sent, 0, "a datagram the socket refused is not a send");
+        assert_eq!(
+            lane.counts().sent,
+            0,
+            "a datagram the socket refused is not a send"
+        );
         assert_eq!(lane.window[0].attempts, 0, "and it costs no backoff");
 
         sink.accept = true;
         lane.pump(0, |b| sink.take(b));
-        assert_eq!(sink.sent, vec![1], "the next pass transmits it, still due immediately");
+        assert_eq!(
+            sink.sent,
+            vec![1],
+            "the next pass transmits it, still due immediately"
+        );
         assert_eq!(lane.counts().sent, 1);
         assert_eq!(lane.counts().resent, 0);
     }
@@ -619,7 +691,10 @@ mod tests {
     #[test]
     fn sequence_wrap_does_not_fool_the_order_or_the_ack() {
         let mut lane = ReliableLane::new();
-        let mut sink = Sink { accept: true, ..Sink::default() };
+        let mut sink = Sink {
+            accept: true,
+            ..Sink::default()
+        };
         // 65534 → 65535 → 0 → 1, across the u16 wrap. One pass transmits the
         // whole window, in order.
         for seq in [65534u16, 65535, 0, 1] {
@@ -632,6 +707,9 @@ mod tests {
         assert_eq!(lane.ack(0, 30), 3);
         assert_eq!(lane.inflight(), 1);
         // And the lane refuses to queue something older than what it last saw.
-        assert!(matches!(lane.queue(65534, wire(65534), 30), Err(QueueError::NotNewer { .. })));
+        assert!(matches!(
+            lane.queue(65534, wire(65534), 30),
+            Err(QueueError::NotNewer { .. })
+        ));
     }
 }

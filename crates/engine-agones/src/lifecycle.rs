@@ -37,7 +37,10 @@ pub struct SidecarErrorInfo {
 
 impl SidecarErrorInfo {
     pub fn new(error: &SidecarError) -> SidecarErrorInfo {
-        SidecarErrorInfo { kind: error.kind().as_str().to_string(), message: error.message() }
+        SidecarErrorInfo {
+            kind: error.kind().as_str().to_string(),
+            message: error.message(),
+        }
     }
 }
 
@@ -186,7 +189,11 @@ impl Lifecycle {
 
     /// The current reportable view, with `uptime_ms` filled in.
     pub fn snapshot(&self) -> AgonesSnapshot {
-        let mut snap = self.view.lock().map(|v| v.clone()).unwrap_or_else(|_| AgonesSnapshot::disabled());
+        let mut snap = self
+            .view
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_else(|_| AgonesSnapshot::disabled());
         snap.enabled = true;
         snap.stopped = self.stop.load(Ordering::Relaxed);
         snap.shutdown_sent = self.shutdown_sent.load(Ordering::Acquire);
@@ -202,12 +209,20 @@ impl Lifecycle {
     /// `Ready`; on a rejection the failure is recorded and returned unchanged, so
     /// the caller can tell "no sidecar" from "wrong state".
     pub fn mark_ready(&self) -> Result<(), SidecarError> {
-        self.transition("ready", self.client.post("/ready").map(|_| ()), ServerState::Ready)
+        self.transition(
+            "ready",
+            self.client.post("/ready").map(|_| ()),
+            ServerState::Ready,
+        )
     }
 
     /// `POST /allocated` — the manual allocation handoff.
     pub fn mark_allocated(&self) -> Result<(), SidecarError> {
-        self.transition("allocated", self.client.post("/allocated").map(|_| ()), ServerState::Allocated)
+        self.transition(
+            "allocated",
+            self.client.post("/allocated").map(|_| ()),
+            ServerState::Allocated,
+        )
     }
 
     /// `GET /state` and remember what it said. Also the way to correct an
@@ -242,7 +257,11 @@ impl Lifecycle {
             return Ok(false);
         }
         // Claim the send before doing it, so two stop paths cannot both POST.
-        if self.shutdown_sent.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
+        if self
+            .shutdown_sent
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             self.stop();
             return Ok(false);
         }
@@ -393,7 +412,9 @@ impl Lifecycle {
     }
 
     fn record_ping(&self, outcome: &PingOutcome) {
-        let Ok(mut view) = self.view.lock() else { return };
+        let Ok(mut view) = self.view.lock() else {
+            return;
+        };
         match &outcome.error {
             Some(e) => view.last_error = Some(SidecarErrorInfo::new(e)),
             None => {
@@ -458,7 +479,9 @@ pub fn stop_health_loop() -> bool {
 }
 
 fn poisoned() -> SidecarError {
-    SidecarError::Malformed { reason: "the lifecycle's own state lock was poisoned".into() }
+    SidecarError::Malformed {
+        reason: "the lifecycle's own state lock was poisoned".into(),
+    }
 }
 
 #[cfg(test)]
@@ -475,11 +498,8 @@ mod tests {
 
     #[test]
     fn snapshot_flattens_ping_stats() {
-        let snap = Lifecycle::new(
-            SidecarConfig::loopback(9358),
-            Duration::from_millis(2000),
-        )
-        .snapshot();
+        let snap =
+            Lifecycle::new(SidecarConfig::loopback(9358), Duration::from_millis(2000)).snapshot();
         let json = serde_json::to_string(&snap).unwrap();
         assert!(json.contains("\"addr\":\"127.0.0.1:9358\""), "{json}");
         assert!(json.contains("\"enabled\":true"), "{json}");

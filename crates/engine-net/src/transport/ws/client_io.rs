@@ -4,10 +4,10 @@
 use std::io::{self, Write};
 use std::time::Instant;
 
+use super::client::WsClient;
 use bytes::Buf;
 use mio::event::Event;
 use mio::{Interest, Token};
-use super::client::WsClient;
 
 use super::client::WsState;
 use super::frames::process_ws_frames;

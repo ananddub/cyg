@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use engine_net::framing::OpCode;
 use engine_net::transport::ws::{HeartbeatConfig, MatchMakeError};
-use engine_net::transport::{WsTransport, GameTransport, TransportEvent};
+use engine_net::transport::{GameTransport, TransportEvent, WsTransport};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -138,7 +138,10 @@ fn try_parse_ws_frame(buf: &[u8]) -> Option<(u8, Vec<u8>)> {
     if buf.len() < header_len + payload_len {
         return None;
     }
-    Some((ws_opcode, buf[header_len..header_len + payload_len].to_vec()))
+    Some((
+        ws_opcode,
+        buf[header_len..header_len + payload_len].to_vec(),
+    ))
 }
 
 /// Byte length of the first complete frame in `buf`, if one is fully buffered.
@@ -158,7 +161,10 @@ fn ws_frame_len(buf: &[u8]) -> Option<usize> {
             if buf.len() < 10 {
                 return None;
             }
-            (10usize, u64::from_be_bytes(buf[2..10].try_into().unwrap()) as usize)
+            (
+                10usize,
+                u64::from_be_bytes(buf[2..10].try_into().unwrap()) as usize,
+            )
         }
         n => (2usize, n),
     };
@@ -360,11 +366,27 @@ fn test_room_data_bytes_dispatch() {
     send_ws_frame(&mut stream, &msg);
 
     let events = poll_until(&mut transport, |e| {
-        matches!(e, TransportEvent::Packet { opcode: OpCode::RoomDataBytes, .. })
+        matches!(
+            e,
+            TransportEvent::Packet {
+                opcode: OpCode::RoomDataBytes,
+                ..
+            }
+        )
     });
-    let TransportEvent::Packet { opcode, payload, .. } = events
+    let TransportEvent::Packet {
+        opcode, payload, ..
+    } = events
         .iter()
-        .find(|e| matches!(e, TransportEvent::Packet { opcode: OpCode::RoomDataBytes, .. }))
+        .find(|e| {
+            matches!(
+                e,
+                TransportEvent::Packet {
+                    opcode: OpCode::RoomDataBytes,
+                    ..
+                }
+            )
+        })
         .unwrap()
     else {
         unreachable!()
@@ -384,20 +406,44 @@ fn test_room_request_and_response_roundtrip() {
     send_ws_frame(&mut stream, &[21, 7, 0xa3, b'h', b'i', b'!']);
 
     let events = poll_until(&mut transport, |e| {
-        matches!(e, TransportEvent::Packet { opcode: OpCode::RoomRequest, .. })
+        matches!(
+            e,
+            TransportEvent::Packet {
+                opcode: OpCode::RoomRequest,
+                ..
+            }
+        )
     });
-    let TransportEvent::Packet { client_id, payload, .. } = events
+    let TransportEvent::Packet {
+        client_id, payload, ..
+    } = events
         .iter()
-        .find(|e| matches!(e, TransportEvent::Packet { opcode: OpCode::RoomRequest, .. }))
+        .find(|e| {
+            matches!(
+                e,
+                TransportEvent::Packet {
+                    opcode: OpCode::RoomRequest,
+                    ..
+                }
+            )
+        })
         .unwrap()
     else {
         unreachable!()
     };
-    assert_eq!(payload[0], 7, "request id must be forwarded to the game layer");
+    assert_eq!(
+        payload[0], 7,
+        "request id must be forwarded to the game layer"
+    );
 
     // Game replies: [22][msgpack requestId][status][payload]
     transport
-        .send_room_response(client_id, 7, engine_net::response_status::OK, &[0xa3, b'y', b'e', b's'])
+        .send_room_response(
+            client_id,
+            7,
+            engine_net::response_status::OK,
+            &[0xa3, b'y', b'e', b's'],
+        )
         .expect("response");
     transport.flush().expect("flush");
 
@@ -424,13 +470,31 @@ fn test_fragmented_message_dispatched_once() {
     send_ws_frame_raw(&mut stream, 0x80, &[b'l', b'l', b'o']);
 
     let events = poll_until(&mut transport, |e| {
-        matches!(e, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. })
+        matches!(
+            e,
+            TransportEvent::Packet {
+                opcode: OpCode::PlayerInput,
+                ..
+            }
+        )
     });
     let packets: Vec<&TransportEvent> = events
         .iter()
-        .filter(|e| matches!(e, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                TransportEvent::Packet {
+                    opcode: OpCode::PlayerInput,
+                    ..
+                }
+            )
+        })
         .collect();
-    assert_eq!(packets.len(), 1, "fragments must reassemble into ONE message");
+    assert_eq!(
+        packets.len(),
+        1,
+        "fragments must reassemble into ONE message"
+    );
     if let TransportEvent::Packet { payload, .. } = packets[0] {
         assert_eq!(payload, &vec![b'h', b'e', b'l', b'l', b'o']);
     }
@@ -446,23 +510,38 @@ fn test_modifier_bits_stripped_before_dispatch() {
     send_ws_frame(&mut stream, &[10 | 0x80]);
     let events = poll(&mut transport);
     assert!(
-        !events.iter().any(|e| matches!(e, TransportEvent::Packet { .. })),
+        !events
+            .iter()
+            .any(|e| matches!(e, TransportEvent::Packet { .. })),
         "JOIN_ROOM ack (with modifier bits) must not surface as a packet"
     );
     assert!(
-        !events.iter().any(|e| matches!(e, TransportEvent::Disconnected { .. })),
+        !events
+            .iter()
+            .any(|e| matches!(e, TransportEvent::Disconnected { .. })),
         "JOIN_ROOM ack must not disconnect"
     );
 
     // ROOM_DATA with the UNRELIABLE modifier (0x40) still delivers.
     send_ws_frame(&mut stream, &[13 | 0x40, 42]);
     let events = poll_until(&mut transport, |e| {
-        matches!(e, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. })
+        matches!(
+            e,
+            TransportEvent::Packet {
+                opcode: OpCode::PlayerInput,
+                ..
+            }
+        )
     });
-    if let Some(TransportEvent::Packet { payload, .. }) = events
-        .iter()
-        .find(|e| matches!(e, TransportEvent::Packet { opcode: OpCode::PlayerInput, .. }))
-    {
+    if let Some(TransportEvent::Packet { payload, .. }) = events.iter().find(|e| {
+        matches!(
+            e,
+            TransportEvent::Packet {
+                opcode: OpCode::PlayerInput,
+                ..
+            }
+        )
+    }) {
         assert_eq!(payload, &vec![42]);
     }
 }
@@ -487,12 +566,7 @@ fn test_matchmake_whitelist_all_methods() {
     }
 
     // Unknown method -> MATCHMAKE_NO_HANDLER (520).
-    let response = post_matchmake(
-        &mut transport,
-        port,
-        "/matchmake/summon/game_room",
-        "{}",
-    );
+    let response = post_matchmake(&mut transport, port, "/matchmake/summon/game_room", "{}");
     assert!(
         response.contains("\"code\":520"),
         "unknown method must return 520, got: {response}"
@@ -566,7 +640,12 @@ fn test_join_handshake_echoes_seat_reconnection_token() {
     let (mut transport, port) = spawn_transport();
 
     // 1. Matchmake a seat (default hook) and extract its fields.
-    let seat = post_matchmake(&mut transport, port, "/matchmake/joinOrCreate/game_room", "{}");
+    let seat = post_matchmake(
+        &mut transport,
+        port,
+        "/matchmake/joinOrCreate/game_room",
+        "{}",
+    );
     let session = json_field(&seat, "sessionId").expect("sessionId in seat");
     let token = json_field(&seat, "reconnectionToken").expect("reconnectionToken in seat");
     assert_eq!(token, format!("game_room:{}", session));
@@ -632,16 +711,23 @@ fn test_opcode_mapping_state_snapshot_vs_patch() {
     // the upgrade URL's sessionId param.
     let cid = "sess_map".to_string();
 
-    transport.send_to(&cid, OpCode::StateSnapshot, &[0xAA]).unwrap();
+    transport
+        .send_to(&cid, OpCode::StateSnapshot, &[0xAA])
+        .unwrap();
     transport.flush().unwrap();
     let (_, payload) = read_frame(&mut stream, &mut transport);
     assert_eq!(payload[0], 14, "StateSnapshot must map to ROOM_STATE (14)");
     assert_eq!(payload[1], 0xAA);
 
-    transport.send_to(&cid, OpCode::StateDelta, &[0xBB]).unwrap();
+    transport
+        .send_to(&cid, OpCode::StateDelta, &[0xBB])
+        .unwrap();
     transport.flush().unwrap();
     let (_, payload) = read_frame(&mut stream, &mut transport);
-    assert_eq!(payload[0], 15, "StateDelta must map to ROOM_STATE_PATCH (15)");
+    assert_eq!(
+        payload[0], 15,
+        "StateDelta must map to ROOM_STATE_PATCH (15)"
+    );
     assert_eq!(payload[1], 0xBB);
 }
 
@@ -662,9 +748,10 @@ fn test_server_disconnect_close_code_4000() {
     assert_eq!(code, 4000, "server disconnect must use CONSENTED (4000)");
 
     // The Disconnected event surfaces on the next poll.
-    poll_until(&mut transport, |e| {
-        matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == &*cid)
-    });
+    poll_until(
+        &mut transport,
+        |e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == &*cid),
+    );
 }
 
 #[test]
@@ -692,13 +779,18 @@ fn test_disconnect_with_close_code_4002() {
 #[test]
 fn test_queued_error_precedes_close_frame() {
     let (mut transport, port) = spawn_transport();
-    let mut stream =
-        ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_reject");
+    let mut stream = ws_upgrade(
+        port,
+        &mut transport,
+        "/cyg_1/game_room?sessionId=sess_reject",
+    );
     let cid = "sess_reject".to_string();
 
     let reason = br#"{"code":4002,"message":"room is full"}"#;
     transport.send_to(&cid, OpCode::Error, reason).unwrap();
-    transport.disconnect_with(&cid, 4002, "room is full").unwrap();
+    transport
+        .disconnect_with(&cid, 4002, "room is full")
+        .unwrap();
 
     // Both frames leave in one write, so they must be read as a burst.
     let frames = read_frames(&mut stream, &mut transport, 2);
@@ -723,9 +815,9 @@ fn test_leave_room_answers_close_code_4000() {
     let events = poll_until(&mut transport, |e| {
         matches!(e, TransportEvent::Disconnected { .. })
     });
-    assert!(events
-        .iter()
-        .any(|e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_lv")));
+    assert!(events.iter().any(
+        |e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_lv")
+    ));
 
     // Server must also answer with a close frame on the wire.
     let (ws_op, payload) = read_frame(&mut stream, &mut transport);
@@ -755,9 +847,10 @@ fn test_bare_tcp_eof_disconnects_without_close_frame() {
     drop(stream);
 
     let start = std::time::Instant::now();
-    poll_until(&mut transport, |e| {
-        matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_eof")
-    });
+    poll_until(
+        &mut transport,
+        |e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_eof"),
+    );
     assert!(
         start.elapsed() < Duration::from_secs(1),
         "a bare TCP EOF must disconnect off the read path, not the heartbeat"
@@ -781,9 +874,10 @@ fn test_heartbeat_terminates_unresponsive_client() {
     let _stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_dead");
 
     let start = std::time::Instant::now();
-    poll_until(&mut transport, |e| {
-        matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_dead")
-    });
+    poll_until(
+        &mut transport,
+        |e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_dead"),
+    );
     assert!(
         start.elapsed() < Duration::from_secs(2),
         "unresponsive client must be terminated quickly"
@@ -835,5 +929,9 @@ fn test_error_frame_wire_format() {
     let (_, payload) = read_frame(&mut stream, &mut transport);
     assert_eq!(payload[0], 11, "ERROR opcode");
     assert_eq!(decode_mp_uint(&payload[1..4]), Some(4217));
-    assert_eq!(&payload[4..], &[0xa4, b'b', b'o', b'o', b'm'], "msgpack 'boom'");
+    assert_eq!(
+        &payload[4..],
+        &[0xa4, b'b', b'o', b'o', b'm'],
+        "msgpack 'boom'"
+    );
 }

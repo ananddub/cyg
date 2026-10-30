@@ -17,9 +17,9 @@ mod queue;
 mod watermark;
 
 #[cfg(test)]
-mod fixture;
-#[cfg(test)]
 mod delta_tests;
+#[cfg(test)]
+mod fixture;
 #[cfg(test)]
 mod inbound_tests;
 #[cfg(test)]
@@ -36,9 +36,7 @@ pub use outbound::OutboundDelta;
 pub use queue::OutboundQueue;
 pub use watermark::SeqWatermark;
 
-use engine_webrtc_protocol::{
-    HEADER_LEN, INPUT_WIRE_LEN, MAX_FRAGMENTS, MAX_FRAME,
-};
+use engine_webrtc_protocol::{HEADER_LEN, INPUT_WIRE_LEN, MAX_FRAGMENTS, MAX_FRAME};
 
 /// The unreliable lane's channel label, matched exactly.
 pub const LABEL_UNRELIABLE: &str = "game-unreliable";

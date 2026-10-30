@@ -5,11 +5,11 @@
 //! - Write buffer with batched write flushing
 //! - Session tracking
 
+use crate::framing::{OpCode, encode_frame, take_frame};
 use bytes::{Buf, Bytes, BytesMut};
+use mio::net::TcpStream;
 use std::io::{self, Write};
 use std::sync::Arc;
-use mio::net::TcpStream;
-use crate::framing::{encode_frame, take_frame, OpCode};
 
 pub struct ClientConn {
     pub stream: TcpStream,

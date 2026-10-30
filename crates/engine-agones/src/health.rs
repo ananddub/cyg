@@ -71,7 +71,8 @@ impl PingStats {
         self.pings += 1;
         self.failures += 1;
         self.consecutive_failures += 1;
-        self.max_consecutive_failures = self.max_consecutive_failures.max(self.consecutive_failures);
+        self.max_consecutive_failures =
+            self.max_consecutive_failures.max(self.consecutive_failures);
         if self.consecutive_failures >= UNHEALTHY_AFTER_MISSES {
             self.unhealthy_declared = true;
         }
@@ -86,7 +87,9 @@ impl PingStats {
 
     fn record_latency(&mut self, latency: Duration) {
         self.last_latency_ms = latency.as_millis() as u64;
-        self.total_latency_ms = self.total_latency_ms.saturating_add(latency.as_millis() as u64);
+        self.total_latency_ms = self
+            .total_latency_ms
+            .saturating_add(latency.as_millis() as u64);
     }
 
     /// Mean round-trip time in milliseconds, `0` before the first ping.
@@ -200,7 +203,9 @@ impl Healthbeat {
     pub fn current_delay(&self) -> Duration {
         let streak = self.stats.consecutive_failures;
         let shift = streak.saturating_sub(1).min(3);
-        self.interval.saturating_mul(1u32 << shift).min(self.max_backoff)
+        self.interval
+            .saturating_mul(1u32 << shift)
+            .min(self.max_backoff)
     }
 
     /// Time until the next ping is due.
@@ -284,7 +289,11 @@ impl Healthbeat {
 /// the future.
 pub fn next_due_after(prev_due: Instant, now: Instant, delay: Duration) -> Instant {
     let scheduled = saturating_add(prev_due, delay);
-    if scheduled > now { scheduled } else { saturating_add(now, delay) }
+    if scheduled > now {
+        scheduled
+    } else {
+        saturating_add(now, delay)
+    }
 }
 
 fn saturating_add(at: Instant, delta: Duration) -> Instant {
@@ -313,11 +322,23 @@ mod tests {
         let i = || Duration::from_millis(40);
         assert_eq!(stats_with_streak(0).current_delay(), i());
         assert_eq!(stats_with_streak(1).current_delay(), i());
-        assert_eq!(stats_with_streak(2).current_delay(), Duration::from_millis(80));
-        assert_eq!(stats_with_streak(3).current_delay(), Duration::from_millis(160));
-        assert_eq!(stats_with_streak(4).current_delay(), Duration::from_millis(320));
+        assert_eq!(
+            stats_with_streak(2).current_delay(),
+            Duration::from_millis(80)
+        );
+        assert_eq!(
+            stats_with_streak(3).current_delay(),
+            Duration::from_millis(160)
+        );
+        assert_eq!(
+            stats_with_streak(4).current_delay(),
+            Duration::from_millis(320)
+        );
         // 8 × interval is the ceiling, whatever the streak.
-        assert_eq!(stats_with_streak(40).current_delay(), Duration::from_millis(320));
+        assert_eq!(
+            stats_with_streak(40).current_delay(),
+            Duration::from_millis(320)
+        );
         let capped = stats_with_streak(9).with_max_backoff(Duration::from_millis(100));
         assert_eq!(capped.current_delay(), Duration::from_millis(100));
     }
@@ -342,7 +363,10 @@ mod tests {
         // A 120 ms stall is past the window: restart from completion.
         let next = next_due_after(t0, t0 + Duration::from_millis(120), interval);
         assert_eq!(next, t0 + Duration::from_millis(170));
-        assert!(next > t0 + Duration::from_millis(120), "the next ping must be in the future");
+        assert!(
+            next > t0 + Duration::from_millis(120),
+            "the next ping must be in the future"
+        );
     }
 
     #[test]
@@ -356,15 +380,20 @@ mod tests {
     #[test]
     fn stats_count_by_error_kind_and_declare_unhealthy_once() {
         let mut s = PingStats::default();
-        let boom = |kind: &str| SidecarError::Malformed { reason: kind.into() };
+        let boom = |kind: &str| SidecarError::Malformed {
+            reason: kind.into(),
+        };
         s.note_failure(Duration::from_millis(1), &boom("a"));
         s.note_failure(Duration::from_millis(3), &boom("b"));
         assert!(!s.unhealthy_declared);
         assert_eq!(s.consecutive_failures, 2);
-        s.note_failure(Duration::from_millis(2), &SidecarError::Timeout {
-            addr: "127.0.0.1:9358".into(),
-            after_ms: 1000,
-        });
+        s.note_failure(
+            Duration::from_millis(2),
+            &SidecarError::Timeout {
+                addr: "127.0.0.1:9358".into(),
+                after_ms: 1000,
+            },
+        );
         assert!(s.unhealthy_declared, "three misses is the Agones window");
         assert_eq!(s.timeout_failures, 1);
         assert_eq!(s.malformed_failures, 2);

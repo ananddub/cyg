@@ -1,5 +1,5 @@
-use polyanya::{Mesh, MeshError, Polygon, PolyanyaFile, Trimesh, Vertex};
 use glam::Vec2;
+use polyanya::{Mesh, MeshError, PolyanyaFile, Polygon, Trimesh, Vertex};
 
 /// 2D Navigation Mesh powered by Polyanya (Any-Angle Pathfinding)
 pub struct NavMesh2D {

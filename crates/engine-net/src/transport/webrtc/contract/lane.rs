@@ -83,7 +83,10 @@ pub fn contract_mismatch(lane: Lane, config: &ChannelConfig) -> Option<&'static 
             if config.ordered {
                 return Some("game-unreliable channel was opened ordered");
             }
-            if !matches!(config.reliability, Reliability::MaxRetransmits { retransmits: 0 }) {
+            if !matches!(
+                config.reliability,
+                Reliability::MaxRetransmits { retransmits: 0 }
+            ) {
                 return Some("game-unreliable channel allows retransmits");
             }
         }

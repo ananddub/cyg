@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use std::time::Instant;
 use ahash::RandomState;
 use dashmap::DashMap;
 use scc::HashMap as SccMap;
+use std::sync::Arc;
+use std::time::Instant;
 
 const NUM_THREADS: usize = 16;
 const OPS_PER_THREAD: usize = 200_000;
@@ -11,7 +11,10 @@ const INITIAL_KEYS: usize = 50_000;
 fn main() {
     println!("==========================================================================");
     println!("     CONCURRENT HASHMAP BENCHMARK: DashMap vs scc::HashMap (Default vs AHash)");
-    println!("     CPU Threads: {} | Initial Keys: {} | Ops/Thread: {}", NUM_THREADS, INITIAL_KEYS, OPS_PER_THREAD);
+    println!(
+        "     CPU Threads: {} | Initial Keys: {} | Ops/Thread: {}",
+        NUM_THREADS, INITIAL_KEYS, OPS_PER_THREAD
+    );
     println!("==========================================================================\n");
 
     // 1. DashMap with Default Hasher
@@ -93,7 +96,9 @@ fn bench_dashmap_default() {
 // 2. DashMap (AHash)
 // -----------------------------------------------------------------------------
 fn bench_dashmap_ahash() {
-    let map = Arc::new(DashMap::<u64, u64, RandomState>::with_hasher(RandomState::new()));
+    let map = Arc::new(DashMap::<u64, u64, RandomState>::with_hasher(
+        RandomState::new(),
+    ));
     for i in 0..INITIAL_KEYS as u64 {
         map.insert(i, i * 2);
     }
@@ -128,7 +133,9 @@ fn bench_dashmap_ahash() {
         }
     });
 
-    let map_write = Arc::new(DashMap::<u64, u64, RandomState>::with_hasher(RandomState::new()));
+    let map_write = Arc::new(DashMap::<u64, u64, RandomState>::with_hasher(
+        RandomState::new(),
+    ));
     run_benchmark("DashMap (AHash) - 100% Inserts", {
         let map = map_write.clone();
         move |thread_id| {
@@ -195,7 +202,9 @@ fn bench_scc_default() {
 // 4. scc::HashMap (AHash)
 // -----------------------------------------------------------------------------
 fn bench_scc_ahash() {
-    let map = Arc::new(SccMap::<u64, u64, RandomState>::with_hasher(RandomState::new()));
+    let map = Arc::new(SccMap::<u64, u64, RandomState>::with_hasher(
+        RandomState::new(),
+    ));
     for i in 0..INITIAL_KEYS as u64 {
         let _ = map.insert_sync(i, i * 2);
     }
@@ -230,7 +239,9 @@ fn bench_scc_ahash() {
         }
     });
 
-    let map_write = Arc::new(SccMap::<u64, u64, RandomState>::with_hasher(RandomState::new()));
+    let map_write = Arc::new(SccMap::<u64, u64, RandomState>::with_hasher(
+        RandomState::new(),
+    ));
     run_benchmark("scc::HashMap (AHash) - 100% Inserts", {
         let map = map_write.clone();
         move |thread_id| {

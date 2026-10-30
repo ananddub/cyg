@@ -97,7 +97,6 @@ fn test_unified_transport_auto_switch() {
         }
     }
 
-
     println!("\n==================================================================");
     println!(" LIVE TRANSPORTS (UDP + WireSocket) ADHERE TO GameTransport TRAIT! ");
     println!("==================================================================\n");

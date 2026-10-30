@@ -63,7 +63,10 @@ fn a_guest_that_outruns_its_budget_is_interrupted() {
 
     let outcome = instance.call::<i32, i32>("spin", STUCK_FOREVER);
     let error = outcome.expect_err("a 2e9 iteration loop must not outrun nothing");
-    assert!(error.is_interrupt(), "expected a watchdog kill, got {error}");
+    assert!(
+        error.is_interrupt(),
+        "expected a watchdog kill, got {error}"
+    );
 }
 
 #[test]
@@ -77,11 +80,15 @@ fn an_interrupted_guest_is_armed_again_for_its_next_call() {
     // A deadline is consumed, not refilled: were the fuse not re-armed per
     // call, this short export would trap against the already-elapsed deadline.
     assert_eq!(
-        instance.call::<(), i32>("quick", ()).expect("quick call ok"),
+        instance
+            .call::<(), i32>("quick", ())
+            .expect("quick call ok"),
         7
     );
     assert_eq!(
-        instance.call::<(), i32>("quick", ()).expect("quick call ok"),
+        instance
+            .call::<(), i32>("quick", ())
+            .expect("quick call ok"),
         7
     );
 }
@@ -94,7 +101,10 @@ fn the_cached_wrapper_the_room_uses_is_watchdoged_too() {
     let error = guest
         .spin(STUCK_FOREVER)
         .expect_err("the wrapped call is cut off as well");
-    assert!(error.is_interrupt(), "expected a watchdog kill, got {error}");
+    assert!(
+        error.is_interrupt(),
+        "expected a watchdog kill, got {error}"
+    );
     assert_eq!(guest.quick().expect("next tick re-arms"), 7);
 }
 

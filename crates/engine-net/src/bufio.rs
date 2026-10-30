@@ -12,7 +12,11 @@ use mio::net::{TcpStream, UdpSocket};
 
 /// One non-blocking TCP read directly into `dst`, committing exactly the
 /// bytes the kernel initialized. `Ok(0)` means EOF.
-pub(crate) fn read_tcp(stream: &mut TcpStream, dst: &mut BytesMut, want: usize) -> io::Result<usize> {
+pub(crate) fn read_tcp(
+    stream: &mut TcpStream,
+    dst: &mut BytesMut,
+    want: usize,
+) -> io::Result<usize> {
     dst.reserve(want);
     let spare = dst.spare_capacity_mut();
     let len = spare.len().min(want);

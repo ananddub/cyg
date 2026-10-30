@@ -119,4 +119,3 @@ fn test_load_or_compile_cached_roundtrip() {
     // Clean up
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
-

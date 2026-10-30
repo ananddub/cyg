@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 
 use super::config::PlaneConfig;
 use super::inbox::{PlaneCommand, SessionInbound, SessionNotice};
-use super::registries::{unbind_player, Registries};
+use super::registries::{Registries, unbind_player};
 use super::session::RtcSession;
 use super::task::session_task;
 use super::types::{RtcPlaneError, UplinkEvent};
@@ -118,7 +118,10 @@ fn route_datagram(
     }
     for sid in unbound {
         if let Some(tx) = sessions.get(sid) {
-            let _ = tx.try_send(SessionInbound::Datagram { from, bytes: bytes.clone() });
+            let _ = tx.try_send(SessionInbound::Datagram {
+                from,
+                bytes: bytes.clone(),
+            });
         }
     }
 }

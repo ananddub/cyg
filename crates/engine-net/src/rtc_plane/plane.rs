@@ -65,23 +65,22 @@ impl Plane {
                     .build()
                     .expect("tokio current-thread runtime");
                 rt.block_on(async move {
-                    let socket =
-                        Arc::new(UdpSocket::from_std(std_socket).expect("udp from_std"));
+                    let socket = Arc::new(UdpSocket::from_std(std_socket).expect("udp from_std"));
                     demux_loop(
-                        socket,
-                        local_dest,
-                        cmd_rx,
-                        notice_rx,
-                        notice_tx,
-                        uplink_tx,
-                        registries,
+                        socket, local_dest, cmd_rx, notice_rx, notice_tx, uplink_tx, registries,
                         config,
                     )
                     .await;
                 });
             })?;
 
-        Ok((Plane { thread: Some(thread), cmd_tx }, handle))
+        Ok((
+            Plane {
+                thread: Some(thread),
+                cmd_tx,
+            },
+            handle,
+        ))
     }
 
     /// Signal the plane to stop and join its thread.

@@ -477,11 +477,7 @@ pub fn encode_reliable_ack(seq: u16, out: &mut Vec<u8>) {
 /// sender resends only what neither covers; already-delivered frames above a
 /// gap are never resent. A 3-byte ack (no count byte) remains valid — old
 /// clients keep working, no ranges.
-pub fn encode_reliable_ack_sack(
-    cum: u16,
-    ranges: &[(u16, u16)],
-    out: &mut Vec<u8>,
-) {
+pub fn encode_reliable_ack_sack(cum: u16, ranges: &[(u16, u16)], out: &mut Vec<u8>) {
     out.clear();
     out.push(CYG_WIRE_RELIABLE_ACK);
     out.extend_from_slice(&cum.to_le_bytes());
@@ -508,8 +504,12 @@ pub fn decode_reliable_ack(data: &[u8]) -> Option<(u16, Vec<(u16, u16)>)> {
     let mut ranges = Vec::with_capacity(count as usize);
     for i in 0..count as usize {
         let base = 4 + i * 4;
-        let Some(start) = data.get(base..base + 2) else { break };
-        let Some(end) = data.get(base + 2..base + 4) else { break };
+        let Some(start) = data.get(base..base + 2) else {
+            break;
+        };
+        let Some(end) = data.get(base + 2..base + 4) else {
+            break;
+        };
         ranges.push((
             u16::from_le_bytes([start[0], start[1]]),
             u16::from_le_bytes([end[0], end[1]]),
@@ -706,11 +706,19 @@ mod tests {
 
         let mut lying_count = good.clone();
         lying_count[1] = 4;
-        assert_eq!(batch_sample_count(&lying_count), None, "count byte disagrees");
+        assert_eq!(
+            batch_sample_count(&lying_count),
+            None,
+            "count byte disagrees"
+        );
 
         assert_eq!(batch_sample_count(&batch(1)), Some(1));
         assert_eq!(batch_sample_count(&[]), None);
-        assert_eq!(batch_sample_count(&[OP_INPUT_BATCH, 0]), None, "empty batch");
+        assert_eq!(
+            batch_sample_count(&[OP_INPUT_BATCH, 0]),
+            None,
+            "empty batch"
+        );
         assert_eq!(
             batch_sample_count(&batch(MAX_BATCHED_INPUTS + 1)),
             None,
@@ -808,7 +816,7 @@ mod tests {
 #[cfg(test)]
 mod rudp_tests {
     use super::*;
-    use crate::plane::reliable::{ReliableLane, MAX_RELIABLE_BYTES};
+    use crate::plane::reliable::{MAX_RELIABLE_BYTES, ReliableLane};
 
     /// Wire roundtrip: encode → decode byte-identical, arbitrary sizes.
     #[test]

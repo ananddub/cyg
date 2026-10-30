@@ -12,10 +12,10 @@ pub mod aoi;
 
 pub use aoi::{DeltaEntity, filter_for_viewer, parse_delta, viewer_pos_of};
 
-use std::collections::{HashMap, HashSet};
-use std::num::NonZero;
 use kiddo::MutableKdTree;
 use kiddo::dist::SquaredEuclidean;
+use std::collections::{HashMap, HashSet};
+use std::num::NonZero;
 
 /// Result of a spatial radius or nearest-neighbor query.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -187,7 +187,6 @@ impl SpatialIndex3D {
     pub fn new() -> Self {
         Self {
             tree: MutableKdTree::default(),
-
         }
     }
 
@@ -411,12 +410,11 @@ impl AoiManager3D {
         };
 
         let mut out = Vec::new();
-        self.index
-            .for_each_within(pos, aoi_radius, |id, _| {
-                if id != entity_id {
-                    out.push(id);
-                }
-            });
+        self.index.for_each_within(pos, aoi_radius, |id, _| {
+            if id != entity_id {
+                out.push(id);
+            }
+        });
         out
     }
 
@@ -549,12 +547,11 @@ impl AoiManager2D {
         };
 
         let mut out = Vec::new();
-        self.index
-            .for_each_within(pos, aoi_radius, |id, _| {
-                if id != entity_id {
-                    out.push(id);
-                }
-            });
+        self.index.for_each_within(pos, aoi_radius, |id, _| {
+            if id != entity_id {
+                out.push(id);
+            }
+        });
         out
     }
 
@@ -676,14 +673,29 @@ mod tests {
         aoi.update_entity(1, [0.0, 0.0, 0.0]);
         aoi.update_entity(2, [10.0, 0.0, 0.0]);
 
-        assert_eq!(aoi.compute_visibility_delta(1, 50.0), VisibilityDelta { entered: vec![2], left: vec![] });
+        assert_eq!(
+            aoi.compute_visibility_delta(1, 50.0),
+            VisibilityDelta {
+                entered: vec![2],
+                left: vec![]
+            }
+        );
         for _ in 0..8 {
             aoi.update_entity(1, [0.5, 0.0, 0.0]);
-            assert_eq!(aoi.compute_visibility_delta(1, 50.0), VisibilityDelta::default());
+            assert_eq!(
+                aoi.compute_visibility_delta(1, 50.0),
+                VisibilityDelta::default()
+            );
         }
 
         aoi.update_entity(2, [400.0, 0.0, 0.0]);
-        assert_eq!(aoi.compute_visibility_delta(1, 50.0), VisibilityDelta { entered: vec![], left: vec![2] });
+        assert_eq!(
+            aoi.compute_visibility_delta(1, 50.0),
+            VisibilityDelta {
+                entered: vec![],
+                left: vec![2]
+            }
+        );
     }
 
     #[test]

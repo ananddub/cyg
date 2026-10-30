@@ -102,7 +102,10 @@ mod tests {
         assert_eq!(chunk.len(), 8 + body.len() + 6);
         assert_eq!(&chunk[..8], &42i64.to_le_bytes());
         assert_eq!(&chunk[8..8 + body.len()], &body[..]);
-        assert_eq!(&chunk[chunk.len() - 6..chunk.len() - 4], &7u16.to_le_bytes());
+        assert_eq!(
+            &chunk[chunk.len() - 6..chunk.len() - 4],
+            &7u16.to_le_bytes()
+        );
         assert_eq!(&chunk[chunk.len() - 4..], &999u32.to_le_bytes());
         assert_eq!(frames[0].peer_id, "peer-a");
         assert_eq!(frames[0].kind, FrameKind::Unreliable);
@@ -113,8 +116,17 @@ mod tests {
         let body = sample_body(5, MAX_DELTA_CHUNK * 2 + 37); // > 2 chunks of wrapped body
         let mut scratch = Vec::new();
         let mut frames = Vec::new();
-        let n = emit_delta("p", -1, &body, 0xff00, 0x0bad_c0de, 0x1234, &mut scratch, &mut frames)
-            .expect("fits");
+        let n = emit_delta(
+            "p",
+            -1,
+            &body,
+            0xff00,
+            0x0bad_c0de,
+            0x1234,
+            &mut scratch,
+            &mut frames,
+        )
+        .expect("fits");
         assert_eq!(n, frames.len());
         assert!(n >= 3);
 
@@ -131,8 +143,14 @@ mod tests {
         assert_eq!(reassembled.len(), 8 + body.len() + 6);
         assert_eq!(&reassembled[..8], &(-1i64).to_le_bytes());
         assert_eq!(&reassembled[8..8 + body.len()], &body[..]);
-        assert_eq!(&reassembled[reassembled.len() - 6..reassembled.len() - 4], &0xff00u16.to_le_bytes());
-        assert_eq!(&reassembled[reassembled.len() - 4..], &0x0bad_c0de_u32.to_le_bytes());
+        assert_eq!(
+            &reassembled[reassembled.len() - 6..reassembled.len() - 4],
+            &0xff00u16.to_le_bytes()
+        );
+        assert_eq!(
+            &reassembled[reassembled.len() - 4..],
+            &0x0bad_c0de_u32.to_le_bytes()
+        );
     }
 
     #[test]
@@ -140,7 +158,10 @@ mod tests {
         let body = vec![0u8; MAX_DELTA_BODY]; // +14-byte wrap puts it over the cap
         let mut scratch = Vec::new();
         let mut frames = Vec::new();
-        assert_eq!(emit_delta("p", 0, &body, 0, 0, 0, &mut scratch, &mut frames), None);
+        assert_eq!(
+            emit_delta("p", 0, &body, 0, 0, 0, &mut scratch, &mut frames),
+            None
+        );
         assert!(frames.is_empty());
     }
 
@@ -148,6 +169,9 @@ mod tests {
     fn empty_body_still_emits_one_frame() {
         let mut scratch = Vec::new();
         let mut frames = Vec::new();
-        assert_eq!(emit_delta("p", 0, &[], 0, 0, 1, &mut scratch, &mut frames), Some(1));
+        assert_eq!(
+            emit_delta("p", 0, &[], 0, 0, 1, &mut scratch, &mut frames),
+            Some(1)
+        );
     }
 }

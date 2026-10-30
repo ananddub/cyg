@@ -2,12 +2,21 @@
 
 use str0m::channel::{ChannelConfig, Reliability};
 
-use super::{LABEL_RELIABLE, LABEL_UNRELIABLE, LabelVerdict, Lane, classify_inbound, classify_label, contract_mismatch, Inbound};
+use super::{
+    Inbound, LABEL_RELIABLE, LABEL_UNRELIABLE, LabelVerdict, Lane, classify_inbound,
+    classify_label, contract_mismatch,
+};
 
 #[test]
 fn exact_labels_are_the_contract_and_other_labels_are_ignored() {
-    assert_eq!(classify_label(LABEL_UNRELIABLE), LabelVerdict::Contract(Lane::Unreliable));
-    assert_eq!(classify_label(LABEL_RELIABLE), LabelVerdict::Contract(Lane::Reliable));
+    assert_eq!(
+        classify_label(LABEL_UNRELIABLE),
+        LabelVerdict::Contract(Lane::Unreliable)
+    );
+    assert_eq!(
+        classify_label(LABEL_RELIABLE),
+        LabelVerdict::Contract(Lane::Reliable)
+    );
 
     // Never a silent fallback to the reliable lane.
     assert_eq!(classify_label("telemetry"), LabelVerdict::Ignored);
@@ -17,12 +26,27 @@ fn exact_labels_are_the_contract_and_other_labels_are_ignored() {
     assert_eq!(classify_label("game-reliable-v2"), LabelVerdict::Ignored);
 
     // Documented legacy aliases, including the bare lane words older bundles used.
-    assert_eq!(classify_label("unreliable"), LabelVerdict::LegacyAlias(Lane::Unreliable));
-    assert_eq!(classify_label("reliable"), LabelVerdict::LegacyAlias(Lane::Reliable));
-    assert_eq!(classify_label("client-unreliable"), LabelVerdict::LegacyAlias(Lane::Unreliable));
-    assert_eq!(classify_label("client_reliable"), LabelVerdict::LegacyAlias(Lane::Reliable));
+    assert_eq!(
+        classify_label("unreliable"),
+        LabelVerdict::LegacyAlias(Lane::Unreliable)
+    );
+    assert_eq!(
+        classify_label("reliable"),
+        LabelVerdict::LegacyAlias(Lane::Reliable)
+    );
+    assert_eq!(
+        classify_label("client-unreliable"),
+        LabelVerdict::LegacyAlias(Lane::Unreliable)
+    );
+    assert_eq!(
+        classify_label("client_reliable"),
+        LabelVerdict::LegacyAlias(Lane::Reliable)
+    );
     // "unreliable" ends with "reliable": the ordering trap, caught.
-    assert_ne!(classify_label("client-unreliable"), LabelVerdict::LegacyAlias(Lane::Reliable));
+    assert_ne!(
+        classify_label("client-unreliable"),
+        LabelVerdict::LegacyAlias(Lane::Reliable)
+    );
 }
 
 #[test]

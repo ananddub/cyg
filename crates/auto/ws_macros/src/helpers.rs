@@ -74,7 +74,10 @@ pub(crate) fn type_ident(ty: &Type) -> syn::Result<&Ident> {
             "socket handlers must be declared on a named type",
         ));
     };
-    path.segments.last().map(|segment| &segment.ident).ok_or_else(|| {
-        syn::Error::new_spanned(ty, "socket handlers must be declared on a named type")
-    })
+    path.segments
+        .last()
+        .map(|segment| &segment.ident)
+        .ok_or_else(|| {
+            syn::Error::new_spanned(ty, "socket handlers must be declared on a named type")
+        })
 }

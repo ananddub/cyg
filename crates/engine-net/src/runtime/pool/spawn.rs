@@ -1,8 +1,8 @@
 //! Thread-per-core pool spawn: one pinned-ish worker thread per configured core.
 
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -39,14 +39,16 @@ where
             .spawn(move || {
                 tracing::info!(
                     "⚡ [Worker {}] Thread started & listening on {} (SO_REUSEPORT)",
-                    worker_id, config.bind_addr
+                    worker_id,
+                    config.bind_addr
                 );
 
                 let mut packets = Vec::new();
                 while thread_running.load(Ordering::Relaxed) {
-                    let res = worker.step(Duration::from_millis(2), &mut packets, |_ctx, _clients| {
-                        factory(worker_id);
-                    });
+                    let res =
+                        worker.step(Duration::from_millis(2), &mut packets, |_ctx, _clients| {
+                            factory(worker_id);
+                        });
 
                     if let Err(e) = res {
                         tracing::error!("[Worker {}] Error during step: {}", worker_id, e);

@@ -1,7 +1,5 @@
 use engine_core::{EntityId, Position3D, TickRunner};
-use engine_physics::{
-    step_rapier_3d, sync_ecs_to_rapier_3d, sync_rapier_to_ecs_3d, RapierWorld3D,
-};
+use engine_physics::{RapierWorld3D, step_rapier_3d, sync_ecs_to_rapier_3d, sync_rapier_to_ecs_3d};
 use rapier3d::prelude as r3d;
 
 #[test]
@@ -34,14 +32,17 @@ fn test_physics_ecs_sync_and_raycast() {
     runner.world.insert_resource(rapier);
 
     // 2. Spawn ECS Entity with EntityId and Position3D
-    let entity = runner.world.spawn((
-        EntityId(42),
-        Position3D {
-            x: 0.0,
-            y: 10.0,
-            z: 0.0,
-        },
-    )).id();
+    let entity = runner
+        .world
+        .spawn((
+            EntityId(42),
+            Position3D {
+                x: 0.0,
+                y: 10.0,
+                z: 0.0,
+            },
+        ))
+        .id();
 
     // 3. Add simulation systems in order: ECS -> Rapier -> Step -> Rapier -> ECS
     runner.add_system(sync_ecs_to_rapier_3d);

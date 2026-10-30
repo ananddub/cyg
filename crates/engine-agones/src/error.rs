@@ -61,7 +61,11 @@ pub enum SidecarError {
     Timeout { addr: String, after_ms: u64 },
     /// A 4xx/5xx status. `body` is the sidecar's own explanation, lossily
     /// decoded and truncated.
-    Rejected { status: u16, reason: String, body: String },
+    Rejected {
+        status: u16,
+        reason: String,
+        body: String,
+    },
     /// The reply could not be parsed. `reason` says where.
     Malformed { reason: String },
 }
@@ -85,7 +89,11 @@ impl SidecarError {
             SidecarError::Timeout { addr, after_ms } => {
                 format!("sidecar at {addr} sent no complete reply within {after_ms} ms")
             }
-            SidecarError::Rejected { status, reason, body } => {
+            SidecarError::Rejected {
+                status,
+                reason,
+                body,
+            } => {
                 if body.is_empty() {
                     format!("sidecar rejected the transition: HTTP {status} {reason}")
                 } else {

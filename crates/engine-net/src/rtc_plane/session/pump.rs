@@ -39,7 +39,9 @@ impl RtcSession {
         }
         let mut out = self.drain();
         if first_binding && self.remote_addr.is_some() {
-            out.push(Outbound::Event(SessionEvent::RemoteAddrBound { addr: from }));
+            out.push(Outbound::Event(SessionEvent::RemoteAddrBound {
+                addr: from,
+            }));
         }
         Ok(out)
     }
@@ -106,7 +108,10 @@ impl RtcSession {
                 } else if label == LABEL_RELIABLE {
                     self.ch_reliable = Some(id);
                 }
-                Some(vec![Outbound::Event(SessionEvent::ChannelOpen { id, label })])
+                Some(vec![Outbound::Event(SessionEvent::ChannelOpen {
+                    id,
+                    label,
+                })])
             }
             Event::ChannelClose(id) => {
                 if self.ch_unreliable == Some(id) {

@@ -1,15 +1,11 @@
 use crate::LiveIdentity;
 use ahash::RandomState;
 use serde::Deserialize;
-use std::{
-    collections::HashSet,
-    sync::OnceLock,
-};
+use std::{collections::HashSet, sync::OnceLock};
 
 pub(crate) type FastMap<K, V> = scc::HashMap<K, V, RandomState>;
 
-pub(crate) static ACTIVE_LIVE_ROOMS: OnceLock<FastMap<String, ActiveLiveRoom>> =
-    OnceLock::new();
+pub(crate) static ACTIVE_LIVE_ROOMS: OnceLock<FastMap<String, ActiveLiveRoom>> = OnceLock::new();
 
 #[inline]
 pub(crate) fn active_live_rooms() -> &'static FastMap<String, ActiveLiveRoom> {

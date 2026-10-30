@@ -15,9 +15,16 @@ pub enum PlaneChannel {
 #[derive(Debug)]
 pub enum Outbound {
     /// Put these bytes on the UDP socket toward `destination`.
-    Datagram { destination: SocketAddr, contents: Vec<u8> },
+    Datagram {
+        destination: SocketAddr,
+        contents: Vec<u8>,
+    },
     /// A DataChannel payload received from the remote peer.
-    Data { channel: ChannelId, binary: bool, payload: Vec<u8> },
+    Data {
+        channel: ChannelId,
+        binary: bool,
+        payload: Vec<u8>,
+    },
     /// A lifecycle transition the plane must react to.
     Event(SessionEvent),
 }
@@ -27,9 +34,16 @@ pub enum Outbound {
 pub enum SessionEvent {
     Connected,
     Closed,
-    ChannelOpen { id: ChannelId, label: String },
-    ChannelClose { id: ChannelId },
+    ChannelOpen {
+        id: ChannelId,
+        label: String,
+    },
+    ChannelClose {
+        id: ChannelId,
+    },
     /// The session accepted its first packet from `addr`; the demux can now pin
     /// `addr -> session` and stop broadcasting unknown datagrams to it.
-    RemoteAddrBound { addr: SocketAddr },
+    RemoteAddrBound {
+        addr: SocketAddr,
+    },
 }

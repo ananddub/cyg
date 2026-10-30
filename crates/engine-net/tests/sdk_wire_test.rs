@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
-use engine_net::transport::{WsTransport, GameTransport, TransportEvent};
+use engine_net::transport::{GameTransport, TransportEvent, WsTransport};
 
 /// The serializer id advertised by the transport (must match server constant).
 const SERIALIZER_ID: &[u8] = b"schema";

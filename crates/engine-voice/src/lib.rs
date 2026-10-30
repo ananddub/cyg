@@ -19,12 +19,12 @@ pub mod spatial;
 
 pub use jitter::VoiceJitterEstimator;
 pub use packet::{
-    voice_flags, VoiceChannelMode, VoicePacket, VoicePacketError, HEADER_LEN, VOICE_MAGIC,
+    HEADER_LEN, VOICE_MAGIC, VoiceChannelMode, VoicePacket, VoicePacketError, voice_flags,
 };
 pub use session::{VoiceParticipant, VoiceRoom};
 pub use signaling::{
-    rewrite_sender, SignalError, SignalFrame, SignalKind, SignalTarget, VoiceMesh, BROADCAST,
-    MAX_SIGNAL_PAYLOAD, SERVER_SENDER, SIGNAL_HEADER_LEN, SIGNAL_MAGIC, SIGNAL_VERSION,
+    BROADCAST, MAX_SIGNAL_PAYLOAD, SERVER_SENDER, SIGNAL_HEADER_LEN, SIGNAL_MAGIC, SIGNAL_VERSION,
+    SignalError, SignalFrame, SignalKind, SignalTarget, VoiceMesh, rewrite_sender,
 };
 pub use spatial::{DistanceModel, RoutedVoiceFrame, SpatialVoiceRouter};
 
@@ -74,11 +74,16 @@ mod benches {
 
         tracing::info!(
             "Spatial Voice Fanout: 1,000 packets dispatched across 100 players in {:?} ({:?} per packet, total frames routed: {})",
-            elapsed, per_packet, total_routed
+            elapsed,
+            per_packet,
+            total_routed
         );
 
         // Verify that sub-microsecond or low-microsecond routing is achieved
-        assert!(per_packet.as_micros() < 200, "Must route in < 200 microseconds");
+        assert!(
+            per_packet.as_micros() < 200,
+            "Must route in < 200 microseconds"
+        );
         assert!(total_routed > 0);
     }
 }

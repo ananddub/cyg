@@ -57,14 +57,18 @@ impl Pair {
         let (offer, pending) = change.apply().unwrap();
 
         let mut server = WebRtcServer::new(vec![server_addr]);
-        let answer_sdp = server.handle_offer(PLAYER, &offer.to_sdp_string()).expect("offer accepted");
+        let answer_sdp = server
+            .handle_offer(PLAYER, &offer.to_sdp_string())
+            .expect("offer accepted");
         client
             .sdp_api()
             .accept_answer(pending, SdpAnswer::from_sdp_string(&answer_sdp).unwrap())
             .expect("answer accepted");
 
         client.add_remote_candidate(Candidate::host(server_addr, Protocol::Udp).unwrap());
-        server.handle_candidate(PLAYER, &client_cand.to_sdp_string()).unwrap();
+        server
+            .handle_candidate(PLAYER, &client_cand.to_sdp_string())
+            .unwrap();
 
         let mut pair = Pair {
             client,
@@ -79,7 +83,10 @@ impl Pair {
 
         for _ in 0..400 {
             pair.pump();
-            if pair.server.is_connected(PLAYER) && pair.unreliable.is_some() && pair.reliable.is_some() {
+            if pair.server.is_connected(PLAYER)
+                && pair.unreliable.is_some()
+                && pair.reliable.is_some()
+            {
                 return pair;
             }
         }
@@ -101,7 +108,10 @@ impl Pair {
         // Everything the client wants to send, the server receives.
         loop {
             match self.client.poll_output() {
-                Ok(Output::Transmit(t)) => self.server.handle_udp(self.client_addr, self.server_addr, &t.contents),
+                Ok(Output::Transmit(t)) => {
+                    self.server
+                        .handle_udp(self.client_addr, self.server_addr, &t.contents)
+                }
                 Ok(Output::Event(Event::ChannelOpen(cid, label))) => {
                     if label.contains("unreliable") {
                         self.unreliable = Some(cid);
@@ -111,8 +121,15 @@ impl Pair {
                 }
                 Ok(Output::Event(Event::ChannelData(d))) => {
                     if let Some(cid) = self.unreliable {
-                        let label = if d.id == cid { "game-unreliable" } else { "game-reliable" };
-                        self.client_rx.entry(label.to_string()).or_default().push(d.data.to_vec());
+                        let label = if d.id == cid {
+                            "game-unreliable"
+                        } else {
+                            "game-reliable"
+                        };
+                        self.client_rx
+                            .entry(label.to_string())
+                            .or_default()
+                            .push(d.data.to_vec());
                     }
                 }
                 Ok(Output::Timeout(_)) => break,
@@ -136,7 +153,11 @@ impl Pair {
             .poll_events()
             .into_iter()
             .filter_map(|ev| match ev {
-                WebRtcServerEvent::Message { channel_label, data, .. } => Some((channel_label, data)),
+                WebRtcServerEvent::Message {
+                    channel_label,
+                    data,
+                    ..
+                } => Some((channel_label, data)),
                 _ => None,
             })
             .collect()
@@ -189,7 +210,11 @@ fn a_fragmented_delta_crosses_the_datagram_channel() {
         }
     }
 
-    assert_eq!(assembled.as_deref(), Some(body.as_slice()), "the reassembled delta must be identical");
+    assert_eq!(
+        assembled.as_deref(),
+        Some(body.as_slice()),
+        "the reassembled delta must be identical"
+    );
 }
 
 /// `game-unreliable` is unordered, so the client can see tick 42 before tick 41. The
@@ -220,8 +245,16 @@ fn a_late_delta_is_dropped_at_the_transport_layer() {
         }
     }
 
-    assert_eq!(applied, vec![new], "only the newest tick may reach the game");
-    assert_eq!(assembler.stale(), 1, "the superseded delta is counted, not applied");
+    assert_eq!(
+        applied,
+        vec![new],
+        "only the newest tick may reach the game"
+    );
+    assert_eq!(
+        assembler.stale(),
+        1,
+        "the superseded delta is counted, not applied"
+    );
 }
 
 /// The client confirms a reliable event on `game-reliable` and the server records it.
@@ -232,12 +265,19 @@ fn an_event_ack_crosses_the_reliable_channel() {
 
     let mut wire = Vec::new();
     write_ack(&mut wire, 91, AckKind::Event);
-    pair.client.channel(cid).unwrap().write(true, &wire).expect("ack written");
+    pair.client
+        .channel(cid)
+        .unwrap()
+        .write(true, &wire)
+        .expect("ack written");
 
     let mut got = None;
     for _ in 0..50 {
         let messages = pair.server_messages();
-        if let Some((label, data)) = messages.into_iter().find(|(label, _)| label == "game-reliable") {
+        if let Some((label, data)) = messages
+            .into_iter()
+            .find(|(label, _)| label == "game-reliable")
+        {
             got = Some((label, data));
             break;
         }
@@ -245,7 +285,13 @@ fn an_event_ack_crosses_the_reliable_channel() {
 
     let (_, data) = got.expect("the server receives the ack on game-reliable");
     assert_eq!(data, wire, "the ack arrives byte-identical");
-    assert_eq!(parse_ack(&data), Some(Ack { seq: 91, kind: AckKind::Event }));
+    assert_eq!(
+        parse_ack(&data),
+        Some(Ack {
+            seq: 91,
+            kind: AckKind::Event
+        })
+    );
 }
 
 /// Two fat deltas on the tick boundary: the second supersedes the first, and the client
@@ -273,7 +319,10 @@ fn back_to_back_fat_deltas_leave_one_body() {
         }
     }
 
-    assert!(assembler.newest_seq().is_some(), "the channel made progress");
+    assert!(
+        assembler.newest_seq().is_some(),
+        "the channel made progress"
+    );
     let bodies: Vec<&[u8]> = applied.iter().map(|(_, b)| b.as_slice()).collect();
     if applied.len() == 2 {
         // Both closed: each must be byte-exact for its own seq.

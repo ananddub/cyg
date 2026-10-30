@@ -11,9 +11,9 @@
 //! that namespace.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bytes::BytesMut;
@@ -24,7 +24,7 @@ use super::GameTransport;
 use super::webrtc::contract::classify_inbound;
 use super::webrtc::contract::{Inbound, Lane};
 use crate::framing::OpCode;
-use crate::quic::{endpoint_config, self_signed_server_config, QuicEngine, QuicEvent};
+use crate::quic::{QuicEngine, QuicEvent, endpoint_config, self_signed_server_config};
 
 /// The reliable-lane frame overhead: `[u32 BE len]`.
 const FRAME_HEADER: usize = 4;
@@ -60,7 +60,8 @@ impl QuicTransport {
         std_sock.set_nonblocking(true)?;
         let mut sock = MioUdp::from_std(std_sock);
         let poll = Poll::new()?;
-        poll.registry().register(&mut sock, Token(0), Interest::READABLE)?;
+        poll.registry()
+            .register(&mut sock, Token(0), Interest::READABLE)?;
         let engine = QuicEngine::server(
             endpoint_config(),
             self_signed_server_config().map_err(|e| io::Error::other(e.to_string()))?,
@@ -142,7 +143,10 @@ impl QuicTransport {
                 self.engine.stream_write(handle, stream, &framed);
             }
             None => {
-                self.pending_reliable.entry(id.clone()).or_default().push(frame);
+                self.pending_reliable
+                    .entry(id.clone())
+                    .or_default()
+                    .push(frame);
             }
         }
     }
@@ -151,9 +155,10 @@ impl QuicTransport {
         match event {
             QuicEvent::Connected(handle) => {
                 let peer = self.engine.remote_addr(handle).unwrap_or_else(|| {
-                    std::net::SocketAddr::new(std::net::IpAddr::V4(
-                        std::net::Ipv4Addr::UNSPECIFIED,
-                    ), 0)
+                    std::net::SocketAddr::new(
+                        std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                        0,
+                    )
                 });
                 self.mint(handle, peer);
             }
@@ -170,7 +175,11 @@ impl QuicTransport {
                     }
                 }
             }
-            QuicEvent::StreamData { handle, id: _, bytes } => {
+            QuicEvent::StreamData {
+                handle,
+                id: _,
+                bytes,
+            } => {
                 let Some(cid) = self.by_handle.get(&handle).cloned() else {
                     return;
                 };
@@ -180,8 +189,8 @@ impl QuicTransport {
                     if buffer.len() < FRAME_HEADER {
                         break;
                     }
-                    let len = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]])
-                        as usize;
+                    let len =
+                        u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
                     if buffer.len() < FRAME_HEADER + len {
                         break;
                     }
@@ -213,7 +222,8 @@ impl QuicTransport {
                     self.reply_stream.remove(&cid);
                     self.pending_reliable.remove(&cid);
                     self.reassembly.remove(&cid);
-                    self.pending.push(super::TransportEvent::Disconnected { client_id: cid });
+                    self.pending
+                        .push(super::TransportEvent::Disconnected { client_id: cid });
                 }
             }
         }
@@ -221,7 +231,11 @@ impl QuicTransport {
 }
 
 impl GameTransport for QuicTransport {
-    fn poll_events(&mut self, timeout: Duration, events: &mut Vec<super::TransportEvent>) -> io::Result<()> {
+    fn poll_events(
+        &mut self,
+        timeout: Duration,
+        events: &mut Vec<super::TransportEvent>,
+    ) -> io::Result<()> {
         events.append(&mut self.pending);
         let now = Instant::now();
         // Sleep until a datagram lands or the QUIC timers come due — whichever
@@ -360,7 +374,12 @@ mod tests {
         }
         fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
             use rustls::SignatureScheme::*;
-            vec![RSA_PSS_SHA256, ECDSA_NISTP256_SHA256, ED25519, RSA_PKCS1_SHA256]
+            vec![
+                RSA_PSS_SHA256,
+                ECDSA_NISTP256_SHA256,
+                ED25519,
+                RSA_PKCS1_SHA256,
+            ]
         }
     }
 
@@ -369,8 +388,8 @@ mod tests {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(TrustAnything))
             .with_no_client_auth();
-        let crypto = quinn_proto::crypto::rustls::QuicClientConfig::try_from(tls)
-            .expect("client crypto");
+        let crypto =
+            quinn_proto::crypto::rustls::QuicClientConfig::try_from(tls).expect("client crypto");
         quinn_proto::ClientConfig::new(Arc::new(crypto))
     }
 
@@ -398,7 +417,9 @@ mod tests {
             while let Some((_, bytes)) = client.poll_outbound(now) {
                 sock.send(&bytes).unwrap();
             }
-            transport.poll_events(Duration::from_millis(2), &mut Vec::new()).unwrap();
+            transport
+                .poll_events(Duration::from_millis(2), &mut Vec::new())
+                .unwrap();
 
             // transport → client
             let mut buf = [0u8; 1500];
@@ -421,7 +442,10 @@ mod tests {
             }
             let mut tevents = Vec::new();
             transport.poll_events(Duration::ZERO, &mut tevents).unwrap();
-            if tevents.iter().any(|e| matches!(e, crate::transport::TransportEvent::Connected { .. })) {
+            if tevents
+                .iter()
+                .any(|e| matches!(e, crate::transport::TransportEvent::Connected { .. }))
+            {
                 transport_saw_client = true;
             }
             if client_connected && transport_saw_client {
@@ -449,14 +473,19 @@ mod tests {
             while let Some((_, bytes)) = client.poll_outbound(now) {
                 sock.send(&bytes).unwrap();
             }
-            transport.poll_events(Duration::from_millis(2), &mut Vec::new()).unwrap();
+            transport
+                .poll_events(Duration::from_millis(2), &mut Vec::new())
+                .unwrap();
         }
         let inbound = transport.poll_inbound();
         let app_seen = inbound.iter().any(|(id, msg)| {
             matches!(msg, crate::transport::webrtc::contract::Inbound::App { data }
                 if data == &app && id.starts_with('q'))
         });
-        assert!(app_seen, "the app frame arrived lane-classified: {inbound:?}");
+        assert!(
+            app_seen,
+            "the app frame arrived lane-classified: {inbound:?}"
+        );
 
         // Unreliable lane, server → client: a StateDelta datagram keeps the
         // opcode byte first; reliable lane carries the framed opcode form.
@@ -464,13 +493,17 @@ mod tests {
         transport
             .send_to(&cid, crate::framing::OpCode::StateDelta, b"delta-bytes")
             .unwrap();
-        transport.send_to(&cid, crate::framing::OpCode::Custom, b"event-bytes").unwrap();
+        transport
+            .send_to(&cid, crate::framing::OpCode::Custom, b"event-bytes")
+            .unwrap();
         transport.flush().unwrap();
         let mut got_delta = false;
         let mut got_event = false;
         for _ in 0..60 {
             now += Duration::from_millis(2);
-            transport.poll_events(Duration::from_millis(2), &mut Vec::new()).unwrap();
+            transport
+                .poll_events(Duration::from_millis(2), &mut Vec::new())
+                .unwrap();
             let mut buf = [0u8; 1500];
             loop {
                 match sock.recv(&mut buf) {

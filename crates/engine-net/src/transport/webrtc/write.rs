@@ -5,10 +5,10 @@ use std::collections::VecDeque;
 
 use str0m::channel::ChannelId;
 
+use super::WebRtcServer;
 use super::contract::{FRAME_MAX_WIRE_LEN, Lane, MAX_QUEUED_FRAMES, OutboundDelta};
 use super::session::{Sink, WebRtcSession};
 use super::types::WriteAttempt;
-use super::WebRtcServer;
 
 impl WebRtcServer {
     pub(super) fn send_frame(&mut self, lane: Lane, client_id: &str, data: &[u8]) -> bool {
@@ -92,7 +92,8 @@ impl WebRtcServer {
             match saturated_at {
                 Some(idx) => {
                     // Reinsert the undelivered tail at the head: the next drain must not skip past a frame still waiting.
-                    let tail = VecDeque::from(delta.frames.into_iter().skip(idx).collect::<Vec<_>>());
+                    let tail =
+                        VecDeque::from(delta.frames.into_iter().skip(idx).collect::<Vec<_>>());
                     session.queue(lane).push_front(OutboundDelta {
                         seq: delta.seq,
                         tick: delta.tick,
@@ -167,14 +168,14 @@ impl WebRtcServer {
         );
         sink.stats.deltas_dropped_saturated += dropped_deltas;
         sink.stats.frames_dropped_saturated += dropped_frames;
-        if count > MAX_QUEUED_FRAMES {
-            0
-        } else {
-            count
-        }
+        if count > MAX_QUEUED_FRAMES { 0 } else { count }
     }
 
-    pub(super) fn try_write(session: &mut WebRtcSession, cid: ChannelId, frame: &[u8]) -> WriteAttempt {
+    pub(super) fn try_write(
+        session: &mut WebRtcSession,
+        cid: ChannelId,
+        frame: &[u8],
+    ) -> WriteAttempt {
         let Some(mut channel) = session.rtc.channel(cid) else {
             return WriteAttempt::Lost;
         };

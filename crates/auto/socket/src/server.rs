@@ -167,8 +167,7 @@ fn bind_subscribe(socket: &SocketRef, namespace: &'static str) {
 }
 fn replay(socket: &SocketRef, namespace: &str, room: &str) {
     let key = format!("{namespace}:{room}");
-    let latest = latest_channels()
-        .read_sync(&key, |_, sender| sender.borrow().clone());
+    let latest = latest_channels().read_sync(&key, |_, sender| sender.borrow().clone());
     if let Some(latest) = latest {
         let _ = socket.emit("live:update", &latest);
     }

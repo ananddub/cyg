@@ -81,11 +81,16 @@ async fn pump_flush(
     let session_id = rtc.session_id().clone();
     for out in outbound {
         match out {
-            Outbound::Datagram { destination, contents } => {
+            Outbound::Datagram {
+                destination,
+                contents,
+            } => {
                 // Fire-and-forget: a failed UDP send is an ICE glitch, not fatal.
                 let _ = socket.send_to(&contents, destination).await;
             }
-            Outbound::Data { channel, payload, .. } => match rtc.channel_role(channel) {
+            Outbound::Data {
+                channel, payload, ..
+            } => match rtc.channel_role(channel) {
                 Some(PlaneChannel::Unreliable) => {
                     let _ = uplink_tx.send(UplinkEvent::Input(RtcInput {
                         player_id: player_id.clone(),
@@ -103,8 +108,9 @@ async fn pump_flush(
             },
             Outbound::Event(event) => match event {
                 SessionEvent::Connected => {
-                    let _ =
-                        uplink_tx.send(UplinkEvent::Connected { player_id: player_id.clone() });
+                    let _ = uplink_tx.send(UplinkEvent::Connected {
+                        player_id: player_id.clone(),
+                    });
                 }
                 SessionEvent::RemoteAddrBound { addr } => {
                     let _ = notice_tx.send(SessionNotice::RemoteAddrBound {

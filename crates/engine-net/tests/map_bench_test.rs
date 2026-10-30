@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use std::time::Instant;
 use ahash::RandomState;
 use dashmap::DashMap;
 use scc::HashMap as SccMap;
+use std::sync::Arc;
+use std::time::Instant;
 
 const NUM_THREADS: usize = 8;
 const OPS_PER_THREAD: usize = 100_000;
@@ -12,12 +12,15 @@ const INITIAL_KEYS: usize = 20_000;
 fn test_concurrent_map_performance_and_fastest_comparison() {
     println!("\n==========================================================================");
     println!("     CONCURRENT HASHMAP TEST: DashMap vs scc::HashMap (Default vs AHash)");
-    println!("     Threads: {} | Initial Keys: {} | Ops/Thread: {}", NUM_THREADS, INITIAL_KEYS, OPS_PER_THREAD);
+    println!(
+        "     Threads: {} | Initial Keys: {} | Ops/Thread: {}",
+        NUM_THREADS, INITIAL_KEYS, OPS_PER_THREAD
+    );
     println!("==========================================================================");
 
     // 1. DashMap Default
     let (d_def_r_mops, d_def_mix_mops, d_def_w_mops) = test_dashmap_default();
-    
+
     // 2. DashMap AHash
     let (d_ahash_r_mops, d_ahash_mix_mops, d_ahash_w_mops) = test_dashmap_ahash();
 
@@ -30,12 +33,27 @@ fn test_concurrent_map_performance_and_fastest_comparison() {
     println!("\n==========================================================================");
     println!("                           FINAL COMPARISON SUMMARY");
     println!("==========================================================================");
-    println!("{:<32} | {:<14} | {:<14} | {:<14}", "Implementation", "100% Read", "90% R / 10% W", "100% Insert");
+    println!(
+        "{:<32} | {:<14} | {:<14} | {:<14}",
+        "Implementation", "100% Read", "90% R / 10% W", "100% Insert"
+    );
     println!("--------------------------------------------------------------------------");
-    println!("{:<32} | {:>10.2} M/s | {:>10.2} M/s | {:>10.2} M/s", "DashMap (Default)", d_def_r_mops, d_def_mix_mops, d_def_w_mops);
-    println!("{:<32} | {:>10.2} M/s | {:>10.2} M/s | {:>10.2} M/s", "DashMap (AHash)", d_ahash_r_mops, d_ahash_mix_mops, d_ahash_w_mops);
-    println!("{:<32} | {:>10.2} M/s | {:>10.2} M/s | {:>10.2} M/s", "scc::HashMap (Default)", scc_def_r_mops, scc_def_mix_mops, scc_def_w_mops);
-    println!("{:<32} | {:>10.2} M/s | {:>10.2} M/s | {:>10.2} M/s", "scc::HashMap (AHash)", scc_ahash_r_mops, scc_ahash_mix_mops, scc_ahash_w_mops);
+    println!(
+        "{:<32} | {:>10.2} M/s | {:>10.2} M/s | {:>10.2} M/s",
+        "DashMap (Default)", d_def_r_mops, d_def_mix_mops, d_def_w_mops
+    );
+    println!(
+        "{:<32} | {:>10.2} M/s | {:>10.2} M/s | {:>10.2} M/s",
+        "DashMap (AHash)", d_ahash_r_mops, d_ahash_mix_mops, d_ahash_w_mops
+    );
+    println!(
+        "{:<32} | {:>10.2} M/s | {:>10.2} M/s | {:>10.2} M/s",
+        "scc::HashMap (Default)", scc_def_r_mops, scc_def_mix_mops, scc_def_w_mops
+    );
+    println!(
+        "{:<32} | {:>10.2} M/s | {:>10.2} M/s | {:>10.2} M/s",
+        "scc::HashMap (AHash)", scc_ahash_r_mops, scc_ahash_mix_mops, scc_ahash_w_mops
+    );
     println!("==========================================================================\n");
 
     let highest_mixed = [
@@ -50,7 +68,10 @@ fn test_concurrent_map_performance_and_fastest_comparison() {
             winner = *candidate;
         }
     }
-    println!("🏆 WINNER for Real-World Workload (90% Read / 10% Write): {} ({:.2} M ops/sec)\n", winner.0, winner.1);
+    println!(
+        "🏆 WINNER for Real-World Workload (90% Read / 10% Write): {} ({:.2} M ops/sec)\n",
+        winner.0, winner.1
+    );
 }
 
 fn test_dashmap_default() -> (f64, f64, f64) {
@@ -102,7 +123,9 @@ fn test_dashmap_default() -> (f64, f64, f64) {
 }
 
 fn test_dashmap_ahash() -> (f64, f64, f64) {
-    let map = Arc::new(DashMap::<u64, u64, RandomState>::with_hasher(RandomState::new()));
+    let map = Arc::new(DashMap::<u64, u64, RandomState>::with_hasher(
+        RandomState::new(),
+    ));
     for i in 0..INITIAL_KEYS as u64 {
         map.insert(i, i * 2);
     }
@@ -136,7 +159,9 @@ fn test_dashmap_ahash() -> (f64, f64, f64) {
         }
     });
 
-    let map_w = Arc::new(DashMap::<u64, u64, RandomState>::with_hasher(RandomState::new()));
+    let map_w = Arc::new(DashMap::<u64, u64, RandomState>::with_hasher(
+        RandomState::new(),
+    ));
     let w = run_bench({
         let map = map_w.clone();
         move |tid| {
@@ -198,7 +223,9 @@ fn test_scc_default() -> (f64, f64, f64) {
 }
 
 fn test_scc_ahash() -> (f64, f64, f64) {
-    let map = Arc::new(SccMap::<u64, u64, RandomState>::with_hasher(RandomState::new()));
+    let map = Arc::new(SccMap::<u64, u64, RandomState>::with_hasher(
+        RandomState::new(),
+    ));
     for i in 0..INITIAL_KEYS as u64 {
         let _ = map.insert_sync(i, i * 2);
     }
@@ -232,7 +259,9 @@ fn test_scc_ahash() -> (f64, f64, f64) {
         }
     });
 
-    let map_w = Arc::new(SccMap::<u64, u64, RandomState>::with_hasher(RandomState::new()));
+    let map_w = Arc::new(SccMap::<u64, u64, RandomState>::with_hasher(
+        RandomState::new(),
+    ));
     let w = run_bench({
         let map = map_w.clone();
         move |tid| {

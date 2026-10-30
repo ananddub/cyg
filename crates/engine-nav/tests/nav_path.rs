@@ -30,7 +30,10 @@ fn test_nav2d_from_trimesh_and_pathfinding() {
 
     // Path to a point outside the mesh should return None
     let outside_path = nav.find_path((1.0, 1.0), (50.0, 50.0));
-    assert!(outside_path.is_none(), "Unreachable points outside mesh must return None");
+    assert!(
+        outside_path.is_none(),
+        "Unreachable points outside mesh must return None"
+    );
 }
 
 #[test]

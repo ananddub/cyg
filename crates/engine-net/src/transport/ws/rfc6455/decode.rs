@@ -141,7 +141,9 @@ mod decode_boundary_tests {
             let original: Vec<u8> = (0..len).map(|i| (i * 7 + 3) as u8).collect();
             let mut buf = build_frame(0x2, true, Some(mask), &original);
 
-            let (op, fin, decoded) = next_ws_frame(&mut buf).expect("frame must decode").expect("not oversize");
+            let (op, fin, decoded) = next_ws_frame(&mut buf)
+                .expect("frame must decode")
+                .expect("not oversize");
             assert_eq!(op, 0x2);
             assert!(fin);
             assert_eq!(&decoded[..], &original[..], "failed for len {}", len);
@@ -153,7 +155,9 @@ mod decode_boundary_tests {
     fn test_decode_unmasked_frames() {
         let original = vec![42u8; 100];
         let mut buf = build_frame(0x2, true, None, &original);
-        let (op, fin, decoded) = next_ws_frame(&mut buf).expect("unmasked frame decode").expect("not oversize");
+        let (op, fin, decoded) = next_ws_frame(&mut buf)
+            .expect("unmasked frame decode")
+            .expect("not oversize");
         assert_eq!(op, 0x2);
         assert!(fin);
         assert_eq!(&decoded[..], &original[..]);

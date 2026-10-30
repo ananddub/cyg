@@ -28,7 +28,10 @@ pub fn pin_current_thread(core: usize) -> io::Result<()> {
     const WORDS: usize = std::mem::size_of::<libc::cpu_set_t>() / std::mem::size_of::<u64>();
     let mut mask = [0u64; WORDS];
     if core >= WORDS * 64 {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "core id out of range"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "core id out of range",
+        ));
     }
     mask[core / 64] |= 1u64 << (core % 64);
     let rc = unsafe {

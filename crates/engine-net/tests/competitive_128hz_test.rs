@@ -4,8 +4,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use engine_core::{PlayerInput, PlayerInputBuffer, RewindManager, TransformSnapshot};
-use engine_net::{decode_frame, encode_frame, MioWorker, OpCode, WorkerConfig};
-use engine_wasm::{wasm_module, WasmRuntime};
+use engine_net::{MioWorker, OpCode, WorkerConfig, decode_frame, encode_frame};
+use engine_wasm::{WasmRuntime, wasm_module};
 
 wasm_module! {
     pub struct CompetitiveRoom {
@@ -27,7 +27,10 @@ fn test_competitive_128hz_tick_loop_benchmark() {
     let tick_rate = 128;
     let tick_budget_ms = 1000.0 / tick_rate as f64; // 7.8125 ms = 7,812.5 microseconds
     println!("🎯 Target Tick Rate    : {} Hz", tick_rate);
-    println!("⏱️  Frame Time Budget   : {:.4} ms (7,812.5 µs)", tick_budget_ms);
+    println!(
+        "⏱️  Frame Time Budget   : {:.4} ms (7,812.5 µs)",
+        tick_budget_ms
+    );
 
     let port = 19280;
     let addr = format!("127.0.0.1:{}", port).parse().unwrap();
@@ -57,7 +60,8 @@ fn test_competitive_128hz_tick_loop_benchmark() {
     let target_client_inputs = 128; // Send 128 inputs at 128Hz
     let client_handle = thread::spawn(move || {
         thread::sleep(Duration::from_millis(30));
-        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Client connect ok");
+        let mut stream =
+            TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Client connect ok");
         stream.set_nodelay(true).unwrap();
 
         let mut acks_received = 0;
@@ -82,7 +86,9 @@ fn test_competitive_128hz_tick_loop_benchmark() {
             // Non-blocking read incoming state deltas
             stream.set_nonblocking(true).unwrap();
             while let Ok(n) = stream.read(&mut temp) {
-                if n == 0 { break; }
+                if n == 0 {
+                    break;
+                }
                 recv_buf.extend_from_slice(&temp[..n]);
                 while let Some((opcode, frame)) = decode_frame(&mut recv_buf) {
                     if opcode == OpCode::StateDelta && frame.len() >= 8 {
@@ -176,28 +182,72 @@ fn test_competitive_128hz_tick_loop_benchmark() {
 
     println!("\n📊 128Hz BENCHMARK RESULTS:");
     println!("────────────────────────────────────────────────────────────────────────────────");
-    println!(" • Total Ticks Fired       : {} ticks in {:.2?}", ticks_executed, total_wall_time);
-    println!(" • Measured Tick Rate      : {:.2} Hz (Target: 128.00 Hz)", actual_hz);
+    println!(
+        " • Total Ticks Fired       : {} ticks in {:.2?}",
+        ticks_executed, total_wall_time
+    );
+    println!(
+        " • Measured Tick Rate      : {:.2} Hz (Target: 128.00 Hz)",
+        actual_hz
+    );
     println!(" • Available Frame Budget  : 7,812.50 µs (7.81 ms)");
-    println!(" • Min Tick Latency        : {} µs ({:.4} ms)", min_us, min_us as f64 / 1000.0);
-    println!(" • Avg Tick Latency        : {:.2} µs ({:.4} ms)", avg_us, avg_us / 1000.0);
-    println!(" • P50 Tick Latency        : {} µs ({:.4} ms)", p50_us, p50_us as f64 / 1000.0);
-    println!(" • P99 Tick Latency        : {} µs ({:.4} ms)", p99_us, p99_us as f64 / 1000.0);
-    println!(" • Max Tick Latency        : {} µs ({:.4} ms)", max_us, max_us as f64 / 1000.0);
-    println!(" • CPU Frame Budget Used   : {:.3}% (Remaining Headroom: {:.2}%)", cpu_budget_used_percent, 100.0 - cpu_budget_used_percent);
+    println!(
+        " • Min Tick Latency        : {} µs ({:.4} ms)",
+        min_us,
+        min_us as f64 / 1000.0
+    );
+    println!(
+        " • Avg Tick Latency        : {:.2} µs ({:.4} ms)",
+        avg_us,
+        avg_us / 1000.0
+    );
+    println!(
+        " • P50 Tick Latency        : {} µs ({:.4} ms)",
+        p50_us,
+        p50_us as f64 / 1000.0
+    );
+    println!(
+        " • P99 Tick Latency        : {} µs ({:.4} ms)",
+        p99_us,
+        p99_us as f64 / 1000.0
+    );
+    println!(
+        " • Max Tick Latency        : {} µs ({:.4} ms)",
+        max_us,
+        max_us as f64 / 1000.0
+    );
+    println!(
+        " • CPU Frame Budget Used   : {:.3}% (Remaining Headroom: {:.2}%)",
+        cpu_budget_used_percent,
+        100.0 - cpu_budget_used_percent
+    );
     println!("────────────────────────────────────────────────────────────────────────────────");
 
     // 8. Test Lag Compensation Accuracy at 128Hz
     // Verify hit check against tick 50 (when dt = 7.8125ms -> ts = 50 * 7.8125 = 390.625ms)
     let historical_ts = 50.0 * (1000.0 / 128.0);
-    let rewound = rewind_mgr.rewind_entity(entity_id, historical_ts).expect("128Hz historical snapshot found");
-    println!("🎯 Lag Compensation Rewind Check at t={:.2}ms: Pos=({:.2}, {:.2})", historical_ts, rewound.x, rewound.y);
-    assert!(rewound.is_point_hit(rewound.x, rewound.y, 0.0), "128Hz exact hitbox registered!");
+    let rewound = rewind_mgr
+        .rewind_entity(entity_id, historical_ts)
+        .expect("128Hz historical snapshot found");
+    println!(
+        "🎯 Lag Compensation Rewind Check at t={:.2}ms: Pos=({:.2}, {:.2})",
+        historical_ts, rewound.x, rewound.y
+    );
+    assert!(
+        rewound.is_point_hit(rewound.x, rewound.y, 0.0),
+        "128Hz exact hitbox registered!"
+    );
 
     let _ = client_handle.join();
 
     // Assertions: 128Hz must maintain accurate tick rate and sub-millisecond execution
-    assert!((actual_hz - 128.0).abs() < 5.0, "Tick rate must be within 5Hz of 128Hz");
-    assert!(avg_us < 1000.0, "Average tick execution time must be under 1ms (1000µs)");
+    assert!(
+        (actual_hz - 128.0).abs() < 5.0,
+        "Tick rate must be within 5Hz of 128Hz"
+    );
+    assert!(
+        avg_us < 1000.0,
+        "Average tick execution time must be under 1ms (1000µs)"
+    );
     println!("\n✅ 128Hz COMPETITIVE ENGINE TEST PASSED WITH FLYING COLORS!\n");
 }

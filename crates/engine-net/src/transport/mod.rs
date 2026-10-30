@@ -77,7 +77,11 @@ pub trait GameTransport: Send {
     /// Poll for network events with a bounded microsecond timeout, appending
     /// them to a caller-owned buffer. Reusing one `Vec` across polls keeps the
     /// hot loop allocation-free.
-    fn poll_events(&mut self, timeout: Duration, events: &mut Vec<TransportEvent>) -> io::Result<()>;
+    fn poll_events(
+        &mut self,
+        timeout: Duration,
+        events: &mut Vec<TransportEvent>,
+    ) -> io::Result<()>;
 
     /// Send a message to a specific client session.
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> io::Result<()>;
@@ -160,14 +164,19 @@ fn sockaddr_storage_of(addr: &SocketAddr) -> (libc::sockaddr_storage, libc::sock
                     std::mem::size_of::<libc::sockaddr_in>(),
                 );
             }
-            (storage, std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t)
+            (
+                storage,
+                std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
+            )
         }
         SocketAddr::V6(v6) => {
             let mut sin6: libc::sockaddr_in6 = unsafe { std::mem::zeroed() };
             sin6.sin6_family = libc::AF_INET6 as libc::sa_family_t;
             sin6.sin6_port = v6.port().to_be();
             sin6.sin6_flowinfo = v6.flowinfo();
-            sin6.sin6_addr = libc::in6_addr { s6_addr: v6.ip().octets() };
+            sin6.sin6_addr = libc::in6_addr {
+                s6_addr: v6.ip().octets(),
+            };
             sin6.sin6_scope_id = v6.scope_id();
             let mut storage: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
             storage.ss_family = libc::AF_INET6 as libc::sa_family_t;
@@ -178,7 +187,10 @@ fn sockaddr_storage_of(addr: &SocketAddr) -> (libc::sockaddr_storage, libc::sock
                     std::mem::size_of::<libc::sockaddr_in6>(),
                 );
             }
-            (storage, std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t)
+            (
+                storage,
+                std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t,
+            )
         }
     }
 }
@@ -300,9 +312,7 @@ pub fn send_datagram_batch<F: std::os::unix::io::AsFd, B: AsRef<[u8]>>(
             });
         }
 
-        let sent = unsafe {
-            libc::sendmmsg(fd, msgvec.as_mut_ptr(), msgvec.len() as u32, 0)
-        };
+        let sent = unsafe { libc::sendmmsg(fd, msgvec.as_mut_ptr(), msgvec.len() as u32, 0) };
         if sent < 0 {
             // Kernel refused the batch (e.g. exotic socket): fall back so the
             // payload never silently drops.
@@ -333,10 +343,7 @@ fn socket_send_fallback<F: std::os::unix::io::AsFd>(
     addr: &SocketAddr,
     data: &[u8],
 ) -> io::Result<usize> {
-    socket2::SockRef::from(socket).send_to(
-        data,
-        &socket2::SockAddr::from(*addr),
-    )
+    socket2::SockRef::from(socket).send_to(data, &socket2::SockAddr::from(*addr))
 }
 
 #[cfg(all(test, unix))]
@@ -344,7 +351,6 @@ mod sendmmsg_tests {
     use super::*;
     use std::net::UdpSocket;
     use std::os::unix::io::AsRawFd;
-
 
     /// A batch of datagrams lands on the receiver exactly as per-message
     /// sendto would — correctness first, batching is transparent.
@@ -358,7 +364,11 @@ mod sendmmsg_tests {
             .map(|i| {
                 (
                     rx.local_addr().unwrap(),
-                    Vec::from((i * 111..i * 111 + 16).map(|b| b as u8).collect::<Vec<u8>>()),
+                    Vec::from(
+                        (i * 111..i * 111 + 16)
+                            .map(|b| b as u8)
+                            .collect::<Vec<u8>>(),
+                    ),
                 )
             })
             .collect();
@@ -371,7 +381,12 @@ mod sendmmsg_tests {
         let mut buf = [0u8; 64];
         for i in 0..8u32 {
             let n = rx.recv(&mut buf).expect("datagram arrives");
-            assert_eq!(&buf[..n], &(i * 111..i * 111 + 16).map(|b| b as u8).collect::<Vec<u8>>());
+            assert_eq!(
+                &buf[..n],
+                &(i * 111..i * 111 + 16)
+                    .map(|b| b as u8)
+                    .collect::<Vec<u8>>()
+            );
         }
     }
 
@@ -496,20 +511,15 @@ pub fn send_gso<F: std::os::unix::io::AsFd>(
     let cmsg_space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<u16>() as u32) as usize };
     let mut control = vec![0u8; cmsg_space];
     unsafe {
-        let cmsg = libc::CMSG_FIRSTHDR(
-            &libc::msghdr {
-                msg_control: control.as_mut_ptr() as *mut libc::c_void,
-                msg_controllen: cmsg_space,
-                ..std::mem::zeroed()
-            },
-        );
+        let cmsg = libc::CMSG_FIRSTHDR(&libc::msghdr {
+            msg_control: control.as_mut_ptr() as *mut libc::c_void,
+            msg_controllen: cmsg_space,
+            ..std::mem::zeroed()
+        });
         (*cmsg).cmsg_level = SOL_UDP;
         (*cmsg).cmsg_type = UDP_SEGMENT;
         (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u16>() as u32) as usize;
-        std::ptr::write_unaligned(
-            libc::CMSG_DATA(cmsg) as *mut u16,
-            seg_size as u16,
-        );
+        std::ptr::write_unaligned(libc::CMSG_DATA(cmsg) as *mut u16, seg_size as u16);
     }
 
     let (storage, namelen) = sockaddr_storage_of(addr);
@@ -592,9 +602,10 @@ mod gso_tests {
             }
         }
         assert_eq!(got.len(), 5, "all five datagrams arrive");
-        assert_eq!(&got[..4], &[
-            vec![9u8; 16], vec![9u8; 16], vec![9u8; 16], vec![9u8; 16]
-        ]);
+        assert_eq!(
+            &got[..4],
+            &[vec![9u8; 16], vec![9u8; 16], vec![9u8; 16], vec![9u8; 16]]
+        );
         assert_eq!(got[4], vec![3u8; 8], "short tail is its own datagram");
     }
 

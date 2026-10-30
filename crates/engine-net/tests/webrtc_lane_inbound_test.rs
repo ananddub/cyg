@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use engine_net::transport::webrtc::contract::{Inbound, Lane};
 use engine_net::transport::webrtc::{WebRtcServer, WebRtcServerEvent};
 use engine_webrtc_protocol::{
-    DeltaHeader, EVENT_WIRE_LEN, EventFrame, EventKind, FragmentAssembler, InputFrame,
-    MAX_DELTA_BODY, MAX_DELTA_CHUNK, MAX_FRAME, AckKind, encode_event, encode_input, write_ack,
+    AckKind, DeltaHeader, EVENT_WIRE_LEN, EventFrame, EventKind, FragmentAssembler, InputFrame,
+    MAX_DELTA_BODY, MAX_DELTA_CHUNK, MAX_FRAME, encode_event, encode_input, write_ack,
 };
 use str0m::change::SdpAnswer;
 use str0m::channel::{ChannelConfig, Reliability};
@@ -69,14 +69,18 @@ impl Pair {
         let (offer, pending) = change.apply().unwrap();
 
         let mut server = WebRtcServer::new(vec![server_addr]);
-        let answer = server.handle_offer(PLAYER, &offer.to_sdp_string()).expect("offer");
+        let answer = server
+            .handle_offer(PLAYER, &offer.to_sdp_string())
+            .expect("offer");
         client
             .sdp_api()
             .accept_answer(pending, SdpAnswer::from_sdp_string(&answer).unwrap())
             .expect("answer");
 
         client.add_remote_candidate(Candidate::host(server_addr, Protocol::Udp).unwrap());
-        server.handle_candidate(PLAYER, &client_cand.to_sdp_string()).unwrap();
+        server
+            .handle_candidate(PLAYER, &client_cand.to_sdp_string())
+            .unwrap();
 
         let mut pair = Pair {
             client,
@@ -109,7 +113,8 @@ impl Pair {
         loop {
             match self.client.poll_output() {
                 Ok(Output::Transmit(t)) => {
-                    self.server.handle_udp(self.client_addr, self.server_addr, &t.contents)
+                    self.server
+                        .handle_udp(self.client_addr, self.server_addr, &t.contents)
                 }
                 Ok(Output::Event(Event::ChannelOpen(cid, label))) => {
                     if label.contains("unreliable") {
@@ -124,7 +129,10 @@ impl Pair {
                         (_, Some(r)) if d.id == r => "game-reliable",
                         _ => "unknown",
                     };
-                    self.client_rx.entry(label.to_string()).or_default().push(d.data.to_vec());
+                    self.client_rx
+                        .entry(label.to_string())
+                        .or_default()
+                        .push(d.data.to_vec());
                 }
                 Ok(Output::Timeout(_)) => break,
                 Ok(_) => {}
@@ -208,11 +216,19 @@ fn an_input_arrives_with_its_guest_payload_and_watermark() {
     encode_input(&frame, &mut wire);
 
     let inbound = pair.deliver(Lane::Unreliable, &wire);
-    let Inbound::Input { seq, payload, resupplied } = &inbound[0] else {
+    let Inbound::Input {
+        seq,
+        payload,
+        resupplied,
+    } = &inbound[0]
+    else {
         panic!("expected an input, got {inbound:?}");
     };
     assert_eq!(*seq, 4217);
-    assert!(!*resupplied, "the first sighting of a seq is never a resupply");
+    assert!(
+        !*resupplied,
+        "the first sighting of a seq is never a resupply"
+    );
     assert_eq!(&payload[..4], &frame.flags.to_le_bytes());
     assert_eq!(&payload[4..8], &frame.aim_yaw.to_le_bytes());
     assert_eq!(&payload[16..20], &frame.move_z.to_le_bytes());
@@ -223,7 +239,10 @@ fn an_input_arrives_with_its_guest_payload_and_watermark() {
     let Inbound::Input { resupplied, .. } = &again[0] else {
         panic!("expected the replayed input, got {again:?}");
     };
-    assert!(*resupplied, "a seq the watermark already passed is flagged, not dropped");
+    assert!(
+        *resupplied,
+        "a seq the watermark already passed is flagged, not dropped"
+    );
 }
 
 /// The ack is the only proof the server has that a reliable event landed. Trusting one
@@ -267,7 +286,14 @@ fn an_input_on_the_reliable_lane_is_refused() {
     let mut pair = Pair::connect();
     let mut wire = Vec::new();
     encode_input(
-        &InputFrame { seq: 1, flags: 0, aim_yaw: 0.0, aim_pitch: 0.0, move_x: 0.0, move_z: 0.0 },
+        &InputFrame {
+            seq: 1,
+            flags: 0,
+            aim_yaw: 0.0,
+            aim_pitch: 0.0,
+            move_x: 0.0,
+            move_z: 0.0,
+        },
         &mut wire,
     );
     let before = pair.server.stats().frames_misrouted;
@@ -299,9 +325,14 @@ fn an_event_crosses_the_ordered_lane_byte_for_byte() {
     encode_event(&event, &mut wire);
 
     let inbound = pair.deliver(Lane::Reliable, &wire);
-    let Inbound::Event { raw } = &inbound[0] else { panic!("expected an event: {inbound:?}") };
+    let Inbound::Event { raw } = &inbound[0] else {
+        panic!("expected an event: {inbound:?}")
+    };
     assert_eq!(raw, &wire, "the transport must not rewrite an event frame");
-    assert_eq!(EventFrame::decode(raw).expect("still decodable").kind, EventKind::Fire);
+    assert_eq!(
+        EventFrame::decode(raw).expect("still decodable").kind,
+        EventKind::Fire
+    );
 }
 
 /// What `engine_server::host` calls once per player per tick: the transport owns the
@@ -312,9 +343,15 @@ fn the_transports_own_split_delivers_one_reassembled_delta() {
     let mut pair = Pair::connect();
     let body: Vec<u8> = (0..5000u32).map(|i| (i % 251) as u8).collect();
 
-    let report = pair.server.send_delta(PLAYER, 4097, 2008, &body).expect("fits the channel");
+    let report = pair
+        .server
+        .send_delta(PLAYER, 4097, 2008, &body)
+        .expect("fits the channel");
     assert!(report.fragments > 1, "a 5 KB delta must actually be split");
-    assert!(report.delivered(), "the lane is open, so every frame is accepted");
+    assert!(
+        report.delivered(),
+        "the lane is open, so every frame is accepted"
+    );
 
     let assembled = pair.reassemble(4097, 2008);
     assert_eq!(assembled.as_deref(), Some(body.as_slice()));
@@ -335,17 +372,30 @@ fn no_outbound_frame_exceeds_the_path_mtu() {
     let report = pair.server.send_delta(PLAYER, 7, 7, &body).expect("fits");
     assert_eq!(report.frames_dropped, 0);
     for (dest, packet) in pair.server.poll_transmits() {
-        assert!(packet.len() <= MAX_FRAME, "a WebRTC UDP packet to {dest} is a whole frame");
+        assert!(
+            packet.len() <= MAX_FRAME,
+            "a WebRTC UDP packet to {dest} is a whole frame"
+        );
     }
     // Events still fan out reliably, and never as deltas.
     let mut ev = Vec::new();
     encode_event(
-        &EventFrame { seq: 3, kind: EventKind::Hit, from: 1, target: 2, tick: 88, value: 25.0 },
+        &EventFrame {
+            seq: 3,
+            kind: EventKind::Hit,
+            from: 1,
+            target: 2,
+            tick: 88,
+            value: 25.0,
+        },
         &mut ev,
     );
     assert_eq!(pair.server.broadcast_reliable(&ev), 1);
     for (dest, packet) in pair.server.poll_transmits() {
-        assert!(packet.len() <= MAX_FRAME, "reliable output to {dest} stays one frame");
+        assert!(
+            packet.len() <= MAX_FRAME,
+            "reliable output to {dest} stays one frame"
+        );
     }
 }
 
@@ -356,7 +406,14 @@ fn poll_events_still_carries_bytes_for_hosts_that_parse_themselves() {
     let mut pair = Pair::connect();
     let mut wire = Vec::new();
     encode_input(
-        &InputFrame { seq: 99, flags: 3, aim_yaw: 0.0, aim_pitch: 0.0, move_x: 0.0, move_z: 0.0 },
+        &InputFrame {
+            seq: 99,
+            flags: 3,
+            aim_yaw: 0.0,
+            aim_pitch: 0.0,
+            move_x: 0.0,
+            move_z: 0.0,
+        },
         &mut wire,
     );
     pair.write_on(Lane::Unreliable, &wire);
@@ -372,5 +429,8 @@ fn poll_events_still_carries_bytes_for_hosts_that_parse_themselves() {
             break;
         }
     }
-    assert!(saw_message, "both drains see the frame; the host picks exactly one");
+    assert!(
+        saw_message,
+        "both drains see the frame; the host picks exactly one"
+    );
 }

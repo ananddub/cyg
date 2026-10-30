@@ -1,10 +1,10 @@
 use std::net::TcpStream;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use engine_net::{spawn_worker_pool, PoolConfig};
+use engine_net::{PoolConfig, spawn_worker_pool};
 
 #[test]
 fn test_multi_worker_pool_so_reuseport() {

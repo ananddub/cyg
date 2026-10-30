@@ -16,7 +16,7 @@ use mio::{Events, Interest, Poll, Token};
 use socket2::{Domain, Protocol, Socket, Type};
 
 use super::{GameTransport, TransportEvent};
-use crate::framing::{encode_frame, iter_frame_ranges, OpCode};
+use crate::framing::{OpCode, encode_frame, iter_frame_ranges};
 
 const UDP_SOCKET_TOKEN: Token = Token(0);
 
@@ -113,10 +113,13 @@ impl GameTransport for UdpTransport {
                                 peer_addr,
                             });
                             self.peer_addrs.insert(id.to_string(), peer_addr);
-                            self.peers.insert(peer_addr, UdpPeer {
-                                client_id: id.clone(),
-                                last_seen: now,
-                            });
+                            self.peers.insert(
+                                peer_addr,
+                                UdpPeer {
+                                    client_id: id.clone(),
+                                    last_seen: now,
+                                },
+                            );
                             id
                         }
                     };

@@ -1,4 +1,3 @@
-
 pub const TICK_HISTOGRAM_BUCKETS: usize = engine_bus::TICK_HISTOGRAM_BUCKETS;
 
 pub fn bucket_edges_us() -> [u64; TICK_HISTOGRAM_BUCKETS] {

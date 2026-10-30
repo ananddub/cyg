@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use engine_agones::{
     AgonesClient, AgonesController, AgonesSnapshot, Healthbeat, Lifecycle, LifecycleEvent, Reply,
-    SidecarConfig, SidecarError, SidecarErrorKind, ServerState,
+    ServerState, SidecarConfig, SidecarError, SidecarErrorKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -121,7 +121,10 @@ impl FakeSidecar {
         FakeSidecar::with_routes(
             Vec::new(),
             fallback,
-            routes.into_iter().map(|(path, reply)| (path.to_string(), reply)).collect(),
+            routes
+                .into_iter()
+                .map(|(path, reply)| (path.to_string(), reply))
+                .collect(),
         )
     }
 
@@ -190,7 +193,12 @@ impl FakeSidecar {
             }
         });
 
-        FakeSidecar { addr, inner, stop, serve: Some(serve) }
+        FakeSidecar {
+            addr,
+            inner,
+            stop,
+            serve: Some(serve),
+        }
     }
 
     fn always(reply: Vec<u8>) -> FakeSidecar {
@@ -209,7 +217,10 @@ impl FakeSidecar {
     }
 
     fn config(&self, timeout: Duration) -> SidecarConfig {
-        SidecarConfig { addr: self.addr.to_string(), timeout }
+        SidecarConfig {
+            addr: self.addr.to_string(),
+            timeout,
+        }
     }
 
     fn requests(&self) -> Vec<Request> {
@@ -221,7 +232,10 @@ impl FakeSidecar {
     }
 
     fn count(&self, path: &str) -> usize {
-        self.requests().into_iter().filter(|r| r.path == path).count()
+        self.requests()
+            .into_iter()
+            .filter(|r| r.path == path)
+            .count()
     }
 
     fn request_for(&self, path: &str) -> Option<Request> {
@@ -251,7 +265,9 @@ impl Drop for FakeSidecar {
 
 /// Read the request head, stopping at the blank line or a short timeout.
 fn read_request(stream: &mut TcpStream) -> Option<Request> {
-    stream.set_read_timeout(Some(Duration::from_millis(200))).ok();
+    stream
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .ok();
     let mut buf = [0u8; 1024];
     let mut head = Vec::new();
     loop {
@@ -302,8 +318,16 @@ fn ready_happy_path_posts_the_agones_request_line() {
     let request = fake.request_for("/ready").expect("the sidecar saw /ready");
     assert_eq!(request.method, "POST");
     assert_eq!(request.version, "HTTP/1.1");
-    assert!(request.head.contains("Connection: close"), "{}", request.head);
-    assert!(request.head.contains("Content-Length: 0"), "{}", request.head);
+    assert!(
+        request.head.contains("Connection: close"),
+        "{}",
+        request.head
+    );
+    assert!(
+        request.head.contains("Content-Length: 0"),
+        "{}",
+        request.head
+    );
     assert_eq!(fake.paths(), vec!["/ready".to_string()]);
 }
 
@@ -316,7 +340,9 @@ fn a_rejected_ready_is_a_rejection_not_a_panic() {
     ));
     let client = fake.client(Duration::from_millis(500));
 
-    let error = client.mark_ready().expect_err("a 400 must not look like success");
+    let error = client
+        .mark_ready()
+        .expect_err("a 400 must not look like success");
 
     match &error {
         SidecarError::Rejected { status, body, .. } => {
@@ -338,7 +364,11 @@ fn a_refused_sidecar_is_unreachable_not_rejected() {
     });
     let error = client.mark_ready().expect_err("nothing is listening");
     assert_eq!(error.kind(), SidecarErrorKind::Unreachable);
-    assert!(error.message().contains("cannot reach sidecar"), "{}", error.message());
+    assert!(
+        error.message().contains("cannot reach sidecar"),
+        "{}",
+        error.message()
+    );
 }
 
 #[test]
@@ -349,7 +379,10 @@ fn allocated_and_shutdown_use_their_own_paths() {
     client.mark_allocated().expect("POST /allocated");
     client.shutdown().expect("POST /shutdown");
 
-    assert_eq!(fake.paths(), vec!["/allocated".to_string(), "/shutdown".to_string()]);
+    assert_eq!(
+        fake.paths(),
+        vec!["/allocated".to_string(), "/shutdown".to_string()]
+    );
     assert_eq!(fake.request_for("/allocated").unwrap().method, "POST");
     assert_eq!(fake.request_for("/shutdown").unwrap().method, "POST");
 }
@@ -376,7 +409,10 @@ fn state_json_parses_with_metadata() {
     let fake = FakeSidecar::always(ok(
         b"{\"state\":\"Allocated\",\"metadata\":{\"name\":\"pod-7\",\"ip\":\"10.0.0.9\"}}",
     ));
-    let snapshot = fake.client(Duration::from_millis(500)).get_state().expect("parses");
+    let snapshot = fake
+        .client(Duration::from_millis(500))
+        .get_state()
+        .expect("parses");
 
     assert_eq!(snapshot.state, ServerState::Allocated);
     assert_eq!(snapshot.state_raw, "Allocated");
@@ -388,7 +424,10 @@ fn state_json_parses_with_metadata() {
 #[test]
 fn an_unknown_state_name_is_unknown_not_an_error() {
     let fake = FakeSidecar::always(ok(b"{\"state\":\"Teleported\"}"));
-    let snapshot = fake.client(Duration::from_millis(500)).get_state().expect("parses");
+    let snapshot = fake
+        .client(Duration::from_millis(500))
+        .get_state()
+        .expect("parses");
     assert_eq!(snapshot.state, ServerState::Unknown);
     assert_eq!(snapshot.display(), "Unknown(Teleported)");
 }
@@ -411,13 +450,20 @@ fn state_json_without_a_state_field_is_malformed() {
         .get_state()
         .expect_err("a payload with no phase is not a phase");
     assert_eq!(error.kind(), SidecarErrorKind::Malformed);
-    assert!(error.message().contains("no lifecycle state"), "{}", error.message());
+    assert!(
+        error.message().contains("no lifecycle state"),
+        "{}",
+        error.message()
+    );
 }
 
 #[test]
 fn state_json_without_metadata_still_parses() {
     let fake = FakeSidecar::always(ok(b"{\"state\":\"Ready\"}"));
-    let snapshot = fake.client(Duration::from_millis(500)).get_state().expect("parses");
+    let snapshot = fake
+        .client(Duration::from_millis(500))
+        .get_state()
+        .expect("parses");
     assert_eq!(snapshot.state, ServerState::Ready);
     assert_eq!(snapshot.metadata, serde_json::json!({}));
 }
@@ -446,14 +492,20 @@ fn a_truncated_reply_is_malformed_never_a_panic() {
 #[test]
 fn a_reply_that_is_not_http_is_malformed() {
     let fake = FakeSidecar::always(garbage());
-    let error = fake.client(Duration::from_millis(500)).get_state().unwrap_err();
+    let error = fake
+        .client(Duration::from_millis(500))
+        .get_state()
+        .unwrap_err();
     assert_eq!(error.kind(), SidecarErrorKind::Malformed);
 }
 
 #[test]
 fn a_server_error_on_a_transition_keeps_its_status_code() {
     let fake = FakeSidecar::always(framed(500, "Internal Server Error", b"agent is unhappy"));
-    let error = fake.client(Duration::from_millis(500)).send_health_ping().unwrap_err();
+    let error = fake
+        .client(Duration::from_millis(500))
+        .send_health_ping()
+        .unwrap_err();
 
     match error {
         SidecarError::Rejected { status, body, .. } => {
@@ -478,7 +530,10 @@ fn a_close_delimited_reply_with_no_length_still_parses() {
 #[test]
 fn a_chunked_reply_parses() {
     let fake = FakeSidecar::always(chunked(b"{\"state\":\"NotReady\",\"metadata\":{}}"));
-    let snapshot = fake.client(Duration::from_millis(500)).get_state().expect("chunks decode");
+    let snapshot = fake
+        .client(Duration::from_millis(500))
+        .get_state()
+        .expect("chunks decode");
     assert_eq!(snapshot.state, ServerState::NotReady);
     assert_eq!(snapshot.metadata, serde_json::json!({}));
 }
@@ -495,13 +550,19 @@ fn a_sidecar_that_accepts_but_never_answers_times_out() {
 
     assert_eq!(error.kind(), SidecarErrorKind::Timeout, "{error:?}");
     assert!(elapsed < Duration::from_millis(900), "waited {elapsed:?}");
-    assert!(fake.count("/health") >= 1, "the request was at least written");
+    assert!(
+        fake.count("/health") >= 1,
+        "the request was at least written"
+    );
 }
 
 #[test]
 fn a_peer_that_hangs_up_mid_reply_is_reported_not_fatal() {
     let fake = FakeSidecar::always(hang_up());
-    let error = fake.client(Duration::from_millis(300)).mark_ready().unwrap_err();
+    let error = fake
+        .client(Duration::from_millis(300))
+        .mark_ready()
+        .unwrap_err();
     assert_eq!(error.kind(), SidecarErrorKind::Malformed, "{error:?}");
 }
 
@@ -516,7 +577,10 @@ fn the_ping_loop_survives_refused_connections_and_reports_the_streak() {
     let handle = {
         let stop = Arc::clone(&stop);
         std::thread::spawn(move || {
-            let client = AgonesClient::new(SidecarConfig { addr, timeout: Duration::from_millis(50) });
+            let client = AgonesClient::new(SidecarConfig {
+                addr,
+                timeout: Duration::from_millis(50),
+            });
             let mut beat = Healthbeat::new(client, Duration::from_millis(40));
             beat.run_until_stop(&stop, |_outcome| {});
             beat.stats()
@@ -527,12 +591,19 @@ fn the_ping_loop_survives_refused_connections_and_reports_the_streak() {
     stop.store(true, Ordering::Relaxed);
     let stats = handle.join().expect("the beat loop ended cleanly");
 
-    assert!(stats.pings >= 3, "only {} pings in 220 ms at a 40 ms interval", stats.pings);
+    assert!(
+        stats.pings >= 3,
+        "only {} pings in 220 ms at a 40 ms interval",
+        stats.pings
+    );
     assert_eq!(stats.pings, stats.failures, "every ping was refused");
     assert_eq!(stats.successes, 0);
     assert_eq!(stats.consecutive_failures, stats.pings as u32);
     assert_eq!(stats.unreachable_failures, stats.pings as u32);
-    assert!(stats.unhealthy_declared, "three misses must be visible in the stats");
+    assert!(
+        stats.unhealthy_declared,
+        "three misses must be visible in the stats"
+    );
 }
 
 #[test]
@@ -555,7 +626,10 @@ fn the_ping_loop_keeps_beating_a_live_sidecar() {
     let stats = handle.join().expect("the beat loop ended cleanly");
 
     assert!(seen >= 4, "expected at least 4 heartbeats, saw {seen}");
-    assert_eq!(stats.failures, 0, "a live sidecar must not produce failures");
+    assert_eq!(
+        stats.failures, 0,
+        "a live sidecar must not produce failures"
+    );
     assert_eq!(stats.consecutive_failures, 0);
     assert!(stats.pings as usize >= seen);
 }
@@ -577,7 +651,11 @@ fn backoff_grows_with_the_streak_and_resets_on_recovery() {
     let first = beat.ping(Instant::now());
     assert!(!first.ok);
     assert_eq!(first.consecutive_failures, 1);
-    assert_eq!(beat.current_delay(), interval, "one miss is not worth backing off");
+    assert_eq!(
+        beat.current_delay(),
+        interval,
+        "one miss is not worth backing off"
+    );
 
     let second = beat.ping(Instant::now());
     assert_eq!(second.consecutive_failures, 2);
@@ -586,18 +664,32 @@ fn backoff_grows_with_the_streak_and_resets_on_recovery() {
     let third = beat.ping(Instant::now());
     assert_eq!(third.consecutive_failures, 3);
     assert_eq!(beat.current_delay(), interval * 4);
-    assert!(third.just_missed_the_window, "the third miss is the loud one");
+    assert!(
+        third.just_missed_the_window,
+        "the third miss is the loud one"
+    );
     assert_eq!(third.error.unwrap().kind(), SidecarErrorKind::Rejected);
 
     let fourth = beat.ping(Instant::now());
     assert_eq!(fourth.consecutive_failures, 4);
-    assert_eq!(beat.current_delay(), interval * 8, "and the ceiling is eight intervals");
-    assert!(!fourth.just_missed_the_window, "the window is crossed once per streak, not every tick");
+    assert_eq!(
+        beat.current_delay(),
+        interval * 8,
+        "and the ceiling is eight intervals"
+    );
+    assert!(
+        !fourth.just_missed_the_window,
+        "the window is crossed once per streak, not every tick"
+    );
 
     let recovered = beat.ping(Instant::now());
     assert!(recovered.ok, "the scripted 503s are exhausted");
     assert_eq!(recovered.consecutive_failures, 0);
-    assert_eq!(beat.current_delay(), interval, "healthy means the plain interval again");
+    assert_eq!(
+        beat.current_delay(),
+        interval,
+        "healthy means the plain interval again"
+    );
 
     let stats = beat.stats();
     assert_eq!(stats.rejected_failures, 4);
@@ -611,19 +703,29 @@ fn the_backoff_ceiling_keeps_recovery_fast() {
     // A real refused connection returns in microseconds, so a long streak is
     // cheap to build: the delay it produces is what must stay bounded.
     let mut beat = Healthbeat::new(
-        AgonesClient::new(SidecarConfig { addr: closed_port(), timeout: Duration::from_millis(30) }),
+        AgonesClient::new(SidecarConfig {
+            addr: closed_port(),
+            timeout: Duration::from_millis(30),
+        }),
         Duration::from_millis(50),
     );
     for _ in 0..9 {
         beat.ping(Instant::now());
     }
     assert_eq!(beat.stats().consecutive_failures, 9);
-    assert_eq!(beat.current_delay(), Duration::from_millis(400), "8 × the interval, never more");
+    assert_eq!(
+        beat.current_delay(),
+        Duration::from_millis(400),
+        "8 × the interval, never more"
+    );
     assert!(beat.current_delay() <= beat.max_backoff());
 
     // The ceiling is configurable for a pod with a slow agent.
     let tuned = Healthbeat::new(
-        AgonesClient::new(SidecarConfig { addr: closed_port(), timeout: Duration::from_millis(20) }),
+        AgonesClient::new(SidecarConfig {
+            addr: closed_port(),
+            timeout: Duration::from_millis(20),
+        }),
         Duration::from_millis(2000),
     )
     .with_max_backoff(Duration::from_secs(3));
@@ -638,7 +740,10 @@ fn the_backoff_ceiling_keeps_recovery_fast() {
 #[test]
 fn lifecycle_records_ready_then_pings_and_shuts_down_once() {
     let fake = FakeSidecar::always(ok(b"{}"));
-    let lifecycle = Lifecycle::new(fake.config(Duration::from_millis(300)), Duration::from_millis(40));
+    let lifecycle = Lifecycle::new(
+        fake.config(Duration::from_millis(300)),
+        Duration::from_millis(40),
+    );
 
     lifecycle.mark_ready().expect("ready");
     assert_eq!(fake.request_for("/ready").unwrap().method, "POST");
@@ -656,8 +761,15 @@ fn lifecycle_records_ready_then_pings_and_shuts_down_once() {
     assert!(snap.last_error.is_none());
 
     assert!(lifecycle.shutdown().expect("first shutdown sends it"));
-    assert!(!lifecycle.shutdown().expect("second shutdown is a no-op"), "idempotent");
-    assert_eq!(fake.count("/shutdown"), 1, "the sidecar is told exactly once");
+    assert!(
+        !lifecycle.shutdown().expect("second shutdown is a no-op"),
+        "idempotent"
+    );
+    assert_eq!(
+        fake.count("/shutdown"),
+        1,
+        "the sidecar is told exactly once"
+    );
     assert!(lifecycle.is_stopped(), "and the beat is done");
 
     let snap = lifecycle.snapshot();
@@ -670,7 +782,10 @@ fn lifecycle_records_ready_then_pings_and_shuts_down_once() {
 #[test]
 fn lifecycle_shutdown_is_retried_after_an_unreachable_sidecar() {
     let lifecycle = Lifecycle::new(
-        SidecarConfig { addr: closed_port(), timeout: Duration::from_millis(50) },
+        SidecarConfig {
+            addr: closed_port(),
+            timeout: Duration::from_millis(50),
+        },
         Duration::from_millis(40),
     );
     let error = lifecycle.shutdown().expect_err("nothing is listening");
@@ -678,15 +793,24 @@ fn lifecycle_shutdown_is_retried_after_an_unreachable_sidecar() {
 
     // The claim was released, so a later attempt can still reach the sidecar.
     let snap: AgonesSnapshot = lifecycle.snapshot();
-    assert!(!snap.shutdown_sent, "a failed shutdown must not be recorded as sent");
-    assert_eq!(snap.last_error.map(|e| e.kind).as_deref(), Some("unreachable"));
+    assert!(
+        !snap.shutdown_sent,
+        "a failed shutdown must not be recorded as sent"
+    );
+    assert_eq!(
+        snap.last_error.map(|e| e.kind).as_deref(),
+        Some("unreachable")
+    );
     assert_eq!(snap.last_transition, "shutdown");
 }
 
 #[test]
 fn lifecycle_keeps_a_rejection_in_the_snapshot() {
     let fake = FakeSidecar::always(framed(400, "Bad Request", b"GameServer is Shutdown"));
-    let lifecycle = Lifecycle::new(fake.config(Duration::from_millis(300)), Duration::from_millis(40));
+    let lifecycle = Lifecycle::new(
+        fake.config(Duration::from_millis(300)),
+        Duration::from_millis(40),
+    );
 
     let error = lifecycle.mark_ready().expect_err("rejected");
     assert_eq!(error.kind(), SidecarErrorKind::Rejected);
@@ -696,34 +820,57 @@ fn lifecycle_keeps_a_rejection_in_the_snapshot() {
     assert_eq!(snap.state, ServerState::Unknown);
     let info = snap.last_error.expect("the rejection is reportable");
     assert_eq!(info.kind, "rejected");
-    assert!(info.message.contains("GameServer is Shutdown"), "{}", info.message);
+    assert!(
+        info.message.contains("GameServer is Shutdown"),
+        "{}",
+        info.message
+    );
 }
 
 #[test]
 fn lifecycle_state_refresh_overwrites_an_inferred_state() {
     let fake = FakeSidecar::scripted(
-        vec![ok(b"{}"), ok(b"{\"state\":\"Allocated\",\"metadata\":{\"room\":\"dm\"}}")],
+        vec![
+            ok(b"{}"),
+            ok(b"{\"state\":\"Allocated\",\"metadata\":{\"room\":\"dm\"}}"),
+        ],
         ok(b"{}"),
     );
-    let lifecycle = Lifecycle::new(fake.config(Duration::from_millis(300)), Duration::from_millis(40));
+    let lifecycle = Lifecycle::new(
+        fake.config(Duration::from_millis(300)),
+        Duration::from_millis(40),
+    );
     lifecycle.mark_ready().expect("ready");
     let snapshot = lifecycle.refresh_state().expect("state");
 
     assert_eq!(snapshot.state, ServerState::Allocated);
     assert_eq!(snapshot.metadata["room"], "dm");
-    assert_eq!(fake.paths(), vec!["/ready".to_string(), "/state".to_string()]);
+    assert_eq!(
+        fake.paths(),
+        vec!["/ready".to_string(), "/state".to_string()]
+    );
 
     let snap = lifecycle.snapshot();
-    assert_eq!(snap.state, ServerState::Allocated, "the view follows the sidecar, not our guess");
+    assert_eq!(
+        snap.state,
+        ServerState::Allocated,
+        "the view follows the sidecar, not our guess"
+    );
     assert_eq!(snap.state_raw, "Allocated");
     assert_eq!(snap.last_transition, "state");
-    assert!(snap.last_error.is_none(), "a good read clears the old failure");
+    assert!(
+        snap.last_error.is_none(),
+        "a good read clears the old failure"
+    );
 }
 
 #[test]
 fn a_failing_beat_loop_is_visible_in_the_status_snapshot() {
     let lifecycle = Lifecycle::new(
-        SidecarConfig { addr: closed_port(), timeout: Duration::from_millis(30) },
+        SidecarConfig {
+            addr: closed_port(),
+            timeout: Duration::from_millis(30),
+        },
         Duration::from_millis(40),
     );
     for _ in 0..3 {
@@ -733,7 +880,10 @@ fn a_failing_beat_loop_is_visible_in_the_status_snapshot() {
     let snap = lifecycle.snapshot();
     assert_eq!(snap.pings.consecutive_failures, 3);
     assert_eq!(snap.pings.unreachable_failures, 3);
-    assert!(snap.pings.unhealthy_declared, "three misses is the Agones window");
+    assert!(
+        snap.pings.unhealthy_declared,
+        "three misses is the Agones window"
+    );
     assert_eq!(snap.backoff_ms, 160, "the doubling is reportable");
     assert_eq!(snap.interval_ms, 40);
     assert!(snap.enabled);
@@ -753,7 +903,10 @@ fn the_global_snapshot_says_not_deployed_when_nothing_is_installed() {
     assert_eq!(snap.pings, engine_agones::PingStats::default());
 
     let lifecycle = Lifecycle::new(
-        SidecarConfig { addr: closed_port(), timeout: Duration::from_millis(20) },
+        SidecarConfig {
+            addr: closed_port(),
+            timeout: Duration::from_millis(20),
+        },
         Duration::from_millis(2000),
     );
     let json = serde_json::to_value(lifecycle.snapshot()).expect("a JSON object");
@@ -778,9 +931,9 @@ fn ready_retries_seen(lifecycle: &Arc<Lifecycle>, budget: Duration) -> Vec<Optio
         std::thread::spawn(move || {
             lifecycle.run_until_stopped(|event| {
                 if let LifecycleEvent::ReadyRetried(error) = event {
-                    sink.lock().expect("the collector does not panic").push(
-                        error.map(|e| e.kind().to_string()),
-                    );
+                    sink.lock()
+                        .expect("the collector does not panic")
+                        .push(error.map(|e| e.kind().to_string()));
                 }
             });
         })
@@ -806,7 +959,11 @@ fn a_pod_that_was_never_ready_is_asked_again_once_the_sidecar_answers() {
 
     let retries = ready_retries_seen(&lifecycle, Duration::from_millis(200));
 
-    assert_eq!(retries, vec![None], "exactly one retry, and it was accepted");
+    assert_eq!(
+        retries,
+        vec![None],
+        "exactly one retry, and it was accepted"
+    );
     assert!(
         lifecycle.snapshot().ready,
         "the loop settled the lifecycle without the caller's help"
@@ -815,9 +972,20 @@ fn a_pod_that_was_never_ready_is_asked_again_once_the_sidecar_answers() {
     // The heartbeat came first: the retry is gated on proof that there is a
     // sidecar, never on a timer.
     let paths = fake.paths();
-    assert_eq!(paths.first().map(String::as_str), Some("/health"), "{paths:?}");
-    assert_eq!(fake.count("/ready"), 1, "and it is not asked again once accepted");
-    assert!(fake.count("/health") >= 2, "the beat kept its own cadence: {paths:?}");
+    assert_eq!(
+        paths.first().map(String::as_str),
+        Some("/health"),
+        "{paths:?}"
+    );
+    assert_eq!(
+        fake.count("/ready"),
+        1,
+        "and it is not asked again once accepted"
+    );
+    assert!(
+        fake.count("/health") >= 2,
+        "the beat kept its own cadence: {paths:?}"
+    );
 }
 
 #[test]
@@ -827,7 +995,10 @@ fn a_rejected_ready_is_never_asked_again() {
     // worse than logging it once, so the loop tries once and stops — while the
     // heartbeats carry on, because those are a different question.
     let fake = FakeSidecar::routing(
-        vec![("/ready", framed(400, "Bad Request", b"GameServer is Shutdown"))],
+        vec![(
+            "/ready",
+            framed(400, "Bad Request", b"GameServer is Shutdown"),
+        )],
         ok(b"{}"),
     );
     let lifecycle = Lifecycle::new(
@@ -837,14 +1008,23 @@ fn a_rejected_ready_is_never_asked_again() {
 
     let retries = ready_retries_seen(&lifecycle, Duration::from_millis(200));
 
-    assert_eq!(retries, vec![Some("rejected".to_string())], "reported, then dropped");
-    assert_eq!(fake.count("/ready"), 1, "a rejection stops the retries for good");
-    assert!(fake.count("/health") >= 2, "the beat did not stop on a rejected /ready");
+    assert_eq!(
+        retries,
+        vec![Some("rejected".to_string())],
+        "reported, then dropped"
+    );
+    assert_eq!(
+        fake.count("/ready"),
+        1,
+        "a rejection stops the retries for good"
+    );
+    assert!(
+        fake.count("/health") >= 2,
+        "the beat did not stop on a rejected /ready"
+    );
     let snap = lifecycle.snapshot();
     assert!(!snap.ready, "a refused pod is not in the pool");
     // A later healthy heartbeat clears `last_error` (health is genuinely fine), so
     // the durable signal here is that we stopped retrying, not the error field.
     assert!(lifecycle.ready_refused());
 }
-
-

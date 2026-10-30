@@ -4,8 +4,8 @@ use std::thread;
 use std::time::Duration;
 
 use engine_core::{PlayerInput, PlayerInputBuffer, RewindManager, TransformSnapshot};
-use engine_net::{decode_frame, encode_frame, MioWorker, OpCode, WorkerConfig};
-use engine_wasm::{wasm_module, WasmRuntime};
+use engine_net::{MioWorker, OpCode, WorkerConfig, decode_frame, encode_frame};
+use engine_wasm::{WasmRuntime, wasm_module};
 
 // Typed WASM wrapper for the 239-byte AssemblyScript game room
 wasm_module! {
@@ -31,7 +31,9 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
     // 1. Initialize WASM runtime and pre-compiled module
     let runtime = WasmRuntime::new().expect("WasmRuntime init ok");
     let wasm_bytes = include_bytes!("../../engine-wasm/tests/assemblyscript/game_room.wasm");
-    let module = runtime.compile(wasm_bytes).expect("WASM module compilation ok");
+    let module = runtime
+        .compile(wasm_bytes)
+        .expect("WASM module compilation ok");
     let mut room = AsGameRoom::new(&runtime, &module).expect("Room instantiation ok");
     room.init().expect("Room init ok");
     println!("✓ 1. AssemblyScript Room initialized via engine-wasm (Pos: 100.0, 100.0)");
@@ -54,9 +56,12 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
     // Spawn a simulated Game Client (e.g. Unity / Godot / Web client)
     let client_handle = thread::spawn(move || {
         thread::sleep(Duration::from_millis(50));
-        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Client connect ok");
+        let mut stream =
+            TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Client connect ok");
         stream.set_nodelay(true).unwrap();
-        stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
 
         // Client sends PlayerInput #1: dt=0.016, speedX=100.0, speedY=50.0
         // Wire payload: [seq: u64 (8 bytes)][speedX: f32 (4 bytes)][speedY: f32 (4 bytes)]
@@ -88,7 +93,10 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
                         }
                     }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                Err(ref e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
                     thread::sleep(Duration::from_millis(5));
                 }
                 Err(e) => panic!("Read error: {}", e),
@@ -168,14 +176,22 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
     let x = f32::from_be_bytes(data[8..12].try_into().unwrap());
     let y = f32::from_be_bytes(data[12..16].try_into().unwrap());
 
-    println!("✓ 4. Client received StateDelta: Ack={}, Pos=({:.2}, {:.2})", ack, x, y);
+    println!(
+        "✓ 4. Client received StateDelta: Ack={}, Pos=({:.2}, {:.2})",
+        ack, x, y
+    );
     assert_eq!(ack, 1, "Client received confirmed input ack #1");
     assert!(x > 100.0, "WASM updated position forward");
 
     // 7. Verify Lag Compensation Rewind query
-    let rewound = rewind_mgr.rewind_entity(entity_id, 0.0).expect("Rewind snapshot found");
+    let rewound = rewind_mgr
+        .rewind_entity(entity_id, 0.0)
+        .expect("Rewind snapshot found");
     assert_eq!(rewound.x, 100.0, "Initial rewound position was 100.0");
-    assert!(rewound.is_point_hit(100.5, 100.0, 0.0), "Hit registered on historical position!");
+    assert!(
+        rewound.is_point_hit(100.5, 100.0, 0.0),
+        "Hit registered on historical position!"
+    );
     println!("✓ 5. Lag-compensation hit confirmed on historical rewind snapshot!");
 
     println!("\n=======================================================");

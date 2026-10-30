@@ -9,12 +9,16 @@ impl WebRtcServer {
     /// The newest input seq seen from this client, wrap-safe and forward-only.
     /// This is what the host echoes back as `acked_seq`.
     pub fn last_input_seq(&self, client_id: &str) -> Option<u16> {
-        self.sessions.get(client_id).and_then(|s| s.last_input_seq.get())
+        self.sessions
+            .get(client_id)
+            .and_then(|s| s.last_input_seq.get())
     }
 
     /// The newest event seq this client has acked on the reliable lane.
     pub fn acked_event_seq(&self, client_id: &str) -> Option<u16> {
-        self.sessions.get(client_id).and_then(|s| s.acked_event_seq.get())
+        self.sessions
+            .get(client_id)
+            .and_then(|s| s.acked_event_seq.get())
     }
 
     /// Frames both lanes are still holding for this client: a slow-client

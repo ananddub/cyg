@@ -7,10 +7,12 @@ use bytes::Bytes;
 
 use super::client::WsClient;
 use super::protocol::{
-    PROTOCOL_CODE_MASK, PROTO_JOIN_ROOM, PROTO_LEAVE_ROOM, PROTO_PING, PROTO_ROOM_DATA,
-    PROTO_ROOM_DATA_BYTES, PROTO_ROOM_REQUEST, close_code,
+    PROTO_JOIN_ROOM, PROTO_LEAVE_ROOM, PROTO_PING, PROTO_ROOM_DATA, PROTO_ROOM_DATA_BYTES,
+    PROTO_ROOM_REQUEST, PROTOCOL_CODE_MASK, close_code,
 };
-use super::rfc6455::{next_ws_frame, queue_close_frame, queue_message, queue_ws_control, MAX_INBOUND_FRAME_SIZE};
+use super::rfc6455::{
+    MAX_INBOUND_FRAME_SIZE, next_ws_frame, queue_close_frame, queue_message, queue_ws_control,
+};
 use crate::framing::OpCode;
 use crate::transport::TransportEvent;
 

@@ -84,7 +84,10 @@ mod tests {
 
     #[test]
     fn internal_tags_map_onto_wire_codes() {
-        assert_eq!(wire_opcode_for(OpCode::RoomDataBytes), PROTO_ROOM_DATA_BYTES);
+        assert_eq!(
+            wire_opcode_for(OpCode::RoomDataBytes),
+            PROTO_ROOM_DATA_BYTES
+        );
         assert_eq!(wire_opcode_for(OpCode::StateDelta), PROTO_ROOM_STATE_PATCH);
         assert_eq!(wire_opcode_for(OpCode::StateSnapshot), PROTO_ROOM_STATE);
         assert_eq!(wire_opcode_for(OpCode::Ping), PROTO_PING);

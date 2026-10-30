@@ -1,5 +1,5 @@
-use std::time::Instant;
 use engine_wasm::{WasmRuntime, wasm_module};
+use std::time::Instant;
 
 // Declare the typed wrapper matching game_room.ts exports
 wasm_module! {
@@ -23,7 +23,10 @@ fn test_real_assemblyscript_with_runtime_stub() {
 
     // Load the 239-byte binary compiled directly from TypeScript/AssemblyScript
     let wasm_bytes = include_bytes!("assemblyscript/game_room.wasm");
-    println!("1. AssemblyScript WASM Binary Size:  {} bytes!", wasm_bytes.len());
+    println!(
+        "1. AssemblyScript WASM Binary Size:  {} bytes!",
+        wasm_bytes.len()
+    );
 
     let module = runtime.compile(wasm_bytes).expect("WASM Compilation ok");
 
@@ -43,7 +46,10 @@ fn test_real_assemblyscript_with_runtime_stub() {
     let new_y = room.getPositionY().unwrap();
     let new_score = room.getScore().unwrap();
 
-    println!("✓ After 1 tick update: Pos({:.2}, {:.2}), Score({})", new_x, new_y, new_score);
+    println!(
+        "✓ After 1 tick update: Pos({:.2}, {:.2}), Score({})",
+        new_x, new_y, new_score
+    );
     assert!((new_x - 101.6).abs() < 0.01);
     assert!((new_y - 100.8).abs() < 0.01);
     assert_eq!(new_score, 1);
@@ -67,14 +73,29 @@ fn test_real_assemblyscript_with_runtime_stub() {
 
     println!("\n--- [AssemblyScript --runtime stub Speed Results] ---");
     println!("Total Time for 1,000,000 Ticks: {:?}", elapsed);
-    println!("Average Latency per Tick:       {:.2} nanoseconds", ns_per_tick);
-    println!("Max Throughput (Single Thread): {:.0} ticks/second", ticks_per_sec);
-    println!("Final Score after 1M Ticks:     {}", room.getScore().unwrap());
+    println!(
+        "Average Latency per Tick:       {:.2} nanoseconds",
+        ns_per_tick
+    );
+    println!(
+        "Max Throughput (Single Thread): {:.0} ticks/second",
+        ticks_per_sec
+    );
+    println!(
+        "Final Score after 1M Ticks:     {}",
+        room.getScore().unwrap()
+    );
     println!("=======================================================\n");
 
     if cfg!(debug_assertions) {
-        assert!(ns_per_tick < 3000.0, "Debug mode latency must be reasonable (<3us)");
+        assert!(
+            ns_per_tick < 3000.0,
+            "Debug mode latency must be reasonable (<3us)"
+        );
     } else {
-        assert!(ns_per_tick < 30.0, "AssemblyScript with runtime stub must be under 30ns in release mode");
+        assert!(
+            ns_per_tick < 30.0,
+            "AssemblyScript with runtime stub must be under 30ns in release mode"
+        );
     }
 }

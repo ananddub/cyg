@@ -3,7 +3,7 @@ use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
 
-use engine_net::{decode_frame, encode_frame, MioWorker, OpCode, WorkerConfig};
+use engine_net::{MioWorker, OpCode, WorkerConfig, decode_frame, encode_frame};
 
 #[test]
 fn test_mio_worker_client_echo_and_ticks() {
@@ -26,9 +26,12 @@ fn test_mio_worker_client_echo_and_ticks() {
         // Give worker a moment to enter event loop
         thread::sleep(Duration::from_millis(50));
 
-        let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Client connected");
+        let mut stream =
+            TcpStream::connect(format!("127.0.0.1:{}", port)).expect("Client connected");
         stream.set_nodelay(true).unwrap();
-        stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
 
         // 1. Send PlayerInput packet: opcode = PlayerInput, payload = [42, 100, 200]
         let mut send_buf = Vec::new();
@@ -49,7 +52,10 @@ fn test_mio_worker_client_echo_and_ticks() {
                         return (opcode, payload);
                     }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                Err(ref e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
                     thread::sleep(Duration::from_millis(5));
                 }
                 Err(e) => panic!("Read error: {}", e),
@@ -78,7 +84,10 @@ fn test_mio_worker_client_echo_and_ticks() {
         for pkt in packets.drain(..) {
             if pkt.opcode == OpCode::PlayerInput && pkt.payload == vec![42, 100, 200] {
                 packet_received = true;
-                println!("✓ Worker received PlayerInput frame from {}: {:?}", pkt.session_id, pkt.payload);
+                println!(
+                    "✓ Worker received PlayerInput frame from {}: {:?}",
+                    pkt.session_id, pkt.payload
+                );
             }
         }
 
@@ -87,10 +96,14 @@ fn test_mio_worker_client_echo_and_ticks() {
         }
     }
 
-    let (client_recv_opcode, client_recv_payload) = client_handle.join().expect("Client thread joined");
+    let (client_recv_opcode, client_recv_payload) =
+        client_handle.join().expect("Client thread joined");
     assert_eq!(client_recv_opcode, OpCode::StateDelta);
     assert_eq!(client_recv_payload, vec![99, 88, 77]);
-    println!("✓ Client received StateDelta response: {:?}", client_recv_payload);
+    println!(
+        "✓ Client received StateDelta response: {:?}",
+        client_recv_payload
+    );
 
     assert!(packet_received, "Must receive player packet");
     assert!(ticks_fired > 0, "60Hz tick must fire");

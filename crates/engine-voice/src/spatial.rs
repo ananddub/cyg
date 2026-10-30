@@ -6,10 +6,10 @@
 //! - Hearing radius culling (0 bandwidth outside max range).
 //! - Relative 3D direction vectors for binaural / stereo panning in clients.
 
-use std::collections::HashMap;
+use crate::packet::VoicePacket;
 use bytes::Bytes;
 use engine_spatial::SpatialIndex3D;
-use crate::packet::VoicePacket;
+use std::collections::HashMap;
 
 /// Distance attenuation curve for 3D positional voice.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -49,7 +49,10 @@ impl DistanceModel {
     /// Compute volume multiplier in range [0.0, 1.0].
     pub fn compute_volume(&self, distance: f64) -> f32 {
         match *self {
-            Self::Linear { min_distance, max_distance } => {
+            Self::Linear {
+                min_distance,
+                max_distance,
+            } => {
                 if distance <= min_distance {
                     1.0
                 } else if distance >= max_distance {
@@ -59,7 +62,11 @@ impl DistanceModel {
                     factor.clamp(0.0, 1.0) as f32
                 }
             }
-            Self::Inverse { min_distance, max_distance, rolloff } => {
+            Self::Inverse {
+                min_distance,
+                max_distance,
+                rolloff,
+            } => {
                 if distance <= min_distance {
                     1.0
                 } else if distance >= max_distance {
@@ -208,7 +215,7 @@ impl SpatialVoiceRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::packet::{voice_flags, VoiceChannelMode};
+    use crate::packet::{VoiceChannelMode, voice_flags};
 
     #[test]
     fn test_spatial_routing_and_attenuation() {

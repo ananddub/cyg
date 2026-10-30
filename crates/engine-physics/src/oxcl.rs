@@ -195,7 +195,10 @@ mod tests {
             world.step();
         }
         let y = world.rigid_body_set[handle].translation().y;
-        assert!(y < 1.5 && y >= 0.40, "ball must rest on the OXCL arena, got {y}");
+        assert!(
+            y < 1.5 && y >= 0.40,
+            "ball must rest on the OXCL arena, got {y}"
+        );
 
         // A ray straight down must hit the baked arena immediately.
         let hit = world.raycast_hit([0.0, 10.0, 0.0], [0.0, -1.0, 0.0], 100.0);

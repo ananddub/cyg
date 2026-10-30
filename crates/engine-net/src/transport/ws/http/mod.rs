@@ -90,14 +90,20 @@ mod tests {
             cors_origin(origin, "play.example.com", &[]).as_deref(),
             Some(origin)
         );
-        assert_eq!(cors_origin("https://evil.example.com", "play.example.com", &[]), None);
+        assert_eq!(
+            cors_origin("https://evil.example.com", "play.example.com", &[]),
+            None
+        );
     }
 
     #[test]
     fn configured_origins_are_exact_and_wildcard_is_explicit() {
         let list = allowed(&["https://studio.example.com"]);
         assert!(cors_origin("https://studio.example.com", "game:7777", &list).is_some());
-        assert_eq!(cors_origin("https://other.example.com", "game:7777", &list), None);
+        assert_eq!(
+            cors_origin("https://other.example.com", "game:7777", &list),
+            None
+        );
         assert!(cors_origin("https://anywhere.example", "game:7777", &allowed(&["*"])).is_some());
     }
 

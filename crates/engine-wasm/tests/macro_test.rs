@@ -54,7 +54,9 @@ fn test_wasm_module_macro_seamless_calling() {
     room.ping().expect("ping should succeed");
 
     // Call 2-args function with return value
-    let dmg = room.calculate_damage(60, 2.5).expect("calculate_damage should succeed");
+    let dmg = room
+        .calculate_damage(60, 2.5)
+        .expect("calculate_damage should succeed");
     assert_eq!(dmg, 150);
 
     // Call getter

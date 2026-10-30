@@ -45,9 +45,15 @@ fn benchmark_pure_wasm_execution_latency() {
     let mut store = Store::new(&engine, ());
     let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-    let fn_empty = instance.get_typed_func::<(), ()>(&mut store, "empty").unwrap();
-    let fn_physics = instance.get_typed_func::<f32, ()>(&mut store, "physics_tick").unwrap();
-    let fn_add = instance.get_typed_func::<(i32, i32), i32>(&mut store, "add_numbers").unwrap();
+    let fn_empty = instance
+        .get_typed_func::<(), ()>(&mut store, "empty")
+        .unwrap();
+    let fn_physics = instance
+        .get_typed_func::<f32, ()>(&mut store, "physics_tick")
+        .unwrap();
+    let fn_add = instance
+        .get_typed_func::<(i32, i32), i32>(&mut store, "add_numbers")
+        .unwrap();
 
     // Warmup
     for _ in 0..10_000 {
@@ -82,8 +88,17 @@ fn benchmark_pure_wasm_execution_latency() {
     let dur_physics = start_physics.elapsed();
     let ns_physics = (dur_physics.as_nanos() as f64) / (iterations as f64);
 
-    println!("1. Pure Function Jump (Empty):          {:.2} nanoseconds", ns_empty);
-    println!("2. Math Call with Return Value (add):   {:.2} nanoseconds", ns_add);
-    println!("3. Game Physics Tick (In-WASM State):   {:.2} nanoseconds", ns_physics);
+    println!(
+        "1. Pure Function Jump (Empty):          {:.2} nanoseconds",
+        ns_empty
+    );
+    println!(
+        "2. Math Call with Return Value (add):   {:.2} nanoseconds",
+        ns_add
+    );
+    println!(
+        "3. Game Physics Tick (In-WASM State):   {:.2} nanoseconds",
+        ns_physics
+    );
     println!("=======================================================\n");
 }

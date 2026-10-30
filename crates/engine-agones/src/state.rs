@@ -70,7 +70,10 @@ impl ServerState {
 
     /// A pod is in a state where a health ping keeps it alive.
     pub fn health_matters(self) -> bool {
-        matches!(self, ServerState::Ready | ServerState::Allocated | ServerState::Reserved)
+        matches!(
+            self,
+            ServerState::Ready | ServerState::Allocated | ServerState::Reserved
+        )
     }
 }
 
@@ -111,17 +114,29 @@ impl StateSnapshot {
             metadata: serde_json::Value,
         }
 
-        let wire: Wire = serde_json::from_str(text.trim()).map_err(|e| SidecarError::Malformed {
-            reason: format!("`state` payload was not usable JSON ({e}): {}", trim_for_log(text)),
-        })?;
+        let wire: Wire =
+            serde_json::from_str(text.trim()).map_err(|e| SidecarError::Malformed {
+                reason: format!(
+                    "`state` payload was not usable JSON ({e}): {}",
+                    trim_for_log(text)
+                ),
+            })?;
         let state_raw = wire.state.trim().to_string();
         if state_raw.is_empty() {
             return Err(SidecarError::Malformed {
                 reason: "`state` payload carried no lifecycle state".into(),
             });
         }
-        let metadata = if wire.metadata.is_null() { serde_json::json!({}) } else { wire.metadata };
-        Ok(StateSnapshot { state: ServerState::parse(&state_raw), state_raw, metadata })
+        let metadata = if wire.metadata.is_null() {
+            serde_json::json!({})
+        } else {
+            wire.metadata
+        };
+        Ok(StateSnapshot {
+            state: ServerState::parse(&state_raw),
+            state_raw,
+            metadata,
+        })
     }
 
     /// The phase if the sidecar's own string parsed, else the raw text. This is
@@ -137,7 +152,10 @@ impl StateSnapshot {
 
 /// A short, single-line excerpt of a reply for an error message.
 fn trim_for_log(text: &str) -> String {
-    let flat: String = text.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
+    let flat: String = text
+        .chars()
+        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
     let mut end = flat.len().min(120);
     while end > 0 && !flat.is_char_boundary(end) {
         end -= 1;

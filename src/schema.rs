@@ -132,10 +132,7 @@ pub fn write_codegen(
     // the SDK lives in src/ beside room.ts — rewrite so the SDK is loaded once
     // (two copies in one compile = duplicate-class conflicts).
     if language == codegen::Language::As && dir_has_src(out_dir) {
-        contents = contents.replace(
-            "from \"../cyg-server\"",
-            "from \"../src/cyg-server\"",
-        );
+        contents = contents.replace("from \"../cyg-server\"", "from \"../src/cyg-server\"");
     }
     std::fs::create_dir_all(out_dir)?;
     let path = out_dir.join(language.file_name());

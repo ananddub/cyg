@@ -90,9 +90,8 @@ impl Msg {
     /// handing it over makes this a formality; when it fails the failure is a
     /// parse error the client sees on the request's `cid`.
     pub fn payload<T: DeserializeOwned>(&self) -> Result<T, WsError> {
-        serde_json::from_value(self.payload.clone()).map_err(|error| {
-            WsError::new(format!("invalid payload for {}: {error}", self.event))
-        })
+        serde_json::from_value(self.payload.clone())
+            .map_err(|error| WsError::new(format!("invalid payload for {}: {error}", self.event)))
     }
 }
 
@@ -203,7 +202,11 @@ impl Conn {
             (Some(cid), Value::Object(fields)) => {
                 let mut object = serde_json::Map::with_capacity(fields.len() + 1);
                 object.insert("cid".to_string(), Value::String(cid.to_string()));
-                object.extend(fields.iter().map(|(key, value)| (key.clone(), value.clone())));
+                object.extend(
+                    fields
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone())),
+                );
                 Value::Object(object).to_string()
             }
             (Some(cid), body) => serde_json::json!({ "cid": cid, "value": body }).to_string(),

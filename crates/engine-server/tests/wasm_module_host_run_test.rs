@@ -29,9 +29,11 @@ fn decode_players(blob: &[u8]) -> Vec<(i64, f64, f64, f64, f64)> {
         .map(|index| {
             let at = 4 + index * 40;
             let field = |offset: usize| {
-                f64::from_le_bytes(blob[at + offset..at + offset + 8]
-                    .try_into()
-                    .expect("one 8-byte field"))
+                f64::from_le_bytes(
+                    blob[at + offset..at + offset + 8]
+                        .try_into()
+                        .expect("one 8-byte field"),
+                )
             };
             (
                 i64::from_le_bytes(blob[at..at + 8].try_into().expect("a player id")),
@@ -48,7 +50,10 @@ fn decode_players(blob: &[u8]) -> Vec<(i64, f64, f64, f64, f64)> {
 fn a_console_accepted_module_compiles_links_and_runs_in_the_host() {
     // ---- The control plane's own verdict on these bytes ----
     let gate = WasmService::validate_binary(ROOM_MODULE);
-    assert!(gate.valid, "the console gate accepts its own test module: {gate:?}");
+    assert!(
+        gate.valid,
+        "the console gate accepts its own test module: {gate:?}"
+    );
     assert!(gate.exports_missing.is_empty(), "{gate:?}");
     for name in REQUIRED_EXPORTS {
         assert!(
@@ -87,7 +92,9 @@ fn a_console_accepted_module_compiles_links_and_runs_in_the_host() {
 
     // The input path the host drives on every message: the guest allocates a
     // buffer, the host writes the payload into it, `on_input` reads it back.
-    let input = logic.on_alloc(8).expect("the guest allocator hands back a buffer");
+    let input = logic
+        .on_alloc(8)
+        .expect("the guest allocator hands back a buffer");
     // flags = 2 (`S`), then a little-endian f32 aim angle.
     logic
         .write_memory(input as u32, &[2, 0, 0, 0, 0, 0, 0, 0])
@@ -97,7 +104,9 @@ fn a_console_accepted_module_compiles_links_and_runs_in_the_host() {
         .expect("guest on_input reads what the host wrote");
 
     let (ptr, len) = unpack(logic.on_tick(0.05).expect("the second on_tick"));
-    let blob = logic.read_memory(ptr, len).expect("the second delta buffer");
+    let blob = logic
+        .read_memory(ptr, len)
+        .expect("the second delta buffer");
     let moved = decode_players(&blob);
     assert_eq!(moved.len(), 1, "{moved:?}");
     // The guest's own speed is 150 units/sec, so one 0.05 s tick moves 7.5.

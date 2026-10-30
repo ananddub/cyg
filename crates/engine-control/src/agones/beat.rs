@@ -16,18 +16,28 @@ pub fn spawn(state: &ApiState) {
     // The pod spec is authoritative about the sidecar port: Agones injects
     // `AGONES_SDK_HTTP_PORT` when it is not the default.
     let env_port = engine_agones::sidecar_port_from_env();
-    let port = if env_port != engine_agones::DEFAULT_SIDECAR_PORT { env_port } else { cfg.http_port };
+    let port = if env_port != engine_agones::DEFAULT_SIDECAR_PORT {
+        env_port
+    } else {
+        cfg.http_port
+    };
     let interval = Duration::from_millis(cfg.health_interval_ms.max(200));
     // Half the interval, so a stalled sidecar shows up as a `Timeout` and the
     // next heartbeat is still on schedule: three late pings is an Unhealthy pod.
     let timeout = (interval / 2).clamp(Duration::from_millis(250), Duration::from_millis(2000));
-    let sidecar = SidecarConfig { addr: format!("{}:{}", cfg.host, port), timeout };
+    let sidecar = SidecarConfig {
+        addr: format!("{}:{}", cfg.host, port),
+        timeout,
+    };
 
     let lifecycle = Lifecycle::new(sidecar, interval);
     if install(Arc::clone(&lifecycle)).is_err() {
         // A second control plane in one process (tests, a rebind) must not start a
         // second beat for the same pod.
-        tracing::info!("[agones] 🛰️  lifecycle already running at {}; reusing it", lifecycle.addr());
+        tracing::info!(
+            "[agones] 🛰️  lifecycle already running at {}; reusing it",
+            lifecycle.addr()
+        );
         return;
     }
     tracing::info!(
@@ -39,10 +49,14 @@ pub fn spawn(state: &ApiState) {
 
     let thread = {
         let lifecycle = Arc::clone(&lifecycle);
-        std::thread::Builder::new().name("ox-agones".into()).spawn(move || run(lifecycle))
+        std::thread::Builder::new()
+            .name("ox-agones".into())
+            .spawn(move || run(lifecycle))
     };
     if let Err(e) = thread {
-        tracing::error!("[agones] ✖ could not start the health thread: {e}; this pod will never be Ready");
+        tracing::error!(
+            "[agones] ✖ could not start the health thread: {e}; this pod will never be Ready"
+        );
     }
 }
 
@@ -81,5 +95,9 @@ fn run(lifecycle: Arc<Lifecycle>) {
         },
     });
     let stats = lifecycle.stats();
-    tracing::info!("[agones] beat loop stopped; {} pings, {} failures", stats.pings, stats.failures);
+    tracing::info!(
+        "[agones] beat loop stopped; {} pings, {} failures",
+        stats.pings,
+        stats.failures
+    );
 }

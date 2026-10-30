@@ -6,15 +6,15 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use mio::event::Event;
 use mio::net::TcpListener;
 use mio::{Interest, Poll, Token};
 
-use super::{ClientPacket, MioWorker, LISTENER_TOKEN, WAKER_TOKEN};
+use super::{ClientPacket, LISTENER_TOKEN, MioWorker, WAKER_TOKEN};
 use crate::runtime::connection::ClientConn;
 use engine_core::StepContext;
 
@@ -101,7 +101,9 @@ impl MioWorker {
         }
 
         let elapsed_us = tick_start.elapsed().as_micros() as u64;
-        self.stats.last_tick_time_us.store(elapsed_us, Ordering::Relaxed);
+        self.stats
+            .last_tick_time_us
+            .store(elapsed_us, Ordering::Relaxed);
         self.stats.total_ticks.fetch_add(1, Ordering::Relaxed);
     }
 }

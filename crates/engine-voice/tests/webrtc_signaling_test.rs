@@ -3,12 +3,14 @@
 
 use bytes::{Bytes, BytesMut};
 use engine_voice::{
-    rewrite_sender, SignalFrame, SignalKind, VoiceMesh, BROADCAST, SERVER_SENDER, SIGNAL_VERSION,
+    BROADCAST, SERVER_SENDER, SIGNAL_VERSION, SignalFrame, SignalKind, VoiceMesh, rewrite_sender,
 };
 
 /// What a browser SDK puts in the `Join` body.
 fn join_body(capabilities: &str) -> Bytes {
-    Bytes::from(format!(r#"{{"version":{SIGNAL_VERSION},"capabilities":"{capabilities}"}}"#))
+    Bytes::from(format!(
+        r#"{{"version":{SIGNAL_VERSION},"capabilities":"{capabilities}"}}"#
+    ))
 }
 
 #[test]
@@ -22,11 +24,19 @@ fn peer_join_then_mesh_negotiation() {
 
     // A third client asks to join. It claims to be entity 99, which the server
     // ignores: the socket the frame arrived on decides the sender.
-    let join = SignalFrame::new(SignalKind::Join, 99, SERVER_SENDER, join_body("opus,denoise"))
-        .encode();
+    let join = SignalFrame::new(
+        SignalKind::Join,
+        99,
+        SERVER_SENDER,
+        join_body("opus,denoise"),
+    )
+    .encode();
     let decoded = SignalFrame::decode(&join).unwrap();
     assert_eq!(decoded.kind, SignalKind::Join);
-    assert_eq!(decoded.payload.as_ref(), br#"{"version":1,"capabilities":"opus,denoise"}"#);
+    assert_eq!(
+        decoded.payload.as_ref(),
+        br#"{"version":1,"capabilities":"opus,denoise"}"#
+    );
 
     let registered = rewrite_sender(&join, 3);
     assert_eq!(SignalFrame::decode(&registered).unwrap().from, 3);
@@ -63,8 +73,18 @@ fn peer_join_then_mesh_negotiation() {
         outbound,
         vec![
             ("sock-c".to_string(), SignalKind::Config, SERVER_SENDER, 3),
-            ("sock-a".to_string(), SignalKind::PeerJoined, SERVER_SENDER, 1),
-            ("sock-b".to_string(), SignalKind::PeerJoined, SERVER_SENDER, 2),
+            (
+                "sock-a".to_string(),
+                SignalKind::PeerJoined,
+                SERVER_SENDER,
+                1
+            ),
+            (
+                "sock-b".to_string(),
+                SignalKind::PeerJoined,
+                SERVER_SENDER,
+                2
+            ),
         ]
     );
 
@@ -82,10 +102,7 @@ fn peer_join_then_mesh_negotiation() {
 
     let mut relayed: Vec<(String, Bytes)> = Vec::new();
     let delivered = mesh.route(1, 3, |target| {
-        relayed.push((
-            target.session_id.to_string(),
-            rewrite_sender(&offer, 1),
-        ));
+        relayed.push((target.session_id.to_string(), rewrite_sender(&offer, 1)));
     });
     assert!(delivered);
     assert_eq!(relayed.len(), 1);
@@ -106,7 +123,10 @@ fn peer_join_then_mesh_negotiation() {
     let mut targets = Vec::new();
     assert!(mesh.route(3, 1, |t| targets.push(t.session_id.to_string())));
     assert_eq!(targets, vec!["sock-a".to_string()]);
-    assert_eq!(SignalFrame::decode(&answer).unwrap().kind, SignalKind::Answer);
+    assert_eq!(
+        SignalFrame::decode(&answer).unwrap().kind,
+        SignalKind::Answer
+    );
 }
 
 #[test]
@@ -138,7 +158,9 @@ fn departed_peer_drops_frames_and_broadcast_skips_sender() {
     mesh.join(3, "sock-c");
 
     let mut seen = Vec::new();
-    mesh.route(2, BROADCAST, |t| seen.push((t.entity_id, t.session_id.to_string())));
+    mesh.route(2, BROADCAST, |t| {
+        seen.push((t.entity_id, t.session_id.to_string()))
+    });
     seen.sort_unstable();
     assert_eq!(
         seen,
@@ -167,10 +189,16 @@ fn audio_frames_are_never_mistaken_for_signaling() {
         SignalFrame::new(SignalKind::Bye, 7, BROADCAST, Bytes::from_static(b"{}")).encode();
     assert!(SignalFrame::is_signal(&signal));
     assert_eq!(SignalFrame::peek_kind(&signal), Some(SignalKind::Bye));
-    assert!(SignalKind::from_u8(6).is_none(), "reserved kinds must not decode");
+    assert!(
+        SignalKind::from_u8(6).is_none(),
+        "reserved kinds must not decode"
+    );
     assert!(SignalKind::Ice.is_relayed());
     assert!(!SignalKind::Join.is_relayed());
-    assert!(!SignalKind::Muted.is_relayed(), "mute verdicts are server-originated");
+    assert!(
+        !SignalKind::Muted.is_relayed(),
+        "mute verdicts are server-originated"
+    );
 }
 
 /// Byte-for-byte contract with the browser SDK. This vector was captured from
@@ -200,5 +228,8 @@ fn rust_encoder_matches_browser_sdk_bytes() {
     assert_eq!(decoded.kind, SignalKind::Join);
     assert_eq!(decoded.from, SERVER_SENDER);
     assert_eq!(decoded.to, BROADCAST);
-    assert_eq!(decoded.payload.as_ref(), br#"{"version":1,"capabilities":"webrtc,opus"}"#);
+    assert_eq!(
+        decoded.payload.as_ref(),
+        br#"{"version":1,"capabilities":"webrtc,opus"}"#
+    );
 }

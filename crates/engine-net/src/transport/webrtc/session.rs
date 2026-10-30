@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Instant;
 
-use str0m::channel::ChannelId;
 use str0m::Rtc;
+use str0m::channel::ChannelId;
 
 use super::contract::{Inbound, Lane, OutboundQueue, SeqWatermark};
 use super::types::{TransportStats, WebRtcServerEvent};

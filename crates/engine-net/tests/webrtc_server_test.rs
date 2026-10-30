@@ -1,6 +1,6 @@
+use engine_net::transport::webrtc::{WebRtcServer, WebRtcServerEvent};
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
-use engine_net::transport::webrtc::{WebRtcServer, WebRtcServerEvent};
 use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Input, Output, Rtc};
 
@@ -26,7 +26,9 @@ fn test_webrtc_server_full_roundtrip() {
     let mut server = WebRtcServer::new(vec![server_addr]);
 
     // 2. Server accepts SDP offer and returns SDP answer
-    let answer_sdp = server.handle_offer("player_1", &offer_sdp).expect("server handle offer");
+    let answer_sdp = server
+        .handle_offer("player_1", &offer_sdp)
+        .expect("server handle offer");
     let answer = str0m::change::SdpAnswer::from_sdp_string(&answer_sdp).unwrap();
     client_rtc.sdp_api().accept_answer(pending, answer).unwrap();
 
@@ -79,13 +81,24 @@ fn test_webrtc_server_full_roundtrip() {
         println!(" - {:?}", ev);
     }
 
-    assert!(server.is_connected("player_1"), "player_1 should be marked connected on server");
-    assert!(client_ch_unrel.is_some(), "client should have game-unreliable channel opened");
+    assert!(
+        server.is_connected("player_1"),
+        "player_1 should be marked connected on server"
+    );
+    assert!(
+        client_ch_unrel.is_some(),
+        "client should have game-unreliable channel opened"
+    );
 
     // 4. Test Client -> Server unreliable input frame transmission
-    let test_input = vec![0x01, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let mut ch = client_rtc.channel(client_ch_unrel.unwrap()).expect("client unreliable channel");
-    ch.write(false, &test_input).expect("write to unreliable channel");
+    let test_input = vec![
+        0x01, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    let mut ch = client_rtc
+        .channel(client_ch_unrel.unwrap())
+        .expect("client unreliable channel");
+    ch.write(false, &test_input)
+        .expect("write to unreliable channel");
 
     // Flush transmit
     while let Ok(out) = client_rtc.poll_output() {
@@ -100,16 +113,28 @@ fn test_webrtc_server_full_roundtrip() {
 
     let msgs = server.poll_events();
     let found_msg = msgs.iter().any(|ev| match ev {
-        WebRtcServerEvent::Message { client_id, channel_label, data } => {
-            println!("Server received msg from {client_id} on '{channel_label}': len={}", data.len());
+        WebRtcServerEvent::Message {
+            client_id,
+            channel_label,
+            data,
+        } => {
+            println!(
+                "Server received msg from {client_id} on '{channel_label}': len={}",
+                data.len()
+            );
             client_id == "player_1" && channel_label == "game-unreliable" && data == &test_input
         }
         _ => false,
     });
-    assert!(found_msg, "Server should receive input frame on game-unreliable channel");
+    assert!(
+        found_msg,
+        "Server should receive input frame on game-unreliable channel"
+    );
 
     // 5. Test Server -> Client unreliable world delta transmission
-    let test_delta = vec![0xA5, b'd', b'e', b'l', b't', b'a', 1, 0, 0, 0, 0, 0, 0, 0, 10, 20, 30];
+    let test_delta = vec![
+        0xA5, b'd', b'e', b'l', b't', b'a', 1, 0, 0, 0, 0, 0, 0, 0, 10, 20, 30,
+    ];
     let ok = server.send_unreliable("player_1", &test_delta);
     assert!(ok, "server send_unreliable should succeed");
 
@@ -132,6 +157,9 @@ fn test_webrtc_server_full_roundtrip() {
             _ => {}
         }
     }
-    assert!(client_got_delta, "Client should receive delta frame over WebRTC UDP");
+    assert!(
+        client_got_delta,
+        "Client should receive delta frame over WebRTC UDP"
+    );
     println!("✓ Full end-to-end WebRTC Client -> [Server] -> Client test PASSED!");
 }

@@ -50,15 +50,15 @@ fn test_ecs_basic_spawn_and_tick() {
 fn test_ecs_changed_tracking() {
     let mut runner = TickRunner::new();
 
-    let e1 = runner.world.spawn((
-        EntityId(1),
-        Position2D { x: 0.0, y: 0.0 },
-    )).id();
+    let e1 = runner
+        .world
+        .spawn((EntityId(1), Position2D { x: 0.0, y: 0.0 }))
+        .id();
 
-    let _e2 = runner.world.spawn((
-        EntityId(2),
-        Position2D { x: 5.0, y: 5.0 },
-    )).id();
+    let _e2 = runner
+        .world
+        .spawn((EntityId(2), Position2D { x: 5.0, y: 5.0 }))
+        .id();
 
     // System that checks Changed<Position2D>
     fn delta_tracker(
@@ -85,7 +85,11 @@ fn test_ecs_changed_tracking() {
     runner.tick();
     {
         let log = runner.world.resource::<ChangedLog>();
-        assert_eq!(log.0.len(), 0, "No components changed, should detect 0 changes");
+        assert_eq!(
+            log.0.len(),
+            0,
+            "No components changed, should detect 0 changes"
+        );
     }
 
     // Mutate only e1
@@ -98,7 +102,11 @@ fn test_ecs_changed_tracking() {
     runner.tick();
     {
         let log = runner.world.resource::<ChangedLog>();
-        assert_eq!(log.0.as_slice(), &[1], "Only Entity 1 should be detected as changed");
+        assert_eq!(
+            log.0.as_slice(),
+            &[1],
+            "Only Entity 1 should be detected as changed"
+        );
     }
 }
 
@@ -106,14 +114,23 @@ fn test_ecs_changed_tracking() {
 fn test_ecs_pending_despawn_cleanup() {
     let mut runner = TickRunner::new();
 
-    let e1 = runner.world.spawn((EntityId(1), Position2D::default())).id();
-    let e2 = runner.world.spawn((EntityId(2), Position2D::default())).id();
+    let e1 = runner
+        .world
+        .spawn((EntityId(1), Position2D::default()))
+        .id();
+    let e2 = runner
+        .world
+        .spawn((EntityId(2), Position2D::default()))
+        .id();
 
     // Mark e1 for despawn
     runner.world.entity_mut(e1).insert(PendingDespawn);
 
     runner.tick();
 
-    assert!(runner.world.get_entity(e1).is_err(), "e1 should have been despawned");
+    assert!(
+        runner.world.get_entity(e1).is_err(),
+        "e1 should have been despawned"
+    );
     assert!(runner.world.get_entity(e2).is_ok(), "e2 should still exist");
 }

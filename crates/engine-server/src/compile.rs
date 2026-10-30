@@ -278,7 +278,9 @@ export function on_simulation_rate(): i32 {{
         run("asc", &args)
     } else {
         // 2. npx fallback (downloads once, then cached)
-        tracing::info!("[build] asc not on PATH — using npx assemblyscript (first run downloads)...");
+        tracing::info!(
+            "[build] asc not on PATH — using npx assemblyscript (first run downloads)..."
+        );
         let mut npx_args = vec![
             "-y".into(),
             "-p".into(),

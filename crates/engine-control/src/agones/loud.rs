@@ -64,11 +64,23 @@ mod tests {
         let mut loud = Loudness::default();
         assert!(loud.should_log(&miss(1)));
         assert!(loud.should_log(&miss(2)));
-        assert!(loud.should_log(&miss(3)), "the third miss is Agones' unhealthy window");
+        assert!(
+            loud.should_log(&miss(3)),
+            "the third miss is Agones' unhealthy window"
+        );
         assert!(loud.should_log(&miss(4)));
-        assert!(!loud.should_log(&miss(5)), "a streak this long must not spam every interval");
-        assert!(loud.should_log(&miss(8)), "but every doubling is still news");
-        assert!(loud.should_log(&beat()), "and the recovery is exactly one line");
+        assert!(
+            !loud.should_log(&miss(5)),
+            "a streak this long must not spam every interval"
+        );
+        assert!(
+            loud.should_log(&miss(8)),
+            "but every doubling is still news"
+        );
+        assert!(
+            loud.should_log(&beat()),
+            "and the recovery is exactly one line"
+        );
         assert!(!loud.should_log(&beat()), "then nothing while healthy");
     }
 
@@ -76,7 +88,10 @@ mod tests {
     fn a_clean_run_logs_nothing() {
         let mut loud = Loudness::default();
         for _ in 0..5 {
-            assert!(!loud.should_log(&beat()), "a healthy pod has no reason to print");
+            assert!(
+                !loud.should_log(&beat()),
+                "a healthy pod has no reason to print"
+            );
         }
     }
 }

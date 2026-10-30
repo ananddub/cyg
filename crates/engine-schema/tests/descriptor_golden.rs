@@ -23,8 +23,7 @@ fn hex(bytes: &[u8]) -> String {
 #[test]
 fn descriptor_bytes_are_stable() {
     let parsed = ts::parse(SCHEMA_TS).expect("schema.ts parses");
-    let generated =
-        generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
+    let generated = generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
     assert_eq!(
         hex(&generated.descriptor),
         "4f585344030001000600506c6179657201000000fc46d74403000100780600000100790600000500666c6167730300000500537461746501000000bd427b23000001000700706c61796572730000",
@@ -37,7 +36,13 @@ fn descriptor_bytes_are_stable() {
     );
     // Plain fields keep their historical hash; flags/element only extend it
     // when present.
-    assert_eq!(generated.descriptor.windows(4).any(|w| w == [0xfc, 0x46, 0xd7, 0x44]), true);
+    assert_eq!(
+        generated
+            .descriptor
+            .windows(4)
+            .any(|w| w == [0xfc, 0x46, 0xd7, 0x44]),
+        true
+    );
 }
 
 #[test]
@@ -58,8 +63,7 @@ fn descriptor_v3_encodes_strings_arrays_and_flags() {
         "#,
     )
     .expect("phase 3 schema parses");
-    let generated =
-        generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
+    let generated = generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
 
     assert_eq!(
         hex(&generated.descriptor),
@@ -88,8 +92,7 @@ fn descriptor_v3_encodes_strings_arrays_and_flags() {
 #[test]
 fn generated_types_expose_generic_room_state_and_colyseus_shim() {
     let parsed = ts::parse(SCHEMA_TS).expect("schema.ts parses");
-    let generated =
-        generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
+    let generated = generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
     let dts = &generated.client_dts;
 
     assert!(dts.contains("export interface PlayerState {"));
@@ -134,6 +137,16 @@ fn multi_collection_root_emits_world_scalars_and_descriptor() {
     assert!(dts.contains("projectiles: SchemaMap<ProjectileState>;"));
 
     // Root scalars and collections are declared for the browser.
-    assert!(generated.descriptor.windows(9).any(|w| w == b"\x07\x00players"));
-    assert!(generated.descriptor.windows(13).any(|w| w == b"\x0b\x00projectiles"));
+    assert!(
+        generated
+            .descriptor
+            .windows(9)
+            .any(|w| w == b"\x07\x00players")
+    );
+    assert!(
+        generated
+            .descriptor
+            .windows(13)
+            .any(|w| w == b"\x0b\x00projectiles")
+    );
 }

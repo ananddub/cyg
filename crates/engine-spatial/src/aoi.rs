@@ -43,7 +43,12 @@ pub fn parse_delta(delta: &[u8]) -> Option<(u32, Vec<DeltaEntity>, u32, (usize, 
     if delta.len() < bullet_end {
         return None;
     }
-    Some((delta[0] as u32, entities, bullets as u32, (bc_off, bullet_end)))
+    Some((
+        delta[0] as u32,
+        entities,
+        bullets as u32,
+        (bc_off, bullet_end),
+    ))
 }
 
 /// AOI-filter one raw guest delta body for one viewer, writing the filtered
@@ -241,7 +246,17 @@ mod tests {
         let mut out = Vec::new();
 
         // Non-boundary tick: far entity culled; viewer self + near survive.
-        filter_for_viewer(&entities, bc, frange, &d, 1, Some([0.; 3]), 3, &aoi, &mut out);
+        filter_for_viewer(
+            &entities,
+            bc,
+            frange,
+            &d,
+            1,
+            Some([0.; 3]),
+            3,
+            &aoi,
+            &mut out,
+        );
         let (ver, kept, kept_bc, _) = parse_delta(&out).unwrap();
         assert_eq!(ver, 1);
         assert_eq!(kept.len(), 2);
@@ -252,11 +267,25 @@ mod tests {
         // foreign far bullet culled.
         assert_eq!(kept_bc, 1);
         let new_bc_off = 5 + kept.len() * 72; // bullet-count field in the rewritten body
-        let owner = i64::from_le_bytes(out[new_bc_off + 4 + 24..new_bc_off + 4 + 32].try_into().unwrap());
+        let owner = i64::from_le_bytes(
+            out[new_bc_off + 4 + 24..new_bc_off + 4 + 32]
+                .try_into()
+                .unwrap(),
+        );
         assert_eq!(owner, 1);
 
         // Skip-tick boundary: far entity rides along.
-        filter_for_viewer(&entities, bc, frange, &d, 1, Some([0.; 3]), 4, &aoi, &mut out);
+        filter_for_viewer(
+            &entities,
+            bc,
+            frange,
+            &d,
+            1,
+            Some([0.; 3]),
+            4,
+            &aoi,
+            &mut out,
+        );
         let (_, kept, kept_bc, _) = parse_delta(&out).unwrap();
         assert_eq!(kept.len(), 3);
         assert_eq!(kept_bc, 1);
@@ -271,7 +300,17 @@ mod tests {
             ..test_aoi()
         };
         let mut out = Vec::new();
-        filter_for_viewer(&entities, bc, (range.0 + 4, range.1), &d, 1, Some([0.; 3]), 3, &aoi, &mut out);
+        filter_for_viewer(
+            &entities,
+            bc,
+            (range.0 + 4, range.1),
+            &d,
+            1,
+            Some([0.; 3]),
+            3,
+            &aoi,
+            &mut out,
+        );
         let (_, kept, _, _) = parse_delta(&out).unwrap();
         assert_eq!(kept.len(), 3);
     }
@@ -281,7 +320,17 @@ mod tests {
         let d = synthetic_delta();
         let (_, entities, bc, range) = parse_delta(&d).unwrap();
         let mut out = Vec::new();
-        filter_for_viewer(&entities, bc, (range.0 + 4, range.1), &d, 1, None, 3, &test_aoi(), &mut out);
+        filter_for_viewer(
+            &entities,
+            bc,
+            (range.0 + 4, range.1),
+            &d,
+            1,
+            None,
+            3,
+            &test_aoi(),
+            &mut out,
+        );
         let (_, kept, kept_bc, _) = parse_delta(&out).unwrap();
         assert_eq!(kept.len(), 3);
         assert_eq!(kept_bc, 2);

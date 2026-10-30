@@ -1,7 +1,7 @@
 //! Handle to a running worker pool: shutdown control and aggregated telemetry.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 
 use super::config::AggregatedTelemetry;

@@ -4,11 +4,11 @@
 //! compound colliders, gravity, continuous collision detection (CCD),
 //! and seamless single-threaded Bevy ECS synchronization.
 
-use std::collections::HashMap;
 use bevy_ecs::prelude::*;
 use engine_core::{EntityId, Position2D, Position3D, Velocity};
-use rapier3d::prelude as r3d;
 use rapier2d::prelude as r2d;
+use rapier3d::prelude as r3d;
+use std::collections::HashMap;
 
 /// High-level Rapier 3D World Wrapper with Bevy ECS resource and raycasting support
 #[derive(Resource)]
@@ -92,7 +92,11 @@ impl RapierWorld3D {
     }
 
     /// Attach a ball collider to a rigid body (3D). Returns the collider handle.
-    pub fn add_ball_collider(&mut self, handle: r3d::RigidBodyHandle, radius: f32) -> r3d::ColliderHandle {
+    pub fn add_ball_collider(
+        &mut self,
+        handle: r3d::RigidBodyHandle,
+        radius: f32,
+    ) -> r3d::ColliderHandle {
         let collider = r3d::ColliderBuilder::ball(radius).density(1.0).build();
         self.collider_set
             .insert_with_parent(collider, handle, &mut self.rigid_body_set)
@@ -148,7 +152,10 @@ impl RapierWorld3D {
         body_a: r3d::RigidBodyHandle,
         body_b: r3d::RigidBodyHandle,
     ) -> bool {
-        let (Some(rb_a), Some(rb_b)) = (self.rigid_body_set.get(body_a), self.rigid_body_set.get(body_b)) else {
+        let (Some(rb_a), Some(rb_b)) = (
+            self.rigid_body_set.get(body_a),
+            self.rigid_body_set.get(body_b),
+        ) else {
             return false;
         };
         for &col_a in rb_a.colliders() {
@@ -430,8 +437,15 @@ impl RapierWorld2D {
     }
 
     /// Test if two bodies intersect (via any of their colliders)
-    pub fn check_intersection(&self, body_a: r2d::RigidBodyHandle, body_b: r2d::RigidBodyHandle) -> bool {
-        let (Some(rb_a), Some(rb_b)) = (self.rigid_body_set.get(body_a), self.rigid_body_set.get(body_b)) else {
+    pub fn check_intersection(
+        &self,
+        body_a: r2d::RigidBodyHandle,
+        body_b: r2d::RigidBodyHandle,
+    ) -> bool {
+        let (Some(rb_a), Some(rb_b)) = (
+            self.rigid_body_set.get(body_a),
+            self.rigid_body_set.get(body_b),
+        ) else {
             return false;
         };
         for &col_a in rb_a.colliders() {
@@ -619,7 +633,11 @@ mod tests {
             .build();
         let sphere_handle = world.rigid_body_set.insert(sphere_rb);
         let sphere_collider = r3d::ColliderBuilder::ball(0.5).build();
-        world.collider_set.insert_with_parent(sphere_collider, sphere_handle, &mut world.rigid_body_set);
+        world.collider_set.insert_with_parent(
+            sphere_collider,
+            sphere_handle,
+            &mut world.rigid_body_set,
+        );
 
         // Step physics for 120 ticks (2 seconds) so ball fully falls to ground
         for _ in 0..120 {
@@ -649,7 +667,9 @@ mod tests {
             .build();
         let handle = world.rigid_body_set.insert(box_rb);
         let box_col = r2d::ColliderBuilder::cuboid(0.5, 0.5).build();
-        world.collider_set.insert_with_parent(box_col, handle, &mut world.rigid_body_set);
+        world
+            .collider_set
+            .insert_with_parent(box_col, handle, &mut world.rigid_body_set);
 
         for _ in 0..120 {
             world.step();
@@ -687,7 +707,10 @@ mod tests {
         world.step();
         let hit_moved = world.check_intersection(player, coin);
         tracing::info!("after move player to coin: {hit_moved}");
-        assert!(hit_moved, "Should intersect after moving both to (100, 100)");
+        assert!(
+            hit_moved,
+            "Should intersect after moving both to (100, 100)"
+        );
     }
 }
 
@@ -794,7 +817,10 @@ mod map2d_tests {
         // Ray straight down the +x axis at y=250 must hit the wall (x=400).
         let hit = stepped.raycast_hit([200.0, 250.0], [1.0, 0.0], 500.0);
         let (entity, toi) = hit.expect("wall is on the ray");
-        assert!(toi > 150.0 && toi < 250.0, "hit before the wall plane, toi={toi}");
+        assert!(
+            toi > 150.0 && toi < 250.0,
+            "hit before the wall plane, toi={toi}"
+        );
         assert_eq!(entity, 0, "static geometry reports entity 0");
     }
 
@@ -815,12 +841,17 @@ mod map2d_tests {
         let through_band = world.raycast_hit([150.0, 300.0], [0.0, -1.0], 300.0);
         assert!(through_band.is_some(), "a vertical ray crosses the y-band");
         let above_band_short = world.raycast_hit([150.0, 300.0], [1.0, 0.0], 45.0);
-        assert!(above_band_short.is_none(), "x-ray stops before the band starts at x=100");
+        assert!(
+            above_band_short.is_none(),
+            "x-ray stops before the band starts at x=100"
+        );
         // A ray travelling inside the band's y-range crosses it at x=100.
         let across_band = world.raycast_hit([50.0, 200.0], [1.0, 0.0], 300.0);
         let (entity, toi) = across_band.expect("x-ray at y=200 reaches the band");
         assert_eq!(entity, 0, "static map geometry");
-        assert!((toi - 50.0).abs() < 1.0, "first contact at the band edge, toi={toi}");
+        assert!(
+            (toi - 50.0).abs() < 1.0,
+            "first contact at the band edge, toi={toi}"
+        );
     }
 }
-

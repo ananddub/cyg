@@ -66,6 +66,8 @@ impl Registries {
 
 /// Remove a session's player bindings once its task is gone.
 pub(crate) fn unbind_player(session_id: &Arc<str>, registries: &Registries) {
-    registries.player_index.retain_sync(|_, sid| sid != session_id);
+    registries
+        .player_index
+        .retain_sync(|_, sid| sid != session_id);
     let _ = registries.outbox.remove_sync(session_id);
 }

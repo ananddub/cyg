@@ -1,12 +1,12 @@
 //! Classifying a client frame against the lane it arrived on.
 
 use engine_webrtc_protocol::{
-    ACK_WIRE_LEN, EVENT_WIRE_LEN, HEADER_LEN, INPUT_WIRE_LEN, OP_ACK, OP_DELTA, OP_EVENT, OP_INPUT,
-    Ack, EventFrame, parse_ack,
+    ACK_WIRE_LEN, Ack, EVENT_WIRE_LEN, EventFrame, HEADER_LEN, INPUT_WIRE_LEN, OP_ACK, OP_DELTA,
+    OP_EVENT, OP_INPUT, parse_ack,
 };
 
-use super::lane::Lane;
 use super::INPUT_PAYLOAD_LEN;
+use super::lane::Lane;
 
 /// Why a frame was refused rather than handed to the game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,16 +15,9 @@ pub enum RejectReason {
     OffContract,
     /// A frame whose opcode belongs to the other lane. Reliability is a
     /// property of the lane, so an ack that arrived unreliated is not an ack.
-    WrongLane {
-        expected: Lane,
-        got: Lane,
-    },
+    WrongLane { expected: Lane, got: Lane },
     /// The opcode is known but the length is not one legal wire frame.
-    Malformed {
-        op: u8,
-        got: usize,
-        want: usize,
-    },
+    Malformed { op: u8, got: usize, want: usize },
 }
 
 /// A client frame classified against its lane.
@@ -73,7 +66,11 @@ pub fn classify_inbound(lane: Option<Lane>, data: &[u8]) -> Inbound {
         return Inbound::Refused(RejectReason::OffContract);
     };
     let Some(&op) = data.first() else {
-        return Inbound::Refused(RejectReason::Malformed { op: 0, got: 0, want: INPUT_WIRE_LEN });
+        return Inbound::Refused(RejectReason::Malformed {
+            op: 0,
+            got: 0,
+            want: INPUT_WIRE_LEN,
+        });
     };
 
     match op {
@@ -86,7 +83,11 @@ pub fn classify_inbound(lane: Option<Lane>, data: &[u8]) -> Inbound {
             }
             let seq = u16::from_le_bytes([data[1], data[2]]);
             match input_body(data) {
-                Some(payload) => Inbound::Input { seq, payload, resupplied: false },
+                Some(payload) => Inbound::Input {
+                    seq,
+                    payload,
+                    resupplied: false,
+                },
                 None => malformed(op, data.len(), INPUT_WIRE_LEN),
             }
         }
@@ -113,10 +114,15 @@ pub fn classify_inbound(lane: Option<Lane>, data: &[u8]) -> Inbound {
             if data.len() < 2 {
                 malformed(op, data.len(), 2)
             } else {
-                Inbound::App { data: data.to_vec() }
+                Inbound::App {
+                    data: data.to_vec(),
+                }
             }
         }
-        other => Inbound::Other { op: other, len: data.len() },
+        other => Inbound::Other {
+            op: other,
+            len: data.len(),
+        },
     }
 }
 

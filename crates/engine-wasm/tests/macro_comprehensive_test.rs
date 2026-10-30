@@ -1,5 +1,5 @@
-use std::time::Instant;
 use engine_wasm::{WasmRuntime, wasm_module};
+use std::time::Instant;
 
 // 1. Define a rich, multi-signature game interface
 wasm_module! {
@@ -73,9 +73,13 @@ fn test_macro_comprehensive_suite() {
     // Test Host Linker Integration
     let mut linker = runtime.create_linker::<ServerSessionState>();
     linker
-        .func_wrap("env", "notify_host", |mut caller: wasmtime::Caller<'_, ServerSessionState>| {
-            caller.data_mut().events_count += 1;
-        })
+        .func_wrap(
+            "env",
+            "notify_host",
+            |mut caller: wasmtime::Caller<'_, ServerSessionState>| {
+                caller.data_mut().events_count += 1;
+            },
+        )
         .expect("Linker wrap ok");
 
     let initial_state = ServerSessionState { events_count: 0 };
@@ -84,7 +88,11 @@ fn test_macro_comprehensive_suite() {
 
     // --- TEST 1: 0-arg call and Host State Mutation ---
     room.reset().expect("reset call ok");
-    assert_eq!(room.data().events_count, 1, "Host state should be updated via host import");
+    assert_eq!(
+        room.data().events_count,
+        1,
+        "Host state should be updated via host import"
+    );
     println!("✓ Test 1: 0-arg call & Host Linker integration passed");
 
     // --- TEST 2: 1-arg call ---
@@ -92,21 +100,28 @@ fn test_macro_comprehensive_suite() {
     println!("✓ Test 2: 1-arg call passed");
 
     // --- TEST 3: 4-args call with return value ---
-    let spawned_id = room.spawn_entity(1001, 12.5, 45.0, 2).expect("spawn_entity ok");
+    let spawned_id = room
+        .spawn_entity(1001, 12.5, 45.0, 2)
+        .expect("spawn_entity ok");
     assert_eq!(spawned_id, 1003);
     println!("✓ Test 3: Multi-args (4 parameters) call passed");
 
     // --- TEST 4: Direct Linear Memory Read/Write via Macro Struct ---
     let payload = b"Hello from Macro Memory API";
     room.write_memory(64, payload).expect("write_memory ok");
-    let read_back = room.read_memory(64, payload.len() as u32).expect("read_memory ok");
+    let read_back = room
+        .read_memory(64, payload.len() as u32)
+        .expect("read_memory ok");
     assert_eq!(read_back, payload);
     println!("✓ Test 4: Macro memory read/write passed");
 
     // --- TEST 5: Graceful Trap / Error Handling ---
     let trap_result = room.cause_trap();
     assert!(trap_result.is_err(), "cause_trap must return an Err");
-    println!("✓ Test 5: Graceful trap error handling passed: {:?}", trap_result.err().unwrap());
+    println!(
+        "✓ Test 5: Graceful trap error handling passed: {:?}",
+        trap_result.err().unwrap()
+    );
 
     // --- TEST 6: Macro Zero-Overhead Benchmark (1,000,000 calls) ---
     let iterations = 1_000_000;
@@ -121,13 +136,25 @@ fn test_macro_comprehensive_suite() {
 
     println!("\n--- [Macro Call Overhead Benchmark] ---");
     println!("Total Time for 1,000,000 Macro Calls: {:?}", elapsed);
-    println!("Average Time per Macro Call:          {:.2} nanoseconds", ns_per_call);
-    println!("Throughput:                           {:.0} calls/sec", (iterations as f64) / elapsed.as_secs_f64());
+    println!(
+        "Average Time per Macro Call:          {:.2} nanoseconds",
+        ns_per_call
+    );
+    println!(
+        "Throughput:                           {:.0} calls/sec",
+        (iterations as f64) / elapsed.as_secs_f64()
+    );
     println!("=======================================================\n");
 
     if cfg!(debug_assertions) {
-        assert!(ns_per_call < 3000.0, "Debug mode macro call overhead must be reasonable");
+        assert!(
+            ns_per_call < 3000.0,
+            "Debug mode macro call overhead must be reasonable"
+        );
     } else {
-        assert!(ns_per_call < 200.0, "Macro calling overhead must be under 200ns in release mode");
+        assert!(
+            ns_per_call < 200.0,
+            "Macro calling overhead must be under 200ns in release mode"
+        );
     }
 }

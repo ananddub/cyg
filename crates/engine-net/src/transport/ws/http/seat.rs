@@ -120,7 +120,10 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for _ in 0..10_000 {
             let id = next_session_id();
-            assert!(!id.contains(':'), "id must not break the room:session token");
+            assert!(
+                !id.contains(':'),
+                "id must not break the room:session token"
+            );
             assert!(seen.insert(id), "duplicate seat id minted");
         }
     }
@@ -159,7 +162,10 @@ mod tests {
             )
             .expect("seat issued");
             let sid = parse_json_string(&body, "sessionId").expect("sessionId in body");
-            assert!(seen.insert(sid), "duplicate sessionId across matchmake calls");
+            assert!(
+                seen.insert(sid),
+                "duplicate sessionId across matchmake calls"
+            );
         }
     }
 }

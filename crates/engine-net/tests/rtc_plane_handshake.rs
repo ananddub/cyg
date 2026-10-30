@@ -12,9 +12,9 @@ use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Instant;
 
+use engine_net::rtc_plane::{LABEL_RELIABLE, LABEL_UNRELIABLE, Outbound, RtcSession};
 use engine_webrtc_protocol::MAX_FRAME;
 use engine_webrtc_protocol::channel::{DeltaHeader, FragmentAssembler};
-use engine_net::rtc_plane::{LABEL_RELIABLE, LABEL_UNRELIABLE, Outbound, RtcSession};
 use str0m::change::SdpOffer;
 use str0m::channel::ChannelId;
 use str0m::net::{Protocol, Receive};
@@ -38,7 +38,11 @@ impl Browser {
     fn new(now: Instant) -> Self {
         let mut rtc = Rtc::new(now);
         rtc.add_local_candidate(Candidate::host(client_addr(), Protocol::Udp).unwrap());
-        Self { rtc, events: Vec::new(), next: now }
+        Self {
+            rtc,
+            events: Vec::new(),
+            next: now,
+        }
     }
 
     fn drain(&mut self) -> Vec<Vec<u8>> {
@@ -61,7 +65,9 @@ impl Browser {
 
     fn feed(&mut self, now: Instant, bytes: &[u8]) -> Vec<Vec<u8>> {
         let recv = Receive::new(Protocol::Udp, server_addr(), client_addr(), bytes).unwrap();
-        self.rtc.handle_input(Input::Receive(now, recv)).expect("feed");
+        self.rtc
+            .handle_input(Input::Receive(now, recv))
+            .expect("feed");
         self.drain()
     }
 
@@ -83,7 +89,10 @@ fn datagrams_of(outbound: Vec<Outbound>) -> Vec<Vec<u8>> {
         .into_iter()
         .filter_map(|o| match o {
             Outbound::Datagram { contents, .. } => {
-                assert!(contents.len() <= MAX_FRAME, "session wire datagram > MAX_FRAME");
+                assert!(
+                    contents.len() <= MAX_FRAME,
+                    "session wire datagram > MAX_FRAME"
+                );
                 Some(contents)
             }
             _ => None,
@@ -159,7 +168,10 @@ fn real_handshake_two_channels_delta_roundtrip() {
 
     assert!(connected, "DTLS/SCTP handshake never completed");
     let (unrel, rel) = server.channel_ids();
-    assert!(unrel.is_some() && rel.is_some(), "server channels did not open");
+    assert!(
+        unrel.is_some() && rel.is_some(),
+        "server channels did not open"
+    );
 
     let browser_unrel = browser
         .channel_open_label(LABEL_UNRELIABLE)
@@ -170,10 +182,26 @@ fn real_handshake_two_channels_delta_roundtrip() {
 
     // The browser is the *answerer* of channels we declared; verify the reliability
     // contract survived SDP negotiation on the browser's view of the channels.
-    let unrel_cfg = browser.rtc.channel(browser_unrel).expect("chan").config().cloned();
-    let rel_cfg = browser.rtc.channel(browser_rel).expect("chan").config().cloned();
-    assert!(unrel_cfg.as_ref().is_some_and(|c| !c.ordered), "unreliable must be unordered");
-    assert!(rel_cfg.as_ref().is_some_and(|c| c.ordered), "reliable must be ordered");
+    let unrel_cfg = browser
+        .rtc
+        .channel(browser_unrel)
+        .expect("chan")
+        .config()
+        .cloned();
+    let rel_cfg = browser
+        .rtc
+        .channel(browser_rel)
+        .expect("chan")
+        .config()
+        .cloned();
+    assert!(
+        unrel_cfg.as_ref().is_some_and(|c| !c.ordered),
+        "unreliable must be unordered"
+    );
+    assert!(
+        rel_cfg.as_ref().is_some_and(|c| c.ordered),
+        "reliable must be ordered"
+    );
 
     // ---- 5 KB delta: fragment on server, reassemble on browser, assert byte-exact.
     let body: Vec<u8> = (0..5_000usize).map(|i| (i % 251) as u8).collect();
@@ -223,5 +251,8 @@ fn real_handshake_two_channels_delta_roundtrip() {
     assert_eq!(done.tick, tick);
     assert_eq!(done.body, body, "reassembled delta differs from source");
     // The delta left the server as many small frames, never one oversized blob.
-    assert!(assembler.assembled() == 1, "exactly one delta should complete");
+    assert!(
+        assembler.assembled() == 1,
+        "exactly one delta should complete"
+    );
 }

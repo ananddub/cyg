@@ -3,12 +3,12 @@
 
 use str0m::{Event, Output};
 
+use super::WebRtcServer;
 use super::contract::{
     Inbound, LabelVerdict, Lane, RejectReason, classify_inbound, classify_label, contract_mismatch,
 };
 use super::session::{Sink, WebRtcSession};
 use super::types::WebRtcServerEvent;
-use super::WebRtcServer;
 
 impl WebRtcServer {
     /// Drain this session's `str0m` output queue.
@@ -25,7 +25,8 @@ impl WebRtcServer {
         while let Ok(output) = session.rtc.poll_output() {
             match output {
                 Output::Transmit(send) => {
-                    sink.pending.push((send.destination, send.contents.to_vec()));
+                    sink.pending
+                        .push((send.destination, send.contents.to_vec()));
                 }
                 Output::Event(Event::Connected) => {
                     session.connected = true;
@@ -36,7 +37,8 @@ impl WebRtcServer {
                 Output::Event(Event::ChannelOpen(cid, label)) => {
                     let verdict = classify_label(&label);
                     let legacy = matches!(verdict, LabelVerdict::LegacyAlias(_));
-                    if let LabelVerdict::Contract(lane) | LabelVerdict::LegacyAlias(lane) = verdict {
+                    if let LabelVerdict::Contract(lane) | LabelVerdict::LegacyAlias(lane) = verdict
+                    {
                         match lane {
                             Lane::Unreliable => session.ch_unreliable = Some(cid),
                             Lane::Reliable => session.ch_reliable = Some(cid),
@@ -61,7 +63,10 @@ impl WebRtcServer {
                             .and_then(|config| contract_mismatch(lane, &config));
                         if let Some(reason) = mismatch {
                             sink.stats.contract_violations += 1;
-                            tracing::warn!("[webrtc] ⚠️ channel '{label}' on {}: {reason}", session.client_id);
+                            tracing::warn!(
+                                "[webrtc] ⚠️ channel '{label}' on {}: {reason}",
+                                session.client_id
+                            );
                         }
                     }
                     // Anything else stays unmapped: neither writable as a game lane nor believable as a source of game frames.
@@ -73,7 +78,12 @@ impl WebRtcServer {
                 Output::Event(Event::ChannelData(data)) => {
                     let lane = session.lanes.get(&data.id).copied();
                     let mut inbound = classify_inbound(lane, &data.data);
-                    if let Inbound::Input { seq, ref mut resupplied, .. } = inbound {
+                    if let Inbound::Input {
+                        seq,
+                        ref mut resupplied,
+                        ..
+                    } = inbound
+                    {
                         *resupplied = !session.last_input_seq.advance(seq);
                         sink.stats.inputs_received += 1;
                         if *resupplied {
@@ -100,7 +110,9 @@ impl WebRtcServer {
                                 .channel_labels
                                 .get(&data.id)
                                 .cloned()
-                                .unwrap_or_else(|| lane.map(Lane::label).unwrap_or("unknown").to_string());
+                                .unwrap_or_else(|| {
+                                    lane.map(Lane::label).unwrap_or("unknown").to_string()
+                                });
                             sink.inbound.push((session.client_id.clone(), other));
                             sink.events.push(WebRtcServerEvent::Message {
                                 client_id: session.client_id.clone(),
@@ -124,7 +136,10 @@ impl WebRtcServer {
                         sink.stats.frames_dropped_no_channel += n as u64;
                     }
                     session.channel_labels.remove(&cid);
-                    if session.ch_reliable.is_none() && session.ch_unreliable.is_none() && session.connected {
+                    if session.ch_reliable.is_none()
+                        && session.ch_unreliable.is_none()
+                        && session.connected
+                    {
                         sink.events.push(WebRtcServerEvent::Disconnected {
                             client_id: session.client_id.clone(),
                         });

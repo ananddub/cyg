@@ -19,7 +19,10 @@ pub struct DashboardHistory {
 
 impl DashboardHistory {
     pub fn new() -> DashboardHistory {
-        DashboardHistory { inner: Mutex::new(VecDeque::with_capacity(HISTORY_LEN)), epoch: Instant::now() }
+        DashboardHistory {
+            inner: Mutex::new(VecDeque::with_capacity(HISTORY_LEN)),
+            epoch: Instant::now(),
+        }
     }
 
     pub fn now_ms(&self) -> u64 {
@@ -31,11 +34,17 @@ impl DashboardHistory {
         if q.len() == HISTORY_LEN {
             q.pop_front();
         }
-        q.push_back(HistoryEntry { snapshot, arrived_ms });
+        q.push_back(HistoryEntry {
+            snapshot,
+            arrived_ms,
+        });
     }
 
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap_or_else(PoisonError::into_inner).len()
+        self.inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -43,15 +52,27 @@ impl DashboardHistory {
     }
 
     pub fn newest(&self) -> Option<HistoryEntry> {
-        self.inner.lock().unwrap_or_else(PoisonError::into_inner).back().cloned()
+        self.inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .back()
+            .cloned()
     }
 
     pub fn snapshot_all(&self) -> Vec<HistoryEntry> {
-        self.inner.lock().unwrap_or_else(PoisonError::into_inner).iter().cloned().collect()
+        self.inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .cloned()
+            .collect()
     }
 
     pub fn clear(&self) {
-        self.inner.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
     }
 }
 
@@ -69,7 +90,13 @@ mod tests {
     fn ring_keeps_the_newest_history_len_samples() {
         let h = DashboardHistory::new();
         for i in 0..(HISTORY_LEN + 50) {
-            h.push(StatusSnapshot { seq: i as u64, ..Default::default() }, i as u64);
+            h.push(
+                StatusSnapshot {
+                    seq: i as u64,
+                    ..Default::default()
+                },
+                i as u64,
+            );
         }
         assert_eq!(h.len(), HISTORY_LEN);
         assert_eq!(h.newest().unwrap().snapshot.seq, (HISTORY_LEN + 49) as u64);

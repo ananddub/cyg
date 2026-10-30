@@ -14,8 +14,16 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
-    pub const ZERO: Self = Self { x: 0.0, y: 0.0, z: 0.0 };
-    pub const UP: Self = Self { x: 0.0, y: 1.0, z: 0.0 };
+    pub const ZERO: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    pub const UP: Self = Self {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    };
 
     #[inline]
     pub fn new(x: f64, y: f64, z: f64) -> Self {
@@ -56,7 +64,11 @@ impl std::ops::Add for Vec3 {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Self) -> Self {
-        Self { x: self.x + rhs.x, y: self.y + rhs.y, z: self.z + rhs.z }
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
+        }
     }
 }
 
@@ -64,7 +76,11 @@ impl std::ops::Sub for Vec3 {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Self) -> Self {
-        Self { x: self.x - rhs.x, y: self.y - rhs.y, z: self.z - rhs.z }
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+            z: self.z - rhs.z,
+        }
     }
 }
 
@@ -72,7 +88,11 @@ impl std::ops::Mul<f64> for Vec3 {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: f64) -> Self {
-        Self { x: self.x * rhs, y: self.y * rhs, z: self.z * rhs }
+        Self {
+            x: self.x * rhs,
+            y: self.y * rhs,
+            z: self.z * rhs,
+        }
     }
 }
 
@@ -104,9 +124,12 @@ impl Aabb {
 
     #[inline]
     pub fn contains_point(&self, pt: Vec3) -> bool {
-        pt.x >= self.min.x && pt.x <= self.max.x &&
-        pt.y >= self.min.y && pt.y <= self.max.y &&
-        pt.z >= self.min.z && pt.z <= self.max.z
+        pt.x >= self.min.x
+            && pt.x <= self.max.x
+            && pt.y >= self.min.y
+            && pt.y <= self.max.y
+            && pt.z >= self.min.z
+            && pt.z <= self.max.z
     }
 
     #[inline]
@@ -279,7 +302,11 @@ struct Candidates {
 impl Candidates {
     #[inline]
     fn new() -> Self {
-        Self { ids: [0; MAX_GRID_CANDIDATES], len: 0, overflow: false }
+        Self {
+            ids: [0; MAX_GRID_CANDIDATES],
+            len: 0,
+            overflow: false,
+        }
     }
 
     /// Insert keeping the window sorted, dropping duplicates.
@@ -597,7 +624,14 @@ impl PhysicsWorld3D {
     /// Visit `f` for every obstacle overlapping the XZ rect, in obstacle order.
     /// Falls back to a full scan when a query window overflows.
     #[inline]
-    fn for_each_in_rect(&self, min_x: f64, max_x: f64, min_z: f64, max_z: f64, mut f: impl FnMut(&ObstacleCollider)) {
+    fn for_each_in_rect(
+        &self,
+        min_x: f64,
+        max_x: f64,
+        min_z: f64,
+        max_z: f64,
+        mut f: impl FnMut(&ObstacleCollider),
+    ) {
         let found = self.grid.query(min_x, max_x, min_z, max_z);
         if found.overflow {
             for obs in &self.obstacles {
@@ -617,28 +651,22 @@ impl PhysicsWorld3D {
 
         // A roof counts iff its footprint touches [px-r..px+r] x [pz-r..pz+r],
         // which is exactly the rect the grid is queried with.
-        self.for_each_in_rect(
-            px - r,
-            px + r,
-            pz - r,
-            pz + r,
-            |obs| {
-                if !obs.is_walkable_roof {
-                    return;
-                }
-                let min_x = obs.bounds.min.x - r;
-                let max_x = obs.bounds.max.x + r;
-                let min_z = obs.bounds.min.z - r;
-                let max_z = obs.bounds.max.z + r;
+        self.for_each_in_rect(px - r, px + r, pz - r, pz + r, |obs| {
+            if !obs.is_walkable_roof {
+                return;
+            }
+            let min_x = obs.bounds.min.x - r;
+            let max_x = obs.bounds.max.x + r;
+            let min_z = obs.bounds.min.z - r;
+            let max_z = obs.bounds.max.z + r;
 
-                if px >= min_x && px <= max_x && pz >= min_z && pz <= max_z {
-                    // Check if player is approaching or standing at rooftop level
-                    if py >= obs.height - 2.5 && obs.height > surface_y {
-                        surface_y = obs.height;
-                    }
+            if px >= min_x && px <= max_x && pz >= min_z && pz <= max_z {
+                // Check if player is approaching or standing at rooftop level
+                if py >= obs.height - 2.5 && obs.height > surface_y {
+                    surface_y = obs.height;
                 }
-            },
-        );
+            }
+        });
 
         surface_y
     }
@@ -748,27 +776,28 @@ impl PhysicsWorld3D {
         // Anything the segment can touch has a footprint overlapping the
         // segment's XZ bounding box, so that box is the broadphase query rect.
         let far = origin + norm_dir * max_dist;
-        self.for_each_in_rect(
-            origin.x,
-            far.x,
-            origin.z,
-            far.z,
-            |obs| {
-                if let Some(mut hit) = obs.bounds.ray_intersect(origin, norm_dir, nearest_dist) {
-                    if hit.distance < nearest_dist {
-                        nearest_dist = hit.distance;
-                        hit.collider_id = obs.id;
-                        closest_hit = Some(hit);
-                    }
+        self.for_each_in_rect(origin.x, far.x, origin.z, far.z, |obs| {
+            if let Some(mut hit) = obs.bounds.ray_intersect(origin, norm_dir, nearest_dist) {
+                if hit.distance < nearest_dist {
+                    nearest_dist = hit.distance;
+                    hit.collider_id = obs.id;
+                    closest_hit = Some(hit);
                 }
-            },
-        );
+            }
+        });
 
         closest_hit
     }
 
     /// Record an active dynamic entity hitbox into the authoritative lag compensation history
-    pub fn record_entity_hitbox(&mut self, tick: u64, timestamp_ms: u64, entity_id: u32, kind: u32, bounds: Aabb) {
+    pub fn record_entity_hitbox(
+        &mut self,
+        tick: u64,
+        timestamp_ms: u64,
+        entity_id: u32,
+        kind: u32,
+        bounds: Aabb,
+    ) {
         self.lag_comp.record_entity(
             tick,
             timestamp_ms,
@@ -869,7 +898,10 @@ mod tests {
                 HistoricalEntity {
                     entity_id: i as u32,
                     kind: 1,
-                    bounds: Aabb { min: Vec3::ZERO, max: Vec3::ZERO },
+                    bounds: Aabb {
+                        min: Vec3::ZERO,
+                        max: Vec3::ZERO,
+                    },
                 },
             );
         }
@@ -889,14 +921,24 @@ mod tests {
         };
 
         for t in tick.saturating_sub(140)..=tick + 40 {
-            assert_eq!(comp.find_snapshot(t).map(|s| s.tick), linear(t), "shoot_tick={t}");
+            assert_eq!(
+                comp.find_snapshot(t).map(|s| s.tick),
+                linear(t),
+                "shoot_tick={t}"
+            );
         }
     }
 
     #[test]
     fn test_raycast_hit() {
         let mut world = PhysicsWorld3D::new(400.0, 400.0);
-        world.add_box_obstacle(1, "bunker", Vec3::new(0.0, 10.0, 50.0), Vec3::new(20.0, 20.0, 20.0), true);
+        world.add_box_obstacle(
+            1,
+            "bunker",
+            Vec3::new(0.0, 10.0, 50.0),
+            Vec3::new(20.0, 20.0, 20.0),
+            true,
+        );
 
         let hit = world.raycast(Vec3::new(0.0, 10.0, 0.0), Vec3::new(0.0, 0.0, 1.0), 100.0);
         assert!(hit.is_some());
@@ -942,7 +984,10 @@ mod tests {
                     expected_surface = obs.height;
                 }
             }
-            assert_eq!(world.get_surface_height(px, py, pz, radius), expected_surface);
+            assert_eq!(
+                world.get_surface_height(px, py, pz, radius),
+                expected_surface
+            );
 
             let dir = Vec3::new(rnd(), 0.0, rnd());
             let norm = dir.normalize();
@@ -959,14 +1004,24 @@ mod tests {
                     }
                 }
             }
-            assert_eq!(world.raycast(origin, dir, max_dist), expected, "raycast at {px},{pz}");
+            assert_eq!(
+                world.raycast(origin, dir, max_dist),
+                expected,
+                "raycast at {px},{pz}"
+            );
         }
     }
 
     #[test]
     fn test_move_and_slide() {
         let mut world = PhysicsWorld3D::new(400.0, 400.0);
-        world.add_box_obstacle(1, "bunker", Vec3::new(0.0, 10.0, 0.0), Vec3::new(20.0, 20.0, 20.0), true);
+        world.add_box_obstacle(
+            1,
+            "bunker",
+            Vec3::new(0.0, 10.0, 0.0),
+            Vec3::new(20.0, 20.0, 20.0),
+            true,
+        );
 
         // Try walking into the box
         let res = world.move_and_slide(0.0, 0.0, -15.0, 0.0, 0.0, 10.0, 3.6, 1.0);
@@ -979,11 +1034,13 @@ mod tests {
         let mut world = PhysicsWorld3D::new(400.0, 400.0);
 
         // Target player (ID 42) is at (0, 5, 40) at Tick 100
-        let box_tick_100 = Aabb::from_center_size(Vec3::new(0.0, 5.0, 40.0), Vec3::new(4.0, 4.0, 4.0));
+        let box_tick_100 =
+            Aabb::from_center_size(Vec3::new(0.0, 5.0, 40.0), Vec3::new(4.0, 4.0, 4.0));
         world.record_entity_hitbox(100, 1000, 42, 1, box_tick_100);
 
         // Target player moves to (0, 5, 80) at Tick 105
-        let box_tick_105 = Aabb::from_center_size(Vec3::new(0.0, 5.0, 80.0), Vec3::new(4.0, 4.0, 4.0));
+        let box_tick_105 =
+            Aabb::from_center_size(Vec3::new(0.0, 5.0, 80.0), Vec3::new(4.0, 4.0, 4.0));
         world.record_entity_hitbox(105, 1083, 42, 1, box_tick_105);
 
         // Shooter fires at Tick 100 aiming towards (0, 5, 40)
@@ -1007,10 +1064,17 @@ mod tests {
     fn test_lag_compensation_wall_occlusion() {
         let mut world = PhysicsWorld3D::new(400.0, 400.0);
         // Concrete wall at z = 20
-        world.add_box_obstacle(99, "concrete_wall", Vec3::new(0.0, 5.0, 20.0), Vec3::new(20.0, 10.0, 2.0), false);
+        world.add_box_obstacle(
+            99,
+            "concrete_wall",
+            Vec3::new(0.0, 5.0, 20.0),
+            Vec3::new(20.0, 10.0, 2.0),
+            false,
+        );
 
         // Target player is behind the wall at z = 40
-        let target_box = Aabb::from_center_size(Vec3::new(0.0, 5.0, 40.0), Vec3::new(4.0, 4.0, 4.0));
+        let target_box =
+            Aabb::from_center_size(Vec3::new(0.0, 5.0, 40.0), Vec3::new(4.0, 4.0, 4.0));
         world.record_entity_hitbox(50, 500, 77, 1, target_box);
 
         // Shooter fires from z = 0 towards target at z = 40

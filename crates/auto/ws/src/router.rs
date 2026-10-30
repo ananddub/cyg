@@ -51,19 +51,17 @@ pub async fn mount<P: Protocol>(container: &Container, router: Router) -> Result
         let registrar = Arc::new(registrar);
         router = router.route(
             path,
-            get(
-                move |ws: WebSocketUpgrade, parts: Parts| {
-                    let registrar = Arc::clone(&registrar);
-                    async move {
-                        match P::authenticate(&parts) {
-                            Ok(identity) => ws.on_upgrade(move |socket| {
-                                serve::<P>(socket, identity, registrar)
-                            }),
-                            Err(response) => response,
+            get(move |ws: WebSocketUpgrade, parts: Parts| {
+                let registrar = Arc::clone(&registrar);
+                async move {
+                    match P::authenticate(&parts) {
+                        Ok(identity) => {
+                            ws.on_upgrade(move |socket| serve::<P>(socket, identity, registrar))
                         }
+                        Err(response) => response,
                     }
-                },
-            ),
+                }
+            }),
         );
     }
     Ok(router)

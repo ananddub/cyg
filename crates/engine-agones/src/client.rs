@@ -41,7 +41,10 @@ pub struct SidecarConfig {
 impl SidecarConfig {
     /// `host` and `port` as configured by `[control.agones]`.
     pub fn new(host: &str, port: u16, timeout: Duration) -> SidecarConfig {
-        SidecarConfig { addr: format!("{host}:{port}"), timeout }
+        SidecarConfig {
+            addr: format!("{host}:{port}"),
+            timeout,
+        }
     }
 
     /// Loopback on `port` with a one-second budget — the usual pod shape.
@@ -165,12 +168,20 @@ fn request(config: &SidecarConfig, method: &str, path: &str) -> Result<Reply, Si
         "{method} {path} HTTP/1.1\r\nHost: {}\r\nUser-Agent: cyg-agones/0.1\r\nAccept: */*\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         config.addr
     );
-    let budget = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+    let budget = deadline
+        .saturating_duration_since(Instant::now())
+        .max(Duration::from_millis(1));
     stream
         .set_write_timeout(Some(budget))
         .map_err(|e| unreachable(config, format!("set_write_timeout failed: {e}")))?;
-    if let Err(e) = stream.write_all(head.as_bytes()).and_then(|_| stream.flush()) {
-        return Err(unreachable(config, format!("sending `{method} {path}` failed: {e}")));
+    if let Err(e) = stream
+        .write_all(head.as_bytes())
+        .and_then(|_| stream.flush())
+    {
+        return Err(unreachable(
+            config,
+            format!("sending `{method} {path}` failed: {e}"),
+        ));
     }
 
     read_reply(config, &mut stream, deadline)
@@ -182,10 +193,18 @@ fn request(config: &SidecarConfig, method: &str, path: &str) -> Result<Reply, Si
 fn connect(config: &SidecarConfig, deadline: Instant) -> Result<TcpStream, SidecarError> {
     let addrs: Vec<SocketAddr> = match config.addr.as_str().to_socket_addrs() {
         Ok(iter) => iter.collect(),
-        Err(e) => return Err(unreachable(config, format!("cannot resolve `{}`: {e}", config.addr))),
+        Err(e) => {
+            return Err(unreachable(
+                config,
+                format!("cannot resolve `{}`: {e}", config.addr),
+            ));
+        }
     };
     if addrs.is_empty() {
-        return Err(unreachable(config, format!("`{}` resolved to no address", config.addr)));
+        return Err(unreachable(
+            config,
+            format!("`{}` resolved to no address", config.addr),
+        ));
     }
     let mut last = String::from("no address attempted");
     for addr in addrs {
@@ -233,7 +252,9 @@ fn read_reply(
             timed_out = true;
             break;
         }
-        let slice = (deadline - now).min(READ_SLICE).max(Duration::from_millis(1));
+        let slice = (deadline - now)
+            .min(READ_SLICE)
+            .max(Duration::from_millis(1));
         stream
             .set_read_timeout(Some(slice))
             .map_err(|e| unreachable(config, format!("set_read_timeout failed: {e}")))?;
@@ -242,7 +263,12 @@ fn read_reply(
             Ok(n) => buf.extend_from_slice(&tmp[..n]),
             Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
             Err(e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) => return Err(unreachable(config, format!("reading the reply failed: {e}"))),
+            Err(e) => {
+                return Err(unreachable(
+                    config,
+                    format!("reading the reply failed: {e}"),
+                ));
+            }
         }
     }
 
@@ -259,7 +285,10 @@ fn read_reply(
         Parse::Complete(reply) => Ok(reply),
         Parse::Failed(e) => Err(e),
         Parse::Partial => Err(SidecarError::Malformed {
-            reason: format!("sidecar closed the connection after {} unreadable bytes", buf.len()),
+            reason: format!(
+                "sidecar closed the connection after {} unreadable bytes",
+                buf.len()
+            ),
         }),
     }
 }
@@ -282,7 +311,10 @@ fn try_parse(buf: &[u8], ended: bool) -> Parse {
         }
         return if ended {
             Parse::Failed(SidecarError::Malformed {
-                reason: format!("truncated reply: {} bytes with no complete header block", buf.len()),
+                reason: format!(
+                    "truncated reply: {} bytes with no complete header block",
+                    buf.len()
+                ),
             })
         } else {
             Parse::Partial
@@ -297,34 +329,51 @@ fn try_parse(buf: &[u8], ended: bool) -> Parse {
 
     // A reply that must not carry a body is complete the moment its headers are.
     if head.status == 204 || head.status == 304 {
-        return Parse::Complete(Reply { status: head.status, reason: head.reason, body: Vec::new() });
+        return Parse::Complete(Reply {
+            status: head.status,
+            reason: head.reason,
+            body: Vec::new(),
+        });
     }
 
     match head.framing() {
         Framing::Length(n) => {
             if n > MAX_BODY_BYTES {
                 return Parse::Failed(SidecarError::Malformed {
-                    reason: format!("sidecar promised a {n}-byte body, over our {MAX_BODY_BYTES}-byte cap"),
+                    reason: format!(
+                        "sidecar promised a {n}-byte body, over our {MAX_BODY_BYTES}-byte cap"
+                    ),
                 });
             }
             if body.len() >= n {
-                Parse::Complete(Reply { status: head.status, reason: head.reason, body: body[..n].to_vec() })
+                Parse::Complete(Reply {
+                    status: head.status,
+                    reason: head.reason,
+                    body: body[..n].to_vec(),
+                })
             } else if ended {
                 Parse::Failed(SidecarError::Malformed {
-                    reason: format!("truncated body: sidecar promised {n} bytes, sent {}", body.len()),
+                    reason: format!(
+                        "truncated body: sidecar promised {n} bytes, sent {}",
+                        body.len()
+                    ),
                 })
             } else {
                 Parse::Partial
             }
         }
         Framing::Chunked => match decode_chunked(body) {
-            Chunk::Complete(decoded) => {
-                Parse::Complete(Reply { status: head.status, reason: head.reason, body: decoded })
-            }
+            Chunk::Complete(decoded) => Parse::Complete(Reply {
+                status: head.status,
+                reason: head.reason,
+                body: decoded,
+            }),
             Chunk::Bad(reason) => Parse::Failed(SidecarError::Malformed { reason }),
             Chunk::More => {
                 if ended {
-                    Parse::Failed(SidecarError::Malformed { reason: "truncated chunked body".into() })
+                    Parse::Failed(SidecarError::Malformed {
+                        reason: "truncated chunked body".into(),
+                    })
                 } else {
                     Parse::Partial
                 }
@@ -333,7 +382,11 @@ fn try_parse(buf: &[u8], ended: bool) -> Parse {
         // `Connection: close` with no length: the body is whatever arrives.
         Framing::UntilEof => {
             if ended {
-                Parse::Complete(Reply { status: head.status, reason: head.reason, body: body.to_vec() })
+                Parse::Complete(Reply {
+                    status: head.status,
+                    reason: head.reason,
+                    body: body.to_vec(),
+                })
             } else {
                 Parse::Partial
             }
@@ -381,12 +434,18 @@ fn parse_head(head: &[u8]) -> Result<Head, SidecarError> {
     let version = fields.next().unwrap_or("");
     if !version.starts_with("HTTP/") {
         return Err(SidecarError::Malformed {
-            reason: format!("no HTTP status line (starts with {:?})", truncate(status_line, 40)),
+            reason: format!(
+                "no HTTP status line (starts with {:?})",
+                truncate(status_line, 40)
+            ),
         });
     }
     let Some(status) = fields.next().and_then(|v| v.trim().parse::<u16>().ok()) else {
         return Err(SidecarError::Malformed {
-            reason: format!("status line has no numeric code: {:?}", truncate(status_line, 60)),
+            reason: format!(
+                "status line has no numeric code: {:?}",
+                truncate(status_line, 60)
+            ),
         });
     };
     let reason = fields.next().unwrap_or("").trim().to_string();
@@ -394,7 +453,9 @@ fn parse_head(head: &[u8]) -> Result<Head, SidecarError> {
     let mut content_length = None;
     let mut chunked = false;
     for line in lines {
-        let Some((name, value)) = line.split_once(':') else { continue };
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
         match name.trim().to_ascii_lowercase().as_str() {
             "content-length" => {
                 let parsed: Option<usize> = value.trim().parse().ok();
@@ -408,21 +469,28 @@ fn parse_head(head: &[u8]) -> Result<Head, SidecarError> {
                     }
                     (None, None) => {
                         return Err(SidecarError::Malformed {
-                            reason: format!("unparseable Content-Length {:?}", truncate(value.trim(), 20)),
+                            reason: format!(
+                                "unparseable Content-Length {:?}",
+                                truncate(value.trim(), 20)
+                            ),
                         });
                     }
                     _ => {}
                 }
             }
-            "transfer-encoding"
-                if value.to_ascii_lowercase().contains("chunked") => {
+            "transfer-encoding" if value.to_ascii_lowercase().contains("chunked") => {
                 chunked = true;
             }
             _ => {}
         }
     }
 
-    Ok(Head { status, reason, content_length, chunked })
+    Ok(Head {
+        status,
+        reason,
+        content_length,
+        chunked,
+    })
 }
 
 enum Chunk {
@@ -437,7 +505,9 @@ fn decode_chunked(body: &[u8]) -> Chunk {
     let mut out: Vec<u8> = Vec::new();
     let mut rest = body;
     loop {
-        let Some(line_end) = find_crlf(rest) else { return Chunk::More };
+        let Some(line_end) = find_crlf(rest) else {
+            return Chunk::More;
+        };
         let line = match std::str::from_utf8(&rest[..line_end]) {
             Ok(line) => line,
             Err(_) => return Chunk::Bad("chunk size line was not UTF-8".into()),
@@ -458,7 +528,9 @@ fn decode_chunked(body: &[u8]) -> Chunk {
         }
         out.extend_from_slice(&rest[data_start..data_start + size]);
         if out.len() > MAX_BODY_BYTES {
-            return Chunk::Bad(format!("chunked body exceeded the {MAX_BODY_BYTES}-byte cap"));
+            return Chunk::Bad(format!(
+                "chunked body exceeded the {MAX_BODY_BYTES}-byte cap"
+            ));
         }
         rest = &rest[data_start + size + 2..];
     }
@@ -469,7 +541,10 @@ fn find_crlf(buf: &[u8]) -> Option<usize> {
 }
 
 fn unreachable(config: &SidecarConfig, reason: String) -> SidecarError {
-    SidecarError::Unreachable { addr: config.addr.clone(), reason }
+    SidecarError::Unreachable {
+        addr: config.addr.clone(),
+        reason,
+    }
 }
 
 /// Byte-safe truncation for log and error text: cuts at a char boundary so the
@@ -491,7 +566,11 @@ mod tests {
     use super::*;
 
     fn reply_bytes(body: &[u8]) -> Reply {
-        Reply { status: 200, reason: "OK".into(), body: body.to_vec() }
+        Reply {
+            status: 200,
+            reason: "OK".into(),
+            body: body.to_vec(),
+        }
     }
 
     #[test]
@@ -547,14 +626,20 @@ mod tests {
     #[test]
     fn a_non_hexadecimal_chunk_size_is_malformed() {
         let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nfoo\r\n";
-        assert!(matches!(try_parse(raw, false), Parse::Failed(SidecarError::Malformed { .. })));
+        assert!(matches!(
+            try_parse(raw, false),
+            Parse::Failed(SidecarError::Malformed { .. })
+        ));
     }
 
     #[test]
     fn chunked_with_missing_terminator_is_not_complete() {
         let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nfoo";
         assert!(matches!(try_parse(raw, false), Parse::Partial));
-        assert!(matches!(try_parse(raw, true), Parse::Failed(SidecarError::Malformed { .. })));
+        assert!(matches!(
+            try_parse(raw, true),
+            Parse::Failed(SidecarError::Malformed { .. })
+        ));
     }
 
     #[test]
@@ -572,7 +657,10 @@ mod tests {
     fn no_header_block_at_eof_is_malformed() {
         let raw = b"HTTP/1.1 200 OK\r\nCont";
         assert!(matches!(try_parse(raw, false), Parse::Partial));
-        assert!(matches!(try_parse(raw, true), Parse::Failed(SidecarError::Malformed { .. })));
+        assert!(matches!(
+            try_parse(raw, true),
+            Parse::Failed(SidecarError::Malformed { .. })
+        ));
     }
 
     #[test]
@@ -588,7 +676,10 @@ mod tests {
     #[test]
     fn empty_or_garbage_status_line_is_malformed() {
         let raw = b"not http at all\r\n\r\n";
-        assert!(matches!(try_parse(raw, true), Parse::Failed(SidecarError::Malformed { .. })));
+        assert!(matches!(
+            try_parse(raw, true),
+            Parse::Failed(SidecarError::Malformed { .. })
+        ));
     }
 
     #[test]
@@ -600,13 +691,20 @@ mod tests {
     #[test]
     fn conflicting_content_lengths_are_malformed() {
         let raw = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 9\r\n\r\nhello";
-        assert!(matches!(try_parse(raw, false), Parse::Failed(SidecarError::Malformed { .. })));
+        assert!(matches!(
+            try_parse(raw, false),
+            Parse::Failed(SidecarError::Malformed { .. })
+        ));
     }
 
     #[test]
     fn reply_success_and_lossy_body() {
         assert!(reply_bytes(b"").is_success());
-        let r = Reply { status: 400, reason: "Bad Request".into(), body: vec![0xff, b'x'] };
+        let r = Reply {
+            status: 400,
+            reason: "Bad Request".into(),
+            body: vec![0xff, b'x'],
+        };
         assert!(!r.is_success());
         assert!(r.body_lossy().contains('x'));
     }
@@ -621,7 +719,10 @@ mod tests {
     fn config_builds_host_port_addr() {
         let cfg = SidecarConfig::new("127.0.0.1", 9358, Duration::from_millis(500));
         assert_eq!(cfg.addr, "127.0.0.1:9358");
-        assert_eq!(cfg.clone().with_timeout(Duration::from_secs(2)).timeout, Duration::from_secs(2));
+        assert_eq!(
+            cfg.clone().with_timeout(Duration::from_secs(2)).timeout,
+            Duration::from_secs(2)
+        );
         assert_eq!(SidecarConfig::loopback(9358).addr, "127.0.0.1:9358");
     }
 }

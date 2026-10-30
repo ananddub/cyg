@@ -36,7 +36,14 @@ impl WebRtcServer {
             self.sink.stats.frames_dropped_no_channel += fragments as u64;
             return Ok(DeltaSendReport::skipped(fragments));
         };
-        Ok(Self::send_delta_frames(session, seq, tick, frames, fragments, &mut self.sink))
+        Ok(Self::send_delta_frames(
+            session,
+            seq,
+            tick,
+            frames,
+            fragments,
+            &mut self.sink,
+        ))
     }
 
     /// Send one stamped delta to every session with an open unreliable lane.
@@ -123,7 +130,11 @@ impl WebRtcServer {
         let mut accepted = 0usize;
         let mut dropped = 0usize;
         // Frames already waiting means this delta joins the queue too, so a partially delivered delta cannot interleave with the one before it.
-        let mut hold_from: Option<usize> = if session.queue(lane).is_empty() { None } else { Some(0) };
+        let mut hold_from: Option<usize> = if session.queue(lane).is_empty() {
+            None
+        } else {
+            Some(0)
+        };
 
         if hold_from.is_none() {
             for (idx, frame) in frames.iter().enumerate() {

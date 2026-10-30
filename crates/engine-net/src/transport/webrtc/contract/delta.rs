@@ -12,10 +12,7 @@ pub enum DeltaTooLarge {
     /// The body needs more than [`engine_webrtc_protocol::MAX_FRAGMENTS`] chunks. Refused whole: a
     /// truncated delta is a corrupt world state, and an oversized frame is a
     /// message SCTP will reassemble badly or drop entirely.
-    BodyTooLarge {
-        body_len: usize,
-        max: usize,
-    },
+    BodyTooLarge { body_len: usize, max: usize },
 }
 
 impl core::fmt::Display for DeltaTooLarge {
@@ -44,14 +41,20 @@ pub fn split_delta(
 ) -> Result<usize, DeltaTooLarge> {
     let Some(total) = delta_fragment_count(body.len()) else {
         out.clear();
-        return Err(DeltaTooLarge::BodyTooLarge { body_len: body.len(), max: MAX_DELTA_BODY });
+        return Err(DeltaTooLarge::BodyTooLarge {
+            body_len: body.len(),
+            max: MAX_DELTA_BODY,
+        });
     };
 
     out.clear();
     let mut scratch = Vec::with_capacity(MAX_DELTA_CHUNK + DELTA_HEADER_LEN);
     for (idx, chunk) in body.chunks(MAX_DELTA_CHUNK).enumerate() {
         write_delta_frame(&mut scratch, seq, tick, idx as u8, total, chunk);
-        debug_assert!(scratch.len() <= FRAME_MAX_WIRE_LEN, "frame exceeded the MTU");
+        debug_assert!(
+            scratch.len() <= FRAME_MAX_WIRE_LEN,
+            "frame exceeded the MTU"
+        );
         out.push(scratch.clone());
     }
     if out.is_empty() {

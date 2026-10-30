@@ -53,6 +53,9 @@ fn an_idle_overview_carries_every_key_the_dashboard_reads() {
     ] {
         assert!(json.pointer(path).is_some(), "missing {path} in {json}");
     }
-    assert_eq!(json["tick"]["histogram"].as_array().unwrap().len(), crate::TICK_HISTOGRAM_BUCKETS);
+    assert_eq!(
+        json["tick"]["histogram"].as_array().unwrap().len(),
+        crate::TICK_HISTOGRAM_BUCKETS
+    );
     assert_eq!(json["hasSimSample"].as_bool(), Some(false));
 }

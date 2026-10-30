@@ -208,9 +208,7 @@ impl GameTransport for WsTransport {
         }
         for (token, want) in backpressure {
             if let Some(client) = self.clients.get_mut(&token) {
-                crate::transport::ws::client_io::sync_writable_interest(
-                    client, &self.poll, token,
-                );
+                crate::transport::ws::client_io::sync_writable_interest(client, &self.poll, token);
             }
         }
         self.flush_dirty = pending;

@@ -459,7 +459,11 @@ mod tests {
             x ^= x >> 7;
             x ^= x << 17;
             for raw in [i as i64, (i * 1024) as i64, x as i64 & i64::MAX, 1, 2, 3] {
-                assert_eq!(FP::from_raw(raw).sqrt().to_raw(), sqrt_digit_by_digit(raw), "raw={raw}");
+                assert_eq!(
+                    FP::from_raw(raw).sqrt().to_raw(),
+                    sqrt_digit_by_digit(raw),
+                    "raw={raw}"
+                );
             }
         }
     }

@@ -28,19 +28,33 @@ impl PlaneHandle {
     ) -> Result<String, RtcPlaneError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.cmd_tx
-            .send(PlaneCommand::CreateSession { session_id, player_id, reply: reply_tx })
+            .send(PlaneCommand::CreateSession {
+                session_id,
+                player_id,
+                reply: reply_tx,
+            })
             .map_err(|_| RtcPlaneError::PlaneGone)?;
         reply_rx.await.map_err(|_| RtcPlaneError::PlaneGone)?
     }
 
     /// Deliver the browser's SDP answer for a session we offered.
-    pub async fn apply_answer(&self, session_id: Arc<str>, sdp: String) -> Result<(), RtcPlaneError> {
-        self.forward(session_id, SessionInbound::Answer { sdp }).await
+    pub async fn apply_answer(
+        &self,
+        session_id: Arc<str>,
+        sdp: String,
+    ) -> Result<(), RtcPlaneError> {
+        self.forward(session_id, SessionInbound::Answer { sdp })
+            .await
     }
 
     /// Deliver a trickle ICE candidate from the browser.
-    pub async fn add_candidate(&self, session_id: Arc<str>, candidate: String) -> Result<(), RtcPlaneError> {
-        self.forward(session_id, SessionInbound::Candidate { sdp: candidate }).await
+    pub async fn add_candidate(
+        &self,
+        session_id: Arc<str>,
+        candidate: String,
+    ) -> Result<(), RtcPlaneError> {
+        self.forward(session_id, SessionInbound::Candidate { sdp: candidate })
+            .await
     }
 
     /// Close and dispose a session.
@@ -48,7 +62,11 @@ impl PlaneHandle {
         self.forward(session_id, SessionInbound::Close).await
     }
 
-    async fn forward(&self, session_id: Arc<str>, msg: SessionInbound) -> Result<(), RtcPlaneError> {
+    async fn forward(
+        &self,
+        session_id: Arc<str>,
+        msg: SessionInbound,
+    ) -> Result<(), RtcPlaneError> {
         self.cmd_tx
             .send(PlaneCommand::Forward { session_id, msg })
             .map_err(|_| RtcPlaneError::PlaneGone)
@@ -74,7 +92,8 @@ impl PlaneHandle {
     pub fn send_reliable(&self, player_id: &Arc<str>, body: &[u8]) -> bool {
         let body: Arc<[u8]> = Arc::from(body);
         self.route_to_session(player_id, move |tx| {
-            tx.try_send(SessionInbound::Reliable { body: body.clone() }).is_ok()
+            tx.try_send(SessionInbound::Reliable { body: body.clone() })
+                .is_ok()
         })
     }
 
@@ -90,7 +109,9 @@ impl PlaneHandle {
             Some(sid) => sid,
             None => return false,
         };
-        self.registries.route_inbox(&session_id, send).unwrap_or(false)
+        self.registries
+            .route_inbox(&session_id, send)
+            .unwrap_or(false)
     }
 
     /// The "which session belongs to player id" lookup.

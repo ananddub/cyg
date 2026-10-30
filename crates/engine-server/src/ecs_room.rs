@@ -18,8 +18,8 @@ use engine_core::{
     EntityId, Health, PendingDespawn, PlayerControlled, Position3D, RoomRng, TickRunner, Velocity,
 };
 use engine_physics::{
-    step_rapier_3d, sync_ecs_to_rapier_3d, sync_rapier_to_ecs_3d, sync_velocity_to_rapier_3d,
-    CookedMesh, RapierWorld3D,
+    CookedMesh, RapierWorld3D, step_rapier_3d, sync_ecs_to_rapier_3d, sync_rapier_to_ecs_3d,
+    sync_velocity_to_rapier_3d,
 };
 use rapier3d::prelude as r3d;
 
@@ -184,14 +184,19 @@ impl EcsRoomState {
                 },
                 Velocity::default(),
                 Health::new(100.0),
-                PlayerControlled { client_id: id as u64 },
+                PlayerControlled {
+                    client_id: id as u64,
+                },
             ))
             .id();
 
         self.entities.insert(session.to_string(), entity);
         self.entity_ids.insert(session.to_string(), entity_id);
         self.handles.insert(entity_id, handle);
-        self.runner.world.resource_mut::<SessionInputs>().set(entity_id, 0);
+        self.runner
+            .world
+            .resource_mut::<SessionInputs>()
+            .set(entity_id, 0);
     }
 
     /// Queue a leaving session's avatar for despawn at the end of the tick
@@ -215,7 +220,10 @@ impl EcsRoomState {
                 );
                 rapier.entity_handles.remove(&entity_id);
             }
-            self.runner.world.resource_mut::<SessionInputs>().remove(entity_id);
+            self.runner
+                .world
+                .resource_mut::<SessionInputs>()
+                .remove(entity_id);
         }
         self.entities.remove(session);
     }
@@ -237,11 +245,10 @@ impl EcsRoomState {
     pub fn tick(&mut self, _dt: f64) -> Vec<u8> {
         self.runner.tick();
 
-        let mut query = self.runner.world.query_filtered::<(
-            &EntityId,
-            &Position3D,
-            &Health,
-        ), Changed<Position3D>>();
+        let mut query = self
+            .runner
+            .world
+            .query_filtered::<(&EntityId, &Position3D, &Health), Changed<Position3D>>();
         let mut delta = Vec::with_capacity(64);
         for (eid, pos, hp) in query.iter(&self.runner.world) {
             // [tag][len=24][id u64][x f32][y f32][z f32][hp f32]
@@ -288,8 +295,15 @@ impl EcsRoomState {
     }
 
     /// Raycast into the room's physics world (bullet hit registration).
-    pub fn raycast_hit(&mut self, origin: [f32; 3], dir: [f32; 3], max_dist: f32) -> Option<(u32, f32)> {
-        self.rapier_mut().into_inner().raycast_hit(origin, dir, max_dist)
+    pub fn raycast_hit(
+        &mut self,
+        origin: [f32; 3],
+        dir: [f32; 3],
+        max_dist: f32,
+    ) -> Option<(u32, f32)> {
+        self.rapier_mut()
+            .into_inner()
+            .raycast_hit(origin, dir, max_dist)
     }
 
     pub fn player_count(&self) -> usize {
@@ -406,7 +420,11 @@ mod bench {
 
     fn rss_mb() -> f64 {
         let s = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
-        let kb: f64 = s.split_whitespace().nth(1).and_then(|p| p.parse().ok()).unwrap_or(0.0);
+        let kb: f64 = s
+            .split_whitespace()
+            .nth(1)
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(0.0);
         kb * 4.0 / 1024.0
     }
 
@@ -421,7 +439,12 @@ mod bench {
         let mut room = EcsRoomState::new("bench-1k", None);
         let t0 = Instant::now();
         for i in 0..1000 {
-            room.add_player(&format!("s{i}"), i as i64 + 1, (i % 40) as f64 * 15.0, (i / 40) as f64 * 15.0);
+            room.add_player(
+                &format!("s{i}"),
+                i as i64 + 1,
+                (i % 40) as f64 * 15.0,
+                (i / 40) as f64 * 15.0,
+            );
         }
         let spawn_s = t0.elapsed().as_secs_f64();
         for i in 0..1000 {
@@ -436,18 +459,28 @@ mod bench {
             ticks.push(t.elapsed().as_secs_f64() * 1000.0);
         }
         black_box(&ticks);
-        tracing::info!("[A] 1 room / 1000 players: spawn {:.0}ms, tick mean {:.3}ms p50 {:.3} p95 {:.3} p99 {:.3}, delta/tick {}B, RSS+{:.1}MB",
+        tracing::info!(
+            "[A] 1 room / 1000 players: spawn {:.0}ms, tick mean {:.3}ms p50 {:.3} p95 {:.3} p99 {:.3}, delta/tick {}B, RSS+{:.1}MB",
             spawn_s * 1000.0,
             ticks.iter().sum::<f64>() / ticks.len() as f64,
-            pctl(ticks.clone(), 0.5), pctl(ticks.clone(), 0.95), pctl(ticks.clone(), 0.99),
-            delta_bytes, rss_mb());
+            pctl(ticks.clone(), 0.5),
+            pctl(ticks.clone(), 0.95),
+            pctl(ticks.clone(), 0.99),
+            delta_bytes,
+            rss_mb()
+        );
 
         // --- B: 100 rooms x 100 players (tick all rooms sequentially per frame) ---
         let mut rooms: Vec<EcsRoomState> = (0..100)
             .map(|r| {
                 let mut room = EcsRoomState::new(&format!("bench-{r}"), None);
                 for i in 0..100 {
-                    room.add_player(&format!("s{i}"), i as i64 + 1, (i % 10) as f64 * 15.0, (i / 10) as f64 * 15.0);
+                    room.add_player(
+                        &format!("s{i}"),
+                        i as i64 + 1,
+                        (i % 10) as f64 * 15.0,
+                        (i / 10) as f64 * 15.0,
+                    );
                     room.apply_input(&format!("s{i}"), &[input_flags::D | input_flags::S]);
                 }
                 room
@@ -463,9 +496,14 @@ mod bench {
             frame.push(t.elapsed().as_secs_f64() * 1000.0);
         }
         black_box(&frame);
-        tracing::info!("[B] 100 rooms / 10000 players total: frame mean {:.3}ms p50 {:.3} p95 {:.3} p99 {:.3}, deltas/frame {:.0}KB, RSS+{:.1}MB",
+        tracing::info!(
+            "[B] 100 rooms / 10000 players total: frame mean {:.3}ms p50 {:.3} p95 {:.3} p99 {:.3}, deltas/frame {:.0}KB, RSS+{:.1}MB",
             frame.iter().sum::<f64>() / frame.len() as f64,
-            pctl(frame.clone(), 0.5), pctl(frame.clone(), 0.95), pctl(frame.clone(), 0.99),
-            bytes as f64 / 120.0 / 1024.0, rss_mb());
+            pctl(frame.clone(), 0.5),
+            pctl(frame.clone(), 0.95),
+            pctl(frame.clone(), 0.99),
+            bytes as f64 / 120.0 / 1024.0,
+            rss_mb()
+        );
     }
 }

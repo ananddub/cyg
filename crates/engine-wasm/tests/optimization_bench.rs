@@ -34,7 +34,9 @@ fn benchmark_cached_typed_func_vs_string_lookup() {
     // APPROACH 1: String Lookup on Every Call (What our un-cached macro did: ~128ns)
     let start_uncached = Instant::now();
     for i in 0..iterations {
-        let func = instance.get_typed_func::<(i32, f32), i32>(&mut store, "calculate_exp").unwrap();
+        let func = instance
+            .get_typed_func::<(i32, f32), i32>(&mut store, "calculate_exp")
+            .unwrap();
         let _ = func.call(&mut store, (i as i32, 1.2)).unwrap();
     }
     let dur_uncached = start_uncached.elapsed();
@@ -52,9 +54,20 @@ fn benchmark_cached_typed_func_vs_string_lookup() {
     let dur_cached = start_cached.elapsed();
     let ns_cached = (dur_cached.as_nanos() as f64) / (iterations as f64);
 
-    println!("1. Uncached (Per-call String Lookup):  {:.2} ns  ({:.0} calls/sec)", ns_uncached, (iterations as f64) / dur_uncached.as_secs_f64());
-    println!("2. Cached TypedFunc (Direct Pointer):  {:.2} ns  ({:.0} calls/sec)", ns_cached, (iterations as f64) / dur_cached.as_secs_f64());
+    println!(
+        "1. Uncached (Per-call String Lookup):  {:.2} ns  ({:.0} calls/sec)",
+        ns_uncached,
+        (iterations as f64) / dur_uncached.as_secs_f64()
+    );
+    println!(
+        "2. Cached TypedFunc (Direct Pointer):  {:.2} ns  ({:.0} calls/sec)",
+        ns_cached,
+        (iterations as f64) / dur_cached.as_secs_f64()
+    );
     println!("-------------------------------------------------------");
-    println!("SPEEDUP: Cached TypedFunc is {:.1}x FASTER!", ns_uncached / ns_cached);
+    println!(
+        "SPEEDUP: Cached TypedFunc is {:.1}x FASTER!",
+        ns_uncached / ns_cached
+    );
     println!("=======================================================\n");
 }

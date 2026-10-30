@@ -1,4 +1,3 @@
-
 use serde_json::Value;
 
 use engine_dashboard::{
@@ -10,7 +9,10 @@ fn assert_camel_case(value: &Value, path: &str) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                assert!(!key.contains('_'), "snake_case key `{key}` at {path} breaks the camelCase contract");
+                assert!(
+                    !key.contains('_'),
+                    "snake_case key `{key}` at {path} breaks the camelCase contract"
+                );
                 assert_camel_case(child, &format!("{path}/{key}"));
             }
         }
@@ -24,7 +26,8 @@ fn assert_camel_case(value: &Value, path: &str) {
 }
 
 fn camel<T: serde::Serialize>(name: &str, value: &T) -> Value {
-    let json = serde_json::to_value(value).unwrap_or_else(|e| panic!("{name} failed to serialise: {e}"));
+    let json =
+        serde_json::to_value(value).unwrap_or_else(|e| panic!("{name} failed to serialise: {e}"));
     assert_camel_case(&json, name);
     json
 }

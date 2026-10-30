@@ -5,8 +5,8 @@ mod r#loop;
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;

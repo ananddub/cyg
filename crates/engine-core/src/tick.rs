@@ -1,6 +1,6 @@
+use crate::components::PendingDespawn;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::Schedule;
-use crate::components::PendingDespawn;
 
 /// High-performance tick runner for an isolated room.
 ///

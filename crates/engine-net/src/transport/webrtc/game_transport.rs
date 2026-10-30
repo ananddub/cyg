@@ -55,11 +55,8 @@ impl WebRtcTransport {
         let local = sock.local_addr()?;
         let mut sock = UdpSocket::from_std(sock);
         let poll = mio::Poll::new()?;
-        poll.registry().register(
-            &mut sock,
-            mio::Token(0),
-            mio::Interest::READABLE,
-        )?;
+        poll.registry()
+            .register(&mut sock, mio::Token(0), mio::Interest::READABLE)?;
         Ok(Self {
             server: WebRtcServer::new(announced_addrs),
             sock,
@@ -125,7 +122,11 @@ impl WebRtcTransport {
 }
 
 impl GameTransport for WebRtcTransport {
-    fn poll_events(&mut self, timeout: Duration, events: &mut Vec<TransportEvent>) -> io::Result<()> {
+    fn poll_events(
+        &mut self,
+        timeout: Duration,
+        events: &mut Vec<TransportEvent>,
+    ) -> io::Result<()> {
         events.append(&mut self.pending);
         // The loop's idle wait: sleep until the socket has a datagram or the
         // tick deadline rolls. str0m retransmit timers tolerate a slip of up
@@ -150,13 +151,17 @@ impl GameTransport for WebRtcTransport {
                 WebRtcServerEvent::Connected { client_id } => {
                     self.last_seen.insert(client_id.clone(), now);
                     if let Ok(peer) = self.sock.local_addr() {
-                        self.pending.push(TransportEvent::Connected { client_id: client_id.into(), peer_addr: peer });
+                        self.pending.push(TransportEvent::Connected {
+                            client_id: client_id.into(),
+                            peer_addr: peer,
+                        });
                     }
                 }
                 WebRtcServerEvent::ChannelOpen { client_id, label } => {
                     self.last_seen.insert(client_id.clone(), now);
                     if label == Lane::Reliable.label() && !self.schema_descriptor.is_empty() {
-                        self.server.send_reliable(&client_id, &self.schema_descriptor);
+                        self.server
+                            .send_reliable(&client_id, &self.schema_descriptor);
                     }
                 }
                 WebRtcServerEvent::Disconnected { client_id } => {

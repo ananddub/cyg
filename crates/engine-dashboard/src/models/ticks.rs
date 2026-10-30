@@ -31,6 +31,9 @@ mod tests {
     fn an_empty_series_still_ships_its_axis() {
         let json = serde_json::to_value(TickSeries::default()).unwrap();
         assert!(json["points"].as_array().unwrap().is_empty());
-        assert_eq!(json["bucketEdgesUs"].as_array().unwrap().len(), TICK_HISTOGRAM_BUCKETS);
+        assert_eq!(
+            json["bucketEdgesUs"].as_array().unwrap().len(),
+            TICK_HISTOGRAM_BUCKETS
+        );
     }
 }
