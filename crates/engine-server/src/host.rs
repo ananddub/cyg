@@ -692,6 +692,41 @@ fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport, bus: &Bus
     }
 }
 
+/// The drain is a window, not a switch. Whatever caught SIGTERM only latches a
+/// flag; this is the loop's half of it — the first pass that sees the flag opens
+/// `[lifecycle] drain_grace_secs` and tells the rooms, and the pass that finds
+/// the window closed is allowed to stop. Checking between ticks means a guest is
+/// never cut off mid-callback.
+#[derive(Debug)]
+struct Drain {
+    grace: Duration,
+    deadline: Option<Instant>,
+}
+
+impl Drain {
+    fn new(grace: Duration) -> Self {
+        Self {
+            grace,
+            deadline: None,
+        }
+    }
+
+    /// Open the window. `true` the first time only, so the rooms are told once
+    /// however many passes the flag takes to reach the end of its grace.
+    fn begin(&mut self, now: Instant) -> bool {
+        if self.deadline.is_some() {
+            return false;
+        }
+        self.deadline = Some(now + self.grace);
+        true
+    }
+
+    /// Whether the window has run out and the loop may finish the job.
+    fn expired(&self, now: Instant) -> bool {
+        self.deadline.is_some_and(|at| now >= at)
+    }
+}
+
 /// Run the server until killed.
 ///
 /// `bus` is the same `Arc<Bus>` the control plane was spawned with: this loop is
@@ -1271,28 +1306,21 @@ pub fn run(
     // housekeeping pass. Rooms leave it when they are disposed.
     let mut match_peaks: HashMap<String, u32> = HashMap::new();
     // When the drain is latched, the moment the process is allowed to stop.
-    let mut drain_deadline: Option<Instant> = None;
+    let mut drain = Drain::new(Duration::from_secs(cfg.lifecycle.drain_grace_secs));
 
     loop {
         // ---- termination: the plane's signal watcher latched the drain
-        // Checked between ticks, never inside one, so a guest is never cut off
-        // mid-callback and every room gets its `on_save` and `on_dispose`.
         if bus.is_draining() {
-            let deadline = match drain_deadline {
-                Some(at) => at,
-                None => {
-                    let grace = Duration::from_secs(cfg.lifecycle.drain_grace_secs);
-                    let at = Instant::now() + grace;
-                    drain_deadline = Some(at);
-                    tracing::info!(
-                        "[server] 🛑 drain requested: {} room(s) get {grace:?} to finish and leave",
-                        server.rooms.len()
-                    );
-                    announce_closure(&server, &mut transport);
-                    at
-                }
-            };
-            if Instant::now() >= deadline {
+            let now = Instant::now();
+            if drain.begin(now) {
+                tracing::info!(
+                    "[server] 🛑 drain requested: {} room(s) get {:?} to finish and leave",
+                    server.rooms.len(),
+                    drain.grace
+                );
+                announce_closure(&server, &mut transport);
+            }
+            if drain.expired(Instant::now()) {
                 drain_rooms(&mut server, &mut transport, &bus, &game_id);
                 return Ok(());
             }
@@ -3072,6 +3100,66 @@ mod loop_transport_tests {
         assert_eq!(sanitize_room_name("smoke?sessionId=alice&token=x"), "smoke");
         assert_eq!(sanitize_room_name("smoke?room=ignored"), "smoke");
         assert_eq!(sanitize_room_name("smoke/sessionId=alice"), "smoke/");
+    }
+
+    /// A drain is a save as well as a close: the state has to leave the process
+    /// — to the control plane's queue and into the host's own cache — or the pod
+    /// that dies takes the match with it.
+    #[test]
+    fn drain_saves_the_state_of_every_room_it_closes() {
+        let mut server = GameServer::new(
+            None,
+            16,
+            PhysicsWorld3D::default(),
+            engine_wasm::AbiPermissions::default(),
+        );
+        server.get_or_create_ecs("arena", None);
+
+        let mut t = transport();
+        let bus = Bus::new(8, 8);
+        drain_rooms(&mut server, &mut t, &bus, "tank-3d");
+
+        let saved = bus
+            .snapshots_rx
+            .try_recv()
+            .expect("a simulated room's state rode the bus");
+        assert_eq!(saved.room, "arena");
+        assert_eq!(saved.backend, "ecs");
+        assert_eq!(saved.seq, 1, "the room's first save is numbered one");
+        assert!(
+            server.has_snapshot("arena"),
+            "the host kept its own copy for the room's next life"
+        );
+        let match_ = bus.matches_rx.try_recv().expect("the match is queued");
+        assert_eq!(
+            match_.snapshot_seq, 1,
+            "and the match row points at that save"
+        );
+    }
+
+    /// The grace window is the loop's, not the signal handler's: it opens on the
+    /// first pass that sees the latch, tells the rooms exactly once, and only
+    /// then lets the process stop.
+    #[test]
+    fn a_drain_gets_its_grace_window_before_the_loop_stops() {
+        let grace = Duration::from_secs(15);
+        let mut drain = Drain::new(grace);
+        let started = Instant::now();
+
+        assert!(
+            !drain.expired(started),
+            "no request, so nothing to wait for"
+        );
+        assert!(drain.begin(started), "the first pass opens the window");
+        assert!(!drain.begin(started), "a later pass does not reopen it");
+        assert!(
+            !drain.expired(started + Duration::from_secs(14)),
+            "the rooms are still inside their grace"
+        );
+        assert!(
+            drain.expired(started + grace),
+            "at the deadline the loop may finish and leave"
+        );
     }
 
     /// SIGTERM's last act must leave nothing behind: every room is out of the
