@@ -120,6 +120,28 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
         }
     }
 
+    if let Some(l) = table.get("lifecycle").and_then(|v| v.as_table()) {
+        if let Some(v) = l.get("room_max_seconds").and_then(|v| v.as_integer()) {
+            cfg.lifecycle.room_max_seconds = v.max(0) as u64;
+        }
+        if let Some(v) = l.get("reap_idle_secs").and_then(|v| v.as_integer()) {
+            cfg.lifecycle.reap_idle_secs = v.max(0) as u64;
+        }
+        if let Some(v) = l.get("peer_idle_ms").and_then(|v| v.as_integer()) {
+            cfg.lifecycle.peer_idle_ms = v.max(0) as u64;
+        }
+        if let Some(v) = l.get("seat_hold_secs").and_then(|v| v.as_integer()) {
+            cfg.lifecycle.seat_hold_secs = v.max(0) as u64;
+        }
+        if let Some(rooms) = l.get("persistent_rooms").and_then(|v| v.as_array()) {
+            cfg.lifecycle.persistent_rooms = rooms
+                .iter()
+                .filter_map(|room| room.as_str())
+                .map(str::to_owned)
+                .collect();
+        }
+    }
+
     if let Some(c) = table.get("control").and_then(|v| v.as_table()) {
         let num = |k: &str| {
             c.get(k)

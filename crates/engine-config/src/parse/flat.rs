@@ -41,6 +41,21 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
             cfg.permissions.messaging = value.parse().unwrap_or(cfg.permissions.messaging)
         }
         "voice_ice_servers" => cfg.voice_ice_servers = value.to_string(),
+        "room_max_seconds" => {
+            cfg.lifecycle.room_max_seconds = value.parse().unwrap_or(cfg.lifecycle.room_max_seconds)
+        }
+        "reap_idle_secs" => {
+            cfg.lifecycle.reap_idle_secs = value.parse().unwrap_or(cfg.lifecycle.reap_idle_secs)
+        }
+        "peer_idle_ms" => {
+            cfg.lifecycle.peer_idle_ms = value.parse().unwrap_or(cfg.lifecycle.peer_idle_ms)
+        }
+        "seat_hold_secs" => {
+            cfg.lifecycle.seat_hold_secs = value.parse().unwrap_or(cfg.lifecycle.seat_hold_secs)
+        }
+        "persistent_rooms" => {
+            cfg.lifecycle.persistent_rooms = crate::social::split_ids(value);
+        }
         "control_enabled" => cfg.control.enabled = value.parse().unwrap_or(cfg.control.enabled),
         "api_port" => cfg.control.api_port = value.parse().unwrap_or(cfg.control.api_port),
         "control_bind_addr" => cfg.control.bind_addr = value.to_string(),

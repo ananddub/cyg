@@ -25,7 +25,7 @@ use engine_physics::PhysicsWorld3D;
 use engine_wasm::WasmRuntime;
 
 use crate::netcode;
-use crate::rooms::{self, GameRoom, GameServer, RoomHostData};
+use crate::rooms::{self, CloseReason, GameRoom, GameServer, RoomHostData};
 use crate::telemetry::{PublishReport, Recorder};
 
 /// Pre-framed spectator "you are watching" confirm: `["delta"]` with id 0.
@@ -457,6 +457,16 @@ fn reject_room(transport: &mut LoopTransport, client_id: &str, message: &str) {
     let reason = format!("{{\"code\":{code},\"message\":\"{message}\"}}");
     let _ = transport.send_to(client_id, OpCode::Error, reason.as_bytes());
     let _ = transport.disconnect_with(client_id, code, message);
+    let _ = transport.flush();
+}
+
+/// End every socket attached to a room the host is disposing. `CONSENTED` is
+/// the clean-close code: an SDK whose room died of old age should stop
+/// reconnecting to it rather than loop against a room that no longer exists.
+fn close_room_sessions(transport: &mut LoopTransport, room: &GameRoom, message: &str) {
+    for session in room.sessions.keys().chain(room.spectators.iter()) {
+        let _ = transport.disconnect_with(session, engine_net::close_code::CONSENTED, message);
+    }
     let _ = transport.flush();
 }
 
@@ -961,7 +971,7 @@ pub fn run(
     // a buffer of its own; `frame_buf` holds only the current chunk.
     let mut delta_body: Vec<u8> = Vec::with_capacity(8 * 1024);
     let mut filtered_buf: Vec<u8> = Vec::with_capacity(8 * 1024);
-    let mut dead_rooms: Vec<String> = Vec::new();
+    let mut dead_rooms: Vec<(String, CloseReason)> = Vec::new();
     let mut timed_out_udp: Vec<(SocketAddr, i64, String)> = Vec::new();
     // Telemetry: the recorder gates itself to one publish per second, and the
     // rows are built only when that window actually rolls, never per packet.
@@ -1182,7 +1192,10 @@ pub fn run(
                     let gone = if consented {
                         room.handle_disconnect(&client_id)
                     } else {
-                        room.handle_unexpected_disconnect(&client_id)
+                        room.handle_unexpected_disconnect(
+                            &client_id,
+                            Duration::from_secs(cfg.lifecycle.seat_hold_secs),
+                        )
                     };
                     if let Some(gone) = gone {
                         announce_voice_peer_change(
@@ -1197,7 +1210,8 @@ pub fn run(
                     transport.rtc_server().remove_session(&client_id);
                     if room.is_hibernating() {
                         tracing::info!(
-                            "[server] ⏸️ Room '{room_name}' is now empty -> hibernating (0% CPU, 30s auto-close timer started)"
+                            "[server] ⏸️ Room '{room_name}' is now empty -> hibernating (0% CPU, {}s auto-close timer started)",
+                            cfg.lifecycle.reap_idle_secs
                         );
                     }
                 }
@@ -1934,16 +1948,18 @@ pub fn run(
             }
 
             let tick_start = Instant::now();
+            let reap_now = Instant::now();
             dead_rooms.clear();
             for (name, room) in server.rooms.iter_mut() {
-                // Auto-close evaluation for hibernating rooms
-                if room.is_hibernating() {
-                    let is_default = name == &cfg.name;
-                    if (!is_default || udp_peers.is_empty())
-                        && room.reap_check(Duration::from_secs(30))
-                    {
-                        dead_rooms.push(name.clone());
-                    }
+                // A `[lifecycle] persistent_rooms` entry never dies of idle or
+                // old age, and the default room is kept while raw UDP peers are
+                // still attached to it (they live outside the room's own seat
+                // bookkeeping, so `is_hibernating` cannot see them).
+                let reapable =
+                    !cfg.lifecycle.is_persistent(name)
+                        && (name != &cfg.name || udp_peers.is_empty());
+                if let Some(reason) = room.close_reason(&cfg.lifecycle, reapable, reap_now) {
+                    dead_rooms.push((name.clone(), reason));
                 }
             }
 
@@ -2289,7 +2305,8 @@ pub fn run(
             let now = Instant::now();
             timed_out_udp.clear();
             udp_peers.retain(|&addr, (id, sess, last_seen)| {
-                if now.duration_since(*last_seen) > Duration::from_millis(3000) {
+                if now.duration_since(*last_seen) > Duration::from_millis(cfg.lifecycle.peer_idle_ms)
+                {
                     timed_out_udp.push((addr, *id, sess.clone()));
                     false
                 } else {
@@ -2308,14 +2325,20 @@ pub fn run(
                 }
             }
 
-            for name in dead_rooms.drain(..) {
+            for (name, reason) in dead_rooms.drain(..) {
                 if let Some(mut room) = server.rooms.remove(&name) {
+                    if reason == CloseReason::Duration && !room.is_hibernating() {
+                        close_room_sessions(&mut transport, &room, "room reached its time limit");
+                    }
                     if let Some(snapshot) = room.export_snapshot() {
                         server.save_snapshot(&name, snapshot);
                     }
                     // Last guest callback: flush scores / release resources.
                     room.dispose();
-                    tracing::info!("[server] room '{name}' disposed and state saved (empty 30s)");
+                    tracing::info!(
+                        "[server] room '{name}' disposed and state saved ({})",
+                        reason.label()
+                    );
                 }
             }
             transport.flush().expect("flush");

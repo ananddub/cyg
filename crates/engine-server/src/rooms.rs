@@ -45,6 +45,25 @@ pub enum RoomBackend {
     Ecs,
 }
 
+/// Why the host is disposing a room. Match history has to tell "nobody was
+/// left" apart from "its time was up".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CloseReason {
+    /// Empty for `[lifecycle] reap_idle_secs`.
+    Empty,
+    /// Older than `[lifecycle] room_max_seconds`.
+    Duration,
+}
+
+impl CloseReason {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            CloseReason::Empty => "empty",
+            CloseReason::Duration => "duration",
+        }
+    }
+}
+
 /// Encapsulates snapshot data across backends.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RoomSnapshotData {
@@ -446,6 +465,9 @@ pub struct GameRoom {
     pub(crate) spectators: HashSet<String>,
     pub(crate) next_player_id: i64,
     pub(crate) empty_since: Option<Instant>,
+    /// When the room was created; the `[lifecycle] room_max_seconds` deadline is
+    /// measured from here, not from the last player.
+    pub(crate) born: Instant,
     pub(crate) current_tick: u64,
     pub(crate) rollback_buffer: engine_wasm::RollbackRingBuffer,
     pub(crate) voice_room: engine_voice::VoiceRoom,
@@ -1518,6 +1540,7 @@ impl GameRoom {
             spectators: HashSet::new(),
             next_player_id: 1,
             empty_since: Some(Instant::now()),
+            born: Instant::now(),
             current_tick: 0,
             rollback_buffer: engine_wasm::RollbackRingBuffer::default(),
             voice_room: engine_voice::VoiceRoom::new(engine_voice::DistanceModel::Inverse {
@@ -1554,6 +1577,7 @@ impl GameRoom {
             spectators: HashSet::new(),
             next_player_id: 1,
             empty_since: Some(Instant::now()),
+            born: Instant::now(),
             current_tick: 0,
             rollback_buffer: engine_wasm::RollbackRingBuffer::default(),
             voice_room: engine_voice::VoiceRoom::new(engine_voice::DistanceModel::Inverse {
@@ -2022,14 +2046,25 @@ impl GameRoom {
     /// Unexpected disconnect (socket drop, heartbeat timeout): if the guest
     /// implements `allowReconnection`, the seat and player id are held until
     /// the deadline; otherwise the player is released immediately.
-    pub(crate) fn handle_unexpected_disconnect(&mut self, session: &str) -> Option<u32> {
+    ///
+    /// `max_hold` is the operator's `[lifecycle] seat_hold_secs` ceiling: a
+    /// guest cannot hold a seat longer than the deployment allows, no matter
+    /// what `allowReconnection` returns.
+    pub(crate) fn handle_unexpected_disconnect(
+        &mut self,
+        session: &str,
+        max_hold: Duration,
+    ) -> Option<u32> {
         let gone = self.detach_session(session);
         if let Some(id) = self.sessions.get(session).copied() {
             // A seat may be held for reconnection; the player id and guest
             // state are untouched until the deadline expires.
-            let hold = self.guest_allow_reconnection(id).unwrap_or(0);
-            if hold > 0 {
-                let deadline = Instant::now() + Duration::from_millis(hold as u64);
+            let hold = self
+                .guest_allow_reconnection(id)
+                .map(|ms| Duration::from_millis(ms as u64).min(max_hold))
+                .filter(|hold| hold > &Duration::ZERO);
+            if let Some(hold) = hold {
+                let deadline = Instant::now() + hold;
                 self.pending_leaves.insert(session.to_string(), (id, deadline));
             } else {
                 self.sessions.remove(session);
@@ -2062,6 +2097,35 @@ impl GameRoom {
                 false
             }
         }
+    }
+
+    /// Why the host should dispose this room this tick, if it should at all.
+    ///
+    /// A duration deadline kills a room whether or not players are still in it;
+    /// the idle reap only fires on an empty one. `reapable` carries the host's
+    /// own gates — a `[lifecycle] persistent_rooms` entry, or the default room
+    /// while raw UDP peers are still attached, never dies early.
+    pub(crate) fn close_reason(
+        &mut self,
+        lifecycle: &engine_config::LifecycleConfig,
+        reapable: bool,
+        now: Instant,
+    ) -> Option<CloseReason> {
+        if !reapable {
+            return None;
+        }
+        if lifecycle
+            .closes_at(self.born)
+            .is_some_and(|deadline| now >= deadline)
+        {
+            return Some(CloseReason::Duration);
+        }
+        if self.is_hibernating()
+            && self.reap_check(Duration::from_secs(lifecycle.reap_idle_secs))
+        {
+            return Some(CloseReason::Empty);
+        }
+        None
     }
 
     /// Advance the guest one tick (Rule 5: fault-isolated — a trap does not
@@ -2391,6 +2455,38 @@ mod tests {
         assert!(!room.reap_check(Duration::from_secs(30)));
     }
 
+    /// `[lifecycle]` now picks the window, so the host's decision needs its own
+    /// coverage: a configured room length kills even a *full* room, the idle
+    /// reap only touches an empty one, and a gated room is left alone.
+    #[test]
+    fn close_reason_reports_which_lifecycle_window_expired() {
+        let limited = engine_config::LifecycleConfig {
+            room_max_seconds: 60,
+            ..engine_config::LifecycleConfig::default()
+        };
+        let idle = engine_config::LifecycleConfig::default();
+
+        let mut room = GameRoom::new_relay();
+        room.join("sess_carol", 1.0, 1.0);
+        room.born = Instant::now() - Duration::from_secs(61);
+        assert_eq!(
+            room.close_reason(&limited, true, Instant::now()),
+            Some(CloseReason::Duration)
+        );
+        // Same full room, no configured limit: nothing can reap it.
+        assert_eq!(room.close_reason(&idle, true, Instant::now()), None);
+
+        room.handle_disconnect("sess_carol");
+        room.born = Instant::now();
+        room.empty_since = Some(Instant::now() - Duration::from_secs(31));
+        assert_eq!(
+            room.close_reason(&idle, true, Instant::now()),
+            Some(CloseReason::Empty)
+        );
+        // The host's own gates (persistent name, live UDP peers) win.
+        assert_eq!(room.close_reason(&idle, false, Instant::now()), None);
+    }
+
     /// A project with no `room.ts` boots the host with `pre = None`. Room
     /// creation must then fall back to a zero-WASM relay room, not panic.
     #[test]
@@ -2534,7 +2630,7 @@ mod tests {
     fn allow_reconnection_holds_the_seat_then_reconnect_resumes_it() {
         let mut room = lifecycle_room();
         let id = room.join("alice", 0.0, 0.0);
-        assert_eq!(room.handle_unexpected_disconnect("alice"), None);
+        assert_eq!(room.handle_unexpected_disconnect("alice", Duration::from_secs(120)), None);
 
         assert!(
             room.has_pending_leave("alice"),
@@ -2553,7 +2649,7 @@ mod tests {
         assert_eq!(guest_i32(&mut room, "leave_count"), 0);
 
         // A seat that never comes back is released when the deadline passes.
-        assert_eq!(room.handle_unexpected_disconnect("alice"), None);
+        assert_eq!(room.handle_unexpected_disconnect("alice", Duration::from_secs(120)), None);
         room.pending_leaves
             .insert("alice".to_string(), (id, Instant::now()));
         assert!(room.expire_pending_leaves(Instant::now()));
@@ -2567,7 +2663,7 @@ mod tests {
         let mut room = lifecycle_room();
         let id = room.join("carol", 0.0, 0.0);
         // Hold the seat first: a drop that would be recoverable…
-        room.handle_unexpected_disconnect("carol");
+        room.handle_unexpected_disconnect("carol", Duration::from_secs(120));
         assert!(room.has_pending_leave("carol"));
 
         // …then the client comes back and leaves on purpose: no hold.
@@ -2583,7 +2679,7 @@ mod tests {
     fn reconnect_after_the_deadline_is_a_fresh_join() {
         let mut room = lifecycle_room();
         let id = room.join("bob", 0.0, 0.0);
-        room.handle_unexpected_disconnect("bob");
+        room.handle_unexpected_disconnect("bob", Duration::from_secs(120));
         room.pending_leaves
             .insert("bob".to_string(), (id, Instant::now()));
         assert!(room.expire_pending_leaves(Instant::now()));

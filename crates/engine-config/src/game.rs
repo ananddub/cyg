@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::control::ControlConfig;
+use crate::lifecycle::LifecycleConfig;
 use crate::netcode::{AoiConfig, RollbackConfig};
 
 /// HMAC key used when `OX_SEAT_SECRET` is unset. Development key — anything
@@ -72,6 +73,7 @@ pub struct GameConfig {
     pub voice_ice_servers: String,
     pub aoi: AoiConfig,
     pub rollback: RollbackConfig,
+    pub lifecycle: LifecycleConfig,
     pub control: ControlConfig,
 }
 
@@ -100,6 +102,7 @@ impl Default for GameConfig {
             voice_ice_servers: "[]".into(),
             aoi: AoiConfig::default(),
             rollback: RollbackConfig::default(),
+            lifecycle: LifecycleConfig::default(),
             control: ControlConfig::default(),
         }
     }

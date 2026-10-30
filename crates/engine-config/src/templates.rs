@@ -38,6 +38,21 @@ allow_logging = true
 allow_storage = true
 allow_messaging = true
 
+# Room lifetime. Every value is the window the host shipped as a hardcoded
+# literal, so leaving this block out changes nothing.
+#   room_max_seconds — 0 = a room lives until it empties; set it for
+#                      match-bounded genres so a leaked room cannot pile up.
+#   reap_idle_secs   — dispose a room this long after its last player left.
+#   peer_idle_ms     — drop a raw UDP peer silent this long.
+#   seat_hold_secs   — ceiling for `allowReconnection`, whatever the room asks.
+#   persistent_rooms — names never reaped for being empty (a lobby or hub).
+# [lifecycle]
+# room_max_seconds = 0
+# reap_idle_secs = 30
+# peer_idle_ms = 3000
+# seat_hold_secs = 120
+# persistent_rooms = ["lobby"]
+
 # Control plane (Tokio/Axum): matchmake, WS signaling, /status, statics.
 # `api_port` is its own port so the game WebSocket (`port`) and the website
 # (`web_port`) keep working unchanged. Set `api_port = web_port` to hand the

@@ -13,6 +13,7 @@ pub fn parse_config(text: &str) -> GameConfig {
         && let Some(table) = value.as_table()
     {
         toml::fill(&mut cfg, table);
+        cfg.lifecycle.clamp();
         return cfg;
     }
 
@@ -32,6 +33,7 @@ pub fn parse_config(text: &str) -> GameConfig {
         }
         flat::apply(&mut cfg, key, value);
     }
+    cfg.lifecycle.clamp();
     cfg
 }
 
@@ -202,5 +204,61 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     if std::env::var("OX_SOCIAL_ALLOW_UNVERIFIED").is_ok_and(|v| v == "1") {
         cfg.control.social.allow_unverified = true;
     }
+    for (name, field) in [
+        ("OX_ROOM_MAX_SECONDS", &mut cfg.lifecycle.room_max_seconds),
+        ("OX_REAP_IDLE_SECS", &mut cfg.lifecycle.reap_idle_secs),
+        ("OX_PEER_IDLE_MS", &mut cfg.lifecycle.peer_idle_ms),
+        ("OX_SEAT_HOLD_SECS", &mut cfg.lifecycle.seat_hold_secs),
+    ] {
+        if let Ok(v) = std::env::var(name)
+            && let Ok(secs) = v.parse::<u64>()
+        {
+            *field = secs;
+        }
+    }
+    if let Ok(v) = std::env::var("OX_PERSISTENT_ROOMS") {
+        cfg.lifecycle.persistent_rooms = crate::social::split_ids(&v);
+    }
+    cfg.lifecycle.clamp();
     Ok(cfg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lifecycle_block_replaces_the_host_windows() {
+        let cfg = parse_config(
+            r#"
+[lifecycle]
+room_max_seconds = 900
+reap_idle_secs = 5
+peer_idle_ms = 800
+seat_hold_secs = 45
+persistent_rooms = ["lobby", "hub"]
+"#,
+        );
+        assert_eq!(cfg.lifecycle.room_max_seconds, 900);
+        assert_eq!(cfg.lifecycle.reap_idle_secs, 5);
+        assert_eq!(cfg.lifecycle.peer_idle_ms, 800);
+        assert_eq!(cfg.lifecycle.seat_hold_secs, 45);
+        assert!(cfg.lifecycle.is_persistent("hub"));
+        assert!(!cfg.lifecycle.is_persistent("arena"));
+    }
+
+    /// A flat `key: value` project file reads the same windows, and an
+    /// out-of-range one is pulled back instead of handed to the loop (a zero
+    /// reap would mean "dispose the instant a room empties").
+    #[test]
+    fn flat_lifecycle_keys_are_read_and_clamped() {
+        let cfg = parse_config(
+            "room_max_seconds: 0\nreap_idle_secs: 0\nseat_hold_secs: 99999999999\n\
+             persistent_rooms: lobby, hub\n",
+        );
+        assert_eq!(cfg.lifecycle.room_max_seconds, 0);
+        assert_eq!(cfg.lifecycle.reap_idle_secs, 1);
+        assert_eq!(cfg.lifecycle.seat_hold_secs, 7 * 24 * 60 * 60);
+        assert_eq!(cfg.lifecycle.persistent_rooms, ["lobby", "hub"]);
+    }
 }
