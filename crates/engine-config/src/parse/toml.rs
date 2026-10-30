@@ -142,6 +142,21 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
         }
     }
 
+    if let Some(w) = table.get("watchdog").and_then(|v| v.as_table()) {
+        if let Some(v) = w.get("enabled").and_then(|v| v.as_bool()) {
+            cfg.watchdog.enabled = v;
+        }
+        if let Some(v) = w.get("tick_budget_ms").and_then(|v| v.as_integer()) {
+            cfg.watchdog.tick_budget_ms = v.max(0) as u64;
+        }
+        if let Some(v) = w
+            .get("epoch_deadline_ticks")
+            .and_then(|v| v.as_integer())
+        {
+            cfg.watchdog.epoch_deadline_ticks = v.max(0) as u64;
+        }
+    }
+
     if let Some(c) = table.get("control").and_then(|v| v.as_table()) {
         let num = |k: &str| {
             c.get(k)
@@ -226,7 +241,10 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
                     "database_memtable_mib",
                     &mut cfg.control.session.database_memtable_mib,
                 ),
-                ("database_cache_mib", &mut cfg.control.session.database_cache_mib),
+                (
+                    "database_cache_mib",
+                    &mut cfg.control.session.database_cache_mib,
+                ),
             ] {
                 if let Some(v) = s.get(key).and_then(|v| v.as_integer()) {
                     *field = v.max(0) as u64;
@@ -268,14 +286,20 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
         }
         if let Some(p) = c.get("iap").and_then(|v| v.as_table()) {
             for (key, field) in [
-                ("apple_shared_secret", &mut cfg.control.iap.apple_shared_secret),
+                (
+                    "apple_shared_secret",
+                    &mut cfg.control.iap.apple_shared_secret,
+                ),
                 ("apple_verify_url", &mut cfg.control.iap.apple_verify_url),
                 ("apple_sandbox_url", &mut cfg.control.iap.apple_sandbox_url),
                 (
                     "google_service_account",
                     &mut cfg.control.iap.google_service_account,
                 ),
-                ("google_package_name", &mut cfg.control.iap.google_package_name),
+                (
+                    "google_package_name",
+                    &mut cfg.control.iap.google_package_name,
+                ),
                 ("google_token_url", &mut cfg.control.iap.google_token_url),
                 ("google_api_base", &mut cfg.control.iap.google_api_base),
             ] {

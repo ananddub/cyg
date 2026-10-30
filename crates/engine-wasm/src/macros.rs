@@ -153,9 +153,15 @@ macro_rules! wasm_module {
                 $(#[$fn_meta])*
                 #[inline]
                 pub fn $func(&mut self, $( $arg : $arg_ty ),* ) -> Result<$crate::wasm_module!(@ret $( $ret )?), $crate::WasmError> {
+                    self.instance.rearm_epoch_call();
                     self.$func
                         .call(self.instance.store_mut(), ( $( $arg ),* ))
-                        .map_err(|e| $crate::WasmError::Trap(stringify!($func).into(), e.to_string()))
+                        .map_err(|e| {
+                            $crate::WasmError::Trap(
+                                stringify!($func).into(),
+                                $crate::trap_detail(&e),
+                            )
+                        })
                 }
             )*
         }

@@ -9,11 +9,23 @@ use crate::error::WasmError;
 pub struct WasmPreInstance<T: 'static> {
     engine: Engine,
     pre: InstancePre<T>,
+    epoch_ticks: Option<u64>,
 }
 
 impl<T: 'static> WasmPreInstance<T> {
     pub fn new(engine: Engine, pre: InstancePre<T>) -> Self {
-        Self { engine, pre }
+        Self {
+            engine,
+            pre,
+            epoch_ticks: None,
+        }
+    }
+
+    /// Arm every instance spawned from this template with a per-call epoch
+    /// budget of `ticks` (see [`crate::WasmConfig::epoch_deadline_ticks`]).
+    pub fn with_epoch_deadline(mut self, ticks: Option<u64>) -> Self {
+        self.epoch_ticks = ticks;
+        self
     }
 
     /// Spawn a new running instance (room) from the pre-built template.
@@ -23,8 +35,11 @@ impl<T: 'static> WasmPreInstance<T> {
             .pre
             .instantiate(&mut store)
             .map_err(|e| WasmError::Instantiation(e.to_string()))?;
-
-        Ok(WasmInstance::new(store, instance))
+        let mut spawned = WasmInstance::new(store, instance);
+        if let Some(ticks) = self.epoch_ticks {
+            spawned.set_epoch_deadline(ticks);
+        }
+        Ok(spawned)
     }
 
     /// The underlying raw `wasmtime::InstancePre` handle.
@@ -39,6 +54,7 @@ pub struct WasmInstance<T: 'static> {
     store: Store<T>,
     instance: Instance,
     memory: Option<Memory>,
+    epoch_ticks: Option<u64>,
 }
 
 impl<T: 'static> WasmInstance<T> {
@@ -48,6 +64,7 @@ impl<T: 'static> WasmInstance<T> {
             store,
             instance,
             memory,
+            epoch_ticks: None,
         }
     }
 
@@ -92,8 +109,29 @@ impl<T: 'static> WasmInstance<T> {
     /// traps if more than `ticks` engine epochs elapse during a call.
     /// Requires `WasmConfig::enable_epoch_interruption` and a background
     /// thread (or main loop) calling `WasmRuntime::increment_epoch`.
+    ///
+    /// The budget is remembered so [`rearm_epoch_call`](Self::rearm_epoch_call)
+    /// can hand it to the *next* guest call: wasmtime consumes an epoch
+    /// deadline rather than refilling it, so one arming at instantiation would
+    /// turn into a shared, ever-shrinking allowance for the room's whole life.
     pub fn set_epoch_deadline(&mut self, ticks: u64) {
+        self.epoch_ticks = Some(ticks);
         self.store.set_epoch_deadline(ticks);
+    }
+
+    /// The per-call epoch budget this instance was armed with, if any.
+    pub fn epoch_deadline_ticks(&self) -> Option<u64> {
+        self.epoch_ticks
+    }
+
+    /// Refill the epoch budget ahead of a guest call. A no-op for instances that
+    /// were never armed, so an unwatched room pays one branch and no atomic.
+    /// The [`wasm_module!`](crate::wasm_module) wrapper and
+    /// [`call`](Self::call) do this for you.
+    pub fn rearm_epoch_call(&mut self) {
+        if let Some(ticks) = self.epoch_ticks {
+            self.store.set_epoch_deadline(ticks);
+        }
     }
 
     /// Dynamically call any exported function from the WASM module.
@@ -102,6 +140,7 @@ impl<T: 'static> WasmInstance<T> {
         Args: WasmParams,
         Ret: WasmResults,
     {
+        self.rearm_epoch_call();
         let func = self
             .instance
             .get_typed_func::<Args, Ret>(&mut self.store, func_name)
@@ -111,7 +150,7 @@ impl<T: 'static> WasmInstance<T> {
             })?;
 
         func.call(&mut self.store, args)
-            .map_err(|e| WasmError::Trap(func_name.to_string(), e.to_string()))
+            .map_err(|e| WasmError::Trap(func_name.to_string(), crate::error::trap_detail(&e)))
     }
 
     /// Read raw bytes from the instance's linear memory.
@@ -135,7 +174,12 @@ impl<T: 'static> WasmInstance<T> {
     /// [`read_memory`](Self::read_memory) writing into a caller-owned buffer,
     /// so a host reading a delta every tick reuses one allocation instead of
     /// malloc'ing per frame. The buffer is truncated to the slice length.
-    pub fn read_memory_into(&self, offset: u32, len: u32, out: &mut Vec<u8>) -> Result<(), WasmError> {
+    pub fn read_memory_into(
+        &self,
+        offset: u32,
+        len: u32,
+        out: &mut Vec<u8>,
+    ) -> Result<(), WasmError> {
         let memory = self.memory.ok_or(WasmError::MissingMemory)?;
         let data = memory.data(&self.store);
         let start = offset as usize;

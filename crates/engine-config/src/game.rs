@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::control::ControlConfig;
 use crate::lifecycle::LifecycleConfig;
 use crate::netcode::{AoiConfig, RollbackConfig};
+use crate::watchdog::WatchdogConfig;
 
 /// HMAC key used when `OX_SEAT_SECRET` is unset. Development key — anything
 /// reachable must override it. Shared by both planes so mint and verify can
@@ -74,6 +75,7 @@ pub struct GameConfig {
     pub aoi: AoiConfig,
     pub rollback: RollbackConfig,
     pub lifecycle: LifecycleConfig,
+    pub watchdog: WatchdogConfig,
     pub control: ControlConfig,
 }
 
@@ -103,6 +105,7 @@ impl Default for GameConfig {
             aoi: AoiConfig::default(),
             rollback: RollbackConfig::default(),
             lifecycle: LifecycleConfig::default(),
+            watchdog: WatchdogConfig::default(),
             control: ControlConfig::default(),
         }
     }

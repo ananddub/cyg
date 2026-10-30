@@ -56,6 +56,17 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "persistent_rooms" => {
             cfg.lifecycle.persistent_rooms = crate::social::split_ids(value);
         }
+        "watchdog_enabled" => {
+            cfg.watchdog.enabled = value.parse().unwrap_or(cfg.watchdog.enabled)
+        }
+        "tick_budget_ms" => {
+            cfg.watchdog.tick_budget_ms = value.parse().unwrap_or(cfg.watchdog.tick_budget_ms)
+        }
+        "epoch_deadline_ticks" => {
+            cfg.watchdog.epoch_deadline_ticks = value
+                .parse()
+                .unwrap_or(cfg.watchdog.epoch_deadline_ticks)
+        }
         "control_enabled" => cfg.control.enabled = value.parse().unwrap_or(cfg.control.enabled),
         "api_port" => cfg.control.api_port = value.parse().unwrap_or(cfg.control.api_port),
         "control_bind_addr" => cfg.control.bind_addr = value.to_string(),
@@ -115,14 +126,13 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "iap_apple_shared_secret" => cfg.control.iap.apple_shared_secret = value.to_string(),
         "iap_apple_verify_url" => cfg.control.iap.apple_verify_url = value.to_string(),
         "iap_apple_sandbox_url" => cfg.control.iap.apple_sandbox_url = value.to_string(),
-        "iap_google_service_account" => {
-            cfg.control.iap.google_service_account = value.to_string()
-        }
+        "iap_google_service_account" => cfg.control.iap.google_service_account = value.to_string(),
         "iap_google_package_name" => cfg.control.iap.google_package_name = value.to_string(),
         "iap_google_token_url" => cfg.control.iap.google_token_url = value.to_string(),
         "iap_google_api_base" => cfg.control.iap.google_api_base = value.to_string(),
         "iap_allow_unverified" => {
-            cfg.control.iap.allow_unverified = value.parse().unwrap_or(cfg.control.iap.allow_unverified)
+            cfg.control.iap.allow_unverified =
+                value.parse().unwrap_or(cfg.control.iap.allow_unverified)
         }
         "social_google_client_ids" => {
             cfg.control.social.google_client_ids = crate::social::split_ids(value)
@@ -142,9 +152,8 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "social_steam_web_api_key" => cfg.control.social.steam_web_api_key = value.to_string(),
         "social_steam_api_url" => cfg.control.social.steam_api_url = value.to_string(),
         "social_allow_unverified" => {
-            cfg.control.social.allow_unverified = value
-                .parse()
-                .unwrap_or(cfg.control.social.allow_unverified)
+            cfg.control.social.allow_unverified =
+                value.parse().unwrap_or(cfg.control.social.allow_unverified)
         }
         _ => {}
     }

@@ -5,6 +5,12 @@ use std::path::Path;
 
 use crate::game::GameConfig;
 
+/// Pull every operator-written window into the range the host can act on.
+fn clamp_windows(cfg: &mut GameConfig) {
+    cfg.lifecycle.clamp();
+    cfg.watchdog.clamp();
+}
+
 /// Parse a TOML config, falling back to flat `key = value` / `key: value` lines.
 pub fn parse_config(text: &str) -> GameConfig {
     let mut cfg = GameConfig::default();
@@ -13,7 +19,7 @@ pub fn parse_config(text: &str) -> GameConfig {
         && let Some(table) = value.as_table()
     {
         toml::fill(&mut cfg, table);
-        cfg.lifecycle.clamp();
+        clamp_windows(&mut cfg);
         return cfg;
     }
 
@@ -33,7 +39,7 @@ pub fn parse_config(text: &str) -> GameConfig {
         }
         flat::apply(&mut cfg, key, value);
     }
-    cfg.lifecycle.clamp();
+    clamp_windows(&mut cfg);
     cfg
 }
 
@@ -62,7 +68,10 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     // container sets `SURREAL_*`, and no project should have to repeat a
     // password inside a committed config.toml.
     for (name, field) in [
-        ("SURREAL_ENDPOINT", &mut cfg.control.session.database_endpoint),
+        (
+            "SURREAL_ENDPOINT",
+            &mut cfg.control.session.database_endpoint,
+        ),
         ("SURREAL_NS", &mut cfg.control.session.database_ns),
         ("SURREAL_DB", &mut cfg.control.session.database_db),
         ("SURREAL_USER", &mut cfg.control.session.database_user),
@@ -84,7 +93,10 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
             "OX_DB_MEMTABLE_MIB",
             &mut cfg.control.session.database_memtable_mib,
         ),
-        ("OX_DB_CACHE_MIB", &mut cfg.control.session.database_cache_mib),
+        (
+            "OX_DB_CACHE_MIB",
+            &mut cfg.control.session.database_cache_mib,
+        ),
     ] {
         if let Ok(v) = std::env::var(name)
             && let Ok(mib) = v.parse()
@@ -138,9 +150,18 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
         cfg.control.console.token_expiry_secs = secs;
     }
     for (name, field) in [
-        ("OX_IAP_APPLE_SHARED_SECRET", &mut cfg.control.iap.apple_shared_secret),
-        ("OX_IAP_APPLE_VERIFY_URL", &mut cfg.control.iap.apple_verify_url),
-        ("OX_IAP_APPLE_SANDBOX_URL", &mut cfg.control.iap.apple_sandbox_url),
+        (
+            "OX_IAP_APPLE_SHARED_SECRET",
+            &mut cfg.control.iap.apple_shared_secret,
+        ),
+        (
+            "OX_IAP_APPLE_VERIFY_URL",
+            &mut cfg.control.iap.apple_verify_url,
+        ),
+        (
+            "OX_IAP_APPLE_SANDBOX_URL",
+            &mut cfg.control.iap.apple_sandbox_url,
+        ),
         (
             "OX_IAP_GOOGLE_SERVICE_ACCOUNT",
             &mut cfg.control.iap.google_service_account,
@@ -149,8 +170,14 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
             "OX_IAP_GOOGLE_PACKAGE_NAME",
             &mut cfg.control.iap.google_package_name,
         ),
-        ("OX_IAP_GOOGLE_TOKEN_URL", &mut cfg.control.iap.google_token_url),
-        ("OX_IAP_GOOGLE_API_BASE", &mut cfg.control.iap.google_api_base),
+        (
+            "OX_IAP_GOOGLE_TOKEN_URL",
+            &mut cfg.control.iap.google_token_url,
+        ),
+        (
+            "OX_IAP_GOOGLE_API_BASE",
+            &mut cfg.control.iap.google_api_base,
+        ),
     ] {
         if let Ok(v) = std::env::var(name)
             && !v.is_empty()
@@ -166,8 +193,14 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
             "OX_SOCIAL_GOOGLE_TOKENINFO_URL",
             &mut cfg.control.social.google_tokeninfo_url,
         ),
-        ("OX_SOCIAL_APPLE_CLIENT_ID", &mut cfg.control.social.apple_client_id),
-        ("OX_SOCIAL_APPLE_KEYS_URL", &mut cfg.control.social.apple_keys_url),
+        (
+            "OX_SOCIAL_APPLE_CLIENT_ID",
+            &mut cfg.control.social.apple_client_id,
+        ),
+        (
+            "OX_SOCIAL_APPLE_KEYS_URL",
+            &mut cfg.control.social.apple_keys_url,
+        ),
         (
             "OX_SOCIAL_FACEBOOK_APP_ID",
             &mut cfg.control.social.facebook_app_id,
@@ -184,7 +217,10 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
             "OX_SOCIAL_STEAM_WEB_API_KEY",
             &mut cfg.control.social.steam_web_api_key,
         ),
-        ("OX_SOCIAL_STEAM_API_URL", &mut cfg.control.social.steam_api_url),
+        (
+            "OX_SOCIAL_STEAM_API_URL",
+            &mut cfg.control.social.steam_api_url,
+        ),
     ] {
         if let Ok(v) = std::env::var(name)
             && !v.is_empty()
@@ -219,7 +255,8 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     if let Ok(v) = std::env::var("OX_PERSISTENT_ROOMS") {
         cfg.lifecycle.persistent_rooms = crate::social::split_ids(&v);
     }
-    cfg.lifecycle.clamp();
+    cfg.watchdog.apply_env();
+    clamp_windows(&mut cfg);
     Ok(cfg)
 }
 
@@ -260,5 +297,30 @@ persistent_rooms = ["lobby", "hub"]
         assert_eq!(cfg.lifecycle.reap_idle_secs, 1);
         assert_eq!(cfg.lifecycle.seat_hold_secs, 7 * 24 * 60 * 60);
         assert_eq!(cfg.lifecycle.persistent_rooms, ["lobby", "hub"]);
+    }
+
+    /// The watchdog rides the same two readers as `[lifecycle]`, so a shipped
+    /// game cannot be the one project whose guest timeout silently stayed off.
+    #[test]
+    fn a_watchdog_block_replaces_the_fuse() {
+        let cfg = parse_config(
+            r#"
+[watchdog]
+enabled = false
+tick_budget_ms = 2000
+epoch_deadline_ticks = 8
+"#,
+        );
+        assert!(!cfg.watchdog.enabled);
+        assert_eq!(cfg.watchdog.tick_budget_ms, 2000);
+        assert_eq!(cfg.watchdog.epoch_deadline_ticks, 8);
+    }
+
+    #[test]
+    fn flat_watchdog_keys_are_read_and_clamped() {
+        let cfg = parse_config("tick_budget_ms: 5\nepoch_deadline_ticks: 0\n");
+        assert!(cfg.watchdog.enabled, "only an explicit switch can disable it");
+        assert_eq!(cfg.watchdog.tick_budget_ms, 250);
+        assert_eq!(cfg.watchdog.epoch_deadline_ticks, 1);
     }
 }

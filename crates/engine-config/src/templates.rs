@@ -53,6 +53,18 @@ allow_messaging = true
 # seat_hold_secs = 120
 # persistent_rooms = ["lobby"]
 
+# Guest-timeout fuse. Room logic runs in this process, so a guest stuck in a
+# loop would stop the host loop and every other room on it; the engine cuts such
+# a call off instead. The room is not closed — its next call re-arms the fuse.
+#   enabled              — false = old behaviour, a stuck guest hangs the process.
+#   tick_budget_ms       — longest one guest call may run. A 30 Hz `on_tick`
+#                          needs ~33 ms, so this is a fuse, not a rate limit.
+#   epoch_deadline_ticks — how many slices the budget is checked on.
+# [watchdog]
+# enabled = true
+# tick_budget_ms = 500
+# epoch_deadline_ticks = 4
+
 # Control plane (Tokio/Axum): matchmake, WS signaling, /status, statics.
 # `api_port` is its own port so the game WebSocket (`port`) and the website
 # (`web_port`) keep working unchanged. Set `api_port = web_port` to hand the

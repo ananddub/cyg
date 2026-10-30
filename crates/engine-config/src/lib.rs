@@ -13,6 +13,7 @@ mod parse;
 mod session;
 mod social;
 mod templates;
+mod watchdog;
 
 pub use console::ConsoleConfig;
 pub use control::{AgonesConfig, ControlConfig};
@@ -26,3 +27,4 @@ pub use parse::{load_config, parse_config};
 pub use session::SessionConfig;
 pub use social::SocialConfig;
 pub use templates::{CONFIG_TEMPLATE, ROOM_TEMPLATE, SCHEMA_TS_TEMPLATE};
+pub use watchdog::WatchdogConfig;

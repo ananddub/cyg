@@ -1,9 +1,12 @@
 use std::path::Path;
+use std::time::Duration;
+
 use wasmtime::{
     Config, Engine, InstanceAllocationStrategy, Linker, Module, OptLevel, Store, Strategy,
 };
 
 use crate::config::WasmConfig;
+use crate::epoch::EpochTicker;
 use crate::error::WasmError;
 use crate::instance::{WasmInstance, WasmPreInstance};
 
@@ -75,8 +78,12 @@ impl WasmRuntime {
         let instance = linker
             .instantiate(&mut store, module)
             .map_err(|e| WasmError::Instantiation(e.to_string()))?;
+        let mut spawned = WasmInstance::new(store, instance);
+        if let Some(ticks) = self.config.epoch_deadline_ticks {
+            spawned.set_epoch_deadline(ticks);
+        }
 
-        Ok(WasmInstance::new(store, instance))
+        Ok(spawned)
     }
 
     /// Instantiate without any imports (pure standalone module).
@@ -100,11 +107,15 @@ impl WasmRuntime {
         let pre = linker
             .instantiate_pre(module)
             .map_err(|e| WasmError::Instantiation(e.to_string()))?;
-        Ok(WasmPreInstance::new(self.engine.clone(), pre))
+        Ok(WasmPreInstance::new(self.engine.clone(), pre)
+            .with_epoch_deadline(self.config.epoch_deadline_ticks))
     }
 
     /// [`prepare`](Self::prepare) without any imports (standalone module).
-    pub fn prepare_standalone<T: 'static>(&self, module: &Module) -> Result<WasmPreInstance<T>, WasmError> {
+    pub fn prepare_standalone<T: 'static>(
+        &self,
+        module: &Module,
+    ) -> Result<WasmPreInstance<T>, WasmError> {
         let linker: Linker<T> = Linker::new(&self.engine);
         self.prepare(&linker, module)
     }
@@ -133,7 +144,8 @@ impl WasmRuntime {
 
         // 1. Check if cached .cwasm exists and is at least as fresh as the .wasm source
         if let (Ok(wasm_meta), Ok(cwasm_meta)) = (wasm_path.metadata(), cwasm_path.metadata()) {
-            if let (Ok(wasm_mtime), Ok(cwasm_mtime)) = (wasm_meta.modified(), cwasm_meta.modified()) {
+            if let (Ok(wasm_mtime), Ok(cwasm_mtime)) = (wasm_meta.modified(), cwasm_meta.modified())
+            {
                 if cwasm_mtime >= wasm_mtime {
                     // Fast path: < 1ms mmap/deserialization
                     if let Ok(module) = unsafe { self.deserialize_module(&cwasm_path) } {
@@ -144,8 +156,9 @@ impl WasmRuntime {
         }
 
         // 2. Slow path: read wasm bytecode and compile with Cranelift
-        let wasm_bytes = std::fs::read(wasm_path)
-            .map_err(|e| WasmError::Compile(format!("Failed to read {}: {e}", wasm_path.display())))?;
+        let wasm_bytes = std::fs::read(wasm_path).map_err(|e| {
+            WasmError::Compile(format!("Failed to read {}: {e}", wasm_path.display()))
+        })?;
         let module = self.compile(&wasm_bytes)?;
 
         // 3. Opportunistically write the .cwasm cache for subsequent instant boots
@@ -181,5 +194,12 @@ impl WasmRuntime {
     /// Increment the engine epoch if epoch interruption is enabled.
     pub fn increment_epoch(&self) {
         self.engine.increment_epoch();
+    }
+
+    /// Start the background pump that advances this runtime's epoch every
+    /// `period`. Armed instances are only interrupted while the returned
+    /// [`EpochTicker`] is alive, so keep it bound for as long as rooms run.
+    pub fn spawn_epoch_ticker(&self, period: Duration) -> EpochTicker {
+        EpochTicker::spawn(self.engine.clone(), period)
     }
 }
