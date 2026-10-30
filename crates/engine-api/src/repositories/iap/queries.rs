@@ -182,7 +182,6 @@ impl Queries {
         let now = Utc::now();
         let game_id = self.account_game_id(user_id).await?;
         let ledger = serde_json::json!({
-            "id": ledger_id,
             "user_id": user_id,
             "changeset": changes,
             "metadata": metadata,
@@ -190,18 +189,15 @@ impl Queries {
             "update_time": time::encode(now),
             "game_id": game_id,
         });
-        let rows: Vec<Users> = self
-            .db
-            .query_transaction(
+        self.db
+            .exec_params(
                 "BEGIN TRANSACTION; \
                  LET $uid = type::record('users', <uuid>$id); \
-                 LET $exists = array::len((SELECT VALUE id FROM $uid)) > 0; \
                  LET $wallet = (SELECT VALUE wallet FROM $uid)[0] ?? {}; \
-                 LET $ok = $exists AND array::all(array::keys($changes), |$c| (($wallet[$c] ?? 0) + $changes[$c]) >= 0); \
-                 IF $ok THEN \
-                     CREATE type::record('wallet_ledger', <uuid>$ledger) CONTENT $ledger_data RETURN NONE; \
-                     UPDATE $uid SET wallet = object::extend($wallet, $changes), update_time = $update_time RETURN AFTER; \
-                 END; \
+                 LET $ok = array::len((SELECT VALUE id FROM $uid)) > 0 \
+                     AND array::all(object::keys($changes), |$c| (($wallet[$c] ?? 0) + $changes[$c]) >= 0); \
+                 LET $ledger_row = (IF $ok THEN CREATE type::record('wallet_ledger', <uuid>$ledger) CONTENT $ledger_data RETURN AFTER ELSE NONE END); \
+                 UPDATE $uid SET wallet = object::extend($wallet, $changes), update_time = $update_time WHERE $ok; \
                  COMMIT TRANSACTION;",
                 &params!(
                     id = user_id.to_string(),
@@ -212,7 +208,21 @@ impl Queries {
                 ),
             )
             .await?;
-        Ok(rows.into_iter().next())
+        let applied: Option<Value> = self
+            .opt(
+                "SELECT VALUE id FROM wallet_ledger \
+                 WHERE id = type::record('wallet_ledger', <uuid>$ledger);",
+                params!(ledger = ledger_id.to_string()),
+            )
+            .await?;
+        if applied.is_none() {
+            return Ok(None);
+        }
+        self.opt(
+            "SELECT * FROM type::record('users', <uuid>$id);",
+            params!(id = user_id.to_string()),
+        )
+        .await
     }
 
     pub async fn insert_wallet_ledger(&self, p: &InsertWalletLedgerParams) -> Result<(), DbError> {
