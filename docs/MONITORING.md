@@ -21,6 +21,7 @@ window (`crates/engine-bus/src/telemetry.rs`, consumed by
 | `cyg_nominal_tick_us` | gauge | Configured tick period (µs) |
 | `cyg_tick_budget_p99_us` | gauge | Tick p99 wall time (µs) |
 | `cyg_tick_overruns_total` | gauge | Ticks past budget in the window (resets each publish) |
+| `cyg_desyncs_total` | gauge | Client checksum reports that disagreed with the host checkpoint |
 | `cyg_stage_sim_us` | gauge | Simulation-stage average µs/tick |
 | `cyg_tick_duration_us` | histogram | Tick wall-time distribution; bucket `i` covers `[2^i, 2^(i+1))` µs, 12 buckets + `+Inf`; count/sum are window-scoped (`le` is an upper bound in µs) |
 | `cyg_kernel_to_sim_p50_us` / `_p99_us` | gauge | Latency from kernel receive to sim apply |

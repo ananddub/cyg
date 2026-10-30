@@ -55,6 +55,10 @@ pub struct StatusSnapshot {
     pub tick_budget_p50_us: u64,
     pub tick_budget_p99_us: u64,
     pub tick_overruns: u64,
+    /// Ticks where a client's checksum report disagreed with the host
+    /// checkpoint. Non-zero means prediction has diverged somewhere; the
+    /// `desync_report` rows carry the two checksums that prove it.
+    pub desyncs: u64,
     pub nominal_tick_us: u64,
     /// Simulation-stage share of the tick (room ticks incl. guest + physics +
     /// delta fan-out), average µs over the publish window. 0 = no samples yet.
@@ -98,6 +102,7 @@ mod tests {
             "tick_budget_p50_us",
             "tick_budget_p99_us",
             "tick_overruns",
+            "desyncs",
             "nominal_tick_us",
             "stage_sim_us",
             "tick_samples",
@@ -119,7 +124,7 @@ mod tests {
         ] {
             assert!(map.contains_key(key), "missing wire key {key:?}");
         }
-        assert_eq!(map.len(), 22);
+        assert_eq!(map.len(), 23);
         assert_eq!(
             map["tick_histogram"].as_array().unwrap().len(),
             TICK_HISTOGRAM_BUCKETS

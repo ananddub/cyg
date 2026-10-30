@@ -1,9 +1,11 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crossbeam_channel::{Receiver, Sender, bounded};
 
-use crate::messages::{InputMsg, MapReload, OutFrame, SettingsReload, SimCommand, WasmReload};
+use crate::messages::{
+    InputMsg, MapReload, OutFrame, SettingsReload, SimCommand, SimEvent, WasmReload,
+};
 use crate::telemetry::StatusSnapshot;
 
 const COMMAND_CAP: usize = 256;
@@ -18,6 +20,12 @@ const RELOAD_CAP: usize = 4;
 const MAP_RELOAD_CAP: usize = 8;
 /// Console settings changes (tick rate) — rare by nature.
 const SETTINGS_CAP: usize = 8;
+/// Gameplay events waiting for the control plane to write them. The tick keeps
+/// moving regardless, so this queue is where a slow database shows up as dropped
+/// history instead of dropped frames. An event payload is one guest
+/// `host_send` body, bounded upstream at 64 KiB, so the worst case here is
+/// ~16 MiB of retained bytes.
+const EVENT_CAP: usize = 256;
 
 /// Inter-plane wiring. Each plane consumes its own ends directly; sends on
 /// `inputs` must go through [`Bus::push_input`] or the drop policy is lost.
@@ -45,6 +53,11 @@ pub struct Bus {
     /// control plane → sim/host: a live-tunable setting changed (tick rate).
     pub settings_tx: Sender<SettingsReload>,
     pub settings_rx: Receiver<SettingsReload>,
+    /// sim → control plane: gameplay events to persist. Sending never blocks the
+    /// tick; see [`Bus::push_event`].
+    pub events_tx: Sender<SimEvent>,
+    pub events_rx: Receiver<SimEvent>,
+    events_dropped: AtomicU64,
     /// Latched by whatever catches the process' termination signal and read by
     /// the loop that owns the rooms. A one-way latch, so an atomic beats a
     /// channel that every consumer would have to keep draining.
@@ -60,6 +73,7 @@ impl Bus {
         let (reloads_tx, reloads_rx) = bounded(RELOAD_CAP);
         let (map_reloads_tx, map_reloads_rx) = bounded(MAP_RELOAD_CAP);
         let (settings_tx, settings_rx) = bounded(SETTINGS_CAP);
+        let (events_tx, events_rx) = bounded(EVENT_CAP);
         Arc::new(Bus {
             inputs_tx,
             inputs_rx,
@@ -75,6 +89,9 @@ impl Bus {
             map_reloads_rx,
             settings_tx,
             settings_rx,
+            events_tx,
+            events_rx,
+            events_dropped: AtomicU64::new(0),
             draining: AtomicBool::new(false),
         })
     }
@@ -100,6 +117,27 @@ impl Bus {
         };
         let _ = self.inputs_rx.try_recv();
         let _ = self.inputs_tx.try_send(msg);
+    }
+
+    /// Queue one gameplay event for the control plane. On full this drops the
+    /// **oldest** queued event and retries, exactly like
+    /// [`push_input`](Self::push_input): history is best-effort, the tick is
+    /// not, and the newest event is the one an operator still wants to see.
+    /// Every loss counts on [`events_dropped`](Self::events_dropped).
+    pub fn push_event(&self, event: SimEvent) {
+        let event = match self.events_tx.try_send(event) {
+            Ok(()) => return,
+            Err(crossbeam_channel::TrySendError::Full(e)) => e,
+            Err(_) => return,
+        };
+        let _ = self.events_rx.try_recv();
+        self.events_dropped.fetch_add(1, Ordering::Relaxed);
+        let _ = self.events_tx.try_send(event);
+    }
+
+    /// Events discarded because the control plane was not draining the queue.
+    pub fn events_dropped(&self) -> u64 {
+        self.events_dropped.load(Ordering::Relaxed)
     }
 }
 

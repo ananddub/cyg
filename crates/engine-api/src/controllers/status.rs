@@ -89,6 +89,11 @@ impl MetricsController {
                 snap.tick_overruns.to_string(),
             );
             gauge(
+                "cyg_desyncs_total",
+                "Client checksum reports that disagreed with the host",
+                snap.desyncs.to_string(),
+            );
+            gauge(
                 "cyg_stage_sim_us",
                 "Simulation-stage average µs/tick",
                 snap.stage_sim_us.to_string(),
@@ -175,6 +180,11 @@ impl MetricsController {
             gauge(
                 "cyg_tick_overruns_total",
                 "Ticks past their budget in the window",
+                "0".into(),
+            );
+            gauge(
+                "cyg_desyncs_total",
+                "Client checksum reports that disagreed with the host",
                 "0".into(),
             );
             gauge(

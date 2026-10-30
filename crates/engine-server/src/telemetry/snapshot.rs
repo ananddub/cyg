@@ -2,9 +2,9 @@
 
 use engine_bus::StatusSnapshot;
 
-use engine_bus::clock::mono_ns;
 use super::recorder::Recorder;
 use super::stats::{percentile, window};
+use engine_bus::clock::mono_ns;
 
 impl Recorder {
     pub fn snapshot(&self) -> StatusSnapshot {
@@ -15,6 +15,7 @@ impl Recorder {
             tick_budget_p50_us: percentile(&tick, 50, 100),
             tick_budget_p99_us: percentile(&tick, 99, 100),
             tick_overruns: self.tick_overruns,
+            desyncs: self.desyncs,
             kernel_to_sim_p50_us: percentile(&lat, 50, 100) / 1_000,
             kernel_to_sim_p99_us: percentile(&lat, 99, 100) / 1_000,
             tick_samples: tick.len() as u32,

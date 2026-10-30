@@ -58,9 +58,10 @@ pub fn dequantize_angle(raw: i16) -> f32 {
 }
 
 pub use channel::{
-    ACK_WIRE_LEN, Ack, AckKind, AssembledDelta, DELTA_HEADER_LEN, DeltaHeader, FRAGMENT_TTL_MS,
-    FragmentAssembler, MAX_DELTA_BODY, MAX_DELTA_CHUNK, MAX_FRAGMENTS, OP_ACK, OP_DELTA,
-    delta_fragment_count, parse_ack, write_ack, write_delta_frame,
+    ACK_WIRE_LEN, Ack, AckKind, AssembledDelta, CHECKSUM_WIRE_LEN, ChecksumReport,
+    DELTA_HEADER_LEN, DeltaHeader, FRAGMENT_TTL_MS, FragmentAssembler, MAX_DELTA_BODY,
+    MAX_DELTA_CHUNK, MAX_FRAGMENTS, OP_ACK, OP_CHECKSUM, OP_DELTA, delta_fragment_count, parse_ack,
+    parse_checksum, write_ack, write_checksum, write_delta_frame,
 };
 pub use frames::{
     EVENT_WIRE_LEN, Entities, EntitySnapshot, EventFrame, EventKind, FrameError, HEADER_LEN,

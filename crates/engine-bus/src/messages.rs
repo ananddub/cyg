@@ -36,6 +36,27 @@ pub struct OutFrame {
     pub bytes: Vec<u8>,
 }
 
+/// sim → control plane: one gameplay event the guest emitted through
+/// `host_send`, mirrored off the outbound wire so it can be persisted and
+/// replayed later. The same message the clients see, stamped with where it came
+/// from; nothing about it is game-specific, which is why it rides the bus
+/// instead of a per-genre hook.
+#[derive(Clone, Debug)]
+pub struct SimEvent {
+    pub room: String,
+    /// Room tick the event was emitted on, so a reader can line events up with
+    /// a replay.
+    pub tick: i64,
+    /// Mirror ordinal, unique and increasing for the life of the process, so a
+    /// reader can spot a gap left by a full queue. The game-meaningful position
+    /// is `(room, tick)`.
+    pub seq: u64,
+    /// Addressee player id; `0` is room-wide.
+    pub target: i64,
+    pub event: String,
+    pub payload: Vec<u8>,
+}
+
 /// Why the sim should hot-swap its room module: a console upload of a fresh
 /// version, or a rollback re-activating an older one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

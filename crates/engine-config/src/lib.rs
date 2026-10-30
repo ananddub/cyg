@@ -4,6 +4,7 @@
 mod console;
 mod control;
 mod game;
+mod gameplay;
 mod iap;
 mod lifecycle;
 mod maps;
@@ -18,6 +19,7 @@ mod watchdog;
 pub use console::ConsoleConfig;
 pub use control::{AgonesConfig, ControlConfig};
 pub use game::{DEV_SEAT_SECRET, GameConfig, Runtime};
+pub use gameplay::GameplayConfig;
 pub use iap::IapConfig;
 pub use lifecycle::LifecycleConfig;
 pub use maps::{BootMaps, MapAsset, MapFormat};

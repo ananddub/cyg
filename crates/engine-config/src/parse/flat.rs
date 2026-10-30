@@ -56,16 +56,20 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "persistent_rooms" => {
             cfg.lifecycle.persistent_rooms = crate::social::split_ids(value);
         }
-        "watchdog_enabled" => {
-            cfg.watchdog.enabled = value.parse().unwrap_or(cfg.watchdog.enabled)
-        }
+        "watchdog_enabled" => cfg.watchdog.enabled = value.parse().unwrap_or(cfg.watchdog.enabled),
         "tick_budget_ms" => {
             cfg.watchdog.tick_budget_ms = value.parse().unwrap_or(cfg.watchdog.tick_budget_ms)
         }
         "epoch_deadline_ticks" => {
-            cfg.watchdog.epoch_deadline_ticks = value
-                .parse()
-                .unwrap_or(cfg.watchdog.epoch_deadline_ticks)
+            cfg.watchdog.epoch_deadline_ticks =
+                value.parse().unwrap_or(cfg.watchdog.epoch_deadline_ticks)
+        }
+        "record_events" => {
+            cfg.gameplay.record_events = crate::social::split_ids(value);
+        }
+        "event_ttl_days" => {
+            cfg.gameplay.event_ttl_days =
+                value.parse().unwrap_or(cfg.gameplay.event_ttl_days);
         }
         "control_enabled" => cfg.control.enabled = value.parse().unwrap_or(cfg.control.enabled),
         "api_port" => cfg.control.api_port = value.parse().unwrap_or(cfg.control.api_port),

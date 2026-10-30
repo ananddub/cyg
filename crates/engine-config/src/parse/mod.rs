@@ -5,10 +5,12 @@ use std::path::Path;
 
 use crate::game::GameConfig;
 
-/// Pull every operator-written window into the range the host can act on.
+/// Pull every operator-written window into the range the host can act on, and
+/// tidy every operator-written list the host reads per message.
 fn clamp_windows(cfg: &mut GameConfig) {
     cfg.lifecycle.clamp();
     cfg.watchdog.clamp();
+    cfg.gameplay.normalize();
 }
 
 /// Parse a TOML config, falling back to flat `key = value` / `key: value` lines.
@@ -255,6 +257,15 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     if let Ok(v) = std::env::var("OX_PERSISTENT_ROOMS") {
         cfg.lifecycle.persistent_rooms = crate::social::split_ids(&v);
     }
+    if let Ok(v) = std::env::var("OX_RECORD_EVENTS") {
+        cfg.gameplay.record_events = crate::social::split_ids(&v);
+    }
+    if let Ok(v) = std::env::var("OX_EVENT_TTL_DAYS") {
+        cfg.gameplay.event_ttl_days = v
+            .trim()
+            .parse()
+            .unwrap_or(cfg.gameplay.event_ttl_days);
+    }
     cfg.watchdog.apply_env();
     clamp_windows(&mut cfg);
     Ok(cfg)
@@ -319,8 +330,32 @@ epoch_deadline_ticks = 8
     #[test]
     fn flat_watchdog_keys_are_read_and_clamped() {
         let cfg = parse_config("tick_budget_ms: 5\nepoch_deadline_ticks: 0\n");
-        assert!(cfg.watchdog.enabled, "only an explicit switch can disable it");
+        assert!(
+            cfg.watchdog.enabled,
+            "only an explicit switch can disable it"
+        );
         assert_eq!(cfg.watchdog.tick_budget_ms, 250);
         assert_eq!(cfg.watchdog.epoch_deadline_ticks, 1);
+    }
+
+    /// Nothing is recorded unless the game asks: the default is an empty list,
+    /// so a guest's chat traffic cannot reach the database on its own.
+    #[test]
+    fn the_event_allowlist_is_empty_until_a_game_lists_it() {
+        assert!(parse_config("").gameplay.record_events.is_empty());
+        let cfg = parse_config(
+            r#"
+[gameplay]
+record_events = ["discard", "deal"]
+"#,
+        );
+        assert!(cfg.gameplay.records("discard"));
+        assert!(!cfg.gameplay.records("chat"));
+    }
+
+    #[test]
+    fn flat_record_events_are_trimmed_and_de_duplicated() {
+        let cfg = parse_config("record_events: discard,  discard ,\n");
+        assert_eq!(cfg.gameplay.record_events, ["discard"]);
     }
 }

@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use engine_bus::TICK_HISTOGRAM_BUCKETS;
 use engine_dashboard::histogram_add;
 
-use engine_bus::clock::tick_period;
 use super::stats::{RING, ring_push};
+use engine_bus::clock::tick_period;
 
 pub struct Recorder {
     pub(super) input_lat_ns: [u64; RING],
@@ -23,6 +23,9 @@ pub struct Recorder {
     pub deltas_dropped_full: u64,
     pub inputs_dropped: u64,
     pub tick_overruns: u64,
+    /// Client checksum reports the host checkpoint rejected. Counted where the
+    /// report is parsed, so it survives a room closing.
+    pub desyncs: u64,
     pub(super) last_publish: Instant,
     /// Nominal tick rate, refreshed by `maybe_publish`; used only to classify
     /// a tick duration as an overrun against `1/tick_hz` of work.
@@ -43,6 +46,7 @@ impl Recorder {
             deltas_dropped_full: 0,
             inputs_dropped: 0,
             tick_overruns: 0,
+            desyncs: 0,
             last_publish: Instant::now(),
             tick_hz: 128.0,
             publish_seq: 0,
@@ -52,7 +56,11 @@ impl Recorder {
     /// kernel→sim latency of one input, nanoseconds. Saturating: a stale
     /// arrival stamp must never panic the sim thread.
     pub fn note_input_latency(&mut self, arrival_ns: u64, now_ns: u64) {
-        ring_push(&mut self.input_lat_ns, &mut self.n_input, now_ns.saturating_sub(arrival_ns));
+        ring_push(
+            &mut self.input_lat_ns,
+            &mut self.n_input,
+            now_ns.saturating_sub(arrival_ns),
+        );
     }
 
     /// wall duration of one `wasm.on_tick`.

@@ -65,6 +65,13 @@ allow_messaging = true
 # tick_budget_ms = 500
 # epoch_deadline_ticks = 4
 
+# Event history. `host_send` messages are wire-only by default; listing an event
+# name here mirrors it to the control plane, where it is written to the
+# gameplay_event table and readable per match. Names are the game's own.
+# [gameplay]
+# record_events = ["discard", "deal", "match_end"]
+# event_ttl_days = 30
+
 # Control plane (Tokio/Axum): matchmake, WS signaling, /status, statics.
 # `api_port` is its own port so the game WebSocket (`port`) and the website
 # (`web_port`) keep working unchanged. Set `api_port = web_port` to hand the

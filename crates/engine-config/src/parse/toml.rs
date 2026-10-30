@@ -149,11 +149,21 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
         if let Some(v) = w.get("tick_budget_ms").and_then(|v| v.as_integer()) {
             cfg.watchdog.tick_budget_ms = v.max(0) as u64;
         }
-        if let Some(v) = w
-            .get("epoch_deadline_ticks")
-            .and_then(|v| v.as_integer())
-        {
+        if let Some(v) = w.get("epoch_deadline_ticks").and_then(|v| v.as_integer()) {
             cfg.watchdog.epoch_deadline_ticks = v.max(0) as u64;
+        }
+    }
+
+    if let Some(g) = table.get("gameplay").and_then(|v| v.as_table()) {
+        if let Some(events) = g.get("record_events").and_then(|v| v.as_array()) {
+            cfg.gameplay.record_events = events
+                .iter()
+                .filter_map(|event| event.as_str())
+                .map(str::to_owned)
+                .collect();
+        }
+        if let Some(v) = g.get("event_ttl_days").and_then(|v| v.as_integer()) {
+            cfg.gameplay.event_ttl_days = v.max(0) as u32;
         }
     }
 

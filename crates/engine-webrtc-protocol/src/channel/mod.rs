@@ -1,5 +1,6 @@
 mod ack;
 mod assembler;
+mod checksum;
 mod delta;
 mod evict;
 mod fragment;
@@ -11,6 +12,9 @@ mod stats;
 pub use crate::frames::is_newer;
 pub use ack::{ACK_WIRE_LEN, Ack, AckKind, OP_ACK, parse_ack, write_ack};
 pub use assembler::FragmentAssembler;
+pub use checksum::{
+    CHECKSUM_WIRE_LEN, ChecksumReport, OP_CHECKSUM, parse_checksum, write_checksum,
+};
 pub use delta::{
     DELTA_HEADER_LEN, DeltaHeader, MAX_DELTA_CHUNK, OP_DELTA, delta_fragment_count,
     write_delta_frame,

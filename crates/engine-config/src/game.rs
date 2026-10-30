@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::control::ControlConfig;
+use crate::gameplay::GameplayConfig;
 use crate::lifecycle::LifecycleConfig;
 use crate::netcode::{AoiConfig, RollbackConfig};
 use crate::watchdog::WatchdogConfig;
@@ -76,6 +77,8 @@ pub struct GameConfig {
     pub rollback: RollbackConfig,
     pub lifecycle: LifecycleConfig,
     pub watchdog: WatchdogConfig,
+    /// Which guest events the host mirrors to the control plane for history.
+    pub gameplay: GameplayConfig,
     pub control: ControlConfig,
 }
 
@@ -106,6 +109,7 @@ impl Default for GameConfig {
             rollback: RollbackConfig::default(),
             lifecycle: LifecycleConfig::default(),
             watchdog: WatchdogConfig::default(),
+            gameplay: GameplayConfig::default(),
             control: ControlConfig::default(),
         }
     }
