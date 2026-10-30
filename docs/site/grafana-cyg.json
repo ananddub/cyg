@@ -1,0 +1,86 @@
+{
+  "title": "cyg-game control plane",
+  "uid": "cyg-game",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Tick rate vs nominal",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "cyg_tick_hz_est{job=~\"$job\"}", "legendFormat": "measured Hz" },
+        { "expr": "1000000 / cyg_nominal_tick_us{job=~\"$job\"}", "legendFormat": "nominal Hz" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "hertz" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Tick budget p99 vs period",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "cyg_tick_budget_p99_us{job=~\"$job\"}", "legendFormat": "p99 µs" },
+        { "expr": "cyg_nominal_tick_us{job=~\"$job\"}", "legendFormat": "period µs" },
+        { "expr": "cyg_stage_sim_us{job=~\"$job\"}", "legendFormat": "sim stage µs" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "µs" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Sessions and rooms",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "cyg_ws_sessions{job=~\"$job\"}", "legendFormat": "websocket" },
+        { "expr": "cyg_webrtc_sessions{job=~\"$job\"}", "legendFormat": "webrtc" },
+        { "expr": "cyg_udp_sessions{job=~\"$job\"}", "legendFormat": "native udp" },
+        { "expr": "cyg_players{job=~\"$job\"}", "legendFormat": "players" },
+        { "expr": "cyg_rooms{job=~\"$job\"}", "legendFormat": "rooms {{phase}}" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "heatmap",
+      "title": "Tick duration histogram (µs)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "cyg_tick_duration_us_bucket{job=~\"$job\"}",
+          "legendFormat": "{{le}}",
+          "format": "heatmap",
+          "instant": false
+        }
+      ],
+      "options": { "calculate": true, "cellGap": 1, "yAxis": { "unit": "µs" } }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(cyg_tick_hz_est, job)",
+        "refresh": 1
+      }
+    ]
+  },
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ]
+}

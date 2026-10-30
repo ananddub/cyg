@@ -30,15 +30,17 @@ mod cook;
 mod schema;
 
 fn init_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let builder = tracing_subscriber::fmt()
+        .with_env_filter(filter)
         .with_target(false)
-        .with_writer(std::io::stderr)
-        .compact()
-        .init();
+        .with_writer(std::io::stderr);
+    if std::env::var("OX_LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json")) {
+        builder.json().init();
+    } else {
+        builder.compact().init();
+    }
 }
 
 fn main() {

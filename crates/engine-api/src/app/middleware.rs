@@ -2,6 +2,7 @@ use axum::extract::FromRequestParts;
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use base64::Engine;
+use tracing::Instrument;
 use uuid::Uuid;
 
 use crate::error::V2Error;
@@ -80,10 +81,7 @@ pub fn server_key(headers: &HeaderMap, state: &crate::ApiState) -> Result<(), V2
 
 /// Privileged server-to-server routes accept either the server key (game
 /// backend) or a console session; a player session is never enough.
-pub fn server_key_or_console(
-    headers: &HeaderMap,
-    state: &crate::ApiState,
-) -> Result<(), V2Error> {
+pub fn server_key_or_console(headers: &HeaderMap, state: &crate::ApiState) -> Result<(), V2Error> {
     if server_key(headers, state).is_ok() {
         return Ok(());
     }
@@ -140,8 +138,8 @@ pub fn console_claims(headers: &HeaderMap) -> Result<ConsoleClaims, V2Error> {
     if auth_headers(headers) != 1 {
         return Err(V2Error::unauthenticated("Console token required"));
     }
-    let token = bearer_token(headers)
-        .ok_or_else(|| V2Error::unauthenticated("Console token invalid"))?;
+    let token =
+        bearer_token(headers).ok_or_else(|| V2Error::unauthenticated("Console token invalid"))?;
     console_token_claims(token)
 }
 
@@ -154,4 +152,38 @@ pub fn console_token_claims(token: &str) -> Result<ConsoleClaims, V2Error> {
         return Err(invalid());
     }
     Ok(claims)
+}
+
+pub const REQUEST_ID_HEADER: &str = "x-request-id";
+const MAX_INCOMING_REQUEST_ID_LEN: usize = 128;
+
+/// Accepts a client-supplied id only when it is safe to echo back verbatim
+/// (printable ASCII, bounded length); anything else gets a fresh uuid v4.
+fn sanitize_request_id(raw: Option<&str>) -> Option<String> {
+    let raw = raw?;
+    if raw.len() > MAX_INCOMING_REQUEST_ID_LEN
+        || !raw.bytes().all(|b| b.is_ascii_graphic() || b == b' ')
+    {
+        return None;
+    }
+    Some(raw.to_owned())
+}
+
+pub async fn request_id(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let id = sanitize_request_id(
+        request
+            .headers()
+            .get(REQUEST_ID_HEADER)
+            .and_then(|v| v.to_str().ok()),
+    )
+    .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let span = tracing::info_span!("http", request_id = %id, method = %request.method());
+    let mut response = next.run(request).instrument(span).await;
+    if let Ok(value) = axum::http::HeaderValue::from_str(&id) {
+        response.headers_mut().insert(REQUEST_ID_HEADER, value);
+    }
+    response
 }

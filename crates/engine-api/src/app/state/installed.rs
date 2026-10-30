@@ -71,6 +71,9 @@ pub fn with_plane_state(
     container: Option<auto_di::Container>,
 ) -> axum::Router {
     router
+        .layer(axum::middleware::from_fn(
+            crate::app::middleware::request_id,
+        ))
         .layer(axum::middleware::from_fn(attach_state))
         .layer(axum::middleware::from_fn(attach_container))
         .layer(axum::Extension(state))
@@ -79,5 +82,7 @@ pub fn with_plane_state(
 
 #[doc(hidden)]
 pub async fn auto_router(state: ApiState) -> axum::Router {
-    crate::app::api::app(state).await.expect("boot: schema migrations must succeed")
+    crate::app::api::app(state)
+        .await
+        .expect("boot: schema migrations must succeed")
 }
