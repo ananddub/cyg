@@ -24,10 +24,6 @@ import {
   Sparkles,
   CheckCircle2,
   XCircle,
-  Copy,
-  Check,
-  Edit3,
-  Eye,
 } from 'lucide-react';
 
 import { TriggerNode } from './nodes/TriggerNode';
@@ -37,7 +33,7 @@ import { ActionNode } from './nodes/ActionNode';
 import { graphToRuleJson, ruleJsonToGraph, getNodeColor } from './graph-to-rule';
 import { RuleSelect } from './RuleSelect';
 import { Button } from '@/components/ui/button';
-import { JsonTokens } from '@/components/console/json-view';
+import { LiveJsonEditor } from './LiveJsonEditor';
 
 const PRESETS = {
   centurion: {
@@ -102,11 +98,8 @@ export function VisualRuleBuilder({
   const [testResult, setTestResult] = useState<{ matched: boolean; error?: string } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
 
-  // JSON editor states
-  const [isEditingJson, setIsEditingJson] = useState(false);
-  const [editableJson, setEditableJson] = useState('');
-  const [jsonError, setJsonError] = useState<string | null>(null);
-  const [copiedJson, setCopiedJson] = useState(false);
+  // JSON editor code state
+  const [codeJson, setCodeJson] = useState('');
 
   const nodeTypes = useMemo(
     () => ({
@@ -143,6 +136,27 @@ export function VisualRuleBuilder({
     setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
   }, []);
 
+  const handleApplyJsonToCanvas = useCallback(
+    (newJsonStr?: string) => {
+      const toApply = newJsonStr ?? codeJson;
+      try {
+        const parsed = JSON.parse(toApply);
+        const graph = ruleJsonToGraph(parsed, handleNodeDataChange, handleDeleteNode);
+        setNodes(graph.nodes);
+        setEdges(graph.edges);
+        onChange(toApply);
+      } catch {
+        // ignore invalid JSON
+      }
+    },
+    [codeJson, handleNodeDataChange, handleDeleteNode, onChange],
+  );
+
+  const switchToVisual = () => {
+    handleApplyJsonToCanvas(codeJson);
+    setActiveTab('visual');
+  };
+
   // Initialize from initialJson or default preset
   useEffect(() => {
     let parsed: unknown = PRESETS.centurion.json;
@@ -156,6 +170,7 @@ export function VisualRuleBuilder({
     const graph = ruleJsonToGraph(parsed, handleNodeDataChange, handleDeleteNode);
     setNodes(graph.nodes);
     setEdges(graph.edges);
+    setCodeJson(JSON.stringify(parsed, null, 2));
   }, [handleNodeDataChange, handleDeleteNode]);
 
   // Sync graph changes to JSON output
@@ -163,6 +178,7 @@ export function VisualRuleBuilder({
     if (nodes.length > 0) {
       const generated = graphToRuleJson(nodes, edges);
       const jsonStr = JSON.stringify(generated, null, 2);
+      setCodeJson(jsonStr);
       onChange(jsonStr);
     }
   }, [nodes, edges, onChange]);
@@ -249,6 +265,7 @@ export function VisualRuleBuilder({
     const graph = ruleJsonToGraph(preset.json, handleNodeDataChange, handleDeleteNode);
     setNodes(graph.nodes);
     setEdges(graph.edges);
+    setCodeJson(JSON.stringify(preset.json, null, 2));
     setTestContext(JSON.stringify(preset.mockContext, null, 2));
     setTestResult(null);
   };
@@ -276,11 +293,6 @@ export function VisualRuleBuilder({
       setIsTesting(false);
     }
   };
-
-  const generatedJsonStr = useMemo(
-    () => JSON.stringify(graphToRuleJson(nodes, edges), null, 2),
-    [nodes, edges],
-  );
 
   return (
     <div className="flex flex-col rounded-xl border border-border/70 bg-zinc-950/70 shadow-2xl overflow-hidden">
@@ -350,7 +362,7 @@ export function VisualRuleBuilder({
           <div className="flex rounded-lg border border-zinc-700 bg-zinc-900 p-0.5 shadow-sm">
             <button
               type="button"
-              onClick={() => setActiveTab('visual')}
+              onClick={switchToVisual}
               className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition ${
                 activeTab === 'visual'
                   ? 'bg-zinc-800 text-zinc-100 shadow'
@@ -416,149 +428,22 @@ export function VisualRuleBuilder({
             />
           </ReactFlow>
         ) : (
-          <div className="flex h-full flex-col bg-zinc-950">
-            {/* JSON Viewer Sub-Header Toolbar */}
-            <div className="flex items-center justify-between border-b border-border/50 bg-zinc-900/60 px-4 py-2">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-semibold text-zinc-300">
-                  {isEditingJson ? 'Edit Rule JSON' : 'Compiled Rule JSON'}
-                </span>
-                <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 border border-emerald-500/20">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Live Sync
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!isEditingJson) {
-                      setEditableJson(generatedJsonStr);
-                      setJsonError(null);
-                    }
-                    setIsEditingJson(!isEditingJson);
-                  }}
-                  className="flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/90 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition cursor-pointer"
-                >
-                  {isEditingJson ? (
-                    <>
-                      <Eye className="h-3.5 w-3.5 text-sky-400" />
-                      <span>Preview Highlighted</span>
-                    </>
-                  ) : (
-                    <>
-                      <Edit3 className="h-3.5 w-3.5 text-amber-400" />
-                      <span>Edit Raw JSON</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(isEditingJson ? editableJson : generatedJsonStr);
-                    setCopiedJson(true);
-                    setTimeout(() => setCopiedJson(false), 2000);
-                  }}
-                  className="flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/90 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition cursor-pointer"
-                >
-                  {copiedJson ? (
-                    <>
-                      <Check className="h-3.5 w-3.5 text-emerald-400" />
-                      <span className="text-emerald-400 font-semibold">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3.5 w-3.5 text-zinc-400" />
-                      <span>Copy</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Content Area */}
-            {isEditingJson ? (
-              <div className="flex flex-1 flex-col p-3 overflow-hidden">
-                <textarea
-                  value={editableJson}
-                  onChange={(e) => {
-                    setEditableJson(e.target.value);
-                    try {
-                      JSON.parse(e.target.value);
-                      setJsonError(null);
-                    } catch (err) {
-                      setJsonError(err instanceof Error ? err.message : 'Invalid JSON');
-                    }
-                  }}
-                  className="flex-1 w-full resize-none rounded-lg border border-zinc-800 bg-zinc-900/90 p-3 font-mono text-xs leading-relaxed text-zinc-100 focus:border-sky-400 focus:ring-1 focus:ring-sky-400/40 focus:outline-none"
-                  placeholder="Enter valid rule JSON..."
-                  spellCheck={false}
-                />
-                {jsonError && (
-                  <div className="mt-2 flex items-center gap-1.5 text-xs text-rose-400 font-medium">
-                    <XCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                    <span>{jsonError}</span>
-                  </div>
-                )}
-                <div className="mt-2.5 flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setEditableJson(generatedJsonStr);
-                      setJsonError(null);
-                      setIsEditingJson(false);
-                    }}
-                    className="h-7 text-xs border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!!jsonError}
-                    onClick={() => {
-                      try {
-                        const parsed = JSON.parse(editableJson);
-                        const graph = ruleJsonToGraph(parsed, handleNodeDataChange, handleDeleteNode);
-                        setNodes(graph.nodes);
-                        setEdges(graph.edges);
-                        setJsonError(null);
-                        setIsEditingJson(false);
-                      } catch (err) {
-                        setJsonError(err instanceof Error ? err.message : 'Invalid JSON');
-                      }
-                    }}
-                    className="h-7 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-bold text-xs"
-                  >
-                    Apply to Canvas
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed">
-                <div className="flex min-w-full">
-                  {/* Line numbers */}
-                  <div className="select-none pr-4 text-right font-mono text-zinc-600 border-r border-zinc-800/80">
-                    {generatedJsonStr.split('\n').map((_, i) => (
-                      <div key={i} className="leading-6">
-                        {i + 1}
-                      </div>
-                    ))}
-                  </div>
-                  {/* Highlighted syntax lines */}
-                  <div className="pl-4 font-mono text-json-punct overflow-x-auto whitespace-pre">
-                    {generatedJsonStr.split('\n').map((line, i) => (
-                      <div key={i} className="leading-6">
-                        <JsonTokens text={line} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <LiveJsonEditor
+            value={codeJson}
+            onChange={(val) => {
+              setCodeJson(val);
+              try {
+                const parsed = JSON.parse(val);
+                const graph = ruleJsonToGraph(parsed, handleNodeDataChange, handleDeleteNode);
+                setNodes(graph.nodes);
+                setEdges(graph.edges);
+                onChange(val);
+              } catch {
+                // partial typing, don't update canvas yet
+              }
+            }}
+            onApplyToCanvas={() => handleApplyJsonToCanvas(codeJson)}
+          />
         )}
       </div>
 
