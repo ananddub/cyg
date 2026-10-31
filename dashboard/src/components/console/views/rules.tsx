@@ -38,11 +38,6 @@ export function RulesView() {
   const [body, setBody] = useState(SAMPLE)
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [deleteKey, setDeleteKey] = useState<string | null>(null)
-
-  const [dryKey, setDryKey] = useState("")
-  const [dryContext, setDryContext] = useState("{}\n")
-  const [dryResult, setDryResult] = useState<ConsoleRuleDryRun | null>(null)
-  const [dryError, setDryError] = useState<string | null>(null)
   const dryRun = useConsoleMutation<ConsoleRuleDryRun>()
 
   const groups = useMemo(() => {
@@ -74,32 +69,6 @@ export function RulesView() {
           setCreating(false)
           setKey("")
         },
-      },
-    )
-  }
-
-  function runDry() {
-    let context: unknown
-    try {
-      context = JSON.parse(dryContext)
-    } catch {
-      setDryError("The context is not valid JSON.")
-      return
-    }
-    setDryError(null)
-    dryRun.mutate(
-      {
-        method: "POST",
-        path: CONSOLE_ENDPOINTS.ruleDryRun,
-        body: {
-          key: dryKey.trim() === "" ? undefined : dryKey.trim(),
-          context,
-        },
-        success: "Dry run complete",
-      },
-      {
-        onSuccess: (result) => setDryResult(result),
-        onError: (error) => setDryError(error.message),
       },
     )
   }
@@ -276,42 +245,6 @@ export function RulesView() {
                 </div>
               )
             })}
-          </div>
-        )}
-      </Panel>
-
-      <Panel title="Dry run">
-        <p className="px-4 pt-3 text-sm text-muted-foreground">
-          Evaluate a stored rule (by key) against a context object — a player's stat map, or
-          anything else the rule reads.
-        </p>
-        <div className="grid gap-3 p-4 md:grid-cols-3">
-          <Field label="Rule key">
-            <input
-              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
-              placeholder="leave empty for inline body"
-              value={dryKey}
-              onChange={(event) => setDryKey(event.target.value)}
-            />
-          </Field>
-          <Field label="Context (JSON)">
-            <textarea rows={4} className="w-full rounded-md border border-border bg-background p-3 font-mono text-xs" value={dryContext} onChange={(event) => setDryContext(event.target.value)} />
-          </Field>
-          <div className="flex items-end">
-            <Button size="sm" onClick={runDry}>
-              Evaluate
-            </Button>
-          </div>
-        </div>
-        {dryError !== null && (
-          <p className="px-4 pb-3 text-sm text-red-400">{dryError}</p>
-        )}
-        {dryResult !== null && (
-          <div className="px-4 pb-4">
-            <p className={dryResult.matched ? "text-sm text-emerald-300" : "text-sm text-amber-300"}>
-              {dryResult.matched ? "The rule matches." : "The rule does not match."}
-              {dryResult.error !== null && ` (${dryResult.error})`}
-            </p>
           </div>
         )}
       </Panel>
