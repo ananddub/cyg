@@ -1,7 +1,9 @@
-import { useState, useRef, useMemo, type KeyboardEvent, type ChangeEvent } from 'react';
-import { JsonTokens } from '@/components/console/json-view';
+import { useState, useMemo } from 'react';
+import CodeMirror from '@uiw/react-codemirror';
+import { json } from '@codemirror/lang-json';
 import { Copy, Check, Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useTheme } from '@/lib/theme';
 
 interface LiveJsonEditorProps {
   value: string;
@@ -12,10 +14,7 @@ interface LiveJsonEditorProps {
 export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEditorProps) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const preRef = useRef<HTMLPreElement>(null);
-  const lineNumbersRef = useRef<HTMLDivElement>(null);
+  const mode = useTheme();
 
   // Validate on value change
   const isValid = useMemo(() => {
@@ -29,43 +28,14 @@ export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEdi
     }
   }, [value]);
 
-  const lines = useMemo(() => value.split('\n'), [value]);
-
-  // Synchronize scroll between textarea, syntax pre, and line numbers
-  const handleScroll = () => {
-    if (!textareaRef.current) return;
-    const { scrollTop, scrollLeft } = textareaRef.current;
-    if (preRef.current) {
-      preRef.current.scrollTop = scrollTop;
-      preRef.current.scrollLeft = scrollLeft;
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback
     }
-    if (lineNumbersRef.current) {
-      lineNumbersRef.current.scrollTop = scrollTop;
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const target = e.currentTarget;
-      const start = target.selectionStart;
-      const end = target.selectionEnd;
-
-      const newValue = value.substring(0, start) + '  ' + value.substring(end);
-      onChange(newValue);
-
-      requestAnimationFrame(() => {
-        if (textareaRef.current) {
-          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
-        }
-      });
-    }
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleFormat = () => {
@@ -73,9 +43,8 @@ export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEdi
       const parsed = JSON.parse(value);
       const formatted = JSON.stringify(parsed, null, 2);
       onChange(formatted);
-      setError(null);
     } catch {
-      // ignore formatting if invalid JSON
+      // ignore if invalid
     }
   };
 
@@ -149,51 +118,27 @@ export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEdi
         </div>
       </div>
 
-      {/* Editor Body: Gutter + Syntax Overlay + Input */}
-      <div className="relative flex flex-1 overflow-hidden">
-        {/* Line Numbers Gutter */}
-        <div
-          ref={lineNumbersRef}
-          className="select-none overflow-hidden bg-muted/20 py-4 pl-3 pr-3 text-right font-mono text-muted-foreground/60 border-r border-border"
-          style={{ minWidth: '42px' }}
-        >
-          {lines.map((_, i) => (
-            <div key={i} className="leading-6">
-              {i + 1}
-            </div>
-          ))}
-        </div>
-
-        {/* Code Container */}
-        <div className="relative flex-1 overflow-hidden">
-          {/* Syntax Highlighted View Underneath */}
-          <pre
-            ref={preRef}
-            aria-hidden="true"
-            className="absolute inset-0 m-0 overflow-hidden p-4 font-mono text-xs leading-6 text-json-punct whitespace-pre pointer-events-none select-none"
-            style={{ tabSize: 2 }}
-          >
-            <JsonTokens text={value} />
-          </pre>
-
-          {/* Transparent Input Textarea on Top */}
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
-            onScroll={handleScroll}
-            onKeyDown={handleKeyDown}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoComplete="off"
-            autoCorrect="off"
-            className="absolute inset-0 m-0 h-full w-full resize-none overflow-auto p-4 font-mono text-xs leading-6 bg-transparent text-transparent caret-sky-400 outline-none border-0 focus:ring-0 whitespace-pre selection:bg-sky-500/25"
-            style={{
-              tabSize: 2,
-              WebkitTextFillColor: 'transparent',
-            }}
-          />
-        </div>
+      {/* CodeMirror Package Integration */}
+      <div className="flex-1 overflow-auto text-xs">
+        <CodeMirror
+          value={value}
+          height="435px"
+          theme={mode === 'dark' ? 'dark' : 'light'}
+          extensions={[json()]}
+          onChange={(val) => onChange(val)}
+          basicSetup={{
+            lineNumbers: true,
+            foldGutter: true,
+            dropCursor: true,
+            allowMultipleSelections: false,
+            indentOnInput: true,
+            bracketMatching: true,
+            closeBrackets: true,
+            autocompletion: true,
+            highlightActiveLine: true,
+          }}
+          className="text-xs font-mono"
+        />
       </div>
 
       {/* Error banner at bottom if invalid */}
