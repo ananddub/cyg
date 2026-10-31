@@ -96,8 +96,9 @@ impl Queries {
         .await
     }
 
+    /// A probe: idle ticks match no rows, so it must not wake live readers.
     pub async fn requeue_stalled(&self, stalled_before: DateTime<Utc>) -> Result<(), DbError> {
-        self.exec(
+        self.exec_quiet(
             "UPDATE webhook_delivery SET status = 'queued', update_time = $now \
              WHERE status = 'sending' AND update_time < $before",
             params!(now = ts(Utc::now()), before = ts(stalled_before)),

@@ -57,6 +57,16 @@ impl Queries {
         self.db.exec_params(surql, &params).await
     }
 
+    /// Like `exec`, but the write does not wake live dashboard readers; only
+    /// probes whose write is routinely a no-op should take this path.
+    pub(crate) async fn exec_quiet(
+        &self,
+        surql: &str,
+        params: BTreeMap<String, Value>,
+    ) -> Result<(), DbError> {
+        self.db.exec_params_quiet(surql, &params).await
+    }
+
     pub(crate) async fn scalar<T: DeserializeOwned>(
         &self,
         surql: &str,

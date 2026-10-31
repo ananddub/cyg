@@ -80,13 +80,73 @@ pub(crate) async fn a_scoped_socket_sees_its_tenants_rows_and_an_unscoped_one_se
         Some("hello")
     );
     insert_user(&store, hosted.id, "second-player").await;
-    for _ in 0..2 {
-        assert_eq!(
-            next_json(&mut unscoped).await["type"].as_str(),
-            Some("snapshot"),
-            "an unscoped socket must never receive a tenant's account rows"
-        );
+    let mut snapshots = 0;
+    while snapshots < 2 {
+        let frame = next_json(&mut unscoped).await;
+        match frame["type"].as_str() {
+            Some("snapshot") => snapshots += 1,
+            Some("live") => {
+                assert_eq!(
+                    frame["action"].as_str(),
+                    Some("touch"),
+                    "an unscoped socket may learn that a table moved"
+                );
+                assert_eq!(
+                    frame["record"].as_str(),
+                    Some(""),
+                    "but a mark never carries a tenant's row"
+                );
+            }
+            _ => {}
+        }
     }
+
+    server.abort();
+}
+
+#[tokio::test]
+pub(crate) async fn a_change_off_the_account_plane_still_wakes_the_socket() {
+    use tokio_tungstenite::connect_async;
+
+    let Some((state, store)) = db::state().await else {
+        return;
+    };
+    let hosted = db::create(&state, "live-groups").await;
+    store
+        .exec("DEFINE TABLE IF NOT EXISTS groups SCHEMALESS")
+        .await
+        .expect("the groups table exists");
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("ephemeral bind");
+    let port = listener.local_addr().expect("bound addr").port();
+    let server = tokio::spawn(serve(listener, state, std::future::pending()));
+
+    let url = format!(
+        "ws://127.0.0.1:{port}/ws/dashboard?token={}&game_id={}",
+        console_token(),
+        hosted.id
+    );
+    let (mut scoped, _) = connect_async(&url)
+        .await
+        .expect("dashboard socket connects");
+    assert_eq!(next_json(&mut scoped).await["type"].as_str(), Some("hello"));
+    assert_eq!(
+        next_json(&mut scoped).await["type"].as_str(),
+        Some("snapshot")
+    );
+
+    store
+        .exec("CREATE groups SET name = 'raiders'")
+        .await
+        .expect("a group row is created");
+
+    let frame = next_of_type(&mut scoped, "live").await;
+    assert_eq!(frame["topic"].as_str(), Some("groups"));
+    assert_eq!(frame["action"].as_str(), Some("touch"));
+    assert_eq!(frame["record"].as_str(), Some(""));
+    assert_eq!(frame["seq"].as_u64(), Some(1));
 
     server.abort();
 }

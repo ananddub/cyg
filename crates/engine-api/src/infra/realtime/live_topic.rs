@@ -28,15 +28,26 @@ impl LiveTopic {
         }
     }
 
-    pub(super) fn statement(self) -> String {
-        let table = match self {
+    pub(super) fn table(self) -> &'static str {
+        match self {
             LiveTopic::Users => "users",
             LiveTopic::Purchases => "purchase",
             LiveTopic::Subscriptions => "subscription",
             LiveTopic::WalletLedger => "wallet_ledger",
             LiveTopic::Leaderboard => "leaderboard",
-        };
-        crate::repositories::realtime::live_statement(table)
+        }
+    }
+
+    /// Whether this topic already delivers row-level changes for `table`, in
+    /// which case a bare write mark for it would only duplicate the frame.
+    pub fn covers_table(table: &str) -> bool {
+        Self::ALL
+            .iter()
+            .any(|topic| topic.table().eq_ignore_ascii_case(table))
+    }
+
+    pub(super) fn statement(self) -> String {
+        crate::repositories::realtime::live_statement(self.table())
     }
 }
 #[derive(Debug)]
@@ -86,6 +97,11 @@ impl RealtimeHub {
                 generations: AtomicU64::new(0),
             }),
         }
+    }
+
+    /// Bare write marks from the store, or nothing when no store is open.
+    pub fn touches(&self) -> Option<broadcast::Receiver<String>> {
+        self.inner.db.as_ref().map(|db| db.touches())
     }
 
     pub async fn subscribe(&self, topic: LiveTopic, game: Uuid) -> Result<Subscription, HubError> {

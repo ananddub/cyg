@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use auto_route::controller;
@@ -8,6 +9,7 @@ use axum::response::{IntoResponse, Response};
 use engine_dashboard::WsFrame;
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
+use tokio::sync::broadcast::{self, error::RecvError};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -58,6 +60,9 @@ impl DashboardWsController {
 }
 
 const SEND_GRACE: Duration = Duration::from_millis(250);
+/// Marks that land inside this window are folded into one wake-up per table, so
+/// a burst of writes cannot turn into a burst of frames.
+const TOUCH_QUIET: Duration = Duration::from_millis(200);
 
 pub(crate) async fn upgrade(
     ws: WebSocketUpgrade,
@@ -86,6 +91,11 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
             }
         }
     });
+
+    let touches = state
+        .realtime
+        .touches()
+        .map(|rx| spawn_touches(rx, tx.clone(), game.is_some()));
 
     let feeds = match game {
         Some(game_id) => {
@@ -146,6 +156,9 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
 
     drop(tx);
     for feed in feeds {
+        feed.abort();
+    }
+    if let Some(feed) = touches {
         feed.abort();
     }
     if let Some(running) = log_feed.take() {
@@ -233,6 +246,60 @@ fn spawn_log_feed(tx: mpsc::Sender<WsFrame>, max: LogLevel) -> tokio::task::Join
             match tokio::time::timeout(SEND_GRACE, tx.send(frame)).await {
                 Ok(Ok(())) | Err(_) => {}
                 Ok(Err(_)) => return,
+            }
+        }
+    })
+}
+
+/// Turns the store's bare write marks into frames. A scoped socket already gets
+/// row-level frames for the account-plane tables, so their marks are skipped
+/// there; every other table has no such feed, and its mark is the only sign the
+/// page gets that what it shows has moved.
+fn spawn_touches(
+    mut rx: broadcast::Receiver<String>,
+    tx: mpsc::Sender<WsFrame>,
+    scoped: bool,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut seq = 0u64;
+        loop {
+            let first = match rx.recv().await {
+                Ok(table) => table,
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => return,
+            };
+            let mut changed = BTreeSet::new();
+            if !(scoped && LiveTopic::covers_table(&first)) {
+                changed.insert(first);
+            }
+            let quiet = tokio::time::sleep(TOUCH_QUIET);
+            tokio::pin!(quiet);
+            loop {
+                tokio::select! {
+                    _ = &mut quiet => break,
+                    next = rx.recv() => match next {
+                        Ok(table) => {
+                            if !(scoped && LiveTopic::covers_table(&table)) {
+                                changed.insert(table);
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => {}
+                        Err(RecvError::Closed) => break,
+                    },
+                }
+            }
+            for table in changed {
+                seq += 1;
+                let frame = WsFrame::Live {
+                    topic: table,
+                    action: "touch".to_string(),
+                    record: String::new(),
+                    seq,
+                };
+                match tx.try_send(frame) {
+                    Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
+                    Err(mpsc::error::TrySendError::Closed(_)) => return,
+                }
             }
         }
     })

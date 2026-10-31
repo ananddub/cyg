@@ -26,6 +26,7 @@ impl KvBudget {
 }
 pub struct Datastore {
     pub(super) client: Client,
+    pub(super) touches: tokio::sync::broadcast::Sender<String>,
 }
 pub(super) enum Client {
     Sdk(Surreal<Any>),

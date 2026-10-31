@@ -166,11 +166,12 @@ impl Queries {
     }
 
     /// Rows whose retry time has arrived but whose claimer never came back.
+    /// A probe: idle ticks match no rows, so it must not wake live readers.
     pub async fn requeue_stalled_attempts(
         &self,
         stalled_before: DateTime<Utc>,
     ) -> Result<(), DbError> {
-        self.exec(
+        self.exec_quiet(
             "UPDATE delivery_attempt SET status = 'queued', update_time = $now \
              WHERE status = 'sending' AND update_time < $before",
             params!(now = ts(Utc::now()), before = ts(stalled_before)),

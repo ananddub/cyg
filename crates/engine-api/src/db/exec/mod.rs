@@ -21,6 +21,7 @@ mod kv_budget;
 mod live_change;
 mod open;
 mod raw_all;
+mod touch;
 
 pub use kv_budget::*;
 pub use live_change::*;

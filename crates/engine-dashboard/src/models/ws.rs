@@ -15,8 +15,9 @@ pub enum WsFrame {
         overview: Box<Overview>,
         ticks: Box<TickSeries>,
     },
-    /// One change in an account-plane table, scoped to the socket's game. A
-    /// page refetches what it shows; the frame carries no row of its own.
+    /// One change worth a refetch. A scoped socket gets the account-plane
+    /// tables with a record and an action; any other table arrives as a bare
+    /// `touch` carrying no row, so a page knows only that it moved.
     Live {
         topic: String,
         action: String,

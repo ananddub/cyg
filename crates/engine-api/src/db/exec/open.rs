@@ -34,6 +34,7 @@ impl Datastore {
             .map_err(|err| DbError::Connection(err.to_string()))?;
         Ok(Self {
             client: Client::Sdk(client),
+            touches: touch::touch_channel(),
         })
     }
     async fn open_surrealkv(
@@ -70,6 +71,7 @@ impl Datastore {
             .map_err(|err| DbError::Connection(err.to_string()))?;
         Ok(Self {
             client: Client::Kv(client),
+            touches: touch::touch_channel(),
         })
     }
     pub async fn query<T>(&self, q: &(impl ToString + ?Sized)) -> Result<Vec<T>, DbError>
@@ -141,6 +143,16 @@ impl Datastore {
         params: &BTreeMap<String, serde_json::Value>,
     ) -> Result<(), DbError> {
         self.run(surql, Some(params)).await.map(|_| ())
+    }
+    pub async fn exec_quiet(&self, surql: &str) -> Result<(), DbError> {
+        self.run_quiet(surql, None).await.map(|_| ())
+    }
+    pub async fn exec_params_quiet(
+        &self,
+        surql: &str,
+        params: &BTreeMap<String, serde_json::Value>,
+    ) -> Result<(), DbError> {
+        self.run_quiet(surql, Some(params)).await.map(|_| ())
     }
     pub async fn create<T>(&self, table: &str, key: Key, data: &T) -> Result<T, DbError>
     where
