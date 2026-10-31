@@ -1,5 +1,8 @@
+import { useEffect } from "react"
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { toast } from "sonner"
+
+import type { LiveMark } from "@/hooks/use-metrics-ws"
 
 import { consoleGet, consoleWrite, type HttpMethod } from "@/lib/console"
 import { useGameScope } from "@/lib/console/scope"
@@ -27,6 +30,23 @@ export function useConsoleQuery<T>(
     retry: 0,
     queryFn: () => consoleGet<T>(path, token, scoped),
   })
+}
+
+// A burst (bulk import, wallet sync) collapses into one refetch: the timer
+// restarts on each mark.
+const LIVE_REFRESH_MS = 300
+
+/** A live mark means some console read is stale; the open views refetch their
+ * own endpoint, so a view that is not open costs nothing. */
+export function useLiveRefetch(live: LiveMark | null) {
+  const client = useQueryClient()
+  useEffect(() => {
+    if (live === null) return
+    const timer = window.setTimeout(() => {
+      void client.invalidateQueries({ queryKey: ["console"] })
+    }, LIVE_REFRESH_MS)
+    return () => window.clearTimeout(timer)
+  }, [live, client])
 }
 
 /** The one-line summary a failed console read shows. */

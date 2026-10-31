@@ -10,8 +10,7 @@
 // workspace fresh, so switching projects never carries a worker drawer or a
 // socket frame across the boundary.
 
-import { useEffect, useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useState } from "react"
 import { ArrowLeft } from "lucide-react"
 
 import { ConsoleSidebar } from "@/components/console/shell"
@@ -49,9 +48,10 @@ import { TournamentsView } from "@/components/console/views/tournaments"
 import { CoreDetailsSidebar } from "@/components/core-details-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { OfflineBanner } from "@/components/offline-banner"
-import { useConsoleQuery } from "@/hooks/use-console"
+import { useConsoleQuery, useLiveRefetch } from "@/hooks/use-console"
 import { useDashboardData, useIdentityQuery, type DashboardData } from "@/hooks/use-dashboard-api"
 import { useDashboardToasts } from "@/hooks/use-dashboard-toasts"
+import { useMetricsWs } from "@/hooks/use-metrics-ws"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   defaultGameArea,
@@ -67,10 +67,6 @@ import { GameScopeProvider } from "@/lib/console/scope"
 import type { ConsoleRoute } from "@/lib/routes"
 import { GAMES_ROUTE, gameRoute } from "@/lib/routes"
 import type { WorkerRow } from "@/lib/types"
-
-// One change refreshes every console read; a burst (bulk import, wallet sync)
-// collapses into a single refetch, because the timer restarts on each frame.
-const LIVE_REFRESH_MS = 300
 
 export function ConsolePage({
   session,
@@ -131,6 +127,11 @@ function GlobalConsole({
   const navigateArea = (id: string) => onNavigate({ gameId: null, areaId: id })
   const openGame = (game: Game) => onNavigate(gameRoute(game.id))
 
+  // The global areas have no tenant of their own, so the socket is unscoped:
+  // it carries no rows, only the bare marks that say a table moved.
+  const ws = useMetricsWs(null, true)
+  useLiveRefetch(ws.live)
+
   return (
     <SidebarProvider className="h-svh w-full text-foreground">
       <ConsoleSidebar
@@ -146,8 +147,9 @@ function GlobalConsole({
         <div className="flex h-16 shrink-0 items-center border-b border-border/60 bg-background/80 px-4 backdrop-blur-md lg:px-8">
           <SidebarTrigger className="-ml-2 mr-2" />
           <DashboardHeader
-            source="poll"
-            connected={false}
+            source={ws.status === "open" ? "ws" : "poll"}
+            connected={ws.status === "open"}
+            lastFrameAtMs={ws.lastFrameAtMs ?? undefined}
             sectionLabel={area.label}
             showFeed={false}
           />
@@ -209,19 +211,8 @@ function GameConsole({
   useDashboardToasts(data.ws, data.overview, data.rooms)
 
   // A frame is an invalidation, not a row: the open view refetches its own
-  // endpoint, so a view that is not open costs nothing. The mark is the whole
-  // frame identity (topic + running seq), so two frames of one topic are two
-  // refreshes, and a refresh is idempotent.
-  const queryClient = useQueryClient()
-  const liveMark =
-    data.ws.live === null ? "" : `${data.ws.live.topic}:${data.ws.live.seq}`
-  useEffect(() => {
-    if (liveMark === "") return
-    const timer = window.setTimeout(() => {
-      void queryClient.invalidateQueries({ queryKey: ["console"] })
-    }, LIVE_REFRESH_MS)
-    return () => window.clearTimeout(timer)
-  }, [liveMark, queryClient])
+  // endpoint, so a view that is not open costs nothing.
+  useLiveRefetch(data.ws.live)
 
   const [worker, setWorker] = useState<WorkerRow | null>(null)
   const offline = hosted && data.ws.status !== "open" && data.overview === null
