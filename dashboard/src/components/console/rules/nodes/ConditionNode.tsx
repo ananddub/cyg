@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Filter, Trash2 } from 'lucide-react';
 import type { ConditionNodeData, RuleOperator } from '../types';
+import { RuleSelect } from '../RuleSelect';
 
 export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData }) {
   const operators: { value: RuleOperator; label: string }[] = [
@@ -15,7 +16,6 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
   ];
 
   const handleValueChange = (raw: string) => {
-    // If it parses cleanly as a number, keep as number, else string
     if (raw !== '' && !Number.isNaN(Number(raw))) {
       data.onDataChange?.({ value: Number(raw) });
     } else {
@@ -24,29 +24,29 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
   };
 
   return (
-    <div className="w-72 rounded-xl border border-sky-500/40 bg-zinc-900/95 p-3.5 shadow-xl shadow-sky-500/10 backdrop-blur-md">
+    <div className="w-76 rounded-xl border border-sky-500/50 bg-zinc-950/95 p-3.5 shadow-2xl shadow-sky-500/15 backdrop-blur-md">
       <Handle
         type="target"
         position={Position.Left}
         id="in"
-        className="!h-3 !w-3 !rounded-full !border-2 !border-zinc-900 !bg-sky-400"
+        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-zinc-950 !bg-sky-400"
       />
 
-      <div className="flex items-center justify-between border-b border-border/40 pb-2">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500/20 text-sky-400">
+      <div className="flex items-center justify-between border-b border-border/40 pb-2.5">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500/25 text-sky-300">
             <Filter className="h-4 w-4" />
           </div>
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-sky-400">Condition Check</div>
-            <div className="text-[11px] text-muted-foreground">Stat / State comparison</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-sky-300">Condition Check</div>
+            <div className="text-[11px] text-zinc-400">Stat / State comparison</div>
           </div>
         </div>
         {data.onDelete && (
           <button
             type="button"
             onClick={data.onDelete}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-red-400"
+            className="rounded p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-red-400"
             title="Delete node"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -54,12 +54,12 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
         )}
       </div>
 
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 space-y-2.5">
         <div>
-          <label className="text-[11px] font-medium text-zinc-300">Field Name</label>
+          <label className="text-[11px] font-semibold text-zinc-200">Field Name</label>
           <input
             type="text"
-            className="mt-1 w-full rounded-md border border-border/60 bg-zinc-950 px-2 py-1 text-xs text-foreground placeholder-zinc-600 focus:border-sky-500 focus:outline-none"
+            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-sky-400 focus:ring-1 focus:ring-sky-400/40 focus:outline-none"
             placeholder="e.g. kills, rank, level"
             value={data.field}
             onChange={(e) => data.onDataChange?.({ field: e.target.value })}
@@ -68,25 +68,22 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
 
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-[11px] font-medium text-zinc-300">Operator</label>
-            <select
-              className="mt-1 w-full rounded-md border border-border/60 bg-zinc-950 px-2 py-1 text-xs text-foreground focus:border-sky-500 focus:outline-none"
-              value={data.op}
-              onChange={(e) => data.onDataChange?.({ op: e.target.value as RuleOperator })}
-            >
-              {operators.map((op) => (
-                <option key={op.value} value={op.value}>
-                  {op.label}
-                </option>
-              ))}
-            </select>
+            <label className="text-[11px] font-semibold text-zinc-200">Operator</label>
+            <div className="mt-1">
+              <RuleSelect
+                options={operators}
+                value={data.op}
+                accent="sky"
+                onChange={(e) => data.onDataChange?.({ op: e.target.value as RuleOperator })}
+              />
+            </div>
           </div>
 
           <div>
-            <label className="text-[11px] font-medium text-zinc-300">Value</label>
+            <label className="text-[11px] font-semibold text-zinc-200">Value</label>
             <input
               type="text"
-              className="mt-1 w-full rounded-md border border-border/60 bg-zinc-950 px-2 py-1 text-xs text-foreground placeholder-zinc-600 focus:border-sky-500 focus:outline-none"
+              className="mt-1 h-8 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-sky-400 focus:ring-1 focus:ring-sky-400/40 focus:outline-none"
               placeholder="e.g. 100 or 'gold'"
               value={data.value ?? ''}
               onChange={(e) => handleValueChange(e.target.value)}
@@ -99,7 +96,7 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
         type="source"
         position={Position.Right}
         id="out"
-        className="!h-3 !w-3 !rounded-full !border-2 !border-zinc-900 !bg-sky-400"
+        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-zinc-950 !bg-sky-400"
       />
     </div>
   );

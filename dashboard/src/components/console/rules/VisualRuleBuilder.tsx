@@ -31,6 +31,7 @@ import { ConditionNode } from './nodes/ConditionNode';
 import { LogicGateNode } from './nodes/LogicGateNode';
 import { ActionNode } from './nodes/ActionNode';
 import { graphToRuleJson, ruleJsonToGraph } from './graph-to-rule';
+import { RuleSelect } from './RuleSelect';
 import { Button } from '@/components/ui/button';
 
 const PRESETS = {
@@ -310,52 +311,50 @@ export function VisualRuleBuilder({
           </Button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           {/* Preset templates */}
-          <select
-            className="h-8 rounded-md border border-border/60 bg-zinc-900 px-2 text-xs text-muted-foreground focus:border-primary focus:outline-none"
-            onChange={(e) => {
-              if (e.target.value) {
-                loadPreset(e.target.value as keyof typeof PRESETS);
-                e.target.value = '';
-              }
-            }}
-            defaultValue=""
-          >
-            <option value="" disabled>
-              Load Preset Template...
-            </option>
-            {Object.entries(PRESETS).map(([key, p]) => (
-              <option key={key} value={key}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <div className="w-60">
+            <RuleSelect
+              placeholder="Load Preset Template..."
+              options={Object.entries(PRESETS).map(([key, p]) => ({
+                value: key,
+                label: p.name,
+              }))}
+              accent="default"
+              onChange={(e) => {
+                if (e.target.value) {
+                  loadPreset(e.target.value as keyof typeof PRESETS);
+                  e.target.value = '';
+                }
+              }}
+              defaultValue=""
+            />
+          </div>
 
           {/* Mode Switcher */}
-          <div className="flex rounded-lg border border-border/60 bg-zinc-900 p-0.5">
+          <div className="flex rounded-lg border border-zinc-700 bg-zinc-900 p-0.5 shadow-sm">
             <button
               type="button"
               onClick={() => setActiveTab('visual')}
-              className={`flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition ${
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition ${
                 activeTab === 'visual'
-                  ? 'bg-zinc-800 text-foreground shadow'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'bg-zinc-800 text-zinc-100 shadow'
+                  : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <Workflow className="h-3.5 w-3.5" />
+              <Workflow className="h-3.5 w-3.5 text-sky-400" />
               <span>Canvas</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('code')}
-              className={`flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition ${
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition ${
                 activeTab === 'code'
-                  ? 'bg-zinc-800 text-foreground shadow'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'bg-zinc-800 text-zinc-100 shadow'
+                  : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              <Code2 className="h-3.5 w-3.5" />
+              <Code2 className="h-3.5 w-3.5 text-emerald-400" />
               <span>JSON</span>
             </button>
           </div>
@@ -412,13 +411,13 @@ export function VisualRuleBuilder({
       <div className="border-t border-border/60 bg-zinc-900/80 p-3.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-1 items-center gap-3">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-100">
               <Play className="h-3.5 w-3.5 text-sky-400" />
-              <span>Test Rule against Mock Player Context:</span>
+              <span>Test Rule Context:</span>
             </div>
             <input
               type="text"
-              className="h-8 flex-1 max-w-md rounded-md border border-border/60 bg-zinc-950 px-3 font-mono text-xs text-foreground focus:border-sky-500 focus:outline-none"
+              className="h-8 flex-1 max-w-md rounded-lg border border-zinc-700 bg-zinc-900 px-3 font-mono text-xs font-medium text-zinc-100 placeholder-zinc-500 shadow-sm transition focus:border-sky-400 focus:ring-1 focus:ring-sky-400/40 focus:outline-none"
               value={testContext}
               onChange={(e) => setTestContext(e.target.value)}
               placeholder='e.g. {"kills": 120, "rank": "gold"}'
@@ -428,7 +427,7 @@ export function VisualRuleBuilder({
               size="sm"
               onClick={runTest}
               disabled={isTesting}
-              className="h-8 gap-1.5 bg-sky-500 text-xs font-medium text-black hover:bg-sky-400"
+              className="h-8 gap-1.5 rounded-lg bg-sky-400 text-xs font-bold text-zinc-950 shadow-md transition hover:bg-sky-300 active:scale-95"
             >
               {isTesting ? 'Evaluating...' : 'Run Dry Test'}
             </Button>
