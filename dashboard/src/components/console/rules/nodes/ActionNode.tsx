@@ -27,7 +27,6 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
           </div>
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300">Reward / Action</div>
-            <div className="text-[11px] text-muted-foreground">Execution outcome</div>
           </div>
         </div>
         {data.onDelete && (
@@ -44,8 +43,7 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
 
       <div className="mt-3 space-y-2.5 nodrag nopan">
         <div>
-          <label className="text-[11px] font-semibold text-foreground">Action Type</label>
-          <div className="mt-1">
+          <div>
             <RuleSelect
               options={actionTypes}
               value={data.actionType}
@@ -61,7 +59,7 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
 
         {data.actionType === 'coins' ? (
           <div>
-            <label className="text-[11px] font-semibold text-foreground">Coin Amount</label>
+  
             <input
               type="number"
               className="mt-1 h-8 w-full rounded-lg border border-input bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-xs placeholder-muted-foreground transition focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none nodrag"
@@ -72,13 +70,6 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
           </div>
         ) : (
           <div>
-            <label className="text-[11px] font-semibold text-foreground">
-              {data.actionType === 'badge'
-                ? 'Badge Identifier'
-                : data.actionType === 'skin'
-                ? 'Item / Skin ID'
-                : 'Event Name'}
-            </label>
             <input
               type="text"
               className="mt-1 h-8 w-full rounded-lg border border-input bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-xs placeholder-muted-foreground transition focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none nodrag"

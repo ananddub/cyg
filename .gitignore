@@ -5,6 +5,7 @@ landingpage/
 
 # AI agent configs
 .agents/
+.archify/
 .claude/
 .qoder/
 skills-lock.json

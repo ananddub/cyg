@@ -49,10 +49,7 @@ impl Queries {
         .await
     }
 
-    pub async fn load_room_registry(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<RoomRegistry>, DbError> {
+    pub async fn load_room_registry(&self, room_id: &str) -> Result<Option<RoomRegistry>, DbError> {
         self.opt(
             "SELECT * FROM type::record('room_registry', $room_id) LIMIT 1",
             params!(room_id = room_id),

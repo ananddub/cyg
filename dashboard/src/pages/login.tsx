@@ -3,9 +3,9 @@ import { Loader2, LockKeyhole } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/console/theme-toggle"
+import { BrandLogo } from "@/components/brand-logo"
 import { ConsoleError, MFA_CODE_REQUIRED, consoleLogin } from "@/lib/console"
 import { saveSession } from "@/lib/session"
-import logoUrl from "@/assets/logo.png"
 
 /** The console gate. A successful login writes the session, and `App` re-renders
  * into the console shell — this page never navigates. */
@@ -46,11 +46,7 @@ export function LoginPage() {
       </div>
       <div className="stagger-in w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-3">
-          <img
-            src={logoUrl}
-            alt="cookyourgame (cfg)"
-            className="h-14 w-auto object-contain drop-shadow-sm"
-          />
+          <BrandLogo className="size-16 text-foreground drop-shadow-xs transition-transform hover:scale-105" />
           <div className="text-center">
             <h1 className="font-heading text-lg font-semibold tracking-tight">Admin Console</h1>
             <p className="mt-0.5 text-xs text-muted-foreground">

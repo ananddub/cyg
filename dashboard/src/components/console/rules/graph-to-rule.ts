@@ -1,4 +1,5 @@
-import type { Node, Edge } from '@xyflow/react';
+import { MarkerType, type Node, type Edge } from '@xyflow/react';
+import dagre from '@dagrejs/dagre';
 import type { ConditionNodeData, LogicGateNodeData } from './types';
 
 export interface RuleComparison {
@@ -45,8 +46,53 @@ export function getNodeColor(nodeType?: string): string {
   }
 }
 
+const DUMMY: RuleComparison = { field: 'kills', op: 'gte', value: 0 };
+
+/* Real rendered sizes per node type — dagre packs against these, so the
+   separation it computes is always larger than the visible cards. */
+export const NODE_SIZE: Record<string, { w: number; h: number }> = {
+  trigger: { w: 300, h: 130 },
+  condition: { w: 330, h: 220 },
+  logicGate: { w: 250, h: 160 },
+  action: { w: 310, h: 220 },
+};
+
+/**
+ * dagre auto-layout (left → right). Computes a full layered arrangement —
+ * ranks, spacing, no overlaps — for any graph shape, nested groups included.
+ */
+export function getLayoutedElements(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 110, marginx: 30, marginy: 30 });
+
+  for (const n of nodes) {
+    const size = NODE_SIZE[n.type ?? ''] ?? { w: 280, h: 180 };
+    g.setNode(n.id, { width: size.w, height: size.h });
+  }
+  for (const e of edges) {
+    g.setEdge(e.source, e.target);
+  }
+
+  dagre.layout(g);
+
+  const layouted = nodes.map((n) => {
+    const size = NODE_SIZE[n.type ?? ''] ?? { w: 280, h: 180 };
+    const pos = g.node(n.id);
+    return {
+      ...n,
+      position: { x: pos.x - size.w / 2, y: pos.y - size.h / 2 },
+    };
+  });
+
+  return { nodes: layouted, edges };
+}
+
 /**
  * Converts XYFlow nodes & edges to the engine-api rule expression tree.
+ * Walks the graph structurally: a gate's children are exactly the nodes its
+ * outgoing edges point to (conditions or nested gates); unconnected nodes are
+ * never smuggled into the output.
  */
 export function graphToRuleJson(nodes: Node[], edges: Edge[]): RuleExpression {
   const conditionNodes = nodes.filter((n) => n.type === 'condition');
@@ -56,62 +102,75 @@ export function graphToRuleJson(nodes: Node[], edges: Edge[]): RuleExpression {
     return { value: true };
   }
 
-  // Helper to convert a single condition node to comparison JSON
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const gateIds = new Set(gateNodes.map((g) => g.id));
+
   const toComparison = (node: Node): RuleComparison => {
     const data = node.data as unknown as ConditionNodeData;
     return {
-      field: data.field || 'player.kills',
+      field: data.field || 'kills',
       op: data.op || 'gte',
       value: data.value ?? 0,
     };
   };
 
-  // If there's a logic gate node
-  if (gateNodes.length > 0) {
-    const primaryGate = gateNodes[0];
-    const gateData = primaryGate.data as unknown as LogicGateNodeData;
+  // Nodes a gate feeds: edges where the gate is the source.
+  const childrenOf = (gateId: string): Node[] =>
+    edges
+      .filter((e) => e.source === gateId)
+      .map((e) => byId.get(e.target))
+      .filter((n): n is Node => Boolean(n));
+
+  const buildFromGate = (gate: Node): RuleExpression => {
+    const gateData = gate.data as unknown as LogicGateNodeData;
     const gateType = gateData.gate || 'all';
 
-    // Find all condition nodes connected to this gate (either as source or target)
-    const connectedConditionIds = new Set(
-      edges
-        .filter((e) => e.source === primaryGate.id || e.target === primaryGate.id)
-        .map((e) => (e.source === primaryGate.id ? e.target : e.source)),
-    );
+    const exprs: RuleExpression[] = [];
+    for (const child of childrenOf(gate.id)) {
+      if (child.type === 'condition') {
+        exprs.push(toComparison(child));
+      } else if (child.type === 'logicGate') {
+        exprs.push(buildFromGate(child));
+      }
+      // trigger / action targets are not part of the expression tree
+    }
 
-    const connectedConditions = conditionNodes.filter((c) =>
-      connectedConditionIds.has(c.id),
-    );
-
-    const condList =
-      connectedConditions.length > 0 ? connectedConditions : conditionNodes;
-
-    const children: RuleExpression[] = condList.map(toComparison);
-
-    if (gateType === 'all') {
-      return { all: children.length > 0 ? children : [{ field: 'kills', op: 'gte', value: 0 }] };
+    if (gateType === 'not') {
+      return { not: exprs[0] ?? DUMMY };
     }
     if (gateType === 'any') {
-      return { any: children.length > 0 ? children : [{ field: 'kills', op: 'gte', value: 0 }] };
+      return { any: exprs.length > 0 ? exprs : [DUMMY] };
     }
-    if (gateType === 'not') {
-      return { not: children[0] || { field: 'kills', op: 'gte', value: 0 } };
-    }
+    return { all: exprs.length > 0 ? exprs : [DUMMY] };
+  };
+
+  if (gateNodes.length > 0) {
+    // Root gates: not fed by another gate. Prefer the one the trigger points at.
+    const fedByGate = new Set(
+      edges.filter((e) => gateIds.has(e.source)).map((e) => e.target),
+    );
+    const rootGates = gateNodes.filter((g) => !fedByGate.has(g.id));
+
+    const trigger = nodes.find((n) => n.type === 'trigger');
+    const triggerTarget = trigger
+      ? edges.find((e) => e.source === trigger.id)?.target
+      : undefined;
+    const root =
+      rootGates.find((g) => g.id === triggerTarget) ?? rootGates[0] ?? gateNodes[0];
+
+    return buildFromGate(root);
   }
 
-  // If multiple condition nodes with no gate, wrap in "all"
+  // No gates: a single condition, or an implicit AND over all of them.
   if (conditionNodes.length > 1) {
-    return {
-      all: conditionNodes.map(toComparison),
-    };
+    return { all: conditionNodes.map(toComparison) };
   }
-
-  // Single condition node
   return toComparison(conditionNodes[0]);
 }
 
 /**
  * Parses an existing rule JSON into visual graph nodes and edges.
+ * Fully recursive: nested all/any/not groups and comparisons at any depth.
  */
 export function ruleJsonToGraph(
   json: unknown,
@@ -120,96 +179,96 @@ export function ruleJsonToGraph(
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
+  let uid = 0;
+  const nextId = (prefix: string) => `${prefix}-${uid++}`;
 
-  // Always create an entry Trigger node on the left
+  // Simple layered layout: x grows with depth, every condition leaf gets its own row.
+  let leafIndex = 0;
+  const leafY = () => 40 + leafIndex++ * 200;
+  const depthX = (depth: number) => 360 + depth * 340;
+
+  // Entry trigger on the far left
   const triggerId = 'node-trigger-1';
   nodes.push({
     id: triggerId,
     type: 'trigger',
-    position: { x: 50, y: 150 },
+    position: { x: 40, y: 140 },
     data: {
       event: 'player.stat_update',
       onDataChange: (data: Record<string, unknown>) => onNodeChange(triggerId, data),
     },
   });
 
-  let currentX = 360;
-  let currentY = 80;
+  const connect = (source: string, target: string, sourceType?: string) => {
+    const color = getNodeColor(sourceType ?? nodes.find((n) => n.id === source)?.type);
+    edges.push({
+      id: `e-${source}-${target}`,
+      source,
+      target,
+      animated: true,
+      style: { stroke: color, strokeWidth: 2.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, color, width: 22, height: 22 },
+    });
+  };
 
-  const parseExpr = (
-    expr: unknown,
-    parentSourceId: string,
-    depth: number,
-  ) => {
-    if (!expr || typeof expr !== 'object') return;
+  const parseExpr = (expr: unknown, parentSourceId: string, parentType: string, depth: number): number[] => {
+    if (!expr || typeof expr !== 'object') return [];
     const obj = expr as Record<string, unknown>;
 
     if (Array.isArray(obj.all) || Array.isArray(obj.any)) {
       const isAll = Array.isArray(obj.all);
       const list = (isAll ? obj.all : obj.any) as unknown[];
-      const gateId = `gate-${depth}-${Math.random().toString(36).substring(2, 7)}`;
+      const gateId = nextId('gate');
+
+      // children first: the gate is centered on their rows
+      const childYs: number[] = [];
+      for (const child of list) {
+        childYs.push(...parseExpr(child, gateId, 'logicGate', depth + 1));
+      }
+      const y = childYs.length > 0
+        ? childYs.reduce((a, b) => a + b, 0) / childYs.length
+        : leafY();
 
       nodes.push({
         id: gateId,
         type: 'logicGate',
-        position: { x: currentX, y: currentY },
+        position: { x: depthX(depth), y },
         data: {
           gate: isAll ? 'all' : 'any',
           onDataChange: (data: Record<string, unknown>) => onNodeChange(gateId, data),
           onDelete: () => onDeleteNode(gateId),
         },
       });
+      connect(parentSourceId, gateId, parentType);
+      return [y];
+    }
 
-      const parentNode = nodes.find((n) => n.id === parentSourceId);
-      const parentColor = getNodeColor(parentNode?.type);
+    if ('not' in obj) {
+      const gateId = nextId('gate');
+      const childYs = parseExpr(obj.not, gateId, 'logicGate', depth + 1);
+      const y = childYs.length > 0 ? childYs[0] : leafY();
 
-      edges.push({
-        id: `e-${parentSourceId}-${gateId}`,
-        source: parentSourceId,
-        target: gateId,
-        animated: true,
-        style: { stroke: parentColor, strokeWidth: 2.5 },
+      nodes.push({
+        id: gateId,
+        type: 'logicGate',
+        position: { x: depthX(depth), y },
+        data: {
+          gate: 'not',
+          onDataChange: (data: Record<string, unknown>) => onNodeChange(gateId, data),
+          onDelete: () => onDeleteNode(gateId),
+        },
       });
+      connect(parentSourceId, gateId, parentType);
+      return [y];
+    }
 
-      const nextX = currentX + 300;
-      let branchY = currentY - ((list.length - 1) * 70);
-
-      list.forEach((child, idx) => {
-        const condId = `cond-${depth}-${idx}-${Math.random().toString(36).substring(2, 7)}`;
-        if (child && typeof child === 'object' && 'field' in child) {
-          const c = child as Record<string, unknown>;
-          nodes.push({
-            id: condId,
-            type: 'condition',
-            position: { x: nextX, y: branchY },
-            data: {
-              field: String(c.field ?? 'kills'),
-              op: String(c.op ?? 'gte'),
-              value: c.value ?? 0,
-              onDataChange: (data: Record<string, unknown>) => onNodeChange(condId, data),
-              onDelete: () => onDeleteNode(condId),
-            },
-          });
-
-          edges.push({
-            id: `e-${gateId}-${condId}`,
-            source: gateId,
-            target: condId,
-            animated: true,
-            style: { stroke: getNodeColor('logicGate'), strokeWidth: 2.5 },
-          });
-
-          branchY += 150;
-        }
-      });
-
-      currentX = nextX + 340;
-    } else if ('field' in obj) {
-      const condId = `cond-single-${Math.random().toString(36).substring(2, 7)}`;
+    if ('field' in obj) {
+      const condId = nextId('cond');
+      const y = leafY();
       nodes.push({
         id: condId,
         type: 'condition',
-        position: { x: currentX, y: currentY },
+        position: { x: depthX(depth), y },
         data: {
           field: String(obj.field ?? 'kills'),
           op: String(obj.op ?? 'gte'),
@@ -218,30 +277,21 @@ export function ruleJsonToGraph(
           onDelete: () => onDeleteNode(condId),
         },
       });
-
-      const parentNode = nodes.find((n) => n.id === parentSourceId);
-      const parentColor = getNodeColor(parentNode?.type);
-
-      edges.push({
-        id: `e-${parentSourceId}-${condId}`,
-        source: parentSourceId,
-        target: condId,
-        animated: true,
-        style: { stroke: parentColor, strokeWidth: 2.5 },
-      });
-
-      currentX += 340;
+      connect(parentSourceId, condId, parentType);
+      return [y];
     }
+    return [];
   };
 
-  parseExpr(json, triggerId, 0);
+  parseExpr(json, triggerId, 'trigger', 0);
 
-  // Add an Action (Reward) node at the end
+  // Reward node at the end of the flow
+  const maxDepthX = nodes.reduce((max, n) => Math.max(max, n.position.x), 0);
   const actionId = 'action-reward-1';
   nodes.push({
     id: actionId,
     type: 'action',
-    position: { x: Math.max(currentX, 750), y: 150 },
+    position: { x: Math.max(maxDepthX + 340, 750), y: 140 },
     data: {
       actionType: 'badge',
       payload: 'Centurion_Badge',
@@ -251,17 +301,18 @@ export function ruleJsonToGraph(
     },
   });
 
-  // Connect last condition to action
   const lastCond = nodes.filter((n) => n.type === 'condition').pop();
   if (lastCond) {
+    const color = getNodeColor(lastCond.type);
     edges.push({
       id: `e-${lastCond.id}-${actionId}`,
       source: lastCond.id,
       target: actionId,
       animated: true,
-      style: { stroke: getNodeColor(lastCond.type), strokeWidth: 2.5 },
+      style: { stroke: color, strokeWidth: 2.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, color, width: 22, height: 22 },
     });
   }
 
-  return { nodes, edges };
+  return getLayoutedElements(nodes, edges);
 }

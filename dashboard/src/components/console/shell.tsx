@@ -6,7 +6,9 @@
 // the cross-project areas; inside a game it is the game's identity, and only
 // that game's areas under a back row that sits below the filter.
 
-import { Gamepad2, LogOut, UserRound } from "lucide-react"
+import { LogOut, UserRound } from "lucide-react"
+
+import { BrandLogo } from "@/components/brand-logo"
 
 import {
   Sidebar,
@@ -62,8 +64,8 @@ export function ConsoleSidebar({
             className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
             title={game.name}
           >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-foreground">
-              <Gamepad2 className="size-4.5" />
+            <span className="flex size-8.5 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent border border-sidebar-border/60 text-sidebar-foreground shadow-2xs">
+              <BrandLogo className="size-5" />
             </span>
             <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
               <p className="truncate text-sm font-semibold tracking-tight text-sidebar-foreground">
@@ -85,12 +87,17 @@ export function ConsoleSidebar({
             className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
             title="cookyourgame"
           >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-foreground">
-              <Gamepad2 className="size-4.5" />
+            <span className="flex size-8.5 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent border border-sidebar-border/60 text-sidebar-foreground shadow-2xs">
+              <BrandLogo className="size-5" />
             </span>
-            <span className="truncate text-sm font-semibold tracking-tight text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-              cookyourgame
-            </span>
+            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+              <span className="truncate text-sm font-bold tracking-tight text-sidebar-foreground block">
+                cookyourgame
+              </span>
+              <span className="truncate font-mono text-[10px] text-muted-foreground uppercase tracking-wider block">
+                CYG Console
+              </span>
+            </div>
           </div>
         )}
       </SidebarHeader>

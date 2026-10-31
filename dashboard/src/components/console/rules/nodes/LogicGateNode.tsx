@@ -19,7 +19,6 @@ export function LogicGateNode({ data }: NodeProps & { data: LogicGateNodeData })
           </div>
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-300">Logic Gate</div>
-            <div className="text-[11px] text-muted-foreground">Combinator branch</div>
           </div>
         </div>
         {data.onDelete && (
@@ -34,9 +33,8 @@ export function LogicGateNode({ data }: NodeProps & { data: LogicGateNodeData })
         )}
       </div>
 
-      <div className="mt-3 nodrag nopan">
-        <label className="text-[11px] font-semibold text-foreground">Gate Type</label>
-        <div className="mt-1 flex rounded-lg border border-border bg-muted/60 p-1 shadow-xs">
+      <div className="mt-2.5 nodrag nopan">
+        <div className="flex rounded-lg border border-border bg-muted/60 p-1 shadow-xs">
           <button
             type="button"
             className={`flex-1 rounded py-1 text-xs font-bold transition nodrag cursor-pointer ${
@@ -77,7 +75,7 @@ export function LogicGateNode({ data }: NodeProps & { data: LogicGateNodeData })
         type="source"
         position={Position.Right}
         id="out"
-        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-zinc-950 !bg-amber-400"
+        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-zinc-950 !bg-amber-400 dark:!border-card"
       />
     </div>
   );

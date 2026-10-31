@@ -4,6 +4,7 @@
 // player's stat map before anyone bets gameplay on it.
 
 import { useMemo, useState } from "react"
+import { ChevronDown } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ConfirmAction } from "@/components/console/actions"
@@ -146,15 +147,22 @@ export function RulesView() {
               const active = versions.find((rule) => rule.is_active) ?? null
               const expanded = openKey === ruleKey
               return (
-                <div key={ruleKey} className="px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                <div key={ruleKey} className="group/row transition-colors hover:bg-muted/40">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
                     <button
                       type="button"
-                      className="text-left"
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
                       onClick={() => setOpenKey(expanded ? null : ruleKey)}
                     >
-                      <span className="font-medium text-foreground">{ruleKey}</span>
-                      <Mono className="ml-3 text-muted-foreground">
+                      <ChevronDown
+                        className={`size-4 shrink-0 text-muted-foreground transition-transform duration-150 ${
+                          expanded ? "rotate-180 text-foreground" : ""
+                        }`}
+                      />
+                      <span className="font-medium text-foreground transition-colors group-hover/row:text-sky-600 dark:group-hover/row:text-sky-400">
+                        {ruleKey}
+                      </span>
+                      <Mono className="text-muted-foreground">
                         {versions.length} version{versions.length === 1 ? "" : "s"}
                       </Mono>
                     </button>
@@ -209,9 +217,9 @@ export function RulesView() {
                     </div>
                   </div>
                   {expanded && (
-                    <div className="mt-3 space-y-2">
+                    <div className="space-y-2 px-4 pb-3">
                       {versions.map((rule) => (
-                        <div key={rule.version} className="rounded-md border border-border/40 p-3">
+                        <div key={rule.version} className="rounded-md border border-border/40 p-3 transition-colors hover:border-border hover:bg-muted/30">
                           <div className="mb-2 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <Mono>v{rule.version}</Mono>

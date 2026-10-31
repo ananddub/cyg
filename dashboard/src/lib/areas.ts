@@ -6,7 +6,7 @@
 // ones (the games picker and console administration). The sidebar is built from
 // whichever scope is active, which is why selecting a game changes the nav.
 
-import {
+import { Target,
   Activity,
   Bell,
   Coins,
@@ -67,6 +67,7 @@ export const CONSOLE_AREAS: ConsoleArea[] = [
   { group: "Game Data", id: "tournaments", label: "Tournaments", icon: Medal },
   { group: "Game Data", id: "storage", label: "Storage", icon: Database },
   { group: "Game Data", id: "rules", label: "Rules", icon: SlidersHorizontal },
+  { group: "Game Data", id: "quests", label: "Quests", icon: Target },
   { group: "Monetization", id: "purchases", label: "Purchases", icon: CreditCard },
   { group: "Monetization", id: "economy", label: "Economy", icon: Coins },
   { group: "Monetization", id: "subscriptions", label: "Subscriptions", icon: RefreshCw },
@@ -105,6 +106,7 @@ const GAME_AREA_IDS = new Set([
   "tournaments",
   "storage",
   "rules",
+  "quests",
   "purchases",
   "economy",
   "subscriptions",

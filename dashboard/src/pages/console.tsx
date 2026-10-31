@@ -42,6 +42,7 @@ import {
 } from "@/components/console/views/monitoring"
 import { PurchasesView, SubscriptionsView } from "@/components/console/views/monetization"
 import { RulesView } from "@/components/console/views/rules"
+import { QuestsView } from "@/components/console/views/quests"
 import { NotificationsView } from "@/components/console/views/notifications"
 import { SecurityView } from "@/components/console/views/security"
 import { StorageView } from "@/components/console/views/storage"
@@ -394,6 +395,8 @@ function GameAreaView({
       return <LogsView />
     case "rules":
       return <RulesView />
+    case "quests":
+      return <QuestsView />
     case "economy":
       return <EconomyView />
     case "rooms":

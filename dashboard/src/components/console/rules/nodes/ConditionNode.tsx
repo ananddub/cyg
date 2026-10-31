@@ -37,10 +37,7 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500/20 text-sky-600 dark:text-sky-300">
             <Filter className="h-4 w-4" />
           </div>
-          <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-sky-600 dark:text-sky-300">Condition Check</div>
-            <div className="text-[11px] text-muted-foreground">Stat / State comparison</div>
-          </div>
+          <div className="text-xs font-bold uppercase tracking-wider text-sky-600 dark:text-sky-300">Condition</div>
         </div>
         {data.onDelete && (
           <button
@@ -54,41 +51,29 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
         )}
       </div>
 
-      <div className="mt-3 space-y-2.5 nodrag nopan">
-        <div>
-          <label className="text-[11px] font-semibold text-foreground">Field Name</label>
-          <input
-            type="text"
-            className="mt-1 w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs font-medium text-foreground shadow-xs placeholder-muted-foreground transition focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none nodrag"
-            placeholder="e.g. kills, rank, level"
-            value={data.field}
-            onChange={(e) => data.onDataChange?.({ field: e.target.value })}
-          />
-        </div>
+      <div className="mt-2.5 space-y-2 nodrag nopan">
+        <input
+          type="text"
+          className="w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs font-medium text-foreground shadow-xs placeholder-muted-foreground transition focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none nodrag"
+          placeholder="field — e.g. kills, rank, level"
+          value={data.field}
+          onChange={(e) => data.onDataChange?.({ field: e.target.value })}
+        />
 
         <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[11px] font-semibold text-foreground">Operator</label>
-            <div className="mt-1">
-              <RuleSelect
-                options={operators}
-                value={data.op}
-                accent="sky"
-                onValueChange={(val) => data.onDataChange?.({ op: val as RuleOperator })}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[11px] font-semibold text-foreground">Value</label>
-            <input
-              type="text"
-              className="mt-1 h-8 w-full rounded-lg border border-input bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-xs placeholder-muted-foreground transition focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none nodrag"
-              placeholder="e.g. 100 or 'gold'"
-              value={data.value ?? ''}
-              onChange={(e) => handleValueChange(e.target.value)}
-            />
-          </div>
+          <RuleSelect
+            options={operators}
+            value={data.op}
+            accent="sky"
+            onValueChange={(val) => data.onDataChange?.({ op: val as RuleOperator })}
+          />
+          <input
+            type="text"
+            className="h-8 w-full rounded-lg border border-input bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-xs placeholder-muted-foreground transition focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none nodrag"
+            placeholder="value"
+            value={data.value ?? ''}
+            onChange={(e) => handleValueChange(e.target.value)}
+          />
         </div>
       </div>
 

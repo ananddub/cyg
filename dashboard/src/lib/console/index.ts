@@ -38,6 +38,8 @@ export const CONSOLE_ENDPOINTS = {
   logsRecent: "/v2/console/logs/recent",
   timeline: "/v2/console/timeline",
   economySummary: "/v2/console/economy/summary",
+  quests: "/v2/console/quests",
+  seasons: "/v2/console/seasons",
   openapiSpec: "/openapi.json",
   apiDocs: "/console/api-docs",
 } as const;

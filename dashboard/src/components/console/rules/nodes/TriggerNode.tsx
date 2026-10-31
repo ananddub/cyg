@@ -19,14 +19,12 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
           <Zap className="h-4 w-4" />
         </div>
         <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300">Trigger Event</div>
-          <div className="text-[11px] text-muted-foreground">Source of game event</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300">Trigger</div>
         </div>
       </div>
 
       <div className="mt-3 nodrag nopan">
-        <label className="text-[11px] font-semibold text-foreground">Event Type</label>
-        <div className="mt-1.5">
+        <div className="mt-1">
           <RuleSelect
             options={events}
             value={data.event}

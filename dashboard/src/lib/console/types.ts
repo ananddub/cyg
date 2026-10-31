@@ -374,3 +374,29 @@ export interface ConsoleLogLine {
   target: string;
   message: string;
 }
+
+/** `dto::console::quest::QuestDefinitionRow` — one quest the operator wrote. */
+export interface ConsoleQuest {
+  quest_key: string;
+  game_id: string | null;
+  title: string;
+  goal_kind: string;
+  goal_amount: number;
+  reward: unknown;
+  season: string | null;
+  requires_product: string | null;
+  active_from: string;
+  active_to: string;
+  update_time: string;
+}
+
+/** `dto::console::quest::SeasonRow` — a season quests can be bound to. */
+export interface ConsoleSeason {
+  season_key: string;
+  game_id: string | null;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  reward_track: unknown;
+  update_time: string;
+}

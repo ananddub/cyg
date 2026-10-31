@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 
-import logoUrl from "@/assets/logo.png"
+import { BrandLogo } from "@/components/brand-logo"
 import { cn } from "@/lib/utils"
 
 export interface DashboardHeaderProps {
@@ -61,11 +61,9 @@ export function DashboardHeader({
     <header className="flex w-full items-center justify-between gap-x-4">
       {/* Left side: Mobile logo + Breadcrumbs (matching test.png) */}
       <div className="flex items-center gap-3">
-        <img
-          src={logoUrl}
-          alt="cookyourgame (cfg)"
-          className="h-8 w-auto object-contain shrink-0 drop-shadow-xs md:hidden"
-        />
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent border border-sidebar-border/60 text-sidebar-foreground md:hidden shadow-2xs">
+          <BrandLogo className="size-5" />
+        </span>
 
         {/* Breadcrumb matching test.png */}
         <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">

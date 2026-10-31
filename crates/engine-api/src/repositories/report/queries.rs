@@ -1,7 +1,10 @@
 use super::*;
 
 impl Queries {
-    pub async fn create_report(&self, params: &CreateReportParams) -> Result<ContentReport, DbError> {
+    pub async fn create_report(
+        &self,
+        params: &CreateReportParams,
+    ) -> Result<ContentReport, DbError> {
         let now = Utc::now();
         let report = ContentReport {
             id: params.id,
@@ -14,7 +17,8 @@ impl Queries {
             create_time: now,
             update_time: now,
         };
-        self.create("content_report", Key::Uuid(params.id), &report).await
+        self.create("content_report", Key::Uuid(params.id), &report)
+            .await
     }
 
     pub async fn get_report(&self, id: Uuid) -> Result<Option<ContentReport>, DbError> {

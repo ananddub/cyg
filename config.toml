@@ -16,9 +16,11 @@ tick_rate = 128
 max_clients = 16
 
 [control.session]
-# Embedded SurrealKV keeps accounts in a local directory; point at
-# `ws://host:8000` instead to use a remote SurrealDB.
-database_endpoint = "surrealkv://data/cyg"
+database_endpoint = "ws://localhost:8000"
+database_user = "root"
+database_pass = "root"
+database_ns = "cyg"
+database_db = "cyg"
 # Memory ceilings for the embedded engine, in MiB. Without them SurrealKV sizes
 # itself from the host's total memory (gigabytes on a big machine); these keep
 # its data memory at 96 MiB so the process fits a 500 MB container. A single

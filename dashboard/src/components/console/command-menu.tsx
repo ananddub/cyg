@@ -1,5 +1,6 @@
 import { useEffect } from "react"
 import { Command } from "cmdk"
+import { BrandLogo } from "@/components/brand-logo"
 import {
   Gamepad2,
   Activity,
@@ -62,11 +63,12 @@ export function CommandMenu({
         onClick={(e) => e.stopPropagation()}
       >
         <Command className="flex flex-col overflow-hidden text-popover-foreground">
-          <div className="flex items-center border-b border-border px-3">
+          <div className="flex items-center border-b border-border px-3 gap-2">
+            <BrandLogo className="size-5 shrink-0 text-foreground" />
             <Command.Input
               autoFocus
               placeholder="Search views, games, actions (Ctrl+K)..."
-              className="flex h-11 w-full bg-transparent px-2 py-3 text-sm outline-none placeholder:text-muted-foreground"
+              className="flex h-11 w-full bg-transparent px-1 py-3 text-sm outline-none placeholder:text-muted-foreground"
             />
           </div>
 
