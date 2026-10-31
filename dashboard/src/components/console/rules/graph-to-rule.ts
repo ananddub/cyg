@@ -30,6 +30,21 @@ export type RuleExpression =
   | RuleGroupNot
   | RuleTruth;
 
+export function getNodeColor(nodeType?: string): string {
+  switch (nodeType) {
+    case 'trigger':
+      return '#8b5cf6'; // Baingani / Violet
+    case 'logicGate':
+      return '#f59e0b'; // Yellow / Amber
+    case 'condition':
+      return '#38bdf8'; // Sky Blue
+    case 'action':
+      return '#10b981'; // Emerald Green
+    default:
+      return '#8b5cf6';
+  }
+}
+
 /**
  * Converts XYFlow nodes & edges to the engine-api rule expression tree.
  */
@@ -143,12 +158,15 @@ export function ruleJsonToGraph(
         },
       });
 
+      const parentNode = nodes.find((n) => n.id === parentSourceId);
+      const parentColor = getNodeColor(parentNode?.type);
+
       edges.push({
         id: `e-${parentSourceId}-${gateId}`,
         source: parentSourceId,
         target: gateId,
         animated: true,
-        style: { stroke: '#f59e0b', strokeWidth: 2 },
+        style: { stroke: parentColor, strokeWidth: 2.5 },
       });
 
       const nextX = currentX + 300;
@@ -176,7 +194,7 @@ export function ruleJsonToGraph(
             source: gateId,
             target: condId,
             animated: true,
-            style: { stroke: '#38bdf8', strokeWidth: 2 },
+            style: { stroke: getNodeColor('logicGate'), strokeWidth: 2.5 },
           });
 
           branchY += 150;
@@ -199,12 +217,15 @@ export function ruleJsonToGraph(
         },
       });
 
+      const parentNode = nodes.find((n) => n.id === parentSourceId);
+      const parentColor = getNodeColor(parentNode?.type);
+
       edges.push({
         id: `e-${parentSourceId}-${condId}`,
         source: parentSourceId,
         target: condId,
         animated: true,
-        style: { stroke: '#38bdf8', strokeWidth: 2 },
+        style: { stroke: parentColor, strokeWidth: 2.5 },
       });
 
       currentX += 340;
@@ -236,7 +257,7 @@ export function ruleJsonToGraph(
       source: lastCond.id,
       target: actionId,
       animated: true,
-      style: { stroke: '#10b981', strokeWidth: 2 },
+      style: { stroke: getNodeColor(lastCond.type), strokeWidth: 2.5 },
     });
   }
 

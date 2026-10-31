@@ -30,7 +30,7 @@ import { TriggerNode } from './nodes/TriggerNode';
 import { ConditionNode } from './nodes/ConditionNode';
 import { LogicGateNode } from './nodes/LogicGateNode';
 import { ActionNode } from './nodes/ActionNode';
-import { graphToRuleJson, ruleJsonToGraph } from './graph-to-rule';
+import { graphToRuleJson, ruleJsonToGraph, getNodeColor } from './graph-to-rule';
 import { RuleSelect } from './RuleSelect';
 import { Button } from '@/components/ui/button';
 
@@ -167,18 +167,21 @@ export function VisualRuleBuilder({
   );
 
   const onConnect: OnConnect = useCallback(
-    (connection) =>
+    (connection) => {
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      const strokeColor = getNodeColor(sourceNode?.type);
       setEdges((eds) =>
         addEdge(
           {
             ...connection,
             animated: true,
-            style: { stroke: '#38bdf8', strokeWidth: 2 },
+            style: { stroke: strokeColor, strokeWidth: 2.5 },
           },
           eds,
         ),
-      ),
-    [],
+      );
+    },
+    [nodes],
   );
 
   const addConditionNode = () => {
@@ -378,7 +381,7 @@ export function VisualRuleBuilder({
             maxZoom={1.5}
             defaultEdgeOptions={{
               animated: true,
-              style: { stroke: '#38bdf8', strokeWidth: 2 },
+              style: { stroke: '#8b5cf6', strokeWidth: 2.5 },
             }}
           >
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#3f3f46" />
