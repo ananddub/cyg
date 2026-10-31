@@ -139,8 +139,9 @@ export function ConsoleNav({
               ref={input}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search..."
-              className="pl-8 pr-14"
+              onClick={() => window.dispatchEvent(new CustomEvent("cyg:open-command-menu"))}
+              placeholder="Search views..."
+              className="pl-8 pr-14 cursor-pointer"
             />
             {searching ? (
               <button
@@ -152,9 +153,16 @@ export function ConsoleNav({
                 <X className="size-3.5" />
               </button>
             ) : (
-              <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-background px-1.5 font-mono text-[10px] text-muted-foreground">
-                {onMac ? "⌘K" : "Ctrl K"}
-              </kbd>
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent("cyg:open-command-menu"))}
+                className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer"
+                title="Open command palette"
+              >
+                <kbd className="rounded border border-border bg-background px-1.5 font-mono text-[10px] text-muted-foreground hover:text-foreground">
+                  {onMac ? "⌘K" : "Ctrl K"}
+                </kbd>
+              </button>
             )}
           </div>
         </SidebarGroup>

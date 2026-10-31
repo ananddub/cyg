@@ -4,8 +4,9 @@
 import type { ReactNode } from "react"
 import { useEffect, useRef, useState } from "react"
 import { Search } from "lucide-react"
-
-import { JsonTokens } from "@/components/console/json-view"
+import CodeMirror from "@uiw/react-codemirror"
+import { json } from "@codemirror/lang-json"
+import { useTheme } from "@/lib/theme"
 import {
   Select as SelectPrimitive,
   SelectContent,
@@ -101,9 +102,8 @@ export function TextArea({
   )
 }
 
-/** A field an operator types JSON into. The colour lives in a layer behind the
- * textarea, which prints transparent glyphs over it: both layers share padding,
- * font and line height, and neither wraps, so one glyph run shows one picture. */
+/** A JSON editor field powered by CodeMirror with syntax highlighting, bracket
+ * matching, code folding, and auto-formatting. */
 export function JsonTextArea({
   label,
   hint,
@@ -119,33 +119,30 @@ export function JsonTextArea({
   rows?: number
   placeholder?: string
 }) {
-  const layer = useRef<HTMLDivElement>(null)
+  const mode = useTheme()
+  const height = `${Math.max(rows * 22, 110)}px`
 
   return (
     <Labelled label={label} hint={hint}>
-      <div className="relative overflow-hidden rounded-md border border-border bg-background focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
-        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 right-0 overflow-hidden">
-          <div
-            ref={layer}
-            className="whitespace-pre px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
-          >
-            <JsonTokens text={`${value}\n`} />
-          </div>
-        </div>
-        <textarea
+      <div className="overflow-hidden rounded-md border border-border bg-background focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50">
+        <CodeMirror
           value={value}
-          rows={rows}
-          wrap="off"
-          spellCheck={false}
+          height={height}
+          theme={mode === "dark" ? "dark" : "light"}
+          extensions={[json()]}
+          onChange={(val) => onChange(val)}
           placeholder={placeholder}
-          onChange={(event) => onChange(event.target.value)}
-          onScroll={(event) => {
-            const area = event.currentTarget
-            if (layer.current !== null) {
-              layer.current.style.transform = `translate(${-area.scrollLeft}px, ${-area.scrollTop}px)`
-            }
+          basicSetup={{
+            lineNumbers: true,
+            foldGutter: true,
+            dropCursor: true,
+            indentOnInput: true,
+            bracketMatching: true,
+            closeBrackets: true,
+            autocompletion: true,
+            highlightActiveLine: true,
           }}
-          className="relative block w-full resize-y overflow-auto whitespace-pre bg-transparent px-3 py-2 font-mono text-xs leading-relaxed text-transparent caret-foreground outline-none placeholder:text-muted-foreground"
+          className="text-xs font-mono"
         />
       </div>
     </Labelled>

@@ -15,6 +15,7 @@ import { ArrowLeft } from "lucide-react"
 
 import { ConsoleSidebar } from "@/components/console/shell"
 import { ThemeToggle } from "@/components/console/theme-toggle"
+import { CommandMenu } from "@/components/console/command-menu"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AccountsView } from "@/components/console/views/accounts"
@@ -79,30 +80,40 @@ export function ConsolePage({
   onNavigate: (to: ConsoleRoute) => void
   onLogout: () => void
 }) {
-  if (route.gameId === null) {
-    return (
-      <GlobalConsole
-        session={session}
-        route={route}
-        onNavigate={onNavigate}
-        onLogout={onLogout}
-      />
-    )
+  const [commandOpen, setCommandOpen] = useState(false)
+
+  const handleCommandNavigate = (path: string) => {
+    window.location.hash = "#" + path.replace(/^#/, "")
   }
-  // Keyed by game: a different project is a different workspace, not the same
-  // one with new labels. The scope provider makes every console read and write
-  // under it carry this tenant, so no view can fall back to install-wide rows.
+
   return (
-    <GameScopeProvider gameId={route.gameId}>
-      <GameConsole
-        key={route.gameId}
-        session={session}
-        route={route}
-        gameId={route.gameId}
-        onNavigate={onNavigate}
+    <>
+      <CommandMenu
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        onNavigate={handleCommandNavigate}
         onLogout={onLogout}
       />
-    </GameScopeProvider>
+      {route.gameId === null ? (
+        <GlobalConsole
+          session={session}
+          route={route}
+          onNavigate={onNavigate}
+          onLogout={onLogout}
+        />
+      ) : (
+        <GameScopeProvider gameId={route.gameId}>
+          <GameConsole
+            key={route.gameId}
+            session={session}
+            route={route}
+            gameId={route.gameId}
+            onNavigate={onNavigate}
+            onLogout={onLogout}
+          />
+        </GameScopeProvider>
+      )}
+    </>
   )
 }
 
