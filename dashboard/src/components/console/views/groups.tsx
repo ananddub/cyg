@@ -236,7 +236,7 @@ function GroupDetail({ group, onDeleted }: { group: ConsoleGroup; onDeleted: () 
         onClose={() => setDeleting(false)}
         onDone={onDeleted}
         title="Delete group"
-        message="The group and every membership go; the members' accounts are untouched."
+        message="The group is retired and every membership is removed; the members' accounts are untouched."
         confirmLabel="Delete group"
         destructive
         method="DELETE"

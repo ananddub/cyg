@@ -50,7 +50,9 @@ export interface ConsoleWalletLedger {
 }
 
 /** The export/import document. `password` is never part of it, and absent optional
- * columns stay `null` so an import can tell "no email" from "empty email". */
+ * columns stay `null` so an import can tell "no email" from "empty email". The
+ * seven subject-wide families are written by the player's GDPR export; the
+ * operator import restores only the account and the rows above them. */
 export interface ConsoleAccountExport {
   account: Record<string, unknown>;
   devices: { id: string; provider: string }[];
@@ -58,6 +60,13 @@ export interface ConsoleAccountExport {
   wallet_ledger: ConsoleWalletLedger[];
   storage: { collection: string; key: string; value: unknown; version: string; read: number; write: number; create_time: string; update_time: string }[];
   edges: { destination_id: string; state: number; position: number; metadata: unknown }[];
+  purchases: unknown[];
+  subscriptions: unknown[];
+  inventory: unknown[];
+  leaderboard_records: unknown[];
+  group_memberships: unknown[];
+  notifications: unknown[];
+  messages: unknown[];
 }
 
 export interface ConsoleUser {
@@ -122,8 +131,10 @@ export interface ConsoleLeaderboard {
   sort_order: number;
   reset_schedule: string;
   authoritative: boolean;
+  join_required: boolean;
   metadata: unknown;
   size: number;
+  max_size: number;
   max_num_score: number;
   start_time: string;
   end_time: string;

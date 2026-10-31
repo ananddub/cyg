@@ -77,7 +77,7 @@ export function DeleteAccountDialog({
       onClose={onClose}
       onDone={onDeleted}
       title="Delete account"
-      message="The account is tombstoned and its rows go with it: devices, notes, storage and messages. Purchases are left pointing at the nil id."
+      message="The account is tombstoned and its rows go with it in one transaction: devices, notes, storage, messages, purchases, subscriptions, inventory and leaderboard entries."
       confirmLabel="Delete account"
       destructive
       method="DELETE"

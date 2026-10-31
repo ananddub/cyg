@@ -64,14 +64,14 @@ impl super::ConsoleService {
         let role = role_from(&body.role)?;
 
         let queries = q(state).await?;
-        self.view(&queries, id).await?;
+        let current = self.view(&queries, id).await?;
         queries
             .update_console_user(&UpdateConsoleUserParams {
                 id,
                 username: username.clone(),
                 email,
                 acl: role.to_acl(),
-                metadata: body.metadata.unwrap_or_else(|| serde_json::json!({})),
+                metadata: body.metadata.unwrap_or(current.metadata),
                 mfa_required: body.mfa_required,
             })
             .await

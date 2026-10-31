@@ -41,6 +41,26 @@ impl super::ConsoleService {
         body: AccountExport,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
+        let carried: Vec<&str> = [
+            ("purchases", body.purchases.len()),
+            ("subscriptions", body.subscriptions.len()),
+            ("inventory", body.inventory.len()),
+            ("leaderboard_records", body.leaderboard_records.len()),
+            ("group_memberships", body.group_memberships.len()),
+            ("notifications", body.notifications.len()),
+            ("messages", body.messages.len()),
+        ]
+        .into_iter()
+        .filter(|(_, rows)| *rows > 0)
+        .map(|(family, _)| family)
+        .collect();
+        if !carried.is_empty() {
+            return Err(V2Error::invalid_argument(format!(
+                "The operator import restores the account, devices, notes, wallet ledger, storage \
+                 and edges only; this document also carries {}.",
+                carried.join(", ")
+            )));
+        }
         let account = body.account;
         if account.id.is_nil() {
             return Err(V2Error::invalid_argument(

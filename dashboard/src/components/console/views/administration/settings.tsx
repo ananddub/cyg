@@ -189,7 +189,7 @@ function SettingDialog({
     <FormSheet
       open={open}
       title={replacing ? `Edit ${setting.name}` : "Set a setting"}
-      description="The name is the key; the value is the whole document."
+      description="The name is the key; the value is the whole document. Saving an existing key replaces its value."
       onClose={close}
       footer={
         <Button onClick={confirm} disabled={write.isPending || !named}>

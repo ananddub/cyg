@@ -68,8 +68,11 @@ impl Queries {
     }
     pub async fn delete_group(&self, id: Uuid) -> Result<(), DbError> {
         self.exec(
-            "UPDATE type::record('groups', <uuid>$id) \
-             SET disable_time = $now, update_time = $now",
+            "BEGIN TRANSACTION; \
+             DELETE group_edge WHERE source_id = $id OR destination_id = $id; \
+             UPDATE type::record('groups', <uuid>$id) \
+             SET disable_time = $now, update_time = $now; \
+             COMMIT;",
             params!(now = time::encode(Utc::now()), id = id.to_string()),
         )
         .await

@@ -56,12 +56,11 @@ function seed(board: ConsoleLeaderboard | null): TournamentForm {
     start_time: board?.start_time ?? "",
     end_time: board?.end_time ?? "",
     reset_schedule: board?.reset_schedule ?? "",
-    // The row shape reports no `max_size`, so an edit leaves it at the stored value.
-    max_size: "",
+    max_size: board === null ? "" : String(board.max_size),
     max_num_score: board === null ? "" : String(board.max_num_score),
     metadata: jsonText(board?.metadata),
     authoritative: board?.authoritative ?? false,
-    join_required: false,
+    join_required: board?.join_required ?? false,
   }
 }
 
