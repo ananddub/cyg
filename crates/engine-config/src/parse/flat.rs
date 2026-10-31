@@ -20,6 +20,12 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "tick_rate" => cfg.tick_rate = value.parse().unwrap_or(cfg.tick_rate),
         "max_clients" => cfg.max_clients = value.parse().unwrap_or(cfg.max_clients),
         "max_rooms" => cfg.max_rooms = value.parse().unwrap_or(cfg.max_rooms),
+        "max_messages_per_second" => {
+            cfg.max_messages_per_second = value.parse().unwrap_or(cfg.max_messages_per_second)
+        }
+        "simulate_latency_ms" => {
+            cfg.simulate_latency_ms = value.parse().unwrap_or(cfg.simulate_latency_ms)
+        }
         "width" => cfg.width = value.parse().unwrap_or(cfg.width),
         "height" => cfg.height = value.parse().unwrap_or(cfg.height),
         "speed" => cfg.speed = value.parse().unwrap_or(cfg.speed),

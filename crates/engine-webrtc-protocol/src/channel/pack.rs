@@ -131,7 +131,10 @@ impl<'a> Iterator for Fragments<'a> {
     type Item = DeltaFragment<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.rest.is_empty() {
+        // Driven by `total`, not by the body running out: a zero-length body
+        // still packs as one fragment (`delta_fragment_count(0) == 1`) and its
+        // frame must be emitted, not silently swallowed.
+        if self.idx >= self.total {
             return None;
         }
         let chunk = &self.rest[..self.rest.len().min(MAX_DELTA_CHUNK)];

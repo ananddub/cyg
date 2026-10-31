@@ -26,6 +26,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 wtransport-proto = "0.7"
 
 [dev-dependencies]
+pretty_assertions = "1"
+proptest = "1"
 engine-wasm = { path = "../engine-wasm" }
 wasmtime = "50.0.0"
 dashmap = "6.2"

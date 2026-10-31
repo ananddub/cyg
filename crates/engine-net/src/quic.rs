@@ -291,8 +291,9 @@ impl QuicEngine {
 
     /// Server-initiated close: a CONNECTION_CLOSE frame goes out on the next
     /// transmit pass, the peer sees a clean goodbye.
-    pub fn connection_close(&mut self, handle: ConnectionHandle, reason: &str) -> bool {
-        let now = Instant::now();
+    /// Begin a graceful close. `now` is the caller's clock — the drain timer
+    /// (3× PTO) is derived from it, so simulated-time callers stay correct.
+    pub fn connection_close(&mut self, now: Instant, handle: ConnectionHandle, reason: &str) -> bool {
         self.connections
             .get_mut(&handle)
             .map(|conn| {
@@ -385,6 +386,14 @@ pub fn self_signed_server_config() -> Result<ServerConfig, Box<dyn std::error::E
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// The workspace test graph may unify rustls features to ring + aws-lc-rs
+    /// together, which makes rustls refuse to pick a provider implicitly.
+    /// Tests pin the ring provider explicitly; losing the install race to
+    /// another thread is harmless (either provider works).
+    fn install_crypto_provider() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
 
     const SERVER_ADDR: SocketAddr =
         SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 19443);
@@ -501,6 +510,7 @@ mod tests {
 
     #[test]
     fn handshake_stream_echo_and_datagram_roundtrip_in_memory() {
+        install_crypto_provider();
         let mut now = Instant::now();
         let mut server = QuicEngine::server(
             endpoint_config(),

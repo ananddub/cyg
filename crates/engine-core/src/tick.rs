@@ -1,5 +1,6 @@
 use crate::components::PendingDespawn;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryState;
 use bevy_ecs::schedule::Schedule;
 
 /// High-performance tick runner for an isolated room.
@@ -10,6 +11,10 @@ use bevy_ecs::schedule::Schedule;
 pub struct TickRunner {
     pub world: World,
     schedule: Schedule,
+    /// Reused query state for the pending-despawn sweep (compiled once, not per tick).
+    despawn_query: QueryState<(Entity, &'static PendingDespawn)>,
+    /// Reused scratch buffer for entities to despawn this tick.
+    scratch: Vec<Entity>,
 }
 
 impl Default for TickRunner {
@@ -21,9 +26,13 @@ impl Default for TickRunner {
 impl TickRunner {
     /// Creates a new isolated simulation world with an empty schedule.
     pub fn new() -> Self {
+        let mut world = World::new();
+        let despawn_query = world.query_filtered::<(Entity, &PendingDespawn), ()>();
         Self {
-            world: World::new(),
+            world,
             schedule: Schedule::default(),
+            despawn_query,
+            scratch: Vec::new(),
         }
     }
 
@@ -34,6 +43,7 @@ impl TickRunner {
 
     /// Executes one simulation tick through all scheduled systems,
     /// followed by the automatic cleanup of `PendingDespawn` entities.
+    #[inline]
     pub fn tick(&mut self) {
         self.schedule.run(&mut self.world);
         self.cleanup_despawns();
@@ -41,14 +51,14 @@ impl TickRunner {
 
     /// Despawns all entities marked with `PendingDespawn`.
     fn cleanup_despawns(&mut self) {
-        let mut to_despawn = Vec::new();
+        self.scratch.clear();
         {
-            let mut query = self.world.query_filtered::<Entity, With<PendingDespawn>>();
-            for entity in query.iter(&self.world) {
-                to_despawn.push(entity);
+            let world = &self.world;
+            for (entity, _) in self.despawn_query.iter(world) {
+                self.scratch.push(entity);
             }
         }
-        for entity in to_despawn {
+        for &entity in &self.scratch {
             self.world.despawn(entity);
         }
     }

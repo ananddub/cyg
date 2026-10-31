@@ -304,7 +304,8 @@ impl GameTransport for QuicTransport {
 
     fn disconnect(&mut self, client_id: &str) -> io::Result<()> {
         if let Some(&handle) = self.by_client.get(client_id) {
-            self.engine.connection_close(handle, "server leave");
+            self.engine
+                .connection_close(Instant::now(), handle, "server leave");
         }
         Ok(())
     }
@@ -383,7 +384,14 @@ mod tests {
         }
     }
 
+    /// See the note in `crate::quic::tests`: the unified test graph can enable
+    /// both rustls crypto features; pin ring explicitly.
+    fn install_crypto_provider() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+
     fn client_config() -> quinn_proto::ClientConfig {
+        install_crypto_provider();
         let tls = rustls::ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(TrustAnything))

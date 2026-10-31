@@ -62,15 +62,8 @@ impl FragmentAssembler {
                     self.rejected += 1;
                     return None;
                 }
-                self.inflight.push(PartialDelta {
-                    seq: header.seq,
-                    tick: header.tick,
-                    total: header.frag_total,
-                    parts: vec![None; header.frag_total as usize],
-                    received: 0,
-                    bytes: 0,
-                    last_ms: now_ms,
-                });
+                self.inflight
+                    .push(PartialDelta::new(header.seq, header.tick, header.frag_total));
                 self.inflight.len() - 1
             }
         };
@@ -90,16 +83,11 @@ impl FragmentAssembler {
         {
             let partial = &mut self.inflight[slot];
             partial.last_ms = now_ms;
-            let cell = &mut partial.parts[header.frag_idx as usize];
-            if cell.is_some() {
-                duplicate = true;
-            } else {
-                let len = chunk.len();
-                *cell = Some(chunk.to_vec());
-                partial.received += 1;
-                partial.bytes += len;
-                self.buffered += len;
+            if partial.insert(header.frag_idx, chunk) {
+                self.buffered += chunk.len();
                 complete = partial.is_complete();
+            } else {
+                duplicate = true;
             }
         }
         if duplicate {

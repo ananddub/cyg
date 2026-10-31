@@ -25,6 +25,7 @@ pub struct TransformSnapshot {
 }
 
 impl TransformSnapshot {
+    #[inline]
     pub fn new(x: f32, y: f32, z: f32, hit_radius: f32) -> Self {
         Self {
             x,
@@ -94,6 +95,10 @@ pub struct EntityHistory<T> {
     count: usize,
     capacity: usize,
     interp: Interpolation,
+    /// Tick of the most recently accepted sample; older/equal ticks are rejected
+    /// so the ring stays strictly ordered (a non-monotonic sample would corrupt
+    /// the bounding-pair arithmetic and panic on subtraction).
+    last_tick: Option<u64>,
 }
 
 impl<T: Copy> EntityHistory<T> {
@@ -111,12 +116,23 @@ impl<T: Copy> EntityHistory<T> {
             count: 0,
             capacity: cap,
             interp,
+            last_tick: None,
         }
     }
 
     /// Record a state sample at a given tick and time.
+    ///
+    /// Samples must arrive with strictly increasing ticks (one per simulation tick).
+    /// A sample whose tick is not newer than the last accepted one is discarded —
+    /// recording it would corrupt the ring's time ordering.
     #[inline]
     pub fn record(&mut self, tick: u64, time_ms: f64, data: T) {
+        if let Some(last) = self.last_tick {
+            if tick <= last {
+                return;
+            }
+        }
+        self.last_tick = Some(tick);
         if self.count < self.capacity {
             self.ticks.push(tick);
             self.times.push(time_ms);
@@ -155,6 +171,7 @@ impl<T: Copy> EntityHistory<T> {
 
     /// Find the two bounding samples around `target_time_ms`, clamped to the
     /// retained range. O(1) for contiguous ticks, O(n) fallback otherwise.
+    #[inline]
     pub fn find_samples(&self, target_time_ms: f64) -> Option<(T, T, f32)> {
         if self.count == 0 {
             return None;
@@ -322,5 +339,23 @@ impl RewindManager {
     /// Remove an entity when it leaves or is destroyed.
     pub fn remove_entity(&mut self, entity_id: u64) {
         self.histories.remove(&entity_id);
+    }
+
+    /// Drop every entity history (e.g. when the room resets a round).
+    /// Histories are created per entity on first `record` and otherwise live
+    /// for the room's lifetime — call `remove_entity` per departed entity, or
+    /// `clear` between rounds, to keep this map bounded.
+    pub fn clear(&mut self) {
+        self.histories.clear();
+    }
+
+    /// Number of entities currently being tracked.
+    pub fn len(&self) -> usize {
+        self.histories.len()
+    }
+
+    /// True when no entity is being tracked.
+    pub fn is_empty(&self) -> bool {
+        self.histories.is_empty()
     }
 }

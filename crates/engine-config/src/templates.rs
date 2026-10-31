@@ -24,6 +24,11 @@ web_port = 8090
 tick_rate = 30
 max_clients = 16
 max_rooms = 1024
+# Per-client message budget per second; a client exceeding it is kicked (0 = off).
+max_messages_per_second = 0
+# Synthetic round-trip latency (ms) for local testing; app data both ways is
+# delayed by half of this. 0 = off.
+simulate_latency_ms = 0
 
 # Playfield
 width = 800.0

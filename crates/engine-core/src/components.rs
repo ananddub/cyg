@@ -45,8 +45,10 @@ impl Health {
         Self { current: max, max }
     }
 
+    /// Apply damage (negative amounts heal). Both edges are clamped: the value
+    /// never drops below 0 nor exceeds `max`.
     pub fn take_damage(&mut self, amount: f32) -> bool {
-        self.current = (self.current - amount).max(0.0);
+        self.current = (self.current - amount).clamp(0.0, self.max);
         self.is_dead()
     }
 

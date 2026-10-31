@@ -35,12 +35,19 @@ impl RoomRng {
     }
 
     /// Returns a pseudo-random integer within the range `[lo, hi)`.
+    /// Degenerate ranges (`lo >= hi`) return `lo` instead of panicking — this
+    /// API is reachable from room scripts, so bad bounds degrade, never crash.
     pub fn next_range(&mut self, lo: i32, hi: i32) -> i32 {
+        if hi <= lo {
+            return lo;
+        }
         self.inner.gen_range(lo..hi)
     }
 
     /// Returns true or false with given probability (e.g. 0.5 for 50/50 coin flip).
+    /// Probabilities outside `[0.0, 1.0]` (including NaN) are clamped.
     pub fn next_bool(&mut self, p: f64) -> bool {
-        self.inner.gen_bool(p)
+        // .max/.min (not clamp) so NaN degrades to "never", not a panic.
+        self.inner.gen_bool(p.max(0.0).min(1.0))
     }
 }

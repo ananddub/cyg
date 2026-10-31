@@ -6,6 +6,8 @@ pub use event::{EVENT_WIRE_LEN, EventFrame, EventKind, OP_EVENT, encode_event};
 pub use input::{INPUT_WIRE_LEN, InputFrame, OP_INPUT, encode_input};
 pub use state::{Entities, EntitySnapshot, OP_STATE, StateFrame, encode_state};
 
+use crate::MAX_ENTITIES_PER_STATE;
+use crate::MAX_FRAME;
 use crate::STATE_HEADER_LEN;
 use crate::STATE_RECORD_LEN;
 use crate::bytes::le_u16;
@@ -134,6 +136,18 @@ pub fn decode(buf: &[u8]) -> Result<MeshFrame<'_>, FrameError> {
             let count = buf[3] as usize;
             if count == 0 {
                 return Err(FrameError::EmptyState);
+            }
+            if count > MAX_ENTITIES_PER_STATE {
+                return Err(FrameError::TooManyEntities {
+                    max: MAX_ENTITIES_PER_STATE,
+                    got: count,
+                });
+            }
+            if buf.len() > MAX_FRAME {
+                return Err(FrameError::LengthMismatch {
+                    want: MAX_FRAME,
+                    got: buf.len(),
+                });
             }
             let want = STATE_HEADER_LEN + count * STATE_RECORD_LEN;
             if buf.len() != want {

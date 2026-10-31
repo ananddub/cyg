@@ -6,6 +6,7 @@ import TechStack from './components/TechStack.jsx'
 import Features from './components/Features.jsx'
 import Threed from './components/Threed.jsx'
 import Architecture from './components/Architecture.jsx'
+import Scaling from './components/Scaling.jsx'
 import CodeSection from './components/CodeSection.jsx'
 import ConsolePreview from './components/ConsolePreview.jsx'
 import Benchmarks from './components/Benchmarks.jsx'
@@ -24,6 +25,7 @@ export default function App() {
         <Features />
         <Threed />
         <Architecture />
+        <Scaling />
         <CodeSection />
         <ConsolePreview />
         <Benchmarks />

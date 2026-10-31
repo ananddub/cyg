@@ -9,6 +9,7 @@
 pub mod components;
 pub mod input;
 pub mod rewind;
+pub mod rate_limit;
 pub mod rng;
 pub mod tick;
 
@@ -17,6 +18,7 @@ use std::time::Duration;
 pub use components::*;
 pub use input::{PlayerInput, PlayerInputBuffer};
 pub use rewind::{EntityHistory, Interpolation, RewindManager, TransformSnapshot};
+pub use rate_limit::{MessageRateLimits, RateDecision};
 pub use rng::RoomRng;
 pub use tick::TickRunner;
 
@@ -63,7 +65,14 @@ pub struct FixedClock {
 }
 
 impl FixedClock {
+    /// # Panics
+    /// Panics with a clear message when `tick_rate` is 0 (a zero-length step is
+    /// meaningless; config-driven callers should validate before construction).
     pub fn new(tick_rate: u32) -> Self {
+        assert!(
+            tick_rate > 0,
+            "FixedClock::new: tick_rate must be > 0 (got 0)"
+        );
         let step_duration = Duration::from_secs_f64(1.0 / tick_rate as f64);
         Self {
             tick_rate,

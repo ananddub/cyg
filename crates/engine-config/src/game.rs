@@ -65,6 +65,15 @@ pub struct GameConfig {
     /// Hard ceiling on concurrently live rooms: a join that would create a new
     /// room past this is rejected instead of allocating one. `0` = unlimited.
     pub max_rooms: u32,
+    /// Per-client message budget on the lane-classified inbound (rtc/quic):
+    /// a client exceeding this many messages in one second is force-disconnected
+    /// (the `maxMessagesPerSecond` DoS contract). `0` = unlimited.
+    pub max_messages_per_second: u32,
+    /// Synthetic round-trip latency in ms for local development: app data in
+    /// both directions is delayed by half of this, so prediction, rollback and
+    /// reconciliation behave on localhost like they would on a real network.
+    /// `0` = off.
+    pub simulate_latency_ms: u32,
     pub width: f64,
     pub height: f64,
     pub speed: f64,
@@ -99,6 +108,8 @@ impl Default for GameConfig {
             tick_rate: 30,
             max_clients: 16,
             max_rooms: 1024,
+            max_messages_per_second: 0,
+            simulate_latency_ms: 0,
             width: 800.0,
             height: 500.0,
             speed: 240.0,

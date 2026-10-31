@@ -12,6 +12,7 @@
 //! [`crate::netcode`].
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use engine_bus::{Bus, MatchFinished, RoomSnapshot, RoomTelemetry, SessionTelemetry, SimEvent};
+use engine_core::{MessageRateLimits, RateDecision};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc::contract::Inbound;
 use engine_net::transport::{GameTransport, TransportEvent, WebRtcServer, WebRtcTransport};
@@ -83,7 +85,35 @@ pub struct LoopTransport {
     /// Lane-classified inbound frames drained from the wire transport during
     /// `poll_events`; the loop takes them once per iteration.
     inbound: Vec<(String, Inbound)>,
+    /// Synthetic latency (`simulate_latency_ms`): one-way delay applied in
+    /// each direction to app data, so localhost behaves like a real network.
+    /// Zero disables the whole mechanism — no queues, no timers.
+    latency: Duration,
+    /// Outbound app messages awaiting their due time under latency.
+    delayed_out: VecDeque<(Instant, DelayedOut)>,
+    /// Inbound lane messages awaiting their due time under latency.
+    delayed_in: VecDeque<(Instant, String, Inbound)>,
     local_addr: Option<SocketAddr>,
+}
+
+/// One queued outbound app message under [`LoopTransport::latency`].
+#[derive(Debug)]
+enum DelayedOut {
+    Op {
+        client_id: String,
+        opcode: OpCode,
+        payload: Vec<u8>,
+    },
+    State {
+        client_id: String,
+        payload: Vec<u8>,
+    },
+    Delta {
+        session: String,
+        seq: u16,
+        tick: u32,
+        body: Vec<u8>,
+    },
 }
 
 impl LoopTransport {
@@ -97,8 +127,17 @@ impl LoopTransport {
             consented: std::collections::HashSet::new(),
             retained: HashMap::new(),
             inbound: Vec::new(),
+            latency: Duration::ZERO,
+            delayed_out: VecDeque::new(),
+            delayed_in: VecDeque::new(),
             local_addr,
         }
+    }
+
+    /// Arm the latency simulator (`simulate_latency_ms` config): each direction
+    /// of app data is delayed by half the configured round trip.
+    pub fn set_latency(&mut self, one_way: Duration) {
+        self.latency = one_way;
     }
 
     /// Record a seat's routing before (or as) its WebRTC session comes up:
@@ -168,12 +207,42 @@ impl LoopTransport {
     /// Returns the frame count; zero means the caller should fall back to the
     /// reliable lane (`send_state`/`send_to`).
     pub fn send_delta_framed(&mut self, session: &str, seq: u16, tick: u32, body: &[u8]) -> usize {
+        if !self.latency.is_zero() {
+            // Same delivered/fragment decision the immediate path makes, just
+            // deferred: an unconnected session still reports 0 so the caller
+            // falls back to the reliable lane.
+            if !self.rtc.server().is_connected(session) {
+                return 0;
+            }
+            let count =
+                engine_webrtc_protocol::delta_fragment_count(body.len()).unwrap_or(0) as usize;
+            self.delayed_out.push_back((
+                Instant::now() + self.latency,
+                DelayedOut::Delta {
+                    session: session.to_string(),
+                    seq,
+                    tick,
+                    body: body.to_vec(),
+                },
+            ));
+            return count;
+        }
         netcode::send_delta_framed(self.rtc.server_mut(), session, seq, tick, body)
     }
 
     /// Queue a schema state frame on the latest-wins lane (unflushed state
     /// frames are replaced, not appended).
     pub fn send_state(&mut self, client_id: &str, payload: &[u8]) -> std::io::Result<()> {
+        if !self.latency.is_zero() {
+            self.delayed_out.push_back((
+                Instant::now() + self.latency,
+                DelayedOut::State {
+                    client_id: client_id.to_string(),
+                    payload: payload.to_vec(),
+                },
+            ));
+            return Ok(());
+        }
         self.rtc.send_state(client_id, payload)
     }
 
@@ -187,6 +256,53 @@ impl LoopTransport {
             let _ = self.rtc.send_to(cid, opcode, payload);
         }
         Ok(())
+    }
+
+    /// Release every delayed outbound message whose due time has passed.
+    fn flush_delayed_out(&mut self, now: Instant) {
+        while let Some((due, _)) = self.delayed_out.front() {
+            if *due > now {
+                break;
+            }
+            let (_, msg) = self.delayed_out.pop_front().unwrap();
+            match msg {
+                DelayedOut::Op {
+                    client_id,
+                    opcode,
+                    payload,
+                } => {
+                    let _ = self.send_to_now(&client_id, opcode, &payload);
+                }
+                DelayedOut::State { client_id, payload } => {
+                    let _ = self.rtc.send_state(&client_id, &payload);
+                }
+                DelayedOut::Delta {
+                    session,
+                    seq,
+                    tick,
+                    body,
+                } => {
+                    let _ = netcode::send_delta_framed(
+                        self.rtc.server_mut(),
+                        &session,
+                        seq,
+                        tick,
+                        &body,
+                    );
+                }
+            }
+        }
+    }
+
+    fn send_to_now(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
+        if self.quic.as_ref().is_some_and(|q| q.knows(client_id)) {
+            return self
+                .quic
+                .as_mut()
+                .unwrap()
+                .send_to(client_id, opcode, payload);
+        }
+        self.rtc.send_to(client_id, opcode, payload)
     }
 }
 
@@ -227,18 +343,38 @@ impl GameTransport for LoopTransport {
                     .map(|(id, msg)| (id.to_string(), msg)),
             );
         }
+        // Latency simulator: release due outbound traffic, then hold fresh
+        // inbound until its one-way delay has elapsed.
+        let now = Instant::now();
+        self.flush_delayed_out(now);
+        if !self.latency.is_zero() {
+            for (id, msg) in self.inbound.drain(..) {
+                self.delayed_in.push_back((now + self.latency, id, msg));
+            }
+        }
+        while let Some((due, ..)) = self.delayed_in.front() {
+            if *due > now {
+                break;
+            }
+            let (_, id, msg) = self.delayed_in.pop_front().unwrap();
+            self.inbound.push((id, msg));
+        }
         Ok(())
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
-        if self.quic.as_ref().is_some_and(|q| q.knows(client_id)) {
-            return self
-                .quic
-                .as_mut()
-                .unwrap()
-                .send_to(client_id, opcode, payload);
+        if !self.latency.is_zero() {
+            self.delayed_out.push_back((
+                Instant::now() + self.latency,
+                DelayedOut::Op {
+                    client_id: client_id.to_string(),
+                    opcode,
+                    payload: payload.to_vec(),
+                },
+            ));
+            return Ok(());
         }
-        self.rtc.send_to(client_id, opcode, payload)
+        self.send_to_now(client_id, opcode, payload)
     }
 
     fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
@@ -1216,6 +1352,11 @@ pub fn run(
         None
     };
     let mut transport = LoopTransport::new(raw_transport, quic_transport);
+    // `simulate_latency_ms` splits the configured round trip in half per
+    // direction, Colyseus-style — localhost starts behaving like a network.
+    if cfg.simulate_latency_ms > 0 {
+        transport.set_latency(Duration::from_millis(cfg.simulate_latency_ms as u64 / 2));
+    }
     let mut udp_peers: HashMap<SocketAddr, (i64, String, Instant)> = HashMap::new();
     // RUDP: per-peer reliable send lane (server -> client, per-frame resend
     // timers until the client's cumulative ack) + the next outgoing seq per
@@ -1235,6 +1376,10 @@ pub fn run(
     // are created lazily and dropped with the session/peer.
     let mut rtc_input_rates: HashMap<String, netcode::InputRateLimiter> = HashMap::new();
     let mut udp_input_rates: HashMap<SocketAddr, netcode::InputRateLimiter> = HashMap::new();
+    // `maxMessagesPerSecond` DoS shield: every lane-classified inbound message
+    // counts against a per-client 1s window; a violator is force-disconnected
+    // (not throttled). `0` disables the shield entirely.
+    let mut message_rate_limits = MessageRateLimits::new(cfg.max_messages_per_second);
     // Join-path bucket: creating a player runs guest `on_join` AND replies
     // with the full schema descriptor — a spoofed-source flood must not mint
     // players or amplify traffic. Reuses the same limiter type (5/s refill).
@@ -1600,6 +1745,7 @@ pub fn run(
                     tracing::info!("[server] disconnected: {client_id}");
                     last_input_at.remove(&*client_id);
                     rtc_input_rates.remove(&*client_id);
+                    message_rate_limits.remove(&client_id);
                     let raw_room_str = transport.take_room_of(&client_id);
                     let room_name = if let Some(ref r) = raw_room_str {
                         sanitize_room_name(r).to_string()
@@ -2359,7 +2505,26 @@ pub fn run(
         // this iteration's `poll_events`. The transport decided which channel
         // each frame came in on: an ack that arrives on `game-unreliable` is
         // `Refused` rather than `Ack`, because that lane cannot prove delivery.
+        // Idle-guard eviction is internally gated (at most once per 5s).
+        message_rate_limits.sweep(Instant::now());
         for (client_id, msg) in transport.take_inbound() {
+            // The DoS shield runs before anything else: a flood must not spend
+            // room lookup, session lookup, or guest WASM cycles.
+            if message_rate_limits.is_enabled() {
+                match message_rate_limits.check(&client_id, Instant::now()) {
+                    RateDecision::Allow => {}
+                    RateDecision::Disconnect => {
+                        recorder.inputs_dropped += 1;
+                        tracing::warn!(
+                            "[server] 🚫 {client_id} exceeded max_messages_per_second ({}); force-disconnecting",
+                            cfg.max_messages_per_second
+                        );
+                        let _ = transport.disconnect(&client_id);
+                        rtc_input_rates.remove(&client_id);
+                        continue;
+                    }
+                }
+            }
             let room_name = transport
                 .room_of(&client_id)
                 .map(|r| sanitize_room_name(&r).to_string())
@@ -2627,6 +2792,25 @@ pub fn run(
                                 .as_ref()
                                 .and_then(|layout| layout.view(schema.full));
 
+                            // Quiet-tick skip (Colyseus' "no change → no frame"
+                            // invariant): when the guest patch is empty, every
+                            // viewer already holds its baseline, and AOI has no
+                            // view to re-cull (movement would have made the
+                            // patch non-empty), there is nothing to deliver —
+                            // skip the per-client fanout instead of wrapping
+                            // and queueing an empty delta once per client per
+                            // tick. The next non-quiet tick carries the fresh
+                            // input ack, so reconciliation stays correct.
+                            let quiet = schema.patch.is_empty()
+                                && !force_full
+                                && room
+                                    .sessions
+                                    .keys()
+                                    .chain(room.spectators.iter())
+                                    .all(|s| room.schema_sent.contains(s))
+                                && aoi_view.is_none();
+
+                            if !quiet {
                             let sessions: Vec<(String, i64)> = room
                                 .sessions
                                 .iter()
@@ -2713,6 +2897,7 @@ pub fn run(
                                     }
                                 }
                             }
+                            } // quiet-tick skip: schema fanout
                         } else {
                             // Interest management: parse the delta once per tick.
                             // When the layout is recognized and AOI is on, every player
@@ -3211,6 +3396,42 @@ mod loop_transport_tests {
     fn local_addr_reports_the_bound_socket() {
         let t = transport();
         assert_ne!(t.local_addr().unwrap().port(), 0);
+    }
+
+    /// The `simulate_latency_ms` contract: an outbound app message is held for
+    /// exactly the one-way delay, then released by the next poll — localhost
+    /// behaves like a network, not like a function call.
+    #[test]
+    fn latency_queues_outbound_until_the_one_way_delay_elapses() {
+        let mut t = transport();
+        t.set_latency(Duration::from_millis(40));
+        t.send_to("ghost", OpCode::Custom, b"payload").unwrap();
+        assert_eq!(t.delayed_out.len(), 1, "the send is held, not delivered");
+
+        // Before the delay elapses, poll releases nothing.
+        let mut events = Vec::new();
+        t.poll_events(Duration::ZERO, &mut events).unwrap();
+        assert_eq!(
+            t.delayed_out.len(),
+            1,
+            "before the one-way delay nothing flushes"
+        );
+
+        std::thread::sleep(Duration::from_millis(50));
+        t.poll_events(Duration::ZERO, &mut events).unwrap();
+        assert_eq!(
+            t.delayed_out.len(),
+            0,
+            "after the delay the message is released to the wire"
+        );
+    }
+
+    #[test]
+    fn zero_latency_keeps_no_queues_at_all() {
+        let mut t = transport();
+        t.send_to("ghost", OpCode::Custom, b"payload").unwrap();
+        assert!(t.delayed_out.is_empty(), "no latency = no queue, direct send");
+        assert!(t.delayed_in.is_empty());
     }
 
     #[test]
