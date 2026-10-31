@@ -1,5 +1,3 @@
-//! Creating, editing and deleting a console operator.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -26,7 +24,7 @@ impl super::ConsoleService {
         let role = role_from(&body.role)?;
         check_password(&body.password)?;
 
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let id = Uuid::new_v4();
         queries
             .insert_console_user(&InsertConsoleUserParams {
@@ -64,10 +62,7 @@ impl super::ConsoleService {
         let (username, email) = named(&body.username, &body.email)?;
         let role = role_from(&body.role)?;
 
-        let queries = super::queries(state)?;
-        // The row is read first so an edit cannot silently become a create: the
-        // update reports how many rows it touched, and this is what makes a missing
-        // one a 404.
+        let queries = super::queries(state).await?;
         self.view(&queries, id).await?;
         queries
             .update_console_user(&UpdateConsoleUserParams {
@@ -103,7 +98,7 @@ impl super::ConsoleService {
         let id = super::id(id, "console user")?;
         self.must_be_another(claims, id, "delete")?;
 
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let view = self.view(&queries, id).await?;
         queries.delete_console_user(id).await?;
         super::audit(

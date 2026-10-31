@@ -12,7 +12,6 @@ fn resolve_accepts_plain_children() {
         s.resolve("/assets/player.png"),
         Some(dir.path().join("assets").join("player.png"))
     );
-    // A duplicated or dot segment stays inside the root.
     assert_eq!(s.resolve("//assets//a.wasm"), s.resolve("/assets/a.wasm"));
     assert_eq!(s.resolve("/./assets/a.json"), s.resolve("/assets/a.json"));
 }
@@ -34,9 +33,6 @@ fn resolve_rejects_every_way_out_of_the_root() {
     ] {
         assert_eq!(s.resolve(probe), None, "{probe:?} escaped the root");
     }
-    // Decoding is single-pass, so `%252e%252e` becomes the literal name
-    // `%2e%2e` rather than a parent — still a child of the root, and still
-    // not a file anybody shipped.
     let once = s
         .resolve("/%252e%252e/x")
         .expect("a decoded name is not a traversal");

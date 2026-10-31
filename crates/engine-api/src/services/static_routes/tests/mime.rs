@@ -35,11 +35,9 @@ fn content_type_covers_the_unity_and_asset_extensions() {
     assert_eq!(content_type_for("/fonts/ui.woff2"), "font/woff2");
     assert_eq!(content_type_for("/models/tank.glb"), "model/gltf-binary");
     assert_eq!(content_type_for("/sky/noon.hdr"), "image/vnd.radiance");
-    // Case and extension-less names do not upset it.
     assert_eq!(content_type_for("/BUILD/WEBGL.WASM"), "application/wasm");
     assert_eq!(content_type_for("/LICENSE"), "application/octet-stream");
     assert_eq!(content_type_for("/v1.2/app"), "application/octet-stream");
-    // Every declared type is a header value hyper accepts without parsing.
     for (_, mime) in CONTENT_TYPES {
         assert!(header::HeaderValue::from_str(mime).is_ok(), "{mime}");
     }

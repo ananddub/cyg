@@ -23,6 +23,9 @@ use engine_schema::{
 };
 use std::path::{Path, PathBuf};
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod cook;
 mod schema;
 

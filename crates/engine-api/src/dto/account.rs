@@ -1,17 +1,9 @@
-//! `/v2/account*` — the shapes the signed-in player's own record travels in.
-//!
-//! [`AccountResponse`] is the `api.Account`: one `users` row and its
-//! `user_device` rows flattened onto the wire — timestamps UTC, second precision, a
-//! literal `Z`, and the epoch for an unset column rather than an absent member.
-
 use serde::{Deserialize, Serialize};
 
 use crate::dto::console::account::WalletLedgerRow;
 use crate::repositories::account::ListDevicePushTokensRow;
 use crate::repositories::models::Users;
 
-/// One of the `ledger_items` a player sends to `POST /v2/account/wallet`: the id of
-/// a ledger entry the player already owns, and the metadata to merge onto it.
 #[derive(Debug, Default, Deserialize)]
 pub struct WalletLedgerMetadataItem {
     #[serde(default)]
@@ -20,11 +12,6 @@ pub struct WalletLedgerMetadataItem {
     pub metadata: serde_json::Value,
 }
 
-/// `POST /v2/account/wallet`.
-///
-/// `wallet_items` is a currency-to-delta map. A signed-in player may never send one
-/// that actually changes a balance: currency keys are reserved to console writes, so
-/// a non-empty map is refused and only `ledger_items` metadata merges proceed.
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdatePlayerWalletRequest {
     #[serde(default)]
@@ -33,16 +20,12 @@ pub struct UpdatePlayerWalletRequest {
     pub ledger_items: Vec<WalletLedgerMetadataItem>,
 }
 
-/// `GET` and `POST /v2/account/wallet`: the player's own currency document and the
-/// ledger that explains how it got there.
 #[derive(Debug, Serialize)]
 pub struct PlayerWalletResponse {
     pub wallet: serde_json::Value,
     pub ledger_items: Vec<WalletLedgerRow>,
 }
 
-/// The body of `PUT /v2/account`. Every field is optional: `None` means "leave the
-/// column alone", while a `Some("")` metadata means "clear it".
 #[derive(Debug, Deserialize)]
 pub struct UpdateAccountRequest {
     #[serde(default)]
@@ -63,23 +46,18 @@ pub struct UpdateAccountRequest {
     pub metadata: Option<String>,
 }
 
-/// The query of `GET`/`PUT /v2/account`. `vars` is accepted and ignored, as the
-/// gateway's allowlist does — device variables belong to `link`, not to an update.
 #[derive(Debug, Deserialize)]
 pub struct GetAccountQuery {
     #[serde(default)]
     pub vars: String,
 }
 
-/// Optional password change, the `email`/`password` update pair.
 #[derive(Debug, Deserialize)]
 pub struct UpdatePasswordRequest {
     pub current_password: String,
     pub password: String,
 }
 
-/// `api.UserDevice`, one row of `user_device`. The push tokens ride in `vars`
-/// because that is where BaaS stores them.
 #[derive(Debug, Serialize)]
 pub struct DeviceAccountResponse {
     pub id: String,
@@ -87,7 +65,6 @@ pub struct DeviceAccountResponse {
     pub provider: String,
 }
 
-/// `api.Account`.
 #[derive(Debug, Serialize)]
 pub struct AccountResponse {
     pub user_id: String,

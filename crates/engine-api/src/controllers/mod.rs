@@ -1,9 +1,3 @@
-//! The controller layer: one module per domain.
-//!
-//! Each module is a `#[controller]` impl that decodes the request, calls its
-//! `auto-di`-injected service and shapes the reply; the rules live in
-//! [`crate::services`].
-
 pub mod account;
 pub mod auth;
 pub mod channel;

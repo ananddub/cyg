@@ -1,5 +1,3 @@
-//! The `/v2/user/{user_id}/group` alias service.
-
 use auto_di::singleton;
 use axum::Json;
 use serde_json::{Value, json};
@@ -11,7 +9,7 @@ use crate::error::V2Error;
 use crate::repositories::group::{
     ListGroupsForUserByStatePagedParams, ListGroupsForUserPagedParams,
 };
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social::{self, limit};
 use crate::utils::group::{ROLE_BANNED, ROLE_MEMBER, ROLE_SUPERADMIN, as_groups, group_id};
 
@@ -27,7 +25,6 @@ impl UserGroupService {
 }
 
 impl UserGroupService {
-    /// `GET /v2/user/{user_id}/group?state=&limit=&cursor=` — `apiUserGroupList`.
     pub async fn list_user_groups(
         &self,
         state: &ApiState,
@@ -36,7 +33,7 @@ impl UserGroupService {
         req: ListQuery,
     ) -> Result<Json<UserGroupListResponse>, V2Error> {
         let uid = group_id(&raw_user)?;
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let page = limit(
             req.limit,
             100,

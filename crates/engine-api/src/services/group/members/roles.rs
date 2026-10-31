@@ -1,5 +1,3 @@
-//! Promote and demote — `POST /v2/group/{group_id}/promote` and `/demote`.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -9,7 +7,7 @@ use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::group::{DemoteGroupEdgeParams, PromoteGroupEdgeParams};
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::utils::group::{ROLE_ADMIN, group_id};
 
 use super::super::{fetch_group, require_role};
@@ -19,8 +17,6 @@ use crate::dto::group::UsersQuery;
 use super::users::resolve_users;
 
 impl GroupMemberService {
-    /// `POST /v2/group/{group_id}/promote?user_ids=` — one step up the ladder, and
-    /// never past the caller's own rank.
     pub async fn promote_group_users(
         &self,
         state: &ApiState,
@@ -28,13 +24,12 @@ impl GroupMemberService {
         raw_id: String,
         req: UsersQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let gid = group_id(&raw_id)?;
         fetch_group(&queries, gid).await?;
         shift_group_roles(&queries, auth.0.uuid()?, gid, &req, true).await
     }
 
-    /// `POST /v2/group/{group_id}/demote?user_ids=`.
     pub async fn demote_group_users(
         &self,
         state: &ApiState,
@@ -42,7 +37,7 @@ impl GroupMemberService {
         raw_id: String,
         req: UsersQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let gid = group_id(&raw_id)?;
         fetch_group(&queries, gid).await?;
         shift_group_roles(&queries, auth.0.uuid()?, gid, &req, false).await

@@ -1,6 +1,3 @@
-//! Auto-registered bindings for `GET /v2/console/status` and
-//! `GET /v2/console/route` — the console's own Status page and API explorer.
-
 use std::sync::Arc;
 
 use auto_route::controller;

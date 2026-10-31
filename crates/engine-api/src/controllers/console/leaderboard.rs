@@ -1,7 +1,3 @@
-//! Auto-registered bindings for `/v2/console/leaderboard*` and
-//! `/v2/console/tournament`. Two controllers because `auto_route` gives one base
-//! path per impl.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -87,7 +83,6 @@ impl ConsoleLeaderboardController {
             .into_response()
     }
 
-    /// Remove one owner's record from a plain leaderboard.
     #[delete("/{id}/owner/{owner_id}")]
     async fn delete_record(
         &self,

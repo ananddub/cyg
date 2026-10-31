@@ -1,5 +1,3 @@
-//! Shared tournament pieces: gateway messages, limits, operator numbering and the page cursor codec.
-
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -45,10 +43,8 @@ pub const DEFAULT_PAGE_LIMIT: i64 = 100;
 pub const DEFAULT_CATEGORY_END: i64 = 127;
 pub const DEFAULT_TIME: i64 = -1;
 
-/// A query parameter the gateway itself parses, and cannot.
 pub const BAD_NUMBER: &str = "invalid Argument";
 
-/// The limit a route asks for, bounded the gateway way: absent takes the default, outside 1-100 is the caller's.
 pub fn limit(raw: Option<&str>, default: i64, message: &str) -> Result<i64, V2Error> {
     let value = defaulted(raw, default, message)?;
     if (1..=MAX_LIMIT).contains(&value) {
@@ -65,8 +61,6 @@ pub fn defaulted(raw: Option<&str>, default: i64, message: &str) -> Result<i64, 
     }
 }
 
-/// `leaderboard.operator` numbering read back as the `api.Operator` the wire
-/// carries: the enum starts one higher and reserves 0 for "no override".
 pub fn api_operator(stored: i16) -> u32 {
     match stored {
         DB_BEST => 1,
@@ -77,8 +71,6 @@ pub fn api_operator(stored: i16) -> u32 {
     }
 }
 
-/// the `api.Operator` override back into the column's numbering; anything
-/// the enum does not name is the write's generic failure.
 pub fn db_operator(override_operator: i64) -> Result<Option<i16>, V2Error> {
     match override_operator {
         0 => Ok(None),
@@ -90,7 +82,6 @@ pub fn db_operator(override_operator: i64) -> Result<Option<i16>, V2Error> {
     }
 }
 
-/// The last tournament id a page returned, JSON base64url like every other cursor here.
 #[derive(Debug, Serialize, Deserialize)]
 struct CursorBody {
     id: String,
@@ -102,8 +93,6 @@ pub fn page_cursor(id: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)
 }
 
-/// An undecodable cursor is the raw sentinel error BaaS hands back unwrapped,
-/// which the gateway prints as an unknown code rather than an argument error.
 pub fn decode_page_cursor(raw: &str) -> Result<Option<String>, V2Error> {
     if raw.is_empty() {
         return Ok(None);
@@ -117,13 +106,10 @@ pub fn decode_page_cursor(raw: &str) -> Result<Option<String>, V2Error> {
     Ok(Some(body.id))
 }
 
-/// The owners a listing names, in the same two spellings the gateway allows.
 pub fn owners(raw: Option<&Value>, message: &str) -> Result<Vec<Uuid>, V2Error> {
     owner_ids(raw, message)
 }
 
-/// The shared leaderboard listing reports a failure in its own words; a tournament
-/// route restates it, keeping only the cursor's message, which both routes spell identically.
 pub fn list_failure(error: V2Error, message: &str) -> V2Error {
     if error.kind == INVALID_ARGUMENT {
         return error;

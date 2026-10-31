@@ -1,11 +1,6 @@
-//! The vendor token routes: where the configuration gate and the credential check
-//! stand in front of reading a profile this server cannot reach.
-
 use super::helpers::{V2Server, server_key, v2_state};
 use crate::error::{DATA_LOSS, FAILED_PRECONDITION, INVALID_ARGUMENT, UNAUTHENTICATED};
 
-/// Apple and Steam are refused by what this server's configuration does not have,
-/// before their token is read for anything.
 #[test]
 fn apple_and_steam_are_refused_by_the_configuration_they_lack() {
     let server = V2Server::start(v2_state());
@@ -28,8 +23,6 @@ fn apple_and_steam_are_refused_by_the_configuration_they_lack() {
     );
 }
 
-/// The token is checked for presence, then the username the caller asked to create,
-/// and only then would the profile be read — which is where these two stop.
 #[test]
 fn facebook_and_google_stop_at_the_profile_they_cannot_read() {
     let server = V2Server::start(v2_state());
@@ -70,9 +63,6 @@ fn facebook_and_google_stop_at_the_profile_they_cannot_read() {
     );
 }
 
-/// An unverifiable Instant Game signature is `DataLoss`, not a rejected credential:
-/// BaaS treats it as its own data being wrong, and a client cannot retry out of it.
-/// Both spellings of the field are the same request, because the gateway accepts both.
 #[test]
 fn an_instant_game_signature_is_data_loss_not_a_rejected_credential() {
     let server = V2Server::start(v2_state());

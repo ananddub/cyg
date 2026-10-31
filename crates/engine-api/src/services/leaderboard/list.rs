@@ -1,7 +1,3 @@
-//! `GET /v2/leaderboard/{leaderboard_id}` — a page of records, optionally plus a
-//! batch of named owners' records. Ported from the
-//! `server/core_leaderboard.go` `LeaderboardRecordsList`.
-
 use axum::Json;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -16,7 +12,7 @@ use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::leaderboard::ListLeaderboardRecordsForOwnerParams;
 use crate::repositories::models::Leaderboard;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::utils::leaderboard::cursor::Cursor;
 use crate::utils::leaderboard::types::{
     BAD_EXPIRY, BAD_OWNERS, INVALID_ID, LIST_FAILED, LIST_LIMIT, MAX_LIST_LIMIT, ascending, number,
@@ -24,8 +20,6 @@ use crate::utils::leaderboard::types::{
 };
 use crate::utils::leaderboard::window::query_window;
 
-/// The gateway's page size: absent means one record, unless the caller named
-/// owners without paging, which asks for owner records only.
 fn requested_limit(
     raw: Option<&str>,
     cursor: &str,
@@ -61,7 +55,7 @@ impl super::LeaderboardService {
         let limit = requested_limit(req.limit.as_deref(), &req.cursor, !owners.is_empty())?;
         let override_expiry = number(req.expiry.as_deref(), BAD_EXPIRY)?;
 
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let board = load_board(&queries, id).await?;
         let Some(window) = query_window(&board, override_expiry)? else {
             return Ok(Json(RecordListResponse::default()));
@@ -72,8 +66,6 @@ impl super::LeaderboardService {
     }
 }
 
-/// The listing itself, shared by the route above and the haystack route once handed a
-/// cursor, and reused by the tournament group (so it takes the query shape, not state).
 pub(crate) async fn records_list(
     queries: &Queries,
     board: &Leaderboard,
@@ -100,8 +92,6 @@ pub(crate) async fn records_list(
     })
 }
 
-/// Named owners read unordered and are sorted to the board's direction, since
-/// they are a batch lookup rather than a page.
 async fn owner_records(
     queries: &Queries,
     board: &Leaderboard,

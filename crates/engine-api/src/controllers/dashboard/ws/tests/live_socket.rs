@@ -10,7 +10,7 @@ use super::overview_keys;
 use crate::{ApiState, serve};
 
 #[tokio::test]
-async fn a_live_socket_receives_hello_then_a_snapshot() {
+pub(crate) async fn a_live_socket_receives_hello_then_a_snapshot() {
     use tokio_tungstenite::connect_async;
 
     let game = GameConfig {
@@ -25,7 +25,7 @@ async fn a_live_socket_receives_hello_then_a_snapshot() {
         .await
         .expect("ephemeral bind");
     let port = listener.local_addr().expect("bound addr").port();
-    let state = ApiState::new(Path::new("."), &game, &control, Bus::new(16, 16), port);
+    let state = ApiState::new(Path::new("."), &game, &control, Bus::new(16, 16), port).await;
     let server = tokio::spawn(serve(listener, state, std::future::pending()));
 
     let url = format!("ws://127.0.0.1:{port}/ws/dashboard");
@@ -41,7 +41,7 @@ async fn a_live_socket_receives_hello_then_a_snapshot() {
     server.abort();
 }
 
-async fn next_json<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>) -> serde_json::Value
+pub(crate) async fn next_json<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>) -> serde_json::Value
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {

@@ -1,11 +1,3 @@
-//! `/v2/leaderboard*` and `/v2/tournament*` records — the record and record-list
-//! shapes.
-//!
-//! The gateway prints enums as numbers and keys in snake_case, and omits
-//! default-valued members: int64/uint64 as decimal strings, a zero scalar or empty
-//! repeated field absent rather than `null`, and a timestamp from `Unix()` seconds
-//! only, so nanos never appear.
-
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -13,7 +5,6 @@ use crate::repositories::models::LeaderboardRecord;
 use crate::services::social::{meta_str, uid};
 use crate::utils::leaderboard::wire::{int64, stamp};
 
-/// The gateway accepts a quoted or a bare int64 and rejects anything else.
 fn flex_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
 where
     D: Deserializer<'de>,
@@ -32,7 +23,6 @@ where
     text.parse::<i64>().map_err(serde::de::Error::custom)
 }
 
-/// The `record` message that `POST /v2/leaderboard/{id}` posts as its body.
 #[derive(Debug, Default, Deserialize)]
 pub struct RecordRequest {
     #[serde(default, deserialize_with = "flex_i64")]
@@ -45,7 +35,6 @@ pub struct RecordRequest {
     pub operator: i64,
 }
 
-/// A record with no scores left prints as `{}`: every zero-valued scalar is absent.
 #[derive(Debug, Serialize)]
 pub struct RecordResponse {
     pub leaderboard_id: String,
@@ -89,8 +78,6 @@ impl RecordResponse {
     }
 }
 
-/// Empty repeated fields and a zero rank count are absent, which is how
-/// BaaS answers an empty page.
 #[derive(Debug, Default, Serialize)]
 pub struct RecordListResponse {
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -105,9 +92,6 @@ pub struct RecordListResponse {
     pub rank_count: Option<String>,
 }
 
-/// `GET /v2/leaderboard/{leaderboard_id}` query. `limit` and `expiry` are nullable
-/// fields, so "absent" and "zero" differ and both are legal; a repeated `owner_ids`
-/// may be comma-separated or listed.
 #[derive(Debug, Default, Deserialize)]
 pub struct ListQuery {
     #[serde(default)]
@@ -120,7 +104,6 @@ pub struct ListQuery {
     pub expiry: Option<String>,
 }
 
-/// `GET /v2/leaderboard/{leaderboard_id}/owner/{owner_id}` query.
 #[derive(Debug, Default, Deserialize)]
 pub struct HaystackQuery {
     #[serde(default)]

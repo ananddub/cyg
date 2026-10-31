@@ -1,5 +1,3 @@
-//! Inventory & Item Management Service (`/v2/inventory/*`).
-
 use auto_di::singleton;
 use axum::Json;
 use uuid::Uuid;
@@ -8,8 +6,6 @@ use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::inventory::*;
 use crate::error::V2Error;
-
-mod queries;
 
 pub struct InventoryService;
 
@@ -26,7 +22,7 @@ impl InventoryService {
         state: &ApiState,
         auth: &Authed,
     ) -> Result<Json<ListInventoryResponse>, V2Error> {
-        let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
+        let queries = crate::services::deps::q(state).await?;
         let items = queries.list_inventory(auth.uid()).await?;
         Ok(Json(ListInventoryResponse { items }))
     }
@@ -37,7 +33,7 @@ impl InventoryService {
         auth: &Authed,
         req: EquipItemRequest,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
-        let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
+        let queries = crate::services::deps::q(state).await?;
         let item = queries
             .get_inventory_item(req.instance_id)
             .await?
@@ -71,7 +67,7 @@ impl InventoryService {
             ));
         }
 
-        let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
+        let queries = crate::services::deps::q(state).await?;
         let item = queries
             .get_inventory_item(req.instance_id)
             .await?
@@ -108,9 +104,8 @@ impl InventoryService {
         req: GrantItemRequest,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
         let target_user = req.user_id.unwrap_or_else(|| auth.uid());
-        let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
+        let queries = crate::services::deps::q(state).await?;
 
-        // Ensure item definition exists
         let def = queries
             .get_item_definition(&req.item_id)
             .await?
@@ -139,7 +134,7 @@ impl InventoryService {
         state: &ApiState,
         req: DefineItemRequest,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
-        let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
+        let queries = crate::services::deps::q(state).await?;
         let max_stack = req.max_stack.unwrap_or(1).max(1);
         let rarity = req.rarity.unwrap_or_else(|| "common".to_string());
         let properties = req.properties.unwrap_or_else(|| serde_json::json!({}));

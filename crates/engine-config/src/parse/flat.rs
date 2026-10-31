@@ -58,7 +58,24 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "agones_enabled" => {
             cfg.control.agones.enabled = value.parse().unwrap_or(cfg.control.agones.enabled)
         }
-        "database_url" => cfg.control.session.database_url = value.to_string(),
+        "database_endpoint" | "database_url" => {
+            cfg.control.session.database_endpoint = value.to_string()
+        }
+        "database_ns" => cfg.control.session.database_ns = value.to_string(),
+        "database_db" => cfg.control.session.database_db = value.to_string(),
+        "database_user" => cfg.control.session.database_user = value.to_string(),
+        "database_pass" => cfg.control.session.database_pass = value.to_string(),
+        "database_memtable_mib" => {
+            cfg.control.session.database_memtable_mib = value
+                .parse()
+                .unwrap_or(cfg.control.session.database_memtable_mib)
+        }
+        "database_cache_mib" => {
+            cfg.control.session.database_cache_mib = value
+                .parse()
+                .unwrap_or(cfg.control.session.database_cache_mib)
+        }
+        "blobs" => cfg.control.session.blobs = value.to_string(),
         "signing_key" => cfg.control.session.signing_key = value.to_string(),
         "refresh_signing_key" => cfg.control.session.refresh_signing_key = value.to_string(),
         "server_key" => cfg.control.session.server_key = value.to_string(),

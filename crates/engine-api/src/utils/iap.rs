@@ -1,5 +1,3 @@
-//! IAP helpers: receipt identity, environment naming and cursor decoding.
-
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use md5::{Digest, Md5};
@@ -15,15 +13,10 @@ pub(crate) fn hex_id(raw: &str) -> String {
 }
 
 pub(crate) fn store_of(requested: Option<i16>, default: i16) -> i16 {
-    // 0 apple, 1 google, 2 huawei, 3 facebook instant, 4 samsung: the range the
-    // vendors here can name, so a bogus request value lands inside it.
     requested.unwrap_or(default).clamp(0, 4)
 }
 
 pub(crate) fn environment_of(receipt: &str, store: i16) -> i16 {
-    // Apple receipts are PKCS#7 and Google tokens carry no environment, none of
-    // which we parse; BaaS knows from the vendor reply, so 0 (unknown) is the
-    // honest answer. The one signal we do have: `test_` product ids from our games.
     let _ = (receipt, store);
     0
 }

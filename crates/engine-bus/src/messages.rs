@@ -50,7 +50,7 @@ pub enum ReloadKind {
 /// load (engine-api `WasmService::get_module_bytes`).
 #[derive(Clone, Debug)]
 pub struct WasmReload {
-    /// `games.id` as text; the bus carries no sqlx types.
+    /// `games.id` as text; the bus carries no database-handle types.
     pub game_id: String,
     /// `games.game_key`, so a sim can match the reload against its own game
     /// without a second lookup.

@@ -32,12 +32,9 @@ pub fn spawn(
     let listener = runtime
         .block_on(tokio::net::TcpListener::bind((control.bind_addr.as_str(), control.api_port)))?;
     let port = listener.local_addr()?.port();
-    // `connect_lazy` registers pool tasks with the surrounding runtime, so the
-    // state must be built inside its context, not on the bare main thread.
-    let state = {
-        let _guard = runtime.enter();
-        ApiState::new(project_dir, game, control, bus, port)
-    };
+    // Opening the datastore uses the surrounding runtime (remote endpoints
+    // connect over the network), so the state is built inside its context.
+    let state = runtime.block_on(ApiState::new(project_dir, game, control, bus, port));
 
     runtime.spawn(serve(listener, state.clone(), shutdown_signal()));
 

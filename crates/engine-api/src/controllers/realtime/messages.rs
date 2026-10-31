@@ -1,8 +1,3 @@
-//! Inbound payloads, one struct per `#[on]` tag that carries one.
-//!
-//! `WsProtocol::decode` re-serialises the validated envelope, so defaults are
-//! materialised and extra keys are dropped; these mirror the envelope variants.
-
 use std::collections::HashMap;
 
 use serde::Deserialize;

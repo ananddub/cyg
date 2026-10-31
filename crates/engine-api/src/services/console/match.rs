@@ -1,10 +1,3 @@
-//! `/v2/console/match*` — listing running matches, inspecting one, and terminating
-//! one through the match handler's own lifecycle.
-//!
-//! The registry lives in memory, so none of these routes need the database: a match
-//! either is running in this process or it is not. `terminate` goes through
-//! `services::match_handler`, never a raw table write.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -17,10 +10,6 @@ use crate::error::V2Error;
 use crate::services::realtime::RealtimeMatchService;
 
 impl super::ConsoleService {
-    /// Page the running matches. The registry is a hash map, so the rows are sorted
-    /// by id before slicing to make the paging deterministic across calls. A
-    /// scoped request is refused unless this process hosts that game: the registry
-    /// belongs to the process, not to a table.
     pub async fn list_matches(
         &self,
         state: &ApiState,
@@ -41,8 +30,6 @@ impl super::ConsoleService {
         }))
     }
 
-    /// Best-effort live state for one match: its joined members. A relay match has
-    /// no handler state and no tick counter, so those print as their empty defaults.
     pub async fn match_state(
         &self,
         state: &ApiState,
@@ -63,8 +50,6 @@ impl super::ConsoleService {
         }))
     }
 
-    /// Terminate a running match: the handler drops it from the registry and notifies
-    /// its members. The audit trail records the operator's action.
     pub async fn terminate_match(
         &self,
         state: &ApiState,
@@ -93,8 +78,6 @@ impl super::ConsoleService {
     }
 }
 
-/// A match id arrives either bare or as the reference server's `uuid.node` form; the head before
-/// the first dot is the registry key either way.
 fn match_id(raw: &str) -> Result<Uuid, V2Error> {
     let head = raw.split('.').next().unwrap_or("");
     Uuid::parse_str(head).map_err(|_| V2Error::invalid_argument("Invalid match id."))

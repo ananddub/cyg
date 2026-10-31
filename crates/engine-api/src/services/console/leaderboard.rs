@@ -1,6 +1,3 @@
-//! `/v2/console/leaderboard` and `/v2/console/tournament` — the boards and their
-//! records. Both read the same table; a tournament is the `category = 1` rows.
-
 use axum::Json;
 
 use crate::ApiState;
@@ -14,7 +11,6 @@ use crate::utils::leaderboard::types::is_tournament;
 use crate::utils::leaderboard::window::record_window;
 use uuid::Uuid;
 
-/// A board's page of records; the player API caps a listing at 100 the same way.
 const MAX_RECORDS: i64 = 100;
 
 impl super::ConsoleService {
@@ -56,7 +52,7 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<LeaderboardRow>, V2Error> {
-        let board = super::queries(state)?.get_leaderboard(id).await?;
+        let board = super::queries(state).await?.get_leaderboard(id).await?;
         Ok(Json(LeaderboardRow::from(board)))
     }
 
@@ -65,7 +61,7 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<Vec<LeaderboardRecordRow>>, V2Error> {
-        let rows = super::queries(state)?
+        let rows = super::queries(state).await?
             .list_all_leaderboard_records(id, MAX_RECORDS)
             .await?;
         Ok(Json(
@@ -73,12 +69,6 @@ impl super::ConsoleService {
         ))
     }
 
-    /// Delete one owner's record from a plain leaderboard, the way the console's
-    /// record-delete handler does: it addresses a named owner and bypasses the
-    /// authoritative check an operator is exempt from. The window the record sits in
-    /// is the board's current one, the same the player route deletes, so an operator
-    /// removes the score a player would remove for themselves. A board with rounds is
-    /// not a leaderboard here: the tournament route owns those records.
     pub async fn delete_leaderboard_record(
         &self,
         state: &ApiState,
@@ -92,10 +82,10 @@ impl super::ConsoleService {
         }
         let owner = Uuid::parse_str(owner_id)
             .map_err(|_| V2Error::invalid_argument("Invalid owner ID."))?;
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let board = queries.get_leaderboard(id).await.map_err(|e| match e {
-            sqlx::Error::RowNotFound => V2Error::not_found("Leaderboard not found."),
-            other => V2Error::from_sqlx(other),
+            crate::db::DbError::NotFound => V2Error::not_found("Leaderboard not found."),
+            other => V2Error::from(other),
         })?;
         if is_tournament(&board) {
             return Err(V2Error::not_found("Leaderboard not found."));

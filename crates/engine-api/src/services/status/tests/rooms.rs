@@ -2,12 +2,8 @@ use super::*;
 use crate::services::status::rooms::rooms;
 use crate::utils::status::client_host;
 
-/// `/api/rooms` describes the one room this process hosts, including the two
-/// ports a client needs: the game WS and this plane.
 #[tokio::test]
 async fn rooms_lists_the_hosted_room_with_its_ports() {
-    // A real `Host` header, so the answer is an address the caller can dial
-    // rather than the wildcard the server bound.
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
         axum::http::header::HOST,
@@ -34,8 +30,6 @@ async fn rooms_lists_the_hosted_room_with_its_ports() {
     }
     assert_eq!(room["name"].as_str(), Some("tank-3d"));
     assert_eq!(room["controlPort"].as_u64(), Some(8124));
-    // The caller's own host, re-pinned to the port the plane actually holds:
-    // a `ws://<bind_addr>/ws/signal` would dial port 80 and look dead.
     assert_eq!(
         room["signalingUrl"].as_str(),
         Some("ws://arena.example:8124/ws/signal")
@@ -45,8 +39,6 @@ async fn rooms_lists_the_hosted_room_with_its_ports() {
     assert!(room["ageMs"].is_null(), "no sample means no age");
 }
 
-/// A wildcard bind address is not a connectable host, and a missing `Host`
-/// must not turn the answer into one.
 #[test]
 fn a_wildcard_bind_never_leaks_into_the_dialable_host() {
     let mut headers = axum::http::HeaderMap::new();

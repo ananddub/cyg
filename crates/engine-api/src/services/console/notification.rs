@@ -1,5 +1,3 @@
-//! `/v2/console/notification` — a player's notifications, and sending one.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -20,15 +18,12 @@ impl super::ConsoleService {
     ) -> Result<Json<Vec<NotificationRow>>, V2Error> {
         let user_id = super::account_id(&query.user_id)?;
         crate::services::games::tenant::require_account(state, query.game_id, user_id).await?;
-        let rows = super::queries(state)?
+        let rows = super::queries(state).await?
             .list_notifications_for_user(user_id, query.limit())
             .await?;
         Ok(Json(rows.into_iter().map(NotificationRow::from).collect()))
     }
 
-    /// Send a player a notification. The sender is the signed-in operator, taken
-    /// from the token rather than the body: a message must not be able to claim a
-    /// sender it did not have.
     pub async fn send_notification(
         &self,
         state: &ApiState,
@@ -44,9 +39,7 @@ impl super::ConsoleService {
             return Err(V2Error::invalid_argument("A notification needs a subject."));
         }
 
-        let queries = super::queries(state)?;
-        // Read first, so sending to an unknown account is a 404 rather than a row
-        // that is written and never readable.
+        let queries = super::queries(state).await?;
         queries.get_user_by_id(user_id).await?;
         queries
             .insert_notification(&InsertNotificationParams {
@@ -74,7 +67,6 @@ impl super::ConsoleService {
         Ok(Json(Empty {}))
     }
 
-    /// Delete a notification by id, as the console removes it outright.
     pub async fn delete_notification(
         &self,
         state: &ApiState,

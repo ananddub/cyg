@@ -1,23 +1,11 @@
-//! A cursor is the base64url of a JSON object holding the last returned row's
-//! `(key, read, user_id)`; a field the current listing does not compare on is
-//! written anyway and ignored, as it is in BaaS.
-
 use serde_json::Value;
-use uuid::Uuid;
 
 use crate::error::V2Error;
+use crate::repositories::storage::StorageCursor;
 use crate::services::social;
 use crate::utils::storage::CURSOR_MESSAGE;
 
-pub(super) struct Resumed {
-    pub(super) key: String,
-    pub(super) read: i16,
-    pub(super) user_id: Uuid,
-}
-
-/// Decode a paging cursor, rejecting an empty key but tolerating the fields the
-/// listing does not compare on.
-pub(super) fn resume(raw: Option<&String>) -> Result<Option<Resumed>, V2Error> {
+pub(super) fn resume(raw: Option<&String>) -> Result<Option<StorageCursor>, V2Error> {
     let Some(raw) = raw.filter(|c| !c.is_empty()) else {
         return Ok(None);
     };
@@ -27,7 +15,7 @@ pub(super) fn resume(raw: Option<&String>) -> Result<Option<Resumed>, V2Error> {
         .and_then(Value::as_str)
         .filter(|k| !k.is_empty())
         .ok_or_else(|| V2Error::invalid_argument(CURSOR_MESSAGE))?;
-    Ok(Some(Resumed {
+    Ok(Some(StorageCursor {
         key: key.to_owned(),
         read: value
             .get("read")

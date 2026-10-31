@@ -1,8 +1,3 @@
-//! Reset schedules. A leaderboard's `reset_schedule` is a cron expression, and a
-//! record's window is the schedule's next occurrence, so the board must answer
-//! "when does this reset next?" and "when did it last?". The standard 5-field
-//! subset, evaluated in UTC at minute granularity; anything else is refused.
-
 mod days;
 mod fields;
 
@@ -10,7 +5,6 @@ use chrono::{DateTime, Datelike, NaiveDate, Timelike, Utc};
 use days::{end_of_prev_month, next_day, on_day_at, prev_day, start_of_next_month, trim_minute};
 use fields::{MONTHS, WEEKDAYS, field};
 
-/// Four years of days is enough for any 5-field expression.
 const FOUR_YEARS: i64 = 366 * 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +40,6 @@ impl Schedule {
         })
     }
 
-    /// The first occurrence strictly after `after`.
     pub fn next_after(&self, after: DateTime<Utc>) -> Option<DateTime<Utc>> {
         let limit = after + chrono::Duration::days(FOUR_YEARS);
         let mut candidate = trim_minute(after) + chrono::Duration::minutes(1);
@@ -77,7 +70,6 @@ impl Schedule {
         None
     }
 
-    /// The last occurrence strictly before `before`, walking the same field tests backwards.
     pub fn last_before(&self, before: DateTime<Utc>) -> Option<DateTime<Utc>> {
         let limit = before - chrono::Duration::days(FOUR_YEARS);
         let mut candidate = trim_minute(before) - chrono::Duration::minutes(1);
@@ -108,7 +100,6 @@ impl Schedule {
         None
     }
 
-    /// `count` consecutive occurrences after `after`, oldest first.
     pub fn next_many(&self, after: DateTime<Utc>, count: usize) -> Option<Vec<DateTime<Utc>>> {
         let mut out = Vec::with_capacity(count);
         let mut cursor = after;
@@ -120,8 +111,6 @@ impl Schedule {
         Some(out)
     }
 
-    /// Traditional cron: a restricted day-of-week and a restricted day-of-month
-    /// each get to admit the day on their own.
     fn on_day(&self, day: NaiveDate) -> bool {
         let by_month_day = self.day[day.day() as usize];
         let by_weekday = self.weekday[day.weekday().num_days_from_sunday() as usize];

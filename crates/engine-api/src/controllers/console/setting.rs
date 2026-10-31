@@ -1,6 +1,3 @@
-//! Auto-registered bindings for `/v2/console/setting` — the server's key/value
-//! settings, read and written.
-
 use std::sync::Arc;
 
 use auto_route::controller;

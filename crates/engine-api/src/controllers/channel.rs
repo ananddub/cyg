@@ -1,8 +1,3 @@
-//! Auto-registered bindings for `/v2/channel*`.
-//!
-//! Methods return `Response` (not `Json<T>`) so `auto_route` does not require
-//! the payload type to implement `poem_openapi`'s `Type`.
-
 use std::sync::Arc;
 
 use auto_route::controller;

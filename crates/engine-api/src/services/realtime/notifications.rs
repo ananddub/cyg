@@ -1,5 +1,3 @@
-//! Realtime Notification Service singleton.
-
 use auto_di::singleton;
 use auto_ws::{Conn, Msg};
 use std::sync::Arc;
@@ -33,7 +31,6 @@ impl RealtimeNotificationService {
         .await
     }
 
-    /// Socket-side notification pull; shares the query the REST surface uses.
     async fn query(
         &self,
         state: &ApiState,
@@ -41,7 +38,7 @@ impl RealtimeNotificationService {
         limit: Option<i64>,
         cacheable_cursor: Option<String>,
     ) -> Dispatched {
-        let queries = crate::services::auth::q(state)?;
+        let queries = crate::services::deps::q(state).await?;
         let rows = queries
             .list_notifications(
                 &crate::repositories::notification::ListNotificationsParams {
@@ -51,7 +48,7 @@ impl RealtimeNotificationService {
                 },
             )
             .await
-            .map_err(V2Error::from_sqlx)?;
+            .map_err(V2Error::from)?;
         let notifications = rows
             .iter()
             .map(crate::dto::notification::NotificationResponse::from)

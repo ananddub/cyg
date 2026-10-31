@@ -1,9 +1,5 @@
-//! Console roles, and the read/write split the handlers gate on.
-
 use serde_json::Value;
 
-/// The four levels the schema comment names. Least privilege is [`ConsoleRole::Readonly`],
-/// so an unrecognised value never widens access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsoleRole {
     Admin,
@@ -31,8 +27,6 @@ impl ConsoleRole {
         }
     }
 
-    /// Derive a role from a `console_user.acl` document: an explicit `role` wins,
-    /// then the `admin` boolean the fine-grained ACL migration writes, then readonly.
     pub fn from_acl(acl: &Value) -> ConsoleRole {
         if let Some(role) = acl.get("role").and_then(Value::as_u64) {
             return ConsoleRole::from_u8(role as u8);
@@ -44,7 +38,6 @@ impl ConsoleRole {
         }
     }
 
-    /// Reading is open to every console user; writing needs more than readonly.
     pub fn can_write(self) -> bool {
         !matches!(self, ConsoleRole::Readonly)
     }
@@ -62,8 +55,6 @@ impl ConsoleRole {
         }
     }
 
-    /// A role named on the wire. `None` for anything unrecognised, so a caller can
-    /// answer 400 instead of silently widening or narrowing access.
     pub fn from_name(name: &str) -> Option<ConsoleRole> {
         match name {
             "admin" => Some(ConsoleRole::Admin),
@@ -74,9 +65,6 @@ impl ConsoleRole {
         }
     }
 
-    /// The `acl` document a role is stored as. The number is authoritative for
-    /// [`from_acl`](ConsoleRole::from_acl); the boolean is written alongside it so a
-    /// reader that only looks at `admin` agrees.
     pub fn to_acl(self) -> Value {
         serde_json::json!({ "role": self.as_u8(), "admin": self.is_admin() })
     }
@@ -111,7 +99,6 @@ mod tests {
             ConsoleRole::from_acl(&serde_json::json!({ "role": 99 })),
             ConsoleRole::Readonly
         );
-        // The boolean alone is enough, which is what the fine-grained migration writes.
         assert_eq!(
             ConsoleRole::from_acl(&serde_json::json!({ "admin": true })),
             ConsoleRole::Admin

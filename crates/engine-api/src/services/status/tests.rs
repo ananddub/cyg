@@ -16,8 +16,6 @@ mod pump;
 mod rooms;
 mod status_json;
 
-/// A whole plane, built by hand: every field of `ApiState` is public
-/// precisely so telemetry can be tested without binding a port.
 pub(super) fn state() -> ApiState {
     let game = GameConfig {
         name: "tank-3d".into(),
@@ -42,6 +40,8 @@ pub(super) fn state() -> ApiState {
         started: Instant::now(),
         db: None,
         q: None,
+        blobs: None,
+        realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(crate::infra::session_cache::SessionCache::new(60, 3600)),
     }
 }

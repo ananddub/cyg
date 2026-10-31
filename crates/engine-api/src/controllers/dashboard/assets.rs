@@ -1,5 +1,3 @@
-//! `/dashboard*` — the overview page and the files it loads.
-
 use auto_route::controller;
 use axum::Router;
 use axum::extract::OriginalUri;
@@ -68,8 +66,6 @@ pub(crate) async fn asset(OriginalUri(uri): OriginalUri) -> Response {
     )
 }
 
-// `/dashboard/` is the same page as `/dashboard`, but `auto_route` trims a
-// controller path's trailing slash, so the alias is registered directly.
 #[doc(hidden)]
 #[allow(non_snake_case)]
 fn __auto_route_factory_dashboard_index_slash<'a>(

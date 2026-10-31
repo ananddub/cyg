@@ -16,7 +16,6 @@ fn the_fallback_shape_serves_only_children_of_the_root() {
         "text/html; charset=utf-8"
     );
 
-    // A directory is not a file, and a name we never wrote is a 404.
     assert_eq!(s.read(dir.path()), None);
     assert_eq!(s.resolve("/missing.html").and_then(|p| s.read(&p)), None);
 }
@@ -24,8 +23,6 @@ fn the_fallback_shape_serves_only_children_of_the_root() {
 #[test]
 fn unity_urls_land_inside_the_build_directory() {
     assert_eq!(unity_subpath("/unity/index.html"), Some("index.html"));
-    // The two prefixes Unity writes into its own `index.html` keep the
-    // directory name, because that name is part of the exported tree.
     assert_eq!(unity_subpath("/Build/WebGL.wasm"), Some("Build/WebGL.wasm"));
     assert_eq!(
         unity_subpath("/TemplateData/style.css"),
@@ -35,7 +32,6 @@ fn unity_urls_land_inside_the_build_directory() {
     assert_eq!(unity_subpath("/Build"), None);
     assert_eq!(unity_subpath("/tank-3d.html"), None);
 
-    // And the build root is contained in its own right, not the project's.
     let dir = TempDir::new("unity");
     let s = server(dir.path());
     let build = s.unity_build_path();
@@ -49,8 +45,6 @@ fn unity_urls_land_inside_the_build_directory() {
 
 #[test]
 fn the_route_table_registers_without_conflicting() {
-    // Axum validates the path tree when a route is added and panics on an ambiguous
-    // pattern, so building the table is itself the assertion (the stub stands in for the real ones).
     use axum::Router;
     use axum::routing::get;
     let _router = Router::<()>::new()
@@ -69,8 +63,6 @@ fn the_route_table_registers_without_conflicting() {
         .route("/unity/{*rest}", get(stub_page))
         .route("/Build/{*rest}", get(stub_page))
         .route("/TemplateData/{*rest}", get(stub_page));
-    // The explicit paths moved to the auto-registered controllers in `static_routes::api`;
-    // `crate::auto_router` builds that table from the inventory, so this stays tied to the real surface.
     let _ = crate::auto_router;
 }
 

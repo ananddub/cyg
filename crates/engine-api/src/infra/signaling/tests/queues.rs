@@ -32,7 +32,6 @@ fn a_full_per_seat_queue_drops_and_counts_without_blocking_the_publisher() {
         (PER_SEAT_QUEUE as u64, 1),
         "a full queue drops and counts"
     );
-    // Freeing one slot admits exactly one more reply.
     assert_eq!(
         replies.rx.blocking_recv().unwrap(),
         SignalOut::Answer { sdp: "0".into() }
@@ -52,11 +51,11 @@ fn attach_replaces_the_route_and_detach_respects_generation() {
     let first = hub.attach("seat");
     let _second = hub.attach("seat");
     assert_eq!(hub.peers(), 1, "one route per seat");
-    drop(first); // stale generation: must not remove the live route
+    drop(first);
     assert_eq!(hub.peers(), 1);
     assert!(hub.publish("seat", SignalOut::Answer { sdp: "v=0".into() }));
     assert_eq!(hub.counts(), (1, 0));
-    drop(_second); // current generation: tears down
+    drop(_second);
     assert_eq!(hub.peers(), 0);
     assert!(!hub.publish("seat", SignalOut::Answer { sdp: "v=0".into() }));
     assert_eq!(hub.counts(), (1, 1));

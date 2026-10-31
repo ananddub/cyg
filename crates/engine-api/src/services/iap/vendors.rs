@@ -1,10 +1,3 @@
-//! Token-shaped vendor purchases for `/v2/iap/purchase/{google,huawei,
-//! facebookinstant,samsung}` — every vendor whose credential is an opaque
-//! string gets recorded identically, and only the default store code differs.
-//!
-//! The vendor set mirrors the reference server: all five validate purchases,
-//! none of Facebook Instant or Samsung has a subscription route.
-
 use axum::Json;
 use serde_json::Value;
 
@@ -55,8 +48,6 @@ impl IapService {
     }
 }
 
-/// The one write behind every token vendor: reject a missing credential, then
-/// hand the shared row writer the credential's digest as the transaction id.
 pub(super) async fn record_token_purchase(
     state: &ApiState,
     claims: &Authed,

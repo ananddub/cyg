@@ -1,5 +1,3 @@
-//! Auto-registered bindings for `/v2/iap*`.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -13,8 +11,6 @@ use crate::current_state;
 use crate::dto::iap::{ListQuery, PurchaseRequest, PurchaseTokenRequest, SubscriptionRequest};
 use crate::services::iap::IapService;
 
-/// Aliases so `auto_route` does not demand `poem_openapi::Type` from the plain
-/// `serde` receipt/query types; extraction and rejection are exactly `axum`'s.
 type JsonBody<T> = axum::extract::Json<T>;
 type QueryParams<T> = axum::extract::Query<T>;
 

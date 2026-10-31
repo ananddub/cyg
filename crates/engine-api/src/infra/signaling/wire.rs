@@ -1,12 +1,7 @@
-//! The wire protocol: one JSON object per WS text frame. Client `type`s are
-//! `offer`, `candidate`, `close`; server `type`s `ice`, `answer`, `candidate`, `error`.
-
 use serde::{Deserialize, Serialize};
 
 use super::frames::SignalOut;
 
-/// What a browser sends. `type` is the tag; an absent field is a protocol error
-/// reported by name rather than a blanket deserialize failure.
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(super) enum ClientFrame {
@@ -17,17 +12,12 @@ pub(super) enum ClientFrame {
         candidate: String,
         #[serde(rename = "sdpMid")]
         sdp_mid: Option<String>,
-        // `sdpMLineIndex` is the WebRTC-native spelling the SDK produces;
-        // `sdpIndex` stays accepted so the shape documented in earlier drafts
-        // does not break mid-rollout.
         #[serde(rename = "sdpMLineIndex", alias = "sdpIndex")]
         sdp_index: Option<u32>,
     },
     Close,
 }
 
-/// What this plane writes back. `ice.config` is emitted as JSON rather than as
-/// a quoted string, so a page can read `msg.config` directly.
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(super) enum ServerFrame {

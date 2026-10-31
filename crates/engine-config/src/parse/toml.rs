@@ -179,8 +179,36 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
                     .filter(|v| *v > 0)
                     .map(|v| v as i64)
             };
-            if let Some(v) = s.get("database_url").and_then(|v| v.as_str()) {
-                cfg.control.session.database_url = v.to_string();
+            // `database_url` is the pre-SurrealDB name; still accepted so an
+            // existing project config keeps booting.
+            if let Some(v) = s
+                .get("database_endpoint")
+                .or_else(|| s.get("database_url"))
+                .and_then(|v| v.as_str())
+            {
+                cfg.control.session.database_endpoint = v.to_string();
+            }
+            for (key, field) in [
+                ("database_ns", &mut cfg.control.session.database_ns),
+                ("database_db", &mut cfg.control.session.database_db),
+                ("database_user", &mut cfg.control.session.database_user),
+                ("database_pass", &mut cfg.control.session.database_pass),
+                ("blobs", &mut cfg.control.session.blobs),
+            ] {
+                if let Some(v) = s.get(key).and_then(|v| v.as_str()) {
+                    *field = v.to_string();
+                }
+            }
+            for (key, field) in [
+                (
+                    "database_memtable_mib",
+                    &mut cfg.control.session.database_memtable_mib,
+                ),
+                ("database_cache_mib", &mut cfg.control.session.database_cache_mib),
+            ] {
+                if let Some(v) = s.get(key).and_then(|v| v.as_integer()) {
+                    *field = v.max(0) as u64;
+                }
             }
             if let Some(v) = s.get("signing_key").and_then(|v| v.as_str()) {
                 cfg.control.session.signing_key = v.to_string();
@@ -196,13 +224,6 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
             }
             if let Some(v) = sec("refresh_token_expires_sec") {
                 cfg.control.session.refresh_expiry_secs = v;
-            }
-            if let Some(v) = s
-                .get("max_db_connections")
-                .and_then(|v| v.as_integer())
-                .filter(|v| *v > 0)
-            {
-                cfg.control.session.max_db_connections = v as u32;
             }
         }
         if let Some(cn) = c.get("console").and_then(|v| v.as_table()) {

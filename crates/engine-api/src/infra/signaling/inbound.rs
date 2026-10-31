@@ -1,5 +1,3 @@
-//! Parsing and answering one inbound text frame, plus the frame writer.
-
 use axum::extract::ws::{Message, WebSocket};
 
 use crate::ApiState;
@@ -8,7 +6,6 @@ use crate::infra::seats::Seat;
 use super::frames::SignalIn;
 use super::wire::{ClientFrame, ServerFrame};
 
-/// Handle one text frame. `false` means the client asked to close.
 pub(super) async fn handle_text(
     socket: &mut WebSocket,
     state: &ApiState,
@@ -40,13 +37,8 @@ pub(super) async fn handle_text(
             }
             true
         }
-        // The client says it is done: end the session. The single Close it
-        // owes the data plane is posted on teardown, not here — otherwise a
-        // graceful close would be a duplicate.
         Ok(ClientFrame::Close) => false,
         Err(e) => {
-            // A bad frame is the client's bug, not a reason to drop the
-            // session: name it and keep going.
             let _ = send_frame(
                 socket,
                 &ServerFrame::Error {
@@ -59,8 +51,6 @@ pub(super) async fn handle_text(
     }
 }
 
-/// A browser is never left in silence when no data plane has claimed the
-/// inbound queue: the socket answers instead of queueing for nobody.
 async fn reject(socket: &mut WebSocket) {
     let _ = send_frame(
         socket,

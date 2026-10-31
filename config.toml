@@ -16,8 +16,19 @@ tick_rate = 128
 max_clients = 16
 
 [control.session]
-database_url = "postgres://cyg:change-me@localhost:5432/cyg_db"
-max_db_connections = 10
+# Embedded SurrealKV keeps accounts in a local directory; point at
+# `ws://host:8000` instead to use a remote SurrealDB.
+database_endpoint = "surrealkv://data/cyg"
+# Memory ceilings for the embedded engine, in MiB. Without them SurrealKV sizes
+# itself from the host's total memory (gigabytes on a big machine); these keep
+# its data memory at 96 MiB so the process fits a 500 MB container. A single
+# transaction cannot exceed the memtable size. Set either to 0 for host-derived.
+database_memtable_mib = 64
+database_cache_mib = 32
+# Uploaded blobs (WASM modules, maps) live here, not in table rows. Empty uses
+# `data/uploads` next to an embedded store; a remote endpoint needs this set
+# (`memory://`, `s3:/bucket?region=…&prefix=…`, or `file:<path>`).
+blobs = "file:data/uploads"
 server_key = "change-me"
 
 [control.console]

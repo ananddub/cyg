@@ -1,6 +1,3 @@
-//! Auto-registered bindings for `/v2/console/user*` — the console operators an admin
-//! manages.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -112,7 +109,6 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    /// Force the second-factor requirement on, without touching an enrolment.
     #[post("/{id}/mfa/require")]
     async fn require_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
@@ -122,8 +118,6 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    /// Lift the second-factor requirement. The enrolled secret is kept, so the
-    /// account could still be asked for a code until its factor is reset.
     #[delete("/{id}/mfa/require")]
     async fn unrequire_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
@@ -133,8 +127,6 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    /// Reset the factor itself: the secret and recovery codes go, the requirement
-    /// stays, and the operator re-enrols at their next sign-in.
     #[delete("/{id}/mfa/reset")]
     async fn reset_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();

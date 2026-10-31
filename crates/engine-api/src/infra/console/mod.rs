@@ -1,10 +1,3 @@
-//! Console tokens: the admin console's own HS256 realm.
-//!
-//! A console token is signed with `[control.console].signing_key` and is never
-//! accepted as a player session (nor the reverse): the two realms use different
-//! keys, so holding one grants nothing on the other. Beyond `exp`, the role
-//! travels inside the token, so an authorization check needs no database round-trip.
-
 mod claims;
 mod role;
 
@@ -22,8 +15,6 @@ pub use claims::ConsoleClaims;
 pub use role::ConsoleRole;
 
 static CONFIG: OnceLock<Keys> = OnceLock::new();
-/// Revoked console tokens. Process-wide, as the console itself is: a logout in one
-/// task must fail the same token in another, and there is exactly one console.
 static SESSIONS: OnceLock<SessionCache> = OnceLock::new();
 
 struct Keys {
@@ -31,8 +22,6 @@ struct Keys {
     token_expiry_secs: i64,
 }
 
-/// Called from [`crate::ApiState::new`] with `[control.console]`. One console per
-/// process, so the first call wins and later calls are ignored.
 pub fn configure(console: &ConsoleConfig) {
     let _ = CONFIG.set(Keys {
         signing: console.signing_key.as_bytes().to_vec(),
@@ -50,14 +39,10 @@ fn keys() -> &'static Keys {
     })
 }
 
-/// The token lifetime the session cache is built around; the same window signs
-/// `exp` and decides when a logout entry may be swept.
 pub fn token_expiry_secs() -> i64 {
     keys().token_expiry_secs
 }
 
-/// Mint a console token for a verified console user. `id` is empty for the config
-/// bootstrap superadmin, which has no `console_user` row.
 pub fn mint(id: &str, username: &str, email: &str, role: ConsoleRole) -> String {
     let k = keys();
     let claims = ConsoleClaims {
@@ -76,8 +61,6 @@ pub fn mint(id: &str, username: &str, email: &str, role: ConsoleRole) -> String 
     .expect("console claims are encodable")
 }
 
-/// Verify a console token. A player session token fails here rather than needing a
-/// marker: it is signed with the session key, which is a different secret.
 pub fn verify(token: &str) -> Result<ConsoleClaims, V2Error> {
     decode::<ConsoleClaims>(
         token,
@@ -88,13 +71,10 @@ pub fn verify(token: &str) -> Result<ConsoleClaims, V2Error> {
     .map_err(|_| V2Error::unauthenticated("Console token invalid"))
 }
 
-/// Blacklist one console token by its `jti`, so two logins in the same second are
-/// revoked independently.
 pub fn revoke(id: Option<Uuid>, exp: i64, jti: &str) {
     sessions().remove(id.unwrap_or_else(Uuid::nil), exp, jti, 0, "");
 }
 
-/// Whether a verified console token is still live (not logged out).
 pub fn is_live(id: Option<Uuid>, exp: i64, jti: &str) -> bool {
     sessions().is_valid_session(id.unwrap_or_else(Uuid::nil), exp, jti)
 }

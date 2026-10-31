@@ -23,10 +23,23 @@ axum = { version = "0.8", features = ["ws", "multipart"] }
 # workspace's wasmtime already depends on.
 wasmparser = "0.217"
 futures = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "macros", "signal", "fs"] }
 crossbeam-channel = "0.5"
 rust-embed = "8.5"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "uuid", "json", "derive"] }
+# Typed SurrealDB layer: derive macros, schema generation, query builders and
+# migrations. Execution is ours (`src/db`), so the connection stays a single
+# `Surreal<Any>` — embedded engines allow only one handle per process.
+somnia = "0.8.1"
+# `#[derive(SurrealRecord)]` expands to `::somnia_core::…` paths, so the core
+# crate has to be in this crate's extern prelude as well.
+somnia-core = "0.8.1"
+surrealdb = { version = "3.3", features = ["kv-surrealkv", "kv-mem"] }
+# The SDK's embedded endpoint passes no storage configuration, so the engine
+# sizes itself from the *host's* memory. `db::exec` opens SurrealKV through
+# this builder instead, which is the only public interface that reaches
+# `SurrealKvConfig`. Both crates are released in lockstep with `surrealdb`.
+surrealdb-core = { version = "3.3", default-features = false }
+surrealdb-cnf = { version = "3.3", default-features = false }
 uuid = { version = "1", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 argon2 = "0.5"
@@ -56,5 +69,7 @@ tokio-tungstenite = "0.29"
 # Only for asserting the auto-registered controller actually dispatches.
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
-testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "multipart"] }
+# Captures the engine's own "Setting max memtable size" / "Setting block cache
+# capacity" lines, the only observable proof the budget reached SurrealKV.
+tracing-subscriber = "0.3"

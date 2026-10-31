@@ -1,9 +1,3 @@
-//! Auto-registered bindings for the ten `POST /v2/account/authenticate*` endpoints.
-//!
-//! Methods return `Response` (not `Json<Session>`) so `auto_route` does not
-//! require `Session: poem_openapi::Type`; decode and provider checks live in the
-//! service.
-
 use std::sync::Arc;
 
 use auto_route::controller;

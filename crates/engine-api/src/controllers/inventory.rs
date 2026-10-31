@@ -1,5 +1,3 @@
-//! Auto-registered bindings for `/v2/inventory`.
-
 use auto_route::controller;
 use axum::extract::Json;
 use axum::response::{IntoResponse, Response};

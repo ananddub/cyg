@@ -1,11 +1,8 @@
-//! The socket's reply queue and its generation-checked teardown.
-
 use tokio::sync::mpsc::Receiver;
 
 use super::frames::SignalOut;
 use super::hub::SignalHub;
 
-/// A socket's reply queue; teardown on drop, so a cancelled task leaves no dead queue.
 pub struct SeatReplies {
     pub(super) rx: Receiver<SignalOut>,
     pub(super) seat: String,
@@ -14,7 +11,6 @@ pub struct SeatReplies {
 }
 
 impl SeatReplies {
-    /// The next reply for this seat, or `None` once every sender is gone.
     pub async fn next(&mut self) -> Option<SignalOut> {
         self.rx.recv().await
     }

@@ -1,6 +1,3 @@
-//! The group lifecycle service: create/get/update/delete, join/leave and the
-//! `ListGroups` search.
-
 use auto_di::singleton;
 
 mod create;

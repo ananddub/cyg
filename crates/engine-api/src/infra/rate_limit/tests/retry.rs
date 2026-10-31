@@ -13,13 +13,11 @@ fn retry_after_is_zero_only_for_a_source_that_can_proceed() {
 
 #[test]
 fn retry_after_tracks_the_bucket_instead_of_a_constant() {
-    // 0.1 tokens/second: one missing token is honestly ten seconds away.
     let mut slow = IpRateLimiter::with_rates(0.1, 1.0);
     assert!(slow.allow(ip(1)));
     assert!(!slow.allow(ip(1)));
     assert_eq!(slow.retry_after(ip(1)), 10, "deficit / refill rate");
 
-    // Same deficit at 5/s is a second, and a source that still has a token is told nothing.
     let mut fast = IpRateLimiter::with_rates(5.0, 5.0);
     assert_eq!(fast.retry_after(ip(1)), 0, "never seen");
     for _ in 0..5 {
@@ -33,8 +31,6 @@ fn retry_after_tracks_the_bucket_instead_of_a_constant() {
     );
 }
 
-/// Whatever the limiter advertises, a source that waits that long must then be
-/// allowed: the value is a ceiling-rounded deficit, never a floor.
 #[test]
 fn retry_after_never_understates_the_wait() {
     for rate in [0.25, 0.5, 1.0, 4.0] {

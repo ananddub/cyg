@@ -1,8 +1,3 @@
-//! Auto-registered binding for `/v2/console/password_change` — the signed-in
-//! operator changing their own credential. Separate from `/v2/console/user` because
-//! that base path addresses *another* account by id; this one has no id: it acts on
-//! whoever holds the token, and is therefore its own controller.
-
 use std::sync::Arc;
 
 use auto_route::controller;

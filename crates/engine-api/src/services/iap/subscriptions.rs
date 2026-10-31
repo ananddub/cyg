@@ -1,5 +1,3 @@
-//! Subscription recording and listing for `/v2/iap/subscription*`.
-
 use axum::Json;
 use base64::Engine;
 use chrono::Utc;
@@ -13,8 +11,7 @@ use crate::dto::iap::{
 };
 use crate::error::V2Error;
 use crate::repositories::iap::{InsertSubscriptionParams, ListPurchasesParams};
-use crate::repositories::models::Subscription;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::utils::iap::{decode_offset, environment_of, epoch, hex_id, store_of};
 
 use super::IapService;
@@ -53,7 +50,7 @@ impl IapService {
         claims: &Authed,
         req: ListQuery,
     ) -> Result<Json<SubscriptionListResponse>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let limit = i64::from(req.limit.unwrap_or(100).clamp(1, 1000));
         let offset = decode_offset(req.cursor.as_deref());
         let rows = queries
@@ -77,10 +74,6 @@ impl IapService {
         }))
     }
 
-    /// `GET /v2/iap/subscription/{product_id}` — the caller's most recent
-    /// subscription for a product, the reference server's `GetSubscription`.
-    /// The statement is hand-written: FlashORM generates one lookup per key, and
-    /// this is the second one.
     pub async fn subscription_by_product(
         &self,
         state: &ApiState,
@@ -88,16 +81,11 @@ impl IapService {
         product_id: &str,
     ) -> Result<Json<SubscriptionResponse>, V2Error> {
         let uid = claims.0.uuid()?;
-        let pool = state.db.as_ref().ok_or_else(V2Error::no_db)?;
-        let row = sqlx::query_as::<_, Subscription>(
-            "SELECT * FROM subscription WHERE user_id = $1 AND product_id = $2 \
-             ORDER BY purchase_time DESC, original_transaction_id ASC LIMIT 1",
-        )
-        .bind(uid)
-        .bind(product_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| V2Error::not_found("Subscription not found."))?;
+        let queries = q(state).await?;
+        let row = queries
+            .subscription_by_product(uid, product_id)
+            .await?
+            .ok_or_else(|| V2Error::not_found("Subscription not found."))?;
         Ok(Json(SubscriptionResponse::from(&row)))
     }
 }
@@ -121,7 +109,7 @@ async fn record_subscription(
             "receipt or purchase token is required",
         ));
     };
-    let queries = q(state)?;
+    let queries = q(state).await?;
     let row = queries
         .insert_subscription(&InsertSubscriptionParams {
             original_transaction_id: hex_id(&token),

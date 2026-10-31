@@ -1,6 +1,3 @@
-//! The console's read-only views and its id parsing, both of which answer with no
-//! database behind the plane.
-
 use crate::infra::console::ConsoleRole;
 
 use super::helpers::{ADMIN, PASSWORD, V2Server, login, token_for, v2_state};
@@ -24,8 +21,6 @@ fn the_status_and_route_views_answer_without_a_database() {
     let reply = server.get("/v2/console/status", Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
     let body = reply.json();
-    // Zero accounts and "there is no database" are different facts, and the page
-    // says which.
     assert_eq!(body["database"], false);
     assert_eq!(body["accounts"], 0);
     assert!(body["uptime_secs"].as_i64().is_some());

@@ -30,8 +30,6 @@ pub fn usable_dist(dir: &Path) -> Option<PathBuf> {
     std::fs::canonicalize(dir).ok()
 }
 
-/// Path-traversal guard: rejects `..`, `\`, NUL and `%` segments outright,
-/// then canonicalises so a symlinked file cannot escape `dist`.
 pub fn child_under(dist: &Path, rest: &str) -> Option<PathBuf> {
     if rest.is_empty() || rest.starts_with('/') {
         return None;

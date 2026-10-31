@@ -1,4 +1,3 @@
-/// RFC 4648 URL-safe base64, no padding: `+`→`-`, `/`→`_`, `=` dropped.
 pub fn b64url(input: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
@@ -21,8 +20,6 @@ pub fn b64url(input: &[u8]) -> String {
     out
 }
 
-/// Strict unpadded b64url, matching the UDP plane's decoder byte for byte: any
-/// other character, any `=`, or a `len % 4 == 1` remainder is a probe, not a token.
 pub fn b64url_decode(input: &str) -> Option<Vec<u8>> {
     fn val(c: u8) -> Option<u8> {
         match c {

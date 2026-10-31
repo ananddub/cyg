@@ -1,46 +1,17 @@
-//! The write shape of a board row: the hand-run statements, the request merged
-//! over a fallback, and the checks a database constraint would otherwise answer.
-
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 use crate::dto::console::leaderboard::TournamentWriteRequest;
 use crate::error::V2Error;
 use crate::repositories::models::Leaderboard;
 use crate::utils::leaderboard::cron::Schedule;
 
-/// A tournament runs in rounds, and a round needs a length.
 pub const BAD_DURATION: &str = "A tournament needs a duration of at least one second.";
 pub const ID_MISSING: &str = "Tournament ID must be provided.";
 pub const ID_TAKEN: &str = "Tournament id is already taken.";
 pub const BAD_LIMITS: &str = "Both max_size and max_num_score must be positive.";
 pub const BAD_SCHEDULE: &str = "leaderboard reset schedule is not a cron expression";
 
-/// A board row created through the console is a tournament: `category = 1` is
-/// written, never taken from the body.
-pub const INSERT_SQL: &str = "
-INSERT INTO leaderboard
-    (id, title, description, operator, sort_order, reset_schedule, metadata,
-     authoritative, category, duration, start_time, end_time, join_required,
-     max_size, max_num_score, game_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, $11, $12, $13, $14, $15)
-RETURNING *;";
-
-/// The tournament's own fields; `id` and `category` stay where they are, so an
-/// update cannot rename a board or turn a leaderboard into a tournament.
-pub const UPDATE_SQL: &str = "
-UPDATE leaderboard
-SET title = $2, description = $3, operator = $4, sort_order = $5,
-    reset_schedule = $6, metadata = $7, authoritative = $8, duration = $9,
-    start_time = $10, end_time = $11, join_required = $12, max_size = $13,
-    max_num_score = $14
-WHERE id = $1 AND category = 1
-RETURNING *;";
-
-/// The one statement that ends a board and, by the schema's cascade, every
-/// record on it.
-pub const DELETE_SQL: &str = "DELETE FROM leaderboard WHERE id = $1;";
-
-/// Everything one of the write statements binds, defaults resolved.
 pub struct BoardWrite {
     pub id: String,
     pub title: String,
@@ -58,10 +29,31 @@ pub struct BoardWrite {
     pub max_num_score: i32,
 }
 
+pub fn tournament_row(write: &BoardWrite, game: Option<Uuid>, now: DateTime<Utc>) -> Leaderboard {
+    Leaderboard {
+        id: write.id.clone(),
+        authoritative: write.authoritative,
+        sort_order: write.sort_order,
+        operator: write.operator,
+        reset_schedule: write.reset_schedule.clone(),
+        metadata: write.metadata.clone(),
+        create_time: now,
+        category: 1,
+        description: write.description.clone(),
+        duration: write.duration,
+        end_time: write.end_time,
+        join_required: write.join_required,
+        max_size: write.max_size,
+        max_num_score: write.max_num_score,
+        title: write.title.clone(),
+        size: 0,
+        start_time: write.start_time,
+        enable_ranks: Some(true),
+        game_id: game,
+    }
+}
+
 impl BoardWrite {
-    /// The request over the fallback — a board row on an update, the column
-    /// defaults on a create. The id is decided by the caller: the body's on a
-    /// create, the path's on an update.
     pub fn resolve(
         body: &TournamentWriteRequest,
         mut base: BoardWrite,
@@ -96,14 +88,11 @@ impl BoardWrite {
             }
             base.reset_schedule = Some(expression.to_owned());
         } else if body.reset_schedule.is_some() {
-            // An explicit empty schedule clears the board's round clock.
             base.reset_schedule = None;
         }
         Ok(base)
     }
 
-    /// The board row's own values as a write: an update that leaves a field out
-    /// keeps what is stored rather than resetting it.
     pub fn stored(board: &Leaderboard) -> BoardWrite {
         BoardWrite {
             id: board.id.clone(),
@@ -123,7 +112,6 @@ impl BoardWrite {
         }
     }
 
-    /// The schema's column defaults, which is what a create without a field means.
     pub fn defaults() -> BoardWrite {
         BoardWrite {
             id: String::new(),

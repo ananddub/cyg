@@ -5,10 +5,13 @@
 //                          players, game data and monetization
 //
 // Only the game workspace opens the metrics feed, because only it shows live
-// telemetry. Picking a game mounts that workspace fresh, so switching projects
-// never carries a worker drawer or a socket frame across the boundary.
+// telemetry. The same socket carries the change feed, so every console view
+// refreshes on a `live` frame instead of polling; picking a game mounts that
+// workspace fresh, so switching projects never carries a worker drawer or a
+// socket frame across the boundary.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft } from "lucide-react"
 
 import { ConsoleSidebar } from "@/components/console/shell"
@@ -60,6 +63,10 @@ import { GameScopeProvider } from "@/lib/console/scope"
 import type { ConsoleRoute } from "@/lib/routes"
 import { GAMES_ROUTE, gameRoute } from "@/lib/routes"
 import type { WorkerRow } from "@/lib/types"
+
+// One change refreshes every console read; a burst (bulk import, wallet sync)
+// collapses into a single refetch, because the timer restarts on each frame.
+const LIVE_REFRESH_MS = 300
 
 export function ConsolePage({
   session,
@@ -196,6 +203,21 @@ function GameConsole({
   const hosted = true
   const data = useDashboardData(gameId, hosted)
   useDashboardToasts(data.ws, data.overview, data.rooms)
+
+  // A frame is an invalidation, not a row: the open view refetches its own
+  // endpoint, so a view that is not open costs nothing. The mark is the whole
+  // frame identity (topic + running seq), so two frames of one topic are two
+  // refreshes, and a refresh is idempotent.
+  const queryClient = useQueryClient()
+  const liveMark =
+    data.ws.live === null ? "" : `${data.ws.live.topic}:${data.ws.live.seq}`
+  useEffect(() => {
+    if (liveMark === "") return
+    const timer = window.setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: ["console"] })
+    }, LIVE_REFRESH_MS)
+    return () => window.clearTimeout(timer)
+  }, [liveMark, queryClient])
 
   const [worker, setWorker] = useState<WorkerRow | null>(null)
   const offline = hosted && data.ws.status !== "open" && data.overview === null

@@ -1,6 +1,3 @@
-//! the page cursor: a record's position and the ranks either side of it; a
-//! cursor from another board or a rolled-over window is refused.
-
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -21,8 +18,6 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    /// A cursor pointing at a record the caller has just seen, carrying the rank
-    /// the page assigned so the next page continues counting from there.
     pub fn at_record(
         board_id: &str,
         window: i64,
@@ -47,8 +42,6 @@ impl Cursor {
         Ok(cursor_encode(&value))
     }
 
-    /// BaaS `unmarshalLeaderboardRecordsListCursor`: absent reads as the start
-    /// of the list, anything unreadable or stale is the caller's bad cursor.
     pub fn decode(raw: &str, board_id: &str, window: i64) -> Result<Option<Cursor>, V2Error> {
         if raw.is_empty() {
             return Ok(None);

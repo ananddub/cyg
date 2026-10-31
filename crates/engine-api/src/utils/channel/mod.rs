@@ -1,5 +1,3 @@
-//! The dotted channel-id converters, the streams they name and the keyset cursor codec.
-
 pub(crate) mod cursor;
 pub(crate) mod parse;
 pub(crate) mod stream;

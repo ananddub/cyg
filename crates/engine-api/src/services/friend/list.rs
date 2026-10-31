@@ -1,6 +1,3 @@
-//! The read verbs: `ListFriends` and `ListFriendsOfFriends`, both paged via the
-//! social cursor codec.
-
 use axum::Json;
 use serde_json::{Value, json};
 
@@ -14,22 +11,20 @@ use crate::error::V2Error;
 use crate::repositories::friend::{
     ListFriendsOfFriendsParams, ListUserEdgesByStatePagedParams, ListUserEdgesPagedParams,
 };
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social::{self, limit};
 
 use super::FriendService;
 use crate::utils::friend::{STATE_BLOCKED, STATE_FRIENDS};
 
 impl FriendService {
-    /// `GET /v2/friend?state=&limit=&cursor=` — the `ListFriends`, paged over
-    /// the `(state, position)` key the edges are ordered by.
     pub async fn list_friends(
         &self,
         state: &ApiState,
         auth: &Authed,
         req: ListQuery,
     ) -> Result<Json<FriendListResponse>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let me = auth.0.uuid()?;
         let page = limit(
             req.limit,
@@ -51,8 +46,6 @@ impl FriendService {
             Some(raw) => social::cursor_decode(raw, CURSOR_ERROR)?,
         };
         if req.state.is_some() && !cursor.is_null() {
-            // A cursor carried in with a different filter is the one case of a
-            // stale page token; it cannot be resolved, so it is refused.
             let cursor_state = social::cursor_i64(&cursor, "state", -1);
             if cursor_state != i64::from(req.state.unwrap_or(-1)) {
                 return Err(V2Error::invalid_argument(CURSOR_ERROR));
@@ -81,8 +74,6 @@ impl FriendService {
                 .await?
         };
 
-        // The extra row is the page marker, not content: it is dropped and its
-        // `(state, position)` becomes the token for the next page.
         let has_more = rows.len() as i64 > page;
         if has_more {
             rows.truncate(page as usize);
@@ -104,15 +95,13 @@ impl FriendService {
         }))
     }
 
-    /// `GET /v2/friend/friends?limit=` — the `ListFriendsOfFriends`: candidates from
-    /// the friends-of-friends set, sampled randomly so an unfiltered page has no continuation.
     pub async fn list_friends_of_friends(
         &self,
         state: &ApiState,
         auth: &Authed,
         req: FoFQuery,
     ) -> Result<Json<FriendsOfFriendsResponse>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let page = limit(
             req.limit,
             10,

@@ -1,5 +1,3 @@
-//! Cron field parsing: comma-separated ranges, optional steps, abbreviated month/weekday names.
-
 pub const MONTHS: [(&str, u32); 12] = [
     ("jan", 1),
     ("feb", 2),
@@ -25,8 +23,6 @@ pub const WEEKDAYS: [(&str, u32); 7] = [
     ("sat", 6),
 ];
 
-/// Which values a field admits, and whether it was written as `*` — the star changes how
-/// a restricted day-of-month and day-of-week combine.
 pub fn field(spec: &str, min: u32, max: u32, names: &[(&str, u32)]) -> Option<(Vec<bool>, bool)> {
     let mut bits = vec![false; (max - min + 1) as usize];
     let mut star = false;
@@ -67,7 +63,6 @@ fn value(raw: &str, min: u32, max: u32, names: &[(&str, u32)]) -> Option<u32> {
         Some((_, value)) => *value,
         None => raw.parse::<u32>().ok()?,
     };
-    // Cron accepts 7 as Sunday, and the weekday field alone may be 1-7.
     let folded = if !names.is_empty() && parsed == 7 {
         0
     } else {

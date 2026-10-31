@@ -1,8 +1,6 @@
 use super::raw_ws::{connect_io, read_chunk, read_head};
 use super::*;
 
-/// A complete HTTP GET carrying upgrade headers, read as a plain response:
-/// status line and `Content-Length`-sized body.
 async fn upgrade_get(addr: SocketAddr, path: &str) -> (u16, serde_json::Value) {
     let mut io = connect_io(addr, path).await;
     let head = read_head(&mut io).await.expect("no response head");

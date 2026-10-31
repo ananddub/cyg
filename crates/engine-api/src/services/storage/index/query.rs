@@ -1,22 +1,18 @@
-//! The indexed read: a JSONB query over `storage`, narrowed to the object keys the
-//! index declares, permission-filtered the way the index listing is, and paged by
-//! an offset cursor that only replays for the same query, limit and order.
-
 use axum::Json;
-use sqlx::postgres::PgArguments;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::storage::StorageObject;
 use crate::dto::storage_index::{IndexPageCursor, IndexQueryRequest, StorageIndexList};
 use crate::error::V2Error;
+use crate::repositories::storage::{StorageIndexRow, StorageIndexTerm, StorageRow};
 use crate::services::social;
 use crate::services::storage::StorageService;
-use crate::utils::storage::{CURSOR_MESSAGE, StorageRow};
+use crate::utils::storage::CURSOR_MESSAGE;
 
-use super::IndexRow;
-use super::parse::{self, Term};
-use super::sql::{Sort, build_query, resolve_order};
+use super::order::resolve_order;
+use super::parse;
+use super::queries;
 
 const DEFAULT_LIMIT: i32 = 100;
 const MAX_LIMIT: i32 = 100;
@@ -24,8 +20,6 @@ const LIMIT_MESSAGE: &str = "Invalid limit - limit must be between 1 and 100.";
 const FIELD_MESSAGE: &str = "This index does not cover the field named in the query.";
 
 impl StorageService {
-    /// Answer `POST /v2/storage/index/{name}/query`: the objects the index matched,
-    /// exactly as the storage row holds them.
     pub async fn query_index(
         &self,
         state: &ApiState,
@@ -41,11 +35,11 @@ impl StorageService {
         let offset = resume_cursor(&request)?;
 
         let def = self.index_by_name(state, name).await?;
-        let fields = IndexRow::strings(&def.fields);
+        let fields = StorageIndexRow::strings(&def.fields);
         if terms.iter().any(|term| !fields.contains(term_field(term))) {
             return Err(V2Error::invalid_argument(FIELD_MESSAGE));
         }
-        let sorts: Vec<(Sort, bool)> = resolve_order(&def, &request.order)?;
+        let sorts = resolve_order(&def, &request.order)?;
 
         let window = i64::from(def.max_entries).saturating_sub(offset);
         if window <= 0 {
@@ -56,33 +50,21 @@ impl StorageService {
         }
         let page = i64::from(limit).min(window);
 
-        let mut args = PgArguments::default();
-        let sql = build_query(
-            &def,
-            &terms,
-            &sorts,
-            auth.uid(),
-            page + 1,
-            offset,
-            &mut args,
-        );
-        let rows = sqlx::query_as_with::<_, StorageRow, _>(&sql, args)
-            .fetch_all(super::super::pool(state)?)
+        let rows = queries(state).await?
+            .storage_index_page(&def, &terms, &sorts, auth.uid(), page + 1, offset)
             .await
-            .map_err(V2Error::from_sqlx)?;
+            .map_err(V2Error::from)?;
 
         Ok(reply(rows, page, offset, &request, limit))
     }
 }
 
-fn term_field(term: &Term) -> &String {
+fn term_field(term: &StorageIndexTerm) -> &String {
     match term {
-        Term::Eq { field, .. } | Term::Range { field, .. } => field,
+        StorageIndexTerm::Eq { field, .. } | StorageIndexTerm::Range { field, .. } => field,
     }
 }
 
-/// The cursor replays the search that made it: any drift in query, limit or order
-/// means it belongs to a different page and is refused like a malformed one.
 fn resume_cursor(request: &IndexQueryRequest) -> Result<i64, V2Error> {
     if request.cursor.is_empty() {
         return Ok(0);
@@ -100,8 +82,6 @@ fn resume_cursor(request: &IndexQueryRequest) -> Result<i64, V2Error> {
     Ok(cursor.offset)
 }
 
-/// The page was over-fetched by one row: that row proves there is more, and the
-/// window it lands in becomes the next cursor.
 fn reply(
     rows: Vec<StorageRow>,
     page: i64,

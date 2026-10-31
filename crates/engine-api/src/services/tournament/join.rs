@@ -1,23 +1,18 @@
-//! `POST /v2/tournament/{tournament_id}/join` — take a place in the round.
-//!
-//! A join is a zero-score row in the current window, and only boards that ask for one get it:
-//! BaaS answers a join to a board without `join_required` as a success that wrote nothing.
-
 use axum::Json;
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::load_tournament;
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
-use crate::repositories::models::Leaderboard;
-use crate::services::auth::q;
-use crate::services::leaderboard::pool;
+use crate::repositories::db::{Queries, params, ts};
+use crate::repositories::models::{Leaderboard, LeaderboardRecord};
+use crate::services::deps::q;
 use crate::utils::leaderboard::{at, calculate};
-use crate::utils::tournament::statement::{JOIN_SIZE_SQL, JOIN_SQL};
+use crate::utils::tournament::statement::{EXISTS_SQL, JOIN_SIZE_SQL, RELEASE_SIZE_SQL, joined_row};
 use crate::utils::tournament::types::{INACTIVE_JOIN, JOIN_FAILED, MAX_SIZE_JOIN};
 
 impl super::TournamentService {
@@ -27,7 +22,7 @@ impl super::TournamentService {
         auth: &Authed,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let board = load_tournament(&queries, id).await?;
         if !board.join_required {
             return Ok(Json(Empty {}));
@@ -40,7 +35,7 @@ impl super::TournamentService {
         }
 
         enter(
-            pool(state)?,
+            &queries,
             &board,
             auth.uid(),
             auth.0.un.as_str(),
@@ -51,48 +46,67 @@ impl super::TournamentService {
     }
 }
 
-/// The join, and the counter it moves. A row that was already there is a no-op
-/// the caller is not told about, and a board that filled up rolls back.
 async fn enter(
-    db: &PgPool,
+    queries: &Queries,
     board: &Leaderboard,
     owner: Uuid,
     username: &str,
     expiry: DateTime<Utc>,
 ) -> Result<(), V2Error> {
-    let mut tx = db.begin().await.map_err(failure)?;
-
-    let inserted = sqlx::query(JOIN_SQL)
-        .bind(&board.id)
-        .bind(owner)
-        .bind(expiry)
-        .bind(username)
-        .bind(board.max_num_score)
-        .execute(&mut *tx)
+    let existing: Option<LeaderboardRecord> = queries
+        .opt(
+            EXISTS_SQL,
+            params!(
+                leaderboard_id = &board.id,
+                owner_id = owner.to_string(),
+                expiry_time = ts(expiry),
+            ),
+        )
         .await
-        .map_err(failure)?
-        .rows_affected();
-    if inserted == 0 {
-        return commit(tx).await;
+        .map_err(failure)?;
+    if existing.is_some() {
+        return Ok(());
     }
 
-    let room = sqlx::query(JOIN_SIZE_SQL)
-        .bind(&board.id)
-        .execute(&mut *tx)
+    let room: Option<Leaderboard> = queries
+        .opt(JOIN_SIZE_SQL, params!(leaderboard_id = &board.id))
         .await
-        .map_err(failure)?
-        .rows_affected();
-    if room == 0 {
+        .map_err(failure)?;
+    if room.is_none() {
         return Err(V2Error::invalid_argument(MAX_SIZE_JOIN));
     }
-    commit(tx).await
+
+    let row = joined_row(
+        &board.id,
+        owner,
+        username,
+        expiry,
+        board.max_num_score,
+        Utc::now(),
+    );
+    match queries.create_leaderboard_record(&row).await {
+        Ok(_) => Ok(()),
+        Err(DbError::Unique(_)) => {
+            release(queries, board).await;
+            Ok(())
+        }
+        Err(error) => {
+            release(queries, board).await;
+            Err(failure(error))
+        }
+    }
 }
 
-fn failure(error: sqlx::Error) -> V2Error {
+async fn release(queries: &Queries, board: &Leaderboard) {
+    if let Err(error) = queries
+        .exec(RELEASE_SIZE_SQL, params!(leaderboard_id = &board.id))
+        .await
+    {
+        tracing::error!("[v2] tournament join: releasing a place: {error}");
+    }
+}
+
+fn failure(error: DbError) -> V2Error {
     tracing::error!("[v2] tournament join: {error}");
     V2Error::internal(JOIN_FAILED)
-}
-
-async fn commit(tx: sqlx::Transaction<'_, sqlx::Postgres>) -> Result<(), V2Error> {
-    tx.commit().await.map_err(failure)
 }

@@ -1,5 +1,3 @@
-//! The REST-side message write.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -8,7 +6,7 @@ use crate::app::middleware::Authed;
 use crate::dto::channel::{MessageResponse, SendRequest};
 use crate::error::V2Error;
 use crate::repositories::channel::InsertChannelMessageParams;
-use crate::services::auth::q;
+use crate::services::deps::q;
 
 use crate::utils::channel::stream_of_channel;
 
@@ -16,8 +14,6 @@ use super::super::ChannelService;
 use super::super::membership::assert_member;
 
 impl ChannelService {
-    /// REST-side message write: BaaS only speaks this on the socket, but the embedded
-    /// room engines need a persistent write in the socket's stream form.
     pub async fn send_message(
         &self,
         state: &ApiState,
@@ -33,10 +29,8 @@ impl ChannelService {
                 "Message content must be a JSON object.",
             ));
         }
-        // Offline, sub-microsecond profanity filtering on every authored
-        // string before the message is stored or fanned out to members.
         let content = crate::moderation::sanitize_json(body.content);
-        let msg = q(state)?
+        let msg = q(state).await?
             .insert_channel_message(&InsertChannelMessageParams {
                 id: Uuid::new_v4(),
                 sender_id: uid,

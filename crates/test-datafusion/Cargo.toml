@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.38", features = ["full"] }
-datafusion = "44.0"
+datafusion = "45.0"
 arrow = "54.0"
 parquet = "54.0"
 rand = "0.8"

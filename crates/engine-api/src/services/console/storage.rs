@@ -1,7 +1,3 @@
-//! `/v2/console/storage` — the object browser. Unlike the player storage API,
-//! which hides other players' private objects, the console sees every row, and an
-//! operator can delete one or clear a whole collection.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -12,7 +8,6 @@ use crate::dto::console::Page;
 use crate::dto::console::storage::{DeletedCount, StorageObjectRow};
 use crate::error::V2Error;
 
-/// One collection's page; a browser cannot usefully render more.
 const MAX_IN_COLLECTION: i64 = 500;
 
 impl super::ConsoleService {
@@ -57,8 +52,6 @@ impl super::ConsoleService {
         Ok(Json(rows.into_iter().map(StorageObjectRow::from).collect()))
     }
 
-    /// Delete one object. A console delete is unconditional — the operator has seen
-    /// the row — but it still names the owner, which is part of the object's key.
     pub async fn delete_storage_object(
         &self,
         state: &ApiState,
@@ -69,7 +62,8 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let user_id = super::account_id(user_id)?;
-        if !super::statements::delete_storage_object(super::pool(state)?, collection, key, user_id)
+        if !super::queries(state).await?
+            .storage_delete_object(collection, key, user_id)
             .await?
         {
             return Err(V2Error::not_found("Object not found."));
@@ -86,8 +80,6 @@ impl super::ConsoleService {
         Ok(Json(Empty {}))
     }
 
-    /// Delete every object in a collection. The count is in the reply because
-    /// "deleted 0" and "deleted 900" mean very different things to an operator.
     pub async fn delete_storage_collection(
         &self,
         state: &ApiState,
@@ -95,8 +87,6 @@ impl super::ConsoleService {
         game: Option<Uuid>,
         collection: &str,
     ) -> Result<Json<DeletedCount>, V2Error> {
-        // Clearing a collection can take every object any player has stored in it,
-        // so it is not shared with the write roles.
         claims.require_admin()?;
         let removed = crate::services::games::tenant::delete_storage_collection(
             state, game, collection,

@@ -1,14 +1,11 @@
-//! Member-id resolution shared by the mutating membership verbs.
-
 use uuid::Uuid;
 
+use crate::db::DbError;
 use crate::dto::group::UsersQuery;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::services::social::tokens;
 
-/// BaaS resolves member ids only — an unknown id fails the whole call with
-/// `"One or more users not found."` rather than being dropped.
 pub(super) async fn resolve_users(
     queries: &Queries,
     raw: &UsersQuery,
@@ -20,8 +17,8 @@ pub(super) async fn resolve_users(
             .filter(|id| !id.is_nil())
             .ok_or_else(|| V2Error::invalid_argument("User ID must be a valid ID."))?;
         queries.get_user_by_id(parsed).await.map_err(|e| match e {
-            sqlx::Error::RowNotFound => V2Error::invalid_argument("One or more users not found."),
-            other => V2Error::from_sqlx(other),
+            DbError::NotFound => V2Error::invalid_argument("One or more users not found."),
+            other => V2Error::from(other),
         })?;
         if !ids.contains(&parsed) {
             ids.push(parsed);

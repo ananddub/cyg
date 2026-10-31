@@ -1,11 +1,3 @@
-//! The `/ws` wire codec and upgrade authentication.
-//!
-//! `auto_ws` knows nothing about the envelope, so [`WsProtocol`] supplies how a
-//! request authenticates, how one frame decodes to an event tag plus payload, and how a
-//! failure is written back. Decoding validates the frame against the typed [`Envelope`]
-//! first — keeping a malformed payload the same `cannot parse envelope: …` error it
-//! always was — then re-serialises the message so the runtime can route it by `type`.
-
 use auto_ws::{Identity, Msg, WsError};
 use axum::extract::Query;
 use axum::http::request::Parts;
@@ -16,21 +8,16 @@ use crate::infra::jwt;
 
 use super::envelope::{Envelope, EnvelopeMessage, ErrorMsg};
 
-/// The upgrade query: BaaS clients pass the session token as `?token=…`.
 #[derive(Debug, serde::Deserialize)]
 struct WsQuery {
     #[serde(default)]
     token: Option<String>,
 }
 
-/// `/ws`'s protocol: BaaS JSON envelopes, session-token auth.
 pub struct WsProtocol;
 
 impl auto_ws::Protocol for WsProtocol {
     fn authenticate(parts: &Parts) -> Result<Identity, Response> {
-        // The upgrade runs under the plane-state middleware, so this is the
-        // serving plane. It is stashed on the identity because the connection
-        // task outlives the request that opened it.
         let state = crate::current_state();
         let Query(WsQuery { token }) =
             Query::<WsQuery>::try_from_uri(&parts.uri).map_err(IntoResponse::into_response)?;
@@ -69,7 +56,6 @@ impl auto_ws::Protocol for WsProtocol {
     }
 }
 
-/// `Authorization: Bearer <jwt>`, accepted beside the query token.
 fn bearer(parts: &Parts) -> Option<String> {
     parts
         .headers

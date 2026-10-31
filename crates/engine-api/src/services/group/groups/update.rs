@@ -1,5 +1,3 @@
-//! `UpdateGroup` and `DeleteGroup`.
-
 use axum::Json;
 
 use crate::ApiState;
@@ -8,14 +6,13 @@ use crate::dto::Empty;
 use crate::dto::group::UpdateGroupRequest;
 use crate::error::V2Error;
 use crate::repositories::group::UpdateGroupParams;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::utils::group::{ROLE_SUPERADMIN, group_id, metadata_of};
 
 use super::super::{fetch_group, require_role};
 use super::{GROUP_CLOSED, GROUP_OPEN, GroupService};
 
 impl GroupService {
-    /// `PUT /v2/group/{group_id}` — `apiUpdateGroup`.
     pub async fn update_group(
         &self,
         state: &ApiState,
@@ -24,7 +21,7 @@ impl GroupService {
         body: UpdateGroupRequest,
     ) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let group = fetch_group(&queries, gid).await?;
         require_role(&queries, auth.0.uuid()?, gid, ROLE_SUPERADMIN).await?;
         if body.name.is_none()
@@ -79,19 +76,14 @@ impl GroupService {
             })
             .await?;
 
-        // `open` is the one group setting that is not part of the generated update.
         if let Some(open) = body.open {
-            let db = state.db.as_ref().ok_or_else(V2Error::no_db)?;
-            sqlx::query("UPDATE groups SET state = $1, update_time = now() WHERE id = $2")
-                .bind(if open { GROUP_OPEN } else { GROUP_CLOSED })
-                .bind(gid)
-                .execute(db)
+            queries
+                .set_group_state(gid, if open { GROUP_OPEN } else { GROUP_CLOSED })
                 .await?;
         }
         Ok(Json(Empty {}))
     }
 
-    /// `DELETE /v2/group/{group_id}` — `apiDeleteGroup`.
     pub async fn delete_group(
         &self,
         state: &ApiState,
@@ -99,7 +91,7 @@ impl GroupService {
         raw_id: String,
     ) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state)?;
+        let queries = q(state).await?;
         fetch_group(&queries, gid).await?;
         require_role(&queries, auth.0.uuid()?, gid, ROLE_SUPERADMIN).await?;
         queries.delete_group(gid).await?;

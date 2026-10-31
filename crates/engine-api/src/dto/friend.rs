@@ -1,5 +1,3 @@
-//! `apiFriend` and the friends-of-friends entry — the shapes the friend reads emit.
-
 use std::borrow::Cow;
 
 use chrono::{DateTime, Utc};
@@ -12,8 +10,6 @@ use crate::utils::friend::STATE_FRIENDS;
 
 use super::user::{UserCols, UserResponse};
 
-/// the `apiFriend`: the user, the relationship state, when it changed and the
-/// edge's own metadata.
 #[derive(Debug, Serialize)]
 pub struct FriendResponse {
     pub user: UserResponse,
@@ -47,7 +43,6 @@ impl FriendResponse {
             location: row.location.as_deref(),
             timezone: row.timezone.as_deref(),
             metadata: &row.metadata,
-            // ListFriends never fills the count, so it stays absent on the wire.
             edge_count: None,
             create_time: row.create_time,
             update_time: row.update_time,
@@ -63,15 +58,12 @@ impl FriendResponse {
     }
 }
 
-/// `ListFriends`: the page plus the cursor to resume at.
 #[derive(Debug, Serialize)]
 pub struct FriendListResponse {
     pub friends: Vec<FriendResponse>,
     pub cursor: String,
 }
 
-/// One `ListFriendsOfFriends` row: the candidate and, when known, who referred them.
-/// `referrer` leads because that is the order the map marshals.
 #[derive(Debug, Serialize)]
 pub struct FriendsOfFriendsEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,14 +93,12 @@ impl FriendsOfFriendsEntry {
     }
 }
 
-/// `ListFriendsOfFriends`: the page plus the cursor to resume at.
 #[derive(Debug, Serialize)]
 pub struct FriendsOfFriendsResponse {
     pub friends_of_friends: Vec<FriendsOfFriendsEntry>,
     pub cursor: String,
 }
 
-/// `GET /v2/friend?state=&limit=&cursor=`.
 #[derive(Debug, Default, Deserialize)]
 pub struct ListQuery {
     #[serde(default)]
@@ -119,7 +109,6 @@ pub struct ListQuery {
     pub cursor: Option<String>,
 }
 
-/// `GET /v2/friend/friends?limit=&cursor=`.
 #[derive(Debug, Default, Deserialize)]
 pub struct FoFQuery {
     #[serde(default)]
@@ -128,15 +117,12 @@ pub struct FoFQuery {
     pub cursor: Option<String>,
 }
 
-/// The mutating friend verbs share one request shape: the gateway passes a repeated
-/// field as `?ids=a&ids=b`, so `ids` and `usernames` read the same here.
 #[derive(Debug, Default, Deserialize)]
 pub struct TargetsQuery {
     #[serde(default)]
     pub ids: Option<Value>,
     #[serde(default)]
     pub usernames: Option<Value>,
-    /// JSON object stored on the sender's edge.
     #[serde(default)]
     pub metadata: Option<String>,
 }

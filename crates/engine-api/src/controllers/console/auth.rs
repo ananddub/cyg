@@ -1,6 +1,3 @@
-//! Auto-registered bindings for `/v2/console/authenticate*` — the one console
-//! surface a caller reaches without a token.
-
 use std::sync::Arc;
 
 use auto_route::controller;

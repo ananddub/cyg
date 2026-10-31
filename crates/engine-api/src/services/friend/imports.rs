@@ -1,6 +1,3 @@
-//! BaaS answers these two with `FailedPrecondition` as soon as the matching
-//! social provider is missing from its config, and this server has none.
-
 use axum::Json;
 
 use crate::dto::Empty;

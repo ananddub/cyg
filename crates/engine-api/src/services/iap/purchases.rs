@@ -1,7 +1,3 @@
-//! Purchase recording and listing for the Apple-shaped `POST /v2/iap*purchase`
-//! routes, the legacy `POST /v2/iap`, and the shared row write the token
-//! vendors in [`super::vendors`] reuse.
-
 use axum::Json;
 use base64::Engine;
 use chrono::Utc;
@@ -13,14 +9,12 @@ use crate::app::middleware::Authed;
 use crate::dto::iap::{ListQuery, PurchaseListResponse, PurchaseRequest, PurchaseResponse};
 use crate::error::V2Error;
 use crate::repositories::iap::{InsertPurchaseParams, ListPurchasesParams};
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::utils::iap::{decode_offset, environment_of, epoch, hex_id, store_of};
 
 use super::IapService;
 
 impl IapService {
-    /// `POST /v2/iap` — the legacy Apple billing purchase call; same row, same
-    /// rules as the explicit purchase route.
     pub async fn validate_apple_legacy(
         &self,
         state: &ApiState,
@@ -62,7 +56,7 @@ impl IapService {
         claims: &Authed,
         req: ListQuery,
     ) -> Result<Json<PurchaseListResponse>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let limit = i64::from(req.limit.unwrap_or(100).clamp(1, 1000));
         let offset = decode_offset(req.cursor.as_deref());
         let rows = queries
@@ -94,7 +88,7 @@ pub(super) async fn record_purchase(
     product_id: String,
     raw: Value,
 ) -> Result<Json<PurchaseResponse>, V2Error> {
-    let queries = q(state)?;
+    let queries = q(state).await?;
     let row = queries
         .insert_purchase(&InsertPurchaseParams {
             transaction_id,

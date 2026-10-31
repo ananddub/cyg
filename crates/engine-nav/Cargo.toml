@@ -5,7 +5,13 @@ edition = "2024"
 description = "High-performance 2D and 3D navigation mesh pathfinding for CYG"
 
 [dependencies]
-polyanya = "0.17.1"
+# 0.16 is the latest release on `geo` 0.32, which SurrealDB's parser also
+# requires. The 0.17 line moved to `geo` 0.33, whose `i_overlay` 4.5 cannot
+# coexist with SurrealDB's `i_overlay` 4.0 in one dependency graph. The public
+# API is unchanged; only the geometry crate differs.
+polyanya = "0.16"
 rerecast = "0.4.0"
-glam = "0.32"
+# Must match the `glam` polyanya 0.16 speaks (via `bvh2d`), or the `Vec2`s
+# handed to `Trimesh` and `Mesh::path` are a different crate's types.
+glam = "0.30.8"
 serde = { version = "1.0", features = ["derive"], optional = true }

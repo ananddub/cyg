@@ -1,8 +1,3 @@
-//! `PUT`/`POST /v2/tournament/{tournament_id}` — submit a score to the round.
-//!
-//! The body is the record message itself, as the gateway binds it. A board that requires a
-//! join only updates the row the join left behind; only the insert path moves the size counter.
-
 use axum::Json;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -17,8 +12,8 @@ use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::leaderboard::GetLeaderboardRecordParams;
 use crate::repositories::models::Leaderboard;
-use crate::services::auth::q;
-use crate::services::leaderboard::{pool, rank_of};
+use crate::services::deps::q;
+use crate::services::leaderboard::rank_of;
 use crate::utils::leaderboard::{DB_DECREMENT, at, calculate, parse_metadata, ranks_enabled};
 use crate::utils::tournament::statement::Write;
 use crate::utils::tournament::types::{
@@ -26,8 +21,6 @@ use crate::utils::tournament::types::{
     db_operator,
 };
 
-/// The gateway binds the request body into the `record` field, so a body that
-/// names nothing is a request with no record at all.
 fn record_of(body: Value) -> Result<RecordRequest, V2Error> {
     if body.is_null() || body.as_object().is_some_and(|map| map.is_empty()) {
         return Err(V2Error::invalid_argument(BAD_RECORD));
@@ -35,8 +28,6 @@ fn record_of(body: Value) -> Result<RecordRequest, V2Error> {
     serde_json::from_value(body).map_err(|_| V2Error::invalid_argument(BAD_RECORD))
 }
 
-/// What a write answers with: the row as it now stands, ranked when the board
-/// keeps ranks. A write that changed nothing answers the same way.
 async fn read_back(
     queries: &Queries,
     board: &Leaderboard,
@@ -82,7 +73,7 @@ impl super::TournamentService {
             _ => None,
         };
 
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let board = match load_tournament(&queries, id).await {
             Ok(board) => board,
             Err(_) => return Err(V2Error::not_found(NOT_FOUND)),
@@ -121,7 +112,7 @@ impl super::TournamentService {
             operator,
         };
 
-        submit(pool(state)?, &board, &write).await?;
+        submit(&queries, &board, &write).await?;
         read_back(&queries, &board, write.owner_id, write.expiry).await
     }
 }

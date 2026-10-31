@@ -1,15 +1,9 @@
-//! The rows a console table and its side panels read: the account, its operator
-//! notes and its wallet ledger.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::repositories::models::{Users, UsersNotes, WalletLedger};
 
-/// A player account. `password` is deliberately absent — the console never shows
-/// it and a stored credential must not leave the server — and every nullable
-/// column is flattened to a string so the table has no `null` cells.
 #[derive(Debug, Serialize)]
 pub struct AccountRow {
     pub id: Uuid,
@@ -63,7 +57,6 @@ impl From<Users> for AccountRow {
     }
 }
 
-/// An operator note attached to an account.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccountNoteRow {
     pub id: Uuid,
@@ -83,7 +76,6 @@ impl From<UsersNotes> for AccountNoteRow {
     }
 }
 
-/// One wallet ledger entry: the change the operator made and when.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WalletLedgerRow {
     pub id: Uuid,

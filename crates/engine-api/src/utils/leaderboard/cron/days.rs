@@ -1,5 +1,3 @@
-//! Calendar arithmetic the scheduler walks with, in UTC and in both directions.
-
 use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, TimeZone, Timelike, Utc};
 
 pub fn trim_minute(t: DateTime<Utc>) -> DateTime<Utc> {
@@ -19,8 +17,6 @@ pub fn prev_day(day: NaiveDate) -> NaiveDate {
     day - chrono::Duration::days(1)
 }
 
-/// The last minute of the month before `day`, so a backwards scan that fails
-/// the month test lands on a candidate still inside it.
 pub fn end_of_prev_month(day: NaiveDate) -> DateTime<Utc> {
     let (year, month) = if day.month() == 1 {
         (day.year() - 1, 12)

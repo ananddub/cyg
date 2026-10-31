@@ -1,5 +1,3 @@
-//! `/v2/console/setting` — the server's key/value settings, read and written.
-
 use axum::Json;
 
 use crate::ApiState;
@@ -10,12 +8,10 @@ use crate::error::V2Error;
 
 impl super::ConsoleService {
     pub async fn list_settings(&self, state: &ApiState) -> Result<Json<Vec<SettingRow>>, V2Error> {
-        let rows = super::queries(state)?.list_settings().await?;
+        let rows = super::queries(state).await?.list_settings().await?;
         Ok(Json(rows.into_iter().map(SettingRow::from).collect()))
     }
 
-    /// Write a setting. A setting is its own key, so this creates or replaces and
-    /// neither outcome is an error.
     pub async fn update_setting(
         &self,
         state: &ApiState,
@@ -28,7 +24,7 @@ impl super::ConsoleService {
             return Err(V2Error::invalid_argument("A setting needs a name."));
         }
 
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         queries.upsert_setting(name, body.value).await?;
         super::audit(
             state,
@@ -40,8 +36,6 @@ impl super::ConsoleService {
         )
         .await;
 
-        // Read back so the reply carries the row's own `update_time` rather than one
-        // this handler guessed at.
         let settings = queries.list_settings().await?;
         settings
             .into_iter()
@@ -61,7 +55,7 @@ impl super::ConsoleService {
         if name.is_empty() {
             return Err(V2Error::invalid_argument("A setting needs a name."));
         }
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         if queries.delete_setting(name).await?.rows_affected() == 0 {
             return Err(V2Error::not_found("Setting not found."));
         }

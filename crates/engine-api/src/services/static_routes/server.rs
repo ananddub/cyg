@@ -6,22 +6,16 @@ use super::cache::Cached;
 use crate::utils::static_routes::guard::child_of;
 
 pub struct StaticServer {
-    /// Project root — the only place a client-named page or asset may live.
     root: PathBuf,
     website: PathBuf,
     sdk_js: PathBuf,
     schema_mjs: PathBuf,
-    /// Unity's exported build folder: `index.html` plus its own `Build/` and
-    /// `TemplateData/` subtrees.
     unity_build: PathBuf,
-    /// Bytes baked into the binary, used when the project has no local copy, so
-    /// a fresh clone serves a working page instead of a 404.
     pub(super) defaults: HashMap<String, Arc<Vec<u8>>>,
     pub(super) cache: Mutex<HashMap<PathBuf, Cached>>,
 }
 
 impl StaticServer {
-    /// `project_dir` holds `config.toml`; asset paths in the config are relative to it.
     pub fn new(project_dir: &Path, game: &engine_config::GameConfig) -> StaticServer {
         StaticServer {
             root: project_dir.to_path_buf(),
@@ -59,20 +53,14 @@ impl StaticServer {
         &self.root
     }
 
-    /// Read `path` if it exists, refreshing the cache only when its stamp changed,
-    /// which keeps the hit path to a single `stat`.
     pub fn read(&self, path: &Path) -> Option<Arc<Vec<u8>>> {
         super::cache::read(self, path)
     }
 
-    /// Map a URL path to a file under the project root, or `None` if the client asked
-    /// for something outside it.
     pub fn resolve(&self, url_path: &str) -> Option<PathBuf> {
         child_of(&self.root, url_path)
     }
 
-    /// Map a URL path to a plain child of `base`. The percent-decode and the refusal
-    /// happen in one pass, so no escape sequence can produce an unchecked path.
     pub fn resolve_under(&self, base: &Path, url_path: &str) -> Option<PathBuf> {
         child_of(base, url_path)
     }

@@ -1,8 +1,3 @@
-//! BaaS `calculateTournamentDeadlines`: the three boundaries of the round the
-//! caller stands in. A scheduled tournament repeats, so the round began at the
-//! last reset at or before now (or the next one, if the board has not begun);
-//! it lasts `duration` seconds and never runs past the next reset or `end_time`.
-
 use chrono::{DateTime, Duration, Utc};
 
 use super::cron::Schedule;
@@ -10,7 +5,6 @@ use super::window::{bad_schedule, epoch, parse_schedule};
 use crate::error::V2Error;
 use crate::repositories::models::Leaderboard;
 
-/// Unix seconds are what the wire carries, so every boundary is one.
 pub struct Deadlines {
     pub start_active: i64,
     pub end_active: i64,
@@ -71,8 +65,6 @@ pub fn calculate(board: &Leaderboard, now: DateTime<Utc>) -> Result<Deadlines, V
     }
 
     if start > end_active {
-        // The board started after the round we landed in but before the next
-        // reset, so the caller is in the pair of boundaries the start begins.
         let pair = schedule.next_many(at(start), 2).ok_or_else(bad_schedule)?;
         start_active = pair[0].timestamp();
         expiry = pair[1].timestamp();
@@ -98,7 +90,6 @@ pub fn calculate(board: &Leaderboard, now: DateTime<Utc>) -> Result<Deadlines, V
     })
 }
 
-/// BaaS `calculatePrevReset`: the boundary the caller has just passed.
 pub fn prev_reset(board: &Leaderboard, now: DateTime<Utc>) -> Result<i64, V2Error> {
     let Some(schedule) = parse_schedule(board)? else {
         return Ok(0);

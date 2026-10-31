@@ -1,9 +1,3 @@
-//! Auto-registered bindings for the project's static surface: the liveness
-//! probe, the SDK bundle and map, and the Unity WebGL build.
-//!
-//! `/unity/` cannot be a `#[controller]` route because `auto_route` trims a
-//! path's trailing slash, so it is registered directly below.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -77,8 +71,6 @@ impl StaticRoutesController {
         self.service.serve_unity_asset(&state, uri.path())
     }
 
-    // The exported `index.html` references its payload root-absolutely, so the
-    // same tree is also reachable at the two prefixes Unity emits.
     #[get("/Build/{*rest}")]
     async fn build_asset(&self, uri: OriginalUri) -> Response {
         let state = current_state();
@@ -92,14 +84,10 @@ impl StaticRoutesController {
     }
 }
 
-/// The whole-surface fallback: unmatched paths are served as project files by the
-/// same `StaticServer` the routes use (raw, still-encoded, no query string).
 pub async fn fallback(State(state): State<ApiState>, OriginalUri(uri): OriginalUri) -> Response {
     StaticRoutesService.fallback(&state, uri.path())
 }
 
-/// `/unity/` is the same page as `/unity`, but `auto_route` trims a controller
-/// path's trailing slash, so the alias is registered directly for byte-identical URLs.
 #[doc(hidden)]
 #[allow(non_snake_case)]
 fn __auto_route_factory_unity_index_slash<'a>(
@@ -113,7 +101,6 @@ fn __auto_route_factory_unity_index_slash<'a>(
     })
 }
 
-/// The `/unity/` handler: read the plane, then serve the same page as `/unity`.
 async fn unity_index_slash() -> Response {
     let state = current_state();
     StaticRoutesService.serve_unity_index(&state)

@@ -1,12 +1,9 @@
-//! The service layer: the logic behind every controller, one module per domain.
-//!
-//! A service owns the rules — validation, ordering, replies — and reaches the database only through [`crate::repositories`].
-
 pub mod account;
 pub mod auth;
 pub mod channel;
 pub mod console;
 pub mod dashboard;
+pub(crate) mod deps;
 pub mod friend;
 pub mod games;
 pub mod group;

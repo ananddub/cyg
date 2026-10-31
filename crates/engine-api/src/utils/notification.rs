@@ -1,5 +1,3 @@
-//! Notification helpers: the paging cursor codec and the id-list flattening.
-
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -9,8 +7,6 @@ use crate::repositories::models::Notification;
 use crate::services::social::{cursor_decode, cursor_encode, uid};
 
 pub(crate) const LIMIT_RANGE: &str = "Invalid limit - limit must be between 1 and 100.";
-/// The gateway wraps every failure of the list query — a bad cursor included —
-/// in this one internal error, so a client cannot tell them apart.
 pub(crate) const LIST_FAILED: &str = "Error retrieving notifications.";
 
 pub(crate) fn encode_cursor_at(create_time: DateTime<Utc>, id: Uuid) -> String {
@@ -24,8 +20,6 @@ pub(crate) fn encode_cursor(n: &Notification) -> String {
     encode_cursor_at(n.create_time, n.id)
 }
 
-/// Where to resume: `None` is the start of the list. A cursor naming no row is
-/// the empty cursor BaaS hands back with an empty page, so it reads the same.
 pub(crate) fn decode_cursor(raw: Option<&str>) -> Result<Option<(DateTime<Utc>, Uuid)>, V2Error> {
     let Some(raw) = raw.filter(|s| !s.is_empty()) else {
         return Ok(None);
@@ -46,9 +40,6 @@ pub(crate) fn decode_cursor(raw: Option<&str>) -> Result<Option<(DateTime<Utc>, 
     Ok(Some((time, id)))
 }
 
-/// The delete endpoints accept a repeated field, a comma-joined one, a JSON
-/// array spelled into one value, or any mix; ids that do not parse are dropped,
-/// exactly as the gateway drops them.
 pub(crate) fn flatten(values: Vec<String>) -> Vec<Uuid> {
     values
         .iter()

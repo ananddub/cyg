@@ -1,5 +1,3 @@
-//! The keyset list-cursor codec.
-
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -9,7 +7,6 @@ use crate::services::social::{cursor_decode, cursor_encode};
 
 use super::{BAD_CURSOR, Stream};
 
-/// the cursor: its stream, the `(create_time, id)` keyset position and the direction it was issued for.
 pub(crate) struct ListCursor {
     pub(crate) stream: Stream,
     pub(crate) create_time: DateTime<Utc>,

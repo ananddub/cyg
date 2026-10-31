@@ -1,8 +1,3 @@
-/// Extension → MIME. Every value is a literal, so the header is built with
-/// `HeaderValue::from_static` — no allocation or parse failure per request.
-/// Broad on purpose: `*.wasm` must be `application/wasm` (or streaming compilation
-/// is lost) and compressed `*.unityweb` must not carry a charset, or intermediaries
-/// transcode the bytes.
 pub(crate) const CONTENT_TYPES: &[(&str, &str)] = &[
     ("html", "text/html; charset=utf-8"),
     ("htm", "text/html; charset=utf-8"),
@@ -11,7 +6,6 @@ pub(crate) const CONTENT_TYPES: &[(&str, &str)] = &[
     ("cjs", "text/javascript; charset=utf-8"),
     ("css", "text/css; charset=utf-8"),
     ("json", "application/json"),
-    // Source maps are JSON; devtools only parse them when the body is valid.
     ("map", "application/json"),
     ("wasm", "application/wasm"),
     ("data", "application/octet-stream"),
@@ -35,7 +29,6 @@ pub(crate) const CONTENT_TYPES: &[(&str, &str)] = &[
     ("avif", "image/avif"),
     ("bmp", "image/bmp"),
     ("tga", "image/x-tga"),
-    // `favicon.ico` is what a Unity template asks for, hence the legacy alias.
     ("ico", "image/vnd.microsoft.icon"),
     ("svg", "image/svg+xml"),
     ("woff2", "font/woff2"),
@@ -53,12 +46,8 @@ pub(crate) const CONTENT_TYPES: &[(&str, &str)] = &[
     ("webm", "video/webm"),
 ];
 
-/// Content type for a URL path (or a filesystem path — only the last segment's
-/// extension is read).
 pub fn content_type_for(path: &str) -> &'static str {
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    // The extension is the text after the final dot *of the file name*, so
-    // `/v1.2/app` and `/app.` both mean "no extension".
     let ext = match name.rfind('.') {
         Some(i) => &name[i + 1..],
         None => "",

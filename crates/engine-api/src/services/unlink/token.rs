@@ -1,23 +1,18 @@
-//! The six unlinks whose column can only be refined by a value a vendor would name.
-//!
-//! A non-empty credential is refused with the vendor's own verification failure (the value
-//! would have to be confirmed by asking that vendor); an empty one clears on the guard alone.
-
 use axum::Json;
 use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use super::bearer;
 use crate::ApiState;
+use crate::db::DbError;
 use crate::dto::Empty;
 use crate::dto::auth;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::utils::unlink::{failed, refused};
 use crate::utils::vendor;
 
-/// The four columns an access token refines.
 #[derive(Clone, Copy)]
 enum TokenColumn {
     Apple,
@@ -36,7 +31,7 @@ impl TokenColumn {
         }
     }
 
-    async fn clear(self, queries: &Queries, uid: Uuid) -> Result<Uuid, sqlx::Error> {
+    async fn clear(self, queries: &Queries, uid: Uuid) -> Result<Uuid, DbError> {
         match self {
             TokenColumn::Apple => queries.unlink_apple(uid).await,
             TokenColumn::Facebook => queries.unlink_facebook(uid).await,
@@ -56,7 +51,7 @@ async fn by_token(
     if !token.is_empty() {
         return Err(vendor::profile(column.provider()));
     }
-    let queries = q(state)?;
+    let queries = q(state).await?;
     let failed = failed(column.provider());
     column
         .clear(&queries, uid)
@@ -66,7 +61,6 @@ async fn by_token(
 }
 
 impl super::UnlinkService {
-    /// `POST /v2/account/unlink/apple`.
     pub async fn apple(
         &self,
         state: &ApiState,
@@ -76,7 +70,6 @@ impl super::UnlinkService {
         by_token(state, headers, TokenColumn::Apple, &account.token).await
     }
 
-    /// `POST /v2/account/unlink/facebook`.
     pub async fn facebook(
         &self,
         state: &ApiState,
@@ -86,7 +79,6 @@ impl super::UnlinkService {
         by_token(state, headers, TokenColumn::Facebook, &account.token).await
     }
 
-    /// `POST /v2/account/unlink/google`.
     pub async fn google(
         &self,
         state: &ApiState,
@@ -96,7 +88,6 @@ impl super::UnlinkService {
         by_token(state, headers, TokenColumn::Google, &account.token).await
     }
 
-    /// `POST /v2/account/unlink/steam`.
     pub async fn steam(
         &self,
         state: &ApiState,
@@ -106,8 +97,6 @@ impl super::UnlinkService {
         by_token(state, headers, TokenColumn::Steam, &account.token).await
     }
 
-    /// `POST /v2/account/unlink/facebookinstantgame`. An app secret this build lacks, so a
-    /// non-empty signature still ends at verification.
     pub async fn facebook_instant_game(
         &self,
         state: &ApiState,
@@ -118,7 +107,7 @@ impl super::UnlinkService {
         if !account.signed_player_info.is_empty() {
             return Err(vendor::profile("Facebook Instant Game"));
         }
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let failed = failed("Facebook Instant Game");
         queries
             .unlink_facebook_instant(uid)
@@ -127,8 +116,6 @@ impl super::UnlinkService {
         Ok(Json(Empty {}))
     }
 
-    /// `POST /v2/account/unlink/gamecenter`. The bundle refines only when every field is
-    /// present; half a signature is neither an error nor a refinement, unlike authenticating.
     pub async fn game_center(
         &self,
         state: &ApiState,
@@ -145,7 +132,7 @@ impl super::UnlinkService {
         if complete {
             return Err(vendor::profile("GameCenter"));
         }
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let failed = failed("GameCenter");
         queries
             .unlink_gamecenter(uid)

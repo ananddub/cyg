@@ -1,6 +1,3 @@
-//! Pure helpers shared by the other layers: parsing, shaping, formatting.
-//! Nothing here touches the database, router or shared state.
-
 pub mod auth;
 pub mod channel;
 pub mod dashboard;

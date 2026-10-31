@@ -21,8 +21,6 @@ fn an_unknown_method_is_404_and_a_bad_room_name_is_400() {
     assert_eq!(minted(&state), 0);
 }
 
-/// Quotes and slashes in a path segment never reach the envelope: the name is
-/// rejected before a seat is signed, and the refusal body is itself JSON.
 #[test]
 fn a_hostile_room_name_cannot_break_the_json_envelope() {
     let state = test_state(1000, 1000);
@@ -49,8 +47,6 @@ fn room_names_are_restricted() {
     assert!(!valid_room_name(&"x".repeat(65)));
 }
 
-/// `valid_room_name` already rejects the obvious ones, but the escaper also
-/// runs over tokens and ICE blobs, so it holds on its own.
 #[test]
 fn escaping_survives_a_hostile_string() {
     assert_eq!(wire::json_escape("a\"b"), "a\\\"b");

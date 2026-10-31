@@ -1,13 +1,9 @@
-//! The ten `Unlink*` routes: the body credential is a *refinement*, never a
-//! requirement, and `Unavailable` is the sound of a request that reached the guard.
-
 use super::server::V2Server;
 use super::{player_token, v2_state};
 use crate::error::{INVALID_ARGUMENT, UNAUTHENTICATED, UNAVAILABLE};
 
-const NO_DB: &str = "The database is not configured, set [control.session] database_url.";
+const NO_DB: &str = "The database is not configured, set [control.session] database_endpoint.";
 
-/// Body decoded before the session, provider fields after — no unlink field is required.
 #[test]
 fn an_unlink_needs_a_session_but_never_a_credential() {
     let server = V2Server::start(v2_state());
@@ -29,7 +25,6 @@ fn an_unlink_needs_a_session_but_never_a_credential() {
         "Auth token required"
     );
 
-    // An empty body still goes looking for the column.
     let token = player_token();
     for path in [
         "apple",
@@ -51,7 +46,6 @@ fn an_unlink_needs_a_session_but_never_a_credential() {
     }
 }
 
-/// A supplied vendor credential ends at verification; a blank one does not need it.
 #[test]
 fn a_supplied_vendor_credential_is_verified_and_a_blank_one_is_not_needed() {
     let server = V2Server::start(v2_state());
@@ -77,7 +71,6 @@ fn a_supplied_vendor_credential_is_verified_and_a_blank_one_is_not_needed() {
     }
 }
 
-/// Instant Game refines by HMAC, not a network call, and this build has no app secret.
 #[test]
 fn an_instant_game_unlink_clears_the_column_without_its_signature() {
     let server = V2Server::start(v2_state());
@@ -95,7 +88,6 @@ fn an_instant_game_unlink_clears_the_column_without_its_signature() {
     );
 }
 
-/// Half a Game Center bundle is neither an error nor a refinement, unlike authenticating it.
 #[test]
 fn a_partial_game_center_bundle_is_ignored_rather_than_refused() {
     let server = V2Server::start(v2_state());
@@ -109,7 +101,6 @@ fn a_partial_game_center_bundle_is_ignored_rather_than_refused() {
             .refusal(UNAVAILABLE),
         NO_DB
     );
-    // A zero timestamp is as absent as an empty string.
     let no_time = r#"{"bundle_id":"b","player_id":"p","public_key_url":"https://appleid.apple.com/auth/keys","salt":"s","signature":"g","timestamp_seconds":0}"#;
     assert_eq!(unlink(no_time).refusal(UNAVAILABLE), NO_DB);
 
@@ -120,7 +111,6 @@ fn a_partial_game_center_bundle_is_ignored_rather_than_refused() {
     );
 }
 
-/// Email and custom id are already on the row, so a supplied one is compared, not verified.
 #[test]
 fn the_credentials_this_server_owns_are_compared_not_verified() {
     let server = V2Server::start(v2_state());
@@ -145,7 +135,6 @@ fn the_credentials_this_server_owns_are_compared_not_verified() {
     }
 }
 
-/// A device row is named, not column-cleared, so the id is required.
 #[test]
 fn a_device_unlink_demands_the_id_it_deletes_a_row_by() {
     let server = V2Server::start(v2_state());
@@ -166,7 +155,6 @@ fn a_device_unlink_demands_the_id_it_deletes_a_row_by() {
     );
 }
 
-/// The generic unlink deletes `user_device` rows by name, never consulting the registry.
 #[test]
 fn the_generic_unlink_deletes_rows_by_a_name_it_never_looks_up() {
     let server = V2Server::start(v2_state());

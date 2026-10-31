@@ -1,14 +1,13 @@
-//! `apiGroupAdd` — `POST /v2/group/{group_id}/add`.
-
 use axum::Json;
 use serde_json::json;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::group::JoinGroupEdgeParams;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social;
 use crate::utils::group::{ROLE_ADMIN, ROLE_MEMBER, group_id};
 
@@ -19,8 +18,6 @@ use crate::dto::group::UsersQuery;
 use super::users::resolve_users;
 
 impl GroupMemberService {
-    /// `POST /v2/group/{group_id}/add?user_ids=` — an admin adds members directly, which
-    /// is also how a pending join request is accepted (the counter moves only for a newcomer).
     pub async fn add_group_users(
         &self,
         state: &ApiState,
@@ -29,7 +26,7 @@ impl GroupMemberService {
         req: UsersQuery,
     ) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let group = fetch_group(&queries, gid).await?;
         require_role(&queries, auth.0.uuid()?, gid, ROLE_ADMIN).await?;
         if req.user_ids.is_none() {
@@ -40,8 +37,8 @@ impl GroupMemberService {
         for target in targets {
             let existing = match queries.get_group_edge_state(target, gid).await {
                 Ok(role) => Some(role),
-                Err(sqlx::Error::RowNotFound) => None,
-                Err(e) => return Err(V2Error::from_sqlx(e)),
+                Err(DbError::NotFound) => None,
+                Err(e) => return Err(V2Error::from(e)),
             };
             if let Some(role) = existing {
                 if role <= ROLE_MEMBER {
@@ -55,8 +52,8 @@ impl GroupMemberService {
                 .expand_group_edge_count(gid)
                 .await
                 .map_err(|e| match e {
-                    sqlx::Error::RowNotFound => V2Error::invalid_argument("Group is full."),
-                    other => V2Error::from_sqlx(other),
+                    DbError::NotFound => V2Error::invalid_argument("Group is full."),
+                    other => V2Error::from(other),
                 })?;
             queries
                 .join_group_edge(&JoinGroupEdgeParams {

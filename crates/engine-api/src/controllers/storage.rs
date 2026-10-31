@@ -1,7 +1,3 @@
-//! Auto-registered bindings for `/v2/storage*`.
-//!
-//! Plane state comes from `current_state` because the auto-registered router is stateless.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -15,8 +11,6 @@ use crate::current_state;
 use crate::dto::storage::{ListQuery, ObjectIdsRequest, ReadQuery, WriteRequest};
 use crate::services::storage::StorageService;
 
-/// Aliases so `auto_route` does not require `poem_openapi::Type` from the plain
-/// `serde` storage shapes; extraction and rejection are exactly `axum`'s.
 type JsonBody<T> = axum::extract::Json<T>;
 type QueryParams<T> = axum::extract::Query<T>;
 

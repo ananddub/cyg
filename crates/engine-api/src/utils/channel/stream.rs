@@ -1,5 +1,3 @@
-//! The [`Stream`] a channel id names, and the dotted id it round-trips to.
-
 use uuid::Uuid;
 
 use crate::error::V2Error;
@@ -7,7 +5,6 @@ use crate::error::V2Error;
 use super::parse::stream_of_channel;
 use super::{MODE_DM, MODE_GROUP, MODE_ROOM};
 
-/// The stream's own channel id; the realtime layer needs it back when a client joins by target.
 pub fn channel_of_stream(mode: i16, subject: Uuid, descriptor: Uuid, label: &str) -> String {
     let field = |id: Uuid| {
         if id.is_nil() {
@@ -28,7 +25,6 @@ pub struct Stream {
 }
 
 impl Stream {
-    /// BaaS orders a DM's participants so the smaller id leads.
     pub fn dm(a: Uuid, b: Uuid) -> Stream {
         let (subject, descriptor) = if a.to_string() < b.to_string() {
             (a, b)

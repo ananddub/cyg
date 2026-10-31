@@ -1,11 +1,3 @@
-//! `/v2/console/purchase`, `/v2/console/subscription` and `/v2/console/iap` —
-//! the IAP ledger, the vendor validation an operator can run, the stored vendor
-//! configuration a vendor switch needs cleared, and the product-level delete.
-//!
-//! The vendor names and what each one can do mirror the reference server: all
-//! five validate purchases; subscriptions exist for Apple, Google and Huawei
-//! only — the surface this crate's player API records.
-
 use axum::Json;
 
 use crate::ApiState;
@@ -16,7 +8,6 @@ use crate::error::V2Error;
 pub mod maintenance;
 pub mod validate;
 
-/// A vendor the console can name in `/v2/console/iap/{vendor}/…`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Vendor {
     Apple,
@@ -27,7 +18,6 @@ pub enum Vendor {
 }
 
 impl Vendor {
-    /// The path spelling, exactly as the reference server's routes name them.
     pub fn parse(name: &str) -> Option<Vendor> {
         match name {
             "apple" => Some(Vendor::Apple),
@@ -39,7 +29,6 @@ impl Vendor {
         }
     }
 
-    /// The store code the player routes record this vendor under.
     pub fn store(self) -> i16 {
         match self {
             Vendor::Apple => 0,
@@ -60,7 +49,6 @@ impl Vendor {
         }
     }
 
-    /// Whether this crate's player API records subscriptions for the vendor.
     pub fn supports_subscriptions(self) -> bool {
         matches!(self, Vendor::Apple | Vendor::Google | Vendor::Huawei)
     }

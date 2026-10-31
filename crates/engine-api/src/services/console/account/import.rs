@@ -1,6 +1,3 @@
-//! The import side of the account document: the payload mapped back to the
-//! parameters the bundle statement takes.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -10,19 +7,14 @@ use crate::dto::Empty;
 use crate::dto::console::account::AccountExport;
 use crate::error::V2Error;
 use crate::repositories::console::ListStorageRow;
-use crate::repositories::console_mutations::ListUserEdgesRow;
-use crate::repositories::models::Users;
-use crate::services::console::statements::{
-    self, ImportAccountParams, ImportDeviceParams, ImportLedgerParams, ImportNoteParams,
+use crate::repositories::console_mutations::{
+    ImportAccountParams, ImportDeviceParams, ImportLedgerParams, ImportNoteParams, ListUserEdgesRow,
 };
+use crate::repositories::models::Users;
 
 use super::conflict::import_conflict;
 
 impl super::ConsoleService {
-    /// Import one account by id. The body is the same export document the bulk route
-    /// reads; the path id names the record being restored and must match the account
-    /// the document carries, so a body cannot be posted at the wrong address. The
-    /// restore itself runs through [`import_account`](Self::import_account).
     pub async fn import_account_by_id(
         &self,
         state: &ApiState,
@@ -40,8 +32,6 @@ impl super::ConsoleService {
         self.import_account(state, claims, game, body).await
     }
 
-    /// Restore an account from its export. The id and the username must be free, so
-    /// an import can never merge two accounts into one.
     pub async fn import_account(
         &self,
         state: &ApiState,
@@ -64,11 +54,7 @@ impl super::ConsoleService {
         let id = account.id;
         let username = account.username.clone();
 
-        // The password is never exported, so a restored account has none until an
-        // operator sets one: an import must not resurrect a credential.
         let user = Users {
-            // The row is claimed by `stamp_user_as` right after: the import
-            // names its game explicitly rather than trusting the resolver.
             game_id: None,
             id,
             username: account.username,
@@ -153,7 +139,8 @@ impl super::ConsoleService {
                 .collect(),
         };
 
-        statements::import_account_bundle(super::pool(state)?, &params)
+        super::queries(state).await?
+            .import_account_bundle(&params)
             .await
             .map_err(import_conflict)?;
         crate::services::games::tenant::stamp_user_as(state, id, game).await;

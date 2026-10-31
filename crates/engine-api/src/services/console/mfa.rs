@@ -1,9 +1,3 @@
-//! `/v2/console/mfa` — the signed-in operator's own second factor, and the check
-//! sign-in performs against it.
-//!
-//! The secret is stored base32 as RFC 4648 spells it; the recovery codes are stored
-//! as their SHA-256 hashes, so reading the table cannot hand out a working code.
-
 use axum::Json;
 use chrono::Utc;
 
@@ -18,13 +12,9 @@ use crate::utils::totp;
 
 use super::RECOVERY_CODES;
 
-/// The wording a login answers with when a code is required. The console matches on
-/// it to show the code field instead of blaming the password.
 pub(super) const MFA_CODE_REQUIRED: &str = "MFA code required.";
 
 impl super::ConsoleService {
-    /// The second-factor check sign-in performs: a digit code, or one of the codes
-    /// written down at enrolment.
     pub(super) async fn verify_second_factor(
         &self,
         queries: &Queries,
@@ -33,8 +23,6 @@ impl super::ConsoleService {
     ) -> Result<(), V2Error> {
         let Some(secret) = row.mfa_secret.as_deref().map(String::from_utf8_lossy) else {
             if row.mfa_required.unwrap_or(false) {
-                // Marked as requiring MFA with nothing enrolled: letting this
-                // through would be exactly the bypass the flag forbids.
                 return Err(V2Error::permission_denied(
                     "MFA is required for this console user but has not been enrolled.",
                 ));
@@ -55,14 +43,12 @@ impl super::ConsoleService {
         Err(V2Error::unauthenticated("MFA code invalid."))
     }
 
-    /// Begin enrolment: mint a secret and the recovery codes, and store both. The
-    /// codes are returned here and never again — only their hashes are kept.
     pub async fn enrol_mfa(
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
     ) -> Result<Json<MfaEnrolmentResponse>, V2Error> {
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let row = self.console_row(&queries, claims).await?;
 
         let secret = totp::generate_secret();
@@ -98,15 +84,13 @@ impl super::ConsoleService {
         }))
     }
 
-    /// Confirm the code the authenticator is now showing. Nothing changes if it does
-    /// not match, so a mistyped digit is a retry rather than a lockout.
     pub async fn confirm_mfa(
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
         body: MfaCodeRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let row = self.console_row(&queries, claims).await?;
         let Some(secret) = row.mfa_secret.as_deref().map(String::from_utf8_lossy) else {
             return Err(V2Error::failed_precondition("MFA has not been enrolled."));
@@ -126,15 +110,13 @@ impl super::ConsoleService {
         Ok(Json(Empty {}))
     }
 
-    /// Turn the second factor off. A code is required: the point of MFA is that a
-    /// stolen console token alone cannot remove it.
     pub async fn disable_mfa(
         &self,
         state: &ApiState,
         claims: &ConsoleAuthed,
         body: MfaCodeRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let row = self.console_row(&queries, claims).await?;
         self.verify_second_factor(&queries, &row, &body.code)
             .await?;
@@ -151,8 +133,6 @@ impl super::ConsoleService {
         Ok(Json(Empty {}))
     }
 
-    /// The signed-in operator's own row. The config bootstrap superadmin has none,
-    /// so it cannot enrol: it is the account of last resort and stays password-only.
     async fn console_row(
         &self,
         queries: &Queries,
@@ -174,9 +154,6 @@ fn needs_code() -> V2Error {
     V2Error::unauthenticated(MFA_CODE_REQUIRED)
 }
 
-/// Spend one recovery code: it must hash to one of the stored values, and it is
-/// removed so it cannot be replayed. A stored list that cannot be parsed counts as
-/// no codes at all, which refuses rather than admits.
 async fn consume_recovery_code(
     queries: &Queries,
     row: &FindConsoleUserMfaRow,

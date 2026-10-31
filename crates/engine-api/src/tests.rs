@@ -1,10 +1,6 @@
-//! `/v2` over a real socket, with no database behind it: account routes answer their
-//! checks *before* touching the schema, so this harness observes the wording and order
-//! a client branches on; a passed request answers `Unavailable`.
-
 mod authenticate;
 mod console;
-mod games;
+pub(crate) mod games;
 mod gateway;
 mod iap;
 mod links;
@@ -32,12 +28,8 @@ use crate::services::static_routes::StaticServer;
 use engine_bus::Bus;
 use engine_config::{ControlConfig, DEV_SEAT_SECRET, GameConfig, SessionConfig};
 
-/// The handler state of an account plane with no DSN configured: `db` and `q` are
-/// both `None`, which is what makes 503 the sound of a request that got through.
 pub(super) fn v2_state() -> ApiState {
     let session = SessionConfig::default();
-    // Tokens are verified against process-wide keys, so the plane has to be
-    // configured before anything mints one — exactly as `ApiState::new` does.
     jwt::configure(&session);
     let control = ControlConfig {
         session,
@@ -61,12 +53,12 @@ pub(super) fn v2_state() -> ApiState {
         started: Instant::now(),
         db: None,
         q: None,
+        blobs: None,
+        realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(SessionCache::new(60, 3600)),
     }
 }
 
-/// `Authorization: Basic base64("<server key>:")` — the credential `Authenticate*`
-/// and `SessionRefresh` demand, and no player token can stand in for it.
 pub(super) fn server_key() -> String {
     let raw = format!("{}:", SessionConfig::default().server_key);
     format!(
@@ -75,8 +67,6 @@ pub(super) fn server_key() -> String {
     )
 }
 
-/// A player token for an account no table has ever heard of. Every route these tests
-/// call answers before it looks an account up, so the id never has to exist.
 pub(super) fn player_token() -> String {
     let (token, _) = jwt::mint_token_pair(Uuid::new_v4(), "player", HashMap::new());
     format!("Bearer {token}")

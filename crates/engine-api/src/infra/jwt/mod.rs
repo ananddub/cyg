@@ -1,8 +1,3 @@
-//! Session tokens, wire-compatible with the: an HS256 JWT carrying
-//! `{tid, uid, usn, vrs, exp, iat}` — the claim names, order and omission rules
-//! of the `SessionTokenClaims`. The two tokens of a pair share a `tid` and
-//! an `iat`; [`crate::infra::session_cache`] blacklists the shared `tid` to revoke.
-
 mod claims;
 mod password;
 mod token;

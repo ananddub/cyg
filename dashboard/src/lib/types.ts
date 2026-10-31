@@ -211,7 +211,7 @@ export interface TickSeries {
 export const WS_PROTOCOL = 1;
 
 /** One `/ws/dashboard` message, tagged by `type` so a client can switch on it. */
-export type WsFrame = WsHelloFrame | WsSnapshotFrame | WsGoodbyeFrame;
+export type WsFrame = WsHelloFrame | WsSnapshotFrame | WsGoodbyeFrame | WsLiveFrame;
 
 export interface WsHelloFrame {
   type: "hello";
@@ -231,4 +231,18 @@ export interface WsSnapshotFrame {
 export interface WsGoodbyeFrame {
   type: "goodbye";
   reason: string;
+}
+
+/**
+ * A row in one of this game's account tables changed. The frame carries no row
+ * of its own — a page refetches what it shows, so large blobs stay off the wire.
+ * An `action` of `resync` means changes were dropped and the page should refetch
+ * unconditionally.
+ */
+export interface WsLiveFrame {
+  type: "live";
+  topic: string;
+  action: string;
+  record: string;
+  seq: number;
 }

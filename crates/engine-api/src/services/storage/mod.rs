@@ -1,8 +1,3 @@
-//! Storage engine (`/v2/storage/*`).
-//!
-//! BaaS parity: `server/core_storage.go`, `server/api_storage.go`. Objects are keyed by
-//! `(collection, key, user_id)` and a write is a compare-and-set on the MD5 hex version.
-
 use auto_di::singleton;
 
 use crate::ApiState;
@@ -23,8 +18,8 @@ impl StorageService {
     }
 }
 
-/// The pool storage runs against, or 503 when `[control.session] database_url` is empty. The
-/// statements are hand-written raw sqlx, so they take the pool, not the wrapper.
-pub(crate) fn pool(state: &ApiState) -> Result<&sqlx::PgPool, V2Error> {
-    state.db.as_ref().ok_or_else(V2Error::no_db)
+pub(crate) async fn queries(
+    state: &ApiState,
+) -> Result<std::sync::Arc<crate::repositories::db::Queries>, V2Error> {
+    crate::services::deps::q(state).await
 }

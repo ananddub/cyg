@@ -1,9 +1,3 @@
-//! Auto-registered bindings for `/v2/console/match*`.
-//!
-//! Listing and inspecting a match are reads open to any console role; terminating
-//! one is a write, gated in the service by `require_write`. The registry is in
-//! memory, so none of these need a database.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -26,7 +20,6 @@ impl ConsoleMatchController {
         Self { service }
     }
 
-    /// List running matches.
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
@@ -36,7 +29,6 @@ impl ConsoleMatchController {
             .into_response()
     }
 
-    /// Inspect one match's live state.
     #[get("/{id}/state")]
     async fn state(
         &self,
@@ -51,7 +43,6 @@ impl ConsoleMatchController {
             .into_response()
     }
 
-    /// Terminate one running match.
     #[delete("/{id}")]
     async fn delete(
         &self,

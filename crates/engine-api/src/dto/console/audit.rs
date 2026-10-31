@@ -1,14 +1,9 @@
-//! The audit log: what a console operator did, and the ACL templates an operator
-//! role is defined from.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::repositories::models::{ConsoleAclTemplate, ConsoleAuditLog};
 
-/// `GET /v2/console/audit/log` — the trail with the filters the console offers.
-/// Every text field is empty for "any", which is also how the SQL reads it.
 #[derive(Debug, Default, Deserialize)]
 pub struct AuditLogQuery {
     #[serde(default)]
@@ -17,7 +12,6 @@ pub struct AuditLogQuery {
     pub resource: String,
     #[serde(default)]
     pub username: String,
-    /// Inclusive RFC 3339 bounds on the entry's `create_time`.
     #[serde(default)]
     pub after: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -38,8 +32,6 @@ impl AuditLogQuery {
     }
 }
 
-/// `POST` and `PUT /v2/console/acl/template` — a named permission document an
-/// operator can be assigned from.
 #[derive(Debug, Default, Deserialize)]
 pub struct AclTemplateRequest {
     #[serde(default)]
@@ -50,7 +42,6 @@ pub struct AclTemplateRequest {
     pub acl: serde_json::Value,
 }
 
-/// One audit entry.
 #[derive(Debug, Serialize)]
 pub struct AuditLogRow {
     pub create_time: DateTime<Utc>,
@@ -80,7 +71,6 @@ impl From<ConsoleAuditLog> for AuditLogRow {
     }
 }
 
-/// One ACL template: a named, reusable permission document.
 #[derive(Debug, Serialize)]
 pub struct AclTemplateRow {
     pub id: Uuid,
@@ -104,9 +94,6 @@ impl From<ConsoleAclTemplate> for AclTemplateRow {
     }
 }
 
-/// `GET /v2/console/audit/log/users` — the operators who appear in the trail, one
-/// entry each, most active first. Mirrors the console's users list, which the audit
-/// view reads to fill its username filter.
 #[derive(Debug, Serialize)]
 pub struct AuditLogUsers {
     pub usernames: Vec<String>,

@@ -1,26 +1,19 @@
-//! `GET /v2/storage/{collection}[/{user_id}]` — listing.
-//!
-//! Which rows a caller may page through depends on who they are and whom they ask about:
-//! anyone's public objects, the caller's own (private included), or one other user's public.
-
 mod cursor;
-mod fetch;
 mod reply;
-mod statements;
 
 use axum::Json;
 use uuid::Uuid;
 
-use super::pool;
+use super::queries;
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::storage::{ListQuery, StorageObjectList};
 use crate::error::V2Error;
+use crate::repositories::storage::StorageListing;
 use crate::services::social;
 use crate::utils::storage::*;
 
 use cursor::resume;
-use fetch::{Listing, fetch};
 use reply::reply;
 
 impl super::StorageService {
@@ -36,15 +29,16 @@ impl super::StorageService {
         }
         let limit = social::limit(req.limit, 1, MAX_LIST_LIMIT, LIST_LIMIT_MESSAGE)?;
         let after = resume(req.cursor.as_ref())?;
-        let rows = fetch(
-            pool(state)?,
-            Listing::PublicAll,
-            collection,
-            None,
-            after.as_ref(),
-            limit,
-        )
-        .await?;
+        let rows = queries(state).await?
+            .storage_listing(
+                StorageListing::PublicAll,
+                collection,
+                None,
+                after.as_ref(),
+                limit,
+            )
+            .await
+            .map_err(V2Error::from)?;
         Ok(reply(rows, limit, req.cursor.as_deref().unwrap_or("")))
     }
 
@@ -62,21 +56,16 @@ impl super::StorageService {
         let owner = Uuid::parse_str(user_id)
             .map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
         let listing = if owner == auth.0.uuid()? {
-            Listing::Own
+            StorageListing::Own
         } else {
-            Listing::PublicUser
+            StorageListing::PublicUser
         };
         let limit = social::limit(req.limit, 1, MAX_LIST_LIMIT, LIST_LIMIT_MESSAGE)?;
         let after = resume(req.cursor.as_ref())?;
-        let rows = fetch(
-            pool(state)?,
-            listing,
-            collection,
-            Some(owner),
-            after.as_ref(),
-            limit,
-        )
-        .await?;
+        let rows = queries(state).await?
+            .storage_listing(listing, collection, Some(owner), after.as_ref(), limit)
+            .await
+            .map_err(V2Error::from)?;
         Ok(reply(rows, limit, req.cursor.as_deref().unwrap_or("")))
     }
 }

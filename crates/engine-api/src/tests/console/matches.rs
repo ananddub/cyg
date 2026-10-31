@@ -1,8 +1,3 @@
-//! The match REST surface over a live socket: the player routes are session-gated,
-//! the console routes are console-token gated, and every one of them reads the
-//! process-wide registry rather than a database, so they answer with no pool behind
-//! the plane.
-
 use uuid::Uuid;
 
 use crate::error::{INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED, UNAUTHENTICATED};
@@ -15,14 +10,12 @@ use super::helpers::{ADMIN, PASSWORD, V2Server, login, player_token, token_for, 
 fn the_player_match_routes_gate_on_a_session() {
     let server = V2Server::start(v2_state());
     for path in ["/v2/match", "/v2/matchmaker/stats"] {
-        // With no credential at all the gate refuses and names what is missing.
         let reply = server.get(path, None);
         assert_eq!(
             reply.refusal(UNAUTHENTICATED),
             "Auth token required",
             "{path}"
         );
-        // A malformed bearer is an invalid session, not a missing one.
         let reply = server.get(path, Some("Bearer not.a.jwt"));
         assert_eq!(
             reply.refusal(UNAUTHENTICATED),
@@ -37,8 +30,6 @@ fn a_live_session_reaches_the_match_read_surface() {
     let server = V2Server::start(v2_state());
     let auth = player_token();
 
-    // The session list wraps its rows and prints `match_id`/`size`; the shape is the
-    // contract, so the count is left to whatever else is running in the process.
     let reply = server.get("/v2/match", Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
     let body = reply.json();
@@ -83,7 +74,6 @@ fn the_console_lists_running_matches_without_a_database() {
         "the running match must be listed: {}",
         reply.body
     );
-    // Every row carries the node field, empty on this single-process plane.
     assert!(matches.iter().all(|row| row["node"].is_string()));
 
     RealtimeMatchService::terminate_match(id);
@@ -135,7 +125,6 @@ fn terminating_a_match_is_a_write_the_readonly_cannot_make() {
     let reply = server.delete(&format!("/v2/console/match/{id}"), Some(&auth));
     assert_eq!(reply.refusal(NOT_FOUND), "Match not found.");
 
-    // A match that is really running goes on the admin's say-so.
     let live = RealtimeMatchService::create_match_with_tokens(0, vec![]);
     let reply = server.delete(&format!("/v2/console/match/{live}"), Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);

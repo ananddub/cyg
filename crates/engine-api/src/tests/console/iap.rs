@@ -1,8 +1,3 @@
-//! The console IAP additions: vendor validation, vendor config reset and the
-//! product-level subscription delete — gated by the token and the role, then
-//! answered ahead of a database that is not there, except the unpersisted
-//! validation, which needs no database at all.
-
 use uuid::Uuid;
 
 use crate::error::{INVALID_ARGUMENT, PERMISSION_DENIED, UNAUTHENTICATED, UNAVAILABLE};
@@ -10,10 +5,9 @@ use crate::infra::console::ConsoleRole;
 
 use super::helpers::{V2Server, token_for, v2_state};
 
-const NO_DB: &str = "The database is not configured, set [control.session] database_url.";
+const NO_DB: &str = "The database is not configured, set [control.session] database_endpoint.";
 const READ_ONLY: &str = "This console user has read-only access.";
 
-/// A valid credential body for the apple validation route.
 const RECEIPT: &str = r#"{"receipt":"MIIB…base64-pkcs7"}"#;
 
 #[test]
@@ -78,7 +72,6 @@ fn an_unpersisted_validation_returns_the_parsed_purchase_with_no_database() {
     );
     assert_eq!(reply.status, 200, "{}", reply.body);
     let body = reply.json();
-    // The reference server's `ValidatePurchaseResponse` shape: a list, one entry.
     let purchases = body["validated_purchases"]
         .as_array()
         .expect("validated purchases list");
@@ -89,7 +82,6 @@ fn an_unpersisted_validation_returns_the_parsed_purchase_with_no_database() {
     assert_eq!(id.len(), 32, "the row key is the credential's MD5 digest");
     assert_eq!(purchases[0]["environment"].as_str(), Some("UNKNOWN"));
 
-    // The subscription kind answers the single-entity shape of its mirror.
     let reply = server.post(
         "/v2/console/iap/google/validate",
         Some(&auth),
@@ -106,7 +98,6 @@ fn a_validation_that_would_write_is_refused_or_stopped_by_the_missing_database()
     let server = V2Server::start(v2_state());
     let auth = token_for(ConsoleRole::Admin);
 
-    // Facebook Instant has no subscriptions — in the reference server or here.
     let reply = server.post(
         "/v2/console/iap/facebookinstant/validate",
         Some(&auth),
@@ -133,7 +124,6 @@ fn a_validation_that_would_write_is_refused_or_stopped_by_the_missing_database()
         "receipt or purchase token is required"
     );
 
-    // Persisting (the default) needs an account to attach the row to…
     let reply = server.post("/v2/console/iap/apple/validate", Some(&auth), RECEIPT);
     assert_eq!(
         reply.refusal(INVALID_ARGUMENT),
@@ -146,7 +136,6 @@ fn a_validation_that_would_write_is_refused_or_stopped_by_the_missing_database()
     );
     assert_eq!(reply.refusal(INVALID_ARGUMENT), "Invalid account id.");
 
-    // …and a well-formed one reaches the database that is not there.
     let reply = server.post(
         "/v2/console/iap/apple/validate",
         Some(&auth),
@@ -166,8 +155,6 @@ fn reset_and_product_delete_answer_for_their_absent_rows_and_database() {
     let reply = server.delete("/v2/console/subscription/season-pass", Some(&admin));
     assert_eq!(reply.refusal(UNAVAILABLE), NO_DB);
 
-    // An empty product id cannot survive routing, but a whitespace one reaches
-    // the handler and is refused by name before the database is consulted.
     let reply = server.delete("/v2/console/subscription/%20", Some(&admin));
     assert_eq!(reply.refusal(INVALID_ARGUMENT), "A product id is required.");
 }

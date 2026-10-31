@@ -8,7 +8,7 @@ game := "examples/sky3d"
 default:
     @just --list --unsorted
 
-# Start all containers in the background (Postgres, Redis, Game Server)
+# Start the container in the background (embedded SurrealKV, Game Server)
 up target=game:
     #!/usr/bin/env bash
     G="{{target}}"
@@ -28,7 +28,7 @@ restart:
     @echo "🔄 Restarting OpenOxide game server..."
     docker compose restart server
 
-# Follow live container logs (default: server; use `just logs postgres` for db)
+# Follow live container logs (the stack is one service)
 logs service="server":
     docker compose logs -f {{service}}
 

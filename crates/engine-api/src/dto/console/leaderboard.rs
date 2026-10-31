@@ -1,15 +1,9 @@
-//! Leaderboards, tournaments and their records. Both live in the `leaderboard`
-//! table and differ by `category`, which the wire shape exposes as `kind`.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
 
-/// `POST /v2/console/tournament` and `PUT /v2/console/tournament/{id}` — a board's
-/// definition. A field left out takes the column default on a create and keeps the
-/// stored value on an update; `id` is only read from the body on a create.
 #[derive(Debug, Default, Deserialize)]
 pub struct TournamentWriteRequest {
     #[serde(default)]
@@ -42,13 +36,11 @@ pub struct TournamentWriteRequest {
     pub metadata: Option<serde_json::Value>,
 }
 
-/// A leaderboard or tournament. `size` is the current record count.
 #[derive(Debug, Serialize)]
 pub struct LeaderboardRow {
     pub id: String,
     pub title: String,
     pub description: String,
-    /// `leaderboard` or `tournament`.
     pub kind: &'static str,
     pub category: i16,
     pub operator: i16,
@@ -91,7 +83,6 @@ impl From<Leaderboard> for LeaderboardRow {
     }
 }
 
-/// One record on a board.
 #[derive(Debug, Serialize)]
 pub struct LeaderboardRecordRow {
     pub leaderboard_id: String,

@@ -1,9 +1,3 @@
-//! `/api/dashboard/*` — the JSON endpoints behind the overview page.
-//!
-//! Telemetry is process-wide, so these endpoints take the workspace's game id
-//! and refuse it when this process hosts a different game. Without that guard a
-//! game workspace would display another tenant's numbers as its own.
-
 use auto_route::controller;
 use axum::Json;
 use axum::extract::State;
@@ -19,15 +13,12 @@ use crate::services::games::tenant;
 
 struct DashboardRestController;
 
-/// The workspace whose telemetry is being asked for. Absent keeps the legacy
-/// unscoped read; the console always sends it from inside a game.
 #[derive(Debug, Default, Deserialize)]
 struct DashboardScope {
     #[serde(default)]
     game_id: Option<Uuid>,
 }
 
-/// The game this process hosts, or `null` when identity is unresolved.
 #[derive(Debug, Serialize)]
 struct DashboardIdentity {
     game_id: Option<Uuid>,
@@ -40,8 +31,6 @@ impl DashboardRestController {
         Self
     }
 
-    /// The tenant binding the workspace uses to decide whether live telemetry
-    /// belongs to the game it is showing.
     #[get("/identity")]
     async fn identity(&self) -> Response {
         let state = crate::current_state();
@@ -107,8 +96,6 @@ impl DashboardRestController {
     }
 }
 
-/// An unspecified game is the legacy process-wide read; a named one must be the
-/// game this process hosts.
 pub(crate) async fn guard(state: &ApiState, claimed: Option<Uuid>) -> Result<(), V2Error> {
     match claimed {
         Some(game_id) => tenant::require_hosted(state, game_id).await,

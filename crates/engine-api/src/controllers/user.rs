@@ -1,7 +1,3 @@
-//! Auto-registered bindings for `/v2/user*`.
-//!
-//! `/v2/user` answers both GET (query multi-get) and POST (JSON-body multi-get).
-
 use std::sync::Arc;
 
 use auto_route::controller;

@@ -71,8 +71,8 @@ cert.crt
 /test-client/
 /tests/
 /architecture/
-/init-oriole.sql
-/reference_schema.sql
+# Embedded SurrealKV store (`surrealkv://data/cyg`)
+/data/
 /run_website.sh
 /ROADMAP-DX.md
 examples/*

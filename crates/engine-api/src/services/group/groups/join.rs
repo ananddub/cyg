@@ -1,14 +1,13 @@
-//! `JoinGroup` and `LeaveGroup`.
-
 use axum::Json;
 use serde_json::json;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::group::JoinGroupEdgeParams;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social;
 use crate::utils::group::{ROLE_ADMIN, ROLE_JOIN_REQUEST, ROLE_MEMBER, ROLE_SUPERADMIN, group_id};
 
@@ -16,8 +15,6 @@ use super::super::fetch_group;
 use super::{GROUP_OPEN, GroupService};
 
 impl GroupService {
-    /// `POST /v2/group/{group_id}/join`. An open group admits the caller as a member; a
-    /// closed one records a join request (a no-op for an existing member, as in BaaS).
     pub async fn join_group(
         &self,
         state: &ApiState,
@@ -25,7 +22,7 @@ impl GroupService {
         raw_id: String,
     ) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let group = fetch_group(&queries, gid).await?;
         let uid = auth.0.uuid()?;
 
@@ -44,13 +41,12 @@ impl GroupService {
             return Err(V2Error::invalid_argument("Group is full."));
         }
         if open {
-            // Capacity is claimed by the counter itself: it refuses past `max_count`.
             queries
                 .expand_group_edge_count(gid)
                 .await
                 .map_err(|e| match e {
-                    sqlx::Error::RowNotFound => V2Error::invalid_argument("Group is full."),
-                    other => V2Error::from_sqlx(other),
+                    DbError::NotFound => V2Error::invalid_argument("Group is full."),
+                    other => V2Error::from(other),
                 })?;
         }
         queries
@@ -83,8 +79,6 @@ impl GroupService {
         Ok(Json(Empty {}))
     }
 
-    /// `POST /v2/group/{group_id}/leave`. The last superadmin cannot walk out of a
-    /// group they still own.
     pub async fn leave_group(
         &self,
         state: &ApiState,
@@ -92,15 +86,15 @@ impl GroupService {
         raw_id: String,
     ) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state)?;
+        let queries = q(state).await?;
         fetch_group(&queries, gid).await?;
         let uid = auth.0.uuid()?;
         let role = queries
             .get_group_edge_state(uid, gid)
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => V2Error::not_found("Group not found."),
-                other => V2Error::from_sqlx(other),
+                DbError::NotFound => V2Error::not_found("Group not found."),
+                other => V2Error::from(other),
             })?;
         if role == ROLE_SUPERADMIN {
             let holders = queries

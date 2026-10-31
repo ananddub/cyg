@@ -1,5 +1,3 @@
-//! Chat channel reply payloads.
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

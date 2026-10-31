@@ -1,21 +1,12 @@
-//! `PUT /v2/storage/delete` — batch delete in one transaction, in a stable collection/key
-//! order so two clients deleting the same set cannot deadlock. A client deletes its own
-//! objects and nothing else, and one refusal rolls the whole batch back.
-
 use axum::Json;
 
-use super::pool;
+use super::queries;
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::dto::storage::ObjectIdsRequest;
 use crate::error::V2Error;
 use crate::utils::storage::{DELETE_REJECTED_MESSAGE, check_id};
-
-const DELETE_SQL: &str =
-    "DELETE FROM storage WHERE collection = $1 AND key = $2 AND user_id = $3 AND write > 0";
-
-const DELETE_VERSION_SQL: &str = "DELETE FROM storage WHERE collection = $1 AND key = $2 AND user_id = $3 AND write > 0 AND version = $4";
 
 impl super::StorageService {
     pub async fn delete_objects(
@@ -36,26 +27,28 @@ impl super::StorageService {
         });
 
         let owner = auth.0.uuid()?;
-        let db = pool(state)?;
-        let mut tx = db.begin().await?;
+        let queries = queries(state).await?;
+        let rows = queries
+            .storage_deletable(owner, &ids)
+            .await
+            .map_err(V2Error::from)?;
+
         for id in &ids {
-            let mut query = sqlx::query(if id.version.is_empty() {
-                DELETE_SQL
-            } else {
-                DELETE_VERSION_SQL
-            })
-            .bind(&id.collection)
-            .bind(&id.key)
-            .bind(owner);
-            if !id.version.is_empty() {
-                query = query.bind(&id.version);
-            }
-            let removed = query.execute(&mut *tx).await.map_err(V2Error::from_sqlx)?;
-            if removed.rows_affected() == 0 {
+            let deletable = rows.iter().any(|row| {
+                row.collection == id.collection
+                    && row.key == id.key
+                    && row.write > 0
+                    && (id.version.is_empty() || row.version == id.version)
+            });
+            if !deletable {
                 return Err(V2Error::invalid_argument(DELETE_REJECTED_MESSAGE));
             }
         }
-        tx.commit().await?;
+
+        queries
+            .storage_delete(owner, &ids)
+            .await
+            .map_err(V2Error::from)?;
 
         Ok(Json(Empty {}))
     }

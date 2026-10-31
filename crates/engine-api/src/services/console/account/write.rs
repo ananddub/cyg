@@ -1,5 +1,3 @@
-//! The writes that change an account's standing: the ban, the note, and the delete.
-
 use axum::Json;
 use chrono::Utc;
 use uuid::Uuid;
@@ -12,8 +10,6 @@ use crate::error::V2Error;
 use crate::repositories::console_mutations::{InsertUserNoteAnonymousParams, InsertUserNoteParams};
 
 impl super::ConsoleService {
-    /// Ban an account: `disable_time` becomes now, which is what every other
-    /// surface reads as "disabled". The reason lives in the trail, not on the row.
     pub async fn ban_account(
         &self,
         state: &ApiState,
@@ -23,9 +19,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state)?;
-        // Read first, so an id that names nothing is a 404 rather than a silent
-        // no-op that looks like a successful ban.
+        let queries = super::queries(state).await?;
         let user = queries.get_user_by_id(id).await?;
         queries.set_account_disabled(Utc::now(), id).await?;
 
@@ -36,10 +30,6 @@ impl super::ConsoleService {
             format!("Banned {}: {reason}", user.username)
         };
 
-        // The ban is effective NOW, not at the next login: every token the user
-        // holds is revoked, and every live realtime socket is kicked out of its
-        // matches and closed — the operator pressing Ban expects the player
-        // gone, not politely refused at re-entry.
         state.sessions.remove_all(id);
         let kicked =
             crate::services::realtime::RealtimeSessionHub::global().kick_user(id, &message);
@@ -53,8 +43,6 @@ impl super::ConsoleService {
         Ok(Json(Empty {}))
     }
 
-    /// Lift a ban: the epoch means "not disabled", the same spelling the schema uses
-    /// for a group that was never deleted or a purchase that was never refunded.
     pub async fn unban_account(
         &self,
         state: &ApiState,
@@ -63,7 +51,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let user = queries.get_user_by_id(id).await?;
         queries.set_account_disabled(super::never(), id).await?;
         super::audit(
@@ -78,9 +66,6 @@ impl super::ConsoleService {
         Ok(Json(Empty {}))
     }
 
-    /// Delete an account for good. The tombstone goes first so the id cannot be
-    /// recreated; the row then takes its devices, notes, storage, messages and edges
-    /// with it and leaves its purchases pointing at the nil id.
     pub async fn delete_account(
         &self,
         state: &ApiState,
@@ -89,7 +74,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let user = queries.get_user_by_id(id).await?;
         queries.create_tombstone(id).await?;
         queries.delete_account(id).await?;
@@ -118,11 +103,8 @@ impl super::ConsoleService {
         if note.is_empty() {
             return Err(V2Error::invalid_argument("A note cannot be empty."));
         }
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         queries.get_user_by_id(id).await?;
-        // `create_id` is the operator who wrote it. The bootstrap superadmin has no
-        // `console_user` row to name, so its notes are written without an author
-        // rather than with the nil id the audit trail uses.
         match claims.0.uuid() {
             Some(author) => {
                 queries
@@ -166,7 +148,7 @@ impl super::ConsoleService {
         claims.require_write()?;
         let id = super::account_id(id)?;
         let note_id = super::id(note_id, "note")?;
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         if queries.delete_user_note(note_id, id).await?.rows_affected() == 0 {
             return Err(V2Error::not_found("Note not found."));
         }

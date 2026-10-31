@@ -1,5 +1,3 @@
-//! Parsing the dotted channel id into the [`Stream`] it names.
-
 use uuid::Uuid;
 
 use crate::error::V2Error;
@@ -29,8 +27,6 @@ pub fn stream_of_channel(channel_id: &str) -> Result<Stream, V2Error> {
     let label = parts[3];
 
     match mode {
-        // A room carries its name in the label and nothing else; BaaS bounds
-        // it at 1-64 chars and rejects control characters.
         MODE_ROOM => {
             if !parts[1].is_empty() || !parts[2].is_empty() {
                 return Err(V2Error::invalid_argument(BAD_ID));
@@ -54,7 +50,6 @@ pub fn stream_of_channel(channel_id: &str) -> Result<Stream, V2Error> {
             if subject.is_nil() || descriptor.is_nil() || subject == descriptor {
                 return Err(V2Error::invalid_argument(BAD_ID));
             }
-            // BaaS stores the pair in a canonical order so one DM has one id.
             if subject.to_string() > descriptor.to_string() {
                 return Err(V2Error::invalid_argument(BAD_ID));
             }

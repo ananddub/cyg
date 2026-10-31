@@ -4,7 +4,6 @@ use std::time::Duration;
 use super::SourceWalk;
 use crate::infra::rate_limit::*;
 
-/// Fill the table toward the ceiling, bailing out if churn keeps it below.
 fn flood_exhausted(l: &mut IpRateLimiter) {
     let mut walk = SourceWalk { n: 0 };
     let mut n = 0u32;
@@ -16,8 +15,6 @@ fn flood_exhausted(l: &mut IpRateLimiter) {
 
 #[test]
 fn the_ceiling_drops_refilled_buckets_rather_than_exhausted_ones() {
-    // 0.0001 tokens/s: nothing refills while this test runs, so every tracked
-    // source is genuinely exhausted.
     let mut l = IpRateLimiter::with_rates(0.0001, 1.0);
     let first = IpAddr::from([10, 0, 0, 1]);
     assert!(l.allow(first));
@@ -34,7 +31,7 @@ fn the_ceiling_drops_refilled_buckets_rather_than_exhausted_ones() {
 
 #[test]
 fn a_new_source_at_a_full_ceiling_is_refused_and_counted_apart() {
-    let mut l = IpRateLimiter::with_rates(0.0001, 1.0); // nothing refills
+    let mut l = IpRateLimiter::with_rates(0.0001, 1.0);
     flood_exhausted(&mut l);
     assert_eq!(l.tracked(), MAX_BUCKETS);
     let latecomer = IpAddr::from([8, 8, 8, 8]);
@@ -47,12 +44,11 @@ fn a_new_source_at_a_full_ceiling_is_refused_and_counted_apart() {
     );
 }
 
-/// The squeeze must be self-healing: refilled buckets make room again on their own.
 #[test]
 fn a_full_ceiling_clears_itself_once_sources_refill() {
     let mut l = IpRateLimiter::with_rates(1000.0, 1.0);
     flood_exhausted(&mut l);
-    std::thread::sleep(Duration::from_millis(20)); // 20 tokens' worth
+    std::thread::sleep(Duration::from_millis(20));
     let latecomer = IpAddr::from([8, 8, 8, 8]);
     assert!(l.allow(latecomer), "idle buckets were swept, room exists");
     assert!(l.tracked() <= MAX_BUCKETS);

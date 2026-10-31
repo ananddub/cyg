@@ -1,5 +1,3 @@
-//! `/ws/dashboard` — the overview page's live view.
-
 use std::time::Duration;
 
 use auto_route::controller;
@@ -15,10 +13,9 @@ use uuid::Uuid;
 use crate::ApiState;
 use crate::app::params::Params;
 use crate::controllers::dashboard::api::guard;
+use crate::infra::realtime::{LiveTopic, Subscription};
 use crate::services::dashboard::frames;
 
-/// The workspace whose telemetry the socket streams. The console always names
-/// it; an absent one keeps the legacy process-wide feed for tooling.
 #[derive(Debug, Default, Deserialize)]
 struct DashboardScope {
     #[serde(default)]
@@ -43,18 +40,21 @@ impl DashboardWsController {
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
         }
-        upgrade(ws, State(state)).await
+        upgrade(ws, State(state), scope.game_id).await
     }
 }
 
-/// How long a frame waits for a slow client before it is dropped.
 const SEND_GRACE: Duration = Duration::from_millis(250);
 
-pub(crate) async fn upgrade(ws: WebSocketUpgrade, State(state): State<ApiState>) -> Response {
-    ws.on_upgrade(move |socket| serve(socket, state))
+pub(crate) async fn upgrade(
+    ws: WebSocketUpgrade,
+    State(state): State<ApiState>,
+    game: Option<Uuid>,
+) -> Response {
+    ws.on_upgrade(move |socket| serve(socket, state, game))
 }
 
-async fn serve(socket: WebSocket, state: ApiState) {
+async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
     let (mut sink, mut stream) = socket.split();
 
     if sink
@@ -65,7 +65,6 @@ async fn serve(socket: WebSocket, state: ApiState) {
         return;
     }
 
-    // The spawned writer owns the sink so an in-flight frame is never cancelled.
     let (tx, mut rx) = mpsc::channel::<WsFrame>(1);
     let writer = tokio::spawn(async move {
         while let Some(frame) = rx.recv().await {
@@ -74,6 +73,25 @@ async fn serve(socket: WebSocket, state: ApiState) {
             }
         }
     });
+
+    let feeds = match game {
+        Some(game_id) => {
+            let mut feeds = Vec::with_capacity(LiveTopic::ALL.len());
+            for topic in LiveTopic::ALL {
+                match state.realtime.subscribe(*topic, game_id).await {
+                    Ok(subscription) => feeds.push(spawn_feed(subscription, tx.clone())),
+                    Err(err) => {
+                        tracing::warn!(
+                            "[dashboard-ws] the {} feed is unavailable: {err}",
+                            topic.name()
+                        );
+                    }
+                }
+            }
+            feeds
+        }
+        None => Vec::new(),
+    };
 
     let mut dropped = 0usize;
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
@@ -97,12 +115,32 @@ async fn serve(socket: WebSocket, state: ApiState) {
     }
 
     drop(tx);
+    for feed in feeds {
+        feed.abort();
+    }
     writer.abort();
     if dropped > 0 {
         tracing::info!(
             "[dashboard-ws] socket closed after dropping {dropped} frame(s) for a client that fell behind"
         );
     }
+}
+
+fn spawn_feed(mut subscription: Subscription, tx: mpsc::Sender<WsFrame>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        while let Some(event) = subscription.recv().await {
+            let frame = WsFrame::Live {
+                topic: event.topic.to_string(),
+                action: event.action.to_string(),
+                record: event.record,
+                seq: event.seq,
+            };
+            match tx.try_send(frame) {
+                Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
+                Err(mpsc::error::TrySendError::Closed(_)) => return,
+            }
+        }
+    })
 }
 
 fn text_frame(frame: &WsFrame) -> Message {

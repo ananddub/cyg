@@ -5,7 +5,6 @@ use super::registry::{HmacSha256, SeatRegistry};
 use super::token::Seat;
 
 impl SeatRegistry {
-    /// Recompute the MAC for `room:exp` and assemble the two b64url halves.
     pub(super) fn sign(&self, room: &str, expires_at: u64) -> String {
         let payload = format!("{room}:{expires_at}");
         let payload = payload.as_bytes();
@@ -19,7 +18,6 @@ impl SeatRegistry {
         )
     }
 
-    /// The seat `token` names, or `None` — counting every refusal.
     pub fn verify(&mut self, token: &str) -> Option<Seat> {
         match self.check(token) {
             Some(seat) => Some(seat),
@@ -30,16 +28,12 @@ impl SeatRegistry {
         }
     }
 
-    /// Would this token be accepted right now, without touching the counters.
     pub fn is_valid(&self, token: &str) -> bool {
         self.check(token).is_some()
     }
 
-    /// The MAC compare is `Mac::verify_slice`: constant-time in the tag and
-    /// length-checked; nothing about the payload is trusted before it passes.
     fn check(&self, token: &str) -> Option<Seat> {
         let (payload_b64, mac_b64) = token.split_once('.')?;
-        // A second dot is a forged layout: the payload never contains one.
         if payload_b64.is_empty() || mac_b64.is_empty() || mac_b64.contains('.') {
             return None;
         }
@@ -51,7 +45,6 @@ impl SeatRegistry {
         if mac.verify_slice(&presented).is_err() {
             return None;
         }
-        // Only a verified payload is worth parsing.
         let text = std::str::from_utf8(&payload).ok()?;
         let (room, exp) = text.rsplit_once(':')?;
         let exp: u64 = exp.parse().ok()?;
@@ -69,7 +62,6 @@ impl SeatRegistry {
         }))
     }
 
-    /// Drop a seat from the map; the token still verifies until it expires.
     pub fn release(&mut self, token: &str) -> Option<Seat> {
         self.by_token.remove(token)
     }
@@ -77,11 +69,9 @@ impl SeatRegistry {
     pub fn retire_expired(&mut self) {
         let now = Self::now_secs();
         self.by_token.retain(|_, seat| seat.expires_at > now);
-        // A stale room watermark has no live token left: dead weight, since names churn.
         self.next_expiry.retain(|_, expiry| *expiry > now);
     }
 
-    /// Seats still inside their TTL, live or not — what `/status` reports.
     pub fn outstanding(&self) -> usize {
         self.by_token.len()
     }
@@ -90,12 +80,10 @@ impl SeatRegistry {
         (self.minted, self.rejected)
     }
 
-    /// Mints refused because the registry was at its bound.
     pub fn refused(&self) -> u64 {
         self.refused
     }
 
-    /// The bound this registry enforces.
     pub fn seat_bound(&self) -> usize {
         self.max_outstanding
     }

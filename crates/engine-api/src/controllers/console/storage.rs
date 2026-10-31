@@ -1,5 +1,3 @@
-//! Auto-registered bindings for `/v2/console/storage*`.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -59,9 +57,6 @@ impl ConsoleStorageController {
             .into_response()
     }
 
-    /// The owner is part of the key, so it is part of the path: two accounts can
-    /// hold the same key in the same collection and only one of them is being
-    /// deleted.
     #[delete("/object/{collection}/{key}/{user_id}")]
     async fn delete_object(
         &self,

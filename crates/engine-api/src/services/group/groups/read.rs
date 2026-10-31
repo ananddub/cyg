@@ -1,5 +1,3 @@
-//! The group read verbs: `GetGroup` and `ListGroups`.
-
 use axum::Json;
 use serde_json::json;
 
@@ -9,7 +7,7 @@ use crate::app::params::BoolFlag;
 use crate::dto::group::{GroupEnvelope, GroupListResponse, GroupResponse};
 use crate::error::V2Error;
 use crate::repositories::group::{ListGroupsByNameParams, ListGroupsParams};
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social::{self, limit};
 use crate::utils::group::group_id;
 
@@ -19,30 +17,26 @@ use super::super::fetch_group;
 use super::{GROUP_CLOSED, GROUP_OPEN, GroupService};
 
 impl GroupService {
-    /// `GET /v2/group/{group_id}` — `apiGetGroup`.
     pub async fn get_group(
         &self,
         state: &ApiState,
         _auth: &Authed,
         raw_id: String,
     ) -> Result<Json<GroupEnvelope>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let group = fetch_group(&queries, group_id(&raw_id)?).await?;
         Ok(Json(GroupEnvelope {
             group: GroupResponse::from_row(&group),
         }))
     }
 
-    /// `GET /v2/group?name=&langTag=&open=&members=&limit=&cursor=` — the
-    /// `ListGroups`, which searches by name *or* filters by discoverability.
     pub async fn list_groups(
         &self,
         state: &ApiState,
         _auth: &Authed,
         req: ListQuery,
     ) -> Result<Json<GroupListResponse>, V2Error> {
-        let queries = q(state)?;
-        // the ListGroups defaults to a single group unless asked for more.
+        let queries = q(state).await?;
         let page = limit(
             req.limit,
             1,
@@ -59,11 +53,6 @@ impl GroupService {
             })
             .transpose()?
             .unwrap_or(0);
-        // The gateway trims a leading run of wildcards and spaces off the pattern,
-        // then matches it with ILIKE as written: a client that wants a substring
-        // search has to send the `%` itself. The branch is still chosen on the
-        // untrimmed value, so a name of only wildcards searches for the empty
-        // pattern and finds nothing, exactly as the `ILIKE ''` would.
         let raw_name = req.name.unwrap_or_default();
         let name = raw_name.trim_start_matches(['%', ' ']);
         let lang_tag = req.lang_tag.unwrap_or_default();
@@ -72,8 +61,6 @@ impl GroupService {
             None => None,
         };
         let state = open.map_or(-1, |o| if o { GROUP_OPEN } else { GROUP_CLOSED });
-        // The field is an int32, so anything past that range is read as the
-        // extreme end of it rather than wrapping into a different filter.
         let members = req
             .members
             .unwrap_or(-1)

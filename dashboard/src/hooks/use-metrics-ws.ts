@@ -9,11 +9,19 @@ export interface MetricsWs {
   status: WsStatus
   overview: Overview | null
   ticks: TickSeries | null
+  /** The last change-feed frame: a topic changed, so a page refetches. */
+  live: LiveMark | null
   /** Wall-clock ms of the last frame applied, `null` until the first one lands. */
   lastFrameAtMs: number | null
   frames: number
   dropped: number
   reconnects: number
+}
+
+/** One change on one topic; the running sequence is what a page watches. */
+export interface LiveMark {
+  topic: string
+  seq: number
 }
 
 const MIN_BACKOFF_MS = 500
@@ -44,6 +52,9 @@ function parseFrame(raw: string): Parsed {
   if (!isRecord(value)) return { kind: 'noise' }
   const type = value['type']
   if (type === 'goodbye') return { kind: 'frame', frame: value as unknown as WsFrame }
+  // A change notification: it carries no telemetry, but it is a frame the page
+  // turns into a cache invalidation.
+  if (type === 'live') return { kind: 'frame', frame: value as unknown as WsFrame }
   if (type !== 'hello' && type !== 'snapshot') return { kind: 'noise' }
   if (!isRecord(value['overview']) || !isRecord(value['ticks'])) return { kind: 'noise' }
   if (type === 'hello' && value['protocol'] !== SUPPORTED_PROTOCOL) {
@@ -70,6 +81,7 @@ const EMPTY: MetricsWs = {
   status: 'connecting',
   overview: null,
   ticks: null,
+  live: null,
   lastFrameAtMs: null,
   frames: 0,
   dropped: 0,
@@ -177,6 +189,10 @@ export function useMetricsWs(gameId: string | null, enabled: boolean): MetricsWs
               : { ...frame.ticks, points: mergePoints(prev.ticks.points, frame.ticks.points) },
           lastFrameAtMs: lastFrameAt,
         }))
+        return
+      }
+      if (frame.type === 'live') {
+        commit((prev) => ({ ...prev, live: { topic: frame.topic, seq: frame.seq } }))
         return
       }
       // A graceful plane-side close is still a close: say so, then come back.

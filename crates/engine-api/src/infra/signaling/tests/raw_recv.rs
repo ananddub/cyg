@@ -1,10 +1,6 @@
-//! Frame decoding half of the raw client.
-
 use super::raw_ws::{WsClient, read_byte, read_chunk};
 
 impl WsClient {
-    /// The next text frame, or `None` once the server closes or hangs up; pings
-    /// are ponged and control noise is skipped.
     pub(super) async fn recv(&mut self) -> Option<String> {
         loop {
             let b0 = read_byte(&mut self.io).await?;

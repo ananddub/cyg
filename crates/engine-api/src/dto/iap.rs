@@ -1,14 +1,8 @@
-//! `/v2/iap*` — the shapes purchase and subscription receipts travel in, and
-//! the one row → wire mapping that knows both sides; `utils::iap` keeps only
-//! the pure receipt helpers.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::repositories::models::{Purchase, Subscription};
 
-/// The paging query shared by `GET /v2/iap/purchase` and
-/// `GET /v2/iap/subscription`.
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     #[serde(default)]
@@ -17,7 +11,6 @@ pub struct ListQuery {
     pub cursor: Option<String>,
 }
 
-/// The Apple receipt body — `POST /v2/iap` and `POST /v2/iap/purchase/apple`.
 #[derive(Debug, Deserialize)]
 pub struct PurchaseRequest {
     #[serde(default)]
@@ -30,11 +23,6 @@ pub struct PurchaseRequest {
     pub transaction_id: Option<String>,
 }
 
-/// The purchase-token body shared by the token-shaped vendor routes: Google,
-/// Huawei, Facebook Instant and Samsung identify a purchase by an opaque
-/// credential, so one shape serves `POST /v2/iap/purchase/{google,huawei,
-/// facebookinstant,samsung}`. Facebook hands it as `signed_request`, Samsung as
-/// `purchase_id`; either alias is accepted where a token would be.
 #[derive(Debug, Deserialize)]
 pub struct PurchaseTokenRequest {
     #[serde(default)]
@@ -50,7 +38,6 @@ pub struct PurchaseTokenRequest {
 }
 
 impl PurchaseTokenRequest {
-    /// The first credential the caller actually filled, then a vendor's alias.
     pub(crate) fn credential(&self) -> &str {
         if !self.purchase_token.is_empty() {
             return &self.purchase_token;
@@ -63,7 +50,6 @@ impl PurchaseTokenRequest {
     }
 }
 
-/// `POST /v2/iap/subscription/{apple,google,huawei}`.
 #[derive(Debug, Deserialize)]
 pub struct SubscriptionRequest {
     #[serde(default)]
@@ -78,7 +64,6 @@ pub struct SubscriptionRequest {
     pub expire_time: Option<DateTime<Utc>>,
 }
 
-/// `api.ValidatePurchaseResponse`'s purchase, as BaaS marshals it.
 #[derive(Debug, Serialize)]
 pub struct PurchaseResponse {
     product_id: String,
@@ -92,7 +77,6 @@ pub struct PurchaseResponse {
     provider_notification: Option<String>,
 }
 
-/// `api.ValidateSubscriptionResponse`'s subscription, as BaaS marshals it.
 #[derive(Debug, Serialize)]
 pub struct SubscriptionResponse {
     product_id: String,
@@ -107,14 +91,12 @@ pub struct SubscriptionResponse {
     state: i32,
 }
 
-/// `{"purchases": [...], "next_cursor": "..."}`.
 #[derive(Debug, Serialize)]
 pub struct PurchaseListResponse {
     pub purchases: Vec<PurchaseResponse>,
     pub next_cursor: String,
 }
 
-/// `{"subscriptions": [...], "next_cursor": "..."}`.
 #[derive(Debug, Serialize)]
 pub struct SubscriptionListResponse {
     pub subscriptions: Vec<SubscriptionResponse>,
@@ -130,8 +112,6 @@ fn environment_name(env: i16) -> String {
 }
 
 impl PurchaseResponse {
-    /// The entity a console validation parses out of a credential without
-    /// writing a row: identity from the receipt, times stamped now.
     pub(crate) fn parsed(product_id: &str, transaction_id: &str) -> Self {
         let now = Utc::now().timestamp();
         PurchaseResponse {
@@ -147,7 +127,6 @@ impl PurchaseResponse {
 }
 
 impl SubscriptionResponse {
-    /// The parsed-entity twin of [`PurchaseResponse::parsed`]: active (state 1).
     pub(crate) fn parsed(product_id: &str, transaction_id: &str) -> Self {
         SubscriptionResponse {
             product_id: product_id.to_owned(),
@@ -186,7 +165,6 @@ impl From<&Subscription> for SubscriptionResponse {
             refund_time: (s.refund_time.timestamp() > 0).then(|| s.refund_time.timestamp()),
             environment: environment_name(s.environment),
             original_transaction_id: s.original_transaction_id.clone(),
-            // state: 1 active (no refund, not expired today) else 3 expired.
             state: if s.refund_time.timestamp() > 0 {
                 0
             } else if s.expire_time.timestamp() > 0 && s.expire_time < Utc::now() {

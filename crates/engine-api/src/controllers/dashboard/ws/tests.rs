@@ -38,6 +38,8 @@ pub(super) fn state() -> ApiState {
         started: std::time::Instant::now(),
         db: None,
         q: None,
+        blobs: None,
+        realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(SessionCache::new(60, 3600)),
     }
 }
@@ -83,4 +85,5 @@ fn a_frame_is_bounded_in_size() {
     );
 }
 
+mod live_feed;
 mod live_socket;

@@ -8,16 +8,12 @@ use super::token::{MAX_OUTSTANDING_SEATS, MAX_TTL_DRIFT_SECS, Seat};
 
 pub(super) type HmacSha256 = Hmac<Sha256>;
 
-/// Bounded registry of minted seats: `mint` sweeps expired seats and then refuses
-/// rather than growing, so a flood on the credential-free mint endpoint cannot leak.
 pub struct SeatRegistry {
     pub(super) secret: Vec<u8>,
     pub(super) by_token: HashMap<String, Seat>,
     pub(super) next_expiry: HashMap<String, u64>,
     pub(super) minted: u64,
     pub(super) rejected: u64,
-    /// Mints refused by the outstanding-seat bound; separate from `rejected`
-    /// (an auth failure) so a capacity event is not read as an attack.
     pub(super) refused: u64,
     pub(super) max_outstanding: usize,
 }
@@ -46,8 +42,6 @@ impl SeatRegistry {
             .unwrap_or(0)
     }
 
-    /// Returns `None` at the bound (even after sweeping) and for rooms the payload
-    /// cannot carry: the verifier splits on the last `:` and the UDP plane refuses a `.`.
     pub fn mint(&mut self, room: &str, ttl_secs: u64) -> Option<Seat> {
         if room.is_empty() || room.contains(':') || room.contains('.') {
             self.rejected += 1;
@@ -60,10 +54,6 @@ impl SeatRegistry {
                 return None;
             }
         }
-        // The payload carries no nonce, so two seats for the same room in the same
-        // second would share a token, a sessionId, and so one player identity on the
-        // game plane. Uniqueness comes from the expiry: always strictly above every
-        // expiry this room ever used, within the drift cap.
         let base = Self::now_secs().saturating_add(ttl_secs);
         let used = self
             .next_expiry

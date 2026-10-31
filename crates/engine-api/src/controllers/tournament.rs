@@ -1,9 +1,3 @@
-//! Auto-registered bindings for `/v2/tournament*`.
-//!
-//! Methods return `Response` (not `Json<T>`) so `auto_route` does not require
-//! `T: poem_openapi::Type`; the wire types here are plain `serde` and the
-//! response bytes are unchanged.
-
 use std::sync::Arc;
 
 use auto_route::controller;

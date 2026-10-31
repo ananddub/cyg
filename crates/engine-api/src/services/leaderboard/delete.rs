@@ -1,8 +1,3 @@
-//! `DELETE /v2/leaderboard/{leaderboard_id}` — the caller's own record for the
-//! window the board's reset schedule names. A tournament board is not a
-//! leaderboard here: BaaS answers not-found, so the client reaches for the
-//! tournament route instead of deleting a round's record by accident.
-
 use axum::Json;
 
 use super::load_board;
@@ -11,7 +6,7 @@ use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::leaderboard::DeleteLeaderboardRecordParams;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::utils::leaderboard::types::{
     AUTH_DELETE, DELETE_FAILED, INVALID_ID, NOT_FOUND, is_tournament,
 };
@@ -27,7 +22,7 @@ impl super::LeaderboardService {
         if id.is_empty() {
             return Err(V2Error::invalid_argument(INVALID_ID));
         }
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let board = load_board(&queries, id).await?;
         if is_tournament(&board) {
             return Err(V2Error::not_found(NOT_FOUND));

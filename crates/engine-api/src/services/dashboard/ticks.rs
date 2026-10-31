@@ -30,7 +30,6 @@ pub fn build_ticks() -> TickSeries {
     let points = entries
         .iter()
         .map(|e| {
-            // sim publishes 1/s; >2.5 s between arrivals means a lost sample -> break the chart line
             let gap = prev_ms.is_some_and(|p| e.arrived_ms.saturating_sub(p) > 2_500);
             prev_ms = Some(e.arrived_ms);
             TickPoint {

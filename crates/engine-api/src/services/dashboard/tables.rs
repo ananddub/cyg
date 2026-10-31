@@ -9,11 +9,9 @@ pub async fn build_rooms_scoped(state: &ApiState, target_game_id: Option<Uuid>) 
     let clients = snap.as_ref().map(|s| s.players).unwrap_or(0);
     let host = "127.0.0.1";
 
-    // Try reading registered games from database to list rooms scoped per game
     if let Ok(game_list) = crate::services::games::GamesService::list_games(state).await {
         let mut rooms = Vec::new();
         for game in game_list.games {
-            // Filter by target_game_id if provided (exact filter per workspace)
             if let Some(target) = target_game_id {
                 if game.id != target {
                     continue;
@@ -125,7 +123,6 @@ pub fn build_workers(state: &ApiState) -> Vec<WorkerRow> {
     let snap = latest_sample(state);
     let mut rows = Vec::with_capacity(2);
 
-    // No transport row: per-plane attribution isn't reachable from ApiState.
     rows.push(WorkerRow {
         name: "sim".into(),
         kind: "game".into(),

@@ -17,9 +17,6 @@ async fn body_of(err: ApiError) -> (StatusCode, String, Option<String>) {
     (status, String::from_utf8_lossy(&bytes).into_owned(), retry)
 }
 
-/// A refusal has to be readable, and the message often quotes text the caller
-/// sent — a room name or a method segment. Debug-escaping that into JSON is how a
-/// browser ends up parsing `"rooms\u00e9"`.
 #[tokio::test]
 async fn an_error_body_is_json_even_when_the_message_is_not_ascii() {
     let (status, body, retry) = body_of(ApiError::new(
@@ -57,8 +54,6 @@ async fn a_rate_limit_error_carries_a_usable_retry_after() {
     );
 }
 
-/// A `/v2` refusal carries its kind twice: the HTTP status and the numeric gRPC
-/// `code` in the envelope, with the message beside it and no details by default.
 #[tokio::test]
 async fn a_v2_refusal_is_a_status_plus_an_error_envelope() {
     let response = V2Error::invalid_argument("bad thing").into_response();
@@ -76,8 +71,6 @@ async fn a_v2_refusal_is_a_status_plus_an_error_envelope() {
     );
 }
 
-/// The codes are the gRPC numbers the kinds are named for, and every kind that has
-/// no HTTP mapping of its own still reports `INTERNAL`'s 13.
 #[tokio::test]
 async fn each_v2_kind_keeps_its_grpc_code() {
     for (error, code) in [

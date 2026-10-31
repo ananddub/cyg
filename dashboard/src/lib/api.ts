@@ -105,6 +105,8 @@ export function parseWsFrame(raw: string): WsFrame | null {
   }
   if (typeof value !== "object" || value === null) return null;
   const type = (value as { type?: unknown }).type;
-  if (type !== "hello" && type !== "snapshot" && type !== "goodbye") return null;
+  if (type !== "hello" && type !== "snapshot" && type !== "goodbye" && type !== "live") {
+    return null;
+  }
   return value as WsFrame;
 }

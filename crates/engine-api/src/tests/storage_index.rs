@@ -1,16 +1,11 @@
-//! `/v2/storage/index*` over the socket plane with no database behind it: the
-//! credential and the definition rules are answered first, and a request that
-//! passes both is stopped by the absence of the schema.
-
 use crate::error::{INVALID_ARGUMENT, UNAUTHENTICATED, UNAVAILABLE};
 
 use super::server::V2Server;
 use super::{player_token, v2_state};
 
-/// The smallest body that defines an index: a name, a collection, one value key.
 const VALID: &str = r#"{"name":"rankings","collection":"arena","fields":["score"]}"#;
 
-const NO_DB: &str = "The database is not configured, set [control.session] database_url.";
+const NO_DB: &str = "The database is not configured, set [control.session] database_endpoint.";
 
 #[test]
 fn every_index_route_demands_a_player_token() {
@@ -37,7 +32,6 @@ fn every_index_route_demands_a_player_token() {
             "{method} {path}"
         );
 
-        // The envelope is the uniform one: code, message and a details list.
         let value = reply.json();
         assert_eq!(value["error"]["code"].as_u64(), Some(16));
         assert!(value["error"]["details"].is_array());

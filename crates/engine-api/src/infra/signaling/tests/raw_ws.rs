@@ -1,11 +1,7 @@
-//! A hand-written RFC 6455 client: masked requests, unmasked replies. No WS dep
-//! exists, and the endpoint is exactly a socket, so a raw client proves more.
-
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-/// The RFC 6455 sample key; the server's reply to it is never checked here.
 pub(super) const WS_KEY: &str = "dGhlIHNhbXBsZSBub25jZQ==";
 
 pub(super) fn upgrade_request(path: &str, addr: SocketAddr) -> String {
@@ -43,7 +39,6 @@ pub(super) async fn read_chunk(io: &mut TcpStream, buf: &mut [u8]) -> Option<()>
     Some(())
 }
 
-/// Read response headers up to the blank line.
 pub(super) async fn read_head(io: &mut TcpStream) -> Option<String> {
     let mut head = String::new();
     loop {
@@ -59,7 +54,6 @@ pub(super) struct WsClient {
 }
 
 impl WsClient {
-    /// Open a signaling session; panics (fails the test) unless the server answered 101.
     pub(super) async fn open(addr: SocketAddr, path: &str) -> WsClient {
         let mut io = connect_io(addr, path).await;
         let head = read_head(&mut io).await.expect("no response head");

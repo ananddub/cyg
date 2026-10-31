@@ -1,7 +1,3 @@
-//! Realtime WebSocket event orchestration services.
-//!
-//! Dispatches inbound `auto_ws` messages to their owning service planes (chat, matches, party, etc.).
-
 pub mod chat;
 pub mod matches;
 pub mod matchmaker;
@@ -21,14 +17,12 @@ pub use sessions::RealtimeSessionHub;
 use ahash::RandomState;
 use scc::{HashMap, HashSet, TreeIndex};
 
-/// Hardware AES-accelerated concurrent hash map.
 pub type FastMap<K, V> = HashMap<K, V, RandomState>;
 
 pub fn new_fast_map<K: Eq + std::hash::Hash, V>() -> FastMap<K, V> {
     FastMap::with_hasher(RandomState::new())
 }
 
-/// Hardware AES-accelerated concurrent hash set.
 pub type FastSet<T> = HashSet<T, RandomState>;
 
 pub fn new_fast_set<T: Eq + std::hash::Hash>() -> FastSet<T> {

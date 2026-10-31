@@ -1,5 +1,3 @@
-//! Minting: the two signing keys, the two expiry windows, and the pair sharing one `tid`.
-
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -19,8 +17,6 @@ pub(super) struct Keys {
     refresh_expiry_secs: i64,
 }
 
-/// Called from [`crate::ApiState::new`] with `[control.session]`. One control
-/// plane per process, so the first call wins and later calls are ignored.
 pub fn configure(session: &SessionConfig) {
     let _ = CONFIG.set(Keys {
         signing: session.signing_key.as_bytes().to_vec(),
@@ -52,7 +48,6 @@ impl Keys {
     }
 }
 
-/// Issue a brand-new pair; every pair gets a new `tid`, the handle a later logout blacklists.
 pub fn mint_token_pair(
     uid: Uuid,
     username: &str,
@@ -67,8 +62,6 @@ pub fn mint_token_pair(
     )
 }
 
-/// The pair behind a refresh: BaaS re-issues with the same `tid` and `iat`, so
-/// a token family keeps one revocation handle across refreshes.
 pub fn mint_token_pair_with(
     uid: Uuid,
     username: &str,
@@ -79,8 +72,6 @@ pub fn mint_token_pair_with(
     pair(uid, username, tid, iat, vars)
 }
 
-/// `iat` is the moment the family was created while both expiries count from
-/// now, so a refreshed token is not born already past its `exp`.
 fn pair(
     uid: Uuid,
     username: &str,

@@ -1,6 +1,3 @@
-//! Auto-registered bindings for `/v2/console/audit/log` and
-//! `/v2/console/acl/template`.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -32,7 +29,6 @@ impl ConsoleAuditController {
             .into_response()
     }
 
-    /// The usernames the audit view filters by, grouped from the trail itself.
     #[get("/log/users")]
     async fn list_users(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();

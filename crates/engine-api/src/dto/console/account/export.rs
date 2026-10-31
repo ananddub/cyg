@@ -1,6 +1,3 @@
-//! The export/import document: everything the console holds about one account, in
-//! the shape `import_account` reads back.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -9,12 +6,6 @@ use crate::repositories::models::Users;
 
 use super::row::{AccountNoteRow, WalletLedgerRow};
 
-/// `GET /v2/console/account/{id}/export` and the body of
-/// `POST /v2/console/account/import`: everything the console holds about one
-/// account, so an account can be moved between deployments and come back whole.
-///
-/// Absent optional columns stay `null` (unlike [`AccountRow`], which flattens them
-/// for display) — an import must be able to tell "no email" from "empty email".
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccountExport {
     pub account: ExportedAccount,
@@ -43,8 +34,6 @@ impl Default for AccountExport {
     }
 }
 
-/// The account row of an export. `password` is absent by construction: a stored
-/// credential must never leave the server, and a re-import sets a fresh one.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ExportedAccount {
     pub id: Uuid,
@@ -116,7 +105,6 @@ impl From<Users> for ExportedAccount {
     }
 }
 
-/// One sign-in provider row of an export, keyed the way the device table is.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExportedDevice {
     pub id: String,
@@ -124,8 +112,6 @@ pub struct ExportedDevice {
     pub provider: String,
 }
 
-/// One stored object of an export. The owner is the account being exported, so it
-/// is not repeated per object.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ExportedStorage {
     pub collection: String,
@@ -139,7 +125,6 @@ pub struct ExportedStorage {
     pub update_time: DateTime<Utc>,
 }
 
-/// One friendship or group membership the account is the source of.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ExportedEdge {
     pub destination_id: Uuid,

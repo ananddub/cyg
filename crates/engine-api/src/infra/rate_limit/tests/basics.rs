@@ -69,7 +69,5 @@ fn ipv4_and_ipv6_and_mapped_ipv4_never_share_a_bucket() {
         assert!(!l.allow(addr), "{addr} is exhausted on its own");
     }
     assert_eq!(l.tracked(), 3, "three sources, three buckets");
-    // Exhausting the IPv4 address must not lock out the mapped form a dual-stack
-    // listener hands back for the same client: separate keys on purpose.
     assert!(l.retry_after(v6) >= 1);
 }

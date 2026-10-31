@@ -1,41 +1,12 @@
-//! The query language an index answers: space-separated terms, each either
-//! `field:value` (equality) or `field:[min TO max]` (a range; a `{` or `}` side
-//! makes it exclusive). Values are compared as text, and as numbers when both
-//! sides are numbers — the JSONB column holds whatever the object value held.
-
 use crate::error::V2Error;
+use crate::repositories::storage::{StorageIndexBound as Bound, StorageIndexTerm as Term};
 
 pub(super) const PARSE_MESSAGE: &str = "Failed to parse the index query.";
-
-/// One term of a query: the value key it constrains and how.
-#[derive(Debug, Clone)]
-pub(super) enum Term {
-    Eq {
-        field: String,
-        text: String,
-        /// The same value read as a number, when it is one.
-        number: Option<String>,
-    },
-    Range {
-        field: String,
-        lower: Option<Bound>,
-        upper: Option<Bound>,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct Bound {
-    pub(super) text: String,
-    pub(super) number: Option<String>,
-    pub(super) inclusive: bool,
-}
 
 fn as_number(text: &str) -> Option<String> {
     text.parse::<f64>().ok().map(|n| n.to_string())
 }
 
-/// Split a query into terms; an empty query matches everything the caller may see.
-/// A bracketed range keeps its spaces — a term only ends at whitespace outside it.
 pub(super) fn parse(query: &str) -> Result<Vec<Term>, V2Error> {
     let mut terms = Vec::new();
     for token in split_terms(query) {

@@ -1,6 +1,3 @@
-//! The match read surface shapes the reference server's wire JSON and validates the query the way
-//! the reference server does, before it ever reads the registry.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -35,7 +32,6 @@ fn a_labeled_snapshot_prints_the_full_api_match() {
     assert_eq!(value["label"], "lobby");
     assert_eq!(value["size"], 2);
     assert_eq!(value["tick_rate"], 15);
-    // No handler name exists on a relay match, so the key is absent, not empty.
     assert!(value.get("handler_name").is_none());
 }
 
@@ -114,8 +110,6 @@ fn the_size_bounds_are_validated_against_the_reference_wording() {
 fn a_default_list_reads_the_registry_and_answers_an_array() {
     let service = MatchQueryService;
     let Json(body) = service.list_matches(ListMatchesParams::default()).unwrap();
-    // Tolerant of other matches live in the process-wide registry: the shape is the
-    // contract here, not the count.
     assert!(body.matches.iter().all(|m| !m.authoritative));
 }
 
@@ -150,6 +144,5 @@ fn matchmaker_stats_reports_the_real_queue_shape() {
     let Json(stats) = MatchQueryService.matchmaker_stats();
     let value = serde_json::to_value(&stats).unwrap();
     assert!(value["ticket_count"].is_number());
-    // Completion history is genuinely absent, so the key is skipped, not fabricated.
     assert!(value.get("completions").is_none() || value["completions"].is_array());
 }

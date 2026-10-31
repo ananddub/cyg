@@ -1,28 +1,22 @@
-//! `GET /v2/tournament` — the tournament browser.
-//!
-//! BaaS answers from its leaderboard cache, sorted by start, latest end, then category and id,
-//! with a cursor naming the last tournament given out; an unknown cursor leaves an empty page.
-
 use axum::Json;
 use chrono::{DateTime, Utc};
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::{DbError, time};
 use crate::dto::tournament::{ListQuery, TournamentListResponse, TournamentResponse};
 use crate::error::V2Error;
+use crate::repositories::db::{params, ts};
 use crate::repositories::models::Leaderboard;
-use crate::services::auth::q;
-use crate::services::leaderboard::pool;
+use crate::services::deps::q;
 use crate::utils::leaderboard::at;
-use crate::utils::tournament::statement::PAGE_SQL;
+use crate::utils::tournament::statement::page_sql;
 use crate::utils::tournament::types::{
     BAD_CATEGORY_END, BAD_CATEGORY_ORDER, BAD_NUMBER, BAD_PAGE_LIMIT, BAD_TIME_ORDER,
     DEFAULT_CATEGORY_END, DEFAULT_PAGE_LIMIT, DEFAULT_TIME, PAGE_FAILED, decode_page_cursor,
     defaulted, limit, page_cursor,
 };
 
-/// The filters, resolved the way the cache reads them: categories bound the column, a start
-/// time of `-1` is no bound, and the end filter's mode picks which timestamp test is live.
 struct Bounds {
     category_start: i16,
     category_end: i16,
@@ -82,14 +76,14 @@ impl super::TournamentService {
         let cursor_id = decode_page_cursor(&req.cursor)?;
         let limit = limit(req.limit.as_deref(), DEFAULT_PAGE_LIMIT, BAD_PAGE_LIMIT)?;
 
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let bounds = bounds(&req, Utc::now())?;
 
         let anchor = match cursor_id {
             None => None,
             Some(id) => match queries.get_tournament(&id).await {
                 Ok(board) => Some(board),
-                Err(sqlx::Error::RowNotFound) => {
+                Err(DbError::NotFound) => {
                     return Ok(Json(TournamentListResponse::default()));
                 }
                 Err(error) => {
@@ -99,20 +93,25 @@ impl super::TournamentService {
             },
         };
 
-        let rows = sqlx::query_as::<_, Leaderboard>(PAGE_SQL)
-            .bind(bounds.category_start)
-            .bind(bounds.category_end)
-            .bind(bounds.start_from)
-            .bind(bounds.mode)
-            .bind(bounds.now)
-            .bind(bounds.end_bound)
-            .bind(anchor.is_some())
-            .bind(anchor.as_ref().map(|board| board.start_time))
-            .bind(anchor.as_ref().map(|board| board.end_time))
-            .bind(anchor.as_ref().map(|board| board.category))
-            .bind(anchor.as_ref().map(|board| board.id.as_str()))
-            .bind(limit + 1)
-            .fetch_all(pool(state)?)
+        let statement = page_sql(anchor.is_some());
+        let mut binds = params!(
+            category_start = bounds.category_start,
+            category_end = bounds.category_end,
+            start_from = ts(bounds.start_from),
+            mode = bounds.mode,
+            now = ts(bounds.now),
+            never = ts(time::epoch()),
+            end_bound = ts(bounds.end_bound),
+            limit = limit + 1,
+        );
+        if let Some(board) = &anchor {
+            binds.insert("anchor_start".to_string(), ts(board.start_time));
+            binds.insert("anchor_end".to_string(), ts(board.end_time));
+            binds.insert("anchor_category".to_string(), serde_json::json!(board.category));
+            binds.insert("anchor_id".to_string(), serde_json::json!(board.id));
+        }
+        let rows = queries
+            .all::<Leaderboard>(&statement, binds)
             .await
             .map_err(|error| {
                 tracing::error!("[v2] tournament list: {error}");
@@ -123,8 +122,6 @@ impl super::TournamentService {
     }
 }
 
-/// A page that came back full means there is more, and the cursor is the last
-/// tournament the caller was given.
 fn truncate(rows: Vec<Leaderboard>, limit: i64) -> Result<TournamentListResponse, V2Error> {
     let mut rows = rows;
     let has_more = rows.len() as i64 > limit;

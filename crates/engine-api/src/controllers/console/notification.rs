@@ -1,6 +1,3 @@
-//! Auto-registered binding for `/v2/console/notification` — a player's
-//! notifications, and sending one.
-
 use std::sync::Arc;
 
 use auto_route::controller;

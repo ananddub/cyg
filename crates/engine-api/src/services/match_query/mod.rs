@@ -1,10 +1,3 @@
-//! The read side of the match and matchmaker REST surface.
-//!
-//! This plane keeps matches and queued tickets in process registries, not in a
-//! database, so the logic here is only validation and shaping: read the registry
-//! through `services::match_handler` / `services::matchmaker` and print the reference
-//! server wire shapes. No query runs, no table is touched.
-
 use auto_di::singleton;
 use axum::Json;
 
@@ -17,7 +10,6 @@ use crate::dto::matches::{
 use crate::error::V2Error;
 use crate::services::realtime::{RealtimeMatchService, RealtimeMatchmakerService};
 
-/// The default page size, and the ceiling, both the reference server's.
 const DEFAULT_LIMIT: i64 = 10;
 const MAX_LIMIT: i64 = 100;
 
@@ -29,10 +21,6 @@ impl MatchQueryService {
         Self
     }
 
-    /// `GET /v2/match`. Validates first, exactly as the reference server does, then reads the
-    /// registry and applies the filters it can honour. The `query` label filter is
-    /// dropped: the reference server itself rejects label/query filtering for non-authoritative
-    /// matches, and every match on this plane is one.
     pub fn list_matches(&self, req: ListMatchesParams) -> Result<Json<MatchListResponse>, V2Error> {
         let limit = match req.limit {
             None => DEFAULT_LIMIT,
@@ -82,8 +70,6 @@ impl MatchQueryService {
         Ok(Json(MatchListResponse { matches }))
     }
 
-    /// `GET /v2/matchmaker/stats`. Reports the real queue; `completions` stays empty
-    /// because finished-ticket history is not kept here.
     pub fn matchmaker_stats(&self) -> Json<MatchmakerStatsResponse> {
         let snapshot = RealtimeMatchmakerService::get_stats();
         let matchsets: Vec<MatchsetStat> = snapshot

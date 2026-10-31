@@ -1,8 +1,3 @@
-//! `GET /v2/tournament/{tournament_id}` — a page of the round's records.
-//!
-//! The leaderboard listing aimed at the tournament's own window, with the tournament route's
-//! limits and two extra refusals: an ended board has no records, a non-tournament was never here.
-
 use axum::Json;
 use chrono::Utc;
 use uuid::Uuid;
@@ -15,7 +10,7 @@ use crate::dto::tournament::RecordsQuery;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::Leaderboard;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::leaderboard::records_list;
 use crate::utils::leaderboard::{number, query_window};
 use crate::utils::tournament::types::limit as bounded;
@@ -24,8 +19,6 @@ use crate::utils::tournament::types::{
     list_failure, owners,
 };
 
-/// Absent means ten, except when the caller named owners and handed back a
-/// cursor: then only the owner records are wanted and the page is not read.
 fn requested_limit(raw: Option<&str>, cursor: &str, owners: usize) -> Result<Option<i64>, V2Error> {
     match raw {
         Some(text) => Ok(Some(bounded(Some(text), DEFAULT_RECORD_LIMIT, BAD_LIMIT)?)),
@@ -49,7 +42,7 @@ impl super::TournamentService {
         let limit = requested_limit(req.limit.as_deref(), &req.cursor, owners.len())?;
         let override_expiry = number(req.expiry.as_deref(), BAD_EXPIRY)?;
 
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let board = load_tournament(&queries, id).await?;
         let end = board.end_time.timestamp();
         if override_expiry == 0 && end > 0 && end <= Utc::now().timestamp() {
@@ -70,7 +63,6 @@ impl super::TournamentService {
     }
 }
 
-/// The round's page, or the reason the round could not be read.
 async fn listed_records(
     queries: &Queries,
     board: &Leaderboard,

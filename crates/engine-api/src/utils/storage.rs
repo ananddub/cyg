@@ -1,9 +1,8 @@
-//! Storage helpers: the version hash, the row types and the checks run before a statement.
-
 use chrono::{DateTime, Utc};
-use md5::{Digest, Md5};
+use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::db::time;
 use crate::dto::storage::{ObjectId, WriteObject};
 use crate::error::V2Error;
 
@@ -24,37 +23,18 @@ pub const WRITE_REJECTED_MESSAGE: &str = "Storage write rejected.";
 pub const DELETE_REJECTED_MESSAGE: &str = "Storage delete rejected.";
 pub const CURSOR_MESSAGE: &str = "Malformed cursor was used.";
 
-/// the `expectedVersion`: the MD5 hex of the value bytes as they arrived.
-pub fn version_of(value: &str) -> String {
-    let mut hasher = Md5::new();
-    hasher.update(value.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct StorageRow {
-    pub collection: String,
-    pub key: String,
-    pub user_id: Uuid,
-    pub value: String,
-    pub version: String,
-    pub read: i16,
-    pub write: i16,
-    pub create_time: DateTime<Utc>,
-    pub update_time: DateTime<Utc>,
-}
-
-/// A row's state after a write statement ran, whether or not it changed it.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct WriteResult {
     pub write: i16,
     pub version: String,
+    #[serde(with = "time::iso")]
     pub create_time: DateTime<Utc>,
+    #[serde(with = "time::iso")]
     pub update_time: DateTime<Utc>,
+    #[serde(default)]
     pub applied: bool,
 }
 
-/// A write's value must be a JSON object and its permissions in range.
 pub fn check_write(object: &WriteObject) -> Result<(), V2Error> {
     if object.collection.is_empty() || object.key.is_empty() || object.value.is_empty() {
         return Err(V2Error::invalid_argument(INVALID_OBJECT_MESSAGE));
@@ -86,8 +66,6 @@ pub fn check_id(id: &ObjectId) -> Result<(), V2Error> {
     Ok(())
 }
 
-/// The owner an object id names; absent means the caller's own account, which is
-/// what the SDKs send for "my objects". Spelling out the nil UUID is refused, as BaaS does.
 pub fn read_owner(id: &ObjectId, caller: Uuid) -> Result<Uuid, V2Error> {
     if id.user_id.is_empty() {
         return Ok(caller);

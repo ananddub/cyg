@@ -56,15 +56,49 @@ pub fn load_config(path: &Path) -> std::io::Result<GameConfig> {
     if std::env::var("OX_AGONES").is_ok_and(|v| v == "1") {
         cfg.control.agones.enabled = true;
     }
-    // The account plane reads its DSN from the environment first: a container
-    // link sets `DATABASE_URL`, and no project should have to repeat a
+    // The account plane reads its target from the environment first: a
+    // container sets `SURREAL_*`, and no project should have to repeat a
     // password inside a committed config.toml.
-    for name in ["OX_DATABASE_URL", "DATABASE_URL"] {
-        if let Ok(url) = std::env::var(name)
-            && !url.is_empty()
+    for (name, field) in [
+        ("SURREAL_ENDPOINT", &mut cfg.control.session.database_endpoint),
+        ("SURREAL_NS", &mut cfg.control.session.database_ns),
+        ("SURREAL_DB", &mut cfg.control.session.database_db),
+        ("SURREAL_USER", &mut cfg.control.session.database_user),
+        ("SURREAL_PASS", &mut cfg.control.session.database_pass),
+        ("OX_BLOBS", &mut cfg.control.session.blobs),
+    ] {
+        if let Ok(v) = std::env::var(name)
+            && !v.is_empty()
         {
-            cfg.control.session.database_url = url;
-            break;
+            *field = v;
+        }
+    }
+    // SurrealKV's ceilings, in MiB; `0` lets the engine derive them from the
+    // host. Named `OX_DB_*` rather than `SURREAL_*`: the server's
+    // `SURREAL_SURREALKV_*` variables are in bytes and the embedded SDK never
+    // read them.
+    for (name, field) in [
+        (
+            "OX_DB_MEMTABLE_MIB",
+            &mut cfg.control.session.database_memtable_mib,
+        ),
+        ("OX_DB_CACHE_MIB", &mut cfg.control.session.database_cache_mib),
+    ] {
+        if let Ok(v) = std::env::var(name)
+            && let Ok(mib) = v.parse()
+        {
+            *field = mib;
+        }
+    }
+    // Pre-SurrealDB variable names, still honoured as endpoint aliases.
+    if cfg.control.session.database_endpoint.is_empty() {
+        for name in ["OX_DATABASE_URL", "DATABASE_URL"] {
+            if let Ok(url) = std::env::var(name)
+                && !url.is_empty()
+            {
+                cfg.control.session.database_endpoint = url;
+                break;
+            }
         }
     }
     for (name, field) in [

@@ -11,8 +11,6 @@ pub(super) fn server(root: &Path) -> StaticServer {
     StaticServer::new(root, &engine_config::GameConfig::default())
 }
 
-/// A throwaway directory under the system temp dir, removed again by `Drop`
-/// so a test that asserts cannot leave litter for the next run.
 pub(super) struct TempDir(PathBuf);
 
 impl TempDir {

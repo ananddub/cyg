@@ -5,13 +5,30 @@
 //! because a session token and a refresh token are not interchangeable: which key
 //! verifies a JWT is what says which one it is.
 
-/// Postgres DSN plus pool ceiling for the account plane. An empty
-/// `database_url` leaves `/v2/*` mounted but answering 503, so a game that
-/// needs no accounts still boots with no database at all.
+/// SurrealDB target for the account plane. An empty `database_endpoint` leaves
+/// `/v2/*` mounted but answering 503, so a game that needs no accounts still
+/// boots with no database at all.
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
-    pub database_url: String,
-    pub max_db_connections: u32,
+    /// `surrealkv://data/cyg` (embedded — one process per datastore),
+    /// `mem://` (tests), or `ws(s)://…` / `http(s)://…` (remote).
+    pub database_endpoint: String,
+    /// Namespace and database selected on that endpoint.
+    pub database_ns: String,
+    pub database_db: String,
+    /// Root credentials, used only for remote endpoints.
+    pub database_user: String,
+    pub database_pass: String,
+    /// SurrealKV memtable ceiling in MiB, applied when the endpoint is
+    /// `surrealkv://`. A single transaction cannot exceed it. `0` keeps the
+    /// engine's own host-derived size, which is unbounded on a large host.
+    pub database_memtable_mib: u64,
+    /// SurrealKV block cache ceiling in MiB; `0` keeps the engine's default.
+    pub database_cache_mib: u64,
+    /// Where uploaded blobs live: `file:data/uploads` (disk, default embedded),
+    /// `memory://`, or a SurrealDB bucket backend URL (`s3:/bucket?…`). Empty
+    /// picks the embedded default; a remote endpoint needs it configured.
+    pub blobs: String,
     /// HS256 key for session tokens. `OX_SIGNING_KEY` overrides it.
     pub signing_key: String,
     /// HS256 key for refresh tokens. `OX_REFRESH_SIGNING_KEY` overrides it.
@@ -26,8 +43,16 @@ pub struct SessionConfig {
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
-            database_url: String::new(),
-            max_db_connections: 10,
+            database_endpoint: String::new(),
+            database_ns: "cyg".into(),
+            database_db: "cyg".into(),
+            database_user: String::new(),
+            database_pass: String::new(),
+            // Sized for a 500 MB tier: together they cap the engine's data
+            // memory at 96 MiB, well under what the host would otherwise pick.
+            database_memtable_mib: 64,
+            database_cache_mib: 32,
+            blobs: String::new(),
             signing_key: "defaultsigningkey".into(),
             refresh_signing_key: "defaultrefreshsigningkey".into(),
             server_key: "defaultkey".into(),

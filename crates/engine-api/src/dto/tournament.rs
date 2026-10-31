@@ -1,10 +1,3 @@
-//! `/v2/tournament*` — the tournament and tournament-list shapes, plus the two
-//! list queries.
-//!
-//! Fields print in declaration order, as the gateway prints them: every `uint32` is a
-//! JSON number absent when zero; timestamps are RFC3339, and `end_time` only exists when
-//! the board ends.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -30,7 +23,6 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
-/// the `api.Tournament`.
 #[derive(Debug, Serialize)]
 pub struct TournamentResponse {
     pub id: String,
@@ -75,8 +67,6 @@ pub struct TournamentResponse {
 }
 
 impl TournamentResponse {
-    /// The board as the tournament routes answer it: the row's own configuration
-    /// plus the three boundaries of the round `now` falls in.
     pub fn from_board(
         board: &Leaderboard,
         now: DateTime<Utc>,
@@ -116,17 +106,14 @@ impl TournamentResponse {
     }
 }
 
-/// A uint32 prints as a bare number, and not at all when it is zero.
 fn count(value: i64) -> Option<u32> {
     (value != 0).then(|| uint32(value))
 }
 
-/// Go's `uint32(x)` truncates rather than failing, and so does a cast.
 fn uint32(value: i64) -> u32 {
     value as u32
 }
 
-/// `api.TournamentList`, whose paging field is `cursor`, not `next_cursor`.
 #[derive(Debug, Default, Serialize)]
 pub struct TournamentListResponse {
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -135,7 +122,6 @@ pub struct TournamentListResponse {
     pub cursor: String,
 }
 
-/// `GET /v2/tournament` query.
 #[derive(Debug, Default, Deserialize)]
 pub struct ListQuery {
     #[serde(default)]
@@ -152,9 +138,6 @@ pub struct ListQuery {
     pub end_time: Option<String>,
 }
 
-/// `GET /v2/tournament/{tournament_id}` query. `limit` and `expiry` are nullable,
-/// so absent and zero differ, and a repeated `owner_ids` may arrive comma-separated or
-/// listed.
 #[derive(Debug, Default, Deserialize)]
 pub struct RecordsQuery {
     #[serde(default)]

@@ -1,10 +1,6 @@
-//! The group request shapes.
-
 use serde::Deserialize;
 use serde_json::Value;
 
-/// `POST /v2/group` body — the group shape. `metadata` is a JSON string on the wire,
-/// and `open` defaults to false.
 #[derive(Debug, Default, Deserialize)]
 pub struct CreateGroupRequest {
     #[serde(default)]
@@ -25,7 +21,6 @@ pub struct CreateGroupRequest {
     pub max_count: Option<i32>,
 }
 
-/// `PUT /v2/group/{group_id}` body — `apiUpdateGroup`.
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdateGroupRequest {
     #[serde(default)]
@@ -44,7 +39,6 @@ pub struct UpdateGroupRequest {
     pub open: Option<bool>,
 }
 
-/// The paging query shared by the three group list surfaces.
 #[derive(Debug, Default, Deserialize)]
 pub struct ListQuery {
     #[serde(default)]
@@ -57,16 +51,12 @@ pub struct ListQuery {
     pub state: Option<i16>,
     #[serde(default, alias = "langTag")]
     pub lang_tag: Option<String>,
-    /// A nullable boolean in the query string, so every spelling
-    /// `strconv.ParseBool` takes has to work here too.
     #[serde(default)]
     pub open: Option<String>,
     #[serde(default)]
     pub members: Option<i64>,
 }
 
-/// `POST /v2/group/{group_id}/add|kick|ban|promote|demote`: `?user_ids=` / `?userIds=`,
-/// the gateway filling a repeated field from either spelling of the name.
 #[derive(Debug, Default, Deserialize)]
 pub struct UsersQuery {
     #[serde(default, alias = "userIds")]

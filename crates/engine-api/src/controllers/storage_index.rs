@@ -1,9 +1,3 @@
-//! Auto-registered bindings for `/v2/storage/index*` — the storage-index plane.
-//!
-//! The reference server registers indexes from its runtime and queries them from the console;
-//! this is the same surface over player sessions: define an index, list the
-//! definitions, drop one, and read the objects an index matched.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -17,8 +11,6 @@ use crate::current_state;
 use crate::dto::storage_index::{CreateIndexRequest, IndexQueryRequest};
 use crate::services::storage::StorageService;
 
-/// Aliases so `auto_route` does not require `poem_openapi::Type` from the plain
-/// `serde` shapes; extraction and rejection are exactly `axum`'s.
 type JsonBody<T> = axum::extract::Json<T>;
 
 struct StorageIndexController {

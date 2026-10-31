@@ -1,6 +1,3 @@
-//! The role gates on the write routes. The role travels inside the token, so a
-//! refusal here is the gate's — and a request that passes one reaches the database.
-
 use uuid::Uuid;
 
 use crate::error::{FAILED_PRECONDITION, PERMISSION_DENIED, UNAUTHENTICATED};
@@ -16,7 +13,6 @@ fn a_write_needs_a_console_token() {
     let reply = server.post(&path, None, r#"{"reason":"test"}"#);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token required");
 
-    // A player session is not a console credential, in either realm.
     let reply = server.post(&path, Some(&player_token()), r#"{"reason":"test"}"#);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token invalid");
 
@@ -39,8 +35,6 @@ fn a_read_only_console_user_cannot_write() {
         "This console user has read-only access."
     );
 
-    // Reading stays open to the same token, which is what makes the refusal a role
-    // check rather than a broken credential.
     let reply = server.get("/v2/console/account", Some(&auth));
     assert_eq!(reply.status, 503, "{}", reply.body);
 }
@@ -48,7 +42,6 @@ fn a_read_only_console_user_cannot_write() {
 #[test]
 fn only_an_admin_manages_operators_settings_and_templates() {
     let server = V2Server::start(v2_state());
-    // A maintainer holds every write role's privileges, which stop short of these.
     let auth = token_for(ConsoleRole::Maintainer);
     let user = format!("/v2/console/user/{NOBODY}");
 
@@ -66,8 +59,6 @@ fn only_an_admin_manages_operators_settings_and_templates() {
         ("PUT", format!("/v2/console/acl/template/{NOBODY}"), "{}"),
         ("DELETE", format!("/v2/console/acl/template/{NOBODY}"), ""),
         ("DELETE", format!("/v2/console/account/{NOBODY}"), ""),
-        // `null` rather than `{}`: an export document has no optional top-level
-        // field, so a body that is not there is the one legal empty spelling.
         ("POST", "/v2/console/account/import".to_owned(), "null"),
         (
             "DELETE",
@@ -90,8 +81,6 @@ fn a_write_role_passes_the_gate_and_reaches_the_database() {
     let auth = token_for(ConsoleRole::Maintainer);
     let id = Uuid::new_v4();
 
-    // No database: 503 is the sound of a request that got past both the console
-    // token and the write role, which is exactly what the gate may not stop.
     for (method, path, body) in [
         (
             "POST",

@@ -1,10 +1,5 @@
-//! RFC 6238 test vectors and the shape of a generated secret, URI and recovery code.
-
 use super::*;
 
-/// RFC 6238 Appendix B: secret `12345678901234567890` (ASCII), SHA-1. The
-/// vectors are 8-digit, so the RFC fixes the HMAC and the truncation, and the
-/// 6-digit codes the console asks for are those values shortened.
 const RFC_SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 
 #[test]
@@ -28,7 +23,6 @@ fn rfc6238_vectors() {
 
 #[test]
 fn the_six_digit_code_is_the_vector_shortened() {
-    // 94287082 -> 287082: the last six digits, which is what `% 10^6` gives.
     assert_eq!(code_at(RFC_SECRET, 59).as_deref(), Some("287082"));
 }
 
@@ -53,7 +47,6 @@ fn a_code_is_accepted_one_step_either_side() {
 #[test]
 fn a_wrong_or_malformed_code_is_refused() {
     let now = 1_700_000_000_i64;
-    // A code that is the right shape but the wrong value.
     let wrong = if code_at(RFC_SECRET, now).as_deref() == Some("000000") {
         "111111"
     } else {
@@ -71,7 +64,6 @@ fn a_generated_secret_is_base32_and_unique() {
     let a = generate_secret();
     let b = generate_secret();
     assert_ne!(a, b);
-    // 20 bytes is exactly 32 base32 characters.
     assert_eq!(a.len(), 32);
     assert!(
         code_at(&a, 1_700_000_000).is_some(),
@@ -93,11 +85,9 @@ fn the_provisioning_uri_carries_what_an_app_reads() {
 fn a_recovery_code_hashes_to_the_stored_form() {
     let codes = generate_recovery_codes(8);
     assert_eq!(codes.len(), 8);
-    // 13 base32 characters in a 5-4-4 grouping: 13 + 2 dashes.
     assert!(codes.iter().all(|code| code.len() == 15), "{codes:?}");
     let stored = hash_recovery_code(&codes[0]);
     assert_eq!(stored.len(), 64, "sha256 hex");
-    // Case and surrounding space do not change what was written down.
     assert_eq!(hash_recovery_code(&format!(" {} ", codes[0])), stored);
     assert_ne!(hash_recovery_code(&codes[1]), stored);
 }

@@ -1,6 +1,3 @@
-//! Group surface helpers: id parsing, metadata decoding and the row→model projection
-//! that lets `apiUserGroup` reuse the group shape.
-
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -30,8 +27,6 @@ pub(crate) fn metadata_of(raw: Option<&String>) -> Result<Value, V2Error> {
     }
 }
 
-/// Project a `list_groups_for_user_paged` row onto `Groups` so the user-group edge can
-/// reuse [`crate::dto::group::GroupResponse`].
 pub(crate) fn as_groups(row: &ListGroupsForUserPagedRow) -> Groups {
     Groups {
         id: row.id,

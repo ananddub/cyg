@@ -1,10 +1,7 @@
-//! Ranks. BaaS keeps an in-memory skiplist per board and window; this derives
-//! the same number from the table — a rank is one more than the count of
-//! strictly better records, the tuple being broken by owner id.
-
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use crate::db::DbError;
 use crate::dto::leaderboard::RecordResponse;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
@@ -13,8 +10,6 @@ use crate::repositories::models::{Leaderboard, LeaderboardRecord};
 use crate::utils::leaderboard::types::{ascending, ranks_enabled};
 use crate::utils::leaderboard::wire::int64;
 
-/// A board with ranks disabled reports none: the rank cache is skipped
-/// entirely, and so is the count of ranks available.
 pub(super) async fn rank(
     queries: &Queries,
     board: &Leaderboard,
@@ -22,7 +17,7 @@ pub(super) async fn rank(
     score: i64,
     subscore: i64,
     owner_id: Uuid,
-) -> Result<i64, sqlx::Error> {
+) -> Result<i64, DbError> {
     if !ranks_enabled(board) {
         return Ok(0);
     }
@@ -45,7 +40,7 @@ pub(crate) async fn rank_of(
     queries: &Queries,
     board: &Leaderboard,
     record: &LeaderboardRecord,
-) -> Result<i64, sqlx::Error> {
+) -> Result<i64, DbError> {
     rank(
         queries,
         board,
@@ -61,7 +56,7 @@ pub(super) async fn ranks(
     queries: &Queries,
     board: &Leaderboard,
     rows: &[LeaderboardRecord],
-) -> Result<Vec<i64>, sqlx::Error> {
+) -> Result<Vec<i64>, DbError> {
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         out.push(rank_of(queries, board, row).await?);
@@ -69,7 +64,6 @@ pub(super) async fn ranks(
     Ok(out)
 }
 
-/// Rows and their ranks in board order, ready to print.
 pub(super) async fn wires(
     queries: &Queries,
     board: &Leaderboard,
@@ -77,7 +71,7 @@ pub(super) async fn wires(
 ) -> Result<Vec<RecordResponse>, V2Error> {
     let ranks = ranks(queries, board, rows)
         .await
-        .map_err(V2Error::from_sqlx)?;
+        .map_err(V2Error::from)?;
     Ok(rows
         .iter()
         .zip(ranks)
@@ -85,8 +79,6 @@ pub(super) async fn wires(
         .collect())
 }
 
-/// The number of records competing in this window, which is what the rank
-/// cache length reports as `rank_count`.
 pub(crate) async fn rank_count(
     queries: &Queries,
     board: &Leaderboard,
@@ -98,6 +90,6 @@ pub(crate) async fn rank_count(
     let count = queries
         .count_leaderboard_records(&board.id, window)
         .await
-        .map_err(V2Error::from_sqlx)?;
+        .map_err(V2Error::from)?;
     Ok(int64(count))
 }

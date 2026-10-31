@@ -1,13 +1,12 @@
-//! `apiFriendBlock` — `POST /v2/friend/block`.
-
 use axum::Json;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::friend::BlockUserEdgesParams;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social;
 
 use crate::dto::friend::TargetsQuery;
@@ -17,15 +16,13 @@ use super::super::FriendService;
 use super::resolve::{edge_state, resolve_targets};
 
 impl FriendService {
-    /// `POST /v2/friend/block?ids=&usernames=` — the `BlockFriends`: a block is
-    /// one-directional, and it destroys their edge to me unless they blocked me first.
     pub async fn block_friends(
         &self,
         state: &ApiState,
         auth: &Authed,
         req: TargetsQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let me = auth.0.uuid()?;
         let targets =
             match resolve_targets(&queries, me, &auth.0.un, &req, "Cannot block self.").await? {
@@ -41,11 +38,10 @@ impl FriendService {
         for target in targets {
             let mine = edge_state(&queries, me, target).await?;
             if mine.is_none() {
-                // BaaS inserts the block only when the target account exists.
                 match queries.get_user_by_id(target).await {
                     Ok(_) => {}
-                    Err(sqlx::Error::RowNotFound) => continue,
-                    Err(e) => return Err(V2Error::from_sqlx(e)),
+                    Err(DbError::NotFound) => continue,
+                    Err(e) => return Err(V2Error::from(e)),
                 }
             }
             queries

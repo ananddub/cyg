@@ -4,8 +4,6 @@ use crate::ApiState;
 use axum::Router;
 use axum::routing::post;
 
-/// The plane composes these routes with the other groups, so the ceiling must hold once
-/// merged into the plane rather than only guarding the standalone router.
 #[test]
 fn the_body_limit_and_the_seat_survive_being_merged_into_the_plane() {
     let state: ApiState = test_state(1000, 1000);

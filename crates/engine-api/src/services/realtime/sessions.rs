@@ -1,7 +1,3 @@
-//! Realtime Session Hub using lock-free `scc::HashMap` and `ahash`.
-//!
-//! Replaces legacy global `OnceLock<RwLock<Registry>>` with a lock-free `#[singleton]`.
-
 use auto_di::singleton;
 use std::sync::{Arc, OnceLock};
 use uuid::Uuid;
@@ -17,8 +13,6 @@ pub struct RealtimeSessionHub {
 
 #[singleton]
 impl RealtimeSessionHub {
-    /// Accessor for non-DI environments (the console ban path), the same
-    /// pattern [`super::presence::RealtimePresenceService::global`] uses.
     pub fn global() -> &'static RealtimeSessionHub {
         static INSTANCE: OnceLock<RealtimeSessionHub> = OnceLock::new();
         INSTANCE.get_or_init(RealtimeSessionHub::new)
@@ -59,12 +53,6 @@ impl RealtimeSessionHub {
         self.by_sid.read_sync(&sid, |_, s| s.clone())
     }
 
-    /// Kick every live socket of one user: each joined match is left properly
-    /// (the other members see the presence leave), an error frame names the
-    /// reason, and the socket is closed with every registry forgetting it.
-    /// Returns how many sockets went. The console ban path calls this right
-    /// after revoking the user's tokens, so a banned player leaves realtime
-    /// instead of at their next login.
     pub fn kick_user(&self, uid: Uuid, reason: &str) -> usize {
         let sessions = self.sessions_of(uid);
         for session in &sessions {
@@ -126,8 +114,6 @@ mod tests {
     use crate::infra::ws::envelope::Envelope;
     use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
-    /// One live socket registered under `uid`, with its reader end kept for
-    /// asserting what the kick delivered.
     fn registered_socket(uid: Uuid, name: &str) -> (Arc<Session>, UnboundedReceiver<String>) {
         let (tx, rx) = unbounded_channel::<String>();
         let session = Session::new(Uuid::new_v4(), uid, name.to_owned(), tx);
@@ -148,11 +134,8 @@ mod tests {
             RealtimeSessionHub::global().sessions_of(uid).is_empty(),
             "the registry forgets the user"
         );
-        // A different user's socket is untouched.
         assert_eq!(RealtimeSessionHub::global().sessions_of(stranger.uid).len(), 1);
 
-        // Each kicked socket first sees the error frame naming the reason, then
-        // the channel ends (the close swap dropped the live sender).
         for rx in [&mut rx_a] {
             let frame = rx.blocking_recv().expect("the error frame arrives");
             assert!(frame.contains("\"error\""), "frame: {frame}");
@@ -173,8 +156,6 @@ mod tests {
             .expect("the join lands");
         assert!(matches.match_exists(match_id));
 
-        // A second member stays in the match and is the one the presence
-        // leave event rides to.
         let (bystander, mut rx_bystander) = registered_socket(Uuid::new_v4(), "bystander");
         matches
             .join_match(&bystander, Some(match_id.to_string()), None, None, None)
@@ -183,9 +164,6 @@ mod tests {
         let kicked = RealtimeSessionHub::global().kick_user(uid, "Banned");
         assert_eq!(kicked, 1);
 
-        // The leave ran: the kicked member is gone from the match, and an
-        // empty match is retired by the same rule a manual leave follows —
-        // `get_snapshot` returning None here is the correct outcome too.
         if let Some(snapshot) = crate::services::realtime::RealtimeMatchService::get_snapshot(match_id) {
             assert!(
                 snapshot.members.iter().all(|m| m.user_id != uid.to_string()),
@@ -193,15 +171,11 @@ mod tests {
                 snapshot.members
             );
         }
-        // The kicked socket saw its join and leave confirmations, then the ban
-        // error, then the channel ends.
         let frames: Vec<String> = std::iter::from_fn(|| rx.blocking_recv()).collect();
         assert!(
             frames.iter().any(|f| f.contains("\"error\"")),
             "the ban error frame rides: {frames:?}"
         );
-        // The bystander saw the kicked member's presence leave. Its socket is
-        // still alive, so the read is bounded: join ack, then the leave event.
         let seen: Vec<String> =
             (0..2).filter_map(|_| rx_bystander.blocking_recv()).collect();
         assert!(
@@ -214,7 +188,6 @@ mod tests {
     fn kick_of_an_offline_user_is_a_quiet_zero() {
         let uid = Uuid::new_v4();
         assert_eq!(RealtimeSessionHub::global().kick_user(uid, "Banned"), 0);
-        // And an envelope dropped into a closed session is lost, not panic'd on.
         let (tx, rx) = unbounded_channel::<String>();
         let session = Session::new(Uuid::new_v4(), uid, "dying".into(), tx);
         session.close();

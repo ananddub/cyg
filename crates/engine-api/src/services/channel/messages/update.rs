@@ -1,14 +1,13 @@
-//! Message update.
-
 use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::DbError;
 use crate::dto::channel::{MessageResponse, UpdateRequest};
 use crate::error::V2Error;
 use crate::repositories::channel::UpdateChannelMessageParams;
-use crate::services::auth::q;
+use crate::services::deps::q;
 
 use crate::utils::channel::stream_of_channel;
 
@@ -28,7 +27,7 @@ impl ChannelService {
         assert_member(state, auth.0.uuid()?, &stream).await?;
         let id = Uuid::parse_str(message_id)
             .map_err(|_| V2Error::invalid_argument("Invalid message ID."))?;
-        let msg = q(state)?
+        let msg = q(state).await?
             .update_channel_message(&UpdateChannelMessageParams {
                 content: body.content,
                 id,
@@ -36,8 +35,8 @@ impl ChannelService {
             })
             .await
             .map_err(|e| match e {
-                sqlx::Error::RowNotFound => V2Error::not_found("Channel message not found."),
-                other => V2Error::from_sqlx(other),
+                DbError::NotFound => V2Error::not_found("Channel message not found."),
+                other => V2Error::from(other),
             })?;
         Ok(Json(MessageResponse::new(&msg, &stream)))
     }

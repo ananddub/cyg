@@ -1,16 +1,9 @@
-//! `matchmake` — the `ISeatReservation` reply and the flat-JSON body helpers.
-//!
-//! The reply is printed by hand rather than with `serde` because `iceServers` is a JSON
-//! blob that must reach the client as a nested string, not an escaped one.
-
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::ApiState;
 use crate::infra::seats::Seat;
 
-/// `ISeatReservation` plus the data-plane fields. Field order is irrelevant to
-/// `JSON.parse`, but `room` reached us through a URL and must be escaped.
 pub struct SeatResponse {
     pub name: String,
     pub session_id: String,
@@ -97,14 +90,10 @@ pub fn json_escape(value: &str) -> String {
     out
 }
 
-/// A JSON string literal for a value that is itself JSON text (the ICE server
-/// blob), so the client parses the outer object and then the inner one.
 fn json_string_literal(value: &str) -> String {
     format!("\"{}\"", json_escape(value))
 }
 
-/// Pull one string field out of a JSON body. Matchmake bodies are small and
-/// flat, and a malformed one must be a 400 from the caller, not a panic here.
 pub fn json_string_field(body: &str, key: &str) -> Option<String> {
     let value = serde_json::from_str::<serde_json::Value>(body).ok()?;
     value.get(key)?.as_str().map(str::to_string)

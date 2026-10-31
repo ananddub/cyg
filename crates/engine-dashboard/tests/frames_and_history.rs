@@ -38,7 +38,7 @@ fn histogram_add_lands_in_the_right_bucket() {
 }
 
 #[test]
-fn ws_frame_tags_are_hello_snapshot_goodbye() {
+fn ws_frame_tags_are_hello_snapshot_live_goodbye() {
     let hello = WsFrame::Hello {
         overview: Box::new(Overview::default()),
         ticks: Box::new(TickSeries::default()),
@@ -46,12 +46,21 @@ fn ws_frame_tags_are_hello_snapshot_goodbye() {
     };
     let snapshot = WsFrame::Snapshot { overview: Box::new(Overview::default()), ticks: Box::new(TickSeries::default()) };
     let goodbye = WsFrame::Goodbye { reason: "plane shutting down".into() };
+    let live = WsFrame::Live {
+        topic: "users".into(),
+        action: "create".into(),
+        record: "abc".into(),
+        seq: 7,
+    };
 
     let h = serde_json::to_value(&hello).unwrap();
     assert_eq!(h["type"].as_str(), Some("hello"));
     assert_eq!(h["protocol"].as_u64(), Some(WS_PROTOCOL as u64));
     assert!(h["overview"].is_object() && h["ticks"].is_object());
     assert_eq!(serde_json::to_value(&snapshot).unwrap()["type"].as_str(), Some("snapshot"));
+    let l = serde_json::to_value(&live).unwrap();
+    assert_eq!(l["type"].as_str(), Some("live"));
+    assert!(l.get("overview").is_none() && l.get("ticks").is_none(), "a live frame is an invalidation, not a snapshot");
     let g = serde_json::to_value(&goodbye).unwrap();
     assert_eq!(g["type"].as_str(), Some("goodbye"));
     assert_eq!(g["reason"].as_str(), Some("plane shutting down"));

@@ -1,8 +1,3 @@
-//! Auto-registered bindings for `/v2/notification*`.
-//!
-//! Methods return `Response` (not `Json<T>`) so `auto_route` does not require
-//! the payload type to implement `poem_openapi`'s `Type`.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -32,9 +27,6 @@ impl NotificationController {
         self.service.list(&state, &auth, req).await.into_response()
     }
 
-    /// Ids reach this route two ways: repeated `?ids=` pairs — which a struct
-    /// field cannot capture, since urlencoded structs keep one value per key —
-    /// and a JSON body. Both are merged.
     #[delete("")]
     async fn delete_notifications(
         &self,

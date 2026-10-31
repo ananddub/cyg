@@ -1,5 +1,3 @@
-//! Auto-registered bindings for `/v2/friend*`.
-
 use std::sync::Arc;
 
 use auto_route::controller;

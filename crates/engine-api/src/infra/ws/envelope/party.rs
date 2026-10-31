@@ -1,5 +1,3 @@
-//! Party reply payloads.
-
 use serde::{Deserialize, Serialize};
 
 use super::presence::Presence;

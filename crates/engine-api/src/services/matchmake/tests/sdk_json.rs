@@ -41,8 +41,6 @@ fn a_reservation_carries_every_field_the_sdk_needs() {
         !v["sessionId"].as_str().unwrap().is_empty(),
         "sessionId identifies the seat"
     );
-    // The ICE blob is a JSON *string* containing JSON — the shape the
-    // in-transport matchmake emitted, so a client parses it a second time.
     let ice = v["iceServers"].as_str().expect("iceServers is a string");
     let parsed: serde_json::Value = serde_json::from_str(ice).unwrap();
     assert_eq!(

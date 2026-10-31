@@ -1,7 +1,3 @@
-//! Auto-registered bindings for `/v2/account/link*`.
-//!
-//! Plane state comes from `current_state` because the auto-registered router is stateless.
-
 use std::sync::Arc;
 
 use auto_route::controller;

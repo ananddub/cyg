@@ -1,8 +1,3 @@
-//! Auto-registered bindings for `/v2/console/group*`.
-//!
-//! A group belongs to the game its creator plays in, so every route that names
-//! one checks the workspace's tenant before reading or deleting it.
-
 use std::sync::Arc;
 
 use auto_route::controller;

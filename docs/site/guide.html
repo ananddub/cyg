@@ -74,7 +74,9 @@
     <tr><td><code>max_clients</code> / <code>max_rooms</code></td><td>per-process capacity caps</td></tr>
     <tr><td><code>width</code> / <code>height</code></td><td>default world bounds handed to rooms</td></tr>
     <tr><td><code>[control] api_port</code></td><td>matchmake + signaling + /v2 API + console</td></tr>
-    <tr><td><code>[control.session] database_url</code></td><td>Postgres for accounts, chat, everything BaaS</td></tr>
+    <tr><td><code>[control.session] database_endpoint</code></td><td>SurrealDB for accounts, chat, everything BaaS — embedded <code>surrealkv://data/cyg</code> by default, or <code>ws://host:8000</code> for a remote server</td></tr>
+    <tr><td><code>[control.session] database_memtable_mib</code> / <code>database_cache_mib</code></td><td>memory ceilings for the embedded SurrealKV engine, in MiB (defaults 64 / 32) — the engine otherwise sizes itself from the host's RAM; <code>0</code> restores that</td></tr>
+    <tr><td><code>[control.session] blobs</code></td><td>where uploaded WASM modules and map assets live — <code>file:data/uploads</code> on disk, <code>memory://</code>, or an <code>s3:/bucket?region=…&amp;prefix=…</code> URL (a remote SurrealDB needs <code>--allow-experimental files</code>); empty picks the embedded default</td></tr>
     <tr><td><code>game_id</code> / <code>game_key</code></td><td>which registered game (games table) this process hosts — required the moment your database has 2+ games</td></tr>
     <tr><td><code>permissions</code></td><td>gates the <code>sys_*</code> host imports (physics, logging, …)</td></tr>
   </table>
@@ -486,7 +488,7 @@ room.ping((rttMs) => {}); room.leave(/*consented*/ true);</pre>
 <section id="deploy"><div class="wrap">
   <h2><span>14</span>Deployment</h2>
 <pre><span class="c"># one VPS ($10/mo class serves ~4k realistic combat CCU @60 Hz)</span>
-docker compose up -d            <span class="c"># postgres + redis + server, repo mounted</span>
+docker compose up -d            <span class="c"># the server, repo mounted (embedded SurrealDB)</span>
 <span class="c"># open in firewall: cfg.port/udp, quic_port/udp, 7778/udp, api_port/tcp</span></pre>
   <ul>
     <li><b>Secrets:</b> real <code>[control.session]</code> signing keys + console credentials; the server refuses default secrets unless <code>OX_ALLOW_DEFAULT_SECRETS=1</code> (dev only).</li>

@@ -13,14 +13,10 @@ pub(super) struct TestServer {
 }
 
 impl TestServer {
-    /// Serve the auto-registered plane built for `state`: the converted
-    /// controllers read it through `current_state()`, exactly as `serve` does.
     pub(super) fn start(state: ApiState) -> TestServer {
         Self::start_with(state, Router::new())
     }
 
-    /// Serve the auto-registered plane merged with `extra` the way `ControlPlane::spawn`
-    /// does, bound to a real port with the peer address available.
     pub(super) fn start_with(state: ApiState, extra: Router) -> TestServer {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -32,8 +28,6 @@ impl TestServer {
             .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
             .unwrap();
         let addr = listener.local_addr().unwrap();
-        // `ConnectInfo` is what the bucket is charged from, so the test has
-        // to serve exactly the way this plane is meant to be served.
         let app = routes.into_make_service_with_connect_info::<SocketAddr>();
         rt.spawn(async move {
             let _ = axum::serve(listener, app).await;
@@ -41,7 +35,6 @@ impl TestServer {
         TestServer { addr, rt: Some(rt) }
     }
 
-    /// One blocking HTTP POST with `Connection: close`, read to EOF.
     pub(super) fn post(&self, path: &str, body: &str) -> (u16, Vec<(String, String)>, String) {
         let mut stream = TcpStream::connect(self.addr).expect("connect");
         stream

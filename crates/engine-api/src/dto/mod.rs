@@ -1,8 +1,3 @@
-//! The wire contract: every type that crosses the client boundary.
-//!
-//! One file per domain, plain `serde` data — the one home for any request or
-//! response shape, plus the `From`/`from_rows` conversions that map a row onto it.
-
 use serde::Serialize;
 
 pub mod account;
@@ -26,8 +21,6 @@ pub mod storage_index;
 pub mod tournament;
 pub mod user;
 
-/// An empty reply: the JSON object with no members that every endpoint with nothing
-/// to return answers with.
 #[derive(Debug, Default, Serialize)]
 pub struct Empty {}
 

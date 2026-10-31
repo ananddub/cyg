@@ -1,13 +1,3 @@
-//! `/v2/account/wallet` — the signed-in player reads their own currency document
-//! and ledger, and merges metadata onto ledger entries they already own.
-//!
-//! BaaS parity: `server/core_wallet.go`. The currency keys of a wallet are reserved:
-//! a player's write never moves a balance (that is what the console
-//! `POST /v2/console/account/{id}/wallet` is for), so a self-service call cannot
-//! mint currency. Mirroring the reference server, `updateWallets` is only ever reached by the
-//! server and the console, and the negative-balance guard there is enforced here on
-//! the console path too.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -18,8 +8,6 @@ use crate::dto::console::account::WalletLedgerRow;
 use crate::error::V2Error;
 use crate::repositories::console::ListWalletLedgerParams;
 
-/// How much of a player's own ledger one read returns. A trail is browsed, not
-/// paged, from the client.
 const LEDGER_PAGE: i64 = 100;
 
 impl super::AccountService {
@@ -28,7 +16,7 @@ impl super::AccountService {
         state: &ApiState,
         auth: &Authed,
     ) -> Result<Json<PlayerWalletResponse>, V2Error> {
-        let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
+        let queries = crate::services::deps::q(state).await?;
         let user = queries.get_user_by_id(auth.uid()).await?;
         let ledger = ledger_rows(&queries, auth.uid()).await?;
         Ok(Json(PlayerWalletResponse {
@@ -37,16 +25,13 @@ impl super::AccountService {
         }))
     }
 
-    /// Merge metadata onto the caller's own ledger entries. A `wallet_items` map
-    /// that would move a balance is refused: currency is the console's to grant.
     pub async fn update_wallet(
         &self,
         state: &ApiState,
         auth: &Authed,
         body: UpdatePlayerWalletRequest,
     ) -> Result<Json<PlayerWalletResponse>, V2Error> {
-        let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
-        let pool = state.db.as_ref().ok_or_else(V2Error::no_db)?;
+        let queries = crate::services::deps::q(state).await?;
 
         if let Some(items) = body.wallet_items.as_object() {
             if !items.is_empty() {
@@ -65,16 +50,11 @@ impl super::AccountService {
         for item in &body.ledger_items {
             let ledger_id = Uuid::parse_str(&item.id)
                 .map_err(|_| V2Error::invalid_argument("Invalid ledger item id."))?;
-            let changed = sqlx::query(
-                "UPDATE wallet_ledger SET metadata = $1, update_time = now() WHERE id = $2 AND user_id = $3;",
-            )
-            .bind(&item.metadata)
-            .bind(ledger_id)
-            .bind(uid)
-            .execute(pool)
-            .await
-            .map_err(V2Error::from_sqlx)?;
-            if changed.rows_affected() == 0 {
+            let changed = queries
+                .update_wallet_ledger_metadata(uid, ledger_id, item.metadata.clone())
+                .await
+                .map_err(V2Error::from)?;
+            if changed.is_empty() {
                 return Err(V2Error::not_found(
                     "That ledger entry does not belong to this account.",
                 ));

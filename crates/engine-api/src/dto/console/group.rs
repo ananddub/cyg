@@ -1,5 +1,3 @@
-//! Groups and their members, as the console lists them.
-
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
@@ -7,7 +5,6 @@ use uuid::Uuid;
 use crate::repositories::group::ListGroupUsersRow;
 use crate::repositories::models::Groups;
 
-/// A group. `state` is the open/closed flag; the console renders the name.
 #[derive(Debug, Serialize)]
 pub struct GroupRow {
     pub id: Uuid,
@@ -43,7 +40,6 @@ impl From<Groups> for GroupRow {
     }
 }
 
-/// One group member, with the group-edge state the member sits at.
 #[derive(Debug, Serialize)]
 pub struct GroupMemberRow {
     pub id: Uuid,
@@ -51,7 +47,6 @@ pub struct GroupMemberRow {
     pub display_name: String,
     pub avatar_url: String,
     pub metadata: serde_json::Value,
-    /// The group-edge state name: `superadmin`, `admin`, `member`, `join_request` or `banned`.
     pub state: &'static str,
     pub create_time: DateTime<Utc>,
     pub edge_update_time: Option<DateTime<Utc>>,
@@ -72,16 +67,12 @@ impl From<ListGroupUsersRow> for GroupMemberRow {
     }
 }
 
-/// `GET /v2/console/group/{id}/export` — one group whole: its row and its members.
-/// Mirrors the account export's document style (the thing plus everything hanging
-/// off it) at the group's smaller scope, since a group has only members and metadata.
 #[derive(Debug, Serialize)]
 pub struct GroupExport {
     pub group: GroupRow,
     pub members: Vec<GroupMemberRow>,
 }
 
-/// The `group_edge.state` names, in schema order.
 fn state_name(state: i16) -> &'static str {
     match state {
         0 => "superadmin",

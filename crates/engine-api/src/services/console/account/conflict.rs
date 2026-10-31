@@ -1,12 +1,6 @@
-//! Naming the clash an import can hit, from the schema's own constraint names.
-
 use crate::error::V2Error;
 
-/// Name the clash an import can hit. The schema's own constraint names are the only
-/// thing that says whether it was the id, an identity column or a device — and a
-/// caller needs to know which, because only some of them are fixable by editing the
-/// document.
-pub(super) fn import_conflict(e: sqlx::Error) -> V2Error {
+pub(super) fn import_conflict(e: crate::db::DbError) -> V2Error {
     let named = [
         ("users_pkey", "That account id already exists."),
         (
@@ -58,6 +52,6 @@ pub(super) fn import_conflict(e: sqlx::Error) -> V2Error {
     if V2Error::is_any_unique_violation(&e) {
         V2Error::already_exists("That account's id or one of its rows already exists.")
     } else {
-        V2Error::from_sqlx(e)
+        V2Error::from(e)
     }
 }

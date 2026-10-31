@@ -1,6 +1,3 @@
-//! Shared plumbing for the social endpoints: opaque list cursors, the scalar
-//! encodings, and the notification fan-out.
-
 mod notifications;
 mod paging;
 mod wire;

@@ -1,5 +1,3 @@
-//! Matchmaker request and reply payloads.
-
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};

@@ -31,7 +31,6 @@ fn rejoin_resumes_from_the_reconnection_token_too() {
     assert_eq!(minted(&state), 1);
 }
 
-/// The seat's room comes from the signature, not from the path segment.
 #[test]
 fn a_reconnect_cannot_jump_rooms_via_the_url() {
     let state = test_state(1000, 1000);
@@ -62,7 +61,7 @@ fn an_expired_or_tampered_token_is_refused() {
     let tampered = format!("{payload}.{}", flipped.iter().collect::<String>());
     let expired = {
         let mut r = SeatRegistry::new(DEV_SEAT_SECRET);
-        r.mint("tank-3d", 0).unwrap().token // ttl 0 => already expired
+        r.mint("tank-3d", 0).unwrap().token
     };
     for token in [
         tampered,

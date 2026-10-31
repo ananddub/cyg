@@ -1,14 +1,10 @@
-//! Notifications (`/v2/notification*`).
-//!
-//! BaaS parity: `server/api_notification.go`, `core_notification.go`. The client surface is
-//! read + delete, and pages go *forward*: `cacheableCursor` is the newest row's `(create_time, id)`.
-
 use auto_di::singleton;
 use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::DbError;
 use crate::dto::Empty;
 use crate::dto::notification::{
     DeleteRequest, ListQuery, NotificationListResponse, NotificationResponse,
@@ -18,7 +14,7 @@ use crate::repositories::notification::{
     ListNotificationsByCodePagedParams, ListNotificationsBySenderPagedParams,
     ListNotificationsPagedParams,
 };
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social::ts_head;
 
 use crate::utils::notification::{
@@ -35,8 +31,6 @@ impl NotificationService {
 }
 
 impl NotificationService {
-    /// `GET /v2/notification?limit=&cacheableCursor=` — the
-    /// `ListNotifications`.
     pub async fn list(
         &self,
         state: &ApiState,
@@ -50,11 +44,9 @@ impl NotificationService {
         };
         let cursor = decode_cursor(req.cacheable_cursor.as_deref())?;
         let (create_time, id_start) = cursor.unwrap_or((ts_head(), Uuid::nil()));
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let uid = claims.uid();
 
-        // One row past the limit is the "a page follows" signal; the extra row
-        // is dropped and the cursor resumes at the last row kept.
         let mut rows = match (req.sender_id.as_deref(), req.code) {
             (Some(sender), _) => {
                 let sender = Uuid::parse_str(sender)
@@ -97,7 +89,6 @@ impl NotificationService {
 
         let notifications: Vec<NotificationResponse> =
             rows.iter().map(NotificationResponse::from).collect();
-        // An empty page renews the cursor it was given, or offers an empty one.
         let cacheable_cursor = if let Some(last) = rows.last() {
             encode_cursor(last)
         } else {
@@ -112,8 +103,6 @@ impl NotificationService {
         }))
     }
 
-    /// `DELETE /v2/notification?ids=…` — the `DeleteNotifications`, which
-    /// deletes exactly the ids named and does nothing when the list is empty.
     pub async fn delete_many(
         &self,
         state: &ApiState,
@@ -121,14 +110,13 @@ impl NotificationService {
         req: DeleteRequest,
     ) -> Result<Json<Empty>, V2Error> {
         let uid = auth.0.uuid()?;
-        let queries = q(state)?;
+        let queries = q(state).await?;
         for id in flatten(req.ids) {
             delete_one(&queries, uid, id).await?;
         }
         Ok(Json(Empty {}))
     }
 
-    /// `DELETE /v2/notification/{id}` — the single-row form.
     pub async fn delete_one(
         &self,
         state: &ApiState,
@@ -137,7 +125,7 @@ impl NotificationService {
     ) -> Result<Json<Empty>, V2Error> {
         let id = Uuid::parse_str(id)
             .map_err(|_| V2Error::invalid_argument("Invalid notification ID."))?;
-        let queries = q(state)?;
+        let queries = q(state).await?;
         delete_one(&queries, auth.0.uuid()?, id).await?;
         Ok(Json(Empty {}))
     }
@@ -152,8 +140,8 @@ async fn delete_one(
         .delete_notification(uid, id)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => V2Error::not_found("Notification not found."),
-            other => V2Error::from_sqlx(other),
+            DbError::NotFound => V2Error::not_found("Notification not found."),
+            other => V2Error::from(other),
         })?;
     Ok(())
 }

@@ -1,10 +1,6 @@
-//! The GameCenter credential, checked one field at a time.
-
 use super::helpers::{V2Server, first_fields, server_key, v2_state};
 use crate::error::{INVALID_ARGUMENT, UNAUTHENTICATED};
 
-/// `CheckGameCenterID` is given six values, and the API layer asks for them in that
-/// order — the timestamp last, and only as "not zero".
 #[test]
 fn a_game_center_bundle_is_demanded_field_by_field() {
     let server = V2Server::start(v2_state());

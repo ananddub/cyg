@@ -1,6 +1,3 @@
-//! `apiUser` — the public view of an account, shared by the social reads and the
-//! `/v2/user` lookups.
-
 use std::borrow::Cow;
 
 use chrono::{DateTime, Utc};
@@ -10,8 +7,6 @@ use serde_json::Value;
 use crate::repositories::models::Users;
 use crate::services::social::{meta_str, ts, uid};
 
-/// The user columns a join may expose. [`UserResponse`] is built from this, so an edge
-/// listing and an account read emit the same shape — and neither can leak `wallet`/`email`.
 pub struct UserCols<'a> {
     pub id: Cow<'a, str>,
     pub username: &'a str,
@@ -44,8 +39,6 @@ impl<'a> From<&'a Users> for UserCols<'a> {
     }
 }
 
-/// The public user shape. The gateway omits default-valued members, so an
-/// empty string or a zero count is absent rather than `""` / `0`.
 #[derive(Debug, Serialize)]
 pub struct UserResponse {
     pub id: String,
@@ -60,7 +53,6 @@ pub struct UserResponse {
     pub location: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
-    /// A JSON string, because the wire type is a `string`: an object breaks stock SDKs.
     pub metadata: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edge_count: Option<i32>,
@@ -85,25 +77,20 @@ impl UserResponse {
         }
     }
 
-    /// The view of a stored account, as the `/v2/user` lookups emit it.
     pub fn from_row(user: &Users) -> Self {
         UserResponse::from_cols(&UserCols::from(user))
     }
 }
 
-/// `""` is dropped from the wire too, so it folds into "absent".
 fn non_empty(value: Option<&str>) -> Option<String> {
     value.filter(|s| !s.is_empty()).map(str::to_owned)
 }
 
-/// `GetUsers`: the rows that were found, in the order they were requested.
 #[derive(Debug, Serialize)]
 pub struct UserListResponse {
     pub users: Vec<UserResponse>,
 }
 
-/// `GET /v2/user` query: every multi-get key is a repeated field, which the gateway may
-/// deliver as repeated params, a JSON array or a comma-joined string.
 #[derive(Debug, Default, Deserialize)]
 pub struct GetUsersQuery {
     #[serde(default)]

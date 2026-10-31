@@ -1,8 +1,3 @@
-//! Auto-registered controllers for the telemetry surface: `/status` and `/api/rooms`.
-//!
-//! The routes live in [`crate::services::status`]; this file only binds them to
-//! paths through `auto_route`.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -47,10 +42,6 @@ impl RoomsController {
     }
 }
 
-/// Prometheus text exposition of the latest telemetry sample — the scrape
-/// target fleet monitors point at. Same data `/status` returns, wire format
-/// a Prometheus server ingests. Public like `/status`: the sample carries
-/// aggregate gauges, no player-identifying fields.
 struct MetricsController;
 
 #[controller("/metrics")]
@@ -85,8 +76,6 @@ impl MetricsController {
             gauge("cyg_deltas_dropped_full", "Deltas dropped (queue full)", snap.deltas_dropped_full.to_string());
             gauge("cyg_inputs_dropped", "Inputs dropped", snap.inputs_dropped.to_string());
         } else {
-            // No sample yet — emit the families with zero so scrapers see a
-            // stable schema from the first scrape.
             for name in [
                 "cyg_tick_hz_est", "cyg_nominal_tick_us", "cyg_tick_budget_p99_us",
                 "cyg_tick_overruns_total", "cyg_stage_sim_us", "cyg_players",

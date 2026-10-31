@@ -1,5 +1,3 @@
-//! `apiGroupUserList` — `GET /v2/group/{group_id}/user`.
-
 use axum::Json;
 use serde_json::{Value, json};
 
@@ -8,7 +6,7 @@ use crate::app::middleware::Authed;
 use crate::dto::group::{GroupUserListResponse, GroupUserResponse};
 use crate::error::V2Error;
 use crate::repositories::group::{ListGroupUsersByStatePagedParams, ListGroupUsersPagedParams};
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social::{self, limit};
 use crate::utils::group::{ROLE_BANNED, ROLE_SUPERADMIN, group_id};
 
@@ -18,7 +16,6 @@ use super::super::fetch_group;
 use super::GroupMemberService;
 
 impl GroupMemberService {
-    /// `GET /v2/group/{group_id}/user?state=&limit=&cursor=` — `apiGroupUserList`.
     pub async fn list_group_users(
         &self,
         state: &ApiState,
@@ -27,7 +24,7 @@ impl GroupMemberService {
         req: ListQuery,
     ) -> Result<Json<GroupUserListResponse>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state)?;
+        let queries = q(state).await?;
         fetch_group(&queries, gid).await?;
         let page = limit(
             req.limit,

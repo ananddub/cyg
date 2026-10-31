@@ -17,7 +17,6 @@ fn base64_matches_rfc4648_urlsafe_vectors() {
     assert_eq!(b64url(b"foob"), "Zm9vYg");
     assert_eq!(b64url(b"fooba"), "Zm9vYmE");
     assert_eq!(b64url(b"foobar"), "Zm9vYmFy");
-    // The two characters that differ from standard base64.
     assert_eq!(b64url(&[0xfb, 0xff]), "-_8");
 }
 

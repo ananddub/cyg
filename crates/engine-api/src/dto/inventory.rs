@@ -1,5 +1,3 @@
-//! Data Transfer Objects for the Inventory API.
-
 use crate::repositories::models::PlayerInventoryItem;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

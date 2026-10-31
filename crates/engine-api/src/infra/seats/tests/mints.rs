@@ -1,7 +1,5 @@
 use crate::infra::seats::*;
 
-/// The payload has no nonce, so without the expiry bump two same-second mints
-/// share a token, a sessionId, and one player identity on the game plane.
 #[test]
 fn two_clients_in_the_same_second_get_different_seats() {
     let mut r = SeatRegistry::new("secret");
@@ -28,8 +26,6 @@ fn mints_and_verifies_its_own_token() {
     assert_eq!(r.verify(&seat.token).unwrap().room, "tank-3d");
 }
 
-/// `reconnect` must hand back the sessionId the SDK already put into its
-/// WebSocket upgrade query, twice over if the page reloads twice.
 #[test]
 fn session_id_is_stable_across_repeated_verifies() {
     let mut r = SeatRegistry::new("secret");

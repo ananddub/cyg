@@ -1,15 +1,3 @@
-//! `DELETE /v2/console/iap/{vendor}/reset` and
-//! `DELETE /v2/console/subscription/{product_id}` — the two console writes that
-//! undo IAP state.
-//!
-//! A vendor's stored configuration lives in the `setting` table under
-//! `iap.{vendor}` (the console settings surface is the only credential store
-//! this crate has); a reset deletes that key. A subscription delete removes
-//! every subscription row for one product id: the schema links purchases to
-//! subscriptions by nothing at all — no foreign key, no shared id column — so
-//! purchase rows for the same product survive by design. The delete statement
-//! is hand-written raw sqlx.
-
 use axum::Json;
 
 use crate::ApiState;
@@ -19,7 +7,6 @@ use crate::error::V2Error;
 
 use super::Vendor;
 
-/// The setting key a vendor's stored configuration lives under.
 pub(super) fn config_key(vendor: &str) -> String {
     format!("iap.{vendor}")
 }
@@ -36,7 +23,7 @@ impl super::super::ConsoleService {
             V2Error::invalid_argument(format!("Unknown IAP vendor: {vendor_name}"))
         })?;
         let key = config_key(vendor_name);
-        if super::super::queries(state)?
+        if super::super::queries(state).await?
             .delete_setting(&key)
             .await?
             .rows_affected()

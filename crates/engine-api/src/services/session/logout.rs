@@ -1,6 +1,3 @@
-//! `POST /v2/session/logout` — a bearer route that blacklists the named token
-//! halves.
-
 use axum::Json;
 use axum::http::HeaderMap;
 
@@ -23,8 +20,6 @@ impl super::SessionService {
         let claims = session_claims(headers, state)?;
         let uid = claims.uuid()?;
 
-        // Each named token must parse *and* belong to the caller, or the request is
-        // rejected outright: blacklisting someone else's `tid` is not a logout.
         let (session_exp, session_id) = revocation(
             &req.token,
             jwt::parse_session,

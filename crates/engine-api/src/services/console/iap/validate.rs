@@ -1,12 +1,3 @@
-//! `POST /v2/console/iap/{vendor}/validate` — an operator verifies one vendor
-//! credential server-side and gets the parsed entity back.
-//!
-//! The reply shapes mirror the reference server: a purchase validation answers
-//! `api.ValidatePurchaseResponse` (`{"validated_purchases": [ … ]}`) and a
-//! subscription validation answers `api.ValidateSubscriptionResponse`
-//! (`{"subscription": …}`). Like the reference, `persist` defaults to true; an
-//! unpersisted validation touches no database at all.
-
 use axum::Json;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
@@ -23,8 +14,6 @@ use crate::utils::iap::{environment_of, epoch, hex_id};
 
 use super::Vendor;
 
-/// What the validation wrote is what it replies with — one of the two mirror
-/// shapes, decided by the request's `kind`.
 pub enum ValidatedReply {
     Purchase(Json<ValidatedPurchaseReply>),
     Subscription(Json<ValidatedSubscriptionReply>),
@@ -94,7 +83,7 @@ impl super::super::ConsoleService {
             ));
         }
         let uid = super::super::id(raw_id, "account")?;
-        let queries = super::super::queries(state)?;
+        let queries = super::super::queries(state).await?;
         queries.get_user_by_id(uid).await?;
         let product_id = body.product_id.clone().unwrap_or_default();
         let transaction_id = hex_id(credential);

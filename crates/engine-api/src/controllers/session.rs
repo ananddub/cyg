@@ -1,8 +1,3 @@
-//! Auto-registered bindings for `/v2/account/session/refresh` and `/v2/session/logout`.
-//!
-//! Methods return `Response` (not `Json<T>`) so `auto_route` does not require the
-//! payload type to implement `poem_openapi`'s `Type`.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -25,7 +20,6 @@ impl SessionController {
         Self { service }
     }
 
-    /// `POST /v2/account/session/refresh` — server key in, fresh token pair out.
     #[post("/account/session/refresh")]
     async fn refresh(&self, headers: HeaderMap, Body(req): Body<RefreshRequest>) -> Response {
         let state = current_state();
@@ -35,7 +29,6 @@ impl SessionController {
             .into_response()
     }
 
-    /// `POST /v2/session/logout` — bearer route that blacklists the named token halves.
     #[post("/session/logout")]
     async fn logout(&self, headers: HeaderMap, Body(req): Body<LogoutRequest>) -> Response {
         let state = current_state();

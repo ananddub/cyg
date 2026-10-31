@@ -1,10 +1,3 @@
-//! A handler's failure: one status code plus the shared `{"error":{…}}` envelope,
-//! so a browser can tell *why* a request was refused instead of guessing.
-//!
-//! The body matches `/v2`: a numeric `code` using the same gRPC convention as
-//! [`crate::error::V2Error`], a `message` and a `details` list, derived from the
-//! status code rather than a separate kind.
-
 use std::borrow::Cow;
 
 use axum::http::StatusCode;
@@ -17,8 +10,6 @@ pub struct ApiError {
     pub retry_after: Option<u32>,
 }
 
-/// The gRPC code a browser-facing status maps to, mirroring the `/v2` kinds so a
-/// client sees one numbering across the API. Unknown statuses report `INTERNAL`.
 fn grpc_code(status: StatusCode) -> u8 {
     match status {
         StatusCode::BAD_REQUEST => 3,
@@ -53,8 +44,6 @@ impl ApiError {
             retry_after: None,
         }
     }
-    /// 429 with the `Retry-After` the bucket computed, so a well-behaved page
-    /// backs off instead of retrying in a tight loop.
     pub fn rate_limited(retry_after_secs: u32) -> ApiError {
         ApiError {
             status: StatusCode::TOO_MANY_REQUESTS,
@@ -66,8 +55,6 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        // Serialised, not `{:?}`: a debug-escape is not JSON, so a message with a
-        // quote or a non-ASCII char would reach the browser as `\"` and `\u…` text.
         let fallback = ErrorBody {
             error: ErrorDetails {
                 code: 13,

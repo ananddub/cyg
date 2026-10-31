@@ -1,18 +1,15 @@
-//! `PUT /v2/account` and the password change that goes with it.
-//!
-//! Profile fields are one `COALESCE` statement, so an omitted field keeps its value;
-//! the custom id is separate because its unique index can collide with another account.
-
 use axum::Json;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::DbError;
 use crate::dto::Empty;
 use crate::dto::account::{
     AccountResponse, GetAccountQuery, UpdateAccountRequest, UpdatePasswordRequest,
 };
 use crate::error::V2Error;
 use crate::infra::jwt;
+use crate::repositories::account::UpdateAccountParams;
 
 impl super::AccountService {
     pub async fn update_account(
@@ -22,8 +19,7 @@ impl super::AccountService {
         _params: GetAccountQuery,
         req: UpdateAccountRequest,
     ) -> Result<Json<AccountResponse>, V2Error> {
-        let db = state.db.as_ref().ok_or_else(V2Error::no_db)?;
-        let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
+        let queries = crate::services::deps::q(state).await?;
         let uid = auth.uid();
         let existing = queries.get_user_by_id(uid).await?;
 
@@ -33,35 +29,34 @@ impl super::AccountService {
             Some(raw) => serde_json::from_str(raw)
                 .map_err(|_| V2Error::invalid_argument("invalid account metadata"))?,
         };
-        sqlx::query(
-            "UPDATE users SET display_name = COALESCE($2, display_name), avatar_url = COALESCE($3, avatar_url), \
-             lang_tag = COALESCE($4, lang_tag), location = COALESCE($5, location), timezone = COALESCE($6, timezone), \
-             metadata = $7, username = COALESCE($8, username), update_time = now() WHERE id = $1",
-        )
-        .bind(uid)
-        .bind(req.display_name)
-        .bind(req.avatar_url)
-        .bind(req.lang_tag)
-        .bind(req.location)
-        .bind(req.timezone)
-        .bind(metadata)
-        .bind(req.username)
-        .execute(db)
-        .await?;
+        let display_name = req.display_name.or(existing.display_name);
+        let avatar_url = req.avatar_url.or(existing.avatar_url);
+        let lang_tag = req.lang_tag.or(Some(existing.lang_tag));
+        let location = req.location.or(existing.location);
+        let timezone = req.timezone.or(existing.timezone);
+        let username = req.username.unwrap_or(existing.username);
+        queries
+            .update_account(&UpdateAccountParams {
+                display_name,
+                avatar_url,
+                lang_tag,
+                location,
+                timezone,
+                metadata,
+                username,
+                id: uid,
+            })
+            .await?;
 
-        // A custom id may move between accounts only via unlink first, matching
-        // BaaS: the column has a unique index; a collision is already-exists.
         if let Some(cid) = req.custom_id.filter(|s| !s.is_empty()) {
-            sqlx::query("UPDATE users SET custom_id = $2 WHERE id = $1")
-                .bind(uid)
-                .bind(cid)
-                .execute(db)
+            queries
+                .set_custom_id(uid, &cid)
                 .await
-                .map_err(|e| match &e {
-                    sqlx::Error::Database(d) if d.message().contains("duplicate key") => {
+                .map_err(|e| match e {
+                    DbError::Unique(_) => {
                         V2Error::already_exists("custom id already in use by another account")
                     }
-                    _ => V2Error::from_sqlx(e),
+                    other => V2Error::from(other),
                 })?;
         }
 
@@ -79,7 +74,7 @@ impl super::AccountService {
         auth: &Authed,
         req: UpdatePasswordRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = state.q.clone().ok_or_else(V2Error::no_db)?;
+        let queries = crate::services::deps::q(state).await?;
         let user = queries.get_user_by_id(auth.uid()).await?;
         let stored = user.password.clone().unwrap_or_default();
         if stored.is_empty() || !jwt::verify_password(&req.current_password, &stored) {

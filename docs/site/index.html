@@ -114,7 +114,7 @@
     <a class="btn ghost" href="guide.html">Read the A-to-Z guide</a>
     <a class="btn ghost" href="#vs">How it compares</a>
   </div>
-  <pre><span class="c"># docker: postgres + redis + the server, live-mounted</span>
+  <pre><span class="c"># docker: the server, live-mounted (account plane on embedded SurrealDB)</span>
 just up                     <span class="c"># console → http://localhost:19224/dashboard/</span>
 just game coin-rush         <span class="c"># or run any example</span></pre>
 </div></header>
@@ -158,8 +158,8 @@ just game coin-rush         <span class="c"># or run any example</span></pre>
       (100 rooms × 100 players fits a 2-core / 2 GB pod at 128 Hz). Self-host on a
       $10/mo VPS or scale on Kubernetes.</p></div>
     <div class="card"><h3>Typed database layer</h3>
-      <p>FlashORM codegen: named SQL in <b>db/queries/*.sql</b> → typed repositories. Adding a domain
-      is write-the-SQL, run-gen, call-the-methods.</p></div>
+      <p>SurrealDB records declared once as typed structs, queries as named SurrealQL next to their
+      repositories. Adding a domain is declare-the-record, write-the-query, call-the-method.</p></div>
   </div>
 </div></section>
 
@@ -183,7 +183,7 @@ just game coin-rush         <span class="c"># or run any example</span></pre>
 
   <h3>Docker</h3>
 <pre>git clone https://github.com/your-org/openoxide-gaming && cd openoxide-gaming
-just up                     <span class="c"># postgres + redis + server, with examples/sky3d</span>
+just up                     <span class="c"># the server, with examples/sky3d (embedded SurrealDB)</span>
 <span class="c"># console → http://localhost:19224/dashboard/   (admin / change-me in dev)</span>
 just game coin-rush         <span class="c"># switch examples · just logs · just down</span></pre>
 
@@ -222,7 +222,10 @@ max_clients = 16
 api_port = 8124             <span class="c"># matchmake, signaling, console</span>
 
 [control.session]
-database_url = "postgresql://…"</pre>
+database_endpoint = "surrealkv://data/cyg"  <span class="c"># embedded; or ws://host:8000</span>
+database_memtable_mib = 64                  <span class="c"># 500 MB-tier ceilings</span>
+database_cache_mib = 32
+blobs = "file:data/uploads"                 <span class="c"># uploaded WASM modules + maps</span></pre>
 
   <h3>src/schema.ts — declare the state once</h3>
 <pre>const Player = schema({ pid: t.int64(), x: t.number(), y: t.number(), score: t.number() }, "Player");

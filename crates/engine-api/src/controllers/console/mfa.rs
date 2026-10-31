@@ -1,6 +1,3 @@
-//! Auto-registered bindings for `/v2/console/mfa` — the signed-in operator's own
-//! second factor.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -28,8 +25,6 @@ impl ConsoleMfaController {
         self.service.enrol_mfa(&state, &auth).await.into_response()
     }
 
-    /// Confirmation carries the code in the body rather than the query string, so a
-    /// digit that is briefly current does not end up in an access log.
     #[post("/verify")]
     async fn confirm(&self, auth: ConsoleAuthed, Body(body): Body<MfaCodeRequest>) -> Response {
         let state = current_state();

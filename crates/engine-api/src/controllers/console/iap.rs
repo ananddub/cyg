@@ -1,6 +1,3 @@
-//! Auto-registered bindings for `/v2/console/purchase`,
-//! `/v2/console/subscription` and `/v2/console/iap`.
-
 use std::sync::Arc;
 
 use auto_route::controller;

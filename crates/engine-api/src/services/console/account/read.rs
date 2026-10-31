@@ -1,5 +1,3 @@
-//! The reads over one account: the list, the row, its notes and its wallet ledger.
-
 use axum::Json;
 
 use crate::ApiState;
@@ -29,7 +27,7 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<AccountRow>, V2Error> {
-        let user = super::queries(state)?
+        let user = super::queries(state).await?
             .get_user_by_id(super::account_id(id)?)
             .await?;
         Ok(Json(AccountRow::from(user)))
@@ -40,7 +38,7 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<Vec<AccountNoteRow>>, V2Error> {
-        let rows = super::queries(state)?
+        let rows = super::queries(state).await?
             .list_user_notes(super::account_id(id)?)
             .await?;
         Ok(Json(rows.into_iter().map(AccountNoteRow::from).collect()))
@@ -52,7 +50,7 @@ impl super::ConsoleService {
         id: &str,
         page: Page,
     ) -> Result<Json<Vec<WalletLedgerRow>>, V2Error> {
-        let rows = super::queries(state)?
+        let rows = super::queries(state).await?
             .list_wallet_ledger(&ListWalletLedgerParams {
                 user_id: super::account_id(id)?,
                 limit: page.limit(),

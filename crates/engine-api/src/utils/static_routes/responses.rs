@@ -4,9 +4,6 @@ use axum::response::{IntoResponse, Response};
 use super::mime::content_type_for;
 
 pub(crate) fn file_response(path: &str, body: std::sync::Arc<Vec<u8>>) -> Response {
-    // `no-cache` rather than `immutable`: a page under development reloads
-    // against a rebuilt bundle, and the server side is already re-stamped per
-    // request, so revalidating costs a stat, not a read.
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,

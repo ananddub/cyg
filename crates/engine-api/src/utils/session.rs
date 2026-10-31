@@ -1,13 +1,8 @@
-//! Session surface helpers.
-
 use uuid::Uuid;
 
 use crate::error::V2Error;
 use crate::infra::jwt::Claims;
 
-/// The `tid` and `exp` to blacklist for one half of the pair. An un-named half is
-/// not an error, and [`crate::infra::session_cache::SessionCache::remove`] skips an
-/// empty id, so a logout naming only the refresh token leaves the session token alone.
 pub(crate) fn revocation(
     raw: &str,
     parse: fn(&str) -> Option<Claims>,

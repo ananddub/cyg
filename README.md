@@ -61,7 +61,7 @@ cyg-gaming run
 docker pull dubeyanand/cyg-gaming:v0.1.0
 ```
 
-**From source** (Postgres + Redis + the server, the repo is mounted live):
+**From source** (the server with embedded SurrealDB, the repo is mounted live):
 
 ```bash
 just up                 # start the stack with examples/sky3d
@@ -104,7 +104,10 @@ max_clients = 16
 api_port = 8124        # matchmake, signaling, console, dashboard
 
 [control.session]
-database_url = "postgresql://…"
+database_endpoint = "surrealkv://data/cyg"   # embedded; or ws://host:8000
+database_memtable_mib = 64                   # SurrealKV ceilings, see "Memory"
+database_cache_mib = 32
+blobs = "file:data/uploads"                  # uploaded WASM modules + maps
 ```
 
 `src/schema.ts` declares the state; codegen emits the typed server classes and the browser descriptor:
@@ -161,7 +164,7 @@ One process, one thread for the simulation, lock-free bus between planes:
 | Crate | What it is |
 |---|---|
 | `engine-server` | the host loop: WASM runtime, rooms, inbuilt ECS backend, RUDP, schema deltas, AOI |
-| `engine-api` | `/v2` player API + `/v2/console` + dashboard API (Axum, sqlx) |
+| `engine-api` | `/v2` player API + `/v2/console` + dashboard API (Axum, SurrealDB) |
 | `engine-control` | binds the plane: seats, signaling hub, Agones lifecycle |
 | `engine-net` | transports: WebRTC (str0m, sans-IO) + raw UDP, sendmmsg + UDP-GSO fan-out |
 | `engine-webrtc-protocol` | the shared wire: event/ack frames, SACK, lane classification |
@@ -181,7 +184,9 @@ One process, one thread for the simulation, lock-free bus between planes:
 trace, base-2µs histogram, per-lane queue depths, transport mix, per-game
 scoped). The simulation-stage span (average µs/tick inside the room-tick block)
 and a Prometheus **`/metrics`** endpoint ship in the binary — point any
-Prometheus scraper at it, no config.
+Prometheus scraper at it, no config. The same socket also carries the
+database's own change feed (see [Realtime](#realtime-change-feed)), so account
+views need no polling either.
 
 **Tenancy.** The console and the database serve many games; each process hosts one. A game workspace shows only that game's data — telemetry is refused for any other tenant ("This server hosts 'X', not the requested game"), and database views filter by `game_id`. Bind a process with `game_id`/`game_key` in config.toml.
 
@@ -189,13 +194,100 @@ Prometheus scraper at it, no config.
 
 ## Database
 
-Postgres today. **SQLite support is on the roadmap as an embedded mode** —
-FlashORM (the generator) already speaks SQLite, so a solo-dev "no Postgres
-needed" build is planned; production/SaaS deployments stay on Postgres.
+The account plane (`/v2/*`, `/ws`, the console API) runs on **SurrealDB**, and
+the binary embeds it: `database_endpoint = "surrealkv://data/cyg"` in
+`config.toml` keeps accounts, chat and leaderboards in a local directory, with
+no separate service to install. Point the same key at `ws://host:8000` (or set
+`SURREAL_ENDPOINT` plus `SURREAL_USER`/`SURREAL_PASS`) to run against a remote
+SurrealDB instead — same binary, local or cloud.
 
-### FlashORM
+### Memory (embedded)
 
-Schema lives in `db/schema/*.sql`, named queries in `db/queries/*.sql`; `flash gen` emits typed repositories into `crates/engine-api/src/repositories/` (runtime-checked, no live DB needed at build). Console services read/write through `state.q`; multi-statement transactions stay hand-written beside their services by convention. Adding a domain = write the `.sql`, run `flash gen`, call `state.q`.
+SurrealKV sizes its memtable and block cache from the **host's** total memory:
+on a 64 GiB machine it reserves up to 4 GiB + ~43 GiB of capacity, which no
+small deployment can hold. Two keys pin it instead:
+
+```toml
+[control.session]
+database_memtable_mib = 64   # largest memtable before a flush
+database_cache_mib = 32      # block cache capacity
+```
+
+Together they cap the engine's data memory at 96 MiB, which is what lets the
+whole process fit a 500 MB container. Both are ceilings rather than
+reservations (the memtable grows with writes, the cache with reads), a single
+transaction cannot exceed the memtable, and `0` restores host-derived sizing.
+They reach the engine through the datastore builder (`crates/engine-api/src/db/exec.rs`),
+and the startup log prints both the configured values and the bytes SurrealKV
+reports applying.
+
+### Schema and repositories
+
+Records are `#[derive(SurrealRecord)]` structs in
+`crates/engine-api/src/repositories/models.rs`; the server creates the tables and
+indexes it needs at boot. Queries are hand-written SurrealQL in
+`crates/engine-api/src/repositories/`, executed through the single `Datastore`
+handle (`crates/engine-api/src/db/`) so embedded engines hold exactly one
+connection. Console services read/write through `state.q`; multi-statement
+transactions stay hand-written beside their services by convention. Adding a
+domain = add the record, its queries, and call them from the service.
+
+### Blobs (uploads)
+
+Uploaded WASM room modules and map assets are **not** stored in table rows. Each
+row keeps only identity and metadata (`filename`, `format`, `sha256`,
+`size_bytes`, version, `is_active`, `source_code`, `blob_key`); the payload goes
+to a blob store under keys `wasm/{game_id}/{version}.wasm` and
+`maps/{game_id}/{version}.{format}`. `[control.session] blobs` selects it:
+
+| `blobs` | Under `mem://` | Under `surrealkv://` | Under a remote endpoint |
+|---|---|---|---|
+| empty (default) | Surreal `memory://` bucket | `data/uploads` on disk | unset — uploads answer 503 |
+| `file:data/uploads` (or `file:///abs/path`) | disk | disk | disk |
+| `memory://`, `s3:/bucket?…`, `gs:`, `az:` | Surreal bucket | Surreal bucket | Surreal bucket |
+
+`file:` is served by the process's own atomic writer; every other value becomes
+a `DEFINE BUCKET blobs BACKEND <url>` in the datastore and is read back with
+`file::*`. The S3/R2 form is `s3:/bucket?region=…&prefix=…&access_key=…&secret_key=…`
+(note the single slash — it is not `s3://bucket/prefix`). Buckets are an
+experimental SurrealDB feature: a **remote** server must be started with
+`--allow-experimental files`, and `file:` backends additionally need
+`SURREAL_BUCKET_FOLDER_ALLOWLIST`. An in-process `memory://` bucket is empty
+after a restart and per-process — use `s3:` or a shared `file:` path for
+multi-replica deployments.
+
+### Realtime (change feed)
+
+Console views do not poll the database for account rows. SurrealDB's
+`LIVE SELECT` runs inside the datastore and pushes changes to `/ws/dashboard`
+as `live` frames — `{ "type": "live", "topic", "action", "record", "seq" }`.
+The frame is an invalidation, never a row: a view that cares refetches what it
+shows, so large payloads stay off the wire. One live query runs per
+`(topic, game)` and every dashboard socket of that game shares it; when the
+last socket closes the stream is dropped, which kills the query — writes cost
+nothing extra while nobody is watching. A client that falls behind gets one
+`resync` event instead of silently missing changes.
+
+Topics are closed and server-side (`crates/engine-api/src/infra/realtime.rs`):
+a socket names one of `users`, `purchases`, `subscriptions`, `wallet_ledger` or
+`leaderboard` for its own game, never a table or a filter, so a subscription
+cannot widen past its tenant — and an unscoped socket (tooling, no `game_id`)
+receives telemetry only. The scoped socket opens all five feeds, so an account
+edit, an in-app purchase, a subscription renewal, a wallet change and a
+leaderboard submit each reach the open console. It works on both engine shapes,
+the embedded ones included.
+
+Player rows carry the tenant directly; store rows (`purchase`, `subscription`,
+`wallet_ledger`) copy it from the account that owns them at write time. Rows
+written before tenancy are claimed by the first boot that resolves the game
+(`services/games/tenant.rs`), accounts first, so the feeds are complete without
+a manual migration.
+
+The console turns each frame into a cache invalidation, trailing-debounced by
+300 ms (`dashboard/src/pages/console.tsx`), so a bulk import or a wallet sync
+costs one refetch and a closed view costs none. Live telemetry (overview, tick
+series) rides the same socket at 1 Hz; the room, client and worker lists are a
+separate read that polls every 5 s.
 
 ## Benchmarks (measured in a 2-core / 2 GB sandbox cgroup, release builds — published figures rounded below measured)
 
@@ -208,6 +300,38 @@ The same room runtime, scaled by which inbuilt backend carries the simulation �
 | Inbuilt ECS backend (movement) @128 Hz | 0.06 ms @100p | ~10k |
 
 2-core / 2 GB pod @128 Hz: 100 rooms × 100 players fits at 0.76× the tick budget, peak RAM 93 MB. Reproduce: `cargo run --release --example bench_ecs_128` / `bench_wasm_rapier_128` / `bench_potential` (under `taskset -c 0-1`).
+
+### Peak memory (`memory.peak`)
+
+`scripts/memory-bench.sh` boots the release binary inside its own cgroup v2
+scope and reads the kernel's figure, so nothing is estimated or sampled:
+
+```bash
+cargo build --release
+scripts/memory-bench.sh                          # db off + db on, 500 MiB cap, one CPU
+scripts/memory-bench.sh --scenario on --json
+scripts/memory-bench.sh --limit-mib 256 --settle 30
+```
+
+The room is the tracked AssemblyScript fixture, precompiled with `cyg-game
+build` before the clock starts, so the sample is a normal boot (AOT load, no
+compile). Each scenario gets a fresh scope (`MemoryMax`, `MemorySwapMax=0`,
+`AllowedCPUs`) and reports `memory.peak`, anonymous memory at settle time, the
+measured tick rate from `/metrics`, and the scope's `oom_kill` count; a run
+that trips the cap exits non-zero. Without a user systemd session it falls back
+to `VmHWM`/`VmRSS` and says so.
+
+| scenario | peak | steady (anon) | tick-Hz | oom_kill |
+|---|---|---|---|---|
+| db off | 21.7 MiB | 17.4 MiB | 30.92 | 0 |
+| db on, `surrealkv://`, 64/32 MiB | 144.6 MiB | 86.2 MiB | 29.86 | 0 |
+
+Measured on Linux 7.2 pinned to one CPU, empty room. `peak` covers the whole run
+including boot, so it is the number to budget against — SurrealKV's arenas
+account for the headroom above steady. `steady` is anonymous memory (what the
+process cannot hand back; the KV's file-backed pages are reclaimable), and a
+real game adds its own state on top. Peaks repeat within a few percent; the
+settle-time figure moves more as the allocator releases the boot spike.
 
 ## Testing
 
@@ -240,7 +364,6 @@ sdk/client/        web (cyg.js) + Unity/Unreal/Godot/native players
 sdk/server/        AssemblyScript (cyg-server.ts) + Lua/C/C++/Rust/C#/TS interfaces
 examples/          sky3d, blaster, coin-rush — complete runnable games
 docs/screenshots/  console captures used by this README
-db/                schema + FlashORM queries
 deploy/            Dockerfile + compose for the game container
 ROADMAP-DX.md      the working roadmap (where the project is heading)
 ```

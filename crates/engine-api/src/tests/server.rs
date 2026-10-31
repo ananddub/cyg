@@ -1,7 +1,3 @@
-//! A `/v2` plane on a real port, driven by blocking HTTP. The router is the one the
-//! control plane serves, so the extractors run in their real order — that order is
-//! the behaviour under test.
-
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
@@ -14,8 +10,6 @@ pub(super) struct V2Server {
     rt: Option<tokio::runtime::Runtime>,
 }
 
-/// One gateway reply. A refusal is read as the shape every `/v2` error has: an HTTP
-/// status naming the failure kind and an `{"error":{"code":…,"message":…,…}}` body.
 pub(super) struct Reply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
@@ -30,9 +24,6 @@ impl Reply {
             .map(|(_, v)| v.as_str())
     }
 
-    /// The message of a refusal whose HTTP status is the one this failure kind maps
-    /// to. Any other status, or a body that is not the `/v2` shape, fails the test
-    /// that asked.
     pub(super) fn refusal(&self, kind: ErrorKind) -> String {
         let value = self.json();
         assert_eq!(self.status, kind.status().as_u16(), "body: {}", self.body);
@@ -62,8 +53,6 @@ impl V2Server {
             .enable_all()
             .build()
             .unwrap();
-        // The `/v2` routes are auto-registered controllers now: installing the
-        // state and resolving the container is exactly what `serve` does.
         let routes = rt.block_on(crate::auto_router(state));
         let listener = rt
             .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
@@ -79,8 +68,6 @@ impl V2Server {
         self.send("POST", path, auth, body)
     }
 
-    /// `GET` with the same credential handling; the console's read routes are the
-    /// ones these tests exercise.
     pub(super) fn get(&self, path: &str, auth: Option<&str>) -> Reply {
         self.send("GET", path, auth, "")
     }
@@ -93,8 +80,6 @@ impl V2Server {
         self.send("DELETE", path, auth, "")
     }
 
-    /// Any method, for the routes that are neither a `GET` nor a `POST`. The body is
-    /// always sent, because the console decides what a write means from it.
     pub(super) fn send(&self, method: &str, path: &str, auth: Option<&str>, body: &str) -> Reply {
         let mut stream = TcpStream::connect(self.addr).expect("connect");
         stream

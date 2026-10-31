@@ -1,16 +1,15 @@
-//! `apiFriendAdd` — `POST /v2/friend`.
-
 use axum::Json;
 use serde_json::{Value, json};
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::friend::{
     IncrementPairEdgeCountParams, InsertFriendEdgeParams, UpdateFriendEdgeMetadataParams,
 };
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social;
 
 use crate::dto::friend::TargetsQuery;
@@ -20,14 +19,13 @@ use super::super::FriendService;
 use super::resolve::{edge_state, resolve_targets};
 
 impl FriendService {
-    /// `POST /v2/friend?ids=&usernames=&metadata=` — the `AddFriends`.
     pub async fn add_friends(
         &self,
         state: &ApiState,
         auth: &Authed,
         req: TargetsQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let me = auth.0.uuid()?;
         let targets =
             match resolve_targets(&queries, me, &auth.0.un, &req, "Cannot add self as friend.")
@@ -48,18 +46,14 @@ impl FriendService {
             .unwrap_or_else(|| json!({}));
 
         for target in targets {
-            // The core guards its insert with `EXISTS (SELECT id FROM users …)`.
             match queries.get_user_by_id(target).await {
                 Ok(_) => {}
-                Err(sqlx::Error::RowNotFound) => continue,
-                Err(e) => return Err(V2Error::from_sqlx(e)),
+                Err(DbError::NotFound) => continue,
+                Err(e) => return Err(V2Error::from(e)),
             }
 
             let mine = edge_state(&queries, me, target).await?;
             let theirs = edge_state(&queries, target, me).await?;
-            // Blocked in either direction, the request is ignored rather than
-            // refused — the only signal a blocked player gets is that nothing
-            // happens (core_friend.go `continue`s on a block it finds).
             if mine == Some(STATE_BLOCKED) || theirs == Some(STATE_BLOCKED) {
                 continue;
             }
@@ -87,9 +81,6 @@ impl FriendService {
                 continue;
             }
 
-            // A pair already in place re-adds nothing, and only a brand-new pair
-            // moves the edge counts — which `IncrementPairEdgeCount` enforces by
-            // matching the position these two rows were just written with.
             if mine.is_none() && theirs.is_none() {
                 let position = social::position_now();
                 queries

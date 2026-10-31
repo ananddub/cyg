@@ -61,11 +61,29 @@ host = "127.0.0.1"
 
 # BaaS-compatible account plane (/v2/account/*). Defaults match the own
 # config.yaml, so an unmodified BaaS SDK works unchanged.
-# Leave database_url empty (or unset DATABASE_URL) to keep the game running with
-# no accounts database; /v2 then answers 503.
+# The endpoint selects the storage engine: `surrealkv://data/cyg` runs embedded
+# (single process), `ws://host:8000` connects to a remote SurrealDB (cloud).
+# Leave it empty (or unset SURREAL_ENDPOINT) to keep the game running with no
+# accounts database; /v2 then answers 503.
 [control.session]
-database_url = ""
-max_db_connections = 10
+database_endpoint = ""
+database_ns = "cyg"
+database_db = "cyg"
+# database_user = "root"
+# database_pass = "…"
+# SurrealKV's memory ceilings in MiB (embedded endpoints only). The engine
+# would otherwise size itself from the *host's* memory — gigabytes of memtable
+# and cache on a large machine. These defaults hold the engine's data memory to
+# 96 MiB, which is what lets the whole process run in a 500 MB container. A
+# single transaction cannot exceed the memtable. `0` restores host-derived sizing.
+# database_memtable_mib = 64
+# database_cache_mib = 32
+# Where uploaded blobs (WASM room modules, maps) are stored. `file:data/uploads`
+# keeps them on local disk; `memory://` or an `s3:/bucket?…` URL uses a
+# SurrealDB bucket instead. Empty picks the embedded default: memory under
+# `mem://`, `data/uploads` next to a `surrealkv://` store, and nothing under a
+# remote endpoint (uploads then answer 503 until this is set).
+# blobs = "file:data/uploads"
 signing_key = "defaultsigningkey"
 refresh_signing_key = "defaultrefreshsigningkey"
 # Basic-auth credential the SDK sends on Authenticate* and SessionRefresh.

@@ -1,8 +1,3 @@
-//! The seven links that would need somebody else's answer.
-//!
-//! Each runs the checks up to the verification step and stops there with the status
-//! BaaS gives when that step fails; `vendor` says why this server cannot run it.
-
 use axum::Json;
 use axum::http::HeaderMap;
 
@@ -16,7 +11,6 @@ use crate::services::auth::social;
 use crate::utils::vendor;
 
 impl super::LinkService {
-    /// `POST /v2/account/link/apple`.
     pub async fn apple(
         &self,
         state: &ApiState,
@@ -27,8 +21,6 @@ impl super::LinkService {
         Err(vendor::unconfigured("Apple"))
     }
 
-    /// `POST /v2/account/link/steam`. The API layer refuses an absent token
-    /// before the core checks for a `[social.steam]` config.
     pub async fn steam(
         &self,
         state: &ApiState,
@@ -46,8 +38,6 @@ impl super::LinkService {
         Err(vendor::unconfigured("Steam"))
     }
 
-    /// `POST /v2/account/link/facebook`. The body is the `AccountFacebook`
-    /// message alone, so `sync` arrives in the query string.
     pub async fn facebook(
         &self,
         state: &ApiState,
@@ -65,7 +55,6 @@ impl super::LinkService {
         Err(vendor::profile("Facebook"))
     }
 
-    /// `POST /v2/account/link/google`.
     pub async fn google(
         &self,
         state: &ApiState,
@@ -81,8 +70,6 @@ impl super::LinkService {
         Err(vendor::profile("Google"))
     }
 
-    /// `POST /v2/account/link/facebookinstantgame`. An unverifiable signature is
-    /// `Unauthenticated` here but `DataLoss` when authenticating — same call either way.
     pub async fn facebook_instant_game(
         &self,
         state: &ApiState,
@@ -98,8 +85,6 @@ impl super::LinkService {
         Err(vendor::profile("Facebook Instant Game"))
     }
 
-    /// `POST /v2/account/link/gamecenter`. The bundle is checked field by field
-    /// in the order `CheckGameCenterID` receives it.
     pub async fn game_center(
         &self,
         state: &ApiState,
@@ -111,8 +96,6 @@ impl super::LinkService {
         Err(vendor::profile("GameCenter"))
     }
 
-    /// `POST /v2/account/link`. The runtime-provider link: an empty name is not a
-    /// separate error, the registry lookup refuses it.
     pub async fn provider(
         &self,
         state: &ApiState,

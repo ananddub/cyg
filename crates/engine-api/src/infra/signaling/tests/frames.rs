@@ -16,8 +16,6 @@ async fn a_malformed_frame_errors_without_killing_the_session() {
     assert_eq!(err["type"], "error");
     assert!(err["message"].as_str().unwrap().contains("malformed"));
 
-    // The session must still be live: a real offer reaches the data plane,
-    // and a candidate using the legacy `sdpIndex` alias parses too.
     ws.send_text(r#"{"type":"offer","sdp":"v=0 still alive"}"#)
         .await;
     assert_eq!(

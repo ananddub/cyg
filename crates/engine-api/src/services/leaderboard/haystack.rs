@@ -1,8 +1,3 @@
-//! `GET /v2/leaderboard/{leaderboard_id}/owner/{owner_id}` — the owner's record with
-//! its neighbours on either side, so a client renders a standing without walking the
-//! board. Handing a cursor back turns the request into an ordinary page of the same
-//! listing, which is what `records_list` answers.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -13,7 +8,7 @@ use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::leaderboard::{HaystackQuery, RecordListResponse};
 use crate::error::V2Error;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::utils::leaderboard::types::{
     BAD_EXPIRY, BAD_OWNER, INVALID_ID, MAX_OWNER_LIMIT, NO_OWNER, OWNER_LIMIT, number,
 };
@@ -48,7 +43,7 @@ impl super::LeaderboardService {
         let owner = Uuid::parse_str(owner_id).map_err(|_| V2Error::invalid_argument(BAD_OWNER))?;
         let override_expiry = number(req.expiry.as_deref(), BAD_EXPIRY)?;
 
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let board = load_board(&queries, id).await?;
         let Some(window) = query_window(&board, override_expiry)? else {
             return Ok(Json(RecordListResponse::default()));

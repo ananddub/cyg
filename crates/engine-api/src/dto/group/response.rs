@@ -1,5 +1,3 @@
-//! The group response shapes.
-
 use std::borrow::Cow;
 
 use serde::Serialize;
@@ -9,8 +7,6 @@ use crate::repositories::group::ListGroupUsersPagedRow;
 use crate::repositories::models::Groups;
 use crate::services::social::{meta_str, ts, uid};
 
-/// the `apiGroup`. `groups.state` is `0=open, 1=closed`, and the wire name for it
-/// is the boolean `open`.
 #[derive(Debug, Serialize)]
 pub struct GroupResponse {
     pub id: String,
@@ -51,21 +47,17 @@ impl GroupResponse {
     }
 }
 
-/// `apiGetGroup` and `CreateGroup`: the one group they answer with.
 #[derive(Debug, Serialize)]
 pub struct GroupEnvelope {
     pub group: GroupResponse,
 }
 
-/// `ListGroups`: the page plus the cursor to resume at. An empty cursor is still a
-/// member, as the gateway marshals it.
 #[derive(Debug, Serialize)]
 pub struct GroupListResponse {
     pub groups: Vec<GroupResponse>,
     pub cursor: String,
 }
 
-/// the `apiUserGroup`: the group and the caller's edge state in it.
 #[derive(Debug, Serialize)]
 pub struct UserGroupResponse {
     pub group: GroupResponse,
@@ -81,14 +73,12 @@ impl UserGroupResponse {
     }
 }
 
-/// `ListGroupsOfUser`: the page plus the cursor to resume at.
 #[derive(Debug, Serialize)]
 pub struct UserGroupListResponse {
     pub user_groups: Vec<UserGroupResponse>,
     pub cursor: String,
 }
 
-/// the `apiGroupUser`: a member's user object plus the edge `state`.
 #[derive(Debug, Serialize)]
 pub struct GroupUserResponse {
     pub user: UserResponse,
@@ -117,14 +107,12 @@ impl GroupUserResponse {
     }
 }
 
-/// `ListGroupUsers`: the page plus the cursor to resume at.
 #[derive(Debug, Serialize)]
 pub struct GroupUserListResponse {
     pub group_users: Vec<GroupUserResponse>,
     pub cursor: String,
 }
 
-/// `""` is dropped from the wire, so it folds into "absent".
 fn non_empty(value: Option<&str>) -> Option<String> {
     value.filter(|s| !s.is_empty()).map(str::to_owned)
 }

@@ -1,5 +1,3 @@
-//! Shared leaderboard pieces: gateway messages, operator numbering and the pure board facts.
-
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -24,13 +22,11 @@ pub const LIST_FAILED: &str = "Error listing records from leaderboard.";
 pub const HAYSTACK_FAILED: &str = "Error querying records from leaderboard.";
 pub const DELETE_FAILED: &str = "Error deleting score from leaderboard.";
 
-/// `api.Operator` as a client sends it; `NO_OVERRIDE` defers to the board.
 pub const OP_BEST: i64 = 1;
 pub const OP_SET: i64 = 2;
 pub const OP_INCREMENT: i64 = 3;
 pub const OP_DECREMENT: i64 = 4;
 
-/// The `leaderboard.operator` column's own numbering.
 pub const DB_BEST: i16 = 0;
 pub const DB_SET: i16 = 1;
 pub const DB_INCREMENT: i16 = 2;
@@ -40,7 +36,6 @@ pub const SORT_ASCENDING: i16 = 0;
 pub const MAX_LIST_LIMIT: i64 = 1000;
 pub const MAX_OWNER_LIMIT: i64 = 100;
 
-/// Score ranking direction: the column default is descending.
 pub fn ascending(board: &Leaderboard) -> bool {
     board.sort_order == SORT_ASCENDING
 }
@@ -53,8 +48,6 @@ pub fn is_tournament(board: &Leaderboard) -> bool {
     board.duration > 0
 }
 
-/// the override table and its unmapped failure: an operator outside the enum
-/// is the write's generic internal error, not an `InvalidArgument`.
 pub fn resolve_operator(board: &Leaderboard, override_operator: i64) -> Result<i16, V2Error> {
     if override_operator == 0 {
         return Ok(board.operator);
@@ -68,8 +61,6 @@ pub fn resolve_operator(board: &Leaderboard, override_operator: i64) -> Result<i
     }
 }
 
-/// The gateway reads a nullable int64 out of query text and a JSON body
-/// accepts both spellings, so an unparseable value is the caller's error.
 pub fn number(raw: Option<&str>, message: &str) -> Result<i64, V2Error> {
     raw.unwrap_or("0")
         .trim()
@@ -77,7 +68,6 @@ pub fn number(raw: Option<&str>, message: &str) -> Result<i64, V2Error> {
         .map_err(|_| V2Error::invalid_argument(message))
 }
 
-/// The gateway's metadata test: valid JSON whose first token is an object brace.
 pub fn parse_metadata(raw: &str) -> Result<Value, V2Error> {
     let trimmed = raw.trim();
     if !trimmed.starts_with('{') {
@@ -86,7 +76,6 @@ pub fn parse_metadata(raw: &str) -> Result<Value, V2Error> {
     serde_json::from_str(trimmed).map_err(|_| V2Error::invalid_argument(BAD_METADATA))
 }
 
-/// A repeated string field arrives comma-separated, as a list, or both.
 pub fn owner_ids(raw: Option<&Value>, message: &str) -> Result<Vec<Uuid>, V2Error> {
     let tokens = crate::services::social::tokens(raw);
     tokens

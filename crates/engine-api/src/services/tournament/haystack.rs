@@ -1,8 +1,3 @@
-//! `GET /v2/tournament/{tournament_id}/owner/{owner_id}` — one entrant's standing and
-//! the neighbours around it, inside the round they are in.
-//!
-//! Every failure past the board lookup is the same internal error here, as in BaaS.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -14,7 +9,7 @@ use crate::dto::tournament::RecordsQuery;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::Leaderboard;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::leaderboard::{haystack, records_list};
 use crate::utils::leaderboard::{number, query_window};
 use crate::utils::tournament::types::{
@@ -40,7 +35,7 @@ impl super::TournamentService {
         let owner = Uuid::parse_str(owner_id).map_err(|_| V2Error::invalid_argument(BAD_OWNER))?;
         let override_expiry = number(req.expiry.as_deref(), BAD_EXPIRY)?;
 
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let board = load_tournament(&queries, id).await?;
         let listed = standing(
             &queries,
@@ -56,7 +51,6 @@ impl super::TournamentService {
     }
 }
 
-/// The round's haystack, or the ordinary page a handed-back cursor asks for.
 async fn standing(
     queries: &Queries,
     board: &Leaderboard,

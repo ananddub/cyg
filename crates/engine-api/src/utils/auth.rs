@@ -1,18 +1,13 @@
-//! BaaS reports a failed insert three ways, and which one is a privacy decision:
-//! the username clash is a Conflict because the client chose that name, while a
-//! provider-id clash is Internal so nobody can enumerate taken identifiers.
-
 use std::collections::HashMap;
 
 use uuid::Uuid;
 
+use crate::db::DbError;
 use crate::dto::session::SessionResponse;
 use crate::error::V2Error;
 use crate::infra::jwt;
 use crate::repositories::models::Users;
 
-/// the entire ban test: a non-zero `disable_time` runs before any
-/// credential check, so a banned account never learns whether its password was right.
 pub fn existing(user: Users) -> Result<Users, V2Error> {
     if user.disable_time.timestamp() != 0 {
         return Err(V2Error::permission_denied("User account banned."));
@@ -20,13 +15,12 @@ pub fn existing(user: Users) -> Result<Users, V2Error> {
     Ok(user)
 }
 
-pub fn lookup_failed(e: sqlx::Error) -> V2Error {
+pub fn lookup_failed(e: DbError) -> V2Error {
     tracing::error!("[v2] user lookup failed: {e}");
     V2Error::internal("Error finding user account.")
 }
 
-/// A failed insert; only the username clash is explained to the client.
-pub fn insert_failed(e: sqlx::Error) -> V2Error {
+pub fn insert_failed(e: DbError) -> V2Error {
     if V2Error::is_unique_violation(&e, "users_username_key") {
         return V2Error::already_exists("Username is already in use.");
     }
@@ -34,7 +28,6 @@ pub fn insert_failed(e: sqlx::Error) -> V2Error {
     V2Error::internal("Error finding or creating user account.")
 }
 
-/// The reply; `vars` go into the token only, never persisted on the account row.
 pub fn session(
     uid: Uuid,
     username: &str,

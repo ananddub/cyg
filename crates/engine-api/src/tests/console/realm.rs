@@ -1,6 +1,3 @@
-//! Who can sign in, what a refusal looks like, and why a token from one plane is
-//! worth nothing on the other.
-
 use crate::error::UNAUTHENTICATED;
 
 use super::helpers::{ADMIN, PASSWORD, V2Server, login, player_token, v2_state};
@@ -19,8 +16,6 @@ fn the_bootstrap_admin_can_log_in_and_reach_a_protected_route() {
     assert_eq!(body["role"], "admin");
     let token = body["token"].as_str().expect("token").to_owned();
 
-    // No database is configured, so a request that got *past* auth answers 503:
-    // that is precisely what proves the token was accepted.
     let reply = server.get("/v2/console/account", Some(&format!("Bearer {token}")));
     assert_eq!(reply.status, 503, "{}", reply.body);
 }
@@ -79,7 +74,6 @@ fn logout_revokes_exactly_the_token_it_was_given() {
     let reply = server.get("/v2/console/setting", Some(&auth));
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token invalid");
 
-    // A fresh login is a different token, and is not caught by the revocation.
     let second = login(&server, ADMIN, PASSWORD);
     assert_eq!(
         server

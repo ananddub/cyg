@@ -2,8 +2,6 @@ use super::*;
 use crate::services::status::snapshot::status;
 use crate::utils::status::age_ms;
 
-/// Seats and rate-limit counters are the two numbers an operator watches when a room
-/// "won't let anyone in", so they must move with the real registries.
 #[tokio::test]
 async fn counters_track_the_registries_they_report() {
     let s = state();
@@ -16,8 +14,6 @@ async fn counters_track_the_registries_they_report() {
     for _ in 0..41 {
         s.limiter.lock().unwrap().allow(ip);
     }
-    // Held: `SeatReplies` detaches the route when it drops, so a temporary
-    // here would leave `peers` back at zero before `/status` reads it.
     let _replies = s.signals.attach("seat-1");
 
     let body = json_of(status(&s.clone()).await).await;
@@ -35,8 +31,6 @@ async fn counters_track_the_registries_they_report() {
     assert_eq!(body["signaling"]["peers"].as_u64(), Some(1));
 }
 
-/// `age_ms` is measured against the sim's own monotonic epoch, so a stale
-/// sample ages and a fresh one does not.
 #[tokio::test]
 async fn age_ms_uses_the_sims_monotonic_clock() {
     let stamp = mono_ns() / 1_000_000;
@@ -51,7 +45,6 @@ async fn age_ms_uses_the_sims_monotonic_clock() {
         "a 60 ms-old stamp read as {age} ms"
     );
 
-    // A sample stamped in the future must read as zero age, never as a wrap.
     let ahead = StatusSnapshot {
         updated_ms: stamp + 1_000_000,
         ..Default::default()

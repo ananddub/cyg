@@ -1,5 +1,3 @@
-//! `/v2/console/group` — groups, their members, and deleting a group.
-
 use axum::Json;
 
 use crate::ApiState;
@@ -9,8 +7,6 @@ use crate::dto::console::Page;
 use crate::dto::console::group::{GroupExport, GroupMemberRow, GroupRow};
 use crate::error::V2Error;
 
-/// A group has at most a few thousand members; the console caps the member page so
-/// a hostile group cannot make the dashboard fetch a whole table.
 const MAX_MEMBERS: i64 = 1000;
 
 impl super::ConsoleService {
@@ -30,7 +26,7 @@ impl super::ConsoleService {
     }
 
     pub async fn get_group(&self, state: &ApiState, id: &str) -> Result<Json<GroupRow>, V2Error> {
-        let group = super::queries(state)?
+        let group = super::queries(state).await?
             .get_group_by_id(super::account_id(id)?)
             .await?;
         Ok(Json(GroupRow::from(group)))
@@ -41,15 +37,12 @@ impl super::ConsoleService {
         state: &ApiState,
         id: &str,
     ) -> Result<Json<Vec<GroupMemberRow>>, V2Error> {
-        let rows = super::queries(state)?
+        let rows = super::queries(state).await?
             .list_group_users(super::account_id(id)?, MAX_MEMBERS)
             .await?;
         Ok(Json(rows.into_iter().map(GroupMemberRow::from).collect()))
     }
 
-    /// One group whole: its row and its members. Reading an export is a write-grade
-    /// privilege, the same as an account export, because it carries the member list
-    /// and the metadata alongside it.
     pub async fn export_group(
         &self,
         state: &ApiState,
@@ -58,7 +51,7 @@ impl super::ConsoleService {
     ) -> Result<Json<GroupExport>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let group = queries.get_group_by_id(id).await?;
         let members = queries.list_group_users(id, MAX_MEMBERS).await?;
         Ok(Json(GroupExport {
@@ -67,10 +60,6 @@ impl super::ConsoleService {
         }))
     }
 
-    /// Delete a group. This is the same statement the player API uses, which is a
-    /// soft delete: the row keeps its history, stops being listed, and every other
-    /// surface reads that epoch as "gone". A hard delete here would be a second
-    /// meaning for the word the API already defines.
     pub async fn delete_group(
         &self,
         state: &ApiState,
@@ -79,7 +68,7 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = super::queries(state)?;
+        let queries = super::queries(state).await?;
         let group = queries.get_group_by_id(id).await?;
         queries.delete_group(id).await?;
         super::audit(

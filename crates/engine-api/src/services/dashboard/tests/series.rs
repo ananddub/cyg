@@ -7,7 +7,6 @@ use crate::utils::dashboard::history::history;
 fn a_skipped_sample_reads_as_a_gap_not_a_flat_line() {
     let _guard = super::TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let h = history();
-    // start in the past so concurrent pump samples can only append after ours
     let t0 = (engine_bus::clock::mono_ns() / 1_000_000).saturating_sub(20_000);
     let mut series = services::build_ticks();
     for _ in 0..3 {

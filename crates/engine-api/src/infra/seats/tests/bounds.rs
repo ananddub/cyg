@@ -12,7 +12,6 @@ fn the_drift_cap_refuses_instead_of_handing_out_forever_seats() {
     }
     assert!(count >= MAX_TTL_DRIFT_SECS + 1);
     assert_eq!(r.refused(), 1);
-    // Another room is unaffected: the payload, and so the token, differs.
     assert!(r.mint("arena_final", 1).is_some());
 }
 
@@ -49,7 +48,6 @@ fn minting_is_bounded_and_says_so() {
     assert_eq!(r.refused(), 1);
     assert_eq!(r.outstanding(), 4, "a refused mint stores nothing");
     assert_eq!(r.counts().0, 4, "and is not counted as a mint");
-    // Freeing space lets minting resume: the bound is a ceiling, not a latch.
     let some = r.by_token.keys().next().cloned().unwrap();
     r.release(&some);
     assert!(r.mint("tank-3d", 300).is_some());
@@ -59,10 +57,9 @@ fn minting_is_bounded_and_says_so() {
 fn the_bound_sweeps_expired_seats_instead_of_refusing() {
     let mut r = SeatRegistry::with_seat_bound("secret", 2);
     let old = r.mint("tank-3d", 300).unwrap();
-    r.by_token.get_mut(&old.token).unwrap().expires_at = 1; // already dead
+    r.by_token.get_mut(&old.token).unwrap().expires_at = 1;
     assert!(r.mint("tank-3d", 300).is_some());
     assert_eq!(r.outstanding(), 2);
-    // Full, but one entry is expired: mint sweeps, then succeeds.
     assert!(r.mint("tank-3d", 300).is_some());
     assert_eq!(r.refused(), 0);
     assert_eq!(r.outstanding(), 2);

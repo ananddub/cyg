@@ -1,7 +1,3 @@
-//! Leaderboard helpers: gateway messages, operator and column numbering, the
-//! page cursor codec, reset-schedule windows and the per-operator statement text.
-//! The `api.LeaderboardRecord` wire shapes live in [`crate::dto::leaderboard`].
-
 pub(crate) mod cron;
 pub(crate) mod cursor;
 pub(crate) mod deadlines;
@@ -10,7 +6,6 @@ pub(crate) mod types;
 pub(crate) mod window;
 pub(crate) mod wire;
 
-// The rest of the crate reads the reset-schedule math at the module root, as the old domain module exposed it.
 pub(crate) use deadlines::{Deadlines, at, calculate, prev_reset};
 pub(crate) use types::{
     DB_BEST, DB_DECREMENT, DB_INCREMENT, DB_SET, ascending, number, owner_ids, parse_metadata,

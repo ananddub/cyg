@@ -1,8 +1,3 @@
-//! Seat tokens — the minting side of the seat wire format:
-//! `b64url("<room>:<exp_unix_secs>") + "." + b64url(hmac_sha256(secret, payload))`.
-//! The MAC, not the map, is the authority (the raw-UDP plane holds no seat map);
-//! the map only keeps seats whose `sessionId` must survive a `reconnect`.
-
 mod b64;
 mod registry;
 mod token;

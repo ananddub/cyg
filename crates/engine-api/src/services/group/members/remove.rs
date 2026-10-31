@@ -1,15 +1,14 @@
-//! Kick and ban — `POST /v2/group/{group_id}/kick` and `/ban`.
-
 use axum::Json;
 use uuid::Uuid;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
+use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::group::BanGroupEdgeParams;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social;
 use crate::utils::group::{ROLE_ADMIN, ROLE_MEMBER, group_id};
 
@@ -20,7 +19,6 @@ use crate::dto::group::UsersQuery;
 use super::users::resolve_users;
 
 impl GroupMemberService {
-    /// `POST /v2/group/{group_id}/kick?user_ids=`.
     pub async fn kick_group_users(
         &self,
         state: &ApiState,
@@ -28,13 +26,12 @@ impl GroupMemberService {
         raw_id: String,
         req: UsersQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let gid = group_id(&raw_id)?;
         fetch_group(&queries, gid).await?;
         remove_group_users(&queries, auth.0.uuid()?, gid, &req, false).await
     }
 
-    /// `POST /v2/group/{group_id}/ban?user_ids=`.
     pub async fn ban_group_users(
         &self,
         state: &ApiState,
@@ -42,15 +39,13 @@ impl GroupMemberService {
         raw_id: String,
         req: UsersQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let gid = group_id(&raw_id)?;
         fetch_group(&queries, gid).await?;
         remove_group_users(&queries, auth.0.uuid()?, gid, &req, true).await
     }
 }
 
-/// Kick removes the edge, ban replaces it with state 4; neither may touch a role at or
-/// above the caller's, and the count only falls for a row that held a slot.
 async fn remove_group_users(
     queries: &Queries,
     caller: Uuid,
@@ -66,8 +61,8 @@ async fn remove_group_users(
     for target in targets {
         let role = match queries.get_group_edge_state(target, gid).await {
             Ok(role) => role,
-            Err(sqlx::Error::RowNotFound) => continue,
-            Err(e) => return Err(V2Error::from_sqlx(e)),
+            Err(DbError::NotFound) => continue,
+            Err(e) => return Err(V2Error::from(e)),
         };
         if role <= max_role {
             return Err(V2Error::invalid_argument(

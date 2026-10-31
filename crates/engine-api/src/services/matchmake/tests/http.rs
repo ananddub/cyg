@@ -60,8 +60,6 @@ fn http_over_the_burst_is_a_429_with_retry_after() {
     );
 }
 
-/// `evil"`, `evil/`, `evil\n` — percent-encoded so the router still sees
-/// exactly two path segments.
 #[test]
 fn http_refuses_a_hostile_room_name_and_the_body_stays_json() {
     let server = TestServer::start(test_state(1000, 1000));

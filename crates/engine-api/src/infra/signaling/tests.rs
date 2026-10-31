@@ -20,8 +20,6 @@ mod reconnect;
 mod refusals;
 mod relay;
 
-/// Awaits here are bounded: a relay that does not answer in two seconds is
-/// broken, not slow.
 pub(super) const AWAIT_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(super) fn test_state() -> (ApiState, Receiver<SignalIn>) {
@@ -48,9 +46,10 @@ pub(super) fn test_state() -> (ApiState, Receiver<SignalIn>) {
         started: Instant::now(),
         db: None,
         q: None,
+        blobs: None,
+        realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(crate::infra::session_cache::SessionCache::new(60, 3600)),
     };
-    // The test plays the data plane: it owns the inbound queue.
     let inbound = state
         .signals
         .take_signals()
@@ -70,8 +69,6 @@ pub(super) fn mint_seat(state: &ApiState) -> Seat {
 pub(super) async fn spawn_plane(state: &ApiState) -> SocketAddr {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    // `/ws/signal` is an auto-registered controller, so the plane is built from
-    // the same inventory `serve` merges.
     let app = crate::auto_router(state.clone()).await;
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
@@ -86,7 +83,6 @@ pub(super) async fn next_signal(rx: &mut Receiver<SignalIn>) -> SignalIn {
         .expect("inbound queue closed")
 }
 
-/// The "no duplicate" half of the exactly-once Close contract.
 pub(super) async fn expect_quiet(rx: &mut Receiver<SignalIn>) {
     assert!(
         tokio::time::timeout(Duration::from_millis(250), rx.recv())
@@ -96,7 +92,6 @@ pub(super) async fn expect_quiet(rx: &mut Receiver<SignalIn>) {
     );
 }
 
-/// Route removal races the close-frame write, so poll instead of assuming order.
 pub(super) async fn wait_peers(hub: &SignalHub, want: usize) {
     for _ in 0..100 {
         if hub.peers() == want {

@@ -13,11 +13,8 @@ async fn a_reconnect_supersedes_the_old_socket_without_losing_its_route() {
     assert_eq!(first.recv_json().await["type"], "ice");
     let mut second = WsClient::open(addr, &path).await;
     assert_eq!(second.recv_json().await["type"], "ice");
-    // One route per seat: the newer attach owns it.
     assert_eq!(state.signals.peers(), 1);
 
-    // The old socket tears down — its stale-generation detach must NOT delete
-    // the second socket's route.
     first.send_text(r#"{"type":"close"}"#).await;
     assert_eq!(
         next_signal(&mut inbound).await,
@@ -37,7 +34,6 @@ async fn a_reconnect_supersedes_the_old_socket_without_losing_its_route() {
         json!({ "type": "answer", "sdp": "still here" })
     );
 
-    // And the replacement socket is owed its own single Close.
     second.send_text(r#"{"type":"close"}"#).await;
     assert_eq!(
         next_signal(&mut inbound).await,
@@ -49,8 +45,6 @@ async fn a_reconnect_supersedes_the_old_socket_without_losing_its_route() {
 
 #[tokio::test]
 async fn a_dropped_socket_still_teaches_the_data_plane_once() {
-    // No `{"type":"close"}`, no Close frame: just the TCP connection going
-    // away. The guard, not the loop, owns the notice.
     let (state, mut inbound) = test_state();
     let addr = spawn_plane(&state).await;
     let seat = mint_seat(&state);

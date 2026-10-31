@@ -12,7 +12,6 @@ pub fn serve_index(root: Option<&Path>) -> axum::response::Response {
     if let Some(dist_dir) = root
         && let Ok(body) = std::fs::read(dist_dir.join("index.html"))
     {
-        // no-store: a rebuilt shell points at hashed assets a cached page won't have
         return responses::html_response(body, "no-store");
     }
     if let Some(file) = EmbeddedDashboard::get("index.html") {

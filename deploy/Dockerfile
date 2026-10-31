@@ -1,8 +1,17 @@
 # CYG server image — one game project at /app/game, server binary self-contained.
-# Runtime env: DATABASE_URL (postgres), OX_ALLOW_DEFAULT_SECRETS=1 (dev).
+# The account plane runs on embedded SurrealKV by default (`surrealkv://data/cyg`
+# in config.toml); set SURREAL_ENDPOINT / SURREAL_NS / SURREAL_DB / SURREAL_USER /
+# SURREAL_PASS to point it at a remote SurrealDB instead.
+# SurrealKV's memory ceilings are `database_memtable_mib` (64) and
+# `database_cache_mib` (32), overridable as OX_DB_MEMTABLE_MIB / OX_DB_CACHE_MIB;
+# they hold the engine to 96 MiB, so the process fits a 500 MB container.
+# Uploaded WASM modules and maps go to `[control.session] blobs` (OX_BLOBS):
+# embedded the default is `data/uploads` (inside /app/data); remote SurrealDB
+# needs `--allow-experimental files` server-side and an s3:/… or shared file:
+# URL here.
 # Example:
 #   docker run -p 19224:19224 -p 7977:7977/udp -p 7978:7978/udp -p 7778:7778/udp \
-#     -e DATABASE_URL=postgres://... dubeyanand/cyg-gaming:v0.1.0
+#     -e SURREAL_ENDPOINT=wss://db.example.com:8000 dubeyanand/cyg-gaming:v0.1.0
 
 FROM fedora:latest
 

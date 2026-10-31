@@ -1,8 +1,3 @@
-//! One page of a record listing, walked from a cursor's rank. Ported from
-//! the `LeaderboardRecordsList` row loop: a previous-page cursor reads the
-//! rows in reverse, so the page is flipped back and its two cursors with it,
-//! each cursor keeping the direction it was built with.
-
 use chrono::{DateTime, Utc};
 
 use crate::dto::leaderboard::RecordResponse;
@@ -22,8 +17,6 @@ pub(super) struct Page {
     pub(super) prev_cursor: String,
 }
 
-/// Ascending forward and descending backward share one query, and so do the
-/// other two directions: the ordering is always the one the page reads in.
 async fn fetch(
     queries: &Queries,
     board: &Leaderboard,
@@ -99,8 +92,6 @@ pub(super) async fn record_page(
             prev = Some(Cursor::at_record(&board.id, expiry, &row, rank, false));
         }
         last = Some((row.clone(), rank));
-        // The window position still drives the cursors; only the printed rank
-        // follows the board's `enable_ranks` switch.
         records.push(RecordResponse::from_record(&row, if ranks { rank } else { 0 }));
     }
 

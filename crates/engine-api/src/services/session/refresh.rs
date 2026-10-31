@@ -1,5 +1,3 @@
-//! `POST /v2/account/session/refresh` — server key in, fresh token pair out.
-
 use axum::Json;
 use axum::http::HeaderMap;
 
@@ -8,7 +6,7 @@ use crate::app::middleware::server_key;
 use crate::dto::session::{RefreshRequest, SessionResponse};
 use crate::error::V2Error;
 use crate::infra::jwt;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::utils::auth as rows;
 
 impl super::SessionService {
@@ -33,16 +31,14 @@ impl super::SessionService {
             ));
         }
 
-        let user = match q(state)?.get_user_by_id(uid).await {
+        let user = match q(state).await?.get_user_by_id(uid).await {
             Ok(user) => rows::existing(user)?,
-            Err(sqlx::Error::RowNotFound) => {
+            Err(crate::db::DbError::NotFound) => {
                 return Err(V2Error::not_found("User account not found."));
             }
             Err(e) => return Err(rows::lookup_failed(e)),
         };
 
-        // BaaS re-issues the family under the same `tid` and `iat`, so one
-        // blacklisted id still covers every token this session lineage mints.
         let vars = req.vars.unwrap_or(claims.vars);
         let (token, refresh_token) =
             jwt::mint_token_pair_with(user.id, &user.username, &claims.tid, claims.iat, vars);

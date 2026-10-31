@@ -6,7 +6,6 @@ fn rejects_a_tampered_payload() {
     let mut r = SeatRegistry::new("secret");
     let seat = r.mint("tank-3d", 300).unwrap();
     let (_, mac) = seat.token.split_once('.').unwrap();
-    // Same MAC, different room: the payload is not covered by it any more.
     let forged = format!("{}.{mac}", b64url(b"other-room:9999999999"));
     assert!(r.verify(&forged).is_none());
 }
@@ -45,7 +44,6 @@ fn every_refusal_is_counted() {
     assert_eq!(rejected, bad.len() as u64, "one bump per refused token");
 }
 
-/// The MAC, not the map, is the authority (see the module docs).
 #[test]
 fn a_released_seat_is_gone_from_the_map_but_still_authenticates() {
     let mut r = SeatRegistry::new("secret");

@@ -36,11 +36,12 @@ pub(super) fn state() -> ApiState {
         started: Instant::now(),
         db: None,
         q: None,
+        blobs: None,
+        realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(crate::infra::session_cache::SessionCache::new(60, 3600)),
     }
 }
 
-// HISTORY is a process global; serialize ring tests against other planes' pumps
 pub(super) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 mod keys;

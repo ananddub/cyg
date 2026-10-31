@@ -46,6 +46,7 @@ wasmtime = "50.0.0"
 hmac = "0.13.0"
 sha2 = "0.11.1"
 gltf = "1.4"
+mimalloc = { version = "0.1.52", default-features = false }
 
 [dev-dependencies]
 engine-api = { path = "crates/engine-api" }
@@ -53,6 +54,8 @@ engine-core = { path = "crates/engine-core" }
 engine-nav = { path = "crates/engine-nav" }
 bevy_ecs = { version = "0.15", default-features = false }
 rapier3d = "0.36"
+tokio = { version = "1", features = ["full"] }
+tempfile = "3"
 
 
 
@@ -60,3 +63,15 @@ rapier3d = "0.36"
 [[bin]]
 name = "cyg-game"
 path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# local auto-di checkout (register_instance API) until 0.6.1 is published
+[patch.crates-io]
+auto-di = { path = "../../rust/testing_dep/crates/auto-di" }
+

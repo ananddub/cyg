@@ -1,5 +1,3 @@
-//! The `AuthService` singleton and the ten server-keyed authenticate methods.
-
 use auto_di::singleton;
 use axum::Json;
 use axum::http::HeaderMap;
@@ -22,8 +20,6 @@ impl AuthService {
     }
 }
 
-/// Query decode, then the server key: everything the gateway does before an RPC
-/// reaches a handler. Returns the `create` flag, which is absent-means-true.
 fn authorize(headers: &HeaderMap, state: &ApiState, query: &AuthQuery) -> Result<bool, V2Error> {
     let create = query.create()?;
     server_key(headers, state)?;
@@ -57,8 +53,6 @@ impl AuthService {
         local::custom(state, &account.id, &username, create, account.vars).await
     }
 
-    /// The email account message is the one place a nil body means something
-    /// different from an empty one, so it decodes as `Option`.
     pub async fn email(
         &self,
         state: &ApiState,
@@ -76,7 +70,6 @@ impl AuthService {
         local::email(state, login, create, account.vars).await
     }
 
-    /// Apple answers from configuration alone, so the decoded account is discarded.
     pub async fn apple(
         &self,
         state: &ApiState,
@@ -88,7 +81,6 @@ impl AuthService {
         Err(vendor::unconfigured("Apple"))
     }
 
-    /// Steam answers from configuration alone, so the decoded account is discarded.
     pub async fn steam(
         &self,
         state: &ApiState,

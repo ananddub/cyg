@@ -1,15 +1,8 @@
-//! Token revocation for stateless sessions: a port of the blacklist-only
-//! `LocalSessionCache`. Two levels, exactly as BaaS has them: per token id
-//! (the `tid` both tokens of a pair share) and per user (`last_invalidation`).
-//! The expired-entry sweep runs at the end of each write rather than on a ticker;
-//! equivalent, since a token past `exp` is already refused by signature validation.
-
 use ahash::RandomState;
 use scc::HashMap as FastMap;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-/// Revoked session and refresh tokens, by user.
 pub struct SessionCache {
     token_expiry_secs: i64,
     refresh_expiry_secs: i64,
@@ -24,8 +17,6 @@ struct UserEntry {
 }
 
 impl SessionCache {
-    /// The windows must match the ones [`crate::infra::jwt`] signs into the tokens:
-    /// a stamp is compared against `exp - window` to learn when a token was issued.
     pub fn new(token_expiry_secs: i64, refresh_expiry_secs: i64) -> SessionCache {
         SessionCache {
             token_expiry_secs,
@@ -50,8 +41,6 @@ impl SessionCache {
             .unwrap_or(true)
     }
 
-    /// Blacklist one session/refresh pair; empty ids are skipped so a logout naming
-    /// only the refresh token leaves the already-expired session alone.
     pub fn remove(
         &self,
         uid: Uuid,
@@ -75,7 +64,6 @@ impl SessionCache {
         self.sweep();
     }
 
-    /// Invalidate everything this user holds, issued up to this instant.
     pub fn remove_all(&self, uid: Uuid) {
         let ts = chrono::Utc::now().timestamp();
         let mut entry = self.users.entry_sync(uid).or_default();
@@ -103,8 +91,6 @@ impl SessionCache {
     }
 }
 
-/// `last_invalidation > 0` and an issue time before the stamp both mean revoked;
-/// otherwise only this exact token id is.
 fn valid(entry: &UserEntry, exp: i64, token_id: &str, expiry_secs: i64, session: bool) -> bool {
     if entry.last_invalidation > 0 && exp.saturating_sub(expiry_secs) < entry.last_invalidation {
         return false;

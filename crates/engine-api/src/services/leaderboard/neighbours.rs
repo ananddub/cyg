@@ -1,12 +1,8 @@
-//! The haystack's two halves and the window that trims them.
-//!
-//! Ported from `getLeaderboardRecordsHaystack`: the owner's own record anchors the read,
-//! the better half is fetched away from the owner and reversed, the worse half is capped.
-
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::rank::{rank_count, ranks};
+use crate::db::DbError;
 use crate::dto::leaderboard::{RecordListResponse, RecordResponse};
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
@@ -18,13 +14,11 @@ use crate::utils::leaderboard::cursor::Cursor;
 use crate::utils::leaderboard::types::HAYSTACK_FAILED;
 use crate::utils::leaderboard::types::ascending;
 
-pub(super) fn failed(error: sqlx::Error) -> V2Error {
+pub(super) fn failed(error: DbError) -> V2Error {
     tracing::error!("[v2] leaderboard haystack: {error}");
     V2Error::internal(HAYSTACK_FAILED)
 }
 
-/// A haystack for a player who has never scored is an empty listing, not an
-/// error, and not a missing board either.
 async fn owner_record(
     queries: &Queries,
     board: &Leaderboard,
@@ -38,13 +32,11 @@ async fn owner_record(
     };
     match queries.get_leaderboard_record(&params).await {
         Ok(record) => Ok(Some(record)),
-        Err(sqlx::Error::RowNotFound) => Ok(None),
+        Err(DbError::NotFound) => Ok(None),
         Err(error) => Err(failed(error)),
     }
 }
 
-/// One side of the owner. The better half is read in the order away from the
-/// owner so the closest records land last, and is reversed by the caller.
 async fn half(
     queries: &Queries,
     board: &Leaderboard,

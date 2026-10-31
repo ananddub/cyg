@@ -1,11 +1,8 @@
-//! Server settings (`setting`), as the console lists and writes them.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::repositories::models::Setting;
 
-/// One setting row. `value` is the raw JSON the server stores.
 #[derive(Debug, Serialize)]
 pub struct SettingRow {
     pub name: String,
@@ -23,9 +20,6 @@ impl From<Setting> for SettingRow {
     }
 }
 
-/// `PUT /v2/console/setting` — a whole setting, created if it is new. Naming the
-/// value rather than patching it means a write can never leave a half-updated
-/// document behind.
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdateSettingRequest {
     #[serde(default)]

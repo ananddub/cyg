@@ -1,6 +1,3 @@
-//! The group membership service: listing, adding, kicking, banning, promoting
-//! and demoting members, all expressed as `group_edge` rows.
-
 use auto_di::singleton;
 
 mod add;

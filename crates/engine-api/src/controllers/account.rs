@@ -1,9 +1,3 @@
-//! Auto-registered bindings for `GET`, `PUT` and `DELETE /v2/account`.
-//!
-//! Methods return `Response` (not `Json<T>`) because `auto_route` would otherwise
-//! require `T: poem_openapi::Type`; plane state comes from `current_state` as the
-//! auto-registered router is stateless.
-
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -17,8 +11,6 @@ use crate::current_state;
 use crate::dto::account::{GetAccountQuery, UpdateAccountRequest, UpdatePlayerWalletRequest};
 use crate::services::account::AccountService;
 
-/// The `PUT /v2/account` body. `auto_route` emits an OpenAPI schema for a literal
-/// `Json<T>` argument, so the plain-`serde` body is taken through this alias.
 type JsonBody<T> = axum::extract::Json<T>;
 
 struct AccountController {
@@ -82,9 +74,6 @@ impl AccountController {
             .into_response()
     }
 
-    /// The self-service wallet update, as a `PUT`: metadata merge only, so a player
-    /// can annotate their own ledger entries but never move a balance. The `POST`
-    /// above shares this handler; currency changes are the console's to grant.
     #[put("/wallet")]
     async fn put_wallet(
         &self,

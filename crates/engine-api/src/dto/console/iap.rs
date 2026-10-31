@@ -1,5 +1,3 @@
-//! Purchases and subscriptions, as the console lists and validates them.
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -7,7 +5,6 @@ use uuid::Uuid;
 use crate::dto::iap::{PurchaseResponse, SubscriptionResponse};
 use crate::repositories::models::{Purchase, Subscription};
 
-/// One purchase receipt.
 #[derive(Debug, Serialize)]
 pub struct PurchaseRow {
     pub transaction_id: String,
@@ -35,8 +32,6 @@ impl From<Purchase> for PurchaseRow {
     }
 }
 
-/// One subscription. `active` reads the same way the player API does: not expired
-/// and not refunded.
 #[derive(Debug, Serialize)]
 pub struct SubscriptionRow {
     pub original_transaction_id: String,
@@ -67,10 +62,6 @@ impl From<Subscription> for SubscriptionRow {
     }
 }
 
-/// `POST /v2/console/iap/{vendor}/validate` — one credential in whichever
-/// spelling the vendor hands it, plus the reference server's `persist` flag.
-/// Persisting (the default) writes the row under `user_id`; `persist: false`
-/// only parses the entity back out.
 #[derive(Debug, Default, Deserialize)]
 pub struct ConsoleValidateRequest {
     #[serde(default)]
@@ -83,7 +74,6 @@ pub struct ConsoleValidateRequest {
     pub purchase_id: Option<String>,
     #[serde(default)]
     pub product_id: Option<String>,
-    /// `"purchase"` (the default) or `"subscription"`.
     #[serde(default)]
     pub kind: Option<String>,
     #[serde(default)]
@@ -93,7 +83,6 @@ pub struct ConsoleValidateRequest {
 }
 
 impl ConsoleValidateRequest {
-    /// The first credential actually filled, in the envelope's own order.
     pub(crate) fn credential(&self) -> &str {
         for candidate in [
             Some(self.receipt.as_str()),
@@ -108,19 +97,16 @@ impl ConsoleValidateRequest {
         ""
     }
 
-    /// The reference server's default: validation persists unless told not to.
     pub(crate) fn persists(&self) -> bool {
         self.persist.unwrap_or(true)
     }
 }
 
-/// `api.ValidatePurchaseResponse`'s shape for the console validate reply.
 #[derive(Debug, Serialize)]
 pub struct ValidatedPurchaseReply {
     pub validated_purchases: Vec<PurchaseResponse>,
 }
 
-/// `api.ValidateSubscriptionResponse`'s shape: one subscription, not a list.
 #[derive(Debug, Serialize)]
 pub struct ValidatedSubscriptionReply {
     pub subscription: SubscriptionResponse,

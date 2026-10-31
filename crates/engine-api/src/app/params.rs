@@ -1,8 +1,3 @@
-//! Request extraction that keeps the `/v2` error contract intact: the gateway
-//! always decodes JSON (unknown fields dropped, an empty body tolerated) and
-//! answers every parse failure with a 400 `{"message": …}` — axum's own extractors
-//! would answer plain text instead.
-
 use axum::extract::FromRequest;
 use axum::extract::FromRequestParts;
 use axum::extract::Query;
@@ -11,14 +6,8 @@ use serde::de::DeserializeOwned;
 
 use crate::error::V2Error;
 
-/// The gateway's own body cap; the same 2 MiB axum applies by default.
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 
-/// A JSON body, absent or empty meaning "no fields set".
-///
-/// The gateway's `err != io.EOF` test is why an empty body is legal; a bare `null`
-/// is legal because the gateway reads it as "leave the message unchanged", so the
-/// field checks run on zero values, as Go's nil-safe `in.GetX()` accessors do.
 pub struct Body<T>(pub T);
 
 impl<S, T> FromRequest<S> for Body<T>
@@ -41,7 +30,6 @@ where
     }
 }
 
-/// The query string, with values parsed the way the gateway's field filter does.
 pub struct Params<T>(pub T);
 
 impl<S, T> FromRequestParts<S> for Params<T>
@@ -66,9 +54,6 @@ fn invalid(message: &str) -> V2Error {
     V2Error::invalid_argument(message.to_owned())
 }
 
-/// `create` is a nullable boolean carried in the query string, so it arrives as
-/// text and is parsed by Go's `strconv.ParseBool`. Being nullable is what makes
-/// *absent* mean `true` rather than `false`.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum BoolFlag {
     #[default]
@@ -78,14 +63,10 @@ pub enum BoolFlag {
 }
 
 impl BoolFlag {
-    /// `None` in the query means "the client did not say", which BaaS reads
-    /// as create-on-miss.
     pub fn create(&self) -> bool {
         !matches!(self, BoolFlag::False)
     }
 
-    /// The accepted spellings are `ParseBool`'s exact set; anything else is a
-    /// bad request rather than a silently ignored one.
     pub fn parse(raw: &str) -> Result<BoolFlag, V2Error> {
         match raw {
             "1" | "t" | "T" | "TRUE" | "true" | "True" => Ok(BoolFlag::True),

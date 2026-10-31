@@ -1,7 +1,3 @@
-//! Console tournament CRUD and the console leaderboard/notification deletes,
-//! gated and validated ahead of a database that is not there: a role refusal is
-//! 403, a body refusal is 400, and a request that passed both answers 503.
-
 use uuid::Uuid;
 
 use crate::error::{INVALID_ARGUMENT, PERMISSION_DENIED, UNAUTHENTICATED};
@@ -9,7 +5,6 @@ use crate::infra::console::ConsoleRole;
 
 use super::helpers::{V2Server, token_for, v2_state};
 
-/// The smallest body that defines a tournament: an id and a round length.
 const VALID: &str = r#"{"id":"weekly-arena","title":"Weekly","duration":3600}"#;
 
 #[test]
@@ -19,7 +14,6 @@ fn a_tournament_write_needs_a_console_token() {
     let reply = server.post("/v2/console/tournament", None, VALID);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token required");
 
-    // And the envelope is the uniform one: code, message and an empty details.
     let body = reply.json();
     assert_eq!(body["error"]["code"].as_u64(), Some(16));
     assert!(body["error"]["details"].is_array());
@@ -78,7 +72,6 @@ fn a_bad_tournament_definition_is_refused_before_the_database() {
         "Tournament ID must be provided."
     );
 
-    // A board without a round length is a leaderboard, not a tournament.
     let reply = server.post(
         "/v2/console/tournament",
         Some(&auth),
@@ -89,8 +82,6 @@ fn a_bad_tournament_definition_is_refused_before_the_database() {
         "A tournament needs a duration of at least one second."
     );
 
-    // The reset schedule is checked before anything is written: a row no later
-    // read can place in a round is worse than no row.
     let reply = server.post(
         "/v2/console/tournament",
         Some(&auth),
@@ -107,7 +98,7 @@ fn a_write_role_passes_the_board_gates_and_reaches_the_database() {
     let server = V2Server::start(v2_state());
     let auth = token_for(ConsoleRole::Maintainer);
     let id = Uuid::new_v4();
-    let no_db = "The database is not configured, set [control.session] database_url.";
+    let no_db = "The database is not configured, set [control.session] database_endpoint.";
 
     for (method, path, body) in [
         (

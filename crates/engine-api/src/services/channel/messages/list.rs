@@ -1,5 +1,3 @@
-//! `ListChannelMessages` — the keyset page read.
-
 use axum::Json;
 use uuid::Uuid;
 
@@ -10,7 +8,7 @@ use crate::error::V2Error;
 use crate::repositories::channel::{
     ListChannelMessagesBackwardParams, ListChannelMessagesForwardParams,
 };
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social::{ts_head, ts_tail};
 
 use crate::utils::channel::{
@@ -21,8 +19,6 @@ use super::super::ChannelService;
 use super::super::membership::assert_member;
 
 impl ChannelService {
-    /// `GET /v2/channel/{channel_id}?limit=&cursor=&forward=` — the
-    /// `ListChannelMessages`.
     pub async fn list_messages(
         &self,
         state: &ApiState,
@@ -38,12 +34,10 @@ impl ChannelService {
             Some(n) if (1..=100).contains(&n) => n,
             Some(_) => return Err(V2Error::invalid_argument(LIMIT_RANGE)),
         };
-        // One row past the page is read; that row is what makes a next cursor.
         let limit = page + 1;
         let forward = req.forward.unwrap_or(true);
         let cursor = decode_cursor(req.cursor.as_deref())?;
         if let Some(c) = &cursor {
-            // A cursor belongs to the stream and direction that issued it.
             let same = c.stream.mode == stream.mode
                 && c.stream.subject == stream.subject
                 && c.stream.descriptor == stream.descriptor
@@ -52,17 +46,13 @@ impl ChannelService {
                 return Err(V2Error::invalid_argument(BAD_CURSOR));
             }
         }
-        // The direction stored in the cursor decides how the page is read, and a
-        // previous-page cursor is the only case where the rows are flipped back.
         let ascending = match &cursor {
             None => forward,
             Some(c) => (forward && c.next) || (!forward && !c.next),
         };
         let flip = cursor.as_ref().is_some_and(|c| !c.next);
 
-        let queries = q(state)?;
-        // The keyset bound is the cursor's position, or an extreme that admits the
-        // whole stream when the caller asked for the first page.
+        let queries = q(state).await?;
         let (create_time, id) =
             cursor
                 .as_ref()
@@ -99,8 +89,6 @@ impl ChannelService {
                 .await?
         };
 
-        // The extra row only says a page follows; the cursors name the ends of the
-        // page as it was read, so they are taken before the rows are flipped.
         let over_read = rows.len() as i64 > page;
         if over_read {
             rows.pop();
@@ -109,8 +97,6 @@ impl ChannelService {
         let tail = rows.last().map(|m| (m.create_time, m.id));
         let after = if over_read { tail } else { None };
         let before = if cursor.is_some() { head } else { None };
-        // A previous-page listing was read the other way round, so its "next" names
-        // where the read started and its "previous" names the page before that.
         let (next, prev) = if flip {
             (before, after)
         } else {
@@ -131,7 +117,6 @@ impl ChannelService {
         let cacheable_cursor = if let Some(m) = rows.last() {
             Some(encode_cursor(&stream, m.create_time, m.id, true, true))
         } else if let Some(c) = &cursor {
-            // An empty page still renews the cursor it was asked with.
             Some(encode_cursor(
                 &stream,
                 c.create_time,

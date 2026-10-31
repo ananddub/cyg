@@ -1,12 +1,10 @@
-//! `apiFriendDelete` — `DELETE /v2/friend`.
-
 use axum::Json;
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::error::V2Error;
-use crate::services::auth::q;
+use crate::services::deps::q;
 use crate::services::social;
 
 use crate::dto::friend::TargetsQuery;
@@ -16,21 +14,17 @@ use super::super::FriendService;
 use super::resolve::{edge_state, resolve_targets};
 
 impl FriendService {
-    /// `DELETE /v2/friend?ids=&usernames=` — the `DeleteFriends`: my edge always
-    /// goes, theirs only when it is not a block of me; two rows deleted notifies them.
     pub async fn delete_friends(
         &self,
         state: &ApiState,
         auth: &Authed,
         req: TargetsQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state)?;
+        let queries = q(state).await?;
         let me = auth.0.uuid()?;
         let targets =
             match resolve_targets(&queries, me, &auth.0.un, &req, "Cannot delete self.").await? {
                 None => return Ok(Json(Empty {})),
-                // BaaS logs this case and answers success: deleting nothing is not
-                // an error, unlike adding or blocking an unresolvable target.
                 Some(targets) => targets,
             };
 
