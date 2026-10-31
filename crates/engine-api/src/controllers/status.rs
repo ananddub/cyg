@@ -99,6 +99,11 @@ impl MetricsController {
                 snap.stage_sim_us.to_string(),
             );
             gauge(
+                "cyg_stage_guest_us",
+                "Guest-tick share of the simulation stage (µs/tick)",
+                snap.stage_guest_us.to_string(),
+            );
+            gauge(
                 "cyg_kernel_to_sim_p50_us",
                 "Kernel-to-sim p50 (µs)",
                 snap.kernel_to_sim_p50_us.to_string(),
@@ -198,6 +203,11 @@ impl MetricsController {
             gauge(
                 "cyg_stage_sim_us",
                 "Simulation-stage average µs/tick",
+                "0".into(),
+            );
+            gauge(
+                "cyg_stage_guest_us",
+                "Guest-tick share of the simulation stage (µs/tick)",
                 "0".into(),
             );
             gauge(

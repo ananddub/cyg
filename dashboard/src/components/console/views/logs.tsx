@@ -52,7 +52,7 @@ export function LogsView() {
   const token = useSession()?.token ?? ""
   const [status, setStatus] = useState<"connecting" | "open" | "closed">("connecting")
   const [lines, setLines] = useState<ConsoleLogLine[]>([])
-  const [level, setLevel] = useState<LevelId>("all")
+  const [level, setLevel] = useState<LevelId>("info")
   const [needle, setNeedle] = useState("")
   const [paused, setPaused] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
@@ -88,7 +88,9 @@ export function LogsView() {
   }, [token])
 
   const visible = useMemo(() => {
-    const floor = LEVEL_RANK[level.toUpperCase()] ?? 0
+    // "all" is the whole stream; every other id is a severity floor. An
+    // unknown id must not silently collapse to ERROR (rank 0).
+    const floor = level === "all" ? 4 : (LEVEL_RANK[level.toUpperCase()] ?? 4)
     const query = needle.trim().toLowerCase()
     return lines.filter((line) => {
       if ((LEVEL_RANK[line.level] ?? 99) > floor) return false

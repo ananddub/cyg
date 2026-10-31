@@ -18,6 +18,8 @@ fn an_idle_overview_carries_every_key_the_dashboard_reads() {
         "/tick/nominalUs",
         "/tick/p50Us",
         "/tick/p99Us",
+        "/tick/stageSimUs",
+        "/tick/stageGuestUs",
         "/tick/overruns",
         "/tick/samples",
         "/tick/seq",

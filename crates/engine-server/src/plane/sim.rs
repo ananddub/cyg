@@ -103,6 +103,8 @@ fn publish_report(
     last_input_at: &HashMap<PeerId, Instant>,
     tick_hz: f64,
     tick_hz_est: f64,
+    stage_sim_us: u64,
+    stage_guest_us: u64,
     max_players: i32,
 ) -> PublishReport {
     let mut sessions = Vec::with_capacity(room.sessions.len());
@@ -125,7 +127,8 @@ fn publish_report(
     }
     let players = room.sessions.len() as u32;
     PublishReport {
-        stage_sim_us: 0,
+        stage_sim_us,
+        stage_guest_us,
         tick_hz_est,
         tick_rate_hz: tick_hz.max(0.0) as u32,
         players,
@@ -249,6 +252,8 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     let mut sweep_start = Instant::now();
     let mut status_start = Instant::now();
     let mut window_ticks: u64 = 0;
+    let mut stage_sim_us_sum: u64 = 0;
+    let mut stage_guest_us_sum: u64 = 0;
     let mut measured_hz = cfg.tick_hz;
     let mut native_send_failed: u64 = 0;
     // Peers whose inputs arrive with `via == Browser`; their frames go to
@@ -404,6 +409,8 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                     &last_input_at,
                     cfg.tick_hz,
                     measured_hz,
+                    (stage_sim_us_sum / window_ticks.max(1)) as u64,
+                    (stage_guest_us_sum / window_ticks.max(1)) as u64,
                     cfg.max_players,
                 );
                 recorder.maybe_publish(&bus, report);
@@ -438,6 +445,7 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         for _ in 0..ticks_to_run {
             room.current_tick += 1;
             if let Some(ref mut wasm) = room.wasm {
+                let guest_t0 = Instant::now();
                 match wasm.on_tick(dt) {
                     Ok(packed) => {
                         // packed = (ptr << 32) | len into the guest's linear memory.
@@ -480,6 +488,7 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                         break;
                     }
                 }
+                stage_guest_us_sum += guest_t0.elapsed().as_micros() as u64;
             } else {
                 delta_buf.clear();
             }
@@ -558,8 +567,9 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                 }
             }
         }
-        recorder.note_tick(t0.elapsed());
+        stage_sim_us_sum += t0.elapsed().as_micros() as u64;
         window_ticks += ticks_to_run as u64;
+        recorder.note_tick(t0.elapsed());
 
         // ---- low-rate maintenance
         if sweep_start.elapsed() >= Duration::from_millis(200) {
@@ -567,7 +577,8 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
             sweep_start = Instant::now();
         }
         if status_start.elapsed() >= Duration::from_secs(1) {
-            measured_hz = window_ticks as f64 / status_start.elapsed().as_secs_f64();
+            let ticks = window_ticks;
+            measured_hz = ticks as f64 / status_start.elapsed().as_secs_f64();
             window_ticks = 0;
             status_start = Instant::now();
             last_input_at.retain(|peer, _| room.sessions.contains_key(peer));
@@ -578,9 +589,18 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
                 &last_input_at,
                 cfg.tick_hz,
                 measured_hz,
+                (stage_sim_us_sum / ticks.max(1)) as u64,
+                (stage_guest_us_sum / ticks.max(1)) as u64,
                 cfg.max_players,
             );
-            recorder.maybe_publish(&bus, report);
+            if recorder.maybe_publish(&bus, report) {
+                stage_sim_us_sum = 0;
+                stage_guest_us_sum = 0;
+            } else {
+                // The recorder kept the previous window; keep its tick count so
+                // the accumulated stage sums stay paired with it.
+                window_ticks = ticks;
+            }
             crate::host::report_ownership(
                 &bus,
                 &node_id,

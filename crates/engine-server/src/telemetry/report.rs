@@ -13,6 +13,8 @@ pub struct PublishReport {
     /// Simulation-stage average µs/tick over the window (the gated block:
     /// room ticks — guest + physics + delta fan-out).
     pub stage_sim_us: u64,
+    /// Share of `stage_sim_us` inside `on_tick` (guest logic + host physics).
+    pub stage_guest_us: u64,
     /// The configured rate (`GameConfig::tick_rate`). 0 leaves
     /// `nominal_tick_us` at 0 rather than inventing a period.
     pub tick_rate_hz: u32,

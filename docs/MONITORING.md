@@ -22,7 +22,8 @@ window (`crates/engine-bus/src/telemetry.rs`, consumed by
 | `cyg_tick_budget_p99_us` | gauge | Tick p99 wall time (µs) |
 | `cyg_tick_overruns_total` | gauge | Ticks past budget in the window (resets each publish) |
 | `cyg_desyncs_total` | gauge | Client checksum reports that disagreed with the host checkpoint |
-| `cyg_stage_sim_us` | gauge | Simulation-stage average µs/tick |
+| `cyg_stage_sim_us` | gauge | Simulation-stage average µs/tick (guest tick + host fan-out) |
+| `cyg_stage_guest_us` | gauge | Guest-tick share of the stage: `on_tick` plus its host physics calls |
 | `cyg_tick_duration_us` | histogram | Tick wall-time distribution; bucket `i` covers `[2^i, 2^(i+1))` µs, 12 buckets + `+Inf`; count/sum are window-scoped (`le` is an upper bound in µs) |
 | `cyg_kernel_to_sim_p50_us` / `_p99_us` | gauge | Latency from kernel receive to sim apply |
 | `cyg_players` | gauge | Players attached to rooms |
@@ -42,7 +43,10 @@ Default format is `tracing`'s compact line on stderr. Set
 `OX_LOG_FORMAT=json` for one JSON object per line (fields `timestamp`, `level`,
 `fields.message`, and span fields). Every HTTP request runs inside an
 `http` span carrying `request_id` and `method`, so JSON logs are greppable by
-request id. `RUST_LOG` still controls the filter (default `info`).
+request id. `RUST_LOG` still controls the filter (default `info`). The sim's
+once-a-second `[status]` snapshot is logged at `debug`, so the default stream
+carries operator events rather than machine telemetry; use `RUST_LOG=debug`
+when you want the raw sample beside the metrics.
 
 ## Request ids
 

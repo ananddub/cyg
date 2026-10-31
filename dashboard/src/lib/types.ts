@@ -54,6 +54,9 @@ export interface TickHealth {
   overruns: number;
   /** Simulation-stage span: average µs/tick inside the gated room-tick block. */
   stageSimUs: number;
+  /** Guest-tick share of `stageSimUs` (guest logic + host physics); the rest
+   * is host fan-out: AOI, encode and transport sends. */
+  stageGuestUs: number;
   /** Ticks in the current window; 0 means "no samples yet". */
   samples: number;
   /** Publish counter: two polls with the same `seq` mean the sim stopped. */

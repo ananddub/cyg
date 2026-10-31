@@ -1374,6 +1374,9 @@ pub fn run(
     // publish. This is the first per-phase span — network-drain and
     // encode-only spans slot in beside it the same way.
     let mut stage_sim_us_sum: u64 = 0;
+    // Share of `stage_sim_us` inside the guest tick (guest logic plus the host
+    // physics calls it makes); the remainder is the host's delta fan-out.
+    let mut stage_guest_us_sum: u64 = 0;
     // Native-UDP fan-out batch: one reusable buffer so the per-tick delta
     // broadcast costs one sendmmsg instead of one sendto per peer.
     let mut udp_batch: Vec<(SocketAddr, Vec<u8>)> = Vec::new();
@@ -2536,7 +2539,9 @@ pub fn run(
                     // Native ECS backend: single-threaded bevy_ecs + Rapier
                     // schedule; the delta rides the same outbox as a guest's.
                     if room.is_ecs() {
+                        let guest_t0 = Instant::now();
                         room.tick_ecs(dt);
+                        stage_guest_us_sum += guest_t0.elapsed().as_micros() as u64;
                         flush_room_outbox(room, &mut transport, name, &history);
                         continue;
                     }
@@ -2544,7 +2549,10 @@ pub fn run(
                     // Rule 5: Fault-isolated simulation tick (a guest trap does
                     // not crash the server); the rollback checkpoint rides
                     // inside `GameRoom::tick`.
-                    let packed = match room.tick(dt, cfg.rollback.enabled) {
+                    let guest_t0 = Instant::now();
+                    let ticked = room.tick(dt, cfg.rollback.enabled);
+                    stage_guest_us_sum += guest_t0.elapsed().as_micros() as u64;
+                    let packed = match ticked {
                         Ok(p) => p,
                         Err(e) if e.is_interrupt() => {
                             recorder.tick_overruns += 1;
@@ -3000,6 +3008,7 @@ pub fn run(
                 &bus,
                 PublishReport {
                     stage_sim_us: (stage_sim_us_sum / window_ticks.max(1)) as u64,
+                    stage_guest_us: (stage_guest_us_sum / window_ticks.max(1)) as u64,
                     tick_hz_est: window_ticks as f64 / window_sec,
                     tick_rate_hz: live_tick_rate(tick_interval),
                     players,
@@ -3014,6 +3023,7 @@ pub fn run(
                 publish_start = Instant::now();
                 window_ticks = 0;
                 stage_sim_us_sum = 0;
+                stage_guest_us_sum = 0;
             }
         }
 

@@ -224,6 +224,25 @@ export function CoreDetailsSidebar({ worker, overview, onClose }: CoreDetailsSid
                 </div>
 
                 {isSim && (
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <Stat
+                      label="Guest tick"
+                      value={formatDuration(overview?.tick.stageGuestUs)}
+                      note="on_tick incl. host physics"
+                    />
+                    <Stat
+                      label="Host fan-out"
+                      value={formatDuration(
+                        overview
+                          ? Math.max(0, overview.tick.stageSimUs - overview.tick.stageGuestUs)
+                          : undefined,
+                      )}
+                      note="AOI + encode + send"
+                    />
+                  </div>
+                )}
+
+                {isSim && (
                   <div className="space-y-2 rounded-md border border-border/70 bg-card p-3.5 shadow-2xs">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">CPU Budget Utilization</span>

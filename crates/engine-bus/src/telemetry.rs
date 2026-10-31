@@ -86,6 +86,10 @@ pub struct StatusSnapshot {
     /// Simulation-stage share of the tick (room ticks incl. guest + physics +
     /// delta fan-out), average µs over the publish window. 0 = no samples yet.
     pub stage_sim_us: u64,
+    /// Share of `stage_sim_us` spent inside `on_tick` — guest logic plus every
+    /// host physics call it makes. `stage_sim_us - stage_guest_us` is the host
+    /// fan-out (AOI, encode, transport sends). 0 = no samples yet.
+    pub stage_guest_us: u64,
     /// Zero distinguishes "no samples yet" from "every tick was instant".
     pub tick_samples: u32,
     /// Reset by the producer every publish — describes the current window only.
@@ -136,6 +140,7 @@ mod tests {
             "desyncs",
             "nominal_tick_us",
             "stage_sim_us",
+            "stage_guest_us",
             "tick_samples",
             "tick_histogram",
             "kernel_to_sim_p50_us",
@@ -158,7 +163,7 @@ mod tests {
         ] {
             assert!(map.contains_key(key), "missing wire key {key:?}");
         }
-        assert_eq!(map.len(), 26);
+        assert_eq!(map.len(), 27);
         assert_eq!(
             map["tick_histogram"].as_array().unwrap().len(),
             TICK_HISTOGRAM_BUCKETS

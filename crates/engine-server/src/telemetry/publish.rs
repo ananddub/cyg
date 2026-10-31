@@ -13,9 +13,9 @@ use super::report::PublishReport;
 use super::stats::nominal_tick_us;
 
 impl Recorder {
-    /// Once per second: `snapshot()` plus the caller's session report →
-    /// eprintln JSON on `stdout` (the DoD's latency report) and `try_send` to
-    /// `bus.status_tx` for the Tokio plane. Returns `true` when a snapshot
+    /// Once per second: `snapshot()` plus the caller's session report → a
+    /// debug-level JSON line and `try_send` to `bus.status_tx` for the Tokio
+    /// plane. Returns `true` when a snapshot
     /// went out, so the caller knows whether its own window rolled over.
     pub fn maybe_publish(&mut self, bus: &Arc<Bus>, report: PublishReport) -> bool {
         if self.last_publish.elapsed() < Duration::from_secs(1) {
@@ -30,6 +30,7 @@ impl Recorder {
         snap.players = report.players;
         snap.nominal_tick_us = nominal_tick_us(report.tick_rate_hz);
         snap.stage_sim_us = report.stage_sim_us;
+        snap.stage_guest_us = report.stage_guest_us;
         snap.ws_sessions = report.ws_sessions;
         snap.webrtc_sessions = report.webrtc_sessions;
         snap.udp_sessions = report.udp_sessions;
@@ -70,7 +71,10 @@ impl Recorder {
         snap.sessions = sessions;
         self.publish_seq = self.publish_seq.saturating_add(1);
         snap.seq = self.publish_seq;
-        tracing::info!("[status] {}", serde_json::json!(&snap));
+        // Debug, not info: this is the machine's once-a-second sample, and at
+        // info it floods both the operator's terminal and the dashboard's live
+        // log view with the same numbers the metrics cards already show.
+        tracing::debug!("[status] {}", serde_json::json!(&snap));
 
         // Send-or-drop. `bus.status_rx` belongs to `status::pump`, which claims
         // it exactly once, so a full queue means the consumer stopped, not that
