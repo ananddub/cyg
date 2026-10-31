@@ -4,7 +4,7 @@ import type { ConditionNodeData, RuleOperator } from '../types';
 import { RuleSelect } from '../RuleSelect';
 
 export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData }) {
-  const operators: { value: RuleOperator; label: string }[] = [
+  const operators = [
     { value: 'gte', label: '>= (Greater or Eq)' },
     { value: 'gt', label: '> (Greater than)' },
     { value: 'eq', label: '== (Equals)' },
@@ -24,7 +24,7 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
   };
 
   return (
-    <div className="w-76 rounded-xl border border-sky-500/50 bg-zinc-950/95 p-3.5 shadow-2xl shadow-sky-500/15 backdrop-blur-md">
+    <div className="w-80 rounded-xl border border-sky-500/50 bg-zinc-950/95 p-3.5 shadow-2xl shadow-sky-500/15 backdrop-blur-md">
       <Handle
         type="target"
         position={Position.Left}
@@ -46,7 +46,7 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
           <button
             type="button"
             onClick={data.onDelete}
-            className="rounded p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-red-400"
+            className="rounded p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-red-400 nodrag cursor-pointer"
             title="Delete node"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -54,12 +54,12 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
         )}
       </div>
 
-      <div className="mt-3 space-y-2.5">
+      <div className="mt-3 space-y-2.5 nodrag nopan">
         <div>
           <label className="text-[11px] font-semibold text-zinc-200">Field Name</label>
           <input
             type="text"
-            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-sky-400 focus:ring-1 focus:ring-sky-400/40 focus:outline-none"
+            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-sky-400 focus:ring-1 focus:ring-sky-400/40 focus:outline-none nodrag"
             placeholder="e.g. kills, rank, level"
             value={data.field}
             onChange={(e) => data.onDataChange?.({ field: e.target.value })}
@@ -74,7 +74,7 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
                 options={operators}
                 value={data.op}
                 accent="sky"
-                onChange={(e) => data.onDataChange?.({ op: e.target.value as RuleOperator })}
+                onValueChange={(val) => data.onDataChange?.({ op: val as RuleOperator })}
               />
             </div>
           </div>
@@ -83,7 +83,7 @@ export function ConditionNode({ data }: NodeProps & { data: ConditionNodeData })
             <label className="text-[11px] font-semibold text-zinc-200">Value</label>
             <input
               type="text"
-              className="mt-1 h-8 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-sky-400 focus:ring-1 focus:ring-sky-400/40 focus:outline-none"
+              className="mt-1 h-8 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-sky-400 focus:ring-1 focus:ring-sky-400/40 focus:outline-none nodrag"
               placeholder="e.g. 100 or 'gold'"
               value={data.value ?? ''}
               onChange={(e) => handleValueChange(e.target.value)}

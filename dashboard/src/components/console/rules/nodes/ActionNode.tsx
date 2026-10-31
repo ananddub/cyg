@@ -12,7 +12,7 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
   ];
 
   return (
-    <div className="w-72 rounded-xl border border-emerald-500/50 bg-zinc-950/95 p-3.5 shadow-2xl shadow-emerald-500/15 backdrop-blur-md">
+    <div className="w-76 rounded-xl border border-emerald-500/50 bg-zinc-950/95 p-3.5 shadow-2xl shadow-emerald-500/15 backdrop-blur-md">
       <Handle
         type="target"
         position={Position.Left}
@@ -34,7 +34,7 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
           <button
             type="button"
             onClick={data.onDelete}
-            className="rounded p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-red-400"
+            className="rounded p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-red-400 nodrag cursor-pointer"
             title="Delete node"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -42,7 +42,7 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
         )}
       </div>
 
-      <div className="mt-3 space-y-2.5">
+      <div className="mt-3 space-y-2.5 nodrag nopan">
         <div>
           <label className="text-[11px] font-semibold text-zinc-200">Action Type</label>
           <div className="mt-1">
@@ -50,9 +50,9 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
               options={actionTypes}
               value={data.actionType}
               accent="emerald"
-              onChange={(e) =>
+              onValueChange={(val) =>
                 data.onDataChange?.({
-                  actionType: e.target.value as ActionNodeData['actionType'],
+                  actionType: val as ActionNodeData['actionType'],
                 })
               }
             />
@@ -64,7 +64,7 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
             <label className="text-[11px] font-semibold text-zinc-200">Coin Amount</label>
             <input
               type="number"
-              className="mt-1 h-8 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40 focus:outline-none"
+              className="mt-1 h-8 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40 focus:outline-none nodrag"
               placeholder="e.g. 500"
               value={data.amount ?? 100}
               onChange={(e) => data.onDataChange?.({ amount: Number(e.target.value) })}
@@ -81,7 +81,7 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
             </label>
             <input
               type="text"
-              className="mt-1 h-8 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40 focus:outline-none"
+              className="mt-1 h-8 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-100 shadow-sm placeholder-zinc-500 transition focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40 focus:outline-none nodrag"
               placeholder={
                 data.actionType === 'badge'
                   ? 'e.g. Centurion_Badge'

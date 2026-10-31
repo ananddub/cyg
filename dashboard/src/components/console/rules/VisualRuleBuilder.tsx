@@ -90,6 +90,7 @@ export function VisualRuleBuilder({
   const [activeTab, setActiveTab] = useState<'visual' | 'code'>('visual');
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
+  const [selectedPreset, setSelectedPreset] = useState<string>('');
 
   // Testing states
   const [testContext, setTestContext] = useState<string>('{\n  "kills": 120,\n  "rank": "gold"\n}');
@@ -313,21 +314,21 @@ export function VisualRuleBuilder({
 
         <div className="flex items-center gap-2.5">
           {/* Preset templates */}
-          <div className="w-60">
+          <div className="w-64">
             <RuleSelect
               placeholder="Load Preset Template..."
               options={Object.entries(PRESETS).map(([key, p]) => ({
                 value: key,
                 label: p.name,
               }))}
+              value={selectedPreset}
               accent="default"
-              onChange={(e) => {
-                if (e.target.value) {
-                  loadPreset(e.target.value as keyof typeof PRESETS);
-                  e.target.value = '';
+              onValueChange={(key) => {
+                if (key) {
+                  loadPreset(key as keyof typeof PRESETS);
+                  setSelectedPreset(key);
                 }
               }}
-              defaultValue=""
             />
           </div>
 
