@@ -72,13 +72,15 @@ export function graphToRuleJson(nodes: Node[], edges: Edge[]): RuleExpression {
     const gateData = primaryGate.data as unknown as LogicGateNodeData;
     const gateType = gateData.gate || 'all';
 
-    // Find all condition nodes that target this gate
-    const incomingEdgeSourceIds = edges
-      .filter((e) => e.target === primaryGate.id)
-      .map((e) => e.source);
+    // Find all condition nodes connected to this gate (either as source or target)
+    const connectedConditionIds = new Set(
+      edges
+        .filter((e) => e.source === primaryGate.id || e.target === primaryGate.id)
+        .map((e) => (e.source === primaryGate.id ? e.target : e.source)),
+    );
 
     const connectedConditions = conditionNodes.filter((c) =>
-      incomingEdgeSourceIds.includes(c.id),
+      connectedConditionIds.has(c.id),
     );
 
     const condList =
