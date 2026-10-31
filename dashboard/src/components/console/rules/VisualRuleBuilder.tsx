@@ -34,6 +34,7 @@ import { graphToRuleJson, ruleJsonToGraph, getNodeColor } from './graph-to-rule'
 import { RuleSelect } from './RuleSelect';
 import { Button } from '@/components/ui/button';
 import { LiveJsonEditor } from './LiveJsonEditor';
+import { useTheme } from '@/lib/theme';
 
 const PRESETS = {
   centurion: {
@@ -294,13 +295,16 @@ export function VisualRuleBuilder({
     }
   };
 
+  const mode = useTheme();
+  const isDark = mode === 'dark';
+
   return (
-    <div className="flex flex-col rounded-xl border border-border/70 bg-zinc-950/70 shadow-2xl overflow-hidden">
+    <div className="flex flex-col rounded-xl border border-border bg-card shadow-xl overflow-hidden">
       {/* Top Controls Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-zinc-900/60 px-4 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
         <div className="flex items-center gap-1.5">
           <div className="mr-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            <Sparkles className="h-4 w-4 text-amber-400" />
+            <Sparkles className="h-4 w-4 text-amber-500 dark:text-amber-400" />
             <span>XYFlow Blueprint Editor</span>
           </div>
 
@@ -309,7 +313,7 @@ export function VisualRuleBuilder({
             size="sm"
             variant="outline"
             onClick={addConditionNode}
-            className="h-8 gap-1 border-sky-500/30 bg-sky-500/10 text-xs text-sky-400 hover:bg-sky-500/20"
+            className="h-8 gap-1 border-sky-500/30 bg-sky-500/10 text-xs text-sky-600 dark:text-sky-400 hover:bg-sky-500/20"
           >
             <Filter className="h-3.5 w-3.5" />
             <span>+ Condition</span>
@@ -320,7 +324,7 @@ export function VisualRuleBuilder({
             size="sm"
             variant="outline"
             onClick={addLogicGateNode}
-            className="h-8 gap-1 border-amber-500/30 bg-amber-500/10 text-xs text-amber-400 hover:bg-amber-500/20"
+            className="h-8 gap-1 border-amber-500/30 bg-amber-500/10 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
           >
             <GitBranch className="h-3.5 w-3.5" />
             <span>+ Gate (AND/OR)</span>
@@ -331,7 +335,7 @@ export function VisualRuleBuilder({
             size="sm"
             variant="outline"
             onClick={addActionNode}
-            className="h-8 gap-1 border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-400 hover:bg-emerald-500/20"
+            className="h-8 gap-1 border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
           >
             <Gift className="h-3.5 w-3.5" />
             <span>+ Action</span>
@@ -359,17 +363,17 @@ export function VisualRuleBuilder({
           </div>
 
           {/* Mode Switcher */}
-          <div className="flex rounded-lg border border-zinc-700 bg-zinc-900 p-0.5 shadow-sm">
+          <div className="flex rounded-lg border border-border bg-muted/80 p-0.5 shadow-xs">
             <button
               type="button"
               onClick={switchToVisual}
               className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition ${
                 activeTab === 'visual'
-                  ? 'bg-zinc-800 text-zinc-100 shadow'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-card text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Workflow className="h-3.5 w-3.5 text-sky-400" />
+              <Workflow className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" />
               <span>Canvas</span>
             </button>
             <button
@@ -377,11 +381,11 @@ export function VisualRuleBuilder({
               onClick={() => setActiveTab('code')}
               className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition ${
                 activeTab === 'code'
-                  ? 'bg-zinc-800 text-zinc-100 shadow'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-card text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Code2 className="h-3.5 w-3.5 text-emerald-400" />
+              <Code2 className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
               <span>JSON</span>
             </button>
           </div>
@@ -389,7 +393,7 @@ export function VisualRuleBuilder({
       </div>
 
       {/* Main Workspace */}
-      <div className="relative h-[480px] w-full bg-zinc-950">
+      <div className="relative h-[480px] w-full bg-muted/20 dark:bg-zinc-950">
         {activeTab === 'visual' ? (
           <ReactFlow
             nodes={nodes}
@@ -407,10 +411,10 @@ export function VisualRuleBuilder({
               style: { stroke: '#8b5cf6', strokeWidth: 2.5 },
             }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#3f3f46" />
-            <Controls className="!border-border !bg-zinc-900/90 !text-foreground !fill-foreground" />
+            <Background variant={BackgroundVariant.Dots} gap={16} size={1} color={isDark ? '#3f3f46' : '#cbd5e1'} />
+            <Controls className="!border-border !bg-card/90 !text-foreground !fill-foreground" />
             <MiniMap
-              className="!border-border/60 !bg-zinc-900/90"
+              className="!border-border/60 !bg-card/90"
               nodeColor={(node) => {
                 switch (node.type) {
                   case 'trigger':
@@ -448,16 +452,16 @@ export function VisualRuleBuilder({
       </div>
 
       {/* Interactive Testing & Dry Run Bar */}
-      <div className="border-t border-border/60 bg-zinc-900/80 p-3.5">
+      <div className="border-t border-border bg-muted/40 p-3.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-1 items-center gap-3">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-100">
-              <Play className="h-3.5 w-3.5 text-sky-400" />
+            <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+              <Play className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" />
               <span>Test Rule Context:</span>
             </div>
             <input
               type="text"
-              className="h-8 flex-1 max-w-md rounded-lg border border-zinc-700 bg-zinc-900 px-3 font-mono text-xs font-medium text-zinc-100 placeholder-zinc-500 shadow-sm transition focus:border-sky-400 focus:ring-1 focus:ring-sky-400/40 focus:outline-none"
+              className="h-8 flex-1 max-w-md rounded-lg border border-input bg-background px-3 font-mono text-xs font-medium text-foreground placeholder:text-muted-foreground shadow-xs transition focus:border-ring focus:ring-1 focus:ring-ring focus:outline-none"
               value={testContext}
               onChange={(e) => setTestContext(e.target.value)}
               placeholder='e.g. {"kills": 120, "rank": "gold"}'
@@ -467,7 +471,7 @@ export function VisualRuleBuilder({
               size="sm"
               onClick={runTest}
               disabled={isTesting}
-              className="h-8 gap-1.5 rounded-lg bg-sky-400 text-xs font-bold text-zinc-950 shadow-md transition hover:bg-sky-300 active:scale-95"
+              className="h-8 gap-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 dark:bg-sky-400 dark:hover:bg-sky-300 text-xs font-bold text-white dark:text-zinc-950 shadow-xs transition active:scale-95"
             >
               {isTesting ? 'Evaluating...' : 'Run Dry Test'}
             </Button>

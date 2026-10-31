@@ -13,19 +13,19 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
   ];
 
   return (
-    <div className="w-72 rounded-xl border border-violet-500/50 bg-zinc-950/95 p-3.5 shadow-2xl shadow-violet-500/15 backdrop-blur-md">
-      <div className="flex items-center gap-2.5 border-b border-border/40 pb-2.5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/25 text-violet-300">
+    <div className="w-72 rounded-xl border border-violet-500/50 bg-card/95 p-3.5 shadow-xl shadow-violet-500/10 backdrop-blur-md">
+      <div className="flex items-center gap-2.5 border-b border-border pb-2.5">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/20 text-violet-600 dark:text-violet-300">
           <Zap className="h-4 w-4" />
         </div>
         <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-violet-300">Trigger Event</div>
-          <div className="text-[11px] text-zinc-400">Source of game event</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300">Trigger Event</div>
+          <div className="text-[11px] text-muted-foreground">Source of game event</div>
         </div>
       </div>
 
       <div className="mt-3 nodrag nopan">
-        <label className="text-[11px] font-semibold text-zinc-200">Event Type</label>
+        <label className="text-[11px] font-semibold text-foreground">Event Type</label>
         <div className="mt-1.5">
           <RuleSelect
             options={events}
@@ -40,7 +40,7 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
         type="source"
         position={Position.Right}
         id="out"
-        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-zinc-950 !bg-violet-400"
+        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-card !bg-violet-500"
       />
     </div>
   );

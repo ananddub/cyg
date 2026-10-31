@@ -80,22 +80,22 @@ export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEdi
   };
 
   return (
-    <div className="flex h-full flex-col bg-zinc-950 font-mono text-xs">
+    <div className="flex h-full flex-col bg-card font-mono text-xs text-foreground">
       {/* Editor Sub-Header Toolbar */}
-      <div className="flex items-center justify-between border-b border-border/50 bg-zinc-900/60 px-4 py-2 select-none">
+      <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-2 select-none">
         <div className="flex items-center gap-2.5">
-          <span className="font-semibold text-zinc-300">Live JSON Code Editor</span>
+          <span className="font-semibold text-foreground">Live JSON Code Editor</span>
           {isValid ? (
-            <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 border border-emerald-500/20">
-              <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+            <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
               Valid JSON (Live Synced)
             </span>
           ) : (
             <span
-              className="flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-400 border border-rose-500/20 max-w-xs truncate"
+              className="flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/20 max-w-xs truncate"
               title={error || ''}
             >
-              <AlertCircle className="h-3 w-3 text-rose-400 flex-shrink-0" />
+              <AlertCircle className="h-3 w-3 text-rose-600 dark:text-rose-400 flex-shrink-0" />
               <span className="truncate">Syntax Error</span>
             </span>
           )}
@@ -108,10 +108,10 @@ export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEdi
             variant="ghost"
             onClick={handleFormat}
             disabled={!isValid}
-            className="h-7 gap-1 px-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
+            className="h-7 gap-1 px-2 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
             title="Prettify and format JSON"
           >
-            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+            <Sparkles className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />
             <span>Format</span>
           </Button>
 
@@ -120,16 +120,16 @@ export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEdi
             size="sm"
             variant="ghost"
             onClick={handleCopy}
-            className="h-7 gap-1 px-2 text-[11px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            className="h-7 gap-1 px-2 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             {copied ? (
               <>
-                <Check className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="text-emerald-400 font-semibold">Copied!</span>
+                <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Copied!</span>
               </>
             ) : (
               <>
-                <Copy className="h-3.5 w-3.5 text-zinc-400" />
+                <Copy className="h-3.5 w-3.5 text-muted-foreground" />
                 <span>Copy</span>
               </>
             )}
@@ -141,7 +141,7 @@ export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEdi
               size="sm"
               disabled={!isValid}
               onClick={onApplyToCanvas}
-              className="h-7 text-xs bg-sky-500 hover:bg-sky-400 text-zinc-950 font-bold px-2.5 ml-1"
+              className="h-7 text-xs bg-sky-500 hover:bg-sky-400 dark:bg-sky-400 dark:hover:bg-sky-300 text-white dark:text-zinc-950 font-bold px-2.5 ml-1"
             >
               Update Canvas
             </Button>
@@ -154,7 +154,7 @@ export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEdi
         {/* Line Numbers Gutter */}
         <div
           ref={lineNumbersRef}
-          className="select-none overflow-hidden bg-zinc-950/80 py-4 pl-3 pr-3 text-right font-mono text-zinc-600 border-r border-zinc-800/80"
+          className="select-none overflow-hidden bg-muted/20 py-4 pl-3 pr-3 text-right font-mono text-muted-foreground/60 border-r border-border"
           style={{ minWidth: '42px' }}
         >
           {lines.map((_, i) => (
@@ -198,8 +198,8 @@ export function LiveJsonEditor({ value, onChange, onApplyToCanvas }: LiveJsonEdi
 
       {/* Error banner at bottom if invalid */}
       {error && (
-        <div className="border-t border-rose-500/30 bg-rose-950/40 px-4 py-1.5 text-[11px] text-rose-300 flex items-center gap-2">
-          <AlertCircle className="h-3.5 w-3.5 text-rose-400 flex-shrink-0" />
+        <div className="border-t border-rose-500/30 bg-rose-500/10 px-4 py-1.5 text-[11px] text-rose-600 dark:text-rose-300 flex items-center gap-2">
+          <AlertCircle className="h-3.5 w-3.5 text-rose-500 flex-shrink-0" />
           <span className="truncate">{error}</span>
         </div>
       )}

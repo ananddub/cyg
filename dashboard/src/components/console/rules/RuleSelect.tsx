@@ -73,9 +73,9 @@ export function RuleSelect({
       badge: 'text-emerald-300',
     },
     default: {
-      border: 'border-zinc-700 hover:border-zinc-500 focus:border-zinc-400',
-      activeItem: 'bg-zinc-800 text-zinc-100',
-      badge: 'text-zinc-300',
+      border: 'border-border hover:border-foreground/30 focus:border-ring',
+      activeItem: 'bg-muted text-foreground',
+      badge: 'text-muted-foreground',
     },
   };
 
@@ -88,23 +88,23 @@ export function RuleSelect({
         type="button"
         data-slot="rule-select-trigger"
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`flex h-8 w-full items-center justify-between rounded-lg border bg-zinc-900/95 px-2.5 text-xs font-semibold shadow-md transition-all outline-none cursor-pointer nodrag ${
+        className={`flex h-8 w-full items-center justify-between rounded-lg border bg-card/95 px-2.5 text-xs font-semibold shadow-xs transition-all outline-none cursor-pointer nodrag ${
           currentAccent.border
         } ${isOpen ? 'ring-1 ring-primary/40' : ''}`}
       >
-        <span className={selectedOption ? 'text-zinc-100 truncate' : 'text-zinc-400 font-medium truncate'}>
+        <span className={selectedOption ? 'text-foreground truncate' : 'text-muted-foreground font-medium truncate'}>
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-zinc-400 transition-transform duration-150 ${
-            isOpen ? 'rotate-180 text-zinc-100' : ''
+          className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ${
+            isOpen ? 'rotate-180 text-foreground' : ''
           }`}
         />
       </button>
 
       {/* Floating Menu Popover */}
       {isOpen && (
-        <div className="absolute left-0 top-full z-50 mt-1 max-h-56 w-full min-w-[170px] overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950/98 p-1 shadow-2xl backdrop-blur-xl nodrag nopan">
+        <div className="absolute left-0 top-full z-50 mt-1 max-h-56 w-full min-w-[170px] overflow-y-auto rounded-lg border border-border bg-popover/98 p-1 shadow-2xl backdrop-blur-xl nodrag nopan">
           {options.map((opt) => {
             const isSelected = opt.value === value;
             return (
@@ -117,7 +117,7 @@ export function RuleSelect({
                 className={`flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs font-semibold transition cursor-pointer nodrag ${
                   isSelected
                     ? `${currentAccent.activeItem} font-bold`
-                    : 'text-zinc-200 hover:bg-zinc-850 hover:text-white'
+                    : 'text-popover-foreground hover:bg-accent hover:text-accent-foreground'
                 }`}
               >
                 <span className="truncate">{opt.label}</span>

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react"
 import { Loader2, LockKeyhole } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { ThemeToggle } from "@/components/console/theme-toggle"
 import { ConsoleError, MFA_CODE_REQUIRED, consoleLogin } from "@/lib/console"
 import { saveSession } from "@/lib/session"
 import logoUrl from "@/assets/logo.png"
@@ -39,7 +40,10 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-svh w-full items-center justify-center bg-background p-4 text-foreground">
+    <div className="relative flex min-h-svh w-full items-center justify-center bg-background p-4 text-foreground">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="stagger-in w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-3">
           <img
