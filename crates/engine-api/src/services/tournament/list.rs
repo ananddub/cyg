@@ -3,14 +3,13 @@ use chrono::{DateTime, Utc};
 
 use crate::ApiState;
 use crate::app::middleware::Authed;
-use crate::db::{DbError, time};
+use crate::db::DbError;
 use crate::dto::tournament::{ListQuery, TournamentListResponse, TournamentResponse};
 use crate::error::V2Error;
-use crate::repositories::db::{params, ts};
 use crate::repositories::models::Leaderboard;
+use crate::repositories::tournament::TournamentPage;
 use crate::services::deps::q;
 use crate::utils::leaderboard::at;
-use crate::utils::tournament::statement::page_sql;
 use crate::utils::tournament::types::{
     BAD_CATEGORY_END, BAD_CATEGORY_ORDER, BAD_NUMBER, BAD_PAGE_LIMIT, BAD_TIME_ORDER,
     DEFAULT_CATEGORY_END, DEFAULT_PAGE_LIMIT, DEFAULT_TIME, PAGE_FAILED, decode_page_cursor,
@@ -93,28 +92,17 @@ impl super::TournamentService {
             },
         };
 
-        let statement = page_sql(anchor.is_some());
-        let mut binds = params!(
-            category_start = bounds.category_start,
-            category_end = bounds.category_end,
-            start_from = ts(bounds.start_from),
-            mode = bounds.mode,
-            now = ts(bounds.now),
-            never = ts(time::epoch()),
-            end_bound = ts(bounds.end_bound),
-            limit = limit + 1,
-        );
-        if let Some(board) = &anchor {
-            binds.insert("anchor_start".to_string(), ts(board.start_time));
-            binds.insert("anchor_end".to_string(), ts(board.end_time));
-            binds.insert(
-                "anchor_category".to_string(),
-                serde_json::json!(board.category),
-            );
-            binds.insert("anchor_id".to_string(), serde_json::json!(board.id));
-        }
         let rows = queries
-            .all::<Leaderboard>(&statement, binds)
+            .tournament_page(&TournamentPage {
+                category_start: bounds.category_start,
+                category_end: bounds.category_end,
+                start_from: bounds.start_from,
+                mode: bounds.mode,
+                now: bounds.now,
+                end_bound: bounds.end_bound,
+                limit: limit + 1,
+                anchor: anchor.as_ref(),
+            })
             .await
             .map_err(|error| {
                 tracing::error!("[v2] tournament list: {error}");

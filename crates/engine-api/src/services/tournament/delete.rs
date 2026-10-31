@@ -7,11 +7,10 @@ use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
-use crate::repositories::db::{Queries, params, ts};
+use crate::repositories::db::Queries;
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
 use crate::services::deps::q;
 use crate::utils::leaderboard::tournament_window;
-use crate::utils::tournament::statement::{DELETE_SQL, RELEASE_SIZE_SQL};
 use crate::utils::tournament::types::{BAD_ID, DELETE_FAILED};
 
 impl super::TournamentService {
@@ -50,19 +49,12 @@ async fn remove(
     expiry: DateTime<Utc>,
 ) -> Result<(), V2Error> {
     let deleted: Vec<LeaderboardRecord> = queries
-        .all(
-            DELETE_SQL,
-            params!(
-                leaderboard_id = &board.id,
-                owner_id = owner.to_string(),
-                expiry_time = ts(expiry),
-            ),
-        )
+        .delete_tournament_entry(&board.id, owner, expiry)
         .await
         .map_err(delete_failure)?;
     if board.max_size > 0 && !deleted.is_empty() {
         queries
-            .exec(RELEASE_SIZE_SQL, params!(leaderboard_id = &board.id))
+            .shrink_tournament_size(&board.id)
             .await
             .map_err(delete_failure)?;
     }

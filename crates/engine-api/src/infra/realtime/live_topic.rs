@@ -28,14 +28,15 @@ impl LiveTopic {
         }
     }
 
-    pub(super) fn statement(self) -> &'static str {
-        match self {
-            LiveTopic::Users => "LIVE SELECT * FROM users WHERE game_id = $game",
-            LiveTopic::Purchases => "LIVE SELECT * FROM purchase WHERE game_id = $game",
-            LiveTopic::Subscriptions => "LIVE SELECT * FROM subscription WHERE game_id = $game",
-            LiveTopic::WalletLedger => "LIVE SELECT * FROM wallet_ledger WHERE game_id = $game",
-            LiveTopic::Leaderboard => "LIVE SELECT * FROM leaderboard WHERE game_id = $game",
-        }
+    pub(super) fn statement(self) -> String {
+        let table = match self {
+            LiveTopic::Users => "users",
+            LiveTopic::Purchases => "purchase",
+            LiveTopic::Subscriptions => "subscription",
+            LiveTopic::WalletLedger => "wallet_ledger",
+            LiveTopic::Leaderboard => "leaderboard",
+        };
+        crate::repositories::realtime::live_statement(table)
     }
 }
 #[derive(Debug)]
@@ -109,7 +110,7 @@ impl RealtimeHub {
             serde_json::json!(game.to_string()),
         )]);
         let stream = db
-            .live(topic.statement(), &params)
+            .live(&topic.statement(), &params)
             .await
             .map_err(HubError::Live)?;
         let (tx, _) = broadcast::channel(TOPIC_QUEUE);

@@ -1,17 +1,12 @@
-use std::collections::BTreeMap;
-
 use chrono::Utc;
-use serde_json::{Value, json};
 
 use crate::db::DbError;
 use crate::error::V2Error;
-use crate::repositories::db::{Queries, params, ts};
+use crate::repositories::db::Queries;
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
+use crate::repositories::tournament::{Attempts, TournamentEntryWrite};
 use crate::utils::leaderboard::ascending;
-use crate::utils::tournament::statement::{
-    Attempts, EXISTS_SQL, JOIN_SIZE_SQL, RELEASE_SIZE_SQL, UPDATE_SQL, Write, entered_row,
-    next_score,
-};
+use crate::utils::tournament::statement::{Write, entered_row, next_score};
 use crate::utils::tournament::types::{JOIN_REQUIRED, MAX_ATTEMPTS, MAX_SIZE, WRITE_FAILED};
 
 pub(super) async fn submit(
@@ -33,20 +28,12 @@ pub(super) async fn submit(
     }
 }
 
-fn tuple_params(write: &Write<'_>) -> BTreeMap<String, Value> {
-    params!(
-        leaderboard_id = write.leaderboard_id,
-        owner_id = write.owner_id.to_string(),
-        expiry_time = ts(write.expiry),
-    )
-}
-
 async fn lookup(
     queries: &Queries,
     write: &Write<'_>,
 ) -> Result<Option<LeaderboardRecord>, V2Error> {
     queries
-        .opt(EXISTS_SQL, tuple_params(write))
+        .tournament_entry(write.leaderboard_id, write.owner_id, write.expiry)
         .await
         .map_err(write_failure)
 }
@@ -70,15 +57,17 @@ async fn write_round(
         .map(str::to_string)
         .or_else(|| current.username.clone());
 
-    let mut binds = tuple_params(write);
-    binds.insert("score".to_string(), json!(score));
-    binds.insert("subscore".to_string(), json!(subscore));
-    binds.insert("metadata".to_string(), json!(metadata));
-    binds.insert("username".to_string(), json!(username));
-    binds.insert("update_time".to_string(), ts(Utc::now()));
-
-    let counters: Option<Attempts> = queries
-        .opt(UPDATE_SQL, binds)
+    let counters = queries
+        .update_tournament_entry(&TournamentEntryWrite {
+            leaderboard_id: write.leaderboard_id,
+            owner_id: write.owner_id,
+            username: username.as_deref(),
+            score,
+            subscore,
+            metadata,
+            expiry: write.expiry,
+            now: Utc::now(),
+        })
         .await
         .map_err(write_failure)?;
     match counters {
@@ -93,8 +82,8 @@ async fn write_round(
 }
 
 async fn enter(queries: &Queries, board: &Leaderboard, write: &Write<'_>) -> Result<(), V2Error> {
-    let room: Option<Leaderboard> = queries
-        .opt(JOIN_SIZE_SQL, params!(leaderboard_id = &board.id))
+    let room = queries
+        .grow_tournament_size(&board.id)
         .await
         .map_err(write_failure)?;
     if room.is_none() {
@@ -121,10 +110,7 @@ async fn enter(queries: &Queries, board: &Leaderboard, write: &Write<'_>) -> Res
 }
 
 async fn release(queries: &Queries, board: &Leaderboard) {
-    if let Err(error) = queries
-        .exec(RELEASE_SIZE_SQL, params!(leaderboard_id = &board.id))
-        .await
-    {
+    if let Err(error) = queries.shrink_tournament_size(&board.id).await {
         tracing::error!("[v2] tournament write: releasing a place: {error}");
     }
 }

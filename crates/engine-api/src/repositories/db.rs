@@ -110,6 +110,12 @@ pub(crate) async fn affected(
     })
 }
 
+/// A store that answers at all, which is the first thing readiness can ask of
+/// it before any other statement can be believed.
+pub(crate) async fn ping(db: &Datastore) -> Result<(), DbError> {
+    db.exec("RETURN 1;").await
+}
+
 pub(crate) fn ts(at: DateTime<Utc>) -> Value {
     Value::String(time::encode(at))
 }

@@ -68,14 +68,7 @@ impl GamesService {
             tracing::warn!("config history: recording version {version} failed: {err}");
             return;
         }
-        if let Err(err) = queries
-            .exec(
-                "UPDATE game_config_version SET is_active = false \
-                 WHERE game_id = $game AND is_active = true AND version != $version",
-                crate::repositories::db::params!(game = game_id, version = version),
-            )
-            .await
-        {
+        if let Err(err) = queries.activate_config_version(game_id, version).await {
             tracing::warn!("config history: retiring older versions failed: {err}");
         }
     }

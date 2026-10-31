@@ -16,7 +16,7 @@ impl StatusService {
     pub async fn readyz(&self, state: &ApiState) -> Response {
         let db = state.db.as_deref();
         let (database_ok, database) = match db {
-            Some(db) => match db.exec("RETURN 1;").await {
+            Some(db) => match crate::repositories::db::ping(db).await {
                 Ok(()) => (true, "live".to_owned()),
                 Err(err) => (false, format!("down: {err}")),
             },

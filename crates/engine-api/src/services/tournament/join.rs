@@ -8,13 +8,11 @@ use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
-use crate::repositories::db::{Queries, params, ts};
+use crate::repositories::db::Queries;
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
 use crate::services::deps::q;
 use crate::utils::leaderboard::{at, calculate};
-use crate::utils::tournament::statement::{
-    EXISTS_SQL, JOIN_SIZE_SQL, RELEASE_SIZE_SQL, joined_row,
-};
+use crate::utils::tournament::statement::joined_row;
 use crate::utils::tournament::types::{INACTIVE_JOIN, JOIN_FAILED, MAX_SIZE_JOIN};
 
 impl super::TournamentService {
@@ -56,22 +54,15 @@ async fn enter(
     expiry: DateTime<Utc>,
 ) -> Result<(), V2Error> {
     let existing: Option<LeaderboardRecord> = queries
-        .opt(
-            EXISTS_SQL,
-            params!(
-                leaderboard_id = &board.id,
-                owner_id = owner.to_string(),
-                expiry_time = ts(expiry),
-            ),
-        )
+        .tournament_entry(&board.id, owner, expiry)
         .await
         .map_err(failure)?;
     if existing.is_some() {
         return Ok(());
     }
 
-    let room: Option<Leaderboard> = queries
-        .opt(JOIN_SIZE_SQL, params!(leaderboard_id = &board.id))
+    let room = queries
+        .grow_tournament_size(&board.id)
         .await
         .map_err(failure)?;
     if room.is_none() {
@@ -100,10 +91,7 @@ async fn enter(
 }
 
 async fn release(queries: &Queries, board: &Leaderboard) {
-    if let Err(error) = queries
-        .exec(RELEASE_SIZE_SQL, params!(leaderboard_id = &board.id))
-        .await
-    {
+    if let Err(error) = queries.shrink_tournament_size(&board.id).await {
         tracing::error!("[v2] tournament join: releasing a place: {error}");
     }
 }

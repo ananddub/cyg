@@ -1,7 +1,6 @@
 pub mod account;
 pub mod auth;
 pub mod badge;
-pub mod report;
 pub mod channel;
 pub mod config_history;
 pub mod console;
@@ -26,6 +25,8 @@ pub mod notification;
 pub mod notify;
 pub mod quest;
 pub mod quota;
+pub mod realtime;
+pub mod report;
 pub mod room_registry;
 pub mod rules;
 pub mod session;
