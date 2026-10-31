@@ -320,7 +320,6 @@ function ConfigureGameSheet({ game, onClose }: { game: GameDetail; onClose: () =
         path: gamePath(game.id),
         body: {
           name: name.trim(),
-          engine_type: "custom",
           status,
           tick_rate: Number(tickRate) || 0,
           max_clients: Number(maxClients) || 0,
