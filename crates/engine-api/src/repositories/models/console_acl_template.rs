@@ -44,14 +44,17 @@ pub struct ConsoleUser {
     pub id: Uuid,
     pub metadata: serde_json::Value,
     #[serde(with = "bytes::b64_opt")]
+    #[field(ty = "string")]
     pub password: Option<Vec<u8>>,
     pub role: i16,
     #[serde(with = "time::iso")]
     pub update_time: DateTime<Utc>,
     pub username: String,
     #[serde(with = "bytes::b64_opt")]
+    #[field(ty = "string")]
     pub mfa_secret: Option<Vec<u8>>,
     #[serde(with = "bytes::b64_opt")]
+    #[field(ty = "string")]
     pub mfa_recovery_codes: Option<Vec<u8>>,
     pub mfa_required: Option<bool>,
     pub acl: serde_json::Value,

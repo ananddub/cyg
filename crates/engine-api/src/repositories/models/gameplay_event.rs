@@ -24,6 +24,7 @@ pub struct GameplayEvent {
     pub player_id: i64,
     pub event: String,
     #[serde(with = "bytes::b64")]
+    #[field(ty = "string")]
     pub payload: Vec<u8>,
     #[serde(with = "time::iso")]
     pub create_time: DateTime<Utc>,

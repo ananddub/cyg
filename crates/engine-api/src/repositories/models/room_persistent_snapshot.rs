@@ -7,6 +7,7 @@ pub struct RoomPersistentSnapshot {
     pub room_name: String,
     pub backend: String,
     #[serde(with = "bytes::b64")]
+    #[field(ty = "string")]
     pub snapshot_bytes: Vec<u8>,
     pub entity_count: i32,
     /// Which save of the room this row is, taken from the host's own counter.

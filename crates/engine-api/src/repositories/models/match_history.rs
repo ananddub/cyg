@@ -28,6 +28,7 @@ pub struct MatchHistory {
     /// (msgpack, event name `[gameplay] result_event`). Empty when the game
     /// never declared one — the engine does not invent a score it was not told.
     #[serde(with = "bytes::b64")]
+    #[field(ty = "string")]
     pub result: Vec<u8>,
     #[serde(with = "time::iso")]
     pub create_time: DateTime<Utc>,

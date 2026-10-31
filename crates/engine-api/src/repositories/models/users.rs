@@ -29,6 +29,7 @@ pub struct Users {
     pub wallet: serde_json::Value,
     pub email: Option<String>,
     #[serde(with = "bytes::b64_opt")]
+    #[field(ty = "string")]
     pub password: Option<Vec<u8>>,
     pub facebook_id: Option<String>,
     pub google_id: Option<String>,
