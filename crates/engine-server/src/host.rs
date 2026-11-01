@@ -2637,9 +2637,9 @@ pub fn run(
                                 continue;
                             }
                             if let Some(ref mut wasm) = room.wasm {
-                                if let Ok(ptr) = wasm.on_alloc(data.len() as i32) {
-                                    let _ = wasm.write_memory(ptr as u32, data);
-                                    let _ = wasm.on_input(id, ptr, data.len() as i32);
+                                if let Ok(ptr) = wasm.on_alloc(sample.len() as i32) {
+                                    let _ = wasm.write_memory(ptr as u32, sample);
+                                    let _ = wasm.on_input(id, ptr, sample.len() as i32);
                                 }
                             }
                         }
@@ -2657,7 +2657,22 @@ pub fn run(
                             let _ = udp_sock.send_to(data, peer_addr);
                             continue;
                         }
-                        if data.len() == 20 {
+                        // Two input shapes ride this lane: a bare 20B sample
+                        // (oldest SDKs) and the 23B [0x21][seq u16][20B]
+                        // framed form the Unity SDK sends. Both feed the
+                        // guest the same 20B movement sample.
+                        let input_sample: Option<&[u8]> = if data.len() == 20 {
+                            Some(data)
+                        } else if data.len() == 23 && data[0] == 0x21 {
+                            Some(&data[3..23])
+                        } else {
+                            None
+                        };
+                        if let Some(sample_arr) = input_sample {
+                            let sample = match <&[u8; 20]>::try_from(sample_arr) {
+                                Ok(s) => s,
+                                Err(_) => continue,
+                            };
                             let Ok(sample) = <&[u8; 20]>::try_from(data) else {
                                 continue;
                             };
@@ -2887,7 +2902,13 @@ pub fn run(
                     // reader sees is the one the guest just ticked under: a room
                     // that got its first player becomes Active on this same pass.
                     room.note_state();
-                    if room.state != engine_bus::RoomPhase::Active {
+                    // A room whose only members are raw-UDP peers (Unity /
+                    // Unreal / Godot-native) must still tick: raw players live
+                    // outside sessions/spectators, so membership alone would
+                    // leave it "hibernating" forever and no state would ever
+                    // reach the native client.
+                    let raw_peers_attached = *name == cfg.name && !udp_peers.is_empty();
+                    if room.state != engine_bus::RoomPhase::Active && !raw_peers_attached {
                         continue;
                     }
 
@@ -3060,6 +3081,33 @@ pub fn run(
                                             OpCode::RoomDataBytes,
                                             &delta_body,
                                         );
+                                    }
+                                }
+                            }
+
+                            // Raw-UDP peers (Unity / Unreal / Godot-native) ride the
+                            // same schema stream: the full once on first sight
+                            // (tracked in schema_sent by their session id), then
+                            // patches. Without this, schema-based games never sent
+                            // any state to native clients — the legacy delta
+                            // broadcast only ran for non-schema rooms.
+                            if !quiet {
+                                if let Some(ref udp_sock) = udp_socket {
+                                    for (peer_addr, (peer_id, peer_session, _)) in &udp_peers {
+                                        let is_full = force_full
+                                            || !room.schema_sent.contains(peer_session);
+                                        let body = if is_full { schema.full } else { schema.patch };
+                                        netcode::wrap_delta_into(
+                                            &mut delta_body,
+                                            *peer_id as i64,
+                                            body,
+                                            0,
+                                            server_tick_u32,
+                                        );
+                                        let _ = udp_sock.send_to(&delta_body, *peer_addr);
+                                        if is_full {
+                                            room.schema_sent.insert(peer_session.clone());
+                                        }
                                     }
                                 }
                             }

@@ -167,7 +167,33 @@ namespace CYG
         {
             switch (buf[0])
             {
-                case 0x24: // BIND
+                case 0x0a: // CYG_WIRE_JOIN_ROOM — the legacy raw-UDP lane's
+                           // handshake reply: [op][rt_len]["room:session"][6]["schema"][0x00].
+                           // The room is joined at this point; a separate
+                           // datagram carries the schema descriptor.
+                    Connected = true;
+                    if (n >= 2)
+                    {
+                        int rtLen = buf[1];
+                        if (n >= 2 + rtLen)
+                        {
+                            SessionId = Encoding.UTF8.GetString(buf, 2, rtLen);
+                            // The token embeds the raw player id:
+                            // "<room>:p<id>_<ip>_<port>".
+                            var token = SessionId;
+                            int colon = token.IndexOf(':');
+                            var session = colon >= 0 ? token.Substring(colon + 1) : token;
+                            if (session.StartsWith("p") && session.Length > 1)
+                            {
+                                int underscore = session.IndexOf('_', 1);
+                                if (underscore > 1
+                                    && long.TryParse(session.Substring(1, underscore - 1), out var pid))
+                                    PlayerId = pid;
+                            }
+                        }
+                    }
+                    break;
+                case 0x24: // BIND (the plane-lane variant)
                     Connected = true;
                     if (n >= 9) PlayerId = BitConverter.ToInt64(buf, 1);
                     break;
