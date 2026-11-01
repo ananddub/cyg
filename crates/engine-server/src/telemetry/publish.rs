@@ -1,5 +1,3 @@
-//! The once-a-second publish: roll the windows, stamp the report, feed the
-//! bus and the process-wide `current()` slot.
 
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -13,10 +11,7 @@ use super::report::PublishReport;
 use super::stats::nominal_tick_us;
 
 impl Recorder {
-    /// Once per second: `snapshot()` plus the caller's session report → a
-    /// debug-level JSON line and `try_send` to `bus.status_tx` for the Tokio
-    /// plane. Returns `true` when a snapshot
-    /// went out, so the caller knows whether its own window rolled over.
+
     pub fn maybe_publish(&mut self, bus: &Arc<Bus>, report: PublishReport) -> bool {
         if self.last_publish.elapsed() < Duration::from_secs(1) {
             return false;
@@ -35,16 +30,13 @@ impl Recorder {
         snap.webrtc_sessions = report.webrtc_sessions;
         snap.udp_sessions = report.udp_sessions;
         snap.rooms = report.rooms;
-        // The phase counts are summed from the rows rather than handed over by
-        // the caller: a producer that forgot a field could otherwise publish
-        // aggregates that contradict the table printed right next to them.
+
         for row in &snap.rooms {
             match row.phase {
                 RoomPhase::Created => snap.rooms_created += 1,
                 RoomPhase::Active => snap.rooms_active += 1,
                 RoomPhase::Hibernating => snap.rooms_hibernating += 1,
-                // A disposed room leaves the host's map before this runs, so a
-                // `Closed` row is a report about a room nobody has anymore.
+
                 RoomPhase::Closed => {}
             }
         }
@@ -56,8 +48,7 @@ impl Recorder {
             self.empty_since = None;
             0
         } else {
-            // Armed on the first empty window, so the count starts the second
-            // the room lost its last session rather than at process start.
+
             let since = *self.empty_since.get_or_insert(Instant::now());
             since.elapsed().as_secs()
         };
@@ -71,14 +62,9 @@ impl Recorder {
         snap.sessions = sessions;
         self.publish_seq = self.publish_seq.saturating_add(1);
         snap.seq = self.publish_seq;
-        // Debug, not info: this is the machine's once-a-second sample, and at
-        // info it floods both the operator's terminal and the dashboard's live
-        // log view with the same numbers the metrics cards already show.
+
         tracing::debug!("[status] {}", serde_json::json!(&snap));
 
-        // Send-or-drop. `bus.status_rx` belongs to `status::pump`, which claims
-        // it exactly once, so a full queue means the consumer stopped, not that
-        // it is behind — and `/status` says so by ageing the sample it holds.
         let _ = bus.status_tx.try_send(snap.clone());
         LAST.get_or_init(ArcSwapOption::default).store(Some(Arc::new(snap)));
 
@@ -92,7 +78,6 @@ impl Recorder {
 
 static LAST: OnceLock<ArcSwapOption<StatusSnapshot>> = OnceLock::new();
 
-/// Last snapshot published (for any main-thread reader; lock-free read).
 pub fn current() -> Option<StatusSnapshot> {
     LAST.get_or_init(ArcSwapOption::default)
         .load()

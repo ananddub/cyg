@@ -1,0 +1,110 @@
+
+use engine_net::framing::OpCode;
+use engine_net::transport::GameTransport;
+
+use crate::rooms::GameRoom;
+
+use crate::host::*;
+pub(crate) fn claimed_user_id(options: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(options).ok()?;
+    value.get("userId")?.as_str().map(str::to_string).filter(|id| !id.is_empty())
+}
+
+pub(crate) fn flush_room_outbox(
+    room: &mut GameRoom,
+    transport: &mut impl GameTransport,
+    room_name: &str,
+    history: &EventHistory,
+) {
+    let messages = room.drain_outbox();
+    if messages.is_empty() {
+        return;
+    }
+
+    let tick = room.current_tick;
+    let mut frame = Vec::with_capacity(64);
+    for message in messages {
+        if message.event.is_empty() || message.event.len() > 255 {
+            continue;
+        }
+        history.mirror(room_name, tick, &message);
+        if history.carries_result(&message) {
+            room.result = Some(message.payload.clone());
+        }
+        frame.clear();
+        frame.push(APP_MESSAGE_OPCODE);
+        frame.push(message.event.len() as u8);
+        frame.extend_from_slice(message.event.as_bytes());
+        frame.extend_from_slice(&message.payload);
+
+        if message.target > 0 {
+            if let Some(session) = room
+                .sessions
+                .iter()
+                .find_map(|(session, id)| (*id == message.target).then_some(session.as_str()))
+            {
+                let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
+            }
+        } else if message.target == 0 {
+            for session in room.sessions.keys() {
+                let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
+            }
+            for spectator in &room.spectators {
+                let _ = transport.send_to(spectator, OpCode::RoomDataBytes, &frame);
+            }
+        }
+    }
+}
+
+pub(crate) fn announce_voice_peer_change(
+    transport: &mut impl GameTransport,
+    mesh: &mut engine_voice::VoiceMesh,
+    kind: engine_voice::SignalKind,
+    subject: u32,
+) {
+    let frame = engine_voice::SignalFrame::new(
+        kind,
+        engine_voice::SERVER_SENDER,
+        engine_voice::BROADCAST,
+        bytes::Bytes::from(format!("[{subject}]")),
+    )
+    .encode();
+    mesh.for_each_peer(subject, |target| {
+        let _ = transport.send_to(target.session_id, OpCode::RoomDataBytes, &frame);
+    });
+}
+
+pub(crate) fn reject_signal(
+    transport: &mut impl GameTransport,
+    client_id: &str,
+    from: u32,
+    reason: &'static str,
+) {
+    let frame = engine_voice::SignalFrame::new(
+        engine_voice::SignalKind::Error,
+        engine_voice::SERVER_SENDER,
+        from,
+        bytes::Bytes::from(format!(r#"{{"reason":"{reason}"}}"#)),
+    )
+    .encode();
+    let _ = transport.send_to(client_id, OpCode::RoomDataBytes, &frame);
+}
+
+pub(crate) fn reject_room(transport: &mut LoopTransport, client_id: &str, message: &str) {
+    let code = engine_net::close_code::WITH_ERROR;
+    let reason = format!("{{\"code\":{code},\"message\":\"{message}\"}}");
+    let _ = transport.send_to(client_id, OpCode::Error, reason.as_bytes());
+    let _ = transport.disconnect_with(client_id, code, message);
+    let _ = transport.flush();
+}
+
+pub(crate) fn close_room_sessions(transport: &mut LoopTransport, room: &GameRoom, code: u16, message: &str) {
+    for session in room.sessions.keys().chain(room.spectators.iter()) {
+        let _ = transport.disconnect_with(session, code, message);
+    }
+    let _ = transport.flush();
+}
+
+pub(crate) fn room_is_reapable(cfg: &engine_config::GameConfig, name: &str, udp_peers: usize) -> bool {
+    !cfg.lifecycle.is_persistent(name) && (name != cfg.name.as_str() || udp_peers == 0)
+}

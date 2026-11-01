@@ -1,0 +1,68 @@
+use crate::rooms::{GameRoom, RoomHostData};
+use engine_nav::nav2d::NavMesh2D;
+use engine_physics::PhysicsWorld3D;
+use std::collections::HashMap;
+
+pub struct GameServer {
+    pub(crate) pre: Option<engine_wasm::WasmPreInstance<RoomHostData>>,
+    pub(crate) max_clients: i32,
+    pub(crate) physics: PhysicsWorld3D,
+    pub(crate) rooms: HashMap<String, GameRoom>,
+    pub(crate) permissions: engine_wasm::AbiPermissions,
+    pub(crate) persistent_snapshots: HashMap<String, Vec<u8>>,
+    pub(crate) arena_2d: Option<engine_physics::MapConfig2D>,
+    pub(crate) navmesh: Option<std::sync::Arc<NavMesh2D>>,
+}
+
+impl GameServer {
+    pub(crate) fn new(
+        pre: Option<engine_wasm::WasmPreInstance<RoomHostData>>,
+        max_clients: i32,
+        physics: PhysicsWorld3D,
+        permissions: engine_wasm::AbiPermissions,
+    ) -> Self {
+        Self {
+            pre,
+            max_clients,
+            physics,
+            rooms: HashMap::new(),
+            permissions,
+            persistent_snapshots: HashMap::new(),
+            arena_2d: None,
+            navmesh: None,
+        }
+    }
+
+    pub fn save_snapshot(&mut self, room_name: &str, snapshot: Vec<u8>) {
+        if !self.permissions.storage {
+            tracing::info!(
+                "[server] 🚫 storage disabled by manifest — dropping snapshot for room '{room_name}'"
+            );
+            return;
+        }
+        tracing::info!(
+            "[server] 💾 Saved persistent snapshot for room '{room_name}' ({} bytes)",
+            snapshot.len()
+        );
+        self.persistent_snapshots
+            .insert(room_name.to_string(), snapshot);
+    }
+
+    pub fn load_snapshot(&self, room_name: &str) -> Option<&Vec<u8>> {
+        self.persistent_snapshots.get(room_name)
+    }
+
+    pub fn has_snapshot(&self, room_name: &str) -> bool {
+        self.persistent_snapshots.contains_key(room_name)
+    }
+
+    #[inline]
+    pub(crate) fn has_room_module(&self) -> bool {
+        self.pre.is_some()
+    }
+
+    pub(crate) fn would_exceed_room_limit(&self, name: &str, max_rooms: u32) -> bool {
+        max_rooms > 0 && !self.rooms.contains_key(name) && self.rooms.len() >= max_rooms as usize
+    }
+
+}

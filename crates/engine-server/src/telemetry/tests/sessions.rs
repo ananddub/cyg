@@ -29,7 +29,6 @@ fn a_publish_carries_the_session_rows_and_the_transport_mix() {
     assert_eq!(on_bus.sessions[0].acked_seq, Some(42));
     assert_eq!(on_bus.webrtc_sessions, 0);
 
-    // The cap is a size guard on the payload, not a suggestion.
     r.last_publish = Instant::now() - Duration::from_secs(2);
     assert!(r.maybe_publish(
         &bus,
@@ -38,8 +37,6 @@ fn a_publish_carries_the_session_rows_and_the_transport_mix() {
     assert_eq!(bus.status_rx.try_recv().unwrap().sessions.len(), 1);
 }
 
-/// A room that never ticked must publish a zeroed window rather than dividing
-/// by an empty ring.
 #[test]
 fn publishing_an_empty_window_is_safe() {
     let bus = Bus::new(16, 16);

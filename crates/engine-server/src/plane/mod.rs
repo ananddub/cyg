@@ -1,10 +1,3 @@
-//! # The two-plane thread topology
-//!
-//! `sim` is the pinned MIO OS thread: raw UDP :7778 + the 128 Hz wasm
-//! simulation. Everything crypto/async belongs to the Tokio plane and is out
-//! of scope here. This module owns spawning, core pinning, and the shared
-//! clock re-exports every plane file uses.
-
 pub mod dispatch;
 pub mod pin;
 pub mod reliable;
@@ -22,23 +15,8 @@ pub use crate::plane::pin::{current_core, pin_current_thread};
 pub use crate::plane::reliable::{QueueError, ReliableCounts, ReliableLane};
 pub use crate::plane::seats::{SeatGrant, SeatRegistry};
 pub use crate::plane::udp::UdpPlane;
-// One process-wide epoch, so a latency stamp taken at datagram read and the
-// one taken at queue drain always compare.
 pub use engine_bus::clock::{mono_ns, tick_period};
 
-/// Runtime knobs for the sim plane. Env-driven, so the plane stays opt-in and
-/// the WebSocket flow is the default.
-///
-/// * `OX_PLANES=1`          — enable the raw UDP + sim plane at all
-/// * `OX_SIM_CORE=2`        — core to pin the sim thread to
-/// * `OX_UDP_ADDR=0.0.0.0:7778` — raw UDP bind address
-/// * `OX_TICK_HZ=128`       — simulation tick rate
-/// * `OX_SEAT_SECRET`       — HMAC key for seat tokens (required)
-/// * `OX_WASM_PATH`         — compiled room wasm; defaults to the project's
-///                            `ox-server/room_logic.wasm` next to `ox.toml`
-/// * `OX_WATCHDOG_ENABLED=0` — guest-timeout fuse off; `OX_WATCHDOG_BUDGET_MS`
-///                            and `OX_WATCHDOG_TICKS` set it (shared with the
-///                            `[watchdog]` config block)
 #[derive(Clone, Debug)]
 pub struct PlaneConfig {
     pub enabled: bool,
@@ -92,9 +70,6 @@ impl PlaneConfig {
     }
 }
 
-/// Spawn the pinned sim thread (raw UDP + 128 Hz wasm sim). The browser-side
-/// consumer of `bus.deltas_rx` lives on the Tokio plane and is not started
-/// here.
 pub fn spawn_sim_plane(
     bus: Arc<Bus>,
     cfg: PlaneConfig,

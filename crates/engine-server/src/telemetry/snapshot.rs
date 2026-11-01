@@ -1,4 +1,3 @@
-//! Turning the recorder's windows into a `StatusSnapshot`.
 
 use engine_bus::StatusSnapshot;
 
@@ -26,9 +25,7 @@ impl Recorder {
             inputs_dropped: self.inputs_dropped,
             seq: self.publish_seq,
             updated_ms: mono_ns() / 1_000_000,
-            // The session breakdown, nominal period and idle age are stamped by
-            // `maybe_publish` from its `PublishReport`, since only the loop
-            // that owns the sockets knows what sits on each transport.
+
             ..Default::default()
         }
     }
