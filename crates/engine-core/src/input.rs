@@ -26,13 +26,16 @@ pub struct PlayerInput {
 }
 
 impl PlayerInput {
-    /// Accepts anything convertible into inline input storage: a `Vec<u8>`
-    /// (spills once, then zero-alloc reads), an `InputData`, or a `&[u8]` copy.
-    pub fn new(seq: u64, client_time_ms: f64, data: impl Into<InputData>) -> Self {
+    /// Copies `data` into inline storage when it fits (≤ 32 B) — the wire path
+    /// passes `Vec<u8>`/slices, and a `Vec` converted via `SmallVec::from_vec`
+    /// would keep its heap buffer (spill), allocating per input. `from_slice`
+    /// inlines instead, so the steady-state receive path allocates nothing.
+    /// Payloads beyond 32 B (batched inputs) still spill without dropping.
+    pub fn new(seq: u64, client_time_ms: f64, data: impl AsRef<[u8]>) -> Self {
         Self {
             seq,
             client_time_ms,
-            data: data.into(),
+            data: InputData::from_slice(data.as_ref()),
         }
     }
 }
