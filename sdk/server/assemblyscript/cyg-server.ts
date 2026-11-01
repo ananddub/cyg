@@ -189,6 +189,18 @@ declare function _sys_rapier2d_step(dt: f64): i32;
 @external("env", "sys_rapier2d_check_contact")
 declare function _sys_rapier2d_check_contact(body_id_a: i32, body_id_b: i32): i32;
 
+// --- Batch physics ABI (host side, hidden behind PhysicsBatch2D) -----------
+@external("env", "sys_rapier2d_set_velocities")
+declare function _sys_rapier2d_set_velocities(ptr: usize, count: i32): i32;
+
+@external("env", "sys_rapier2d_get_positions")
+declare function _sys_rapier2d_get_positions(
+    in_ptr: usize,
+    out_ptr: usize,
+    count: i32,
+    other_body: i32
+): i32;
+
 @external("env", "sys_rapier2d_remove_body")
 declare function _sys_rapier2d_remove_body(body_id: i32): i32;
 
@@ -1056,6 +1068,137 @@ export class Rapier2D {
     /** Remove a body and all its attached colliders from the physics world. */
     static removeBody(bodyId: i32): void {
         _sys_rapier2d_remove_body(bodyId);
+    }
+
+    /**
+     * Create a batch handle for large rooms: ONE host call per tick for all
+     * bodies instead of one call per body. Same results as the per-body
+     * calls above; at 1,000+ players the difference is several milliseconds
+     * per tick. Keep the handle for the room's lifetime (it pre-allocates).
+     *
+     * ```ts
+     * const batch = Rapier2D.batch(1024);          // once, in onCreate
+     * // per tick:
+     * batch.begin();
+     * batch.pushVelocity(body, vx, vy);            // once per moving body
+     * batch.applyVelocities();                     // 1 host call
+     * Rapier2D.step(dt);
+     * batch.syncPositions(coinBody);               // 1 host call (reads back)
+     * // then per body: batch.x(i), batch.y(i), batch.hasContact(i)
+     * ```
+     */
+    static batch(maxBodies: i32): PhysicsBatch2D {
+        return new PhysicsBatch2D(maxBodies);
+    }
+}
+
+/**
+ * A pre-allocated batch of body velocities + position/contact readbacks.
+ * Pure typed accessors — no pointers, no byte offsets, no endianness.
+ * Nothing allocates per tick: the handle reuses its internal buffers, so a
+ * 128 Hz room with 1,000 bodies produces zero garbage.
+ */
+export class PhysicsBatch2D {
+    private max: i32;
+    private n: i32;
+    /// Scratch: [bodyId:i32, vx:f64, vy:f64] stride 20.
+    private velBuf: ArrayBuffer;
+    private velView: DataView;
+    /// Readback request: [bodyId:i32] stride 4 (mirrored at push time).
+    private posInBuf: ArrayBuffer;
+    private posInView: DataView;
+    /// Readback result: [x:f64, y:f64, contact:u32] stride 24.
+    private posOutBuf: ArrayBuffer;
+    private posOutView: DataView;
+
+    private constructor(maxBodies: i32) {
+        const cap = maxBodies < 1 ? 1 : maxBodies;
+        // Build via locals: asc's strict init check forbids reading `this`
+        // before every declared field is assigned.
+        const velBuf = new ArrayBuffer(cap * 20);
+        const posInBuf = new ArrayBuffer(cap * 4);
+        const posOutBuf = new ArrayBuffer(cap * 24);
+        this.velBuf = velBuf;
+        this.velView = new DataView(velBuf);
+        this.posInBuf = posInBuf;
+        this.posInView = new DataView(posInBuf);
+        this.posOutBuf = posOutBuf;
+        this.posOutView = new DataView(posOutBuf);
+        this.max = cap;
+        this.n = 0;
+    }
+
+    /// Start a new tick's batch. Call before the first `pushVelocity`.
+    begin(): void {
+        this.n = 0;
+    }
+
+    /// Queue `bodyId`'s velocity for this tick. The body is automatically
+    /// included in the next `syncPositions` readback.
+    pushVelocity(bodyId: i32, vx: f64, vy: f64): void {
+        if (this.n >= this.max) return;
+        const o = this.n * 20;
+        this.velView.setInt32(o, bodyId, true);
+        this.velView.setFloat64(o + 4, vx, true);
+        this.velView.setFloat64(o + 12, vy, true);
+        // Mirror the body id into the readback request buffer — syncPositions
+        // sends THIS buffer to the host, so every queued body must be here.
+        this.posInView.setInt32(this.n * 4, bodyId, true);
+        this.n++;
+    }
+
+    /// Include `bodyId` in the next readback without queueing a velocity
+    /// (static or remote-controlled bodies you still need positions for).
+    pushBody(bodyId: i32): void {
+        if (this.n >= this.max) return;
+        this.posInView.setInt32(this.n * 4, bodyId, true);
+        this.n++;
+    }
+
+    /// Apply every queued velocity on the host — ONE call for the whole room.
+    applyVelocities(): void {
+        if (this.n > 0) {
+            _sys_rapier2d_set_velocities(changetype<usize>(this.velBuf), this.n);
+        }
+    }
+
+    /// Read back every queued body's position (and, when `otherBody >= 0`,
+    /// its contact flag against that body) — ONE call for the whole room.
+    syncPositions(otherBody: i32): void {
+        if (this.n > 0) {
+            _sys_rapier2d_get_positions(
+                changetype<usize>(this.posInBuf),
+                changetype<usize>(this.posOutBuf),
+                this.n,
+                otherBody
+            );
+        }
+    }
+
+    /// Bodies queued this tick (valid after `begin`).
+    count(): i32 {
+        return this.n;
+    }
+
+    /// The body id queued at slot `i`.
+    bodyId(i: i32): i32 {
+        return this.velView.getInt32(i * 20, true);
+    }
+
+    /// World x of slot `i` (valid after `syncPositions`).
+    x(i: i32): f64 {
+        return this.posOutView.getFloat64(i * 24, true);
+    }
+
+    /// World y of slot `i` (valid after `syncPositions`).
+    y(i: i32): f64 {
+        return this.posOutView.getFloat64(i * 24 + 8, true);
+    }
+
+    /// True when slot `i`'s body touched `otherBody` this tick
+    /// (valid after `syncPositions(otherBody)`).
+    hasContact(i: i32): bool {
+        return this.posOutView.getUint32(i * 24 + 16, true) == 1;
     }
 }
 
@@ -3141,6 +3284,25 @@ declare function _sys_rapier3d_remove_body(body_id: i32): i32;
 @external("env", "sys_rapier3d_step")
 declare function _sys_rapier3d_step(dt: f64): i32;
 
+// --- Batch physics ABI (host side, hidden behind PhysicsBatch3D) -----------
+@external("env", "sys_rapier3d_set_velocities")
+declare function _sys_rapier3d_set_velocities(ptr: usize, count: i32): i32;
+
+@external("env", "sys_rapier3d_get_velocities")
+declare function _sys_rapier3d_get_velocities(
+    in_ptr: usize,
+    out_ptr: usize,
+    count: i32
+): i32;
+
+@external("env", "sys_rapier3d_get_positions")
+declare function _sys_rapier3d_get_positions(
+    in_ptr: usize,
+    out_ptr: usize,
+    count: i32,
+    other_body: i32
+): i32;
+
 /** Full 3D rigid-body world for guest-simulated physics (physics permission).
  *
  *  ```ts
@@ -3229,5 +3391,179 @@ export class Rapier3D {
     /** Step the 3D world (once per tick, after setting velocities). */
     static step(dt: f64): void {
         _sys_rapier3d_step(dt);
+    }
+
+    /**
+     * Create a batch handle for large rooms: ONE host call per tick for all
+     * bodies instead of one call per body. Keep the handle for the room's
+     * lifetime (it pre-allocates). See PhysicsBatch3D.
+     */
+    static batch(maxBodies: i32): PhysicsBatch3D {
+        return new PhysicsBatch3D(maxBodies);
+    }
+}
+
+
+/**
+ * A pre-allocated batch of 3D body velocities + velocity/position readbacks.
+ * Pure typed accessors — no pointers, no byte offsets, no endianness.
+ * Nothing allocates per tick: the handle reuses its internal buffers, so a
+ * 128 Hz room with 1,000 bodies produces zero garbage.
+ */
+export class PhysicsBatch3D {
+    private max: i32;
+    private n: i32;
+    /// Scratch: [bodyId:i32, vx:f64, vy:f64, vz:f64] stride 28.
+    private velBuf: ArrayBuffer;
+    private velView: DataView;
+    /// Readback request: [bodyId:i32] stride 4 (mirrored at push time).
+    private posInBuf: ArrayBuffer;
+    private posInView: DataView;
+    /// Velocity readback: [vx:f64, vy:f64, vz:f64] stride 24.
+    private velOutBuf: ArrayBuffer;
+    private velOutView: DataView;
+    /// Position readback: [x:f64, y:f64, z:f64, contact:u32] stride 32.
+    private posOutBuf: ArrayBuffer;
+    private posOutView: DataView;
+
+    private constructor(maxBodies: i32) {
+        const cap = maxBodies < 1 ? 1 : maxBodies;
+        // Build via locals: asc's strict init check forbids reading `this`
+        // before every declared field is assigned.
+        const velBuf = new ArrayBuffer(cap * 28);
+        const posInBuf = new ArrayBuffer(cap * 4);
+        const velOutBuf = new ArrayBuffer(cap * 24);
+        const posOutBuf = new ArrayBuffer(cap * 32);
+        this.velBuf = velBuf;
+        this.velView = new DataView(velBuf);
+        this.posInBuf = posInBuf;
+        this.posInView = new DataView(posInBuf);
+        this.velOutBuf = velOutBuf;
+        this.velOutView = new DataView(velOutBuf);
+        this.posOutBuf = posOutBuf;
+        this.posOutView = new DataView(posOutBuf);
+        this.max = cap;
+        this.n = 0;
+    }
+
+    /// Start a new tick's batch. Call before the first `pushVelocity`.
+    begin(): void {
+        this.n = 0;
+    }
+
+    /// Queue `bodyId`'s velocity for this tick. The body is automatically
+    /// included in `readVelocities` and `syncPositions` readbacks.
+    pushVelocity(bodyId: i32, vx: f64, vy: f64, vz: f64): void {
+        if (this.n >= this.max) return;
+        const o = this.n * 28;
+        this.velView.setInt32(o, bodyId, true);
+        this.velView.setFloat64(o + 4, vx, true);
+        this.velView.setFloat64(o + 12, vy, true);
+        this.velView.setFloat64(o + 20, vz, true);
+        // Mirror the body id into the readback request buffers — the host
+        // reads body ids from THESE, so every queued body must be here.
+        this.posInView.setInt32(this.n * 4, bodyId, true);
+        this.n++;
+    }
+
+    /// Include `bodyId` in the next readbacks without queueing a velocity
+    /// (static or remote-controlled bodies you still need positions for).
+    pushBody(bodyId: i32): void {
+        if (this.n >= this.max) return;
+        this.posInView.setInt32(this.n * 4, bodyId, true);
+        this.n++;
+    }
+
+    /// Apply every queued velocity on the host — ONE call for the whole room.
+    applyVelocities(): void {
+        if (this.n > 0) {
+            _sys_rapier3d_set_velocities(changetype<usize>(this.velBuf), this.n);
+        }
+    }
+
+    /// Read back every queued body's CURRENT velocity (gravity, collisions)
+    /// — ONE call. Slots line up 1:1 with the push order.
+    readVelocities(): void {
+        if (this.n > 0) {
+            _sys_rapier3d_get_velocities(
+                changetype<usize>(this.posInBuf),
+                changetype<usize>(this.velOutBuf),
+                this.n
+            );
+        }
+    }
+
+    /// Read back every queued body's position (and, when `otherBody >= 0`,
+    /// its contact flag against that body) — ONE call for the whole room.
+    syncPositions(otherBody: i32): void {
+        if (this.n > 0) {
+            _sys_rapier3d_get_positions(
+                changetype<usize>(this.posInBuf),
+                changetype<usize>(this.posOutBuf),
+                this.n,
+                otherBody
+            );
+        }
+    }
+
+    /// Bodies queued this tick (valid after `begin`).
+    count(): i32 {
+        return this.n;
+    }
+
+    /// Override slot `i`'s queued vx (e.g. after `readVelocities`).
+    setVelX(i: i32, v: f64): void {
+        this.velView.setFloat64(i * 28 + 4, v, true);
+    }
+
+    /// Override slot `i`'s queued vy (e.g. jump impulse after `readVelocities`).
+    setVelY(i: i32, v: f64): void {
+        this.velView.setFloat64(i * 28 + 12, v, true);
+    }
+
+    /// Override slot `i`'s queued vz (e.g. after `readVelocities`).
+    setVelZ(i: i32, v: f64): void {
+        this.velView.setFloat64(i * 28 + 20, v, true);
+    }
+
+    /// The body id queued at slot `i`.
+    bodyId(i: i32): i32 {
+        return this.velView.getInt32(i * 28, true);
+    }
+
+    /// Current vx of slot `i` (valid after `readVelocities`).
+    velX(i: i32): f64 {
+        return this.velOutView.getFloat64(i * 24, true);
+    }
+
+    /// Current vy of slot `i` (valid after `readVelocities`).
+    velY(i: i32): f64 {
+        return this.velOutView.getFloat64(i * 24 + 8, true);
+    }
+
+    /// Current vz of slot `i` (valid after `readVelocities`).
+    velZ(i: i32): f64 {
+        return this.velOutView.getFloat64(i * 24 + 16, true);
+    }
+
+    /// World x of slot `i` (valid after `syncPositions`).
+    x(i: i32): f64 {
+        return this.posOutView.getFloat64(i * 32, true);
+    }
+
+    /// World y of slot `i` (valid after `syncPositions`).
+    y(i: i32): f64 {
+        return this.posOutView.getFloat64(i * 32 + 8, true);
+    }
+
+    /// World z of slot `i` (valid after `syncPositions`).
+    z(i: i32): f64 {
+        return this.posOutView.getFloat64(i * 32 + 16, true);
+    }
+
+    /// True when slot `i`'s body touched `otherBody` this tick
+    /// (valid after `syncPositions(otherBody)`).
+    hasContact(i: i32): bool {
+        return this.posOutView.getUint32(i * 32 + 24, true) == 1;
     }
 }
