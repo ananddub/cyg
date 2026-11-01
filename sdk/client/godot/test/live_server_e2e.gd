@@ -83,6 +83,9 @@ func _wire_room(r: CYGRoom) -> void:
 	r.delta_received.connect(func(payload: PackedByteArray, acked: int, tick: int) -> void:
 		print("[e2e] delta received: %d bytes ack=%d tick=%d" % [payload.size(), acked, tick])
 	)
+	r.schema_applied.connect(func(kind: int) -> void:
+		print("[e2e] schema_applied kind=%d" % kind)
+	)
 	r.schema_error_raised.connect(func(message: String) -> void:
 		check("no schema errors", false)
 		printerr("schema error: %s" % message)

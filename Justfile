@@ -132,11 +132,13 @@ test-sdks:
         echo "== Godot unit suites"
         (cd sdk/client/godot && godot --headless --path . -s res://test/schema_decoder_test.gd) || fail=1
         (cd sdk/client/godot && godot --headless --path . -s res://test/cyg_relay_client_test.gd) || fail=1
-        echo "== Godot live e2e (real server, coin-rush)"
+        echo "== Godot live e2e (real server, coin-rush, WS lane)"
         work=$(mktemp -d /tmp/cyg-sdk-e2e.XXXX)
         cp examples/coin-rush/src/room.ts "$work/room.ts"
         cp examples/coin-rush/out/room_logic.wasm "$work/room.wasm"
         touch "$work/room.wasm"
+        mkdir -p "$work/out"
+        cp examples/coin-rush/out/cyg.schema.bin "$work/out/cyg.schema.bin"
         {
             echo 'name = "coin-rush"'
             echo 'runtime = "assemblyscript"'
@@ -144,6 +146,7 @@ test-sdks:
             echo 'out = "room.wasm"'
             echo 'port = 17779'
             echo 'web_port = 17790'
+            echo 'ws_port = 18779'
             echo 'tick_rate = 60'
             echo 'max_clients = 16'
             echo 'width = 800.0'
@@ -156,7 +159,7 @@ test-sdks:
         OX_ALLOW_DEFAULT_SECRETS=1 "$BIN" run "$work" >/tmp/cyg-sdk-e2e-server.log 2>&1 &
         srv=$!
         sleep 4
-        (cd sdk/client/godot && CYG_E2E_ENDPOINT=http://127.0.0.1:8124 godot --headless --path . -s res://test/live_server_e2e.gd) || fail=1
+        (cd sdk/client/godot && CYG_E2E_ENDPOINT=http://127.0.0.1:18779 godot --headless --path . -s res://test/live_server_e2e.gd) || fail=1
         kill "$srv" 2>/dev/null || true
         rm -rf "$work"
     fi

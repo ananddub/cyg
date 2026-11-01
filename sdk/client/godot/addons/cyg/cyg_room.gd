@@ -1067,6 +1067,9 @@ func _fire_update(map: CYGSchemaMap, entity: Variant, id: int) -> void:
 
 
 func _emit_state_change() -> void:
+	# The declared signal must actually fire — connecting `state_changed` was
+	# dead before this emit existed (only on_state_change callbacks ran).
+	state_changed.emit(state)
 	for handler in _on_state_change_handlers:
 		handler.call(state)
 
