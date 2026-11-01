@@ -114,3 +114,50 @@ doctor target=game:
         G="examples/$G"
     fi
     docker compose exec server /bin/bash /app/deploy/entrypoint.sh doctor "$G"
+
+# Run every SDK test this machine can run: web (node), Godot unit + live e2e.
+# The Godot e2e spawns a real coin-rush server on scratch ports, drives the
+# real SDK through join -> schema -> input -> leave, and tears it down.
+test-sdks:
+    #!/usr/bin/env bash
+    set -e
+    fail=0
+    echo "== web SDK (node)"
+    (cd sdk/client/web && node test/schema.test.mjs) || fail=1
+    (cd sdk/client/web && node test/signal.test.mjs) || fail=1
+    (cd sdk/client/web && node test/extras.test.mjs) || fail=1
+    if ! command -v godot >/dev/null; then
+        echo "== Godot: binary not installed, skipping (unit + live e2e)"
+    else
+        echo "== Godot unit suites"
+        (cd sdk/client/godot && godot --headless --path . -s res://test/schema_decoder_test.gd) || fail=1
+        (cd sdk/client/godot && godot --headless --path . -s res://test/cyg_relay_client_test.gd) || fail=1
+        echo "== Godot live e2e (real server, coin-rush)"
+        work=$(mktemp -d /tmp/cyg-sdk-e2e.XXXX)
+        cp examples/coin-rush/src/room.ts "$work/room.ts"
+        cp examples/coin-rush/out/room_logic.wasm "$work/room.wasm"
+        touch "$work/room.wasm"
+        {
+            echo 'name = "coin-rush"'
+            echo 'runtime = "assemblyscript"'
+            echo 'source = "room.ts"'
+            echo 'out = "room.wasm"'
+            echo 'port = 17779'
+            echo 'web_port = 17790'
+            echo 'tick_rate = 60'
+            echo 'max_clients = 16'
+            echo 'width = 800.0'
+            echo 'height = 500.0'
+            echo 'speed = 240.0'
+        } > "$work/config.toml"
+        BIN="target/release/cyg-game"
+        if [[ ! -x "$BIN" ]]; then echo "server binary missing: cargo build --release --bin cyg-game"; exit 1; fi
+        "$BIN" build "$work" >/dev/null
+        OX_ALLOW_DEFAULT_SECRETS=1 "$BIN" run "$work" >/tmp/cyg-sdk-e2e-server.log 2>&1 &
+        srv=$!
+        sleep 4
+        (cd sdk/client/godot && CYG_E2E_ENDPOINT=http://127.0.0.1:8124 godot --headless --path . -s res://test/live_server_e2e.gd) || fail=1
+        kill "$srv" 2>/dev/null || true
+        rm -rf "$work"
+    fi
+    exit $fail
