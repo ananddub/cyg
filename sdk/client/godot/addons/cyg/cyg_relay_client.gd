@@ -138,6 +138,18 @@ func _ws_base(seat: Dictionary = {}) -> String:
 	return ws_base(seat)
 
 
+## The WebSocket base for room sockets: the matchmake origin with its scheme
+## swapped to ws/wss. Deliberately NOT the seat's gamePort — that lane is
+## WebRTC/UDP and has no WebSocket listener.
+func _room_ws_base() -> String:
+	var base := http_base()
+	if base.begins_with("https://"):
+		return "wss://" + base.substr(8)
+	if base.begins_with("http://"):
+		return "ws://" + base.substr(7)
+	return base
+
+
 func auth_body(auth_options: Dictionary = {}) -> Dictionary:
 	var body := auth_options.duplicate(true)
 	var auth_token := resolve_token()
@@ -186,6 +198,8 @@ func reserve_seat(method: String, room_name: String, seat_options: Dictionary = 
 		matchmake_failed.emit(method, room_name, last_status, detail)
 		return {}
 	var text := String(response.get("text", ""))
+	if OS.get_environment("CYG_SDK_DEBUG") != "":
+		print("[cyg-debug] status=%s ok=%s text=%s" % [response.get("status", 0), response.get("ok", false), text.substr(0, 300)])
 	var seat: Variant = JSON.parse_string(text)
 	if not (seat is Dictionary):
 		last_error = "[CYG SDK] matchmake returned invalid JSON: %s" % text.substr(0, 200)
@@ -211,7 +225,10 @@ func _connect_seat(seat: Dictionary, room_name: String, room_options: Dictionary
 	merged["sessionId"] = seat.get("sessionId")
 	merged["reconnectionToken"] = seat.get("reconnectionToken", seat.get("seatToken"))
 	merged["client"] = self
-	var room := CYGRoom.new(ws_base(seat), room_name, merged)
+	# The room socket rides the control plane (same contract as the web SDK:
+	# `ws://<matchmake-base>/<room>?sessionId=...`). The seat's gamePort is
+	# the WebRTC/UDP data lane — there is no WebSocket listener there.
+	var room := CYGRoom.new(_room_ws_base(), room_name, merged)
 	if not room.connect_room():
 		last_error = "[CYG SDK] room socket could not be opened"
 		push_warning(last_error)
