@@ -3,21 +3,118 @@
 //! rows and ages the history out. Nothing here may slow the sim: its queue is
 //! bounded and drops its oldest row, and the `seq` gaps a reader sees are how
 //! that loss becomes visible instead of silent.
+//!
+//! The same pump is also the quest progress sink: the host bridges each seat to
+//! the user id its client claimed, and a mirrored event whose name is a visible
+//! quest counter credits that user — the same counters the server-key ingest
+//! door writes, so a quest reads one number no matter which door moved it.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use engine_bus::RoomSnapshot;
+use engine_bus::{RoomSnapshot, SeatUpdate, SimEvent};
 use uuid::Uuid;
 
 use crate::ApiState;
-use crate::repositories::models::{DesyncReport, GameplayEvent, MatchHistory, RoomRegistry};
+use crate::repositories::models::{DesyncReport, GameplayEvent, MatchHistory, QuestDefinition, RoomRegistry};
+use crate::services::quest::catalog::{open_seasons, visible};
 
 const PUMP_INTERVAL: Duration = Duration::from_millis(250);
 const SWEEP_INTERVAL: Duration = Duration::from_secs(3600);
+/// How often the pump re-reads the quest catalog for its counter → quest map.
+/// A definition created or activated mid-flight takes up to this long to start
+/// counting mirrored events — the same laziness the player-facing list already
+/// has, and cheap next to one query per event.
+const COUNTER_REFRESH_TICKS: u32 = 240;
 /// The engine's own event: two checksums that disagreed, little-endian.
 const DESYNC_EVENT: &str = "desync";
 const CHECKSUM_PAIR_LEN: usize = 16;
+
+/// The seat → user bridges this pump has seen. The bus is in-process, so the
+/// host that sent the bridge and this map share a lifetime: a lost process
+/// loses both at once, and the first join after a restart re-seats everyone.
+/// Seats are never reused inside a room's life, and a `Closed` ownership row
+/// drops the room's bridges before its name can be reused — so a mapping can
+/// never credit the wrong user.
+#[derive(Default)]
+struct SeatBridges(HashMap<(String, i64), Uuid>);
+
+impl SeatBridges {
+    fn apply(&mut self, seat: SeatUpdate) {
+        match seat.user_id.and_then(|id| Uuid::parse_str(&id).ok()) {
+            Some(user_id) => {
+                self.0.insert((seat.room, seat.seat), user_id);
+            }
+            None => {
+                self.0.remove(&(seat.room, seat.seat));
+            }
+        }
+    }
+
+    /// A disposed room's name is free for a new room to take; its seats start
+    /// counting at 1 again, so the old bridges must go with it.
+    fn drop_room(&mut self, room: &str) {
+        self.0.retain(|(name, _), _| name != room);
+    }
+
+    fn resolve(&self, event: &SimEvent) -> Option<Uuid> {
+        if event.target == 0 {
+            return None;
+        }
+        self.0.get(&(event.room.clone(), event.target)).copied()
+    }
+}
+
+/// The visible quest catalog keyed by counter name, refreshed on a timer so the
+/// per-event path is memory reads only. `None` until the first successful
+/// refresh; a pump that starts before the datastore is up just waits for the
+/// next beat.
+struct QuestCounters {
+    by_counter: HashMap<String, Vec<QuestDefinition>>,
+    ticks_since_refresh: u32,
+}
+
+impl QuestCounters {
+    fn new() -> Self {
+        Self {
+            by_counter: HashMap::new(),
+            ticks_since_refresh: COUNTER_REFRESH_TICKS,
+        }
+    }
+
+    /// Rebuild the counter map from the quests that run right now. A failure
+    /// keeps the previous map: stale counters lag an operator's change, an
+    /// empty one would silently stop crediting everything.
+    async fn refresh(&mut self, state: &ApiState) {
+        self.ticks_since_refresh = 0;
+        let Some(queries) = state.q.as_ref() else {
+            return;
+        };
+        let now = Utc::now();
+        let Ok(seasons) = open_seasons(queries, now).await else {
+            tracing::warn!("[control] quest counter refresh: seasons unavailable");
+            return;
+        };
+        let definitions = match crate::services::quest::owned_definitions(queries, state).await {
+            Ok(definitions) => definitions,
+            Err(err) => {
+                tracing::warn!("[control] quest counter refresh failed: {err:?}");
+                return;
+            }
+        };
+        self.by_counter = visible(&definitions, &seasons, now)
+            .into_iter()
+            .fold(HashMap::new(), |mut map, quest| {
+                map.entry(quest.goal_kind.clone()).or_default().push(quest.clone());
+                map
+            });
+    }
+
+    fn due(&self) -> bool {
+        self.ticks_since_refresh >= COUNTER_REFRESH_TICKS
+    }
+}
 
 /// The lifecycle name a host reported, as the registry stores it. Exhaustive on
 /// purpose: a fifth phase should fail the build here rather than be filed under
@@ -60,10 +157,22 @@ pub async fn pump_events(state: ApiState) {
     let snapshots_rx = state.bus.snapshots_rx.clone();
     let fetches_rx = state.bus.fetches_rx.clone();
     let ownership_rx = state.bus.ownership_rx.clone();
+    let seats_rx = state.bus.seats_rx.clone();
+    let mut seats = SeatBridges::default();
+    let mut counters = QuestCounters::new();
     let mut ticker = tokio::time::interval(PUMP_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         ticker.tick().await;
+        counters.ticks_since_refresh += 1;
+        if counters.due() {
+            counters.refresh(&state).await;
+        }
+        // A seat bridge is a claim, not a line item: the newest one for a
+        // (room, seat) is simply what the map holds, and a release removes it.
+        while let Ok(seat) = seats_rx.try_recv() {
+            seats.apply(seat);
+        }
         while let Ok(event) = rx.try_recv() {
             let desync = if event.event == DESYNC_EVENT {
                 checksum_pair(&event.payload)
@@ -98,6 +207,13 @@ pub async fn pump_events(state: ApiState) {
                     stored
                 }
                 None => {
+                    let credited = credit_mirrored_event(&state, &seats, &counters, &event).await;
+                    if let Err(err) = credited {
+                        tracing::warn!(
+                            "[control] mirrored event '{}' could not be credited: {err}",
+                            event.event
+                        );
+                    }
                     q.record_gameplay_event(&GameplayEvent {
                         id: Uuid::new_v4(),
                         room: event.room,
@@ -175,6 +291,10 @@ pub async fn pump_events(state: ApiState) {
         // remember to filter a status string is a reader that will forget.
         while let Ok(row) = ownership_rx.try_recv() {
             let stored = if row.state == engine_bus::RoomPhase::Closed {
+                // The name is about to be free: its seat bridges must not
+                // survive it, or the next room's seat 1 would credit the old
+                // room's player.
+                seats.drop_room(&row.room);
                 q.release_room(&row.room).await
             } else {
                 q.claim_room(&RoomRegistry {
@@ -194,6 +314,45 @@ pub async fn pump_events(state: ApiState) {
             }
         }
     }
+}
+
+/// Credits one mirrored gameplay event toward quest progress, if it names a
+/// visible quest counter and its seat is bridged to a user. One event is one
+/// increment — the payload is game-defined bytes the control plane does not
+/// parse, so a game that wants weighted counters sends the weight through the
+/// server-key ingest door instead. A seat whose claimed user does not exist as
+/// an account is dropped: counters are keyed by real accounts, and a bogus
+/// claim must not mint rows.
+async fn credit_mirrored_event(
+    state: &ApiState,
+    seats: &SeatBridges,
+    counters: &QuestCounters,
+    event: &SimEvent,
+) -> Result<(), String> {
+    let Some(quests) = counters.by_counter.get(&event.event) else {
+        return Ok(());
+    };
+    let Some(user_id) = seats.resolve(event) else {
+        return Ok(());
+    };
+    let Some(queries) = state.q.as_ref() else {
+        return Ok(());
+    };
+    if queries.get_user_by_id(user_id).await.is_err() {
+        return Ok(());
+    }
+    let visible: Vec<&crate::repositories::models::QuestDefinition> = quests.iter().collect();
+    crate::services::quest::events::credit_counter(
+        state,
+        queries,
+        user_id,
+        &event.event,
+        1,
+        &visible,
+    )
+    .await
+    .map(|_| ())
+    .map_err(|err| err.to_string())
 }
 
 /// History nobody reads inside the retention window will not be read later, and
@@ -220,5 +379,254 @@ pub async fn sweep_match_history(state: ApiState) {
         {
             tracing::warn!("[control] match history prune failed: {err}");
         }
+    }
+}
+
+#[cfg(test)]
+mod seat_credit_tests {
+    use super::*;
+    use engine_bus::Bus;
+    use engine_config::{ControlConfig, GameConfig, SessionConfig};
+    use std::path::Path;
+
+    /// Bridges are keyed by `(room, seat)` and a room's disposal clears the
+    /// whole room: seats restart at 1 for the next room of the same name, and
+    /// a survivor of the old one would credit the wrong player.
+    #[test]
+    fn a_bridge_lives_from_join_until_leave_or_room_close() {
+        let user = Uuid::now_v7();
+        let mut bridges = SeatBridges::default();
+        bridges.apply(SeatUpdate {
+            room: "arena".into(),
+            seat: 1,
+            user_id: Some(user.to_string()),
+        });
+        bridges.apply(SeatUpdate {
+            room: "arena".into(),
+            seat: 2,
+            user_id: Some("not a uuid".into()),
+        });
+        assert_eq!(
+            bridges.resolve(&SimEvent {
+                room: "arena".into(),
+                tick: 1,
+                seq: 1,
+                target: 1,
+                event: "coins".into(),
+                payload: vec![],
+            }),
+            Some(user)
+        );
+        // A garbage claim bridges nothing, and neither does a broadcast.
+        assert_eq!(
+            bridges.resolve(&SimEvent {
+                room: "arena".into(),
+                tick: 1,
+                seq: 2,
+                target: 2,
+                event: "coins".into(),
+                payload: vec![],
+            }),
+            None
+        );
+        assert_eq!(
+            bridges.resolve(&SimEvent {
+                room: "arena".into(),
+                tick: 1,
+                seq: 3,
+                target: 0,
+                event: "coins".into(),
+                payload: vec![],
+            }),
+            None
+        );
+        bridges.apply(SeatUpdate {
+            room: "arena".into(),
+            seat: 1,
+            user_id: None,
+        });
+        assert_eq!(
+            bridges.resolve(&SimEvent {
+                room: "arena".into(),
+                tick: 1,
+                seq: 4,
+                target: 1,
+                event: "coins".into(),
+                payload: vec![],
+            }),
+            None,
+            "the leave cleared the bridge"
+        );
+        bridges.apply(SeatUpdate {
+            room: "arena".into(),
+            seat: 3,
+            user_id: Some(user.to_string()),
+        });
+        bridges.drop_room("arena");
+        assert!(bridges.0.is_empty(), "the closed room took its bridges with it");
+    }
+
+    /// The full loop: a seated guest's mirrored `coins` events move the same
+    /// `player_stat` counter the ingest door writes, and the quest keyed to it
+    /// completes the moment the second increment crosses the goal.
+    #[tokio::test]
+    async fn a_mirrored_event_credits_the_seated_user_toward_a_quest() {
+        let bus = Bus::new(64, 64);
+        let control = ControlConfig {
+            session: SessionConfig {
+                database_endpoint: "mem://".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let game = GameConfig {
+            name: "tank-2d".into(),
+            ..Default::default()
+        };
+        let state = crate::ApiState::new(Path::new("."), &game, &control, bus.clone(), 0).await;
+        let queries = state.q.clone().expect("mem:// opens a datastore");
+        let db = state.db.as_deref().expect("the mem datastore");
+        crate::db::schema::ensure_schema(db)
+            .await
+            .expect("base schema");
+        crate::db::migrations::apply_migrations(db, crate::db::migrations::MIGRATIONS)
+            .await
+            .expect("schema migrations");
+
+        let user = Uuid::now_v7();
+        queries
+            .create_user_bare(user, "mirrored-player")
+            .await
+            .expect("seed the account the seat claims");
+        let now = Utc::now();
+        queries
+            .create_quest_definition(&crate::repositories::models::QuestDefinition {
+                id: "coin-hoarder".into(),
+                game_id: None,
+                title: "Coin hoarder".into(),
+                goal_kind: "coins".into(),
+                goal_amount: 2,
+                reward: serde_json::json!({ "coins": 10 }),
+                season: None,
+                requires_product: None,
+                active_from: now - chrono::Duration::hours(1),
+                active_to: now + chrono::Duration::hours(1),
+                create_time: now,
+                update_time: now,
+            })
+            .await
+            .expect("seed the quest");
+
+        bus.push_seat(SeatUpdate {
+            room: "arena".into(),
+            seat: 1,
+            user_id: Some(user.to_string()),
+        });
+        for seq in 1..=2u64 {
+            bus.push_event(SimEvent {
+                room: "arena".into(),
+                tick: seq as i64,
+                seq,
+                target: 1,
+                event: "coins".into(),
+                payload: vec![],
+            });
+        }
+
+        let pump = tokio::spawn(crate::pump_events(state.clone()));
+        let mut credited = false;
+        for _ in 0..100 {
+            if queries
+                .get_player_stat(user, "coins")
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|row| row.value >= 2)
+            {
+                credited = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        pump.abort();
+        assert!(credited, "the pump never credited the second event");
+
+        let rows = queries.list_player_quests(user).await.expect("progress rows");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].quest_key, "coin-hoarder");
+        assert_eq!(rows[0].state, "completed", "the goal was crossed");
+        assert_eq!(rows[0].progress, 2);
+    }
+
+    /// A mirrored event from a seat nobody bridged moves nothing: without the
+    /// bridge the control plane cannot know which user to credit, and guessing
+    /// would put one player's progress on another's account.
+    #[tokio::test]
+    async fn an_unbridged_seat_credits_nothing() {
+        let bus = Bus::new(64, 64);
+        let control = ControlConfig {
+            session: SessionConfig {
+                database_endpoint: "mem://".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let game = GameConfig {
+            name: "tank-2d".into(),
+            ..Default::default()
+        };
+        let state = crate::ApiState::new(Path::new("."), &game, &control, bus.clone(), 0).await;
+        let queries = state.q.clone().expect("mem:// opens a datastore");
+        let db = state.db.as_deref().expect("the mem datastore");
+        crate::db::schema::ensure_schema(db)
+            .await
+            .expect("base schema");
+        crate::db::migrations::apply_migrations(db, crate::db::migrations::MIGRATIONS)
+            .await
+            .expect("schema migrations");
+        let user = Uuid::now_v7();
+        queries
+            .create_user_bare(user, "unbridged-player")
+            .await
+            .expect("seed the account");
+        // The account is seated somewhere — just not where the event came from.
+        bus.push_seat(SeatUpdate {
+            room: "arena".into(),
+            seat: 9,
+            user_id: Some(user.to_string()),
+        });
+        let now = Utc::now();
+        queries
+            .create_quest_definition(&crate::repositories::models::QuestDefinition {
+                id: "coin-hoarder".into(),
+                game_id: None,
+                title: "Coin hoarder".into(),
+                goal_kind: "coins".into(),
+                goal_amount: 2,
+                reward: serde_json::json!({ "coins": 10 }),
+                season: None,
+                requires_product: None,
+                active_from: now - chrono::Duration::hours(1),
+                active_to: now + chrono::Duration::hours(1),
+                create_time: now,
+                update_time: now,
+            })
+            .await
+            .expect("seed the quest");
+        bus.push_event(SimEvent {
+            room: "arena".into(),
+            tick: 1,
+            seq: 1,
+            target: 4,
+            event: "coins".into(),
+            payload: vec![],
+        });
+
+        let pump = tokio::spawn(crate::pump_events(state.clone()));
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        pump.abort();
+
+        let stats = queries.list_player_stats(user).await.expect("stat query");
+        assert!(stats.is_empty(), "the event on seat 4 credited seat 9's user");
     }
 }

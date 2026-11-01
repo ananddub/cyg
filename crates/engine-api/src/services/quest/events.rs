@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::Json;
 
 use super::catalog::{counter_name, open_seasons, owned_definitions, visible};
@@ -5,12 +7,58 @@ use crate::ApiState;
 use crate::db::DbError;
 use crate::dto::quest::{CompletedQuest, IngestEventsRequest, IngestEventsResponse};
 use crate::error::V2Error;
+use crate::repositories::db::Queries;
+use crate::repositories::models::QuestDefinition;
 use crate::services::deps::q;
+use uuid::Uuid;
 
 /// The largest counter a single event may add, so one bad payload cannot mint
 /// progress out of nowhere.
 const MAX_INCREMENT: i64 = 1_000_000;
 const MAX_BATCH: usize = 100;
+
+/// Credits one counter increment and re-projects every visible quest that
+/// counts it: the counter — not the event — is what a quest reads, so a lost
+/// event can be made up by sending the same counter again. A quest that crosses
+/// its goal on this increment fires the `quest.completed` webhook and lands in
+/// the returned list. Shared by the server-key ingest door and the mirrored
+/// gameplay-event pump.
+pub(crate) async fn credit_counter(
+    state: &ApiState,
+    queries: &Arc<Queries>,
+    user_id: Uuid,
+    name: &str,
+    delta: i64,
+    quests: &[&QuestDefinition],
+) -> Result<Vec<CompletedQuest>, DbError> {
+    let total = queries.increase_player_stat(user_id, name, delta).await?;
+    let mut completed = Vec::new();
+    for quest in quests.iter().filter(|quest| quest.goal_kind == name) {
+        let crosses = total >= quest.goal_amount && total - delta < quest.goal_amount;
+        let mark = if total >= quest.goal_amount {
+            "completed"
+        } else {
+            "in_progress"
+        };
+        let projected = queries
+            .project_player_quest(user_id, &quest.id, total, mark)
+            .await?;
+        if crosses && projected.is_some() {
+            crate::services::webhook::emit(
+                state,
+                "quest.completed",
+                &format!("{user_id}:{}", quest.id),
+                serde_json::json!({ "user_id": user_id, "quest_key": quest.id }),
+            )
+            .await;
+            completed.push(CompletedQuest {
+                user_id,
+                quest_key: quest.id.clone(),
+            });
+        }
+    }
+    Ok(completed)
+}
 
 impl super::QuestService {
     /// Server-authored events. Each one raises a counter and re-projects every
@@ -52,31 +100,7 @@ impl super::QuestService {
         let quests = visible(&definitions, &seasons, now);
         let mut completed = Vec::new();
         for (name, delta, user_id) in credited {
-            let total = queries.increase_player_stat(user_id, name, delta).await?;
-            for quest in quests.iter().filter(|quest| quest.goal_kind == name) {
-                let crosses = total >= quest.goal_amount && total - delta < quest.goal_amount;
-                let mark = if total >= quest.goal_amount {
-                    "completed"
-                } else {
-                    "in_progress"
-                };
-                let projected = queries
-                    .project_player_quest(user_id, &quest.id, total, mark)
-                    .await?;
-                if crosses && projected.is_some() {
-                    crate::services::webhook::emit(
-                        state,
-                        "quest.completed",
-                        &format!("{user_id}:{}", quest.id),
-                        serde_json::json!({ "user_id": user_id, "quest_key": quest.id }),
-                    )
-                    .await;
-                    completed.push(CompletedQuest {
-                        user_id,
-                        quest_key: quest.id.clone(),
-                    });
-                }
-            }
+            completed.extend(credit_counter(state, &queries, user_id, &name, delta, &quests).await?);
         }
         Ok(Json(IngestEventsResponse {
             success: true,

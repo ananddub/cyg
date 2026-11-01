@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "9171a841-da48-4fc2-a93f-8992b2ba547f",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/mnt/SSD/Devloper/pannel/openoxide-gaming/docs/desing_crates/crates-architecture.candidate.json",
+  "output": "/mnt/SSD/Devloper/pannel/openoxide-gaming/docs/desing_crates/crates-architecture.html",
+  "specification": {
+    "sha256": "8c3d967e9c84b634043d640011cd37bafc3d45c5a8c9aaf3d850d236b8b513c2",
+    "bytes": 9095
+  },
+  "artifact": {
+    "sha256": "0a3150b9258dd8d2b43d2524c7f39523dc22394084d01f29c89ac526702365df",
+    "bytes": 785557
+  }
+}

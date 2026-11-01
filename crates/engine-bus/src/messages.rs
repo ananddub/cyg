@@ -139,6 +139,24 @@ pub struct RoomOwnership {
     pub snapshot_seq: i64,
 }
 
+/// sim → control plane: the seat → user bridge for one room. The host extracts
+/// the user id the client claimed in its join options (the guest's `on_auth`
+/// is what actually validates that claim) and reports it here, because the
+/// control plane's quest counters are keyed by user, while everything the sim
+/// mirrors is keyed by seat. `user_id: None` clears the mapping — a leave, or
+/// the room going away.
+///
+/// Joins and leaves are rare next to the tick, so this queue only has to
+/// survive a briefly busy pump; the same drop-oldest rule as the other
+/// never-block channels applies.
+#[derive(Clone, Debug)]
+pub struct SeatUpdate {
+    pub room: String,
+    pub seat: i64,
+    /// The user id string the client presented, or `None` to release the seat.
+    pub user_id: Option<String>,
+}
+
 /// Why the sim should hot-swap its room module: a console upload of a fresh
 /// version, or a rollback re-activating an older one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

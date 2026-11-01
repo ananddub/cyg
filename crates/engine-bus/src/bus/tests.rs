@@ -255,3 +255,39 @@ fn a_full_ownership_queue_loses_the_oldest_beat_and_keeps_the_release() {
     assert_eq!(rows[0].tick, 1, "the oldest beat went, the next one stayed");
     assert_eq!(rows[rows.len() - 1].state, crate::RoomPhase::Closed);
 }
+
+/// The seat bridge rides the bus like the other sim → control plane messages:
+/// the host extracted the user id from join options, and the control plane's
+/// quest counters need exactly this pairing to credit a mirrored event.
+#[test]
+fn a_seat_bridge_rides_the_queue_and_counts_its_losses() {
+    let bus = Bus::new(2, 2);
+    bus.push_seat(crate::SeatUpdate {
+        room: "arena".into(),
+        seat: 3,
+        user_id: Some("0195c8da-1111-7000-8000-000000000001".into()),
+    });
+
+    let seat = bus.seats_rx.try_recv().expect("the bridge is queued");
+    assert_eq!(seat.room, "arena");
+    assert_eq!(seat.seat, 3);
+    assert_eq!(seat.user_id.as_deref(), Some("0195c8da-1111-7000-8000-000000000001"));
+    assert_eq!(bus.seats_dropped(), 0);
+
+    // A full queue drops the oldest bridge, never stalls the join that sent it.
+    for seat_id in 0..super::SEAT_CAP as i64 {
+        bus.push_seat(crate::SeatUpdate {
+            room: "arena".into(),
+            seat: seat_id,
+            user_id: None,
+        });
+    }
+    bus.push_seat(crate::SeatUpdate {
+        room: "arena".into(),
+        seat: 9,
+        user_id: None,
+    });
+    assert_eq!(bus.seats_dropped(), 1);
+    let first = bus.seats_rx.try_recv().expect("a bridge survived");
+    assert_eq!(first.seat, 1, "seat 0 was the one dropped");
+}

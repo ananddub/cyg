@@ -5,8 +5,8 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender, bounded};
 
 use crate::messages::{
-    InputMsg, MapReload, MatchFinished, OutFrame, RoomOwnership, RoomSnapshot, SettingsReload,
-    SimCommand, SimEvent, SnapshotFetch, WasmReload,
+    InputMsg, MapReload, MatchFinished, OutFrame, RoomOwnership, RoomSnapshot, SeatUpdate,
+    SettingsReload, SimCommand, SimEvent, SnapshotFetch, WasmReload,
 };
 use crate::telemetry::StatusSnapshot;
 
@@ -45,6 +45,10 @@ const FETCH_CAP: usize = 8;
 /// is looking at a pump that stopped — the row already in the store stays the
 /// truth for the rest of its lease, so losing a beat is late rather than wrong.
 const OWNERSHIP_CAP: usize = 32;
+/// Seat → user bridges: one per player join/leave, never per tick. A join that
+/// is dropped costs that seat its quest progress until it relogs, so the cap is
+/// sized to absorb a pump stall on a full room churning its roster.
+const SEAT_CAP: usize = 256;
 
 /// Inter-plane wiring. Each plane consumes its own ends directly; sends on
 /// `inputs` must go through [`Bus::push_input`] or the drop policy is lost.
@@ -95,6 +99,10 @@ pub struct Bus {
     pub ownership_tx: Sender<RoomOwnership>,
     pub ownership_rx: Receiver<RoomOwnership>,
     ownership_dropped: AtomicU64,
+    /// sim → control plane: seat → user bridges. See [`Bus::push_seat`].
+    pub seats_tx: Sender<SeatUpdate>,
+    pub seats_rx: Receiver<SeatUpdate>,
+    seats_dropped: AtomicU64,
     /// Latched by whatever catches the process' termination signal and read by
     /// the loop that owns the rooms. A one-way latch, so an atomic beats a
     /// channel that every consumer would have to keep draining.
@@ -115,6 +123,7 @@ impl Bus {
         let (snapshots_tx, snapshots_rx) = bounded(SNAPSHOT_CAP);
         let (fetches_tx, fetches_rx) = bounded(FETCH_CAP);
         let (ownership_tx, ownership_rx) = bounded(OWNERSHIP_CAP);
+        let (seats_tx, seats_rx) = bounded(SEAT_CAP);
         Arc::new(Bus {
             inputs_tx,
             inputs_rx,
@@ -143,6 +152,9 @@ impl Bus {
             ownership_tx,
             ownership_rx,
             ownership_dropped: AtomicU64::new(0),
+            seats_tx,
+            seats_rx,
+            seats_dropped: AtomicU64::new(0),
             draining: AtomicBool::new(false),
         })
     }
@@ -244,6 +256,28 @@ impl Bus {
     /// Ownership rows discarded because the control plane was not draining.
     pub fn ownership_dropped(&self) -> u64 {
         self.ownership_dropped.load(Ordering::Relaxed)
+    }
+
+    /// Queue one seat → user bridge for the control plane. Same never-block
+    /// contract as [`push_ownership`](Self::push_ownership): a join must never
+    /// stall the loop that admitted it. Drop-oldest is survivable here — a lost
+    /// join means that seat's counters cannot advance until it relogs, which a
+    /// reader of `seats_dropped` can see, and seats are never reused inside a
+    /// room's lifetime, so an old mapping can never credit the wrong user.
+    pub fn push_seat(&self, seat: SeatUpdate) {
+        let seat = match self.seats_tx.try_send(seat) {
+            Ok(()) => return,
+            Err(crossbeam_channel::TrySendError::Full(s)) => s,
+            Err(_) => return,
+        };
+        let _ = self.seats_rx.try_recv();
+        self.seats_dropped.fetch_add(1, Ordering::Relaxed);
+        let _ = self.seats_tx.try_send(seat);
+    }
+
+    /// Seat bridges discarded because the control plane was not draining.
+    pub fn seats_dropped(&self) -> u64 {
+        self.seats_dropped.load(Ordering::Relaxed)
     }
 
     /// Ask the control plane for a room's stored state and wait for the answer.

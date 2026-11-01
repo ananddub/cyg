@@ -1,0 +1,335 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "CYG Game Engine Crates Architecture",
+    "output": "docs/desing_crates/crates-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/ananddub/cyg",
+      "revision": "55180bf34db1a500a2571848267533fe8f3fbb8f"
+    }
+  },
+  "components": [
+    {
+      "id": "clients_sdk",
+      "type": "frontend",
+      "label": "Client SDKs",
+      "sublabel": "Godot / Unity / Web TS",
+      "tag": "60Hz Binary Sync",
+      "pos": [30, 200],
+      "size": [150, 70]
+    },
+    {
+      "id": "dashboard_ui",
+      "type": "frontend",
+      "label": "Console Dashboard",
+      "sublabel": "React 19 / Vite / Tailwind",
+      "tag": "Admin & Observability",
+      "pos": [30, 390],
+      "size": [150, 70]
+    },
+    {
+      "id": "engine_net",
+      "type": "backend",
+      "label": "engine-net",
+      "sublabel": "Framing & ReliableLane",
+      "tag": "Wire Protocol",
+      "pos": [320, 80],
+      "size": [170, 65]
+    },
+    {
+      "id": "transport_loop",
+      "type": "backend",
+      "label": "LoopTransport",
+      "sublabel": "WS Port + WebRTC UDP",
+      "tag": "Fan-in Ingress",
+      "sources": [
+        { "path": "crates/engine-server/src/host.rs", "line": 69, "label": "LoopTransport" }
+      ],
+      "pos": [320, 200],
+      "size": [170, 70]
+    },
+    {
+      "id": "engine_api",
+      "type": "backend",
+      "label": "engine-api",
+      "sublabel": "Axum HTTP & WS Signal",
+      "tag": "Matchmaking & Auth",
+      "sources": [
+        { "path": "crates/engine-api/src/infra/events.rs", "line": 140, "label": "ControlPlane" }
+      ],
+      "pos": [320, 390],
+      "size": [170, 70]
+    },
+    {
+      "id": "game_server",
+      "type": "backend",
+      "label": "GameServer",
+      "sublabel": "60Hz Fixed Tick Loop",
+      "tag": "Authoritative Room Host",
+      "sources": [
+        { "path": "crates/engine-server/src/host.rs", "line": 100, "label": "GameServer" }
+      ],
+      "pos": [610, 200],
+      "size": [190, 75]
+    },
+    {
+      "id": "engine_wasm",
+      "type": "backend",
+      "label": "engine-wasm",
+      "sublabel": "Wasmtime Sandbox & ABI",
+      "tag": "AOT (.cwasm) Execution",
+      "sources": [
+        { "path": "crates/engine-wasm/src/abi.rs", "line": 70, "label": "WasmHost" }
+      ],
+      "pos": [610, 370],
+      "size": [190, 75]
+    },
+    {
+      "id": "guest_rooms",
+      "type": "external",
+      "label": "Guest Room Modules",
+      "sublabel": "AssemblyScript / Rust WASM",
+      "tag": "Gameplay Logic",
+      "pos": [610, 520],
+      "size": [190, 65]
+    },
+    {
+      "id": "engine_physics",
+      "type": "backend",
+      "label": "engine-physics",
+      "sublabel": "Rapier2D & 3D Simulation",
+      "tag": "Batched Host ABI",
+      "sources": [
+        { "path": "crates/engine-physics/src/lib.rs", "line": 1, "label": "Physics" }
+      ],
+      "pos": [880, 80],
+      "size": [170, 65]
+    },
+    {
+      "id": "engine_schema",
+      "type": "backend",
+      "label": "engine-schema",
+      "sublabel": "OXS2 Delta Encoder",
+      "tag": "Dirty Bitmask Sync",
+      "sources": [
+        { "path": "crates/engine-schema/src/lib.rs", "line": 1, "label": "OXS2" }
+      ],
+      "pos": [880, 200],
+      "size": [170, 65]
+    },
+    {
+      "id": "engine_spatial",
+      "type": "backend",
+      "label": "engine-spatial",
+      "sublabel": "Area of Interest (AOI)",
+      "tag": "Radius Filtering",
+      "sources": [
+        { "path": "crates/engine-spatial/src/lib.rs", "line": 1, "label": "Spatial" }
+      ],
+      "pos": [880, 320],
+      "size": [170, 65]
+    },
+    {
+      "id": "engine_nav",
+      "type": "backend",
+      "label": "engine-nav",
+      "sublabel": "Recast Navmesh Pathfind",
+      "tag": "AI Navigation",
+      "sources": [
+        { "path": "crates/engine-nav/src/lib.rs", "line": 1, "label": "Navmesh" }
+      ],
+      "pos": [880, 440],
+      "size": [170, 65]
+    },
+    {
+      "id": "engine_agones",
+      "type": "cloud",
+      "label": "engine-agones",
+      "sublabel": "K8s GameServer SDK",
+      "tag": "Fleet Health",
+      "pos": [1140, 80],
+      "size": [170, 65]
+    },
+    {
+      "id": "engine_bus",
+      "type": "messagebus",
+      "label": "engine-bus",
+      "sublabel": "Crossbeam Channel Bus",
+      "tag": "Inter-thread Messaging",
+      "sources": [
+        { "path": "crates/engine-bus/src/bus/mod.rs", "line": 80, "label": "Bus" }
+      ],
+      "pos": [1140, 200],
+      "size": [170, 70]
+    },
+    {
+      "id": "surreal_db",
+      "type": "database",
+      "label": "SurrealDB",
+      "sublabel": "Snapshots & Match Stats",
+      "tag": "State Persistence",
+      "pos": [1140, 390],
+      "size": [170, 70]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "CYG Host Server Process (crates/engine-server)",
+      "wraps": ["transport_loop", "engine_net", "game_server", "engine_physics", "engine_schema", "engine_spatial", "engine_nav"]
+    },
+    {
+      "kind": "security-group",
+      "label": "Wasm Sandbox Boundary (Memory & Epoch Isolation)",
+      "wraps": ["engine_wasm", "guest_rooms"]
+    },
+    {
+      "kind": "region",
+      "label": "Control Plane & Database Infrastructure",
+      "wraps": ["engine_api", "engine_bus", "surreal_db"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "conn-client-transport",
+      "from": "clients_sdk",
+      "to": "transport_loop",
+      "label": "UDP / WS Frame",
+      "variant": "emphasis"
+    },
+    {
+      "id": "conn-dashboard-api",
+      "from": "dashboard_ui",
+      "to": "engine_api",
+      "label": "REST / WS Telemetry"
+    },
+    {
+      "id": "conn-net-transport",
+      "from": "engine_net",
+      "to": "transport_loop",
+      "label": "codec framing",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "conn-transport-server",
+      "from": "transport_loop",
+      "to": "game_server",
+      "label": "Inbound Stream",
+      "variant": "emphasis"
+    },
+    {
+      "id": "conn-server-wasm",
+      "from": "game_server",
+      "to": "engine_wasm",
+      "label": "on_tick() / inputs",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "conn-wasm-guest",
+      "from": "engine_wasm",
+      "to": "guest_rooms",
+      "label": "AOT Instance",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "conn-server-physics",
+      "from": "game_server",
+      "to": "engine_physics",
+      "label": "step / raycast",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "id": "conn-server-schema",
+      "from": "game_server",
+      "to": "engine_schema",
+      "label": "commit delta"
+    },
+    {
+      "id": "conn-server-spatial",
+      "from": "game_server",
+      "to": "engine_spatial",
+      "label": "AOI query"
+    },
+    {
+      "id": "conn-server-nav",
+      "from": "game_server",
+      "to": "engine_nav",
+      "label": "find_path"
+    },
+    {
+      "id": "conn-server-agones",
+      "from": "game_server",
+      "to": "engine_agones",
+      "label": "health ping",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "id": "conn-server-bus",
+      "from": "game_server",
+      "to": "engine_bus",
+      "label": "push_snapshot",
+      "variant": "emphasis"
+    },
+    {
+      "id": "conn-api-bus",
+      "from": "engine_api",
+      "to": "engine_bus",
+      "label": "fetch / match stats"
+    },
+    {
+      "id": "conn-bus-db",
+      "from": "engine_bus",
+      "to": "surreal_db",
+      "label": "async persist",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Ingress & Client SDKs",
+      "items": [
+        "Godot, Unity, and Web clients connect over single-port WS or WebRTC UDP",
+        "LoopTransport fans in all transports into unified Inbound packet stream",
+        "ReliableLane guarantees ordered critical events with bounded backoff"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Authoritative Room Execution",
+      "items": [
+        "GameServer runs fixed 60Hz/128Hz tick loops without GC pauses",
+        "Guest rooms run inside Wasmtime sandbox with epoch watchdog protection",
+        "Physics (Rapier2D/3D) and Spatial AOI run natively on host via batched ABI"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Binary State Sync (OXS2)",
+      "items": [
+        "engine-schema encodes variable-length delta bitmasks per entity",
+        "Clients receive 109-byte delta snapshots at 60Hz for smooth interpolation",
+        "Dirty field tracking avoids resending unchanged properties"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Persistence & Control Plane",
+      "items": [
+        "engine-bus bridges game loop to async control plane via lock-free channels",
+        "SurrealDB stores room snapshots, rehydration state, and match telemetry",
+        "engine-agones exposes Kubernetes GameServer health and allocation endpoints"
+      ]
+    }
+  ]
+}

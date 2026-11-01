@@ -49,7 +49,7 @@ impl AccountController {
             .into_response()
     }
 
-    #[delete("")]
+    #[delete]
     async fn delete(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service

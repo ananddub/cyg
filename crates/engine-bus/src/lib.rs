@@ -9,7 +9,7 @@ mod telemetry;
 pub use bus::Bus;
 pub use messages::{
     FrameKind, InputMsg, MapReload, MatchFinished, OutFrame, PeerId, ReloadKind, RoomOwnership,
-    RoomSnapshot, SettingsReload, SimCommand, SimEvent, SnapshotFetch, Via, WasmReload,
+    RoomSnapshot, SeatUpdate, SettingsReload, SimCommand, SimEvent, SnapshotFetch, Via, WasmReload,
 };
 pub use telemetry::{
     RoomPhase, RoomTelemetry, SessionTelemetry, StatusSnapshot, TICK_HISTOGRAM_BUCKETS,

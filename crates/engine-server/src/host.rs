@@ -19,7 +19,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use engine_bus::{Bus, MatchFinished, RoomSnapshot, RoomTelemetry, SessionTelemetry, SimEvent};
+use engine_bus::{
+    Bus, MatchFinished, RoomSnapshot, RoomTelemetry, SeatUpdate, SessionTelemetry, SimEvent,
+};
 use engine_core::{MessageRateLimits, RateDecision};
 use engine_webrtc_protocol::{INPUT_WIRE_LEN as WS_INPUT_WIRE_LEN, HEADER_LEN as WS_HEADER_LEN};
 use engine_net::framing::OpCode;
@@ -716,6 +718,25 @@ impl<'a> EventHistory<'a> {
         payload.extend_from_slice(&desync.client_checksum.to_le_bytes());
         self.emit(room, desync.tick, target, "desync".to_string(), payload);
     }
+
+    /// Queue one seat → user bridge for the control plane (`None` releases).
+    /// Never allowlisted and never tick-driven: a join or a leave, which is why
+    /// it takes the dedicated seat queue instead of the event history.
+    fn bridge_seat(&self, room: &str, seat: i64, user_id: Option<String>) {
+        self.bus.push_seat(SeatUpdate {
+            room: room.to_string(),
+            seat,
+            user_id,
+        });
+    }
+}
+
+/// The user id a client claimed in its join options — the only identity the
+/// transport carries. A claim, not a proof: the guest's `on_auth` is what had
+/// the chance to validate it against the operator's auth.
+fn claimed_user_id(options: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(options).ok()?;
+    value.get("userId")?.as_str().map(str::to_string).filter(|id| !id.is_empty())
 }
 
 /// Frame and route everything the guest queued through `host_send`.
@@ -1931,6 +1952,13 @@ pub fn run(
                         tracing::info!(
                             "[server] {client_id} joined room '{room_name}' (player id {id})"
                         );
+                        // Seat → user bridge: the control plane's quest counters
+                        // are keyed by user, the sim's mirrors by seat. This is
+                        // the client's claim; `on_auth` was the chance to
+                        // validate it.
+                        if let Some(user_id) = claimed_user_id(&join_options) {
+                            history.bridge_seat(room_name, id, Some(user_id));
+                        }
                         // Deliver onJoin() messages in this same loop, not one
                         // tick later, while the client is still connected.
                         flush_room_outbox(room, &mut transport, room_name, &history);
@@ -1971,6 +1999,7 @@ pub fn run(
                     // Intentional leaves release the seat immediately; only
                     // unexpected drops may be held for `allowReconnection`.
                     let consented = transport.take_consented(&client_id);
+                    let seat_before = room.sessions.get(&*client_id).copied();
                     let gone = if consented {
                         room.handle_disconnect(&client_id)
                     } else {
@@ -1979,6 +2008,16 @@ pub fn run(
                             Duration::from_secs(cfg.lifecycle.seat_hold_secs),
                         )
                     };
+                    // Release the seat bridge too, but only when the seat truly
+                    // went: a drop the guest held for `allowReconnection` keeps
+                    // its mapping so the same user's counters survive the relog.
+                    if let Some(seat) = seat_before {
+                        if !room.sessions.contains_key(&*client_id)
+                            && !room.pending_leaves.contains_key(&*client_id)
+                        {
+                            history.bridge_seat(&room_name, seat, None);
+                        }
+                    }
                     if let Some(gone) = gone {
                         announce_voice_peer_change(
                             &mut transport,
@@ -4076,6 +4115,44 @@ mod event_history_tests {
         let client = u64::from_le_bytes(row.payload[8..].try_into().unwrap());
         assert_eq!(expected, 0x0123_4567_89ab_cdef);
         assert_eq!(client, 0xfedc_ba98_7654_3210);
+    }
+
+    /// The seat bridge is what lets the control plane credit a user for a
+    /// mirrored event, so a claim in the join options has to reach its own
+    /// queue — not the event history the allowlist governs.
+    #[test]
+    fn a_join_options_claim_bridges_the_seat_to_its_user() {
+        let bus = Bus::new(8, 8);
+        let record = engine_config::GameplayConfig::default();
+        let history = EventHistory::new(&bus, &record);
+
+        let user = "0195c8da-1111-7000-8000-000000000001";
+        assert_eq!(
+            claimed_user_id(&format!(r#"{{"userId":"{user}"}}"#)).as_deref(),
+            Some(user)
+        );
+        assert!(bus.seats_rx.try_recv().is_err(), "nothing was bridged yet");
+        // The host passes the claim through verbatim; the control plane is
+        // what checks it parses as a user id.
+        assert_eq!(claimed_user_id(r#"{"userId":"someone"}"#).as_deref(), Some("someone"));
+
+        history.bridge_seat("arena", 3, Some(user.to_string()));
+        let seat = bus.seats_rx.try_recv().expect("the claim is queued");
+        assert_eq!(seat.room, "arena");
+        assert_eq!(seat.seat, 3);
+        assert_eq!(seat.user_id.as_deref(), Some(user));
+        assert!(bus.events_rx.try_recv().is_err(), "the bridge is not an event row");
+
+        // A leave clears it, and garbage in the options bridges nothing.
+        history.bridge_seat("arena", 3, None);
+        let seat = bus.seats_rx.try_recv().expect("the release is queued");
+        assert_eq!(seat.user_id, None);
+        assert_eq!(
+            claimed_user_id("not json"),
+            None,
+            "unparseable options carry no claim"
+        );
+        assert_eq!(claimed_user_id(r#"{"userId":""}"#), None);
     }
 
     #[test]

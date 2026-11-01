@@ -57,8 +57,12 @@ pub(crate) async fn shutdown_signal() {
     match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
         Ok(mut terminate) => {
             tokio::select! {
-                _ = async { let _ = tokio::signal::ctrl_c().await; } => {}
-                _ = terminate.recv() => {}
+                _ = async { let _ = tokio::signal::ctrl_c().await; } => {
+                    tracing::info!("[control] 🛑 Ctrl-C (SIGINT) received in shutdown_signal");
+                }
+                _ = terminate.recv() => {
+                    tracing::info!("[control] 🛑 SIGTERM received in shutdown_signal");
+                }
             }
         }
         // A blocked or unusable SIGTERM still leaves Ctrl-C to drain on.
