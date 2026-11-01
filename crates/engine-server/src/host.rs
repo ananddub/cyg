@@ -876,17 +876,65 @@ fn announce_closure(server: &GameServer, transport: &mut LoopTransport) {
 }
 
 fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport, bus: &Bus, game_id: &str) {
+    // Shutdown-ordering contract (the Colyseus graceful-shutdown guarantee):
+    // every guest `onLeave` must complete before ANY room's `onDispose` runs.
+    // Closing a socket only QUEUES the disconnect — the guest's onLeave fires
+    // when the loop sees the `Disconnected` event. Disposing the room in the
+    // same pass used to skip those onLeaves entirely: the room was already
+    // gone from the map by the time the event arrived.
+
+    // Phase 1: tell every room's clients the server is closing.
     let names: Vec<String> = server.rooms.keys().cloned().collect();
+    for name in &names {
+        if let Some(room) = server.rooms.get(name) {
+            close_room_sessions(
+                transport,
+                room,
+                engine_net::close_code::SERVER_SHUTDOWN,
+                "server shutting down",
+            );
+        }
+    }
+
+    // Phase 2: let the disconnects surface and run every guest `onLeave`
+    // while all rooms are still live. Bounded: a transport that never
+    // reports a session gone cannot stall the shutdown.
+    let mut passes = 0;
+    while passes < 10 {
+        passes += 1;
+        let mut events = Vec::new();
+        if transport.poll_events(Duration::ZERO, &mut events).is_err() {
+            break;
+        }
+        let mut any_left = false;
+        for event in events {
+            let TransportEvent::Disconnected { client_id } = event else {
+                continue;
+            };
+            let _ = transport.take_consented(&client_id);
+            let _ = transport.take_room_of(&client_id);
+            for room in server.rooms.values_mut() {
+                if room.sessions.contains_key(&*client_id) {
+                    room.handle_disconnect(&client_id);
+                } else if room.spectators.contains(&*client_id) {
+                    room.handle_disconnect(&client_id);
+                }
+            }
+        }
+        any_left = server
+            .rooms
+            .values()
+            .any(|r| !r.sessions.is_empty() || !r.spectators.is_empty());
+        if !any_left {
+            break;
+        }
+    }
+
+    // Phase 3: snapshot, reports, `onDispose` — only after every onLeave ran.
     for name in names {
         let Some(mut room) = server.rooms.remove(&name) else {
             continue;
         };
-        close_room_sessions(
-            transport,
-            &room,
-            engine_net::close_code::SERVER_SHUTDOWN,
-            "server shutting down",
-        );
         if let Some(snapshot) = room.export_snapshot() {
             report_snapshot(bus, &room, &name, &snapshot);
             server.save_snapshot(&name, snapshot);
@@ -913,6 +961,7 @@ fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport, bus: &Bus
         tracing::info!("[server] room '{name}' drained and state saved (shutdown)");
     }
 }
+
 
 /// The drain is a window, not a switch. Whatever caught SIGTERM only latches a
 /// flag; this is the loop's half of it — the first pass that sees the flag opens
@@ -1694,9 +1743,18 @@ pub fn run(
                         tracing::info!(
                             "[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'"
                         );
-                    } else if room.sessions.contains_key(&*client_id) {
-                        // Already joined this room: ignore duplicate transport connection events
-                        continue;
+                    } else if let Some(id) = room
+                        .takeover(&client_id)
+                        .filter(|_| room.sessions.contains_key(&*client_id))
+                    {
+                        // Stale-socket takeover: a fresh connection arrived for a
+                        // session whose seat is still live (network switch, zombie
+                        // socket). The seat and player id survive; the guest saw
+                        // `on_reconnect`, and the state re-flows to the new socket.
+                        tracing::info!(
+                            "[server] 🔁 {client_id} took over a live session in '{room_name}' (player id {id})"
+                        );
+                        flush_room_outbox(room, &mut transport, room_name, &history);
                     } else if let Some(id) = room.rejoin(&client_id) {
                         // The seat was held by `allowReconnection`: keep the
                         // player id and guest state, skip auth/join.

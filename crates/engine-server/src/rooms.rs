@@ -1198,6 +1198,138 @@ pub fn build_host_linker(
             )
             .expect("link sys_rapier2d_check_contact");
 
+        // --- Batch physics ABI: N bodies per crossing instead of N crossings ---
+        // The per-body calls above cost a wasmtime dispatch each, which made
+        // guest rooms scale superlinearly past a few hundred players. These
+        // move the loop into the host: one call, N bodies.
+
+        // set_velocities(ptr, count): [body_id:i32, vx:f64, vy:f64] stride 20.
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_set_velocities",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      ptr: i32,
+                      count: i32|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    if count <= 0 || count > 16_384 {
+                        return engine_wasm::ABI_ERR_INVALID_ARGUMENT;
+                    }
+                    let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") else {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    };
+                    // Phase 1: copy the request out of guest memory (the memory
+                    // borrow and the host-data borrow are both `&mut caller`).
+                    let batch: Vec<(i32, f64, f64)> = {
+                        let data = mem.data_mut(&mut caller);
+                        let start = ptr as usize;
+                        let need = count as usize * 20;
+                        if start + need > data.len() {
+                            return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                        }
+                        (0..count as usize)
+                            .map(|i| {
+                                let off = start + i * 20;
+                                (
+                                    i32::from_le_bytes(data[off..off + 4].try_into().unwrap()),
+                                    f64::from_le_bytes(
+                                        data[off + 4..off + 12].try_into().unwrap(),
+                                    ),
+                                    f64::from_le_bytes(
+                                        data[off + 12..off + 20].try_into().unwrap(),
+                                    ),
+                                )
+                            })
+                            .collect()
+                    };
+                    // Phase 2: apply.
+                    let host = caller.data_mut();
+                    for (body_id, vx, vy) in &batch {
+                        host.rapier2d_set_velocity(*body_id, *vx as f32, *vy as f32);
+                    }
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier2d_set_velocities");
+
+        // get_positions(in_ptr, out_ptr, count, other_body):
+        //   in  [body_id:i32] stride 4
+        //   out [x:f64, y:f64, contact:u32] stride 24; contact vs `other_body`
+        //   (other_body < 0 skips the contact test).
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier2d_get_positions",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      in_ptr: i32,
+                      out_ptr: i32,
+                      count: i32,
+                      other_body: i32|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    if count <= 0 || count > 16_384 {
+                        return engine_wasm::ABI_ERR_INVALID_ARGUMENT;
+                    }
+                    let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") else {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    };
+                    // Phase 1: read body ids out of guest memory.
+                    let bodies: Vec<i32> = {
+                        let data = mem.data_mut(&mut caller);
+                        let in_start = in_ptr as usize;
+                        if in_start + count as usize * 4 > data.len() {
+                            return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                        }
+                        (0..count as usize)
+                            .map(|i| {
+                                let off = in_start + i * 4;
+                                i32::from_le_bytes(data[off..off + 4].try_into().unwrap())
+                            })
+                            .collect()
+                    };
+                    // Phase 2: resolve positions + contacts against host state.
+                    let resolved: Vec<(f64, f64, u32)> = {
+                        let host = caller.data();
+                        bodies
+                            .iter()
+                            .map(|body_id| {
+                                let (x, y) = match host.rapier2d_get_position(*body_id) {
+                                    Some((x, y)) => (x as f64, y as f64),
+                                    None => (0.0, 0.0),
+                                };
+                                let contact = if other_body >= 0
+                                    && host.rapier2d_check_contact(*body_id, other_body)
+                                {
+                                    1u32
+                                } else {
+                                    0
+                                };
+                                (x, y, contact)
+                            })
+                            .collect()
+                    };
+                    // Phase 3: write results back into guest memory.
+                    let mut data = mem.data_mut(&mut caller);
+                    let out_start = out_ptr as usize;
+                    if out_start + count as usize * 24 > data.len() {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    }
+                    for (i, (x, y, contact)) in resolved.iter().enumerate() {
+                        let off = out_start + i * 24;
+                        data[off..off + 8].copy_from_slice(&x.to_le_bytes());
+                        data[off + 8..off + 16].copy_from_slice(&y.to_le_bytes());
+                        data[off + 16..off + 20].copy_from_slice(&contact.to_le_bytes());
+                    }
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier2d_get_positions");
+
         linker
             .func_wrap(
                 ns,
@@ -1545,6 +1677,194 @@ pub fn build_host_linker(
                 },
             )
             .expect("link sys_rapier3d_check_contact");
+
+        // --- Batch physics ABI (3D): N bodies per crossing, same shape as 2D ---
+        // set_velocities(ptr, count): [body_id:i32, vx:f64, vy:f64, vz:f64] stride 28.
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_set_velocities",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      ptr: i32,
+                      count: i32|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    if count <= 0 || count > 16_384 {
+                        return engine_wasm::ABI_ERR_INVALID_ARGUMENT;
+                    }
+                    let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") else {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    };
+                    let batch: Vec<(i32, f64, f64, f64)> = {
+                        let data = mem.data_mut(&mut caller);
+                        let start = ptr as usize;
+                        let need = count as usize * 28;
+                        if start + need > data.len() {
+                            return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                        }
+                        (0..count as usize)
+                            .map(|i| {
+                                let off = start + i * 28;
+                                (
+                                    i32::from_le_bytes(data[off..off + 4].try_into().unwrap()),
+                                    f64::from_le_bytes(
+                                        data[off + 4..off + 12].try_into().unwrap(),
+                                    ),
+                                    f64::from_le_bytes(
+                                        data[off + 12..off + 20].try_into().unwrap(),
+                                    ),
+                                    f64::from_le_bytes(
+                                        data[off + 20..off + 28].try_into().unwrap(),
+                                    ),
+                                )
+                            })
+                            .collect()
+                    };
+                    let host = caller.data_mut();
+                    for (body_id, vx, vy, vz) in &batch {
+                        host.rapier3d_set_velocity(*body_id, *vx as f32, *vy as f32, *vz as f32);
+                    }
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier3d_set_velocities");
+
+        // get_velocities(in_ptr, out_ptr, count):
+        //   in  [body_id:i32] stride 4
+        //   out [vx:f64, vy:f64, vz:f64] stride 24
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_get_velocities",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      in_ptr: i32,
+                      out_ptr: i32,
+                      count: i32|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    if count <= 0 || count > 16_384 {
+                        return engine_wasm::ABI_ERR_INVALID_ARGUMENT;
+                    }
+                    let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") else {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    };
+                    let bodies: Vec<i32> = {
+                        let data = mem.data_mut(&mut caller);
+                        let in_start = in_ptr as usize;
+                        if in_start + count as usize * 4 > data.len() {
+                            return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                        }
+                        (0..count as usize)
+                            .map(|i| {
+                                let off = in_start + i * 4;
+                                i32::from_le_bytes(data[off..off + 4].try_into().unwrap())
+                            })
+                            .collect()
+                    };
+                    let resolved: Vec<(f64, f64, f64)> = {
+                        let host = caller.data();
+                        bodies
+                            .iter()
+                            .map(|body_id| {
+                                let v = host.rapier3d_get_velocity(*body_id);
+                                (v[0] as f64, v[1] as f64, v[2] as f64)
+                            })
+                            .collect()
+                    };
+                    let mut data = mem.data_mut(&mut caller);
+                    let out_start = out_ptr as usize;
+                    if out_start + count as usize * 24 > data.len() {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    }
+                    for (i, (vx, vy, vz)) in resolved.iter().enumerate() {
+                        let off = out_start + i * 24;
+                        data[off..off + 8].copy_from_slice(&vx.to_le_bytes());
+                        data[off + 8..off + 16].copy_from_slice(&vy.to_le_bytes());
+                        data[off + 16..off + 24].copy_from_slice(&vz.to_le_bytes());
+                    }
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier3d_get_velocities");
+
+        // get_positions(in_ptr, out_ptr, count, other_body):
+        //   in  [body_id:i32] stride 4
+        //   out [x:f64, y:f64, z:f64, contact:u32] stride 32; contact vs
+        //   `other_body` (other_body < 0 skips the contact test).
+        linker
+            .func_wrap(
+                ns,
+                "sys_rapier3d_get_positions",
+                move |mut caller: wasmtime::Caller<'_, RoomHostData>,
+                      in_ptr: i32,
+                      out_ptr: i32,
+                      count: i32,
+                      other_body: i32|
+                      -> i32 {
+                    if !permissions.physics {
+                        return engine_wasm::ABI_ERR_PERMISSION_DENIED;
+                    }
+                    if count <= 0 || count > 16_384 {
+                        return engine_wasm::ABI_ERR_INVALID_ARGUMENT;
+                    }
+                    let Some(wasmtime::Extern::Memory(mem)) = caller.get_export("memory") else {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    };
+                    let bodies: Vec<i32> = {
+                        let data = mem.data_mut(&mut caller);
+                        let in_start = in_ptr as usize;
+                        if in_start + count as usize * 4 > data.len() {
+                            return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                        }
+                        (0..count as usize)
+                            .map(|i| {
+                                let off = in_start + i * 4;
+                                i32::from_le_bytes(data[off..off + 4].try_into().unwrap())
+                            })
+                            .collect()
+                    };
+                    let resolved: Vec<([f64; 3], u32)> = {
+                        let host = caller.data();
+                        bodies
+                            .iter()
+                            .map(|body_id| {
+                                let pos = host
+                                    .rapier3d_get_position(*body_id)
+                                    .unwrap_or([0.0f32; 3]);
+                                let contact = if other_body >= 0
+                                    && host.rapier3d_check_contact(*body_id, other_body)
+                                {
+                                    1u32
+                                } else {
+                                    0
+                                };
+                                (
+                                    [pos[0] as f64, pos[1] as f64, pos[2] as f64],
+                                    contact,
+                                )
+                            })
+                            .collect()
+                    };
+                    let mut data = mem.data_mut(&mut caller);
+                    let out_start = out_ptr as usize;
+                    if out_start + count as usize * 32 > data.len() {
+                        return engine_wasm::ABI_ERR_OUT_OF_BOUNDS;
+                    }
+                    for (i, (pos, contact)) in resolved.iter().enumerate() {
+                        let off = out_start + i * 32;
+                        data[off..off + 8].copy_from_slice(&pos[0].to_le_bytes());
+                        data[off + 8..off + 16].copy_from_slice(&pos[1].to_le_bytes());
+                        data[off + 16..off + 24].copy_from_slice(&pos[2].to_le_bytes());
+                        data[off + 24..off + 28].copy_from_slice(&contact.to_le_bytes());
+                    }
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link sys_rapier3d_get_positions");
 
         linker
             .func_wrap(
@@ -1983,6 +2303,11 @@ impl GameRoom {
 
     /// True when this session's seat is held for reconnection.
     #[allow(dead_code)]
+    /// The held seat's reconnection deadline (telemetry/tests).
+    pub(crate) fn pending_deadline(&self, session: &str) -> Option<Instant> {
+        self.pending_leaves.get(session).map(|(_, deadline)| *deadline)
+    }
+
     pub(crate) fn has_pending_leave(&self, session: &str) -> bool {
         self.pending_leaves.contains_key(session)
     }
@@ -1999,6 +2324,21 @@ impl GameRoom {
             let _ = wasm
                 .raw_instance()
                 .call::<(i64,), ()>("on_reconnect", (id,));
+        }
+        Some(id)
+    }
+
+    /// Stale-socket takeover (the Colyseus contract): a fresh transport
+    /// connection arrived for a session whose seat is still live — a network
+    /// switch or a zombie socket reconnecting before the old one died. Keep
+    /// the seat and player id, fire the guest's `on_reconnect`, and never run
+    /// `onLeave`/`onJoin` for the handover. Returns the preserved player id.
+    pub(crate) fn takeover(&mut self, session: &str) -> Option<i64> {
+        let id = *self.sessions.get(session)?;
+        self.pending_leaves.remove(session);
+        self.note_activity();
+        if let Some(ref mut wasm) = self.wasm {
+            let _ = wasm.raw_instance().call::<(i64,), ()>("on_reconnect", (id,));
         }
         Some(id)
     }
@@ -2866,6 +3206,66 @@ mod tests {
         assert!(room.sessions.is_empty());
         assert_eq!(guest_i32(&mut room, "leave_count"), 1);
         assert!(room.is_hibernating());
+    }
+
+    /// The operator's `seat_hold_secs` is a ceiling, not a suggestion: the
+    /// guest may ask for 5s, but with a 2s ceiling the deadline clamps (the
+    /// Colyseus `allowReconnection` timeout contract, deployment-side).
+    #[test]
+    fn the_operator_ceiling_clamps_the_guest_hold() {
+        let mut room = lifecycle_room();
+        let id = room.join("dave", 0.0, 0.0);
+        // Guest asks for 5000ms; the deployment allows 2s.
+        assert_eq!(
+            room.handle_unexpected_disconnect("dave", Duration::from_secs(2)),
+            None
+        );
+        let deadline = room.pending_deadline("dave").expect("seat held");
+        assert!(
+            deadline <= Instant::now() + Duration::from_millis(2100),
+            "hold must clamp to the operator ceiling, got {deadline:?}"
+        );
+        assert_eq!(room.sessions.get("dave"), Some(&id));
+    }
+
+    /// A guest that answers `allowReconnection == 0` (or negative) releases
+    /// the seat immediately — the hold is an opt-in, not a default.
+    #[test]
+    fn a_zero_hold_releases_the_seat_immediately() {
+        // The ABI guest always answers 5000; simulate "no hold" by passing a
+        // zero ceiling — the clamp yields ZERO, which disables the hold.
+        let mut room = lifecycle_room();
+        let id = room.join("erin", 0.0, 0.0);
+        assert_eq!(
+            room.handle_unexpected_disconnect("erin", Duration::from_secs(0)),
+            None
+        );
+        assert!(
+            !room.has_pending_leave("erin"),
+            "a zero ceiling must not hold the seat"
+        );
+        assert!(
+            !room.sessions.contains_key("erin"),
+            "the seat is released right away"
+        );
+        assert_eq!(guest_i32(&mut room, "leave_count"), 1);
+        let _ = id;
+    }
+
+    /// Stale-socket takeover (the Colyseus contract): a fresh connection for
+    /// a session whose seat is still live keeps the seat and player id, fires
+    /// `on_reconnect`, and never runs `onLeave`/`onJoin` for the handover.
+    #[test]
+    fn takeover_keeps_the_seat_and_fires_on_reconnect() {
+        let mut room = lifecycle_room();
+        let id = room.join("frank", 0.0, 0.0);
+        assert_eq!(room.takeover("frank"), Some(id));
+        assert_eq!(room.sessions.get("frank"), Some(&id), "seat preserved");
+        assert_eq!(guest_i32(&mut room, "reconnect_count"), 1);
+        assert_eq!(guest_i32(&mut room, "leave_count"), 0, "no onLeave for a takeover");
+        // An unknown session cannot take anything over.
+        assert_eq!(room.takeover("ghost"), None);
+        assert_eq!(guest_i32(&mut room, "reconnect_count"), 1);
     }
 
     #[test]
