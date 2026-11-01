@@ -126,6 +126,12 @@ test-sdks:
     (cd sdk/client/web && node test/schema.test.mjs) || fail=1
     (cd sdk/client/web && node test/signal.test.mjs) || fail=1
     (cd sdk/client/web && node test/extras.test.mjs) || fail=1
+    echo "== Unity runtime (dotnet)"
+    if command -v dotnet >/dev/null; then
+        (cd "sdk/client/unity/Tools~/CygRuntime.Tests" && dotnet run) || fail=1
+    else
+        echo "dotnet not installed, skipping"
+    fi
     if ! command -v godot >/dev/null; then
         echo "== Godot: binary not installed, skipping (unit + live e2e)"
     else
