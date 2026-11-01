@@ -305,7 +305,24 @@ The same room runtime, scaled by which inbuilt backend carries the simulation �
 | WASM room + inbuilt Rapier2D @128 Hz, 100–200p rooms | 0.07 ms @100p | ~7k |
 | Inbuilt ECS backend (movement) @128 Hz | 0.06 ms @100p | ~10k |
 
-2-core / 2 GB pod @128 Hz: 100 rooms × 100 players fits at 0.76× the tick budget, peak RAM 93 MB. Reproduce: `cargo run --release --example bench_ecs_128` / `bench_wasm_rapier_128` / `bench_potential` (under `taskset -c 0-1`).
+### Measured CCU curve (1-core pinned, every player moving, full pipeline)
+
+Per-player cost bends with room size — 0.5 µs/player at 100 players grows to
+~1.75 µs at 1,200 (solver density, per-tick state encode, cache pressure) — so
+one headline number hides the shape. These are sustained, measured at each
+room size, then rounded **below** the measurement:
+
+| Workload | @30 Hz | @60 Hz | @128 Hz |
+|---|---|---|---|
+| WASM + Rapier2D (batched ABI), 10-player rooms, 100–200 rooms/core | ~30k | ~15k | ~8k |
+| WASM + Rapier2D (batched ABI), one 1,200-player room | — | ~7k | ~4k |
+| WASM + Rapier3D (batched ABI, sky3d room) | — | ~2.5k | ~1k |
+| Native ECS backend (movement) | — | ~20k | ~10k |
+
+Reproduce: `cargo run --release --example bench_small_rooms` /
+`bench_wasm_rapier_128` / `bench_wasm_rapier3d_128` / `bench_ecs_128` (under
+`taskset -c 0`). 2-core / 2 GB pod @128 Hz: 100 rooms × 100 players fits at
+0.76× the tick budget, peak RAM 93 MB.
 
 ### Peak memory (`memory.peak`)
 

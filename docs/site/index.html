@@ -322,9 +322,23 @@ cyg-game cook in.glb out.oxcl    <span class="c"># cook a 3D collision mesh for 
     <tr><td>WASM room, full combat logic (move + shoot + damage + respawn) @60 Hz</td><td>2.5 ms @500p</td><td>~1.5k</td></tr>
     <tr><td>WASM room + inbuilt Rapier2D @128 Hz, 100–200p rooms</td><td>0.08 ms @100p</td><td>~7k</td></tr>
     <tr><td>Inbuilt ECS backend (movement) @128 Hz</td><td>0.07 ms @100p</td><td>~10k</td></tr>
-    <tr><td>Rapier3D physics step @60 Hz, 500-body rooms</td><td>0.37 ms</td><td>~15k</td></tr>
-    <tr><td>Combined room tick (WASM + Rapier3D + delta) @60 Hz</td><td>0.16 ms @100p</td><td>~5k</td></tr>
   </table>
+
+  <h3 style="margin-top:1.2em">Measured CCU curve — 1-core pinned, every player moving, full pipeline</h3>
+  <p class="sub">Per-player cost bends with room size (0.5 µs at 100 players → 1.75 µs at 1,200:
+  solver density, per-tick state encode, cache pressure), so these are sustained measurements
+  <i>at each room size</i>, rounded below the measurement. 10-player-room aggregates are the
+  common case; the 1,200-player mega-room is the ceiling shape.</p>
+  <table>
+    <tr><th>Workload</th><th>@30 Hz</th><th>@60 Hz</th><th>@128 Hz</th></tr>
+    <tr><td>WASM + Rapier2D (batched ABI), 10-player rooms × 100–200/core</td><td>~30k</td><td>~15k</td><td>~8k</td></tr>
+    <tr><td>WASM + Rapier2D (batched ABI), one 1,200-player room</td><td>—</td><td>~7k</td><td>~4k</td></tr>
+    <tr><td>WASM + Rapier3D (batched ABI, sky3d room)</td><td>—</td><td>~2.5k</td><td>~1k</td></tr>
+    <tr><td>Native ECS backend (movement)</td><td>—</td><td>~20k</td><td>~10k</td></tr>
+  </table>
+  <p class="sub">Reproduce: <code>cargo run --release --example bench_small_rooms</code> /
+  <code>bench_wasm_rapier_128</code> / <code>bench_wasm_rapier3d_128</code> / <code>bench_ecs_128</code>
+  under <code>taskset -c 0</code>.</p>
 
   <p class="note">Room size matters: one 5000-body room is the wrong shape while
   100–500-player rooms leave 95%+ of the budget free. A 2-core / 2 GB pod serves

@@ -185,7 +185,9 @@ onInputPacket(id: i64, input: InputReader): void {
 <section id="2d"><div class="wrap">
   <h2><span>05</span>2D physics — Rapier2D (host-side, native speed)</h2>
   <p>Physics runs in the host, not the guest: your room calls imports, the host steps the world.
-  Guest cost is just the calls (~7k CCU/core @128 Hz — published conservative; measured higher with 100–200-player rooms).</p>
+  Guest cost is just the calls — with the batched ABI a whole room's velocities and position
+  readbacks cross the wasm boundary in two calls per tick (~8k CCU/core @128 Hz with 10-player
+  rooms; ~4k in one 1,200-player room — measured, published below measurement).</p>
 
 <pre>import { Rapier2D, BodyType, Vec2 } from "./openoxide-server";
 
@@ -302,9 +304,10 @@ onTick(dt: f64): i64 {
     <code>applyImpulse(id, impulse: Vec3)</code> · <code>checkContact(a, b)</code> ·
     <code>removeBody(id)</code> · <code>step(dt)</code></td></tr>
   </table>
-  <p class="note">Per-core physics capacity (measured sandboxed, 2-core/2 GB cgroup): Rapier3D 500-body
-  rooms ≈ <b>~15k CCU @60 Hz</b> published-safe (measured higher), ~7k+ @128 Hz. Physics is never
-  the bottleneck — guest logic is.</p>
+  <p class="note">Per-core capacity, full-room measured (1-core pinned, every player moving):
+  Rapier2D 10-player rooms ≈ <b>~8k CCU @128 Hz</b> / ~15k @60 Hz; one 1,200-player 2D room ≈ 4k @128 Hz;
+  3D rooms (sky3d) ≈ 1k @128 Hz / 2.5k @60 Hz. At small room sizes physics is never the bottleneck —
+  the solver's cost per body grows with how many bodies are awake, which is why the mega-room curve bends.</p>
 </div></section>
 
 <!-- ============================================================ 7 -->
