@@ -166,10 +166,17 @@ impl RapierWorld3D {
                 if self.narrow_phase.intersection_pair(col_a, col_b) == Some(true) {
                     return true;
                 }
-                for pair in self.narrow_phase.contact_pairs() {
-                    let matches = (pair.collider1 == col_a && pair.collider2 == col_b)
-                        || (pair.collider1 == col_b && pair.collider2 == col_a);
-                    if matches {
+                // Only the pairs involving col_a — walking the world's whole
+                // contact graph here made N per-tick checks O(N x pairs).
+                for pair in self.narrow_phase.contact_pairs_with(col_a) {
+                    let matched = if pair.collider1 == col_a {
+                        pair.collider2 == col_b
+                    } else if pair.collider2 == col_a {
+                        pair.collider1 == col_b
+                    } else {
+                        continue;
+                    };
+                    if matched {
                         return pair.has_any_active_contact();
                     }
                 }
@@ -456,10 +463,17 @@ impl RapierWorld2D {
                 if self.narrow_phase.intersection_pair(col_a, col_b) == Some(true) {
                     return true;
                 }
-                for pair in self.narrow_phase.contact_pairs() {
-                    let matches = (pair.collider1 == col_a && pair.collider2 == col_b)
-                        || (pair.collider1 == col_b && pair.collider2 == col_a);
-                    if matches {
+                // Only the pairs involving col_a — walking the world's whole
+                // contact graph here made N per-tick checks O(N x pairs).
+                for pair in self.narrow_phase.contact_pairs_with(col_a) {
+                    let matched = if pair.collider1 == col_a {
+                        pair.collider2 == col_b
+                    } else if pair.collider2 == col_a {
+                        pair.collider1 == col_b
+                    } else {
+                        continue;
+                    };
+                    if matched {
                         return pair.has_any_active_contact();
                     }
                 }
