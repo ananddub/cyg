@@ -168,5 +168,30 @@ test-sdks:
         (cd sdk/client/godot && CYG_E2E_ENDPOINT=http://127.0.0.1:18779 godot --headless --path . -s res://test/live_server_e2e.gd) || fail=1
         kill "$srv" 2>/dev/null || true
         rm -rf "$work"
+        echo "== Godot live e2e (real server, sky3d — 3D, batched Rapier3D ABI)"
+        work=$(mktemp -d /tmp/cyg-sdk-e2e.XXXX)
+        cp examples/sky3d/src/room.ts "$work/room.ts"
+        cp examples/sky3d/out/room_logic.wasm "$work/room.wasm"
+        touch "$work/room.wasm"
+        mkdir -p "$work/out"
+        cp examples/sky3d/out/cyg.schema.bin "$work/out/cyg.schema.bin"
+        {
+            echo 'name = "sky3d"'
+            echo 'runtime = "assemblyscript"'
+            echo 'source = "room.ts"'
+            echo 'out = "room.wasm"'
+            echo 'port = 17779'
+            echo 'web_port = 17790'
+            echo 'ws_port = 18779'
+            echo 'tick_rate = 60'
+            echo 'max_clients = 16'
+        } > "$work/config.toml"
+        "$BIN" build "$work" >/dev/null
+        OX_ALLOW_DEFAULT_SECRETS=1 "$BIN" run "$work" >/tmp/cyg-sdk-e2e-server.log 2>&1 &
+        srv=$!
+        sleep 4
+        (cd sdk/client/godot && CYG_E2E_ENDPOINT=http://127.0.0.1:18779 CYG_E2E_ROOM=sky3d godot --headless --path . -s res://test/live_server_e2e.gd) || fail=1
+        kill "$srv" 2>/dev/null || true
+        rm -rf "$work"
     fi
     exit $fail
