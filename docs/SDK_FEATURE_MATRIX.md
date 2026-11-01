@@ -27,7 +27,7 @@ or the Rust suites. This file is the contract for what "SDK complete" means.
 
 | Feature | JS/Web | Godot | Unity/C# | Unreal |
 |---|---|---|---|---|
-| Matchmake + room socket | ✅ tested | ✅ tested (live e2e) | ❌ untested | ✅ implemented (16.6k-line plugin: CYGClient, CookYourGame editor module, profiler, resilience cookies) |
+| Matchmake + room socket | ✅ tested | ✅ tested (live e2e) | ⚠️ live e2e built, blocked on server UDP-join deny | ✅ implemented (16.6k-line plugin: CYGClient, CookYourGame editor module, profiler, resilience cookies) |
 | Schema decode (OXS2) | ✅ tested | ✅ tested (decoder + e2e) | ❌ untested | ⚠️ |
 | Input + acks | ✅ tested | ✅ e2e | ❌ | ⚠️ |
 | App messages | ✅ tested | ⚠️ unit only | ❌ | ⚠️ |
@@ -43,8 +43,13 @@ or the Rust suites. This file is the contract for what "SDK complete" means.
 1. **Server WS lane feature depth**: events + reconnection + batched inputs
    over the WS lane reuse the rtc framing on the wire, but no automated test
    drives them through `ws_port` yet (only state/input/leave are pinned).
-2. **Unity/C# runtime**: zero tests. Plain .NET test project against a
-   spawned server is the path (Runtime networking is pure C#).
+2. **Unity/C# runtime**: decoder contract tests green (12 checks, zero-dep
+   `dotnet run`). The live native-UDP flow is built (CYG_E2E_ORIGIN env) and
+   has already fixed three SDK bugs (seat host default, udpPort vs gamePort
+   lane, naive JSON extractor breaking on unquoted numbers) — it currently
+   pins a SERVER-side gap: the UDP plane DENYs fresh control-plane tokens by
+   resolving them against a stale retained session. Until that is fixed the
+   live part stays env-gated.
 3. **Unreal**: implementation is a full plugin (16.6k lines: client, serialization packers, transform/attachment/animator sync, visibility, session-cookie resilience, network profiler, editor tooling). What it lacks is AUTOMATED TESTS — UE automation tests (`IMPLEMENT_SIMPLE_AUTOMATION_TEST`) against the same wire vectors are the missing piece; a UE build environment is required to run them.
 4. **3D example coverage**: sky3d (3D, batched 3D ABI) should get the same
    live e2e treatment as coin-rush.

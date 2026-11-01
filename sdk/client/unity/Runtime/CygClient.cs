@@ -17,6 +17,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Linq;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -71,7 +72,12 @@ namespace CYG
             var json = await res.Content.ReadAsStringAsync();
             if (!res.IsSuccessStatusCode)
                 throw new Exception($"matchmake refused: {res.StatusCode} {json}");
-            return ParseSeat(json);
+            var seat = ParseSeat(json);
+            // The control plane's seat carries no host field: answer to the
+            // matchmake origin's host.
+            if (seat.Host == null)
+                seat.Host = new Uri(origin).Host;
+            return seat;
         }
 
         private static Seat ParseSeat(string json)
@@ -79,10 +85,15 @@ namespace CYG
             var seat = new Seat();
             seat.SeatToken = Extract(json, "seatToken") ?? Extract(json, "token");
             seat.SessionId = Extract(json, "sessionId") ?? "";
-            var port = Extract(json, "gamePort") ?? Extract(json, "port") ?? "7777";
+            // The native-UDP game lane is seat.udpPort — NOT gamePort (that is
+            // the WebRTC DataChannel lane, a different socket). Fall back to
+            // the raw `port` for deployments that expose UDP on it.
+            var port = Extract(json, "udpPort") ?? Extract(json, "gamePort") ?? Extract(json, "port") ?? "7777";
+            // host may be null here — Matchmake defaults it to the matchmake
+            // origin's host (the seat JSON carries no address field).
             var host = Extract(json, "host") ?? Extract(json, "address") ?? Extract(json, "ip");
-            if (seat.SeatToken == null || host == null)
-                throw new Exception($"seat missing token/host: {json}");
+            if (seat.SeatToken == null)
+                throw new Exception($"seat missing token: {json}");
             seat.Host = host; seat.Port = int.Parse(port);
             return seat;
         }
@@ -93,14 +104,22 @@ namespace CYG
             if (i < 0) return null;
             int colon = json.IndexOf(':', i + key.Length + 2);
             if (colon < 0) return null;
-            int start = json.IndexOf('"', colon);
-            if (start >= 0 && json.IndexOf(',', colon) > start || json.IndexOf('}', colon) > start)
+            int p = colon + 1;
+            while (p < json.Length && char.IsWhiteSpace(json[p])) p++;
+            if (p >= json.Length) return null;
+            if (json[p] == '"')
             {
-                int end = json.IndexOf('"', start + 1);
-                return json.Substring(start + 1, end - start - 1);
+                // String value: ends at the next quote (no escape handling —
+                // the seat JSON's string fields never carry escapes).
+                int end = json.IndexOf('"', p + 1);
+                return end < 0 ? null : json.Substring(p + 1, end - p - 1);
             }
-            int comma = json.IndexOfAny(new[] { ',', '}' }, colon);
-            return json.Substring(colon + 1, comma - colon - 1).Trim();
+            // Number / bool / null: ends at the next comma or closing brace.
+            // (The old version searched for a quote ANYWHERE after the colon,
+            // so `"udpPort":7778,"expiresAt":…` extracted "expiresAt".)
+            int stop = p;
+            while (stop < json.Length && json[stop] != ',' && json[stop] != '}') stop++;
+            return json.Substring(p, stop - p).Trim();
         }
 
         // ------------------------------------------------------------ udp

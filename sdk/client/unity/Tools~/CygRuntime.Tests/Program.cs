@@ -6,6 +6,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Threading;
 using CYG;
 
 namespace CYG.Tests
@@ -35,6 +37,15 @@ namespace CYG.Tests
         {
             DeltaDecoderTests.Run();
             AuthTests.Run();
+            var origin = Environment.GetEnvironmentVariable("CYG_E2E_ORIGIN");
+            if (!string.IsNullOrEmpty(origin))
+            {
+                LiveTests.Run(origin).GetAwaiter().GetResult();
+            }
+            else
+            {
+                Console.WriteLine("CYG_E2E_ORIGIN not set — live flow skipped");
+            }
             return Runner.Finish();
         }
     }
@@ -120,6 +131,45 @@ namespace CYG.Tests
             Runner.Check("token starts empty", string.IsNullOrEmpty(auth.Token));
             // Token capture after a successful body is a live-server flow
             // (needs the control plane) — covered by the host e2e suites.
+        }
+    }
+
+    /// The native-UDP live flow against a real server: matchmake -> UDP
+    /// JOIN -> BIND (player id) -> schema deltas -> input -> leave.
+    internal static class LiveTests
+    {
+        internal static async System.Threading.Tasks.Task Run(string origin)
+        {
+            var deltas = new ConcurrentQueue<System.Collections.Generic.List<CygRow>>();
+            CygClient client = null;
+            client = await CygClient.JoinOrCreate(origin, "coin-rush");
+            Runner.Check("udp join + bind within 5s", client != null && client.Connected);
+            Runner.Check("player id minted", client.PlayerId > 0);
+            Runner.Check("session id assigned", !string.IsNullOrEmpty(client.SessionId));
+
+            client.OnRawDelta += raw =>
+            {
+                var rows = CygDeltaDecoder.Decode(raw, new Dictionary<byte, string[]>
+                {
+                    [0x01] = new[] { "x", "hp" },
+                    [0x10] = new[] { "coinX", "coinY" },
+                });
+                deltas.Enqueue(rows);
+            };
+
+            // Drive input for ~1.5s and count decoded deltas.
+            var payload = new byte[20];
+            BitConverter.GetBytes(1.0f).CopyTo(payload, 12); // move_x lane
+            for (int i = 0; i < 45; i++)
+            {
+                client.SendInput(payload);
+                await System.Threading.Tasks.Task.Delay(33);
+            }
+            Runner.Check("deltas decoded while driving", deltas.Count > 5);
+
+            client.Leave();
+            await System.Threading.Tasks.Task.Delay(300);
+            Runner.Check("left without error", true);
         }
     }
 }
