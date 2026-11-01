@@ -52,14 +52,12 @@ namespace CYG.Tests
 
     internal static class DeltaDecoderTests
     {
-        /// The decoder's documented legacy envelope: [0x11][0xA5]['delta'] (7B)
-        /// followed by rows — NO entity id inside the envelope. NOTE: the
-        /// Rust server's wrap_delta_into DOES embed an 8-byte id after the
-        /// magic, so a live CygClient session decodes rows one id-width off;
-        /// that drift is pinned by the server-side SDK wire tests, not here.
-        private static byte[] Envelope(params byte[][] rows)
+        /// The real wire envelope from wrap_delta_into:
+        /// [0x11][0xA5]['delta'][your_id i64] — 15 bytes before the rows.
+        private static byte[] Envelope(ulong yourId, params byte[][] rows)
         {
             var head = new List<byte> { 0x11, 0xA5, (byte)'d', (byte)'e', (byte)'l', (byte)'t', (byte)'a' };
+            for (int b = 0; b < 8; b++) head.Add((byte)((yourId >> (8 * b)) & 0xFF));
             foreach (var row in rows) head.AddRange(row);
             return head.ToArray();
         }
@@ -83,7 +81,7 @@ namespace CYG.Tests
             };
 
             // Legacy envelope is stripped; rows decode with names in order.
-            var delta = Envelope(
+            var delta = Envelope(1ul,
                 Row(0x01, 7ul, 100.5, 80.0),
                 Row(0x10, 0ul, 12.0, 34.0));
             var rows = CygDeltaDecoder.Decode(delta, tags);

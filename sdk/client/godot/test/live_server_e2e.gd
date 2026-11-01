@@ -111,6 +111,10 @@ func _validate_and_leave(r: CYGRoom) -> void:
 	# without dropping us.
 	r.send_input(1, 0.0, 0.0, 0.5, 0.0)
 	check("input frame sent", true)
+	# Events/app-message lane over the same socket: a typed send must be
+	# accepted and routed without the server dropping us.
+	r.send("e2e-probe", PackedByteArray([1, 2, 3]))
+	check("app message sent", true)
 	# Give the server one round trip to ingest the input, then leave.
 	await create_timer(0.5).timeout
 	check("no close event after input", not closed_seen[0])

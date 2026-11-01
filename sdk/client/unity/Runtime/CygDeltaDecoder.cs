@@ -37,9 +37,19 @@ namespace CYG
         {
             var rows = new List<CygRow>();
             int i = 0;
-            // Header forms: [0x11][0xA5 …7B total] legacy delta envelope, or bare rows.
-            if (delta.Length >= 7 && delta[0] == 0x11 && delta[1] == 0xA5) i = 7;
-            else if (delta.Length >= 6 && delta[0] == 0xA5 && delta[1] == 0x64) i = 6;
+            // Header forms — the server's wrap_delta_into emits
+            // [0x11 proto][0xA5]['d','e','l','t','a'][your_id i64] = 15 bytes,
+            // and bare [0xA5]['d','e','l','t','a'][id i64] = 14 bytes. The id
+            // is per-row inside the TLV records too, so the envelope's copy
+            // is stripped with the magic. (The old 7/6-byte strip left the id
+            // in place and every row decoded one id-width misaligned.)
+            if (delta.Length >= 15 && delta[0] == 0x11 && delta[1] == 0xA5
+                && delta[2] == (byte)'d' && delta[3] == (byte)'e'
+                && delta[4] == (byte)'l' && delta[5] == (byte)'t'
+                && delta[6] == (byte)'a') i = 15;
+            else if (delta.Length >= 14 && delta[0] == 0xA5 && delta[1] == 0x64
+                && delta[2] == (byte)'e' && delta[3] == (byte)'l'
+                && delta[4] == (byte)'t' && delta[5] == (byte)'a') i = 14;
 
             while (i + 10 <= delta.Length)
             {
