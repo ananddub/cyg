@@ -67,6 +67,9 @@ pub(crate) fn fill(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = int("max_messages_per_second") {
         cfg.max_messages_per_second = v.max(0) as u32;
     }
+    if let Some(v) = int("ws_port") {
+        cfg.ws_port = v.max(0) as u16;
+    }
     if let Some(v) = int("simulate_latency_ms") {
         cfg.simulate_latency_ms = v.max(0) as u32;
     }

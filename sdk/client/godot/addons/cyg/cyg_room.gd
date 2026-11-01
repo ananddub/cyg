@@ -379,7 +379,11 @@ func _handle_inbound_binary(bytes: PackedByteArray) -> void:
 	elif bytes.size() >= 14 and int(bytes[0]) == 0xA5 and int(bytes[1]) == 0x64:
 		offset = 6
 	if offset > 0:
+		if OS.get_environment("CYG_SDK_DEBUG") != "":
+			print("[cyg-debug] wrapped delta %dB -> payload %dB" % [bytes.size(), bytes.size() - offset])
 		_process_delta_payload(bytes.slice(offset))
+	elif OS.get_environment("CYG_SDK_DEBUG") != "":
+		print("[cyg-debug] unmatched ws frame %dB first=%s" % [bytes.size(), str(bytes.slice(0, mini(8, bytes.size())))])
 
 
 func _handle_app_message(frame: PackedByteArray) -> void:

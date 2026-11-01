@@ -80,6 +80,9 @@ func _wire_room(r: CYGRoom) -> void:
 		check("schema state decoded", true)
 		_validate_and_leave(r)
 	)
+	r.delta_received.connect(func(payload: PackedByteArray, acked: int, tick: int) -> void:
+		print("[e2e] delta received: %d bytes ack=%d tick=%d" % [payload.size(), acked, tick])
+	)
 	r.schema_error_raised.connect(func(message: String) -> void:
 		check("no schema errors", false)
 		printerr("schema error: %s" % message)

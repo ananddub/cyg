@@ -69,6 +69,10 @@ pub struct GameConfig {
     /// a client exceeding this many messages in one second is force-disconnected
     /// (the `maxMessagesPerSecond` DoS contract). `0` = unlimited.
     pub max_messages_per_second: u32,
+    /// The WebSocket room-data lane port (`cyg.js` WS fallback, Godot, Unity,
+    /// Unreal and every WS-speaking SDK client). `0` (default) keeps the lane
+    /// off; the WebRTC/UDP lane is unaffected either way.
+    pub ws_port: u16,
     /// Synthetic round-trip latency in ms for local development: app data in
     /// both directions is delayed by half of this, so prediction, rollback and
     /// reconciliation behave on localhost like they would on a real network.
@@ -109,6 +113,7 @@ impl Default for GameConfig {
             max_clients: 16,
             max_rooms: 1024,
             max_messages_per_second: 0,
+            ws_port: 0,
             simulate_latency_ms: 0,
             width: 800.0,
             height: 500.0,

@@ -31,6 +31,14 @@ impl<T: 'static> WasmPreInstance<T> {
     /// Spawn a new running instance (room) from the pre-built template.
     pub fn instantiate(&self, host_data: T) -> Result<WasmInstance<T>, WasmError> {
         let mut store = Store::new(&self.engine, host_data);
+        // A store's epoch deadline defaults to 0 — already elapsed. While the
+        // epoch ticker pumps, a large module's instantiation consumes epochs
+        // and traps mid-instantiate ("wasm trap: interrupt") before the real
+        // per-call deadline is ever armed. Arm a generous instantiation budget
+        // first; the per-call deadline below replaces it.
+        if self.epoch_ticks.is_some() {
+            store.set_epoch_deadline(u64::MAX / 2);
+        }
         let instance = self
             .pre
             .instantiate(&mut store)

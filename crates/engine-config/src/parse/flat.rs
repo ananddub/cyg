@@ -23,6 +23,7 @@ pub(crate) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "max_messages_per_second" => {
             cfg.max_messages_per_second = value.parse().unwrap_or(cfg.max_messages_per_second)
         }
+        "ws_port" => cfg.ws_port = value.parse().unwrap_or(cfg.ws_port),
         "simulate_latency_ms" => {
             cfg.simulate_latency_ms = value.parse().unwrap_or(cfg.simulate_latency_ms)
         }

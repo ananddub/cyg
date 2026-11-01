@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use engine_bus::{Bus, MatchFinished, RoomSnapshot, RoomTelemetry, SessionTelemetry, SimEvent};
 use engine_core::{MessageRateLimits, RateDecision};
+use engine_webrtc_protocol::{INPUT_WIRE_LEN as WS_INPUT_WIRE_LEN, HEADER_LEN as WS_HEADER_LEN};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc::contract::Inbound;
 use engine_net::transport::{GameTransport, TransportEvent, WebRtcServer, WebRtcTransport};
@@ -70,6 +71,10 @@ pub struct LoopTransport {
     /// The QUIC/WebTransport lane, when `quic_port` is configured. Client ids
     /// carry the `q<n>` namespace, so sends route by which plane knows the id.
     quic: Option<engine_net::QuicTransport>,
+    /// The WebSocket room-data lane (`ws_port`), when configured: Godot,
+    /// Unity, Unreal and the cyg.js WS fallback all speak this — matchmake,
+    /// room socket and state delivery on one port.
+    ws: Option<engine_net::transport::WsTransport>,
     /// session id -> room id, mirrored from the seat at signaling time so the
     /// loop can route connect/disconnect events without borrowing the wire.
     client_rooms: Arc<scc::HashMap<String, String>>,
@@ -117,11 +122,16 @@ enum DelayedOut {
 }
 
 impl LoopTransport {
-    fn new(rtc: WebRtcTransport, quic: Option<engine_net::QuicTransport>) -> Self {
+    fn new(
+        rtc: WebRtcTransport,
+        quic: Option<engine_net::QuicTransport>,
+        ws: Option<engine_net::transport::WsTransport>,
+    ) -> Self {
         let local_addr = rtc.local_addr().ok();
         Self {
             rtc,
             quic,
+            ws,
             client_rooms: Arc::new(scc::HashMap::new()),
             client_options: HashMap::new(),
             consented: std::collections::HashSet::new(),
@@ -151,23 +161,44 @@ impl LoopTransport {
     }
 
     pub fn room_of(&self, client_id: &str) -> Option<String> {
+        if let Some(room) = self
+            .ws
+            .as_ref()
+            .and_then(|ws| ws.room_of(client_id).map(str::to_string))
+        {
+            return Some(room);
+        }
         self.client_rooms.read_sync(client_id, |_, r| r.clone())
     }
 
     /// Raw JSON join options the seat's matchmake call carried.
     pub fn options_of(&self, client_id: &str) -> Option<String> {
+        if let Some(opts) = self
+            .ws
+            .as_ref()
+            .and_then(|ws| ws.options_of(client_id).map(str::to_string))
+        {
+            return Some(opts);
+        }
         self.client_options.get(client_id).cloned()
     }
 
     /// Whether the session's disconnect was intentional (a server-initiated
     /// close). Such seats skip `allowReconnection` holds.
     pub fn take_consented(&mut self, client_id: &str) -> bool {
-        self.consented.remove(client_id)
+        let ws_consented = self
+            .ws
+            .as_mut()
+            .is_some_and(|ws| ws.take_consented(client_id));
+        self.consented.remove(client_id) || ws_consented
     }
 
     /// Keep this session's reconnection token valid so the SDK can resume it
     /// with `POST /matchmake/reconnect/<room>`.
     pub fn retain_session(&mut self, room_id: &str, session_id: &str) {
+        if let Some(ws) = self.ws.as_mut() {
+            ws.retain_session(room_id, session_id);
+        }
         self.retained.insert(
             format!("{}:{}", room_id, session_id),
             session_id.to_string(),
@@ -175,6 +206,8 @@ impl LoopTransport {
     }
 
     pub fn take_room_of(&mut self, client_id: &str) -> Option<String> {
+        // The ws lane forgets its own bookkeeping on Disconnected; nothing to
+        // take here for it.
         let room = self.client_rooms.remove_sync(client_id).map(|(_, r)| r);
         if room.is_some() {
             self.client_options.remove(client_id);
@@ -233,6 +266,11 @@ impl LoopTransport {
     /// Queue a schema state frame on the latest-wins lane (unflushed state
     /// frames are replaced, not appended).
     pub fn send_state(&mut self, client_id: &str, payload: &[u8]) -> std::io::Result<()> {
+        if self.ws_knows(client_id) {
+            // The WS protocol carries state as StateSnapshot frames (the
+            // lane has no delta channel; latest full snapshot wins).
+            return self.ws.as_mut().unwrap().send_state(client_id, payload);
+        }
         if !self.latency.is_zero() {
             self.delayed_out.push_back((
                 Instant::now() + self.latency,
@@ -256,6 +294,13 @@ impl LoopTransport {
             let _ = self.rtc.send_to(cid, opcode, payload);
         }
         Ok(())
+    }
+
+    /// Does the WebSocket lane hold this session?
+    fn ws_knows(&self, client_id: &str) -> bool {
+        self.ws
+            .as_ref()
+            .is_some_and(|ws| ws.room_of(client_id).is_some())
     }
 
     /// Release every delayed outbound message whose due time has passed.
@@ -302,6 +347,13 @@ impl LoopTransport {
                 .unwrap()
                 .send_to(client_id, opcode, payload);
         }
+        if self.ws_knows(client_id) {
+            return self
+                .ws
+                .as_mut()
+                .unwrap()
+                .send_to(client_id, opcode, payload);
+        }
         self.rtc.send_to(client_id, opcode, payload)
     }
 }
@@ -343,6 +395,46 @@ impl GameTransport for LoopTransport {
                     .map(|(id, msg)| (id.to_string(), msg)),
             );
         }
+        if let Some(ws) = self.ws.as_mut() {
+            ws.poll_events(timeout, events)?;
+            // The WS lane emits plain packets (it has no lane classifier):
+            // convert them into the same inbound shape the rtc/quic planes
+            // produce, so the host loop treats a Godot/Unity client exactly
+            // like a browser one.
+            events.retain(|ev| {
+                match ev {
+                    TransportEvent::Packet { client_id, opcode, payload } => {
+                        match opcode {
+                            // WS input wire: the 23B mesh frame minus its
+                            // opcode byte = [seq u16][flags u32][4 x f32] —
+                            // the rtc lane's exact 20B sample plus its seq.
+                            OpCode::PlayerInput => {
+                                const SAMPLE: usize = WS_INPUT_WIRE_LEN - WS_HEADER_LEN; // 20B
+                                if payload.len() >= 2 + SAMPLE {
+                                    let seq = u16::from_le_bytes([payload[0], payload[1]]);
+                                    let mut sample = [0u8; SAMPLE];
+                                    sample.copy_from_slice(&payload[2..2 + SAMPLE]);
+                                    self.inbound.push((
+                                        client_id.to_string(),
+                                        Inbound::Input { seq, payload: sample, resupplied: false },
+                                    ));
+                                }
+                                false // consumed into the lane stream
+                            }
+                            OpCode::RoomDataBytes => {
+                                self.inbound.push((
+                                    client_id.to_string(),
+                                    Inbound::App { data: payload.to_vec() },
+                                ));
+                                false
+                            }
+                            _ => true, // Custom/Ping/... surface as packets
+                        }
+                    }
+                    _ => true,
+                }
+            });
+        }
         // Latency simulator: release due outbound traffic, then hold fresh
         // inbound until its one-way delay has elapsed.
         let now = Instant::now();
@@ -377,6 +469,7 @@ impl GameTransport for LoopTransport {
         self.send_to_now(client_id, opcode, payload)
     }
 
+
     fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
         // Deltas must reach every plane: a QUIC client is as much a player as
         // a WebRTC one.
@@ -384,12 +477,18 @@ impl GameTransport for LoopTransport {
         if let Some(quic) = self.quic.as_mut() {
             quic.broadcast(opcode, payload)?;
         }
+        if let Some(ws) = self.ws.as_mut() {
+            ws.broadcast(opcode, payload)?;
+        }
         Ok(())
     }
 
     fn disconnect(&mut self, client_id: &str) -> std::io::Result<()> {
         if self.quic.as_ref().is_some_and(|q| q.knows(client_id)) {
             return self.quic.as_mut().unwrap().disconnect(client_id);
+        }
+        if self.ws_knows(client_id) {
+            return self.ws.as_mut().unwrap().disconnect(client_id);
         }
         self.rtc.disconnect(client_id)
     }
@@ -406,6 +505,13 @@ impl GameTransport for LoopTransport {
                 .unwrap()
                 .disconnect_with(client_id, code, reason);
         }
+        if self.ws_knows(client_id) {
+            self.ws
+                .as_mut()
+                .unwrap()
+                .disconnect(client_id)?;
+            return Ok(());
+        }
         self.rtc.disconnect(client_id)
     }
 
@@ -414,11 +520,16 @@ impl GameTransport for LoopTransport {
         if let Some(quic) = self.quic.as_mut() {
             quic.flush()?;
         }
+        if let Some(ws) = self.ws.as_mut() {
+            ws.flush()?;
+        }
         Ok(())
     }
 
     fn ccu(&self) -> usize {
-        self.rtc.ccu() + self.quic.as_ref().map_or(0, |q| q.ccu())
+        self.rtc.ccu()
+            + self.quic.as_ref().map_or(0, |q| q.ccu())
+            + self.ws.as_ref().map_or(0, |w| w.ccu())
     }
 
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
@@ -1400,7 +1511,30 @@ pub fn run(
     } else {
         None
     };
-    let mut transport = LoopTransport::new(raw_transport, quic_transport);
+    // The WebSocket room-data lane: matchmake + room socket + state delivery
+    // on one port, for Godot / Unity / Unreal / cyg.js-WS clients.
+    let ws_transport = if cfg.ws_port > 0 {
+        match engine_net::transport::WsTransport::new(
+            std::net::SocketAddr::from(([0, 0, 0, 0], cfg.ws_port)),
+        ) {
+            Ok(mut ws) => {
+                ws.set_schema_descriptor(schema_descriptor.clone());
+                ws.set_udp_port(cfg.port);
+                tracing::info!(
+                    "[server] 🕹️  WebSocket room-data lane on ws://0.0.0.0:{} (Godot / Unity / Unreal / cyg.js)",
+                    cfg.ws_port
+                );
+                Some(ws)
+            }
+            Err(e) => {
+                tracing::error!("[server] ⚠️ ws bind 0.0.0.0:{} failed — WebSocket clients disabled: {e}", cfg.ws_port);
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mut transport = LoopTransport::new(raw_transport, quic_transport, ws_transport);
     // `simulate_latency_ms` splits the configured round trip in half per
     // direction, Colyseus-style — localhost starts behaving like a network.
     if cfg.simulate_latency_ms > 0 {
@@ -1683,7 +1817,11 @@ pub fn run(
             } else {
                 remaining_to_tick
             };
-            transport.poll_events(wait, &mut events).expect("poll");
+            if let Err(e) = transport.poll_events(wait, &mut events) {
+                if e.kind() != std::io::ErrorKind::Interrupted {
+                    panic!("poll: {e}");
+                }
+            }
         }
 
         let batch = events.len().min(MAX_FRAMES_PER_LOOP);
@@ -3432,6 +3570,7 @@ mod loop_transport_tests {
         LoopTransport::new(
             WebRtcTransport::new("127.0.0.1:0".parse().unwrap()).unwrap(),
             None,
+            None,
         )
     }
 
@@ -3950,6 +4089,7 @@ mod event_history_tests {
 
         let mut transport = LoopTransport::new(
             WebRtcTransport::new("127.0.0.1:0".parse().unwrap()).unwrap(),
+            None,
             None,
         );
         flush_room_outbox(&mut room, &mut transport, "arena", &history);
