@@ -22,9 +22,9 @@ mod tests {
     #[test]
     fn histogram_buckets_by_power_of_two() {
         let mut h = [0u32; TICK_HISTOGRAM_BUCKETS];
-        histogram_add(&mut h, 1); // [0,2) -> bucket 0
-        histogram_add(&mut h, 3); // [2,4) -> bucket 1
-        histogram_add(&mut h, 5_000); // over the top -> last bucket
+        histogram_add(&mut h, 1);
+        histogram_add(&mut h, 3);
+        histogram_add(&mut h, 5_000);
         assert_eq!((h[0], h[1], h[TICK_HISTOGRAM_BUCKETS - 1]), (1, 1, 1));
         assert_eq!(h.iter().sum::<u32>(), 3);
     }

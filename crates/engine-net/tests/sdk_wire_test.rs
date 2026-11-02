@@ -1,13 +1,3 @@
-//! Wire-level compatibility tests for the @colyseus/sdk client.
-//!
-//! These simulate exactly what the real SDK puts on the wire:
-//! 1. HTTP POST `/matchmake/joinOrCreate/<room>` -> seat-reservation JSON
-//! 2. RFC 6455 WebSocket upgrade with `Sec-WebSocket-Key`
-//! 3. Masked binary frame `[JOIN_ROOM=10]` -> SDK-format JOIN_ROOM reply
-//! 4. Masked `[ROOM_DATA=13]` -> `TransportEvent::Packet`
-//!
-//! Protocol values verified against `packages/shared-types/src/Protocol.ts`
-//! of the CYG wire (0.18-derived) monorepo.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -15,10 +5,8 @@ use std::time::Duration;
 
 use engine_net::transport::{GameTransport, TransportEvent, WsTransport};
 
-/// The serializer id advertised by the transport (must match server constant).
 const SERIALIZER_ID: &[u8] = b"schema";
 
-/// Bind a transport on an ephemeral port.
 fn spawn_transport() -> (WsTransport, u16) {
     let transport = WsTransport::new("127.0.0.1:0".parse().unwrap()).expect("bind ok");
     let port = transport.local_addr().unwrap().port();
@@ -26,9 +14,7 @@ fn spawn_transport() -> (WsTransport, u16) {
 }
 
 fn poll(transport: &mut WsTransport) -> Vec<TransportEvent> {
-    // Mirror the production host loop: poll + flush every tick. Replies are
-    // written by flush(), never by WRITABLE events (sockets idle at
-    // READABLE-only interest to avoid the level-triggered epoll spin).
+
     let _ = transport.flush();
     let mut events = Vec::new();
     transport
@@ -37,7 +23,6 @@ fn poll(transport: &mut WsTransport) -> Vec<TransportEvent> {
     events
 }
 
-/// Send one masked RFC 6455 binary frame (client frames MUST be masked).
 fn send_ws_frame(stream: &mut TcpStream, payload: &[u8]) {
     let mask = [0x11u8, 0x22, 0x33, 0x44];
     let mut frame = vec![0x82];
@@ -52,7 +37,6 @@ fn send_ws_frame(stream: &mut TcpStream, payload: &[u8]) {
     stream.write_all(&frame).expect("frame write ok");
 }
 
-/// Read one unmasked server frame (blocking, with timeout).
 fn read_ws_frame(stream: &mut TcpStream) -> Vec<u8> {
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))
@@ -72,7 +56,7 @@ fn ws_upgrade(port: u16, transport: &mut WsTransport) -> TcpStream {
 
 fn ws_upgrade_with_query(port: u16, transport: &mut WsTransport, query: &str) -> TcpStream {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ok");
-    // RFC 6455 section 1.3 example key -> known accept value.
+
     let request = format!(
         "GET /cyg_1/game_room?{query} HTTP/1.1\r\n\
          Host: localhost\r\n\
@@ -83,7 +67,7 @@ fn ws_upgrade_with_query(port: u16, transport: &mut WsTransport, query: &str) ->
     );
     stream.write_all(request.as_bytes()).expect("upgrade write");
 
-    // Server accepts and answers inside poll_events; retry until it does.
+    
     let mut response = String::new();
     let mut byte = [0u8; 1];
     stream
@@ -98,11 +82,11 @@ fn ws_upgrade_with_query(port: u16, transport: &mut WsTransport, query: &str) ->
                 }
             }
             _ => {
-                poll(transport); // give the event loop a tick
+                poll(transport); 
             }
         }
     }
-    // Flush the proactively queued JOIN_ROOM handshake.
+    
     poll(transport);
 
     assert!(
@@ -127,7 +111,7 @@ fn test_matchmake_seat_reservation_http() {
                    Content-Length: 2\r\n\r\n{}";
     stream.write_all(request.as_bytes()).expect("post ok");
 
-    // Server accepts, serves the seat reservation, and closes; retry until then.
+    
     stream
         .set_read_timeout(Some(Duration::from_millis(20)))
         .unwrap();
@@ -147,7 +131,7 @@ fn test_matchmake_seat_reservation_http() {
         response.contains("200 OK"),
         "seat reservation must be 200: {response}"
     );
-    // ISeatReservation fields the SDK consumes:
+    
     assert!(response.contains("\"sessionId\":\""), "missing sessionId");
     assert!(
         response.contains("\"roomId\":\"game_room\""),
@@ -170,12 +154,8 @@ fn test_join_room_reply_matches_sdk_wire_format() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport);
 
-    // The server proactively initiates the join on upgrade: the SDK client
-    // only acknowledges with [10]. Read the server-initiated handshake.
     let reply = read_ws_frame(&mut stream);
 
-    // Wire layout (Protocol.ts getMessageBytes JOIN_ROOM):
-    // [10][rt-len][rt][serializer-len]["schema"][msgpack handshake-len]
     assert_eq!(
         reply[0], 10,
         "first byte must be JOIN_ROOM (10), not ERROR (11)"
@@ -198,7 +178,6 @@ fn test_room_data_reaches_simulation_and_leave_disconnects() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport);
 
-    // ROOM_DATA = 13: [13][payload...]
     send_ws_frame(&mut stream, &[13, b'm', b'o', b'v', b'e']);
     let mut events = poll(&mut transport);
     for _ in 0..10 {
@@ -215,7 +194,6 @@ fn test_room_data_reaches_simulation_and_leave_disconnects() {
             if payload.as_ref() == b"move")
     ));
 
-    // LEAVE_ROOM = 12 -> server must drop the client.
     send_ws_frame(&mut stream, &[12]);
     let mut events = poll(&mut transport);
     for _ in 0..10 {
@@ -243,7 +221,7 @@ fn test_room_data_reaches_simulation_and_leave_disconnects() {
 fn test_socket_drop_is_not_consented() {
     let (mut transport, port) = spawn_transport();
     let stream = ws_upgrade(port, &mut transport);
-    // Bare FIN: the client vanished without LEAVE_ROOM or a WS close.
+
     drop(stream);
 
     let mut events = poll(&mut transport);

@@ -1,4 +1,3 @@
-//! Handle to a running worker pool: shutdown control and aggregated telemetry.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,7 +6,6 @@ use std::thread::{self, JoinHandle};
 use super::config::AggregatedTelemetry;
 use crate::runtime::worker::WorkerStats;
 
-/// Handle to manage running multi-worker pool.
 pub struct WorkerPoolHandle {
     pub(super) running: Arc<AtomicBool>,
     pub(super) threads: Vec<JoinHandle<()>>,
@@ -15,12 +13,11 @@ pub struct WorkerPoolHandle {
 }
 
 impl WorkerPoolHandle {
-    /// Stop all worker threads gracefully.
+
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
     }
 
-    /// Wait for all worker threads to finish.
     pub fn join(self) -> thread::Result<()> {
         for handle in self.threads {
             handle.join()?;
@@ -28,7 +25,6 @@ impl WorkerPoolHandle {
         Ok(())
     }
 
-    /// Snapshot aggregated telemetry across all active workers.
     pub fn telemetry(&self) -> AggregatedTelemetry {
         let mut total_ccu = 0;
         let mut total_ticks = 0;
@@ -67,7 +63,6 @@ impl WorkerPoolHandle {
         }
     }
 
-    /// Access individual per-worker stats for fine-grained per-core monitoring.
     pub fn per_worker_stats(&self) -> &[Arc<WorkerStats>] {
         &self.worker_stats
     }

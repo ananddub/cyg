@@ -1,10 +1,3 @@
-//! Plane surface + session-pump behavior that does not need a remote peer:
-//! - `create_session` returns a real datachannel SDP offer,
-//! - the player→session registry lookup works,
-//! - downlink `send_delta` is non-blocking and drops (never panics) on unknown
-//!   players / full inboxes,
-//! - an unconnected session's pump never emits oversized datagrams and drives its
-//!   own timeout rather than busy-looping.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
@@ -21,7 +14,7 @@ fn loopback_any() -> SocketAddr {
 
 #[tokio::test]
 async fn plane_offer_lookup_and_nonblocking_downlink() {
-    // Bind to an ephemeral loopback port; announce the concrete address we resolve to.
+
     let probe = std::net::UdpSocket::bind(loopback_any()).expect("probe bind");
     let announced = probe.local_addr().expect("probe addr");
     drop(probe);
@@ -38,13 +31,10 @@ async fn plane_offer_lookup_and_nonblocking_downlink() {
         "offer must negotiate a datachannel m-line"
     );
 
-    // id -> session lookup the bridge needs.
     assert_eq!(handle.session_count(), 1);
     let sid = handle.session_for_player("p1").expect("player indexed");
     assert_eq!(&*sid, "s1");
 
-    // Downlink for a known player is accepted into the bounded inbox and must
-    // return immediately (the producer never blocks).
     let start = Instant::now();
     let accepted = handle.send_delta(&RtcDownlink {
         player_id: "p1".into(),
@@ -58,7 +48,6 @@ async fn plane_offer_lookup_and_nonblocking_downlink() {
         "send_delta must not block"
     );
 
-    // Unknown player is dropped, not queued, not an error path that panics.
     assert!(!handle.send_delta(&RtcDownlink {
         player_id: "ghost".into(),
         tick: 1,
@@ -66,14 +55,11 @@ async fn plane_offer_lookup_and_nonblocking_downlink() {
         body: vec![0u8; 16],
     }));
 
-    // Reliable downlink for an unknown player likewise returns false.
     assert!(!handle.send_reliable(&"ghost".into(), b"hello"));
 
     let closed = handle.close_session(sid).await;
     assert!(closed.is_ok());
 
-    // Drain any pending uplink without hanging (there is no real peer, so the
-    // channel stays open until shutdown; the timeout bounds the wait).
     let _ = tokio::time::timeout(Duration::from_millis(100), async {
         while handle.recv_uplink().await.is_some() {}
     })
@@ -82,9 +68,7 @@ async fn plane_offer_lookup_and_nonblocking_downlink() {
 
 #[test]
 fn session_pump_timeout_is_driven_not_busy() {
-    // A freshly created session (no peer) exposes a concrete next timeout. str0m
-    // keeps it in the distant future until negotiation starts (`NotHappening`), so
-    // the loop must never busy-spin: it sleeps that long and wakes only on input.
+
     let server: SocketAddr = "127.0.0.1:41111".parse().unwrap();
     let (mut session, offer) =
         RtcSession::new_server("pump".into(), server, &[server]).expect("new server");
@@ -93,8 +77,6 @@ fn session_pump_timeout_is_driven_not_busy() {
     let first = session.poll_timeout();
     assert!(first >= Instant::now() - Duration::from_secs(1));
 
-    // str0m permits feeding a Timeout at or before the scheduled instant. Drive the
-    // engine at wall-clock; every emitted datagram must fit the wire budget.
     for _ in 0..50 {
         let now = Instant::now();
         for out in session.feed_timeout(now) {
@@ -104,8 +86,6 @@ fn session_pump_timeout_is_driven_not_busy() {
         }
     }
 
-    // A delta written before any peer connected is a no-op that still returns Ok
-    // (the write is discarded by str0m), so the producer never errors mid-flight.
     let out = session
         .send_delta(1, 1, &[0u8; 100])
         .expect("delta on closed chan is a no-op");
@@ -118,8 +98,7 @@ fn session_pump_timeout_is_driven_not_busy() {
 
 #[test]
 fn delta_fragmentation_bounds_match_codec() {
-    // The codec's own chunk math the plane relies on: 5 KB needs 5 frames, an empty
-    // body is one frame, and the plane rejects anything past MAX_DELTA_BODY.
+
     assert_eq!(delta_fragment_count(5_000), Some(5));
     assert_eq!(delta_fragment_count(0), Some(1));
     assert_eq!(delta_fragment_count(MAX_DELTA_CHUNK), Some(1));
@@ -128,8 +107,7 @@ fn delta_fragmentation_bounds_match_codec() {
 
 #[test]
 fn oversized_delta_is_rejected_not_truncated() {
-    // Even before connection, the plane validates body size against the codec cap
-    // and rejects an impossible delta instead of silently dropping the tail.
+
     let server: SocketAddr = "127.0.0.1:41112".parse().unwrap();
     let (mut session, _offer) = RtcSession::new_server("big".into(), server, &[server]).unwrap();
     let huge = vec![0u8; 256 * MAX_DELTA_CHUNK + 1];

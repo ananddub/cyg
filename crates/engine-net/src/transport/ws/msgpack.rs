@@ -1,5 +1,3 @@
-//! msgpack primitives (LE numerics + strings) used by the join handshake and
-//! state blobs.
 
 use bytes::BufMut;
 
@@ -47,7 +45,6 @@ pub(super) fn mp_number(out: &mut impl BufMut, value: f64) {
     }
 }
 
-/// msgpack string: fixstr / str8 / str16.
 pub(super) fn mp_str(out: &mut impl BufMut, s: &str) {
     let bytes = s.as_bytes();
     let len = bytes.len();

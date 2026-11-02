@@ -1,12 +1,8 @@
-//! Serving a static asset over plain HTTP through the registered hook.
 
 use std::io::Write;
 
 use super::super::client::WsClient;
 
-/// Write the response and block until the body is on the wire: a static GET
-/// has no event-loop follow-up, so the socket switches back to blocking mode
-/// instead of leaving bytes queued for a writable event that never comes.
 pub(super) fn serve_static(
     client: &mut WsClient,
     content_type: &str,

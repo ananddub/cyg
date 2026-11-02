@@ -1,4 +1,3 @@
-//! The plane owner: socket binding, the dedicated runtime thread and shutdown.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -13,21 +12,13 @@ use super::handle::PlaneHandle;
 use super::inbox::PlaneCommand;
 use super::registries::Registries;
 
-/// The WebRTC data plane. Spawns its own Tokio runtime on one OS thread and a
-/// single bound UDP socket.
 pub struct Plane {
     thread: Option<JoinHandle<()>>,
     cmd_tx: mpsc::UnboundedSender<PlaneCommand>,
 }
 
 impl Plane {
-    /// Bind the UDP socket on the *calling* thread (so the bound address is known
-    /// synchronously), then hand it to a dedicated plane thread that drives the
-    /// Tokio runtime, the demux task and every session task.
-    ///
-    /// `announced_addr` is advertised as the server host ICE candidate and stamped
-    /// as the destination on inbound datagrams; it must be the concrete address
-    /// clients actually send to (not `0.0.0.0` unless the demux resolves it).
+
     pub fn spawn(
         bind_addr: SocketAddr,
         announced_addr: SocketAddr,
@@ -83,7 +74,6 @@ impl Plane {
         ))
     }
 
-    /// Signal the plane to stop and join its thread.
     pub fn shutdown(mut self) {
         let _ = self.cmd_tx.send(PlaneCommand::Shutdown);
         if let Some(thread) = self.thread.take() {
@@ -94,7 +84,7 @@ impl Plane {
 
 impl Drop for Plane {
     fn drop(&mut self) {
-        // Best-effort stop if the owner forgot to call `shutdown()`.
+
         if let Some(thread) = self.thread.take() {
             let _ = self.cmd_tx.send(PlaneCommand::Shutdown);
             let _ = thread.join();

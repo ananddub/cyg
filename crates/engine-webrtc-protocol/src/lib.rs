@@ -1,32 +1,21 @@
-//! WebRTC DataChannel game wire protocol: mesh frames peers exchange directly
-//! over UDP, plus the server's fragmented delta and ack channel. Little-endian,
-//! opcode-first, one frame per path-MTU packet.
 
 pub mod channel;
 pub mod frames;
 
 mod bytes;
 
-/// Positions and velocities ride as `value * 16` in an `i16`.
 pub const LEN_SCALE: f32 = 16.0;
 
-/// Angles ride as a fraction of a full turn in an `i16`.
 pub const ANGLE_SCALE: f32 = 32768.0;
 
-/// Keep a frame inside one SCTP/UDP packet.
 pub const MAX_FRAME: usize = 1200;
 
-/// Bytes per entity in a state frame.
 pub const STATE_RECORD_LEN: usize = 19;
 
-/// Header of a state frame: `[op][tick u16][count u8]`.
 pub const STATE_HEADER_LEN: usize = 4;
 
-/// Most records that fit in one state frame.
 pub const MAX_ENTITIES_PER_STATE: usize = (MAX_FRAME - STATE_HEADER_LEN) / STATE_RECORD_LEN;
 
-/// Saturating fixed-point length; non-finite input lands on the extreme, which
-/// `f32 as i16` in Rust and `Math.round` + clamp in JS agree on.
 #[inline]
 pub fn quantize_len(value: f32) -> i16 {
     let scaled = (value * LEN_SCALE).round();
@@ -38,7 +27,6 @@ pub fn dequantize_len(raw: i16) -> f32 {
     raw as f32 / LEN_SCALE
 }
 
-/// Wrap to `[-pi, pi)` then quantise over a full turn.
 #[inline]
 pub fn quantize_angle(value: f32) -> i16 {
     const TAU: f32 = std::f32::consts::TAU;

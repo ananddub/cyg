@@ -1,21 +1,17 @@
-/// `[lifecycle]` block: how long a room lives, idles and holds a seat.
-/// Every value here was a literal in the host loop before, so an operator
-/// could not trade a fast reap against a long reconnect window.
+
 #[derive(Debug, Clone)]
 pub struct LifecycleConfig {
-    /// Wall-clock ceiling for one room. `0` = unlimited.
+
     pub room_max_seconds: u64,
-    /// Dispose a room after this long with no players and no spectators.
+
     pub reap_idle_secs: u64,
-    /// Drop a raw UDP peer silent for this long.
+
     pub peer_idle_ms: u64,
-    /// Longest a guest may hold a seat for reconnection, whatever the room
-    /// asks for.
+
     pub seat_hold_secs: u64,
-    /// Room names that are never reaped for being empty.
+
     pub persistent_rooms: Vec<String>,
-    /// How long the host keeps simulating after SIGTERM, so peers are told to
-    /// leave and their state is saved instead of the process simply stopping.
+
     pub drain_grace_secs: u64,
 }
 
@@ -35,28 +31,21 @@ impl Default for LifecycleConfig {
 }
 
 impl LifecycleConfig {
-    /// Pull every window into the range the host can act on. A zero would mean
-    /// "reap instantly" or "never time out" depending on the site, so the floor
-    /// is one second (or 250 ms for a peer) instead.
+
     pub fn clamp(&mut self) {
         self.room_max_seconds = self.room_max_seconds.min(MAX_WINDOW_SECONDS);
         self.reap_idle_secs = self.reap_idle_secs.clamp(1, MAX_WINDOW_SECONDS);
         self.peer_idle_ms = self.peer_idle_ms.clamp(250, 10 * 60 * 1000);
         self.seat_hold_secs = self.seat_hold_secs.clamp(1, MAX_WINDOW_SECONDS);
         self.persistent_rooms.retain(|name| !name.trim().is_empty());
-        // A drain longer than the pod's termination deadline would be cut off
-        // anyway, so the ceiling is the widest grace period the manifests ask for.
+
         self.drain_grace_secs = self.drain_grace_secs.clamp(1, 300);
     }
 
-    /// How long a raw UDP peer may go silent before the plane drops it.
     pub fn peer_idle(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.peer_idle_ms)
     }
 
-    /// Read the windows from the environment on top of the shipped defaults:
-    /// the pinned sim plane is configured by env alone, and it must honour the
-    /// same peer-idle window the host loop does.
     pub fn from_env() -> LifecycleConfig {
         let mut lifecycle = LifecycleConfig::default();
         lifecycle.apply_env();
@@ -83,7 +72,6 @@ impl LifecycleConfig {
         }
     }
 
-    /// Deadline for a room created at `born`, or `None` when unlimited.
     pub fn closes_at(&self, born: std::time::Instant) -> Option<std::time::Instant> {
         if self.room_max_seconds == 0 {
             return None;

@@ -1,9 +1,3 @@
-//! # Client Connection State
-//!
-//! Non-blocking socket state for each connected client:
-//! - Read buffer with frame extraction
-//! - Write buffer with batched write flushing
-//! - Session tracking
 
 use crate::framing::{OpCode, encode_frame, take_frame};
 use bytes::{Buf, Bytes, BytesMut};
@@ -28,18 +22,12 @@ impl ClientConn {
         }
     }
 
-    /// Read incoming bytes from the non-blocking stream directly into the
-    /// receive buffer's spare capacity — no intermediate copy.
-    /// Returns:
-    /// - `Ok(bytes_read)`
-    /// - `Ok(0)` indicates EOF / client disconnected cleanly.
-    /// - `Err(e)` where e.kind() == WouldBlock means all available bytes have been read.
     pub fn do_read(&mut self) -> io::Result<usize> {
         let mut total = 0;
         loop {
             match crate::bufio::read_tcp(&mut self.stream, &mut self.read_buf, 16 * 1024) {
                 Ok(0) => {
-                    // EOF
+
                     if total == 0 {
                         return Ok(0);
                     }
@@ -54,19 +42,14 @@ impl ClientConn {
         Ok(total)
     }
 
-    /// Pull the next decoded frame from the read buffer if available.
-    /// The payload is a zero-copy refcounted slice of the internal buffer.
     pub fn next_frame(&mut self) -> Option<(OpCode, Bytes)> {
         take_frame(&mut self.read_buf)
     }
 
-    /// Queue a message into the outgoing write buffer for batched flush.
     pub fn queue_message(&mut self, opcode: OpCode, payload: &[u8]) {
         encode_frame(opcode, payload, &mut self.write_buf);
     }
 
-    /// Attempt to flush pending bytes in `write_buf` out to the network socket.
-    /// Returns `Ok(true)` if all pending bytes were successfully flushed, `Ok(false)` if partial/WouldBlock.
     pub fn do_write(&mut self) -> io::Result<bool> {
         while !self.write_buf.is_empty() {
             match self.stream.write(&self.write_buf) {
@@ -91,7 +74,6 @@ impl ClientConn {
         Ok(true)
     }
 
-    /// Check if there is data pending in the outgoing write buffer.
     pub fn has_pending_writes(&self) -> bool {
         !self.write_buf.is_empty()
     }

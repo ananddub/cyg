@@ -1,17 +1,3 @@
-//! QUIC lane chaos: two sans-IO `QuicEngine`s wired through an in-memory lossy
-//! pipe — the WebTransport lane's hard test (no real sockets needed; the
-//! engine is the protocol, the pipe is the network).
-//!
-//! The pipe injects what toxiproxy would on a real wire, deterministically:
-//! uniform packet loss, jitter-induced reordering, and duplicate delivery.
-//!
-//! Pinned properties:
-//! 1. the handshake completes under 15% loss + 80ms jitter,
-//! 2. the reliable lane (bi-stream) delivers 64 KiB **byte-exact** despite
-//!    the pipe — QUIC retransmission is the whole point of the lane,
-//! 3. the unreliable lane (datagrams) delivers each surviving datagram
-//!    **verbatim and at most once**, and losses are never retransmitted,
-//! 4. a clean connection close surfaces as `Lost` on both ends.
 
 use engine_net::quic::{
     QuicEngine, QuicEvent, endpoint_config, frame_bytes, self_signed_server_config,
@@ -20,11 +6,6 @@ use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-// ---------------------------------------------------------------------------
-// Test TLS: trust the self-signed cert (production pins its SHA-256 hash via
-// WebTransport's serverCertificateHashes).
-// ---------------------------------------------------------------------------
 
 #[derive(Debug)]
 struct TrustAnything;
@@ -62,9 +43,6 @@ impl rustls::client::danger::ServerCertVerifier for TrustAnything {
     }
 }
 
-/// The unified workspace test graph can enable both rustls crypto features
-/// (ring + aws-lc-rs), which makes rustls refuse to pick one implicitly. Pin
-/// ring explicitly; losing the install race to another thread is harmless.
 fn install_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
@@ -79,10 +57,6 @@ fn client_config() -> quinn_proto::ClientConfig {
         quinn_proto::crypto::rustls::QuicClientConfig::try_from(tls).expect("client crypto");
     quinn_proto::ClientConfig::new(Arc::new(crypto))
 }
-
-// ---------------------------------------------------------------------------
-// The lossy pipe: deterministic loss + jitter + duplication
-// ---------------------------------------------------------------------------
 
 struct Rng(u64);
 
@@ -102,13 +76,13 @@ impl Rng {
 
 struct LossyPipe {
     rng: Rng,
-    /// Probability [0..1000] that a packet is dropped outright.
+
     loss_permille: u64,
-    /// Extra transit delay ceiling in ms (reorders packets relative to each other).
+
     jitter_ms: u64,
-    /// Probability [0..1000] the packet is delivered twice.
+
     dup_permille: u64,
-    /// (deliver_at, from, bytes) — sorted by delivery time on insert.
+
     queue: VecDeque<(Instant, SocketAddr, Vec<u8>)>,
     pub dropped: u64,
     pub delivered: u64,
@@ -153,7 +127,6 @@ impl LossyPipe {
         }
     }
 
-    /// Deliver every packet due at `now` into its engine.
     fn flush_due(&mut self, now: Instant, into: &mut QuicEngine) {
         loop {
             let due = matches!(self.queue.front(), Some((at, _, _)) if *at <= now);
@@ -166,10 +139,6 @@ impl LossyPipe {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// The loopback harness
-// ---------------------------------------------------------------------------
 
 const SERVER_ADDR: SocketAddr =
     SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 19443);
@@ -201,8 +170,6 @@ impl Harness {
         }
     }
 
-    /// One simulated 5ms step: drain both outboxes through the pipes, deliver
-    /// due packets, drive timeouts, return this step's events from both ends.
     fn step(&mut self) -> Vec<(bool, QuicEvent)> {
         self.now += Duration::from_millis(5);
         let now = self.now;
@@ -219,7 +186,6 @@ impl Harness {
         self.to_server.flush_due(now, &mut self.server);
         self.to_client.flush_due(now, &mut self.client);
 
-        // New incoming handshakes only become live connections after accept.
         self.server.accept_pending(now);
 
         let mut events = Vec::new();
@@ -252,13 +218,9 @@ impl Harness {
     }
 }
 
-// ---------------------------------------------------------------------------
-// The pinned contracts
-// ---------------------------------------------------------------------------
-
 #[test]
 fn handshake_survives_loss_and_jitter() {
-    let mut h = Harness::new(42, 150, 80, 20); // 15% loss, 80ms jitter, 2% dup
+    let mut h = Harness::new(42, 150, 80, 20);
     let handle = h
         .client
         .connect(
@@ -270,7 +232,7 @@ fn handshake_survives_loss_and_jitter() {
         .expect("connect starts");
 
     let _ = handle;
-    let events = h.run_steps(600); // 3 simulated seconds
+    let events = h.run_steps(600);
     assert!(
         events
             .iter()
@@ -297,7 +259,6 @@ fn reliable_stream_is_byte_exact_through_the_pipe() {
         "handshake must complete"
     );
 
-    // 64 KiB of app payload in 8 KiB writes — the shape of a real SDK upload.
     let payload: Vec<u8> = (0..65_536u32).map(|i| (i % 251) as u8).collect();
     let handle = h.client.first_connection().expect("connection live");
     let stream = h.client.open_bi(handle).expect("open bi stream");
@@ -319,15 +280,14 @@ fn reliable_stream_is_byte_exact_through_the_pipe() {
         }
     }
 
-    // The QUIC lane's core promise: ordering + retransmission under loss.
     assert_eq!(received.len(), payload.len(), "every byte must arrive");
-    // pretty_assertions diff on mismatch: shows the exact first divergent byte.
+
     pretty_assertions::assert_eq!(received, payload, "stream must be byte-exact");
 }
 
 #[test]
 fn unreliable_datagrams_survive_verbatim_and_never_duplicate() {
-    let mut h = Harness::new(7, 200, 60, 30); // 20% loss
+    let mut h = Harness::new(7, 200, 60, 30);
     h.client
         .connect(h.now, client_config(), SERVER_ADDR, "cyg.local")
         .expect("connect starts");
@@ -337,10 +297,9 @@ fn unreliable_datagrams_survive_verbatim_and_never_duplicate() {
         "handshake must complete"
     );
 
-    // Server → client: 100 game datagrams (newest-wins lane semantics).
     let sent: Vec<Vec<u8>> = (0..100u32)
         .map(|i| {
-            let mut d = vec![0x04u8]; // OP_STATE on the wire
+            let mut d = vec![0x04u8];
             d.extend_from_slice(&i.to_le_bytes());
             d.extend_from_slice(&[0xAA; 64]);
             d
@@ -360,12 +319,12 @@ fn unreliable_datagrams_survive_verbatim_and_never_duplicate() {
             }
         }
         if received.len() + (h.to_client.dropped as usize) >= sent.len() {
-            // Everything either arrived or was dropped — done waiting.
+
         }
     }
 
     assert!(!received.is_empty(), "datagrams must get through the pipe");
-    // Each datagram arrives verbatim, at most once: no corruption, no dupes.
+
     for bytes in &received {
         assert!(
             sent.iter().any(|s| s == bytes),
@@ -378,7 +337,7 @@ fn unreliable_datagrams_survive_verbatim_and_never_duplicate() {
         received.len(),
         "QUIC datagrams must never be delivered twice"
     );
-    // And losses stay losses — the unreliable lane never retransmits:
+
     assert!(
         received.len() < sent.len(),
         "with 20% loss across 100 datagrams, some must stay lost"
@@ -394,8 +353,6 @@ fn connection_close_surfaces_on_the_peer() {
         .expect("connect starts");
     h.run_steps(600);
 
-    // quinn-proto contract: the closer drains silently (it already knows it
-    // closed), the PEER gets `Lost` carrying the application close reason.
     let handle = h.client.first_connection().expect("connection live");
     assert!(h.client.connection_close(h.now, handle, "test-close"));
 
@@ -420,7 +377,6 @@ fn connection_close_surfaces_on_the_peer() {
     assert_eq!(reason_seen, "test-close", "the close reason must survive the wire");
 }
 
-// Sanity: the reliable-lane frame helper used by the transport stays stable.
 #[test]
 fn frame_bytes_layout_is_len_prefixed() {
     let framed = frame_bytes(b"ping");

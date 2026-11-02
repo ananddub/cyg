@@ -1,4 +1,3 @@
-//! Turning one delta body into MTU-safe stamped frames.
 
 use engine_webrtc_protocol::{
     DELTA_HEADER_LEN, MAX_DELTA_BODY, MAX_DELTA_CHUNK, delta_fragment_count, write_delta_frame,
@@ -6,12 +5,9 @@ use engine_webrtc_protocol::{
 
 use super::FRAME_MAX_WIRE_LEN;
 
-/// Why a delta body could not be sent at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeltaTooLarge {
-    /// The body needs more than [`engine_webrtc_protocol::MAX_FRAGMENTS`] chunks. Refused whole: a
-    /// truncated delta is a corrupt world state, and an oversized frame is a
-    /// message SCTP will reassemble badly or drop entirely.
+
     BodyTooLarge { body_len: usize, max: usize },
 }
 
@@ -28,11 +24,6 @@ impl core::fmt::Display for DeltaTooLarge {
 
 impl std::error::Error for DeltaTooLarge {}
 
-/// Stamp and split one delta into wire frames.
-///
-/// `out` is cleared and reused so a per-tick broadcast loop does not allocate
-/// the outer `Vec` again. Every frame is `<= MAX_FRAME` bytes, carries the same
-/// `seq`/`tick` and a correct `frag_idx`/`frag_total`.
 pub fn split_delta(
     seq: u16,
     tick: u32,
@@ -58,7 +49,7 @@ pub fn split_delta(
         out.push(scratch.clone());
     }
     if out.is_empty() {
-        // A body of zero chunks still needs one frame, or frag_total lies.
+
         write_delta_frame(&mut scratch, seq, tick, 0, 1, &[]);
         out.push(scratch.clone());
     }

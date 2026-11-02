@@ -1,13 +1,3 @@
-//! The channel layer over a live SCTP association, not a byte array.
-//!
-//! The unit tests in `engine-webrtc-protocol` prove the codec agrees with the browser SDK
-//! on the wire. This proves the wire survives the transport it was designed for: a real
-//! `game-unreliable` DataChannel (`ordered: false, maxRetransmits: 0`) carrying a delta
-//! too big for one packet, and the `game-reliable` ack that confirms an event landed.
-//!
-//! The server side here calls the same primitives `engine_server::host` calls per tick —
-//! `delta_fragment_count`, `write_delta_frame`, `send_unreliable` — so a layout that only
-//! works when the chunks happen to arrive in order fails loudly instead of in production.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -27,7 +17,6 @@ const CLIENT_ADDR: &str = "127.0.0.1:50123";
 const SERVER_ADDR: &str = "127.0.0.1:7780";
 const PLAYER: &str = "player_1";
 
-/// A connected browser/server pair plus whatever each end has been handed.
 struct Pair {
     client: Rtc,
     server: WebRtcServer,
@@ -35,13 +24,13 @@ struct Pair {
     server_addr: SocketAddr,
     unreliable: Option<ChannelId>,
     reliable: Option<ChannelId>,
-    /// Bytes the client received, per channel label.
+
     client_rx: HashMap<String, Vec<Vec<u8>>>,
     now: Instant,
 }
 
 impl Pair {
-    /// Handshake a fresh str0m client against `WebRtcServer`, both driven in-process.
+
     fn connect() -> Pair {
         let now = Instant::now();
         let client_addr: SocketAddr = CLIENT_ADDR.parse().unwrap();
@@ -98,14 +87,12 @@ impl Pair {
         );
     }
 
-    /// One time step of network in both directions.
     fn pump(&mut self) {
         self.now += Duration::from_millis(5);
 
         let _ = self.client.handle_input(Input::Timeout(self.now));
         self.server.tick(self.now);
 
-        // Everything the client wants to send, the server receives.
         loop {
             match self.client.poll_output() {
                 Ok(Output::Transmit(t)) => {
@@ -138,7 +125,6 @@ impl Pair {
             }
         }
 
-        // And back again.
         for (dest, packet) in self.server.poll_transmits() {
             if let Ok(recv) = Receive::new(Protocol::Udp, self.server_addr, dest, &packet) {
                 let _ = self.client.handle_input(Input::Receive(self.now, recv));
@@ -146,7 +132,6 @@ impl Pair {
         }
     }
 
-    /// Drain the server's event queue after a pump.
     fn server_messages(&mut self) -> Vec<(String, Vec<u8>)> {
         self.pump();
         self.server
@@ -163,7 +148,6 @@ impl Pair {
             .collect()
     }
 
-    /// The exact split `engine_server::host` performs on every tick's delta.
     fn send_delta(&mut self, seq: u16, tick: u32, body: &[u8]) -> usize {
         let total = delta_fragment_count(body.len()).expect("body fits the channel");
         let mut scratch = Vec::new();
@@ -179,8 +163,6 @@ impl Pair {
     }
 }
 
-/// A delta larger than the MTU is split, and the client's assembler puts it back
-/// byte for byte even when the fragments arrive in the wrong order.
 #[test]
 fn a_fragmented_delta_crosses_the_datagram_channel() {
     let mut pair = Pair::connect();
@@ -191,7 +173,6 @@ fn a_fragmented_delta_crosses_the_datagram_channel() {
 
     assert_eq!(pair.send_delta(41, 1000, &body), total as usize);
 
-    // One pump per fragment is enough for SCTP to hand each one up, in send order.
     let mut assembler = FragmentAssembler::default();
     let mut assembled = None;
     for _ in 0..50 {
@@ -217,8 +198,6 @@ fn a_fragmented_delta_crosses_the_datagram_channel() {
     );
 }
 
-/// `game-unreliable` is unordered, so the client can see tick 42 before tick 41. The
-/// channel layer must hand the game one delta, the newest, and nothing else.
 #[test]
 fn a_late_delta_is_dropped_at_the_transport_layer() {
     let mut pair = Pair::connect();
@@ -226,7 +205,6 @@ fn a_late_delta_is_dropped_at_the_transport_layer() {
     let new = vec![0xa5u8; 40];
     let old = vec![0x5au8; 40];
 
-    // Newest first, exactly as an unordered channel can deliver it.
     assert_eq!(pair.send_delta(42, 2000, &new), 1);
     assert_eq!(pair.send_delta(41, 1999, &old), 1);
 
@@ -257,7 +235,6 @@ fn a_late_delta_is_dropped_at_the_transport_layer() {
     );
 }
 
-/// The client confirms a reliable event on `game-reliable` and the server records it.
 #[test]
 fn an_event_ack_crosses_the_reliable_channel() {
     let mut pair = Pair::connect();
@@ -294,8 +271,6 @@ fn an_event_ack_crosses_the_reliable_channel() {
     );
 }
 
-/// Two fat deltas on the tick boundary: the second supersedes the first, and the client
-/// is left with exactly one body and one partial slot.
 #[test]
 fn back_to_back_fat_deltas_leave_one_body() {
     let mut pair = Pair::connect();
@@ -304,7 +279,7 @@ fn back_to_back_fat_deltas_leave_one_body() {
     let second: Vec<u8> = (0..4000u32).map(|i| (i ^ 0xff) as u8).collect();
 
     assert_eq!(pair.send_delta(50, 3000, &first), 4);
-    // No pump between them: this is what 128 Hz looks like when SCTP lags a frame.
+
     assert_eq!(pair.send_delta(51, 3001, &second), 4);
 
     let mut assembler = FragmentAssembler::default();
@@ -325,7 +300,7 @@ fn back_to_back_fat_deltas_leave_one_body() {
     );
     let bodies: Vec<&[u8]> = applied.iter().map(|(_, b)| b.as_slice()).collect();
     if applied.len() == 2 {
-        // Both closed: each must be byte-exact for its own seq.
+
         assert_eq!(applied[0].1, first);
         assert_eq!(applied[1].1, second);
     } else {

@@ -1,14 +1,3 @@
-//! 1-thread capacity probe (#[ignore]; run explicitly):
-//!
-//! ```text
-//! cargo test -p engine-core --test single_thread_capacity_probe -- --ignored --nocapture
-//! ```
-//!
-//! Answers "kitna handle kar pata hai 1 thread": one OS thread drives the full
-//! per-player sim pipeline — ECS movement integration, input consumption +
-//! reconciliation acks, rewind recording, RNG rolls, health checks — at 60 Hz.
-//! The reported number is players-per-thread inside a 16.67ms tick budget,
-//! extrapolated from the measured per-player cost.
 
 use engine_core::*;
 use std::collections::HashMap;
@@ -46,7 +35,7 @@ fn run_pipeline(players: usize, ticks: u64) -> Duration {
         for (mut pos, vel, mut hp) in &mut q {
             pos.x += vel.vx * 0.016_6;
             pos.y += vel.vy * 0.016_6;
-            // A cheap per-player gameplay step (bounds the ECS cost honestly).
+
             let _ = hp.take_damage(0.001);
         }
     });
@@ -56,8 +45,6 @@ fn run_pipeline(players: usize, ticks: u64) -> Duration {
     for _ in 0..ticks {
         let ctx = clock.advance();
 
-        // 2 inputs arrive per player per tick (60Hz client at ~120Hz sampling);
-        // the sim consumes all pending — the real reconciliation path.
         for player in inputs.values_mut() {
             for _ in 0..2 {
                 player.input.push(PlayerInput::new(
@@ -80,7 +67,7 @@ fn run_pipeline(players: usize, ticks: u64) -> Duration {
                 TransformSnapshot::new(entity as f32, 0.0, 0.0, 1.0),
             );
         }
-        // A roll per player per tick (loot/spawn-style determinism work).
+
         for _ in 0..players {
             let _ = rng.next_f32();
         }
@@ -101,7 +88,7 @@ fn one_thread_capacity() {
         let elapsed = run_pipeline(players, ticks);
         let per_tick_us = elapsed.as_secs_f64() * 1e6 / ticks as f64;
         let per_player = elapsed.as_secs_f64() * 1e9 / (ticks as f64 * players as f64);
-        // Warm-up excluded from the estimate: first 100 players amortize setup.
+
         if players >= 500 {
             per_player_ns += per_player;
             samples += 1;

@@ -1,10 +1,3 @@
-//! # Engine Core
-//!
-//! High-performance core multiplayer game server architecture:
-//! - Fixed 60Hz/30Hz deterministic timestep clock
-//! - Lag compensation & Rewind historical ringbuffers (hit-registration)
-//! - Client input sequencing & reconciliation acknowledgments
-//! - Room lifecycle interfaces and state management
 
 pub mod components;
 pub mod input;
@@ -22,13 +15,8 @@ pub use rate_limit::{MessageRateLimits, RateDecision};
 pub use rng::RoomRng;
 pub use tick::TickRunner;
 
-/// Unique session identifier for a connected client.
-///
-/// `Arc<str>` because the same id is carried by every event a connection
-/// produces: cloning it is a refcount bump, not a string copy.
 pub type SessionId = std::sync::Arc<str>;
 
-/// Context passed to room simulation updates on every tick.
 #[derive(Debug, Clone, Copy)]
 pub struct StepContext {
     pub dt: f32,
@@ -36,28 +24,21 @@ pub struct StepContext {
     pub tick: u64,
 }
 
-/// Core room lifecycle trait that can be implemented natively or backed by WASM.
 pub trait Room {
-    /// Called when the room is initially created.
+
     fn on_create(&mut self);
 
-    /// Called when a new player joins the room.
     fn on_join(&mut self, session_id: &SessionId);
 
-    /// Called on each fixed simulation tick (e.g. 60Hz).
     fn on_tick(&mut self, ctx: StepContext);
 
-    /// Called when an input packet is received from a client.
     fn on_input(&mut self, session_id: &SessionId, input: PlayerInput);
 
-    /// Called when a player leaves the room.
     fn on_leave(&mut self, session_id: &SessionId);
 
-    /// Called when the room is being disposed/shut down.
     fn on_dispose(&mut self);
 }
 
-/// Monotonic clock helper for fixed timestep execution.
 pub struct FixedClock {
     pub tick_rate: u32,
     pub current_tick: u64,
@@ -65,9 +46,7 @@ pub struct FixedClock {
 }
 
 impl FixedClock {
-    /// # Panics
-    /// Panics with a clear message when `tick_rate` is 0 (a zero-length step is
-    /// meaningless; config-driven callers should validate before construction).
+
     pub fn new(tick_rate: u32) -> Self {
         assert!(
             tick_rate > 0,

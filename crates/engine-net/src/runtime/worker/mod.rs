@@ -1,5 +1,5 @@
-//! Worker event loop: the mio `Poll`, its token map and its tick scheduling.
 
+mod net;
 mod r#loop;
 
 use std::collections::HashMap;
@@ -22,7 +22,6 @@ pub(super) const LISTENER_TOKEN: Token = Token(0);
 pub(super) const WAKER_TOKEN: Token = Token(1);
 pub(super) const CLIENT_TOKEN_START: usize = 2;
 
-/// Configuration for a Mio worker thread.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     pub bind_addr: SocketAddr,
@@ -40,7 +39,6 @@ impl Default for WorkerConfig {
     }
 }
 
-/// Real-time metrics tracked by an individual worker.
 #[derive(Debug, Default)]
 pub struct WorkerStats {
     pub ccu: AtomicUsize,
@@ -50,19 +48,16 @@ pub struct WorkerStats {
     pub total_ticks: AtomicU64,
 }
 
-/// Incoming client packet event dispatched to game rooms.
 #[derive(Debug)]
 pub struct ClientPacket {
-    /// Refcounted id — cloning this per packet is a refcount bump, not a copy.
+
     pub session_id: Arc<str>,
     pub token: Token,
     pub opcode: OpCode,
-    /// Zero-copy view into the connection's read buffer — cloning this
-    /// is a refcount bump, not a byte copy.
+
     pub payload: Bytes,
 }
 
-/// High-performance Mio Worker event loop.
 pub struct MioWorker {
     pub(super) poll: Poll,
     pub(super) events: Events,
@@ -73,12 +68,12 @@ pub struct MioWorker {
     running: Arc<AtomicBool>,
     pub(super) next_tick_deadline: Instant,
     pub(super) stats: Arc<WorkerStats>,
-    /// Persistent scratch: tokens whose connections dropped this step.
+
     pub(super) disconnected_tokens: Vec<Token>,
 }
 
 impl MioWorker {
-    /// Bind a new worker listener using SO_REUSEPORT.
+
     pub fn new(cfg: WorkerConfig) -> io::Result<Self> {
         let poll = Poll::new()?;
         let events = Events::with_capacity(1024);
@@ -117,22 +112,18 @@ impl MioWorker {
         })
     }
 
-    /// Access the worker metrics handle.
     pub fn stats(&self) -> Arc<WorkerStats> {
         self.stats.clone()
     }
 
-    /// Access the running flag (can be set to false from another thread to gracefully stop).
     pub fn running_flag(&self) -> Arc<AtomicBool> {
         self.running.clone()
     }
 
-    /// Number of active connections currently connected to this worker.
     pub fn active_connection_count(&self) -> usize {
         self.clients.len()
     }
 
-    /// Broadcast a message to all connected clients on this worker.
     pub fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) {
         let count = self.clients.len();
         for conn in self.clients.values_mut() {
@@ -143,7 +134,6 @@ impl MioWorker {
             .fetch_add(count as u64, Ordering::Relaxed);
     }
 
-    /// Deadline arithmetic for the next poll: never sleep past the tick.
     pub(super) fn tick_budget(&self, now: Instant, max_wait: Duration) -> Duration {
         if self.next_tick_deadline > now {
             (self.next_tick_deadline - now).min(max_wait)

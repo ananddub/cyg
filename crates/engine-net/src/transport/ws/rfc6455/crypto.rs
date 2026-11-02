@@ -1,6 +1,3 @@
-//! The `101 Switching Protocols` reply and the RFC 3174 SHA-1 + Base64 it needs
-//! to hash `Sec-WebSocket-Key` — written inline so the transport carries no
-//! crypto dependency.
 
 pub fn handle_ws_handshake(buf: &[u8]) -> Option<Vec<u8>> {
     let req = String::from_utf8_lossy(buf);

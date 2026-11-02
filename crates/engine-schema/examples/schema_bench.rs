@@ -1,8 +1,3 @@
-//! Dependency-free schema pipeline benchmark.
-//!
-//! Run with `cargo run -p engine-schema --release --example schema_bench`.
-//! Timings are averaged over repeated runs in one process; useful for
-//! spotting regressions in descriptor size, parse cost and codegen output.
 
 use engine_schema::codegen::{self, Language};
 use engine_schema::{generate_with_root, parse_descriptor, ts};
@@ -48,7 +43,7 @@ export const State = schema({
 "#;
 
 fn bench<T>(name: &str, iterations: u32, mut run: impl FnMut() -> T) -> T {
-    // Warm up so the first allocation does not skew the average.
+
     black_box(run());
     let start = Instant::now();
     let mut last = None;

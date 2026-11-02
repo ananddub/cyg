@@ -6,15 +6,12 @@ use engine_agones::{Lifecycle, LifecycleEvent, SidecarConfig, install};
 use super::loud::Loudness;
 use engine_api::ApiState;
 
-/// Start the lifecycle loop. Returns immediately; a no-op when Agones is off.
 pub fn spawn(state: &ApiState) {
     let cfg = &state.control.agones;
     if !cfg.enabled {
         return;
     }
 
-    // The pod spec is authoritative about the sidecar port: Agones injects
-    // `AGONES_SDK_HTTP_PORT` when it is not the default.
     let env_port = engine_agones::sidecar_port_from_env();
     let port = if env_port != engine_agones::DEFAULT_SIDECAR_PORT {
         env_port
@@ -22,8 +19,7 @@ pub fn spawn(state: &ApiState) {
         cfg.http_port
     };
     let interval = Duration::from_millis(cfg.health_interval_ms.max(200));
-    // Half the interval, so a stalled sidecar shows up as a `Timeout` and the
-    // next heartbeat is still on schedule: three late pings is an Unhealthy pod.
+
     let timeout = (interval / 2).clamp(Duration::from_millis(250), Duration::from_millis(2000));
     let sidecar = SidecarConfig {
         addr: format!("{}:{}", cfg.host, port),
@@ -32,8 +28,7 @@ pub fn spawn(state: &ApiState) {
 
     let lifecycle = Lifecycle::new(sidecar, interval);
     if install(Arc::clone(&lifecycle)).is_err() {
-        // A second control plane in one process (tests, a rebind) must not start a
-        // second beat for the same pod.
+
         tracing::info!(
             "[agones] 🛰️  lifecycle already running at {}; reusing it",
             lifecycle.addr()
@@ -60,13 +55,8 @@ pub fn spawn(state: &ApiState) {
     }
 }
 
-/// The thread body: Ready, then the beat forever. The `/ready` retry lives in
-/// the crate (`Lifecycle::run_until_stopped` reports it as `ReadyRetried`)
-/// rather than here, so the loop cannot be assembled two ways.
 fn run(lifecycle: Arc<Lifecycle>) {
-    // Ready first: until the sidecar accepts it the pod is not in the pool. A
-    // refusal here is the normal start-of-pod race, so it is logged and the
-    // beat loop takes over, retrying once a heartbeat proves a sidecar exists.
+
     match lifecycle.mark_ready() {
         Ok(()) => match lifecycle.refresh_state() {
             Ok(state) => tracing::info!("[agones] ✅ GameServer is {}", state.display()),

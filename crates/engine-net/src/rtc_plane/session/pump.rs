@@ -1,4 +1,3 @@
-//! The str0m pump: feed engine inputs and drain its outputs.
 
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -12,7 +11,7 @@ use super::{LABEL_RELIABLE, LABEL_UNRELIABLE};
 use crate::rtc_plane::RtcPlaneError;
 
 impl RtcSession {
-    /// Does this datagram belong to us? Cheap ICE/STUN affinity check.
+
     pub fn accepts(&self, now: Instant, from: SocketAddr, payload: &[u8]) -> bool {
         match Receive::new(Protocol::Udp, from, self.local_addr, payload) {
             Ok(recv) => self.rtc.accepts(&Input::Receive(now, recv)),
@@ -20,8 +19,6 @@ impl RtcSession {
         }
     }
 
-    /// Ingest one inbound UDP datagram. Call only when [`Self::accepts`] agreed,
-    /// or once the peer address is already bound.
     pub fn feed_datagram(
         &mut self,
         now: Instant,
@@ -46,25 +43,19 @@ impl RtcSession {
         Ok(out)
     }
 
-    /// Feed a timeout. Call when `now >= poll_timeout()` and no datagram arrived.
     pub fn feed_timeout(&mut self, now: Instant) -> Vec<Outbound> {
         let _ = self.rtc.handle_input(Input::Timeout(now));
         self.drain()
     }
 
-    /// The instant this session next wants a timeout input.
     pub fn poll_timeout(&self) -> Instant {
         self.next_timeout
     }
 
-    /// Convert a str0m `Instant` timeout into a tokio-friendly `Duration` from now,
-    /// saturating to zero if it already elapsed (the caller then pumps immediately).
     pub fn timeout_delay(&self) -> Duration {
         self.next_timeout.saturating_duration_since(Instant::now())
     }
 
-    /// Drain all queued engine output to the next timeout, mapping it to
-    /// [`Outbound`] and updating session state as side effects.
     pub(super) fn drain(&mut self) -> Vec<Outbound> {
         let mut out = Vec::new();
         loop {
@@ -85,7 +76,7 @@ impl RtcSession {
                     break;
                 }
                 Err(_) => {
-                    // Engine is dead (disconnect / protocol error). Stop driving.
+
                     self.next_timeout = Instant::now() + Duration::from_secs(3600);
                     out.push(Outbound::Event(SessionEvent::Closed));
                     break;

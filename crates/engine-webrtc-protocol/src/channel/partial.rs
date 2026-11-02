@@ -1,22 +1,12 @@
-/// One delta waiting for the rest of its chunks.
-///
-/// Two layouts, same idx-order-concat semantics:
-/// - **Flat** (the production fast path): one pre-reserved body buffer written
-///   in place at `frag_idx * MAX_DELTA_CHUNK` — no per-fragment heap
-///   allocations, and `assemble` hands the buffer over instead of copying into
-///   a third allocation. Valid because the packer emits full chunks except the
-///   last, so every chunk's offset is known on arrival.
-/// - **Sparse**: the wire format permits variable chunk sizes (pinned browser
-///   vectors exercise them), so a short non-final chunk migrates the partial
-///   to per-fragment storage and assembles by concatenation at completion.
+
 #[derive(Debug)]
 pub(crate) struct PartialDelta {
     pub seq: u16,
     pub tick: u32,
     pub total: u8,
-    /// Flat body; chunk `i` lives at `[i * MAX_DELTA_CHUNK ..]`.
+
     buf: Vec<u8>,
-    /// Per-fragment storage once variable geometry forces sparse mode.
+
     sparse: Option<Vec<Option<Vec<u8>>>>,
     present: Vec<bool>,
     pub received: usize,
@@ -41,7 +31,6 @@ impl PartialDelta {
         }
     }
 
-    /// Write one chunk. Returns `false` on a duplicate (already present).
     #[inline]
     pub fn insert(&mut self, frag_idx: u8, chunk: &[u8]) -> bool {
         let idx = frag_idx as usize;
@@ -51,11 +40,7 @@ impl PartialDelta {
 
         let is_last = idx + 1 == self.total as usize;
         if self.sparse.is_none() && !is_last && chunk.len() != crate::channel::MAX_DELTA_CHUNK {
-            // Variable geometry: migrate what is already flat into sparse
-            // storage, then continue there for the rest of this delta.
-            // In flat mode every non-final cell is exactly one chunk wide, so
-            // only the final cell can be short — recover its true length from
-            // the byte count.
+
             let max_chunk = crate::channel::MAX_DELTA_CHUNK;
             let last = self.total as usize - 1;
             let last_len = if self.present[last] {
@@ -97,7 +82,6 @@ impl PartialDelta {
         self.received == self.total as usize
     }
 
-    /// Bodies concatenated in `frag_idx` order, not arrival order.
     pub fn assemble(self) -> Vec<u8> {
         match self.sparse {
             Some(parts) => {
@@ -108,8 +92,7 @@ impl PartialDelta {
                 body
             }
             None => {
-                // The buffer was written at fixed offsets, so completion makes
-                // it the body itself — hand it over, no third copy.
+
                 let mut buf = self.buf;
                 buf.truncate(self.bytes);
                 buf
@@ -118,7 +101,6 @@ impl PartialDelta {
     }
 }
 
-/// A reassembled delta, ready to hand to whatever parses the body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledDelta {
     pub seq: u16,

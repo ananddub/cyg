@@ -25,16 +25,13 @@ fn test_multi_worker_pool_so_reuseport() {
     })
     .expect("Failed to spawn multi-worker pool");
 
-    // Allow workers to boot and bind
     thread::sleep(Duration::from_millis(100));
 
-    // Connect 2 clients across the SO_REUSEPORT port
     let client1 = TcpStream::connect(bind_addr).expect("Client 1 connect ok");
     let client2 = TcpStream::connect(bind_addr).expect("Client 2 connect ok");
     client1.set_nodelay(true).unwrap();
     client2.set_nodelay(true).unwrap();
 
-    // Sleep a bit so ticks accumulate
     thread::sleep(Duration::from_millis(150));
 
     let telemetry = pool_handle.telemetry();
@@ -49,7 +46,6 @@ fn test_multi_worker_pool_so_reuseport() {
         "Both client connections should be registered in CCU"
     );
 
-    // Stop pool gracefully
     pool_handle.stop();
     pool_handle.join().expect("Pool shutdown cleanly");
 }

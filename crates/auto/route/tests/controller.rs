@@ -361,7 +361,7 @@ impl UserController {
     }
 
     #[get("/:id", description = "Returns a user by id.")]
-    /// Fetch one user
+
     async fn get_user(&self, Path(id): Path<u64>) -> Json<Value> {
         Json(json!({ "name": format!("{}-{id}", self.prefix) }))
     }

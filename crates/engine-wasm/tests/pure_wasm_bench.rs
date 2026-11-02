@@ -14,9 +14,6 @@ fn benchmark_pure_wasm_execution_latency() {
 
     let engine = Engine::new(&config).unwrap();
 
-    // 1. Module with:
-    //    - empty: pure function call jump (no work)
-    //    - physics_tick: in-WASM game calculation (no host calls, pure registers/memory)
     let wat = r#"
     (module
         (global $x (mut f32) (f32.const 10.0))
@@ -55,16 +52,14 @@ fn benchmark_pure_wasm_execution_latency() {
         .get_typed_func::<(i32, i32), i32>(&mut store, "add_numbers")
         .unwrap();
 
-    // Warmup
     for _ in 0..10_000 {
         fn_empty.call(&mut store, ()).unwrap();
         fn_physics.call(&mut store, 0.016).unwrap();
         fn_add.call(&mut store, (10, 20)).unwrap();
     }
 
-    let iterations = 1_000_000; // 1 Million iterations
+    let iterations = 1_000_000;
 
-    // TEST 1: Pure Function Call Jump (Empty)
     let start_empty = Instant::now();
     for _ in 0..iterations {
         fn_empty.call(&mut store, ()).unwrap();
@@ -72,7 +67,6 @@ fn benchmark_pure_wasm_execution_latency() {
     let dur_empty = start_empty.elapsed();
     let ns_empty = (dur_empty.as_nanos() as f64) / (iterations as f64);
 
-    // TEST 2: Math Calculation with Return Value
     let start_add = Instant::now();
     for i in 0..iterations {
         let _ = fn_add.call(&mut store, (i as i32, 42)).unwrap();
@@ -80,7 +74,6 @@ fn benchmark_pure_wasm_execution_latency() {
     let dur_add = start_add.elapsed();
     let ns_add = (dur_add.as_nanos() as f64) / (iterations as f64);
 
-    // TEST 3: In-WASM Game Physics Tick
     let start_physics = Instant::now();
     for _ in 0..iterations {
         fn_physics.call(&mut store, 0.016).unwrap();

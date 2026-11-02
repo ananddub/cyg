@@ -17,19 +17,15 @@ fn main() {
     );
     println!("==========================================================================\n");
 
-    // 1. DashMap with Default Hasher
     println!(">>> Benchmarking 1: DashMap (Default Hasher) <<<");
     bench_dashmap_default();
 
-    // 2. DashMap with AHash
     println!("\n>>> Benchmarking 2: DashMap (AHash) <<<");
     bench_dashmap_ahash();
 
-    // 3. scc::HashMap with Default Hasher
     println!("\n>>> Benchmarking 3: scc::HashMap (Default Hasher) <<<");
     bench_scc_default();
 
-    // 4. scc::HashMap with AHash
     println!("\n>>> Benchmarking 4: scc::HashMap (AHash) <<<");
     bench_scc_ahash();
 
@@ -38,16 +34,12 @@ fn main() {
     println!("==========================================================================");
 }
 
-// -----------------------------------------------------------------------------
-// 1. DashMap (Default)
-// -----------------------------------------------------------------------------
 fn bench_dashmap_default() {
     let map = Arc::new(DashMap::<u64, u64>::new());
     for i in 0..INITIAL_KEYS as u64 {
         map.insert(i, i * 2);
     }
 
-    // Benchmark A: 100% Reads
     run_benchmark("DashMap (Default) - 100% Reads", {
         let map = map.clone();
         move |thread_id| {
@@ -63,7 +55,6 @@ fn bench_dashmap_default() {
         }
     });
 
-    // Benchmark B: 90% Reads / 10% Writes (Realistic Game Routing/Session Cache)
     run_benchmark("DashMap (Default) - 90% Read / 10% Write", {
         let map = map.clone();
         move |thread_id| {
@@ -79,7 +70,6 @@ fn bench_dashmap_default() {
         }
     });
 
-    // Benchmark C: 100% Concurrent Inserts
     let map_write = Arc::new(DashMap::<u64, u64>::new());
     run_benchmark("DashMap (Default) - 100% Inserts", {
         let map = map_write.clone();
@@ -92,9 +82,6 @@ fn bench_dashmap_default() {
     });
 }
 
-// -----------------------------------------------------------------------------
-// 2. DashMap (AHash)
-// -----------------------------------------------------------------------------
 fn bench_dashmap_ahash() {
     let map = Arc::new(DashMap::<u64, u64, RandomState>::with_hasher(
         RandomState::new(),
@@ -147,9 +134,6 @@ fn bench_dashmap_ahash() {
     });
 }
 
-// -----------------------------------------------------------------------------
-// 3. scc::HashMap (Default)
-// -----------------------------------------------------------------------------
 fn bench_scc_default() {
     let map = Arc::new(SccMap::<u64, u64>::default());
     for i in 0..INITIAL_KEYS as u64 {
@@ -198,9 +182,6 @@ fn bench_scc_default() {
     });
 }
 
-// -----------------------------------------------------------------------------
-// 4. scc::HashMap (AHash)
-// -----------------------------------------------------------------------------
 fn bench_scc_ahash() {
     let map = Arc::new(SccMap::<u64, u64, RandomState>::with_hasher(
         RandomState::new(),
@@ -253,9 +234,6 @@ fn bench_scc_ahash() {
     });
 }
 
-// -----------------------------------------------------------------------------
-// Benchmark Runner Helper
-// -----------------------------------------------------------------------------
 fn run_benchmark<F>(name: &str, task_factory: F)
 where
     F: Fn(usize) + Send + Sync + 'static + Clone,

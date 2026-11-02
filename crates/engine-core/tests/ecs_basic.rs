@@ -16,7 +16,6 @@ fn test_ecs_basic_spawn_and_tick() {
     let mut runner = TickRunner::new();
     runner.add_system(movement_system);
 
-    // Spawn 10,000 entities
     const ENTITY_COUNT: u32 = 10_000;
     for i in 0..ENTITY_COUNT {
         runner.world.spawn((
@@ -30,12 +29,10 @@ fn test_ecs_basic_spawn_and_tick() {
         ));
     }
 
-    // Tick 10 times
     for _ in 0..10 {
         runner.tick();
     }
 
-    // Verify positions: x should be 10.0, y should be 20.0
     let mut count = 0;
     let mut query = runner.world.query::<(&EntityId, &Position2D)>();
     for (_id, pos) in query.iter(&runner.world) {
@@ -60,7 +57,6 @@ fn test_ecs_changed_tracking() {
         .spawn((EntityId(2), Position2D { x: 5.0, y: 5.0 }))
         .id();
 
-    // System that checks Changed<Position2D>
     fn delta_tracker(
         query: Query<(&EntityId, &Position2D), Changed<Position2D>>,
         mut changed_log: ResMut<ChangedLog>,
@@ -73,14 +69,12 @@ fn test_ecs_changed_tracking() {
     runner.world.insert_resource(ChangedLog::default());
     runner.add_system(delta_tracker);
 
-    // First tick: Newly spawned components are marked as Changed
     runner.tick();
     {
         let log = runner.world.resource::<ChangedLog>();
         assert_eq!(log.0.len(), 2);
     }
 
-    // Clear log and tick again without mutations
     runner.world.resource_mut::<ChangedLog>().0.clear();
     runner.tick();
     {
@@ -92,7 +86,6 @@ fn test_ecs_changed_tracking() {
         );
     }
 
-    // Mutate only e1
     {
         let mut e1_mut = runner.world.entity_mut(e1);
         let mut pos = e1_mut.get_mut::<Position2D>().unwrap();
@@ -123,7 +116,6 @@ fn test_ecs_pending_despawn_cleanup() {
         .spawn((EntityId(2), Position2D::default()))
         .id();
 
-    // Mark e1 for despawn
     runner.world.entity_mut(e1).insert(PendingDespawn);
 
     runner.tick();

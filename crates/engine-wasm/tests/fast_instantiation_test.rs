@@ -26,7 +26,6 @@ fn test_prepare_and_instantiate_multiple_rooms() {
         .prepare_standalone::<()>(&module)
         .expect("Prepare ok");
 
-    // Spawn several rooms from the same pre-instantiated template.
     let mut rooms = Vec::new();
     for _ in 0..8 {
         rooms.push(pre.instantiate(()).expect("Instantiate ok"));
@@ -71,7 +70,6 @@ fn test_serialize_deserialize_module_roundtrip() {
         .serialize_module(&module, &path)
         .expect("Serialize ok");
 
-    // SAFETY: file was just written by serialize_module in this test.
     let restored = unsafe { runtime.deserialize_module(&path) }.expect("Deserialize ok");
 
     let mut room = runtime
@@ -96,14 +94,12 @@ fn test_load_or_compile_cached_roundtrip() {
     let cwasm_file = temp_dir.join("test_game.cwasm");
     std::fs::write(&wasm_file, &wasm_bytes).expect("write wasm file");
 
-    // 1. First run: .cwasm does not exist. It compiles and creates .cwasm
     assert!(!cwasm_file.exists());
     let _module1 = runtime
         .load_or_compile_cached(&wasm_file)
         .expect("First load compiles and caches");
     assert!(cwasm_file.exists(), ".cwasm cache file should be generated");
 
-    // 2. Second run: .cwasm exists and is fresh. Should load via fast deserialization
     let module2 = runtime
         .load_or_compile_cached(&wasm_file)
         .expect("Second load from .cwasm cache");
@@ -116,6 +112,5 @@ fn test_load_or_compile_cached_roundtrip() {
         .expect("Call ok");
     assert_eq!(damage, 21);
 
-    // Clean up
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

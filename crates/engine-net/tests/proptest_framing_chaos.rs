@@ -1,14 +1,3 @@
-//! Property-based chaos for the UDP framing layer (proptest + shrinking).
-//!
-//! The UDP lane delivers arbitrary-length datagrams: frames are split across
-//! chunks, merged within chunks, interleaved with garbage from a corrupt
-//! peer. Pinned properties:
-//!
-//! 1. a valid frame stream survives ANY chunking — reassembly is byte-exact,
-//! 2. garbage never panics the decoder: corrupt bytes yield no frame or a
-//!    bounded error, never a panic (hostile-peer contract),
-//! 3. frame boundaries are self-describing: concatenated frames decode to
-//!    exactly the frames that were encoded.
 
 use bytes::{Bytes, BytesMut};
 use engine_net::framing::{OpCode, encode_frame, iter_frames, take_frame};
@@ -40,8 +29,6 @@ proptest! {
         let mut wire = BytesMut::new();
         encode_frame(opcode, &payload, &mut wire);
 
-        // Deliver in fixed-size chunks, like a lossy-but-in-order datagram
-        // stream reassembled by bufio. take_frame waits until complete.
         let mut acc = BytesMut::new();
         let mut decoded: Vec<(OpCode, Bytes)> = Vec::new();
         for chunk in wire.chunks(chunk_size) {
@@ -73,15 +60,14 @@ proptest! {
 
     #[test]
     fn garbage_never_panics_the_decoder(garbage in prop::collection::vec(any::<u8>(), 0..300)) {
-        // Corrupt length prefixes claim absurd sizes; the decoder must bound
-        // its reads by the buffer, not by the claim.
+
         let mut buf = BytesMut::from(&garbage[..]);
         let mut guard = 0;
         while take_frame(&mut buf).is_some() {
             guard += 1;
             prop_assume!(guard < 1000, "decoder loop must terminate on garbage");
         }
-        // And the slice iterator must terminate too.
+
         let _ = iter_frames(&garbage).count();
     }
 }

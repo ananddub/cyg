@@ -27,8 +27,6 @@ fn a_stale_half_delta_is_cleaned_up_after_the_ttl() {
     );
 }
 
-/// TTL is per delta: a peer making progress on one tick must not lose the
-/// stalled one next to it, and vice versa.
 #[test]
 fn ttl_expiry_sweeps_only_the_stalled_deltas() {
     let mut assembler = FragmentAssembler::default();

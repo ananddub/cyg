@@ -1,14 +1,10 @@
-/// Default retention for mirrored history, in days.
+
 const DEFAULT_EVENT_TTL_DAYS: u32 = 30;
-/// Default retention for finished matches, in days.
+
 const DEFAULT_MATCH_HISTORY_TTL_DAYS: u32 = 90;
-/// The guest event whose payload the host files as the match's outcome. A game
-/// that names its own result event sets `result_event`; until then this is the
-/// convention the SDK docs use.
+
 const DEFAULT_RESULT_EVENT: &str = "match_result";
 
-/// A retention window an operator can actually write: `0` is "use the default"
-/// and a decade is a typo, not a policy.
 fn bounded_ttl(days: u32, default: u32) -> u32 {
     match days {
         0 => default,
@@ -17,31 +13,20 @@ fn bounded_ttl(days: u32, default: u32) -> u32 {
     }
 }
 
-/// `[gameplay]` block: which guest `host_send` messages the engine mirrors to
-/// the control plane for persistence. Empty by default — an unlisted event is
-/// wire-only, so a chatty game cannot fill the database by accident, and the
-/// names are the game's own vocabulary rather than an engine enum.
 #[derive(Debug, Clone, Default)]
 pub struct GameplayConfig {
-    /// Event names to record, matched exactly against the `host_send` name.
-    /// `desync` is the engine's own name and is recorded whether or not it is
-    /// listed here.
+
     pub record_events: Vec<String>,
-    /// Days a mirrored event or desync row stays queryable. `0` means the
-    /// default; the control plane clamps the rest, so a typo cannot delete the
-    /// history a game depends on or keep it forever.
+
     pub event_ttl_days: u32,
-    /// Days a finished match stays in `match_history`. Match rows are one per
-    /// room and tiny next to the event stream, so they outlive it by default.
+
     pub match_history_ttl_days: u32,
-    /// Event name whose last payload becomes the match row's `result`, so a
-    /// history listing shows who won without replaying the room.
+
     pub result_event: String,
 }
 
 impl GameplayConfig {
-    /// Trim, drop blanks and de-duplicate: the list is read on every outbound
-    /// message, so a name written twice would mirror the event twice.
+
     pub fn normalize(&mut self) {
         for name in &mut self.record_events {
             *name = name.trim().to_string();
@@ -57,7 +42,6 @@ impl GameplayConfig {
         };
     }
 
-    /// Whether one outbound event belongs in the history table.
     pub fn records(&self, event: &str) -> bool {
         self.record_events.iter().any(|name| name == event)
     }

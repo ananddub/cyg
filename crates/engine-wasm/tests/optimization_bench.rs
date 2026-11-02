@@ -31,7 +31,6 @@ fn benchmark_cached_typed_func_vs_string_lookup() {
 
     let iterations = 1_000_000;
 
-    // APPROACH 1: String Lookup on Every Call (What our un-cached macro did: ~128ns)
     let start_uncached = Instant::now();
     for i in 0..iterations {
         let func = instance
@@ -42,7 +41,6 @@ fn benchmark_cached_typed_func_vs_string_lookup() {
     let dur_uncached = start_uncached.elapsed();
     let ns_uncached = (dur_uncached.as_nanos() as f64) / (iterations as f64);
 
-    // APPROACH 2: Cached TypedFunc (What the optimized engine does: ~17ns)
     let cached_func: TypedFunc<(i32, f32), i32> = instance
         .get_typed_func::<(i32, f32), i32>(&mut store, "calculate_exp")
         .unwrap();

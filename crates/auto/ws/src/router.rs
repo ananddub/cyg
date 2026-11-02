@@ -13,12 +13,8 @@ use uuid::Uuid;
 
 use crate::{Conn, Msg, Protocol, SocketDescriptor, SocketRegistrar, WsError};
 
-/// What an `#[on]` handler returns: `Some` is written back on the request's
-/// `cid`, `None` means the handler answered out of band (or not at all).
 pub type Reply = Result<Option<Value>, WsError>;
 
-/// Turn a handler's own result into a [`Reply`]: the body is serialised, the
-/// error becomes a [`WsError`].
 pub fn reply<T, E>(out: Result<Option<T>, E>) -> Reply
 where
     T: Serialize,
@@ -33,12 +29,6 @@ where
     }
 }
 
-/// Resolve every `#[auto_ws]` declaration through `container` and add the
-/// sockets to `router`.
-///
-/// One route per declared path; a path declared by several impls serves all
-/// their handlers. Failing to resolve a socket is an error so the caller can
-/// decide what a broken DI graph means for its surface.
 pub async fn mount<P: Protocol>(container: &Container, router: Router) -> Result<Router, DiError> {
     let mut sockets: HashMap<&'static str, SocketRegistrar> = HashMap::new();
     for descriptor in inventory::iter::<SocketDescriptor> {
@@ -67,11 +57,6 @@ pub async fn mount<P: Protocol>(container: &Container, router: Router) -> Result
     Ok(router)
 }
 
-/// One connection: hooks, read loop, teardown.
-///
-/// The writer is the connection's own channel, so replies a handler queues and
-/// frames another plane pushes take the same ordered path. Protocol pings are
-/// answered here; binary frames are not part of the protocol and are skipped.
 async fn serve<P: Protocol>(
     socket: WebSocket,
     identity: crate::Identity,
@@ -93,7 +78,7 @@ async fn serve<P: Protocol>(
                         break;
                     }
                 }
-                // Every writer is gone: nothing can reach this socket anymore.
+
                 None => break,
             },
             inbound = stream.next() => match inbound {
@@ -107,7 +92,7 @@ async fn serve<P: Protocol>(
                     }
                 }
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                // Binary frames: not part of a text protocol.
+
                 Some(Ok(_)) => continue,
             }
         }
@@ -119,8 +104,7 @@ async fn serve<P: Protocol>(
 }
 
 async fn dispatch<P: Protocol>(conn: &Conn, registrar: &SocketRegistrar, msg: Msg) {
-    // An unhandled tag is a message the client should not have sent (in this
-    // protocol: a server-pushed type); it is ignored, not answered.
+
     let Some(handler) = registrar.events.get(msg.event()) else {
         return;
     };

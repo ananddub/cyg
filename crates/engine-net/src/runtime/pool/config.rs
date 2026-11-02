@@ -1,9 +1,7 @@
-//! Data models of the worker pool: its knobs and its telemetry snapshot.
 
 use std::net::SocketAddr;
 use std::thread;
 
-/// Configuration for the multi-worker thread pool.
 #[derive(Debug, Clone)]
 pub struct PoolConfig {
     pub bind_addr: SocketAddr,
@@ -26,7 +24,6 @@ impl Default for PoolConfig {
     }
 }
 
-/// Aggregated telemetry snapshot across all running workers.
 #[derive(Debug, Clone, Default)]
 pub struct AggregatedTelemetry {
     pub total_ccu: usize,

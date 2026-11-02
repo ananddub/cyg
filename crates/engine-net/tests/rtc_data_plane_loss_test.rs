@@ -1,16 +1,3 @@
-//! Browser WebRTC data-plane loss proof: the star channel (server → client
-//! `game-unreliable`) under a deterministic 10 % loss, jitter and reordering
-//! pipe. Same seed, same delta bodies, same draw order as
-//! `test-client/rtc_loss_e2e.cjs`, so the two languages are proven against
-//! the identical loss pattern.
-//!
-//! Properties pinned here:
-//! 1. every delta the game layer sees is byte-exact (no truncated fragment set),
-//! 2. delivered `seq`s strictly increase, wrap-safe, with no duplicates,
-//! 3. a delta that lost a fragment is *never* delivered,
-//! 4. a stalled partial is evicted by the TTL instead of pinning chunks,
-//! 5. a consumer that never drains cannot make the codec accumulate: newest
-//!    deltas still land, older ones are counted stale and discarded.
 
 use std::collections::{HashMap, HashSet};
 
@@ -22,12 +9,10 @@ use engine_webrtc_protocol::frames::is_newer;
 
 const SEED: u32 = 0xC0FF_EE;
 const TICKS: u32 = 400;
-const TICK_MS: u64 = 8; // 128 Hz broadcast
+const TICK_MS: u64 = 8;
 const LOSS_PCT: u64 = 10;
-const JITTER_MS: u64 = 151; // arrivals spread up to 150 ms → cross-tick reordering
+const JITTER_MS: u64 = 151;
 
-/// xorshift32. Bit-identical to the JS copy in rtc_loss_e2e.cjs, which is the
-/// whole point: the two runs must see the same fragments dropped and delayed.
 struct Rng(u32);
 
 impl Rng {
@@ -41,8 +26,6 @@ impl Rng {
     }
 }
 
-/// Body lengths cycle so each tick exercises 1-, 2- and 3-fragment deltas next
-/// to a short one. Must match `deltaBodyLen` in the JS harness exactly.
 fn body_len(t: u32) -> usize {
     match t % 4 {
         0 => 300,
@@ -52,14 +35,12 @@ fn body_len(t: u32) -> usize {
     }
 }
 
-/// Byte-for-byte parity with `engine_server::netcode::wrap_delta_into`:
-/// `[0xA5 "delta"][your_id i64 LE][fill][acked_seq u16 LE][server_tick u32 LE]`.
 fn delta_body(t: u32) -> Vec<u8> {
     let len = body_len(t);
     let mut body = vec![0u8; len];
     body[0] = 0xa5;
     body[1..6].copy_from_slice(b"delta");
-    body[6..14].copy_from_slice(&7i64.to_le_bytes()); // your_id
+    body[6..14].copy_from_slice(&7i64.to_le_bytes());
     let fill = len - 20;
     for i in 0..fill {
         body[14 + i] = ((i as u32 * 31 + t * 7) % 251) as u8;
@@ -79,7 +60,7 @@ struct FragEvent {
 struct Pipe {
     events: Vec<FragEvent>,
     expected: HashMap<u16, Vec<u8>>,
-    /// seqs that lost at least one fragment to the pipe.
+
     mangled: HashSet<u16>,
     fragments_total: usize,
     fragments_dropped: usize,
@@ -99,8 +80,7 @@ fn build_pipe() -> Pipe {
         let total = delta_fragment_count(body.len()).expect("body must be carryable");
         let emit_ms = t as u64 * TICK_MS;
         for (idx, chunk) in body.chunks(MAX_DELTA_CHUNK).enumerate() {
-            // Draw order is fixed: drop roll, then jitter roll. The JS harness
-            // draws in the same order against the same state.
+
             let drop_roll = rng.next() as u64 % 100;
             let jitter = rng.next() as u64 % JITTER_MS;
             fragments_total += 1;
@@ -118,7 +98,7 @@ fn build_pipe() -> Pipe {
             });
         }
     }
-    // One transport's arrival order is the jittered clock, ties keep emit order.
+
     events.sort_by_key(|e| (e.arrival_ms, e.seq, e.wire[7]));
     Pipe {
         events,
@@ -139,8 +119,7 @@ fn run_pipe(pipe: &Pipe) -> Delivered {
     let mut assembler = FragmentAssembler::default();
     let mut out = Delivered::default();
     for event in &pipe.events {
-        // The codec owns no clock; the pipe hands it arrival time. cleanup is
-        // called every event so a quiet line would evict the stalled partial.
+
         assembler.cleanup(event.arrival_ms);
         let (header, chunk) = DeltaHeader::parse(&event.wire).expect("pipe frames parse");
         if let Some(delta) = assembler.insert(&header, chunk, event.arrival_ms) {
@@ -170,8 +149,7 @@ fn lossy_pipe_delivers_complete_sequenced_deltas() {
         if pipe.mangled.contains(&seq) {
             mangled_delivered += 1;
         }
-        // The delivered body must equal the server's original bytes, so an
-        // out-of-order or missing fragment can never slip through as "complete".
+
         if let Some(prev) = last {
             if !is_newer(prev, seq) {
                 monotonic = false;
@@ -179,7 +157,7 @@ fn lossy_pipe_delivers_complete_sequenced_deltas() {
         }
         last = Some(seq);
     }
-    // Byte-exactness: re-run and compare each delivered body directly.
+
     let mut assembler = FragmentAssembler::default();
     let mut bodies: Vec<(u16, Vec<u8>)> = Vec::new();
     for event in &pipe.events {
@@ -193,7 +171,7 @@ fn lossy_pipe_delivers_complete_sequenced_deltas() {
         if body != &pipe.expected[seq] {
             byte_exact = false;
         }
-        // The tick in the header must agree with the tick stamped in the body.
+
         let t = *seq as u32;
         if body.len() >= 4 && body[body.len() - 4..] != t.to_le_bytes() {
             byte_exact = false;
@@ -201,9 +179,6 @@ fn lossy_pipe_delivers_complete_sequenced_deltas() {
     }
     assert_eq!(bodies.len(), got.seqs.len());
 
-    // Deltas whose every fragment survived but which were superseded
-    // mid-reassembly are counted, not failed: that is the trade the
-    // supersession design makes explicit (see the defect list in the report).
     let whole: HashSet<u16> = pipe
         .expected
         .keys()
@@ -258,10 +233,7 @@ fn lossy_pipe_delivers_complete_sequenced_deltas() {
         got.stale_after > 0,
         "with reordering, stale late frames must have been exercised"
     );
-    // Newest-wins honesty: with 150 ms jitter on an 8 ms tick, most intact deltas
-    // arrive behind the delivery frontier and are legitimately discarded. The
-    // property that matters is that the frontier keeps advancing and the newest
-    // ticks still land.
+
     assert!(!got.seqs.is_empty(), "the pipe must deliver something");
     assert!(
         *got.seqs.last().unwrap() >= (TICKS - 16) as u16,
@@ -278,7 +250,6 @@ fn ttl_evicts_a_stalled_partial() {
     let (header, chunk) = DeltaHeader::parse(&wire).unwrap();
     assert!(assembler.insert(&header, chunk, 1_000).is_none());
 
-    // The line goes quiet: no newer delta supersedes the partial, only the TTL.
     assert!(
         !assembler.cleanup(1_000 + FRAGMENT_TTL_MS),
         "TTL is strict 'greater than'"
@@ -288,8 +259,6 @@ fn ttl_evicts_a_stalled_partial() {
         "stalled chunks must be evicted"
     );
 
-    // The chunks that finally arrive after eviction find no half-built delta to
-    // join, so the delta stays incomplete rather than delivering a corrupt body.
     let mut wire1 = Vec::new();
     write_delta_frame(&mut wire1, 10, 10, 1, 3, &[0xb5]);
     let (h1, c1) = DeltaHeader::parse(&wire1).unwrap();
@@ -306,25 +275,19 @@ fn ttl_evicts_a_stalled_partial() {
 
 #[test]
 fn backpressure_newest_wins_for_a_stalled_consumer() {
-    // The codec has no drainable queue (that is the server-side plane's job,
-    // see the blocked test below), so "a slow client drops old deltas" is proven
-    // at the two public surfaces that exist: stale late frames are discarded,
-    // and the newest delta still lands while the consumer is behind.
+
     let mut assembler = FragmentAssembler::default();
-    let mut applied: Option<(u16, u32)> = None; // the game layer keeps ONE pose, not a list
+    let mut applied: Option<(u16, u32)> = None;
 
     let mut feed = |seq: u16, now: u64, assembler: &mut FragmentAssembler| {
         let mut wire = Vec::new();
         write_delta_frame(&mut wire, seq, seq as u32, 0, 1, &[0xa5, seq as u8]);
         let (header, chunk) = DeltaHeader::parse(&wire).unwrap();
         if let Some(delta) = assembler.insert(&header, chunk, now) {
-            applied = Some((delta.seq, delta.tick)); // overwrite, never append
+            applied = Some((delta.seq, delta.tick));
         }
     };
 
-    // Consumer frozen from t=0; the network keeps delivering, newest-first with
-    // stragglers: 100..119 arrive, then late frames 101, 105 and a retransmit
-    // of 119 — all stale. Only the genuinely newer 120 may land.
     for seq in 100..120 {
         feed(seq, seq as u64 * TICK_MS, &mut assembler);
     }
@@ -362,7 +325,7 @@ fn oversized_delta_is_dropped_not_truncated() {
 
 #[test]
 fn server_egress_backpressure_is_blocked() {
-    // Intentionally a skip with a printed reason (no todo!()).
+
     println!(
         "SKIP server-side egress backpressure: send_unreliable/broadcast_unreliable \
          report only success or a datagram count, so there is no per-channel queue \

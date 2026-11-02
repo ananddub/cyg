@@ -1,4 +1,3 @@
-//! The two shared sender registries the hot downlink path reads.
 
 use std::sync::Arc;
 
@@ -7,16 +6,13 @@ use tokio::sync::mpsc;
 
 use super::inbox::SessionInbound;
 
-/// Fast concurrent map type for WebRTC registries.
 pub(crate) type FastMap<K, V> = scc::HashMap<K, V, RandomState>;
 
-/// Registries the hot downlink path reads without going through the demux.
-/// Concurrently accessible and 100% lock-free via `scc::HashMap`.
 #[derive(Clone)]
 pub(crate) struct Registries {
-    /// session id -> its inbox sender.
+
     pub(crate) outbox: Arc<FastMap<Arc<str>, mpsc::Sender<SessionInbound>>>,
-    /// player id -> session id.
+
     pub(crate) player_index: Arc<FastMap<Arc<str>, Arc<str>>>,
 }
 
@@ -64,7 +60,6 @@ impl Registries {
     }
 }
 
-/// Remove a session's player bindings once its task is gone.
 pub(crate) fn unbind_player(session_id: &Arc<str>, registries: &Registries) {
     registries
         .player_index

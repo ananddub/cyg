@@ -1,0 +1,53 @@
+use crate::game::{GameConfig, Runtime};
+
+pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
+    match key {
+        "name" => cfg.name = value.to_string(),
+        "game_id" => cfg.game_id = Some(value.to_string()),
+        "game_key" => cfg.game_key = Some(value.to_string()),
+        "runtime" => {
+            if let Some(r) = Runtime::parse(value) {
+                cfg.runtime = r;
+            }
+        }
+        "source" => cfg.source = value.into(),
+        "out" => cfg.out = value.into(),
+        "sdk_dir" => cfg.sdk_dir = value.into(),
+        "website" => cfg.website = value.into(),
+        "port" => cfg.port = value.parse().unwrap_or(cfg.port),
+        "quic_port" => cfg.quic_port = value.parse().unwrap_or(cfg.quic_port),
+        "web_port" => cfg.web_port = value.parse().unwrap_or(cfg.web_port),
+        "tick_rate" => cfg.tick_rate = value.parse().unwrap_or(cfg.tick_rate),
+        "max_clients" => cfg.max_clients = value.parse().unwrap_or(cfg.max_clients),
+        "max_rooms" => cfg.max_rooms = value.parse().unwrap_or(cfg.max_rooms),
+        "max_messages_per_second" => {
+            cfg.max_messages_per_second = value.parse().unwrap_or(cfg.max_messages_per_second)
+        }
+        "ws_port" => cfg.ws_port = value.parse().unwrap_or(cfg.ws_port),
+        "simulate_latency_ms" => {
+            cfg.simulate_latency_ms = value.parse().unwrap_or(cfg.simulate_latency_ms)
+        }
+        "width" => cfg.width = value.parse().unwrap_or(cfg.width),
+        "height" => cfg.height = value.parse().unwrap_or(cfg.height),
+        "speed" => cfg.speed = value.parse().unwrap_or(cfg.speed),
+        "abi_version" => cfg.abi_version = value.parse().unwrap_or(cfg.abi_version),
+        "allow_physics" => {
+            cfg.permissions.physics = value.parse().unwrap_or(cfg.permissions.physics)
+        }
+        "allow_lag_compensation" => {
+            cfg.permissions.lag_compensation =
+                value.parse().unwrap_or(cfg.permissions.lag_compensation)
+        }
+        "allow_logging" => {
+            cfg.permissions.logging = value.parse().unwrap_or(cfg.permissions.logging)
+        }
+        "allow_storage" => {
+            cfg.permissions.storage = value.parse().unwrap_or(cfg.permissions.storage)
+        }
+        "allow_messaging" => {
+            cfg.permissions.messaging = value.parse().unwrap_or(cfg.permissions.messaging)
+        }
+        "voice_ice_servers" => cfg.voice_ice_servers = value.to_string(),
+        _ => {}
+    }
+}

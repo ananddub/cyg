@@ -1,7 +1,3 @@
-//! Allocation regression for the server→client delta channel (the
-//! Lightyear pattern): one pack → fragment → assemble cycle in steady state
-//! must cost a FIXED, tiny number of allocations — the zero-copy hybrid
-//! assembler's whole point. Also a net-leak window over the full cycle.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,11 +11,11 @@ struct CountingAlloc;
 unsafe impl GlobalAlloc for CountingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         ALLOCS.fetch_add(1, Ordering::Relaxed);
-        System.alloc(layout)
+        unsafe { System.alloc(layout) }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         DEALLOCS.fetch_add(1, Ordering::Relaxed);
-        System.dealloc(ptr, layout)
+        unsafe { System.dealloc(ptr, layout) }
     }
 }
 
@@ -47,15 +43,10 @@ fn min_allocs_per_iter<F: FnMut()>(windows: usize, iterations: usize, mut f: F) 
 
 use engine_webrtc_protocol::channel::{DeltaPacker, FragmentAssembler, MAX_DELTA_CHUNK};
 
-/// One full sender→receiver cycle for a body that rides the FLAT fast path
-/// (every non-final fragment is exactly one chunk): pack into fragments, feed
-/// them to a fresh assembler, collect the body. Steady-state budget: the
-/// PartialDelta's two pre-allocated buffers (body + presence bitmap) and
-/// nothing else — the assembled body is handed over, never copied.
 #[test]
 fn flat_delta_cycle_is_a_fixed_tiny_alloc_count() {
     let _guard = MEASURE_LOCK.lock().unwrap();
-    // 3 fragments: 2 full chunks + 44-byte tail.
+
     let body_len = 2 * MAX_DELTA_CHUNK + 44;
     let body: Vec<u8> = (0..body_len).map(|i| (i % 251) as u8).collect();
     let mut wire = Vec::with_capacity(3 * (DELTA_HEADER + MAX_DELTA_CHUNK));
@@ -87,7 +78,6 @@ fn flat_delta_cycle_is_a_fixed_tiny_alloc_count() {
         black_box(&out);
     };
 
-    // Warm-up.
     for _ in 0..128 {
         cycle();
     }
@@ -102,8 +92,6 @@ use std::hint::black_box;
 
 const DELTA_HEADER: usize = 9;
 
-/// Across one full window, cycle allocations must balance deallocations —
-/// a slow leak in the channel layer compounds over millions of deltas.
 #[test]
 fn delta_cycle_window_is_leak_free() {
     let _guard = MEASURE_LOCK.lock().unwrap();
@@ -112,7 +100,6 @@ fn delta_cycle_window_is_leak_free() {
     let mut wire = Vec::with_capacity(3 * (DELTA_HEADER + MAX_DELTA_CHUNK));
     let mut seq = 10_000u16;
 
-    // Warm-up.
     {
         let mut packer = DeltaPacker::new(seq.wrapping_sub(1), 1);
         let packing = packer.pack(&body).expect("packs");
@@ -143,7 +130,6 @@ fn delta_cycle_window_is_leak_free() {
 
 use engine_webrtc_protocol::channel::{DeltaHeader, DeltaPacking};
 
-/// Feed one packing's frames (back-to-back in `wire`) to the assembler.
 fn feed_all(assembler: &mut FragmentAssembler, packing: &DeltaPacking, wire: &[u8]) {
     let mut pos = 0usize;
     for fragment in packing.fragments() {

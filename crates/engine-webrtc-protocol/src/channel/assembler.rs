@@ -4,17 +4,10 @@ use super::{AssembledDelta, MAX_INFLIGHT_BYTES};
 use crate::channel::is_newer;
 use crate::channel::is_superseded;
 
-/// Reassembles fragmented deltas, dropping anything the game can no longer use.
-///
-/// Supersession is measured against the newest *delivered* seq rather than the
-/// newest chunk seen, because `ordered: false` interleaves the tail of delta N
-/// with the head of delta N+1 — so a bounded window of deltas is held at once,
-/// whichever order their chunks arrive in.
 #[derive(Debug, Default)]
 pub struct FragmentAssembler {
     pub(super) newest: Option<u16>,
-    /// Newest seq ever accepted, whole or not: the origin the in-flight window
-    /// is measured from, so eviction can name the delta furthest behind.
+
     pub(super) highest: Option<u16>,
     pub(super) inflight: Vec<PartialDelta>,
     pub(super) buffered: usize,
@@ -26,8 +19,7 @@ pub struct FragmentAssembler {
 }
 
 impl FragmentAssembler {
-    /// `now_ms` is any monotonic millisecond clock the caller has; the codec
-    /// crate deliberately does not own a clock.
+
     pub fn insert(
         &mut self,
         header: &DeltaHeader,
@@ -103,8 +95,6 @@ impl FragmentAssembler {
         Some(self.deliver(partial.seq, partial.tick, partial.assemble()))
     }
 
-    /// Parse a received datagram and feed it in. A frame that is not a well-formed
-    /// delta is counted in [`Self::rejected`] instead of being misassembled.
     pub fn insert_frame(&mut self, frame: &[u8], now_ms: u64) -> Option<AssembledDelta> {
         match DeltaHeader::parse(frame) {
             Some((header, chunk)) => self.insert(&header, chunk, now_ms),
@@ -115,8 +105,6 @@ impl FragmentAssembler {
         }
     }
 
-    /// Free of allocation and of the in-flight table, so a caller can filter
-    /// before it copies anything.
     #[inline]
     pub fn is_superseded(&self, seq: u16) -> bool {
         match self.newest {

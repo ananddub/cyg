@@ -5,25 +5,20 @@ use engine_webrtc_protocol::channel::{
     delta_fragment_count, parse_ack, write_ack, write_delta_frame,
 };
 
-/// seq 1027, tick 65539, one frame carrying `[0xA5 01 02 03 FE]`.
 pub(crate) const DELTA_SINGLE: [u8; 14] = [
     0x04, 0x03, 0x04, 0x03, 0x00, 0x01, 0x00, 0x00, 0x01, 0xa5, 0x01, 0x02, 0x03, 0xfe,
 ];
 
-/// seq 65535, tick 8, chunk 0 of 2.
 pub(crate) const DELTA_FRAG_0: [u8; 13] = [
     0x04, 0xff, 0xff, 0x08, 0x00, 0x00, 0x00, 0x00, 0x02, 0xde, 0xad, 0xbe, 0xef,
 ];
 
-/// The same delta's chunk 1 of 2.
 pub(crate) const DELTA_FRAG_1: [u8; 13] = [
     0x04, 0xff, 0xff, 0x08, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x11, 0x22, 0x33,
 ];
 
-/// Confirmation that event seq 91 arrived.
 const ACK_EVENT: [u8; 4] = [0x06, 0x5b, 0x00, 0x01];
 
-/// seq 65534, tick 0x00FF_FF01, fragment 0 of 3 — both stamps straddle a wrap.
 const DELTA_WRAP_FRAG: [u8; 11] = [
     0x04, 0xfe, 0xff, 0x01, 0xff, 0xff, 0x00, 0x00, 0x03, 0x01, 0x02,
 ];
@@ -111,8 +106,6 @@ fn fragment_count_matches_the_chunk_size() {
     assert_eq!(delta_fragment_count(MAX_DELTA_BODY + 1), None);
 }
 
-/// First-byte dispatch is the SDK's only router, so 0x04 and 0x06 must be free
-/// of every mesh and voice opcode.
 #[test]
 fn a_delta_frame_never_collides_with_the_mesh_opcodes() {
     for other in [0x01u8, 0x02, 0x03, 0x11, 0x18, 0x56, 0x57, 0xa5] {

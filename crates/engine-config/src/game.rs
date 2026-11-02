@@ -6,9 +6,6 @@ use crate::lifecycle::LifecycleConfig;
 use crate::netcode::{AoiConfig, RollbackConfig};
 use crate::watchdog::WatchdogConfig;
 
-/// HMAC key used when `OX_SEAT_SECRET` is unset. Development key — anything
-/// reachable must override it. Shared by both planes so mint and verify can
-/// never disagree.
 pub const DEV_SEAT_SECRET: &str = "ox-dev-seat-secret";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,62 +32,48 @@ impl Runtime {
     }
 }
 
-/// Full server + build configuration, one project = one of these.
 #[derive(Debug, Clone)]
 pub struct GameConfig {
     pub name: String,
-    /// The `games.id` this process hosts, when the operator has bound it to a
-    /// registered tenant. `None` lets the API infer the tenant from a database
-    /// that holds exactly one active game.
+
     pub game_id: Option<String>,
-    /// The `games.game_key` alternative to `game_id`, for a deployment that
-    /// pins identity by the readable tenant key rather than the database id.
+
     pub game_key: Option<String>,
     pub runtime: Runtime,
-    /// Room source, relative to the project directory.
+
     pub source: PathBuf,
-    /// Compiled WASM output, relative to the project directory.
+
     pub out: PathBuf,
-    /// Directory containing the SDK bundles (colyseus.js + schema build).
+
     pub sdk_dir: PathBuf,
-    /// Website HTML; falls back to the built-in template when missing.
+
     pub website: PathBuf,
     pub port: u16,
-    /// The QUIC/WebTransport listener port. `0` (default) keeps the lane off;
-    /// WebRTC and raw UDP are unaffected either way.
+
     pub quic_port: u16,
     pub web_port: u16,
     pub tick_rate: u32,
     pub max_clients: i32,
-    /// Hard ceiling on concurrently live rooms: a join that would create a new
-    /// room past this is rejected instead of allocating one. `0` = unlimited.
+
     pub max_rooms: u32,
-    /// Per-client message budget on the lane-classified inbound (rtc/quic):
-    /// a client exceeding this many messages in one second is force-disconnected
-    /// (the `maxMessagesPerSecond` DoS contract). `0` = unlimited.
+
     pub max_messages_per_second: u32,
-    /// The WebSocket room-data lane port (`cyg.js` WS fallback, Godot, Unity,
-    /// Unreal and every WS-speaking SDK client). `0` (default) keeps the lane
-    /// off; the WebRTC/UDP lane is unaffected either way.
+
     pub ws_port: u16,
-    /// Synthetic round-trip latency in ms for local development: app data in
-    /// both directions is delayed by half of this, so prediction, rollback and
-    /// reconciliation behave on localhost like they would on a real network.
-    /// `0` = off.
+
     pub simulate_latency_ms: u32,
     pub width: f64,
     pub height: f64,
     pub speed: f64,
     pub abi_version: u32,
     pub permissions: engine_wasm::AbiPermissions,
-    /// Raw JSON relayed verbatim to browsers inside a `Config` signal frame;
-    /// empty means P2P over LAN only.
+
     pub voice_ice_servers: String,
     pub aoi: AoiConfig,
     pub rollback: RollbackConfig,
     pub lifecycle: LifecycleConfig,
     pub watchdog: WatchdogConfig,
-    /// Which guest events the host mirrors to the control plane for history.
+
     pub gameplay: GameplayConfig,
     pub control: ControlConfig,
 }

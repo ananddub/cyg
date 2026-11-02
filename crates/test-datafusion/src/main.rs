@@ -1,27 +1,14 @@
 use std::fs::File;
-use std::sync::Arc;
 use std::time::Instant;
 
-use arrow::array::{ArrayRef, BooleanArray, Float32Array, Int32Array, Int64Array, StringArray};
-use arrow::datatypes::{DataType, Field, Schema};
-use arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 
-fn get_rss_memory_mb() -> f64 {
-    // Read resident set size (RSS) from /proc/self/statm on Linux
-    if let Ok(statm) = std::fs::read_to_string("/proc/self/statm") {
-        let parts: Vec<&str> = statm.split_whitespace().collect();
-        if parts.len() > 1 {
-            if let Ok(pages) = parts[1].parse::<u64>() {
-                // Page size is typically 4096 bytes (4KB)
-                return (pages * 4096) as f64 / (1024.0 * 1024.0);
-            }
-        }
-    }
-    0.0
-}
+mod events;
+mod mem;
+
+use mem::get_rss_memory_mb;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,58 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let gen_start = Instant::now();
 
-    let mut tick_ids = Vec::with_capacity(n_events);
-    let mut player_ids = Vec::with_capacity(n_events);
-    let mut event_types = Vec::with_capacity(n_events);
-    let mut pos_x = Vec::with_capacity(n_events);
-    let mut pos_y = Vec::with_capacity(n_events);
-    let mut pos_z = Vec::with_capacity(n_events);
-    let mut is_headshot = Vec::with_capacity(n_events);
-    let mut damage_dealt = Vec::with_capacity(n_events);
-
-    let event_names = ["move", "fire", "hit", "kill", "jump"];
-    for i in 0..n_events {
-        let p_id = (i % 16) as i32; // 16 players in match
-        tick_ids.push(i as i64);
-        player_ids.push(p_id);
-        event_types.push(event_names[i % 5]);
-        pos_x.push(10.0 + (i as f32 % 100.0));
-        pos_y.push(0.0 + (i as f32 % 10.0));
-        pos_z.push(20.0 + (i as f32 % 80.0));
-        is_headshot.push(i % 7 == 0);
-        damage_dealt.push(if i % 5 == 2 {
-            45
-        } else if i % 5 == 3 {
-            100
-        } else {
-            0
-        });
-    }
-
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("tick", DataType::Int64, false),
-        Field::new("player_id", DataType::Int32, false),
-        Field::new("event", DataType::Utf8, false),
-        Field::new("x", DataType::Float32, false),
-        Field::new("y", DataType::Float32, false),
-        Field::new("z", DataType::Float32, false),
-        Field::new("is_headshot", DataType::Boolean, false),
-        Field::new("damage", DataType::Int32, false),
-    ]));
-
-    let batch = RecordBatch::try_new(
-        schema.clone(),
-        vec![
-            Arc::new(Int64Array::from(tick_ids)) as ArrayRef,
-            Arc::new(Int32Array::from(player_ids)) as ArrayRef,
-            Arc::new(StringArray::from(event_types)) as ArrayRef,
-            Arc::new(Float32Array::from(pos_x)) as ArrayRef,
-            Arc::new(Float32Array::from(pos_y)) as ArrayRef,
-            Arc::new(Float32Array::from(pos_z)) as ArrayRef,
-            Arc::new(BooleanArray::from(is_headshot)) as ArrayRef,
-            Arc::new(Int32Array::from(damage_dealt)) as ArrayRef,
-        ],
-    )?;
+    let (schema, batch) = events::build(n_events)?;
 
     println!("   Generation took: {:?}", gen_start.elapsed());
     let ram_after_gen = get_rss_memory_mb();
@@ -100,7 +36,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ram_after_gen - base_ram
     );
 
-    // Save as Parquet file
     let parquet_path = "/tmp/test_match_events.parquet";
     println!(
         "\n[2/4] Writing 1,000,000 events to compressed Parquet file: {}",
@@ -123,7 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         file_size_mb
     );
 
-    // Query with Apache DataFusion
     println!("\n[3/4] Initializing Apache DataFusion Query Engine...");
     let init_start = Instant::now();
     let ctx = SessionContext::new();
@@ -131,7 +65,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     println!("   DataFusion Context Init: {:?}", init_start.elapsed());
 
-    // Run SQL Query: Anti-cheat & Match Summary
     println!("\n[4/4] Executing Complex Analytical SQL Query over 1 Million Events:");
     println!("   SQL: Aggregate Kills, Total Damage, and Headshot Count grouped by Player...");
 
@@ -188,7 +121,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("============================================================");
 
-    // Cleanup
     let _ = std::fs::remove_file(parquet_path);
     Ok(())
 }

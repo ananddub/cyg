@@ -1,5 +1,3 @@
-//! SDP and trickle-ICE signaling: the two entry points a WebSocket host calls
-//! when a browser offers or surfaces a candidate.
 
 use std::time::Instant;
 
@@ -10,8 +8,7 @@ use super::WebRtcServer;
 use super::session::WebRtcSession;
 
 impl WebRtcServer {
-    /// Process an SDP Offer received from a client via WebSocket signaling.
-    /// Creates a dedicated `str0m::Rtc` instance and returns the SDP Answer.
+
     pub fn handle_offer(&mut self, client_id: &str, sdp: &str) -> Result<String, String> {
         let offer =
             SdpOffer::from_sdp_string(sdp).map_err(|e| format!("invalid SDP offer: {e:?}"))?;
@@ -29,7 +26,6 @@ impl WebRtcServer {
 
         let answer_sdp = answer.to_sdp_string();
 
-        // A re-offer replaces the session, and its address mapping has to go with it: a stale entry keeps routing this client's packets into an abandoned `Rtc` whose channels are closed.
         if let Some(mut old) = self.sessions.remove(client_id) {
             if let Some(addr) = old.remote_addr {
                 self.addr_to_session.remove(&addr);
@@ -44,7 +40,6 @@ impl WebRtcServer {
         Ok(answer_sdp)
     }
 
-    /// Handle an ICE candidate sent by the client.
     pub fn handle_candidate(&mut self, client_id: &str, sdp_candidate: &str) -> Result<(), String> {
         let Some(session) = self.sessions.get_mut(client_id) else {
             return Err("session not found".to_string());

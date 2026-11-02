@@ -1,22 +1,3 @@
-//! Feature-completeness tests for the Colyseus wire-protocol transport,
-//! covering everything beyond the basic join/data/leave flow:
-//! - App-level PING (18) echo — powers `room.ping()` and `client.getLatency()`
-//! - RFC 6455 control frames: server answers WS pings, echoes close frames
-//! - ROOM_DATA_BYTES (17) dispatch as `OpCode::RoomDataBytes`
-//! - ROOM_REQUEST (21) / ROOM_RESPONSE (22) RPC round-trip
-//! - ERROR (11) wire format (`room.onError` payload)
-//! - Message fragmentation (RFC 6455 continuation frames)
-//! - Protocol modifier-bit stripping (`code = byte & 0x1F`)
-//! - Matchmake method whitelist + typed MatchMakeError codes
-//! - Default reconnect flow via `retain_session`
-//! - JOIN_ROOM handshake echoing the seat's reconnectionToken
-//! - Opcode mapping: ROOM_STATE (14) vs ROOM_STATE_PATCH (15)
-//! - Server-initiated disconnect with close code 4000 (CONSENTED)
-//! - Rejected join: queued ERROR (11) flushed ahead of close 4002 (WITH_ERROR)
-//! - Unresponsive-client heartbeat termination
-//!
-//! Protocol values verified against `packages/shared-types/src/Protocol.ts`
-//! and `packages/sdk/src/Room.ts` of the CYG wire (0.18-derived) monorepo.
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -25,10 +6,6 @@ use std::time::Duration;
 use engine_net::framing::OpCode;
 use engine_net::transport::ws::{HeartbeatConfig, MatchMakeError};
 use engine_net::transport::{GameTransport, TransportEvent, WsTransport};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn spawn_transport() -> (WsTransport, u16) {
     let transport = WsTransport::new("127.0.0.1:0".parse().unwrap()).expect("bind ok");
@@ -44,7 +21,6 @@ fn poll(transport: &mut WsTransport) -> Vec<TransportEvent> {
     events
 }
 
-/// Poll until `pred` matches an event, or panic after ~2s.
 fn poll_until(
     transport: &mut WsTransport,
     pred: impl Fn(&TransportEvent) -> bool,
@@ -58,8 +34,6 @@ fn poll_until(
     panic!("condition not met within polling window");
 }
 
-/// Send one masked RFC 6455 frame with a configurable first byte
-/// (FIN + opcode). Client frames MUST be masked.
 fn send_ws_frame_raw(stream: &mut TcpStream, first_byte: u8, payload: &[u8]) {
     let mask = [0x11u8, 0x22, 0x33, 0x44];
     let mut frame = vec![first_byte];
@@ -74,15 +48,10 @@ fn send_ws_frame_raw(stream: &mut TcpStream, first_byte: u8, payload: &[u8]) {
     stream.write_all(&frame).expect("frame write ok");
 }
 
-/// Send one masked binary data frame (FIN=1, opcode 0x2).
 fn send_ws_frame(stream: &mut TcpStream, payload: &[u8]) {
     send_ws_frame_raw(stream, 0x82, payload);
 }
 
-/// Read one server frame (any opcode, unmasked server frames), pumping the
-/// transport while waiting: server replies are only written during
-/// poll/flush, so a plain blocking read would starve.
-/// Returns `(ws_opcode, payload)`.
 fn read_frame(stream: &mut TcpStream, transport: &mut WsTransport) -> (u8, Vec<u8>) {
     stream
         .set_read_timeout(Some(Duration::from_millis(20)))
@@ -111,8 +80,6 @@ fn read_frame(stream: &mut TcpStream, transport: &mut WsTransport) -> (u8, Vec<u
     }
 }
 
-/// Parse the first complete frame out of a byte buffer (server frames are
-/// unmasked), if one is fully buffered.
 fn try_parse_ws_frame(buf: &[u8]) -> Option<(u8, Vec<u8>)> {
     if buf.len() < 2 {
         return None;
@@ -144,7 +111,6 @@ fn try_parse_ws_frame(buf: &[u8]) -> Option<(u8, Vec<u8>)> {
     ))
 }
 
-/// Byte length of the first complete frame in `buf`, if one is fully buffered.
 fn ws_frame_len(buf: &[u8]) -> Option<usize> {
     if buf.len() < 2 {
         return None;
@@ -175,11 +141,6 @@ fn ws_frame_len(buf: &[u8]) -> Option<usize> {
     }
 }
 
-/// Read `n` frames through ONE persistent buffer.
-///
-/// `read_frame` parses a single frame out of a fresh buffer, so any bytes that
-/// follow it in the same TCP read are lost — fine when the server writes one
-/// frame per flush, wrong for a burst (an ERROR written together with a close).
 fn read_frames(
     stream: &mut TcpStream,
     transport: &mut WsTransport,
@@ -223,8 +184,6 @@ fn read_frames(
     out
 }
 
-/// Complete the RFC 6455 upgrade and return the stream (handshake reply +
-/// JOIN_ROOM frame are drained).
 fn ws_upgrade(port: u16, transport: &mut WsTransport, path: &str) -> TcpStream {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ok");
     let request = format!(
@@ -260,12 +219,12 @@ fn ws_upgrade(port: u16, transport: &mut WsTransport, path: &str) -> TcpStream {
         response.contains("101 Switching Protocols"),
         "expected 101, got: {response}"
     );
-    // Drain the proactive JOIN_ROOM handshake so later reads see app frames.
+    
     let _ = read_frame(&mut stream, transport);
     stream
 }
 
-/// POST a matchmake request; returns the full HTTP response string.
+
 fn post_matchmake(transport: &mut WsTransport, port: u16, path: &str, body: &str) -> String {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ok");
     let request = format!(
@@ -296,7 +255,7 @@ fn post_matchmake(transport: &mut WsTransport, port: u16, path: &str, body: &str
     String::from_utf8_lossy(&buf).into_owned()
 }
 
-/// Tiny JSON string-field extractor for seat-reservation responses.
+
 fn json_field(body: &str, key: &str) -> Option<String> {
     let needle = format!("\"{}\"", key);
     let idx = body.find(&needle)?;
@@ -306,7 +265,6 @@ fn json_field(body: &str, key: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// msgpack decode of a small unsigned integer (fixint / uint8 / uint16).
 fn decode_mp_uint(bytes: &[u8]) -> Option<u64> {
     match bytes.first() {
         Some(b) if *b < 0x80 => Some(*b as u64),
@@ -318,16 +276,11 @@ fn decode_mp_uint(bytes: &[u8]) -> Option<u64> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// App-level PING (18)
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_ping_opcode_echoed() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_ping");
 
-    // SDK room.ping() / getLatency() send a bare [18] binary message.
     send_ws_frame(&mut stream, &[18]);
     transport.flush().expect("flush");
 
@@ -341,7 +294,6 @@ fn test_ws_control_ping_answered_with_pong() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_ws");
 
-    // RFC 6455 ping (opcode 0x9) with an application payload.
     send_ws_frame_raw(&mut stream, 0x89, b"probe");
     transport.flush().expect("flush");
 
@@ -350,19 +302,14 @@ fn test_ws_control_ping_answered_with_pong() {
     assert_eq!(payload, b"probe", "pong must echo the ping payload");
 }
 
-// ---------------------------------------------------------------------------
-// ROOM_DATA_BYTES / ROOM_REQUEST / ERROR dispatch & replies
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_room_data_bytes_dispatch() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_rdb");
 
-    // SDK room.sendBytes('input', bytes): [17][msgpack str "input"][bytes...]
     let mut msg = vec![17u8, 0xa5];
     msg.extend_from_slice(b"input");
-    msg.push(8); // FLAG_D
+    msg.push(8);
     send_ws_frame(&mut stream, &msg);
 
     let events = poll_until(&mut transport, |e| {
@@ -392,7 +339,7 @@ fn test_room_data_bytes_dispatch() {
         unreachable!()
     };
     assert_eq!(*opcode, OpCode::RoomDataBytes);
-    // Protocol byte (17) stripped: payload = [msgpack "input"][flags]
+
     assert_eq!(payload[..6], [0xa5, b'i', b'n', b'p', b'u', b't']);
     assert_eq!(payload[6], 8);
 }
@@ -402,7 +349,6 @@ fn test_room_request_and_response_roundtrip() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_rpc");
 
-    // SDK room.request(): [21][msgpack requestId][msgpackr payload]
     send_ws_frame(&mut stream, &[21, 7, 0xa3, b'h', b'i', b'!']);
 
     let events = poll_until(&mut transport, |e| {
@@ -436,7 +382,6 @@ fn test_room_request_and_response_roundtrip() {
         "request id must be forwarded to the game layer"
     );
 
-    // Game replies: [22][msgpack requestId][status][payload]
     transport
         .send_room_response(
             client_id,
@@ -455,17 +400,11 @@ fn test_room_request_and_response_roundtrip() {
     assert_eq!(&payload[3..], &[0xa3, b'y', b'e', b's']);
 }
 
-// ---------------------------------------------------------------------------
-// Fragmentation & modifier bits
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_fragmented_message_dispatched_once() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_frag");
 
-    // ROOM_DATA split across two frames: first (FIN=0, binary), then a
-    // continuation (FIN=1, opcode 0).
     send_ws_frame_raw(&mut stream, 0x02, &[13, b'h', b'e']);
     send_ws_frame_raw(&mut stream, 0x80, &[b'l', b'l', b'o']);
 
@@ -505,8 +444,6 @@ fn test_modifier_bits_stripped_before_dispatch() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_mod");
 
-    // JOIN_ROOM ack decorated with the TIMED modifier bit (0x80): the SDK
-    // strips modifier bits before dispatch; so must we.
     send_ws_frame(&mut stream, &[10 | 0x80]);
     let events = poll(&mut transport);
     assert!(
@@ -522,7 +459,6 @@ fn test_modifier_bits_stripped_before_dispatch() {
         "JOIN_ROOM ack must not disconnect"
     );
 
-    // ROOM_DATA with the UNRELIABLE modifier (0x40) still delivers.
     send_ws_frame(&mut stream, &[13 | 0x40, 42]);
     let events = poll_until(&mut transport, |e| {
         matches!(
@@ -546,10 +482,6 @@ fn test_modifier_bits_stripped_before_dispatch() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Matchmake: whitelist, typed errors, default reconnect
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_matchmake_whitelist_all_methods() {
     let (mut transport, port) = spawn_transport();
@@ -565,7 +497,6 @@ fn test_matchmake_whitelist_all_methods() {
         assert!(response.contains("\"sessionId\""), "{method}: {response}");
     }
 
-    // Unknown method -> MATCHMAKE_NO_HANDLER (520).
     let response = post_matchmake(&mut transport, port, "/matchmake/summon/game_room", "{}");
     assert!(
         response.contains("\"code\":520"),
@@ -608,7 +539,6 @@ fn test_matchmake_hook_typed_errors() {
 fn test_default_reconnect_requires_retained_session() {
     let (mut transport, port) = spawn_transport();
 
-    // Unknown/expired token -> MATCHMAKE_EXPIRED (524).
     let response = post_matchmake(
         &mut transport,
         port,
@@ -620,7 +550,6 @@ fn test_default_reconnect_requires_retained_session() {
         "expired token must be 524, got: {response}"
     );
 
-    // After retain_session, the same token re-issues the seat.
     transport.retain_session("arena", "sess_back");
     let response = post_matchmake(
         &mut transport,
@@ -639,7 +568,6 @@ fn test_default_reconnect_requires_retained_session() {
 fn test_join_handshake_echoes_seat_reconnection_token() {
     let (mut transport, port) = spawn_transport();
 
-    // 1. Matchmake a seat (default hook) and extract its fields.
     let seat = post_matchmake(
         &mut transport,
         port,
@@ -650,15 +578,12 @@ fn test_join_handshake_echoes_seat_reconnection_token() {
     let token = json_field(&seat, "reconnectionToken").expect("reconnectionToken in seat");
     assert_eq!(token, format!("game_room:{}", session));
 
-    // 2. Consume the seat: WS connect with the sessionId query param.
     let stream = ws_upgrade(
         port,
         &mut transport,
         &format!("/cyg_1/game_room?sessionId={}", session),
     );
 
-    // The JOIN_ROOM handshake was drained by ws_upgrade — reconnect with a
-    // fresh client to inspect it.
     drop(stream);
     let mut stream2 = TcpStream::connect(("127.0.0.1", port)).expect("connect");
     let request = format!(
@@ -688,7 +613,7 @@ fn test_join_handshake_echoes_seat_reconnection_token() {
     }
     let (_ws_op, reply) = read_frame(&mut stream2, &mut transport);
 
-    // JOIN_ROOM: [10][rt-len][rt][serializer-len]["schema"][0x00]
+    
     assert_eq!(reply[0], 10);
     let rt_len = reply[1] as usize;
     let rt = String::from_utf8(reply[2..2 + rt_len].to_vec()).unwrap();
@@ -698,17 +623,17 @@ fn test_join_handshake_echoes_seat_reconnection_token() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Opcode mapping & server-initiated disconnect
-// ---------------------------------------------------------------------------
+
+
+
 
 #[test]
 fn test_opcode_mapping_state_snapshot_vs_patch() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_map");
 
-    // Connected already fired inside ws_upgrade's polling; the session id is
-    // the upgrade URL's sessionId param.
+    
+    
     let cid = "sess_map".to_string();
 
     transport
@@ -736,18 +661,18 @@ fn test_server_disconnect_close_code_4000() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_kick");
 
-    // Connected already fired inside ws_upgrade's polling.
+    
     let cid = "sess_kick".to_string();
 
     transport.disconnect(&cid).expect("disconnect");
 
-    // Client receives a WS close frame carrying CloseCode::CONSENTED (4000).
+    
     let (ws_op, payload) = read_frame(&mut stream, &mut transport);
     assert_eq!(ws_op, 0x8, "expected a close frame");
     let code = u16::from_be_bytes([payload[0], payload[1]]);
     assert_eq!(code, 4000, "server disconnect must use CONSENTED (4000)");
 
-    // The Disconnected event surfaces on the next poll.
+    
     poll_until(
         &mut transport,
         |e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == &*cid),
@@ -759,7 +684,7 @@ fn test_disconnect_with_close_code_4002() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_full");
 
-    // Connected already fired inside ws_upgrade's polling.
+    
     let cid = "sess_full".to_string();
 
     transport
@@ -773,9 +698,9 @@ fn test_disconnect_with_close_code_4002() {
     assert_eq!(&payload[2..], b"room is full", "close reason must survive");
 }
 
-/// The exact regression behind "the cap works but the client is never told":
-/// an ERROR queued just before the close must reach the wire *first*, in one
-/// write, instead of being dropped along with the socket.
+
+
+
 #[test]
 fn test_queued_error_precedes_close_frame() {
     let (mut transport, port) = spawn_transport();
@@ -792,7 +717,7 @@ fn test_queued_error_precedes_close_frame() {
         .disconnect_with(&cid, 4002, "room is full")
         .unwrap();
 
-    // Both frames leave in one write, so they must be read as a burst.
+    
     let frames = read_frames(&mut stream, &mut transport, 2);
     let (op1, p1) = &frames[0];
     assert_eq!(*op1, 0x2, "the queued ERROR must be a binary frame");
@@ -809,7 +734,7 @@ fn test_leave_room_answers_close_code_4000() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_lv");
 
-    // SDK Room.leave(): sends the 1-byte [12] message before closing.
+    
     send_ws_frame(&mut stream, &[12]);
 
     let events = poll_until(&mut transport, |e| {
@@ -819,23 +744,23 @@ fn test_leave_room_answers_close_code_4000() {
         |e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_lv")
     ));
 
-    // Server must also answer with a close frame on the wire.
+    
     let (ws_op, payload) = read_frame(&mut stream, &mut transport);
     assert_eq!(ws_op, 0x8, "expected close frame after LEAVE_ROOM");
     let code = u16::from_be_bytes([payload[0], payload[1]]);
     assert_eq!(code, 4000, "LEAVE_ROOM close code must be CONSENTED (4000)");
 }
 
-/// A client that vanishes without a WebSocket close frame (process killed,
-/// network drop) must be reported as disconnected *immediately* off the socket
-/// EOF — not left to the heartbeat's ping timeout. Regression: the EOF flag was
-/// overwritten by the frame decoder, which returns `false` when a bare FIN
-/// carries no frame, leaving the peer in the room for the whole ping window.
+
+
+
+
+
 #[test]
 fn test_bare_tcp_eof_disconnects_without_close_frame() {
     let (mut transport, port) = spawn_transport();
-    // Silence the heartbeat so only the read path can produce the event; if the
-    // EOF is dropped, `poll_until` times out and the test fails.
+    
+    
     transport.set_heartbeat(HeartbeatConfig {
         enabled: false,
         ping_interval: Duration::from_secs(30),
@@ -843,7 +768,7 @@ fn test_bare_tcp_eof_disconnects_without_close_frame() {
     });
     let stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_eof");
 
-    // Abrupt death: drop the socket. FIN is sent, no close frame follows.
+    
     drop(stream);
 
     let start = std::time::Instant::now();
@@ -857,9 +782,9 @@ fn test_bare_tcp_eof_disconnects_without_close_frame() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Heartbeat
-// ---------------------------------------------------------------------------
+
+
+
 
 #[test]
 fn test_heartbeat_terminates_unresponsive_client() {
@@ -870,7 +795,7 @@ fn test_heartbeat_terminates_unresponsive_client() {
         max_retries: 1,
     });
 
-    // Connect, then go completely silent (no pongs, no data).
+    
     let _stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_dead");
 
     let start = std::time::Instant::now();
@@ -895,8 +820,8 @@ fn test_heartbeat_spares_active_client() {
 
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_live");
 
-    // Keep the client active: app-level [18] pings every iteration. Any
-    // inbound frame proves liveness, so the heartbeat must never fire.
+    
+    
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_millis(300) {
         send_ws_frame(&mut stream, &[18]);
@@ -909,23 +834,23 @@ fn test_heartbeat_spares_active_client() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// msgpack sanity (used by ERROR / ROOM_RESPONSE wire formats)
-// ---------------------------------------------------------------------------
+
+
+
 
 #[test]
 fn test_error_frame_wire_format() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_err2");
 
-    // Connected already fired inside ws_upgrade's polling.
+    
     let cid = "sess_err2".to_string();
 
     transport.send_error(&cid, 4217, "boom").unwrap();
     transport.flush().unwrap();
 
-    // [11][msgpack 4217][msgpack "boom"]; @colyseus/schema numbers are
-    // little-endian, so uint16 4217 (0x1079) encodes as 0xcd 0x79 0x10.
+    
+    
     let (_, payload) = read_frame(&mut stream, &mut transport);
     assert_eq!(payload[0], 11, "ERROR opcode");
     assert_eq!(decode_mp_uint(&payload[1..4]), Some(4217));

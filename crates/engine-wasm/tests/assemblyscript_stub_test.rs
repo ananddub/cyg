@@ -1,7 +1,6 @@
 use engine_wasm::{WasmRuntime, wasm_module};
 use std::time::Instant;
 
-// Declare the typed wrapper matching game_room.ts exports
 wasm_module! {
     pub struct AsGameRoom {
         fn init();
@@ -21,7 +20,6 @@ fn test_real_assemblyscript_with_runtime_stub() {
 
     let runtime = WasmRuntime::new().expect("Runtime init ok");
 
-    // Load the 239-byte binary compiled directly from TypeScript/AssemblyScript
     let wasm_bytes = include_bytes!("assemblyscript/game_room.wasm");
     println!(
         "1. AssemblyScript WASM Binary Size:  {} bytes!",
@@ -30,17 +28,14 @@ fn test_real_assemblyscript_with_runtime_stub() {
 
     let module = runtime.compile(wasm_bytes).expect("WASM Compilation ok");
 
-    // Instantiate with our type-safe macro
     let mut room = AsGameRoom::new(&runtime, &module).expect("Room instantiation ok");
 
-    // Test 1: Initialize game room
     room.init().expect("init ok");
     assert_eq!(room.getPositionX().unwrap(), 100.0);
     assert_eq!(room.getPositionY().unwrap(), 100.0);
     assert_eq!(room.getScore().unwrap(), 0);
     println!("✓ State initialized: Pos(100.0, 100.0), Score(0)");
 
-    // Test 2: Update tick simulation (dt = 0.016, speedX = 100.0, speedY = 50.0)
     room.update(0.016, 100.0, 50.0).expect("update ok");
     let new_x = room.getPositionX().unwrap();
     let new_y = room.getPositionY().unwrap();
@@ -54,12 +49,10 @@ fn test_real_assemblyscript_with_runtime_stub() {
     assert!((new_y - 100.8).abs() < 0.01);
     assert_eq!(new_score, 1);
 
-    // Test 3: Math function
     let dmg = room.calculateDamage(50, 1.5).expect("calculateDamage ok");
     assert_eq!(dmg, 75);
     println!("✓ calculateDamage(50, 1.5) = {}", dmg);
 
-    // Test 4: High-frequency 1,000,000 tick benchmark
     let iterations = 1_000_000;
     let start_bench = Instant::now();
 

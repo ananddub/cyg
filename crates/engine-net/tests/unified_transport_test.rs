@@ -1,5 +1,3 @@
-//! Unified transport verification: UDP (native) + WireSocket (browser)
-//! roundtrips through the GameTransport trait.
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, UdpSocket};
@@ -15,9 +13,6 @@ fn test_unified_transport_auto_switch() {
     println!("     UNIFIED TRANSPORT TRAIT VERIFICATION (UDP + WireSocket)     ");
     println!("==================================================================");
 
-    // ------------------------------------------------------------------
-    // TEST: Raw UDP Transport via GameTransport Trait
-    // ------------------------------------------------------------------
     let udp_addr = "127.0.0.1:19420".parse().unwrap();
     let mut udp_transport =
         create_transport(TransportType::Udp, udp_addr).expect("Create UDP transport ok");
@@ -49,9 +44,6 @@ fn test_unified_transport_auto_switch() {
     assert_eq!(u_payload, b"udp_delta");
     println!("✓ 2. Raw UDP Transport roundtrip verified via GameTransport trait!");
 
-    // ------------------------------------------------------------------
-    // TEST: WireSocket (browser plane) via GameTransport Trait
-    // ------------------------------------------------------------------
     let ws_addr = "127.0.0.1:19430".parse().unwrap();
     let mut ws_transport =
         create_transport(TransportType::Ws, ws_addr).expect("Create WireSocket transport ok");
@@ -64,7 +56,6 @@ fn test_unified_transport_auto_switch() {
         .set_read_timeout(Some(Duration::from_millis(500)))
         .unwrap();
 
-    // RFC 6455 upgrade from a simulated SDK client
     let upgrade_req = "GET /game_room HTTP/1.1\r\n\
                        Host: localhost:19430\r\n\
                        Upgrade: websocket\r\n\
@@ -88,7 +79,7 @@ fn test_unified_transport_auto_switch() {
     assert!(resp_str.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
     println!("✓ 4. WireSocket upgrade handshake confirmed (101 Switching Protocols)!");
 
-    // Flush the proactively queued JOIN frame (may need a few polls).
+    
     for _ in 0..5 {
         let _ = ws_transport.poll_events(Duration::from_millis(20), &mut Vec::new());
         let _ = ws_transport.flush();

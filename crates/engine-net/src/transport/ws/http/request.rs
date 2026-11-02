@@ -1,28 +1,23 @@
-//! The greeting's request line and headers, parsed into owned values up front
-//! so the borrow of the receive buffer ends before the client is mutated.
-
-/// One parsed HTTP greeting: matchmake POST, static GET/HEAD or WS upgrade.
 pub(super) struct Greeting {
     pub(super) is_options: bool,
     pub(super) is_matchmake: bool,
-    /// Room name from `/matchmake/<method>/<room>`.
+
     pub(super) room_name: String,
-    /// Request `Origin`, or `*` when the client sent none.
+
     pub(super) origin: String,
-    /// Request `Host` header, or empty when absent.
+
     pub(super) host: String,
-    /// `sessionId` query parameter — the SDK's seat-reservation id.
+
     pub(super) url_session_id: Option<String>,
-    /// `options` query parameter (percent-encoded JSON from the SDK join call).
+
     pub(super) url_options: Option<String>,
-    /// URL path segments after the leading `/`: matchmake is
-    /// `[matchmake, method, room]`, a WS upgrade is `[processId, roomId]`.
+
     pub(super) url_method: String,
     pub(super) url_room: String,
     pub(super) url_body: String,
     pub(super) is_head: bool,
     pub(super) is_plain_get: bool,
-    /// Path of a plain GET/HEAD, query string removed.
+
     pub(super) get_path: String,
 }
 
@@ -63,7 +58,7 @@ pub(super) fn parse_greeting(raw: &[u8]) -> Greeting {
         path.split('?')
             .nth(1)
             .and_then(|query| query.split('&').find_map(|kv| kv.strip_prefix("options=")))
-            .map(percent_decode)
+            .map(super::query::percent_decode)
     };
     let url_method = req
         .lines()
@@ -127,59 +122,5 @@ pub(super) fn parse_greeting(raw: &[u8]) -> Greeting {
         is_head,
         is_plain_get,
         get_path,
-    }
-}
-
-/// Decode `%XX` escapes and `+` into the original query value. Browsers send
-/// join options as `encodeURIComponent(JSON.stringify(options))`.
-fn percent_decode(raw: &str) -> String {
-    let bytes = raw.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'%' if i + 2 < bytes.len() => {
-                let hi = (bytes[i + 1] as char).to_digit(16);
-                let lo = (bytes[i + 2] as char).to_digit(16);
-                match (hi, lo) {
-                    (Some(hi), Some(lo)) => {
-                        out.push((hi * 16 + lo) as u8);
-                        i += 3;
-                    }
-                    _ => {
-                        out.push(bytes[i]);
-                        i += 1;
-                    }
-                }
-            }
-            b'+' => {
-                out.push(b' ');
-                i += 1;
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn options_query_is_percent_decoded() {
-        let raw = b"GET /abc?sessionId=s1&options=%7B%22token%22%3A%22a+b%22%7D HTTP/1.1\r\nHost: x\r\n\r\n";
-        let greeting = parse_greeting(raw);
-        assert_eq!(greeting.url_session_id.as_deref(), Some("s1"));
-        assert_eq!(greeting.url_options.as_deref(), Some(r#"{"token":"a b"}"#));
-    }
-
-    #[test]
-    fn missing_options_stays_none() {
-        let raw = b"GET /abc?sessionId=s1 HTTP/1.1\r\nHost: x\r\n\r\n";
-        assert!(parse_greeting(raw).url_options.is_none());
     }
 }

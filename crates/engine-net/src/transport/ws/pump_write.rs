@@ -1,0 +1,90 @@
+use std::io;
+use std::io::Write;
+
+use bytes::Buf;
+use mio::Token;
+
+use super::client::MAX_SEND_QUEUE;
+use super::client::WsState;
+use super::rfc6455::encode_wire_frame;
+use super::transport::WsTransport;
+
+impl WsTransport {
+    pub(super) fn pump_broadcast(&mut self, colyseus_opcode: u8, payload: &[u8]) {
+        self.sb.clear();
+        self.sb.reserve(11 + payload.len());
+        encode_wire_frame(colyseus_opcode, payload, &mut self.sb);
+        let frame = &self.sb[..];
+        let frame_len = frame.len();
+        let mut queued = false;
+        let mut overflowed = 0u64;
+        for client in self.clients.values_mut() {
+            if matches!(client.state, WsState::Connected) {
+                client.state_frame_start = None;
+                let cur_len = client.send_queue.len();
+                if cur_len + frame_len > MAX_SEND_QUEUE {
+                    overflowed += 1;
+                    continue;
+                }
+                if client.send_queue.capacity().saturating_sub(cur_len) >= frame_len {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            frame.as_ptr(),
+                            client.send_queue.as_mut_ptr().add(cur_len),
+                            frame_len,
+                        );
+                        client.send_queue.set_len(cur_len + frame_len);
+                    }
+                } else {
+                    client.send_queue.extend_from_slice(frame);
+                }
+                queued = true;
+            }
+        }
+        if queued {
+            self.flush_dirty = true;
+        }
+        if overflowed > 0 {
+            self.dropped_frames = self.dropped_frames.saturating_add(overflowed);
+        }
+    }
+
+    pub(super) fn pump_flush(&mut self) -> io::Result<()> {
+
+        self.flush_dirty = self.clients.values().any(|c| !c.send_queue.is_empty());
+        if !self.flush_dirty {
+            return Ok(());
+        }
+        let mut pending = false;
+        let mut backpressure: Vec<(Token, bool)> = Vec::new();
+        for (token, client) in self.clients.iter_mut() {
+            if !client.send_queue.is_empty() {
+                match client.stream.write(&client.send_queue) {
+                    Ok(n) => {
+                        client.send_queue.advance(n);
+
+                        client.state_frame_start = None;
+                    }
+                    Err(_) => {}
+                }
+                pending |= !client.send_queue.is_empty();
+
+                if client.send_queue.is_empty() && client.send_queue.capacity() > 64 * 1024 {
+                    client.send_queue = bytes::BytesMut::with_capacity(4096);
+                }
+            }
+
+            let want = !client.send_queue.is_empty();
+            if client.registered_writable != want {
+                backpressure.push((*token, want));
+            }
+        }
+        for (token, _want) in backpressure {
+            if let Some(client) = self.clients.get_mut(&token) {
+                crate::transport::ws::client_io::sync_writable_interest(client, &self.poll, token);
+            }
+        }
+        self.flush_dirty = pending;
+        Ok(())
+    }
+}

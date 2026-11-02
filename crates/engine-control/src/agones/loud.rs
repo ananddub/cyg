@@ -1,21 +1,15 @@
 use engine_agones::{PingOutcome, UNHEALTHY_AFTER_MISSES};
 
-/// Which heartbeat outcomes earn a log line.
-///
-/// A pod that cannot reach its sidecar logs every interval for minutes on
-/// end, and a log that never changes is a log nobody reads. So: the first
-/// [`UNHEALTHY_AFTER_MISSES`] misses, then only the crossing of it and every
-/// doubling of the streak — plus exactly one line when the streak breaks.
 #[derive(Debug, Default)]
 pub(super) struct Loudness {
-    /// Misses already logged for the current streak; `0` while healthy.
+
     logged: u32,
 }
 
 impl Loudness {
     pub(super) fn should_log(&mut self, outcome: &PingOutcome) -> bool {
         if outcome.ok {
-            // Report the recovery only if we ever reported the failure.
+
             let was_loud = self.logged > 0;
             self.logged = 0;
             return was_loud;

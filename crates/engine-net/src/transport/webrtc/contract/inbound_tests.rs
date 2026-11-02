@@ -1,4 +1,3 @@
-//! Lane and opcode classification of one inbound frame.
 
 use engine_webrtc_protocol::{
     ACK_WIRE_LEN, Ack, AckKind, EventFrame, EventKind, HEADER_LEN, INPUT_WIRE_LEN, OP_ACK,
@@ -36,7 +35,6 @@ fn ack_round_trips_and_is_length_strict() {
         })
     );
 
-    // A longer payload that merely starts with the ack opcode is not an ack.
     let mut padded = wire.clone();
     padded.push(0);
     assert!(parse_ack(&padded).is_none());
@@ -44,7 +42,7 @@ fn ack_round_trips_and_is_length_strict() {
         classify_inbound(Some(Lane::Reliable), &padded),
         Inbound::Refused(RejectReason::Malformed { op: OP_ACK, .. })
     ));
-    // An unknown ack kind is not an ack either.
+
     let mut bogus = wire.clone();
     bogus[3] = 7;
     assert!(parse_ack(&bogus).is_none());
@@ -89,7 +87,7 @@ fn inputs_are_parsed_on_the_unreliable_lane_only() {
         classify_inbound(None, &buf),
         Inbound::Refused(RejectReason::OffContract)
     ));
-    // 22 bytes is not an input frame.
+
     assert!(matches!(
         classify_inbound(Some(Lane::Unreliable), &buf[..22]),
         Inbound::Refused(RejectReason::Malformed {

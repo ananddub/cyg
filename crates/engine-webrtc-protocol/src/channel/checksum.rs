@@ -1,20 +1,14 @@
-/// Client → server, `game-reliable`: `[op][tick u64][checksum u64]`.
+
 pub const OP_CHECKSUM: u8 = 0x44;
 
-/// Wire length of a [`ChecksumReport`]. Checked exactly, so a longer payload
-/// that merely starts with `0x44` is never mistaken for one.
 pub const CHECKSUM_WIRE_LEN: usize = 17;
 
-/// What a client believes the simulation state was at one tick. The host
-/// compares it with its own checkpoint; a difference is a desync, and the two
-/// checksums are the whole evidence an operator needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChecksumReport {
     pub tick: u64,
     pub checksum: u64,
 }
 
-/// `[0x44][tick u64][checksum u64]`.
 pub fn write_checksum(out: &mut Vec<u8>, report: &ChecksumReport) {
     out.clear();
     out.reserve(CHECKSUM_WIRE_LEN);
@@ -23,7 +17,6 @@ pub fn write_checksum(out: &mut Vec<u8>, report: &ChecksumReport) {
     out.extend_from_slice(&report.checksum.to_le_bytes());
 }
 
-/// `Some` only for an exactly-sized checksum frame.
 pub fn parse_checksum(buf: &[u8]) -> Option<ChecksumReport> {
     if buf.len() != CHECKSUM_WIRE_LEN || buf[0] != OP_CHECKSUM {
         return None;

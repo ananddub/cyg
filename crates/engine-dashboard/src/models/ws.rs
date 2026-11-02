@@ -15,16 +15,14 @@ pub enum WsFrame {
         overview: Box<Overview>,
         ticks: Box<TickSeries>,
     },
-    /// One change worth a refetch. A scoped socket gets the account-plane
-    /// tables with a record and an action; any other table arrives as a bare
-    /// `touch` carrying no row, so a page knows only that it moved.
+
     Live {
         topic: String,
         action: String,
         record: String,
         seq: u64,
     },
-    /// A batch of mirrored log lines, delivered only to sockets that asked.
+
     Logs {
         lines: Vec<LogLine>,
     },
@@ -55,8 +53,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(s["type"].as_str(), Some("goodbye"));
-        // The dashboard's parser keys off these four fields and nothing else: a
-        // live frame is an invalidation, never a row.
+
         let live = serde_json::to_value(WsFrame::Live {
             topic: "users".into(),
             action: "create".into(),

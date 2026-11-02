@@ -38,8 +38,6 @@ fn events_are_reliable_and_typed() {
     assert!(!Opcode::State.is_reliable());
 }
 
-/// The same buffer a client hands to sendVoice() on the WebSocket relay must be
-/// valid on the mesh without a header rewrite.
 #[test]
 fn voice_rides_the_relay_bytes_untouched() {
     let mut packet = vec![OP_VOICE, 0, 0, 0, 0, 0, 7, 0, 0, 0, 2, 0, 0, 0, 0];

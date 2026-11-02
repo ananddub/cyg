@@ -1,16 +1,4 @@
-//! Which machine this process is. A room's owner is recorded by the host that
-//! runs it and read by whoever has to decide whether a room may be created
-//! twice, so both halves have to spell the node the same way.
 
-/// The node's name, from the env. `OX_NODE_ID` is what a fleet sets; without it
-/// the process falls back to its own id.
-///
-/// The fallback is the pid rather than a fixed string, and inside a container
-/// the root process is pid 1 — so two pods that never set the variable do
-/// collide, which is why the k8s manifests feed the GameServer's name in from
-/// the downward API. Unset, it is exactly the value the seat response already
-/// echoes as `processId`, so a single-node dev run recognises its own rooms with
-/// no configuration at all.
 pub fn node_id() -> String {
     named(
         std::env::var("OX_NODE_ID").ok().as_deref(),

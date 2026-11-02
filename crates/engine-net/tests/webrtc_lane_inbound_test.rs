@@ -1,10 +1,3 @@
-//! The lane contract as `engine_server::host` consumes it: `WebRtcServer::poll_inbound()`.
-//!
-//! The game loop used to match inbound payloads against their opcode alone, which meant a
-//! 4-byte ack arriving on `game-unreliable` was believed even though that lane cannot
-//! prove delivery. `poll_inbound` classifies each frame against the channel it came in on,
-//! so the host's job is now to route `Inbound` variants — and this is the only place that
-//! contract is exercised over a live SCTP association rather than a synthetic buffer.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -25,10 +18,6 @@ const CLIENT_ADDR: &str = "127.0.0.1:50133";
 const SERVER_ADDR: &str = "127.0.0.1:7781";
 const PLAYER: &str = "lane_player";
 
-/// The two lanes exactly as the browser SDK opens them: `game-unreliable` is unordered
-/// with no retransmit budget, `game-reliable` is ordered and never dropped. A channel
-/// whose config contradicts its label is a contract mismatch the server warns about, so
-/// getting this wrong makes the test noisy instead of wrong.
 fn channel(label: &str, lane: Lane) -> ChannelConfig {
     ChannelConfig {
         label: label.to_string(),
@@ -104,7 +93,6 @@ impl Pair {
         panic!("handshake never completed");
     }
 
-    /// One time step of network in both directions.
     fn pump(&mut self) {
         self.now += Duration::from_millis(5);
         let _ = self.client.handle_input(Input::Timeout(self.now));
@@ -161,8 +149,6 @@ impl Pair {
         assert!(queued, "{lane:?} accepted the frame");
     }
 
-    /// Hand a buffer to the browser side of a lane, then drain the server's classified
-    /// inbound the way the game loop does each tick.
     fn deliver(&mut self, lane: Lane, data: &[u8]) -> Vec<Inbound> {
         self.write_on(lane, data);
         for _ in 0..40 {
@@ -175,7 +161,6 @@ impl Pair {
         panic!("nothing arrived on {lane:?}");
     }
 
-    /// Pump until the client's unreliable lane has produced every fragment of one delta.
     fn reassemble(&mut self, expect_seq: u16, expect_tick: u32) -> Option<Vec<u8>> {
         let mut assembler = FragmentAssembler::default();
         for _ in 0..120 {
@@ -199,8 +184,6 @@ impl Pair {
     }
 }
 
-/// The frame the browser sends 50–128 times a second has to reach `apply_input` with its
-/// 20-byte guest payload intact — that blob is what the wasm room consumes.
 #[test]
 fn an_input_arrives_with_its_guest_payload_and_watermark() {
     let mut pair = Pair::connect();
@@ -233,8 +216,6 @@ fn an_input_arrives_with_its_guest_payload_and_watermark() {
     assert_eq!(&payload[4..8], &frame.aim_yaw.to_le_bytes());
     assert_eq!(&payload[16..20], &frame.move_z.to_le_bytes());
 
-    // SCTP redelivers, and a client that reconnects replays. The host keeps the frame —
-    // rollback wants it — but must know it is not news.
     let again = pair.deliver(Lane::Unreliable, &wire);
     let Inbound::Input { resupplied, .. } = &again[0] else {
         panic!("expected the replayed input, got {again:?}");
@@ -245,9 +226,6 @@ fn an_input_arrives_with_its_guest_payload_and_watermark() {
     );
 }
 
-/// The ack is the only proof the server has that a reliable event landed. Trusting one
-/// that arrived on the unordered lane is trusting a message SCTP may have discarded — so
-/// the transport refuses it and it never reaches the game at all.
 #[test]
 fn an_ack_is_only_believed_on_the_reliable_lane() {
     let mut pair = Pair::connect();
@@ -279,8 +257,6 @@ fn an_ack_is_only_believed_on_the_reliable_lane() {
     );
 }
 
-/// An input pushed onto the ordered lane would stall every event behind it, so it is
-/// refused rather than silently served.
 #[test]
 fn an_input_on_the_reliable_lane_is_refused() {
     let mut pair = Pair::connect();
@@ -308,8 +284,6 @@ fn an_input_on_the_reliable_lane_is_refused() {
     assert!(pair.server.poll_inbound().is_empty());
 }
 
-/// Gameplay events are opaque to the transport: it stamps nothing and drops nothing,
-/// because the room assigns its own sequence when it fans the frame out.
 #[test]
 fn an_event_crosses_the_ordered_lane_byte_for_byte() {
     let mut pair = Pair::connect();
@@ -335,9 +309,6 @@ fn an_event_crosses_the_ordered_lane_byte_for_byte() {
     );
 }
 
-/// What `engine_server::host` calls once per player per tick: the transport owns the
-/// stamp-and-split, and `delivered()` is the whole contract — anything else means this
-/// client did not get this tick and the WebSocket fallback has to carry it.
 #[test]
 fn the_transports_own_split_delivers_one_reassembled_delta() {
     let mut pair = Pair::connect();
@@ -356,15 +327,11 @@ fn the_transports_own_split_delivers_one_reassembled_delta() {
     let assembled = pair.reassemble(4097, 2008);
     assert_eq!(assembled.as_deref(), Some(body.as_slice()));
 
-    // A body past the fragment ceiling is refused as a whole, so the caller's fallback is
-    // the only copy the client gets — never a truncated world state.
     let fat = vec![0u8; MAX_DELTA_BODY + 1];
     assert!(pair.server.send_delta(PLAYER, 1, 1, &fat).is_err());
     assert_eq!(pair.server.stats().deltas_refused_oversized, 1);
 }
 
-/// Every outbound frame this plane produces is one datagram. A single oversized message
-/// is what turns a delta into an SCTP reassembly the unordered lane cannot guarantee.
 #[test]
 fn no_outbound_frame_exceeds_the_path_mtu() {
     let mut pair = Pair::connect();
@@ -377,7 +344,7 @@ fn no_outbound_frame_exceeds_the_path_mtu() {
             "a WebRTC UDP packet to {dest} is a whole frame"
         );
     }
-    // Events still fan out reliably, and never as deltas.
+
     let mut ev = Vec::new();
     encode_event(
         &EventFrame {
@@ -399,8 +366,6 @@ fn no_outbound_frame_exceeds_the_path_mtu() {
     }
 }
 
-/// `poll_events` still reports the same bytes, so a host that reads both drains would
-/// apply every input twice. The host reads `poll_inbound` and ignores `Message`.
 #[test]
 fn poll_events_still_carries_bytes_for_hosts_that_parse_themselves() {
     let mut pair = Pair::connect();

@@ -1,5 +1,3 @@
-//! The listener arm of the poll: accept, read the first bytes, build the
-//! client and pump its greeting.
 
 use std::io;
 use std::time::Instant;
@@ -24,14 +22,10 @@ pub(super) fn on_listener_event(
                 *pass.next_token += 1;
                 stream.set_nodelay(true)?;
 
-                // READABLE only: WRITABLE is added on send backpressure
-                // (level-triggered epoll would spin on an always-writable
-                // socket, one busy event per client per poll).
                 pass.poll
                     .registry()
                     .register(&mut stream, token, Interest::READABLE)?;
 
-                // Read the client's first bytes (HTTP request) straight into the BytesMut — no stack copy.
                 let mut first_bytes: BytesMut = BytesMut::new();
                 loop {
                     match crate::bufio::read_tcp(&mut stream, &mut first_bytes, 4096) {
@@ -42,13 +36,12 @@ pub(super) fn on_listener_event(
                     }
                 }
 
-                // Session id is finalized inside the greeting (the SDK appends its seat-reservation sessionId to the upgrade URL). Track token -> id for send_to().
                 let has_first_bytes = !first_bytes.is_empty();
                 let mut client = WsClient {
                     stream,
                     state: WsState::Handshaking,
                     session_id: format!("colyseus_{}_{}", token.0, peer.port()).into(),
-                    room_id: String::new(), // filled by greeting
+                    room_id: String::new(),
                     recv_buf: first_bytes,
                     send_queue: BytesMut::with_capacity(4096),
                     frag_opcode: None,
@@ -84,15 +77,15 @@ pub(super) fn on_listener_event(
                         )
                     };
                     if close {
-                        // HTTP request served; nothing to track.
+
                         continue;
                     }
-                    // Frames may have arrived together with the upgrade request (edge-triggered epoll).
+
                     if client.state == WsState::Connected && !client.recv_buf.is_empty() {
                         process_ws_frames(&mut client, &mut *pass.buf, now);
                     }
                 }
-                // Real WebSocket client: keep it registered (data may not have arrived yet — greeting re-runs on the readable event).
+
                 pass.client_tokens
                     .insert(client.session_id.to_string(), token);
                 pass.clients.insert(token, client);

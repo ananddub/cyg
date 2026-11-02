@@ -1,12 +1,3 @@
-//! Real in-process WebRTC handshake over the Tokio-plane session engine.
-//!
-//! Drives a server-side [`RtcSession`] (the plane's per-client session pump:
-//! `poll_timeout` → `handle_input` → drain `poll_output` → `Outbound`) against a
-//! second str0m `Rtc` acting as the browser, over an in-memory UDP pipe. Proves:
-//! - DTLS + SCTP actually complete,
-//! - both DataChannels open with the enforced labels and reliability contract,
-//! - a 5 KB delta fragments through the codec and reassembles byte-exact,
-//! - no wire datagram ever exceeds `MAX_FRAME` (1200).
 
 use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -27,7 +18,6 @@ fn client_addr() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 40_002)
 }
 
-/// The "browser": a bare str0m `Rtc` that accepts our offer and answers.
 struct Browser {
     rtc: Rtc,
     events: Vec<Event>,
@@ -104,7 +94,6 @@ fn datagrams_of(outbound: Vec<Outbound>) -> Vec<Vec<u8>> {
 fn real_handshake_two_channels_delta_roundtrip() {
     let now = Instant::now();
 
-    // Server session makes the offer with the enforced channel contract.
     let (mut server, offer) =
         RtcSession::new_server("sess-1".into(), server_addr(), &[server_addr()]).unwrap();
 
@@ -116,7 +105,6 @@ fn real_handshake_two_channels_delta_roundtrip() {
         .expect("accept offer");
     let answer_sdp = answer.to_sdp_string();
 
-    // Prime both sides' first timeouts / transmits.
     let browser_tx = browser.drain();
     let server_tx = datagrams_of(server.accept_answer(&answer_sdp).unwrap());
 
@@ -131,7 +119,7 @@ fn real_handshake_two_channels_delta_roundtrip() {
 
     let mut now = now;
     let mut connected = false;
-    // Bound the pump; a lossless pipe converges in tens of iterations.
+
     for _ in 0..20_000 {
         while let Some(bytes) = to_browser.pop_front() {
             for t in browser.feed(now, &bytes) {
@@ -180,8 +168,6 @@ fn real_handshake_two_channels_delta_roundtrip() {
         .channel_open_label(LABEL_RELIABLE)
         .expect("browser sees game-reliable open");
 
-    // The browser is the *answerer* of channels we declared; verify the reliability
-    // contract survived SDP negotiation on the browser's view of the channels.
     let unrel_cfg = browser
         .rtc
         .channel(browser_unrel)
@@ -203,7 +189,6 @@ fn real_handshake_two_channels_delta_roundtrip() {
         "reliable must be ordered"
     );
 
-    // ---- 5 KB delta: fragment on server, reassemble on browser, assert byte-exact.
     let body: Vec<u8> = (0..5_000usize).map(|i| (i % 251) as u8).collect();
     let seq: u16 = 0x1234;
     let tick: u32 = 0x00FF_00FF;
@@ -250,7 +235,7 @@ fn real_handshake_two_channels_delta_roundtrip() {
     assert_eq!(done.seq, seq);
     assert_eq!(done.tick, tick);
     assert_eq!(done.body, body, "reassembled delta differs from source");
-    // The delta left the server as many small frames, never one oversized blob.
+
     assert!(
         assembler.assembled() == 1,
         "exactly one delta should complete"

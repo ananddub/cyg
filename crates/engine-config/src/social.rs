@@ -1,32 +1,24 @@
-//! `[control.social]`: third-party identity providers behind
-//! `/v2/account/authenticate/{provider}`.
-//!
-//! A provider with no credentials stays closed: Apple and Steam answer "not
-//! configured", Google and Facebook cannot validate an audience and answer
-//! "could not authenticate". `allow_unverified` is a local-development escape
-//! hatch that maps any token to a stable hashed identity — never ship it set.
 
-/// Provider credentials and verification endpoints.
 #[derive(Debug, Clone)]
 pub struct SocialConfig {
-    /// Accepted Google OAuth client IDs (Android, iOS, Web).
+
     pub google_client_ids: Vec<String>,
-    /// Google ID-token introspection endpoint.
+
     pub google_tokeninfo_url: String,
-    /// Apple `aud` claim, i.e. the app's bundle or services id.
+
     pub apple_client_id: String,
-    /// Apple's public JWKS document.
+
     pub apple_keys_url: String,
     pub facebook_app_id: String,
     pub facebook_app_secret: String,
-    /// Graph API base, without a version segment.
+
     pub facebook_graph_url: String,
-    /// Steam app id the ticket must belong to.
+
     pub steam_app_id: u32,
     pub steam_web_api_key: String,
-    /// Steam Web API base.
+
     pub steam_api_url: String,
-    /// Accept any non-empty token and derive the identity from its hash.
+
     pub allow_unverified: bool,
 }
 

@@ -1,8 +1,5 @@
 use crate::harness::{LOSS_PERCENT, assert_exact, simulate};
 
-/// The same scheduler with the drops disabled: reordering and interleaving alone
-/// must corrupt nothing and refuse nothing, so a failure in the lossy run is
-/// attributable to loss and not to the codec.
 #[test]
 fn reordering_without_loss_keeps_every_delta_it_hands_over_intact() {
     for seed in [1u64, 42, 0x9E37_79B9_7F4A_7C15] {
@@ -33,8 +30,6 @@ fn reordering_without_loss_keeps_every_delta_it_hands_over_intact() {
     }
 }
 
-/// Determinism is part of the contract of a seeded fuzz loop: the same seed must
-/// replay the same deliveries, or a reported failure cannot be reproduced.
 #[test]
 fn a_seed_replays_the_same_run() {
     let first = simulate(7_777, LOSS_PERCENT);

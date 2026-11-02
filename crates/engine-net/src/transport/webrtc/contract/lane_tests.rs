@@ -1,4 +1,3 @@
-//! Label matching against the contract, and the SCTP parameters behind it.
 
 use str0m::channel::{ChannelConfig, Reliability};
 
@@ -18,14 +17,12 @@ fn exact_labels_are_the_contract_and_other_labels_are_ignored() {
         LabelVerdict::Contract(Lane::Reliable)
     );
 
-    // Never a silent fallback to the reliable lane.
     assert_eq!(classify_label("telemetry"), LabelVerdict::Ignored);
     assert_eq!(classify_label("game-chat"), LabelVerdict::Ignored);
     assert_eq!(classify_label(""), LabelVerdict::Ignored);
     assert_eq!(classify_label("GAME-RELIABLE"), LabelVerdict::Ignored);
     assert_eq!(classify_label("game-reliable-v2"), LabelVerdict::Ignored);
 
-    // Documented legacy aliases, including the bare lane words older bundles used.
     assert_eq!(
         classify_label("unreliable"),
         LabelVerdict::LegacyAlias(Lane::Unreliable)
@@ -42,7 +39,7 @@ fn exact_labels_are_the_contract_and_other_labels_are_ignored() {
         classify_label("client_reliable"),
         LabelVerdict::LegacyAlias(Lane::Reliable)
     );
-    // "unreliable" ends with "reliable": the ordering trap, caught.
+
     assert_ne!(
         classify_label("client-unreliable"),
         LabelVerdict::LegacyAlias(Lane::Reliable)
@@ -68,14 +65,13 @@ fn sctp_parameters_must_match_the_lane() {
     assert_eq!(contract_mismatch(Lane::Unreliable, &unreliable_cfg), None);
     assert_eq!(contract_mismatch(Lane::Reliable, &reliable_cfg), None);
 
-    // A browser bundle that opened 'game-unreliable' with defaults is not an unreliable lane, and the transport must say so.
     assert!(contract_mismatch(Lane::Unreliable, &reliable_cfg).is_some());
     assert!(contract_mismatch(Lane::Reliable, &unreliable_cfg).is_some());
 }
 
 #[test]
 fn sdk_app_messages_classify_as_app() {
-    // SDK sendBytes envelope: [0x05][type_len u8][type][payload]
+
     let frame = [0x05u8, 5, b'i', b'n', b'p', b'u', b't', 1, 2, 3];
     match classify_inbound(Some(Lane::Reliable), &frame) {
         Inbound::App { data } => {
@@ -83,8 +79,7 @@ fn sdk_app_messages_classify_as_app() {
         }
         _ => panic!("0x05 envelope must classify as App"),
     }
-    // truncated envelope (len field ke bina) bhi App hai — host strip karke
-    // khud decide karega
+
     let short = [0x05u8, 5];
     assert!(matches!(
         classify_inbound(Some(Lane::Reliable), &short),

@@ -4,8 +4,6 @@ use crate::{
 };
 use engine_webrtc_protocol::channel::{FragmentAssembler, is_newer, is_superseded};
 
-/// The half-range rule, in both directions, and the fact that "superseded" is
-/// its exact complement — server filter and client filter can never disagree.
 #[test]
 fn sequence_wrap_is_one_rule_both_ends_share() {
     assert!(is_newer(0, 1), "one past is newer");
@@ -110,8 +108,6 @@ fn staleness_survives_the_sequence_wrap() {
     assert_eq!(feed(&mut assembler, &close, 0), Some(vec![0xa5, 0xa6]));
 }
 
-/// The tail of one delta arriving inside the next one is the point of the
-/// unreliable channel: both must still close byte-exactly.
 #[test]
 fn interleaved_deltas_both_close() {
     let mut assembler = FragmentAssembler::default();

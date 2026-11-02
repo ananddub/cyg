@@ -1,4 +1,3 @@
-//! The bounded, drop-oldest send queue one lane of one session holds.
 
 use std::collections::VecDeque;
 
@@ -6,13 +5,6 @@ use engine_webrtc_protocol::is_newer;
 
 use super::outbound::OutboundDelta;
 
-/// Bounded, drop-oldest send queue for one lane of one session.
-///
-/// `str0m`'s `write` returns `Ok(false)` when its SCTP buffer is full. That is
-/// the signal to start holding frames here; once the queue is full, the
-/// *oldest* delta leaves and the newest takes its place. A 128 Hz server has no
-/// use for a stale world state, and blocking the mio poll loop for one slow
-/// client would stall every other session in the thread.
 #[derive(Debug, Default)]
 pub struct OutboundQueue {
     pub(super) items: VecDeque<OutboundDelta>,
@@ -22,10 +14,9 @@ pub struct OutboundQueue {
 }
 
 impl OutboundQueue {
-    /// Queue one delta, discarding older ones to stay within `capacity` frames.
-    /// Returns how many deltas and how many frames were discarded.
+
     pub fn push(&mut self, item: OutboundDelta, capacity: usize) -> (u64, u64) {
-        // A delta bigger than the whole queue is its own verdict: counted and refused rather than evicting everything and still not fitting.
+
         if item.frames() > capacity {
             self.dropped_deltas += 1;
             self.dropped_frames += item.frames() as u64;
@@ -48,18 +39,11 @@ impl OutboundQueue {
         (dropped_deltas, dropped_frames)
     }
 
-    /// Restore a partially written delta to the head after a drain stopped
-    /// mid-message, so the lane's order survives the saturation.
     pub fn push_front(&mut self, item: OutboundDelta) {
         self.frames += item.frames();
         self.items.push_front(item);
     }
 
-    /// Discard queued deltas that are no longer newer than `seq`, from the front
-    /// of the queue in, and report how many left. Newest wins on the unreliable
-    /// lane: a tick that has already been overtaken is worth less than the queue
-    /// space it occupies. Raw writes without a `seq` keep their place, since
-    /// nothing about them has been superseded.
     pub fn purge_older_than(&mut self, seq: u16) -> usize {
         let mut dropped = 0;
         while let Some(front) = self.items.front() {
@@ -84,7 +68,6 @@ impl OutboundQueue {
         self.items.front()
     }
 
-    /// Frames the queue is holding right now.
     pub fn frames(&self) -> usize {
         self.frames
     }

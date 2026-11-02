@@ -23,7 +23,6 @@ fn bench_instantiation(name: &str, config: WasmConfig) {
         .prepare_standalone::<()>(&module)
         .expect("Prepare ok");
 
-    // Warmup: touch the hot paths once so first-call costs don't skew results.
     {
         let mut warm = pre.instantiate(()).expect("Warmup instantiate ok");
         let _: i32 = warm.call("calculate_damage", (1i32, 1.0f32)).expect("ok");

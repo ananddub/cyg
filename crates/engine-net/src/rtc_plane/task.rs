@@ -1,4 +1,3 @@
-//! The per-session task: one browser peer and the str0m pump that drives it.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -10,9 +9,6 @@ use super::inbox::{SessionInbound, SessionNotice};
 use super::session::{Outbound, PlaneChannel, RtcSession, SessionEvent};
 use super::types::{RtcInput, UplinkEvent};
 
-/// One browser peer, driven as its own task on the plane runtime. The loop is the
-/// canonical str0m async pump: wait for the sooner of an inbound message or the
-/// engine's next timeout, feed exactly one input, then flush all output.
 pub(crate) async fn session_task(
     mut rtc: RtcSession,
     player_id: Arc<str>,
@@ -47,7 +43,7 @@ pub(crate) async fn session_task(
                 }
             }
             SessionInbound::Delta { seq, tick, body } => {
-                // No open channel or an oversized body: this delta is stale, so drop it.
+
                 rtc.send_delta(seq, tick, &body).unwrap_or_default()
             }
             SessionInbound::Reliable { body } => rtc.send_reliable(&body).unwrap_or_default(),
@@ -67,9 +63,6 @@ pub(crate) async fn session_task(
     let _ = uplink_tx.send(UplinkEvent::Disconnected { player_id });
 }
 
-/// Deliver the output of one engine drain: datagrams to the socket, channel data
-/// to the uplink, events to the demux. Returns `true` if the session is closed and
-/// the task should stop.
 async fn pump_flush(
     rtc: &mut RtcSession,
     outbound: Vec<Outbound>,
@@ -85,7 +78,7 @@ async fn pump_flush(
                 destination,
                 contents,
             } => {
-                // Fire-and-forget: a failed UDP send is an ICE glitch, not fatal.
+
                 let _ = socket.send_to(&contents, destination).await;
             }
             Outbound::Data {

@@ -1,6 +1,3 @@
-//! Matchmake over plain HTTP: the CORS preflight and the seat-reservation
-//! reply. Both close the connection, because the SDK opens a *separate*
-//! WebSocket for the game protocol after it has its seat.
 
 use std::io::Write;
 
@@ -9,8 +6,6 @@ use super::super::hooks::ServerCtx;
 use super::request::Greeting;
 use super::seat::{default_matchmake, parse_json_string};
 
-/// Preflight for the SDK's credentialed `fetch()`. Browsers run the game page
-/// on a different origin, so these headers are mandatory.
 pub(super) fn serve_options(client: &mut WsClient, cors_allow: &str) -> bool {
     let response = format!(
         "HTTP/1.1 204 No Content\r\n\
@@ -28,15 +23,15 @@ pub(super) fn serve_options(client: &mut WsClient, cors_allow: &str) -> bool {
     true
 }
 
-/// Answer `POST /matchmake/<method>/<room>` with a seat reservation, or a
-/// typed rejection the SDK raises as a `MatchMakeError`.
+
+
 pub(super) fn serve_matchmake(
     client: &mut WsClient,
     req: &Greeting,
     cors_allow: &str,
     ctx: &mut ServerCtx<'_>,
 ) -> bool {
-    // The game hook decides; without one the transport serves the standard Colyseus method whitelist itself.
+    
     let result = match ctx.matchmake_hook {
         Some(hook) => hook(&req.url_method, &req.room_name, &req.url_body),
         None => default_matchmake(
@@ -51,7 +46,7 @@ pub(super) fn serve_matchmake(
     };
     let (status, payload) = match result {
         Ok(seat) => {
-            // Remember the seat's reconnectionToken so the JOIN_ROOM handshake advertises the same token the SDK reconnects with.
+            
             if let (Some(sid), Some(token)) = (
                 parse_json_string(&seat, "sessionId"),
                 parse_json_string(&seat, "reconnectionToken"),

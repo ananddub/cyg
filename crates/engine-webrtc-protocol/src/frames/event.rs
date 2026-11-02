@@ -3,7 +3,6 @@ use crate::bytes::{le_f32, le_u16, put_f32, put_u16};
 
 pub const OP_EVENT: u8 = 0x03;
 
-/// What happened. Small, rare, and the only frame the mesh must not lose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum EventKind {
@@ -39,7 +38,6 @@ pub struct EventFrame {
     pub value: f32,
 }
 
-/// Event frame is 14 bytes: header + kind + three ids + one float.
 pub const EVENT_WIRE_LEN: usize = HEADER_LEN + 1 + 2 + 2 + 2 + 4;
 
 impl EventFrame {
@@ -58,7 +56,6 @@ impl EventFrame {
     }
 }
 
-/// Write an event frame into `out`, starting a fresh frame.
 pub fn encode_event(frame: &EventFrame, out: &mut Vec<u8>) {
     out.clear();
     out.reserve(EVENT_WIRE_LEN);

@@ -1,5 +1,3 @@
-//! Refusal and accounting at the delta/MTU boundary, where no real peer is
-//! needed to prove what the transport reports.
 
 use engine_webrtc_protocol::{MAX_DELTA_BODY, MAX_FRAME};
 
@@ -7,8 +5,6 @@ use super::WebRtcServer;
 
 const FAT: usize = MAX_DELTA_BODY + 1;
 
-/// The refusal happens at the codec boundary, before any session lookup, so
-/// an unsendable body is never partially written either.
 #[test]
 fn a_delta_needing_256_fragments_is_refused_and_counted() {
     let mut server = WebRtcServer::new(vec!["127.0.0.1:7791".parse().unwrap()]);
@@ -28,8 +24,6 @@ fn broadcast_counts_a_refused_delta_for_every_session_at_once() {
     assert_eq!(server.stats().deltas_refused_oversized, 1);
 }
 
-/// A legal delta with no session is reported as skipped, not as sent: the
-/// host must fall back rather than assume the client got its tick.
 #[test]
 fn a_delta_for_an_unknown_session_is_not_reported_as_delivered() {
     let mut server = WebRtcServer::new(vec![]);

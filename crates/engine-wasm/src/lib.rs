@@ -1,7 +1,3 @@
-//! # Engine WASM
-//!
-//! A pure, generic WebAssembly runtime wrapper powered by Wasmtime.
-//! Completely decoupled from game events, rooms, or any specific application logic.
 
 pub mod abi;
 pub mod config;

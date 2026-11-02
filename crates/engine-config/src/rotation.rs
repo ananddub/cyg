@@ -1,18 +1,8 @@
-//! Keyed secrets and the dual-key window that lets one be rotated without
-//! logging every session out.
-//!
-//! Env is read once per process, like every other `OX_*` setting, so the
-//! previous key exists only in the process that booted with it configured.
-//! That is the whole rotation model: deploy with both keys, let the old tokens
-//! expire, deploy again with only the new one.
 
 use std::sync::OnceLock;
 
-/// Label on the key that mints today. Tokens minted before key ids existed carry
-/// no `kid` and are verified with the current key, so a first rotation does not
-/// invalidate sessions that outlive the upgrade.
 pub const CURRENT_KEY_ID: &str = "current";
-/// Label on the key that is being retired.
+
 pub const PREVIOUS_KEY_ID: &str = "previous";
 
 fn env(name: &str) -> String {
@@ -27,9 +17,6 @@ fn or_default(value: String, fallback: &str) -> String {
     }
 }
 
-/// Byte-for-byte comparison that does not short-circuit. A server key and a seat
-/// HMAC are both secrets: returning early on the first differing byte leaks how
-/// much of a guess was right.
 pub fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -78,7 +65,6 @@ impl Rotation {
         })
     }
 
-    /// True while any retired secret is still being accepted.
     pub fn rotating(&self) -> bool {
         !self.previous_signing_key.is_empty()
             || !self.previous_refresh_signing_key.is_empty()
@@ -86,7 +72,6 @@ impl Rotation {
             || !self.previous_seat_secret.is_empty()
     }
 
-    /// Every secret still trusted, for `doctor` to size and report.
     pub fn previous_secrets(&self) -> Vec<(&'static str, &str)> {
         [
             ("OX_PREVIOUS_SIGNING_KEY", &self.previous_signing_key),

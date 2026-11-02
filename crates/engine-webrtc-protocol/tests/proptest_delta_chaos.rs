@@ -1,23 +1,9 @@
-//! Property-based chaos for the server→client delta channel (proptest + shrinking).
-//!
-//! Random body sizes (including the previously-untested zero-length body and
-//! the exact-MTU boundary), shuffled fragment delivery, duplicate fragments
-//! and deterministic loss. The channel's whole contract in three properties:
-//!
-//! 1. every fragment delivered ⇒ delta assembled **byte-exact**,
-//! 2. any missing fragment ⇒ delta **never** delivered (no truncation),
-//! 3. duplicates and reordering are invisible to the receiver.
-//!
-//! A failure shrinks to the minimal body size + drop set + seed.
 
 use engine_webrtc_protocol::channel::{
     DELTA_HEADER_LEN, DeltaPacker, FragmentAssembler, MAX_DELTA_BODY, MAX_DELTA_CHUNK,
 };
-use engine_webrtc_protocol::write_delta_frame;
 use proptest::prelude::*;
 
-/// xorshift64* — a stable in-test PRNG so a given `seed` reproduces the exact
-/// shuffle, independent of platform RNG.
 struct Rng(u64);
 
 impl Rng {
@@ -35,8 +21,6 @@ impl Rng {
     }
 }
 
-/// Body sizes: zero, tiny, exactly one chunk, one chunk ± 1, multi-fragment,
-/// near the 300 KB ceiling.
 fn body_len_strategy() -> impl Strategy<Value = usize> {
     prop_oneof![
         Just(0usize),
@@ -49,7 +33,6 @@ fn body_len_strategy() -> impl Strategy<Value = usize> {
     ]
 }
 
-/// Pack `body` into wire frames via the real packer, return them in send order.
 fn pack_frames(seq: u16, tick: u32, body: &[u8]) -> Vec<Vec<u8>> {
     let mut packer = DeltaPacker::new(seq, tick);
     let packing = packer
@@ -76,7 +59,6 @@ proptest! {
         let body: Vec<u8> = (0..body_len).map(|i| (i % 251) as u8).collect();
         let mut frames = pack_frames(777, tick, &body);
 
-        // Shuffle + duplicate with the seeded PRNG.
         let mut rng = Rng(seed | 1);
         for i in (1..frames.len()).rev() {
             let j = rng.below(i + 1);
@@ -134,12 +116,10 @@ proptest! {
     #[test]
     fn ttl_forgot_delta_accepts_retransmission(
         body_len in body_len_strategy(),
-        seed in any::<u64>(),
+        _seed in any::<u64>(),
         tick in any::<u32>(),
     ) {
-        // Fragment #2 of a multi-fragment delta stalls past the TTL; the
-        // sender's full retransmission must then assemble — the receiver
-        // forgot the stale geometry instead of rejecting seq reuse.
+
         let body: Vec<u8> = (0..body_len).map(|i| (i % 233) as u8).collect();
         let frames = pack_frames(999, tick, &body);
         prop_assume!(frames.len() >= 3);

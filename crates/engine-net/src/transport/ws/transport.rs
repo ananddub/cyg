@@ -1,8 +1,5 @@
-//! Transport lifecycle: the `mio` poll, the listening sockets it owns and the
-//! maps that name every live session.
 
 use ahash::{AHashMap, AHashSet};
-use std::borrow::Cow;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Instant;
@@ -13,7 +10,6 @@ use mio::{Events, Interest, Poll, Token};
 use socket2::{Domain, Protocol, Socket, Type};
 
 use super::client::WsClient;
-use super::error::MatchMakeError;
 use super::heartbeat::HeartbeatConfig;
 use super::hooks::{HttpHook, MatchmakeHook};
 use crate::transport::TransportEvent;
@@ -24,50 +20,43 @@ pub struct WsTransport {
     pub(super) listeners: Vec<TcpListener>,
     pub(super) clients: AHashMap<Token, WsClient>,
     pub(super) client_tokens: AHashMap<String, Token>,
-    /// session id -> room id (from the upgrade URL path).
+
     pub(super) client_rooms: AHashMap<String, String>,
-    /// session id -> raw join options JSON (percent-decoded `options=` query).
+
     pub(super) client_options: AHashMap<String, String>,
-    /// Sessions whose disconnect was intentional (client `LEAVE_ROOM`/WS close
-    /// or a server `disconnect_with`). Drained by `take_consented`.
+
     pub(super) consented: AHashSet<String>,
-    /// Abnormally-disconnected sessions kept alive for reconnection:
-    /// reconnectionToken ("roomId:sessionId") -> session id.
+
     pub(super) retained: AHashMap<String, String>,
-    /// session id -> reconnectionToken advertised in its matchmake seat, so
-    /// the JOIN_ROOM handshake echoes the same token the SDK will reconnect with.
+
     pub(super) seat_tokens: AHashMap<String, String>,
-    /// Events queued outside poll_events (e.g. `disconnect()`), drained first.
+
     pub(super) pending_events: Vec<TransportEvent>,
-    /// Cross-poll event buffer; handed to `poll_events` via `mem::take` so
-    /// helper calls can still take `&mut self`.
+
     pub(super) ev: Vec<TransportEvent>,
-    /// Dead tokens collected during a poll; persists across polls. The id is
-    /// taken from the removed client, so no id clones happen here.
+
     pub(super) disconnected: Vec<Token>,
-    /// Heartbeat kill list; persists across polls.
+
     pub(super) hb_kills: Vec<Token>,
-    /// Broadcast encode scratch; reuses its allocation.
+
     pub(super) sb: BytesMut,
     pub(super) heartbeat: HeartbeatConfig,
     pub(super) next_token: usize,
-    /// True when at least one client has bytes queued. `flush` skips the
-    /// O(clients) pass entirely while the server is idle.
+
     pub(super) flush_dirty: bool,
-    /// Frames dropped because a client's send queue hit `MAX_SEND_QUEUE`.
+
     pub(super) dropped_frames: u64,
     pub(super) last_drop_log: Instant,
-    /// Actual kernel-assigned bound address (resolves port 0).
+
     pub(super) bound_addr: SocketAddr,
     pub bound_addrs: Vec<SocketAddr>,
-    /// UDP port advertised in default seat reservations for native clients.
+
     pub(super) advertised_udp_port: u16,
     pub(super) matchmake_hook: Option<MatchmakeHook>,
     pub(super) http_hook: Option<HttpHook>,
-    /// Exact browser origins allowed to call matchmake. Empty means
-    /// same-origin only; `*` re-opens the old reflect-anything behaviour.
+
     pub(super) allowed_origins: Vec<String>,
-    /// `cyg.schema.bin` bytes sent to each client after JOIN_ROOM.
+
     pub(super) schema_descriptor: Bytes,
 }
 
@@ -142,77 +131,5 @@ impl WsTransport {
             allowed_origins: Vec::new(),
             schema_descriptor: Bytes::new(),
         })
-    }
-
-    /// Set the `cyg.schema.bin` descriptor pushed to every client right
-    /// after JOIN_ROOM. Cheap to call once at boot; each join clones a `Bytes`.
-    pub fn set_schema_descriptor(&mut self, descriptor: impl Into<Bytes>) {
-        self.schema_descriptor = descriptor.into();
-    }
-
-    /// Port advertised in default seat reservations for native UDP clients.
-    pub fn set_udp_port(&mut self, port: u16) {
-        self.advertised_udp_port = port;
-    }
-
-    /// Override the unresponsive-client heartbeat (see [`HeartbeatConfig`]).
-    pub fn set_heartbeat(&mut self, config: HeartbeatConfig) {
-        self.heartbeat = config;
-    }
-
-    /// Allow these exact origins on matchmake (e.g. the game's web build).
-    /// Empty keeps same-origin only; `*` reflects every origin and should be
-    /// reserved for local development.
-    pub fn set_allowed_origins(&mut self, origins: Vec<String>) {
-        self.allowed_origins = origins;
-    }
-
-    /// Register static HTTP request handler: (path) -> Option<(content_type, body)>
-    pub fn on_http(
-        &mut self,
-        f: impl Fn(&str) -> Option<(Cow<'static, str>, Bytes)> + Send + 'static,
-    ) {
-        self.http_hook = Some(Box::new(f));
-    }
-
-    /// Register the game's matchmake handler: receives (method, room, body)
-    /// and returns the seat-reservation JSON, or a typed rejection that the
-    /// SDK surfaces as a `MatchMakeError`.
-    pub fn on_matchmake(
-        &mut self,
-        f: impl Fn(&str, &str, &str) -> Result<String, MatchMakeError> + Send + 'static,
-    ) {
-        self.matchmake_hook = Some(Box::new(f));
-    }
-
-    /// Which room a connected session belongs to.
-    pub fn room_of(&self, client_id: &str) -> Option<&str> {
-        self.client_rooms.get(client_id).map(String::as_str)
-    }
-
-    /// Raw JSON join options the client sent on its upgrade URL.
-    pub fn options_of(&self, client_id: &str) -> Option<&str> {
-        self.client_options.get(client_id).map(String::as_str)
-    }
-
-    /// Consume the "intentional leave" marker for a session. `true` when the
-    /// client sent `LEAVE_ROOM`/a WS close or the server closed the socket —
-    /// in both cases the seat must not be held for reconnection.
-    pub fn take_consented(&mut self, client_id: &str) -> bool {
-        self.consented.remove(client_id)
-    }
-
-    /// Frames dropped so far because a peer's send queue hit the cap.
-    pub fn dropped_frames(&self) -> u64 {
-        self.dropped_frames
-    }
-
-    /// Keep a disconnected session's reconnection token valid so a
-    /// `matchmake/reconnect` can re-issue its seat reservation.
-    pub fn retain_session(&mut self, room_id: &str, session_id: &str) {
-        self.retained.insert(
-            format!("{}:{}", room_id, session_id),
-            session_id.to_string(),
-        );
     }
 }

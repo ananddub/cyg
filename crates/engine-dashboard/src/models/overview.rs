@@ -44,10 +44,9 @@ pub struct TickHealth {
     pub nominal_us: u64,
     pub p50_us: u64,
     pub p99_us: u64,
-    /// Simulation-stage span: average µs/tick inside the gated room-tick block.
+
     pub stage_sim_us: u64,
-    /// Guest-tick share of `stage_sim_us` (guest logic + host physics); the
-    /// rest is host fan-out (AOI, encode, transport sends).
+
     pub stage_guest_us: u64,
     pub overruns: u64,
     pub samples: u32,

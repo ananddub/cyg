@@ -32,9 +32,7 @@ pub enum WasmError {
 }
 
 impl WasmError {
-    /// `true` when the guest was cut off by the epoch watchdog instead of by
-    /// its own bad instruction: wasmtime renders an interrupted trap as
-    /// `wasm trap: interrupt`.
+
     pub fn is_interrupt(&self) -> bool {
         const INTERRUPTED: &str = "wasm trap: interrupt";
         match self {
@@ -45,11 +43,6 @@ impl WasmError {
     }
 }
 
-/// Render a wasmtime trap with its whole cause chain.
-///
-/// A trap arrives as the backtrace context *wrapped around* the trap reason, so
-/// a plain `to_string()` keeps the frames and throws away the reason the host
-/// needs in order to classify it.
 pub fn trap_detail(error: &wasmtime::Error) -> String {
     format!("{error:#}")
 }

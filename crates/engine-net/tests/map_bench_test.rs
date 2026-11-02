@@ -18,16 +18,12 @@ fn test_concurrent_map_performance_and_fastest_comparison() {
     );
     println!("==========================================================================");
 
-    // 1. DashMap Default
     let (d_def_r_mops, d_def_mix_mops, d_def_w_mops) = test_dashmap_default();
 
-    // 2. DashMap AHash
     let (d_ahash_r_mops, d_ahash_mix_mops, d_ahash_w_mops) = test_dashmap_ahash();
 
-    // 3. scc::HashMap Default
     let (scc_def_r_mops, scc_def_mix_mops, scc_def_w_mops) = test_scc_default();
 
-    // 4. scc::HashMap AHash
     let (scc_ahash_r_mops, scc_ahash_mix_mops, scc_ahash_w_mops) = test_scc_ahash();
 
     println!("\n==========================================================================");

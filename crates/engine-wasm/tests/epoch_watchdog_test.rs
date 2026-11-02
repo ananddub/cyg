@@ -1,17 +1,8 @@
-//! The epoch watchdog: a guest call that outruns its budget is cut off, and the
-//! instance is still usable afterwards because every call re-arms the fuse.
-//!
-//! Both call paths a room uses are covered — the dynamic
-//! [`engine_wasm::WasmInstance::call`] and the cached `wasm_module!` wrapper
-//! that `RoomLogic::on_tick` goes through.
 
 use std::time::Duration;
 
 use engine_wasm::{WasmConfig, WasmPreInstance, WasmRuntime, wasm_module};
 
-/// `spin` counts to its argument on a loop backedge — the place wasmtime puts
-/// its epoch checks. The bound is large enough that a working fuse always fires
-/// first, and small enough that a broken one finishes instead of hanging.
 const GUEST: &str = r#"
 (module
     (memory (export "memory") 1)
@@ -34,7 +25,6 @@ wasm_module! {
     }
 }
 
-/// Two ticks of budget, pumped every 2 ms: a stuck guest dies inside ~4 ms.
 fn watched() -> (WasmRuntime, WasmPreInstance<()>, engine_wasm::EpochTicker) {
     let runtime = WasmRuntime::new_with_config(WasmConfig {
         optimize_for_speed: true,
@@ -77,8 +67,6 @@ fn an_interrupted_guest_is_armed_again_for_its_next_call() {
         .call::<i32, i32>("spin", STUCK_FOREVER)
         .expect_err("first call is cut off");
 
-    // A deadline is consumed, not refilled: were the fuse not re-armed per
-    // call, this short export would trap against the already-elapsed deadline.
     assert_eq!(
         instance
             .call::<(), i32>("quick", ())
@@ -120,7 +108,7 @@ fn a_runtime_without_the_watchdog_leaves_the_guest_uninterrupted() {
     let mut instance = pre.instantiate(()).expect("instantiate guest");
 
     assert_eq!(instance.epoch_deadline_ticks(), None);
-    // 5e7 counts stay quick, and with no instrumentation they all run.
+
     assert_eq!(
         instance
             .call::<i32, i32>("spin", 50_000_000)

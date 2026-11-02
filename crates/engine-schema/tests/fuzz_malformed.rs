@@ -1,8 +1,3 @@
-//! Adversarial inputs for the descriptor decoder.
-//!
-//! The host ships `cyg.schema.bin` to untrusted clients, and the host
-//! itself re-reads it to walk entity rows. A malformed or truncated descriptor
-//! must be rejected, never panic.
 
 use engine_schema::{DESCRIPTOR_VERSION, generate_with_root, parse_descriptor, ts};
 
@@ -30,7 +25,6 @@ fn descriptor() -> Vec<u8> {
     generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts").descriptor
 }
 
-/// Deterministic linear congruential generator (Numerical Recipes constants).
 struct Lcg(u32);
 
 impl Lcg {
@@ -87,7 +81,7 @@ fn newer_descriptor_version_is_rejected() {
 
 #[test]
 fn invalid_utf8_name_is_rejected() {
-    // Layout: magic(4) version(1) flags(1) schema_count(2) name_len(2) name...
+
     let mut bytes = descriptor();
     assert_eq!(bytes[8], 6, "first schema name is 'Player'");
     bytes[10] = 0xff;
@@ -96,8 +90,7 @@ fn invalid_utf8_name_is_rejected() {
 
 #[test]
 fn unknown_wire_code_is_rejected() {
-    // First Player field: schema name ends at 10 + 6 = 16, then version(4),
-    // hash(4), field_count(2), field name_len(2) + "x"(1), then the wire code.
+
     let mut bytes = descriptor();
     let field_name_len = u16::from_le_bytes([bytes[26], bytes[27]]) as usize;
     assert_eq!(field_name_len, 1);
@@ -114,8 +107,7 @@ fn random_buffers_never_panic() {
         for _ in 0..len {
             bytes.push(rng.next() as u8);
         }
-        // Random buffers almost always fail the magic check; the contract is
-        // only that decoding returns instead of panicking.
+
         let _ = parse_descriptor(&bytes);
     }
 }
@@ -130,8 +122,7 @@ fn mutations_never_panic() {
         for _ in 0..mutations {
             let index = rng.below(bytes.len());
             let value = rng.next() as u8;
-            // Keep a quarter of mutations on the magic so a few inputs still
-            // reach the structural decoder instead of bouncing on the header.
+
             bytes[index] = if round % 4 == 0 { 0xff } else { value };
         }
         let _ = parse_descriptor(&bytes);

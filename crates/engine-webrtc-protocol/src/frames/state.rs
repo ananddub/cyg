@@ -9,8 +9,6 @@ use crate::{MAX_ENTITIES_PER_STATE, STATE_HEADER_LEN};
 
 pub const OP_STATE: u8 = 0x02;
 
-/// One entity in a state broadcast. `id` is the room's player id, which both ends
-/// already agree on because the server stamped it into the signaling.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EntitySnapshot {
     pub id: u16,
@@ -55,7 +53,6 @@ impl EntitySnapshot {
     }
 }
 
-/// A borrowed state frame: the datagram stays in place, records are read on demand.
 #[derive(Debug, Clone, Copy)]
 pub struct StateFrame<'a> {
     pub tick: u16,
@@ -107,8 +104,6 @@ impl<'a> Iterator for Entities<'a> {
 
 impl ExactSizeIterator for Entities<'_> {}
 
-/// Write a state frame. Fails only when `entities` cannot fit in one datagram —
-/// the caller then sends the remainder on the same tick.
 pub fn encode_state(
     tick: u16,
     entities: &[EntitySnapshot],

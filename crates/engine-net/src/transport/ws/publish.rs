@@ -1,22 +1,17 @@
-//! Server-initiated messages: the `ERROR` and `ROOM_RESPONSE` frames and the
-//! immediate disconnect.
 
 use std::io;
-use std::sync::Arc;
 use std::time::Instant;
 
 use bytes::BufMut;
 
 use super::client::MAX_SEND_QUEUE;
 use super::msgpack::{mp_number, mp_str};
-use super::protocol::{PROTO_ERROR, PROTO_ROOM_RESPONSE, close_code};
-use super::rfc6455::{encode_wire_frame, finish_close, queue_close_frame};
+use super::protocol::{PROTO_ERROR, PROTO_ROOM_RESPONSE};
+use super::rfc6455::encode_wire_frame;
 use super::transport::WsTransport;
-use crate::transport::TransportEvent;
 
 impl WsTransport {
-    /// Send a Colyseus `ERROR` (11) frame: surfaces to the SDK's
-    /// `room.onError` handler. Wire: `[11][msgpack code][msgpack string]`.
+
     pub fn send_error(&mut self, client_id: &str, code: u16, message: &str) -> io::Result<()> {
         let mut payload = std::mem::take(&mut self.sb);
         payload.reserve(8 + message.len());
@@ -28,8 +23,6 @@ impl WsTransport {
         Ok(())
     }
 
-    /// Reply to a `ROOM_REQUEST` (21). Wire:
-    /// `[22][msgpack requestId][status byte][msgpack payload]`.
     pub fn send_room_response(
         &mut self,
         client_id: &str,
@@ -48,20 +41,15 @@ impl WsTransport {
         Ok(())
     }
 
-    /// Queue one Colyseus message (opcode byte + payload) as a WS frame for
-    /// the given session.
     #[inline]
     pub(super) fn queue_to(&mut self, client_id: &str, colyseus_opcode: u8, payload: &[u8]) {
         if let Some(&token) = self.client_tokens.get(client_id) {
             if let Some(client) = self.clients.get_mut(&token) {
-                // Any frame queued after a state frame makes the tail marker
-                // stale: the state frame can no longer be replaced safely.
+
                 client.state_frame_start = None;
                 let required = payload.len() + 16;
                 if client.send_queue.len() + required > MAX_SEND_QUEUE {
-                    // Peer stopped reading: drop the frame instead of growing
-                    // the queue forever. The socket stays open so a transient
-                    // stall can recover.
+
                     self.dropped_frames = self.dropped_frames.saturating_add(1);
                     if self.last_drop_log.elapsed().as_secs() >= 1 {
                         tracing::info!(
@@ -80,8 +68,6 @@ impl WsTransport {
         }
     }
 
-    /// Queue the same wire message for several sessions with one encode.
-    /// Server frames are unmasked, so every recipient gets identical bytes.
     #[inline]
     pub(super) fn send_many(&mut self, client_ids: &[&str], colyseus_opcode: u8, payload: &[u8]) {
         self.sb.clear();
@@ -120,70 +106,5 @@ impl WsTransport {
         if queued {
             self.flush_dirty = true;
         }
-    }
-
-    /// Queue a schema-state frame that may be superseded. When the client's
-    /// send queue still ends with an unflushed state frame, that frame is
-    /// replaced instead of appended: full snapshots are idempotent, so a
-    /// stalled peer only ever carries the newest one (an "unreliable" state
-    /// lane on top of TCP). Patches must keep using `send_to` — they are
-    /// deltas and dropping one loses fields.
-    pub fn send_state(&mut self, client_id: &str, payload: &[u8]) -> io::Result<()> {
-        let Some(&token) = self.client_tokens.get(client_id) else {
-            return Ok(());
-        };
-        let Some(client) = self.clients.get_mut(&token) else {
-            return Ok(());
-        };
-        let opcode = super::protocol::wire_opcode_for(crate::framing::OpCode::RoomDataBytes);
-        if let Some(start) = client.state_frame_start {
-            if start + client.state_frame_len == client.send_queue.len() {
-                client.send_queue.truncate(start);
-                encode_wire_frame(opcode, payload, &mut client.send_queue);
-                client.state_frame_len = client.send_queue.len() - start;
-                self.flush_dirty = true;
-                return Ok(());
-            }
-            client.state_frame_start = None;
-        }
-        if client.send_queue.len() + payload.len() + 16 > MAX_SEND_QUEUE {
-            self.dropped_frames = self.dropped_frames.saturating_add(1);
-            return Ok(());
-        }
-        let start = client.send_queue.len();
-        encode_wire_frame(opcode, payload, &mut client.send_queue);
-        client.state_frame_start = Some(start);
-        client.state_frame_len = client.send_queue.len() - start;
-        self.flush_dirty = true;
-        Ok(())
-    }
-
-    /// Drop a client immediately: sends the WS close frame (`4000 CONSENTED`)
-    /// and surfaces a `Disconnected` event on the next `poll_events`.
-    pub fn disconnect(&mut self, client_id: &str) -> io::Result<()> {
-        self.disconnect_with(client_id, close_code::CONSENTED, "server disconnect")
-    }
-
-    /// Same as [`Self::disconnect`] but with a caller-chosen close code/reason
-    /// (e.g. `close_code::WITH_ERROR` + "room is full").
-    pub fn disconnect_with(&mut self, client_id: &str, code: u16, reason: &str) -> io::Result<()> {
-        if let Some(&token) = self.client_tokens.get(client_id) {
-            if let Some(mut client) = self.clients.remove(&token) {
-                queue_close_frame(&mut client, code, reason);
-                let _ = self.poll.registry().deregister(&mut client.stream);
-                finish_close(client);
-            }
-            self.client_tokens.remove(client_id);
-            self.client_rooms.remove(client_id);
-            self.client_options.remove(client_id);
-            self.seat_tokens.remove(client_id);
-            // A server-initiated close is deliberate: do not hold the seat for
-            // `allowReconnection` (the client is not coming back on purpose).
-            self.consented.insert(client_id.to_string());
-            self.pending_events.push(TransportEvent::Disconnected {
-                client_id: Arc::from(client_id),
-            });
-        }
-        Ok(())
     }
 }

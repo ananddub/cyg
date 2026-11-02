@@ -1,4 +1,3 @@
-//! Splitting one delta body into MTU-safe stamped frames.
 
 use engine_webrtc_protocol::{
     DELTA_HEADER_LEN, DeltaHeader, FragmentAssembler, MAX_DELTA_BODY, MAX_DELTA_CHUNK,
@@ -22,8 +21,6 @@ fn one_byte_becomes_one_unfragmented_frame() {
     assert_eq!(chunk, &[0xAB]);
 }
 
-/// An empty body is still one frame: the receiver must be able to tell
-/// "nothing changed this tick" from "the delta never arrived".
 #[test]
 fn empty_body_is_still_one_stamped_frame() {
     let mut frames = Vec::new();
@@ -62,8 +59,6 @@ fn one_byte_over_the_boundary_fragments_twice() {
     }
 }
 
-/// The largest body the contract carries: 255 chunks, all indices distinct,
-/// every frame MTU-safe.
 #[test]
 fn two_hundred_fifty_five_chunks_is_the_last_legal_delta() {
     let body = vec![0x33u8; MAX_DELTA_BODY];
@@ -103,8 +98,6 @@ fn two_hundred_fifty_six_chunks_is_refused_not_truncated() {
     );
 }
 
-/// The headline MTU guarantee: a delta far bigger than one packet only ever
-/// produces frames that fit in one packet, and they reassemble byte-exact.
 #[test]
 fn an_oversized_delta_produces_only_mtu_safe_frames() {
     let body: Vec<u8> = (0..12_000u32).map(|i| (i % 251) as u8).collect();
@@ -123,7 +116,6 @@ fn an_oversized_delta_produces_only_mtu_safe_frames() {
         assert_eq!(header.tick, 99);
     }
 
-    // And the other half of the contract: the receiver can put it back.
     let mut assembler = FragmentAssembler::default();
     let mut out = None;
     for f in &frames {

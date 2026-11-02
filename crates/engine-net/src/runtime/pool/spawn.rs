@@ -1,4 +1,3 @@
-//! Thread-per-core pool spawn: one pinned-ish worker thread per configured core.
 
 use std::io;
 use std::sync::Arc;
@@ -10,8 +9,6 @@ use super::config::PoolConfig;
 use super::handle::WorkerPoolHandle;
 use crate::runtime::worker::{MioWorker, WorkerConfig};
 
-/// Spawns a Thread-Per-Core multi-worker pool.
-/// Each thread creates a `MioWorker` bound via `SO_REUSEPORT` and runs its independent 60Hz tick loop.
 pub fn spawn_worker_pool<F>(config: PoolConfig, worker_factory: F) -> io::Result<WorkerPoolHandle>
 where
     F: Fn(usize) + Send + Sync + 'static + Clone,

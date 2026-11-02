@@ -1,5 +1,3 @@
-//! The client arm of the poll: drain the socket, run the greeting or the
-//! frame decoder, and push queued bytes out.
 
 use std::io::{self, Write};
 use std::time::Instant;
@@ -61,23 +59,20 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                     if closed {
                         conn_dead = true;
                     } else {
-                        // Greeting may have adopted the SDK's seat-reservation sessionId — re-key the token map so send_to() finds it.
+
                         if client.session_id != prev_id {
                             pass.client_tokens.remove(&*prev_id);
                             pass.client_tokens
                                 .insert(client.session_id.to_string(), token);
                         }
                         if client.state == WsState::Connected {
-                            // Frames may have arrived in the same TCP segment as the upgrade request; mio is edge-triggered, so drain them now.
-                            // `|=` keeps an EOF from the read loop above: a bare FIN
-                            // carries no frame, so process_ws_frames returns false.
+
                             conn_dead |= process_ws_frames(client, &mut *pass.buf, now);
                         }
                     }
                 }
                 WsState::Connected => {
-                    // `|=` keeps an EOF from the read loop above: a bare FIN
-                    // carries no frame, so process_ws_frames returns false.
+
                     conn_dead |= process_ws_frames(client, &mut *pass.buf, now);
                 }
             }
@@ -93,7 +88,7 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                 Err(_) => conn_dead = true,
             }
         }
-        // Keep the WRITABLE interest only while backpressure exists.
+
         sync_writable_interest(client, pass.poll, event.token());
     }
 
@@ -102,9 +97,6 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
     }
 }
 
-/// Align the socket's epoll interest with the send-queue state: WRITABLE only
-/// while there is queued data, READABLE-only once drained. Idempotent — a
-/// no-op when the interest already matches (no syscall per flush).
 pub(super) fn sync_writable_interest(client: &mut WsClient, poll: &mio::Poll, token: Token) {
     let want = !client.send_queue.is_empty();
     if client.registered_writable == want {

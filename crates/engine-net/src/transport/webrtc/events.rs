@@ -1,5 +1,3 @@
-//! Translating one session's `str0m` output into transport events, classified
-//! inbound frames, datagrams and contract counters.
 
 use str0m::{Event, Output};
 
@@ -11,12 +9,7 @@ use super::session::{Sink, WebRtcSession};
 use super::types::WebRtcServerEvent;
 
 impl WebRtcServer {
-    /// Drain this session's `str0m` output queue.
-    ///
-    /// A `Channel::write` only lands in the SCTP association; the datagram
-    /// exists once the output queue is polled. Skipping this makes every delta
-    /// leave a tick late, and a host that sends then asks for transmits in the
-    /// same iteration would get nothing back.
+
     pub(super) fn settle(session: &mut WebRtcSession, sink: &mut Sink) {
         Self::poll_session_events(session, sink);
     }
@@ -55,7 +48,7 @@ impl WebRtcServer {
                                 );
                             }
                         }
-                        // The label names a lane; the negotiated SCTP parameters decide what it is, so record a disagreement rather than trust either alone.
+
                         let mismatch = session
                             .rtc
                             .channel(cid)
@@ -69,7 +62,7 @@ impl WebRtcServer {
                             );
                         }
                     }
-                    // Anything else stays unmapped: neither writable as a game lane nor believable as a source of game frames.
+
                     sink.events.push(WebRtcServerEvent::ChannelOpen {
                         client_id: session.client_id.clone(),
                         label,
@@ -131,7 +124,7 @@ impl WebRtcServer {
                         session.ch_reliable = None;
                     }
                     if let Some(lane) = lane {
-                        // Whatever was waiting for it can never be delivered.
+
                         let n = session.queue(lane).clear();
                         sink.stats.frames_dropped_no_channel += n as u64;
                     }

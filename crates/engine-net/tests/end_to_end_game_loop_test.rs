@@ -7,7 +7,6 @@ use engine_core::{PlayerInput, PlayerInputBuffer, RewindManager, TransformSnapsh
 use engine_net::{MioWorker, OpCode, WorkerConfig, decode_frame, encode_frame};
 use engine_wasm::{WasmRuntime, wasm_module};
 
-// Typed WASM wrapper for the 239-byte AssemblyScript game room
 wasm_module! {
     pub struct AsGameRoom {
         fn init();
@@ -28,7 +27,6 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
     let port = 19090;
     let addr = format!("127.0.0.1:{}", port).parse().unwrap();
 
-    // 1. Initialize WASM runtime and pre-compiled module
     let runtime = WasmRuntime::new().expect("WasmRuntime init ok");
     let wasm_bytes = include_bytes!("../../engine-wasm/tests/assemblyscript/game_room.wasm");
     let module = runtime
@@ -38,10 +36,8 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
     room.init().expect("Room init ok");
     println!("✓ 1. AssemblyScript Room initialized via engine-wasm (Pos: 100.0, 100.0)");
 
-    // 2. Initialize Lag Compensation Rewind Manager (500ms history window at 60Hz)
     let mut rewind_mgr = RewindManager::new(500, 60);
 
-    // 3. Initialize Mio Network Worker with SO_REUSEPORT
     let config = WorkerConfig {
         bind_addr: addr,
         tick_rate: 60,
@@ -50,10 +46,8 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
     let mut worker = MioWorker::new(config).expect("MioWorker init ok");
     println!("✓ 2. MioWorker running on SO_REUSEPORT (Port {})", port);
 
-    // 4. Per-player input buffer for client reconciliation
     let mut input_buffer = PlayerInputBuffer::new(64);
 
-    // Spawn a simulated Game Client (e.g. Unity / Godot / Web client)
     let client_handle = thread::spawn(move || {
         thread::sleep(Duration::from_millis(50));
         let mut stream =
@@ -63,8 +57,6 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
             .set_read_timeout(Some(Duration::from_millis(500)))
             .unwrap();
 
-        // Client sends PlayerInput #1: dt=0.016, speedX=100.0, speedY=50.0
-        // Wire payload: [seq: u64 (8 bytes)][speedX: f32 (4 bytes)][speedY: f32 (4 bytes)]
         let mut payload = Vec::new();
         payload.extend_from_slice(&1u64.to_be_bytes());
         payload.extend_from_slice(&100.0f32.to_be_bytes());
@@ -75,7 +67,6 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
         stream.write_all(&send_buf).expect("Write ok");
         stream.flush().expect("Flush ok");
 
-        // Client awaits StateDelta response from 60Hz server tick
         let mut recv_buf = Vec::new();
         let mut temp = [0u8; 1024];
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
@@ -105,7 +96,6 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
         panic!("Timeout waiting for StateDelta");
     });
 
-    // 5. Run Server Event Loop
     let mut ticks_processed = 0;
     let mut confirmed_ack = 0;
     let entity_id = 1;
@@ -117,7 +107,6 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
             .step(Duration::from_millis(5), &mut packets, |ctx, clients| {
                 ticks_processed += 1;
 
-                // A. Consume pending inputs for this tick
                 let mut speed_x = 0.0f32;
                 let mut speed_y = 0.0f32;
 
@@ -130,16 +119,13 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
                     }
                 }
 
-                // B. Execute WASM tick (20ns latency!)
                 room.update(ctx.dt, speed_x, speed_y).unwrap();
                 let pos_x = room.getPositionX().unwrap();
                 let pos_y = room.getPositionY().unwrap();
 
-                // C. Record snapshot in RewindManager for Lag Compensation
                 let snap = TransformSnapshot::new(pos_x, pos_y, 0.0, 2.0);
                 rewind_mgr.record(entity_id, ctx.tick, ctx.dt_ms * ctx.tick as f64, snap);
 
-                // D. Broadcast StateDelta to clients: [consumed_ack: u64][posX: f32][posY: f32]
                 confirmed_ack = input_buffer.consumed_count();
                 let mut delta = Vec::new();
                 delta.extend_from_slice(&confirmed_ack.to_be_bytes());
@@ -152,7 +138,6 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
             })
             .expect("Worker step ok");
 
-        // Parse received inputs and push into PlayerInputBuffer
         for pkt in packets.drain(..) {
             if pkt.opcode == OpCode::PlayerInput && pkt.payload.len() >= 16 {
                 let seq = u64::from_be_bytes(pkt.payload[0..8].try_into().unwrap());
@@ -167,7 +152,6 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
         }
     }
 
-    // 6. Verify Client Received Delta & Reconciliation Ack
     let (opcode, data) = client_handle.join().expect("Client thread finished");
     assert_eq!(opcode, OpCode::StateDelta);
     assert!(data.len() >= 16);
@@ -183,7 +167,6 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
     assert_eq!(ack, 1, "Client received confirmed input ack #1");
     assert!(x > 100.0, "WASM updated position forward");
 
-    // 7. Verify Lag Compensation Rewind query
     let rewound = rewind_mgr
         .rewind_entity(entity_id, 0.0)
         .expect("Rewind snapshot found");

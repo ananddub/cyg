@@ -1,4 +1,3 @@
-//! Completing the RFC 6455 upgrade and starting the game protocol.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -11,9 +10,6 @@ use super::request::Greeting;
 use super::seat::build_join_reply;
 use crate::transport::TransportEvent;
 
-/// Finish the `101 Switching Protocols` handshake. Returns `false`: an upgrade
-/// keeps the connection, and a buffer that holds no complete request yet is
-/// simply left for the next readable event.
 pub(super) fn complete_upgrade(
     client: &mut WsClient,
     req: &Greeting,
@@ -29,7 +25,6 @@ pub(super) fn complete_upgrade(
     client.state = WsState::Connected;
     client.last_activity = Instant::now();
 
-    // Adopt the SDK's seat-reservation sessionId from the upgrade URL so the server-side player key matches room.sessionId on the client.
     if let Some(sid) = &req.url_session_id {
         client.session_id = Arc::from(sid.as_str());
     }
@@ -43,13 +38,9 @@ pub(super) fn complete_upgrade(
             .insert(client.session_id.to_string(), options.clone());
     }
 
-    // In this protocol the SERVER initiates the join: the SDK client connects, then waits for the JOIN_ROOM handshake before `onJoin`.
     let reply = build_join_reply(&client.session_id, &client.room_id, ctx.seat_tokens);
     encode_ws_frame(&reply, &mut client.send_queue);
 
-    // The schema descriptor travels in its own frame right after JOIN_ROOM.
-    // It is self-describing ("OXSD"), so clients can build their state
-    // contract before the first snapshot without any project-side schema file.
     if !ctx.schema_descriptor.is_empty() {
         encode_ws_frame(ctx.schema_descriptor, &mut client.send_queue);
     }

@@ -16,7 +16,6 @@ fn test_webrtc_server_full_roundtrip() {
 
     let _ = client_rtc.add_local_candidate(client_cand.clone());
 
-    // 1. Client creates offer with "game-unreliable" and "game-reliable" DataChannels
     let mut change = client_rtc.sdp_api();
     let _cid_unrel = change.add_channel("game-unreliable".into());
     let _cid_rel = change.add_channel("game-reliable".into());
@@ -25,27 +24,23 @@ fn test_webrtc_server_full_roundtrip() {
 
     let mut server = WebRtcServer::new(vec![server_addr]);
 
-    // 2. Server accepts SDP offer and returns SDP answer
     let answer_sdp = server
         .handle_offer("player_1", &offer_sdp)
         .expect("server handle offer");
     let answer = str0m::change::SdpAnswer::from_sdp_string(&answer_sdp).unwrap();
     client_rtc.sdp_api().accept_answer(pending, answer).unwrap();
 
-    // Add candidates to both peers
     let _ = client_rtc.add_remote_candidate(server_cand);
     let _ = server.handle_candidate("player_1", &client_cand.to_sdp_string());
 
     let mut client_ch_unrel = None;
 
-    // 3. Exchange UDP packets until DTLS / SCTP Handshake completes
     for _ in 0..100 {
         now += Duration::from_millis(5);
 
         let _ = client_rtc.handle_input(Input::Timeout(now));
         server.tick(now);
 
-        // Drain client -> server
         while let Ok(out) = client_rtc.poll_output() {
             match out {
                 Output::Transmit(t) => {
@@ -62,7 +57,6 @@ fn test_webrtc_server_full_roundtrip() {
             }
         }
 
-        // Drain server -> client
         for (dest, packet) in server.poll_transmits() {
             if let Ok(recv) = Receive::new(Protocol::Udp, server_addr, dest, &packet) {
                 let _ = client_rtc.handle_input(Input::Receive(now, recv));
@@ -90,7 +84,6 @@ fn test_webrtc_server_full_roundtrip() {
         "client should have game-unreliable channel opened"
     );
 
-    // 4. Test Client -> Server unreliable input frame transmission
     let test_input = vec![
         0x01, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
@@ -100,7 +93,6 @@ fn test_webrtc_server_full_roundtrip() {
     ch.write(false, &test_input)
         .expect("write to unreliable channel");
 
-    // Flush transmit
     while let Ok(out) = client_rtc.poll_output() {
         match out {
             Output::Transmit(t) => {
@@ -131,7 +123,6 @@ fn test_webrtc_server_full_roundtrip() {
         "Server should receive input frame on game-unreliable channel"
     );
 
-    // 5. Test Server -> Client unreliable world delta transmission
     let test_delta = vec![
         0xA5, b'd', b'e', b'l', b't', b'a', 1, 0, 0, 0, 0, 0, 0, 0, 10, 20, 30,
     ];

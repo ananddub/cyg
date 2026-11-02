@@ -1,4 +1,3 @@
-//! Golden fixtures for the browser-facing schema contract.
 
 use engine_schema::{generate_with_root, ts};
 
@@ -34,8 +33,7 @@ fn descriptor_bytes_are_stable() {
         generated.descriptor[4], 3,
         "v3 adds per-field flags and element codes"
     );
-    // Plain fields keep their historical hash; flags/element only extend it
-    // when present.
+
     assert_eq!(
         generated
             .descriptor
@@ -136,7 +134,6 @@ fn multi_collection_root_emits_world_scalars_and_descriptor() {
     assert!(dts.contains("players: SchemaMap<PlayerState>;"));
     assert!(dts.contains("projectiles: SchemaMap<ProjectileState>;"));
 
-    // Root scalars and collections are declared for the browser.
     assert!(
         generated
             .descriptor

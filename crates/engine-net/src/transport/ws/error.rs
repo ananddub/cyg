@@ -1,7 +1,4 @@
-//! Typed matchmake rejections.
 
-/// A typed matchmake rejection, mapped onto the Colyseus HTTP error codes
-/// (shared-types ErrorCode) and surfaced to the SDK as a `MatchMakeError`.
 #[derive(Debug, Clone)]
 pub struct MatchMakeError {
     pub code: u16,

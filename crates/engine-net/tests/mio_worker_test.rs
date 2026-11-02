@@ -21,9 +21,8 @@ fn test_mio_worker_client_echo_and_ticks() {
     let mut worker = MioWorker::new(config).expect("Worker creation and SO_REUSEPORT bind ok");
     println!("✓ MioWorker bound to 127.0.0.1:{} with SO_REUSEPORT", port);
 
-    // Spawn a test client thread
     let client_handle = thread::spawn(move || {
-        // Give worker a moment to enter event loop
+
         thread::sleep(Duration::from_millis(50));
 
         let mut stream =
@@ -33,13 +32,11 @@ fn test_mio_worker_client_echo_and_ticks() {
             .set_read_timeout(Some(Duration::from_millis(500)))
             .unwrap();
 
-        // 1. Send PlayerInput packet: opcode = PlayerInput, payload = [42, 100, 200]
         let mut send_buf = Vec::new();
         encode_frame(OpCode::PlayerInput, &[42, 100, 200], &mut send_buf);
         stream.write_all(&send_buf).expect("Write ok");
         stream.flush().expect("Flush ok");
 
-        // 2. Read response from server
         let mut recv_buf = Vec::new();
         let mut temp = [0u8; 1024];
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
@@ -64,7 +61,6 @@ fn test_mio_worker_client_echo_and_ticks() {
         panic!("Timeout waiting for response from MioWorker");
     });
 
-    // Run worker steps
     let mut ticks_fired = 0;
     let mut packet_received = false;
 
@@ -74,7 +70,7 @@ fn test_mio_worker_client_echo_and_ticks() {
         worker
             .step(Duration::from_millis(5), &mut packets, |_ctx, clients| {
                 ticks_fired += 1;
-                // On tick, send a StateDelta back to all clients
+
                 for conn in clients.values_mut() {
                     conn.queue_message(OpCode::StateDelta, &[99, 88, 77]);
                 }

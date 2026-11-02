@@ -47,5 +47,5 @@ fn every_contract_struct_serialises_camel_case() {
     camel("ClientRow", &ClientRow::default());
     camel("TickSeries", &TickSeries::default());
     camel("TickPoint", &TickPoint::default());
-    // StatusSnapshot deliberately stays snake_case; it's `/status`, not dashboard wire
+
 }

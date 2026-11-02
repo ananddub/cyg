@@ -32,8 +32,6 @@ pub(crate) fn validate_async(signature: &syn::Signature) -> syn::Result<()> {
     Ok(())
 }
 
-/// `&self` — the handler runs on the `Arc<Self>` the container resolved, so it
-/// must not take the receiver by value.
 pub(crate) fn validate_receiver(signature: &syn::Signature) -> syn::Result<()> {
     match signature.inputs.first() {
         Some(FnArg::Receiver(receiver))
@@ -50,8 +48,6 @@ pub(crate) fn validate_receiver(signature: &syn::Signature) -> syn::Result<()> {
     }
 }
 
-/// The argument count after `&self`, so a mistyped handler is a sentence and
-/// not a wall of inference errors.
 pub(crate) fn validate_arity(
     signature: &syn::Signature,
     expected: usize,

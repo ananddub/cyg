@@ -1,11 +1,3 @@
-//! Honest, anti-lie benchmark: addresses the classic micro-benchmark pitfalls.
-//!
-//! - `black_box` on every consumed result (no dead-code elimination)
-//! - Realistic host state (players Vec + HashMap + timers) instead of `()`
-//! - Tail latency: p50 / p99 / p99.9, not just the mean
-//! - Multi-threaded contention: shared pre-instantiated template across threads
-//!
-//! Run: cargo test --release -p engine-wasm --test realistic_bench -- --nocapture
 
 use engine_wasm::{WasmConfig, WasmRuntime};
 use std::collections::HashMap;
@@ -14,7 +6,6 @@ use std::time::Instant;
 
 const ROOMS_PER_THREAD: u32 = 10_000;
 
-/// A realistic per-room host state, like a real game room would carry.
 #[derive(Default)]
 struct RoomState {
     players: HashMap<u64, (f32, f32, f32)>,
@@ -59,7 +50,7 @@ fn bench_spawn(pre: &engine_wasm::WasmPreInstance<RoomState>) -> Vec<u32> {
                 packets: Vec::with_capacity(256),
             })
             .expect("instantiate ok");
-        // Realistic touch: run a tick and write a packet so nothing is optimized away.
+
         let on_tick: wasmtime::TypedFunc<(f32,), ()> =
             room.get_typed_func("on_tick").expect("export ok");
         on_tick

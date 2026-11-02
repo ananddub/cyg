@@ -3,11 +3,8 @@ use crate::bytes::{le_f32, le_u16, put_f32, put_u16};
 
 pub const OP_INPUT: u8 = 0x01;
 
-/// Input frame is 23 bytes: header + button mask + four floats.
 pub const INPUT_WIRE_LEN: usize = HEADER_LEN + 4 + 4 * 4;
 
-/// One player's sampled control state, sent to peers so they can predict this
-/// client's motion ahead of the server's authoritative delta.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InputFrame {
     pub seq: u16,
@@ -34,7 +31,6 @@ impl InputFrame {
     }
 }
 
-/// Write an input frame into `out`, starting a fresh frame.
 pub fn encode_input(frame: &InputFrame, out: &mut Vec<u8>) {
     out.clear();
     out.reserve(INPUT_WIRE_LEN);

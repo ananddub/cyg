@@ -1,18 +1,12 @@
-//! Property-based chaos for `PlayerInputBuffer` (proptest + shrinking).
-//!
-//! Random operation sequences — rapid fire, duplicates, stale redeliveries,
-//! bursts past `max_backlog`, interleaved consumption — must preserve the
-//! invariants the reconciliation protocol depends on. A failure shrinks to a
-//! minimal op sequence instead of a 200-line tick log.
 
 use engine_core::{PlayerInput, PlayerInputBuffer};
 use proptest::prelude::*;
 
 #[derive(Debug, Clone)]
 enum Op {
-    /// Push an input with the given seq (may be stale, duplicate, or a burst).
+
     Push(u64),
-    /// Consume up to N pending inputs.
+
     Consume(u64),
 }
 
@@ -37,14 +31,13 @@ proptest! {
             match *op {
                 Op::Push(seq) => {
                     buf.push(PlayerInput::new(seq, seq as f64, vec![0u8; 8]));
-                    // Invariant 1: the backlog is hard-bounded.
+
                     prop_assert!(buf.pending_count() <= 16);
                 }
                 Op::Consume(n) => {
                     for _ in 0..n {
                         if let Some(input) = buf.consume() {
-                            // Invariant 2: inputs are consumed strictly in
-                            // ascending seq order and the ack never regresses.
+
                             if let Some(prev) = last_consumed {
                                 prop_assert!(input.seq > prev);
                             }
@@ -56,8 +49,6 @@ proptest! {
             }
         }
 
-        // Invariant 3: whatever remains pending drains in strictly ascending
-        // order with no duplicates.
         while let Some(input) = buf.consume() {
             if let Some(prev) = last_consumed {
                 prop_assert!(input.seq > prev, "pending seq {} not above consumed {}", input.seq, prev);
