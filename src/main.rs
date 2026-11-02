@@ -994,29 +994,31 @@ declare module "cyg" {
     tracing::info!("✓ game project created in {}", dir.display());
     tracing::info!("");
     tracing::info!(
-        "  {}/config.toml     — runtime, ports, tick rate",
+        "  {}/config.toml          — runtime, ports, tick rate",
         dir.display()
     );
     tracing::info!(
-        "  {}/room.ts        — your room logic (edit me!)",
+        "  {}/src/index.ts         — your room logic (edit me!)",
         dir.display()
     );
     tracing::info!(
-        "  {}/schema.ts      — network state (Colyseus v5 syntax, edit me!)",
+        "  {}/src/schema/player.ts — network state, CYG schema DSL (edit me!)",
         dir.display()
     );
     tracing::info!(
-        "  {}/cyg-server.ts — server SDK (Room, messages, SchemaState)",
+        "  {}/pkg/cyg-server.ts    — server SDK (Room, SchemaState, physics)",
         dir.display()
     );
     tracing::info!(
-        "  {}/cyg.js   — browser SDK (Client, schema, messages)",
+        "  {}/gen/cyg.schema.ts    — generated typed bindings (regenerated)",
         dir.display()
     );
-    tracing::info!("  {}/cyg-client.d.ts — browser SDK types", dir.display());
     tracing::info!(
-        "  {}/.gitignore      — ignores regenerable client bindings",
+        "  {}/out/                 — cyg.schema.bin descriptor + wasm build",
         dir.display()
+    );
+    tracing::info!(
+        "  browser SDK: served by the server at /cyg.js — no copy needed"
     );
     tracing::info!("");
     print_schema_output(&generated, false, false)?;

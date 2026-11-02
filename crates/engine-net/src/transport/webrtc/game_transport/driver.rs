@@ -72,6 +72,9 @@ impl WebRtcTransport {
         for cid in stale {
             self.server.remove_session(&cid);
             self.last_seen.remove(&cid);
+            if !self.pending.iter().any(|e| matches!(e, TransportEvent::Disconnected { client_id } if client_id.as_ref() == cid)) {
+                self.pending.push(TransportEvent::Disconnected { client_id: cid.into() });
+            }
         }
     }
 

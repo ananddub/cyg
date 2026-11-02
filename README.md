@@ -31,7 +31,7 @@ The same game's Project tab: configure sync rate and capacity, deploy WASM room 
 ## Highlights
 
 - **Your game runs as sandboxed WebAssembly** — extend `Room`, mutate a typed reactive state, `commitState()`. Zero-GC AssemblyScript, hot-reload on save, per-room sandbox: a trapping room fails alone — its crashes and bad memory accesses stay inside the room while the host keeps running.
-- **The engine parts come to you — all inbuilt, all optional-per-game**: host-side Rapier2D/3D physics, deterministic RNG and tick timers, navmesh A* pathfinding, spatial AOI, lag-compensated raycasts. Thirty-plus `sys_*` imports behind per-game permissions; your `room.ts` calls them like functions.
+- **The engine parts come to you — all inbuilt, all optional-per-game**: host-side Rapier2D/3D physics, deterministic RNG and tick timers, navmesh A* pathfinding, spatial AOI, lag-compensated raycasts. Thirty-plus `sys_*` imports behind per-game permissions; your room code calls them like plain functions.
 - **An inbuilt ECS backend for scale.** When a room fits the template shape (movement, dense players), the same binary can run it on the flat, cache-native ECS state instead of per-entity WASM — 128 Hz at thousands of CCU per core. Same wire protocol, same console, same descriptor; a room whose name contains `ecs` runs on it. Nothing extra to install.
 - **WebRTC DataChannels** (dual lane: newest-wins deltas + ordered reliable) with raw-UDP native clients on the side — QUIC-tier reliability on both: per-frame sequence, reorder-safe delivery, SACK selective resends, sendmmsg + UDP-GSO fan-out.
 - **Reactive client SDK** — descriptor-driven decode at join: `room.onStateChange`, `player.listen("x", cb)`, collection `onAdd/onRemove`, `room.request()` RPC, `client.auth`, `room.clock`. CYG-branded imports, no alien syntax.
@@ -84,77 +84,366 @@ Fresh project:
 ```bash
 cyg-game init my-game && cd my-game
 cyg-game doctor          # config + schema + ABI check
-cyg-game run             # compile room.ts → wasm and serve
+cyg-game run             # compile src/index.ts → wasm and serve
 ```
 
-## Writing a game
+## Writing a game — every use case
 
-A project is `config.toml`, your room source and schema (`src/` in the examples; `cyg-game init` scaffolds the same files at the project root), a `website.html` you host yourself, and generated `out/`. The server reads **only** what the config names — ports, tick rate, file paths — nothing is hardcoded.
+`cyg-game init` scaffolds the modern layout; every snippet below is that syntax:
+
+```
+my-game/
+├── config.toml            runtime: ports, tick rate, capacities, permissions
+├── src/
+│   ├── index.ts           your room logic (the entry config.source points at)
+│   └── schema/            network state — one or more .ts files (player.ts, …)
+├── pkg/                   server SDK, vendored: cyg-server.ts + cyg.d.ts + as-types.d.ts
+├── gen/                   generated bindings (gitignored): cyg.schema.ts
+├── out/                   build artifacts: cyg.schema.bin, room_logic.wasm
+└── tsconfig.json          editor types (VSCode opens with zero errors)
+```
+
+Save `src/index.ts` or anything under `src/schema/` while `cyg-game run` is up and the room recompiles and hot-swaps — players stay connected. The browser SDK is served by the server itself at `/cyg.js`; nothing to copy. A deeper version of this tour ships in `docs/site/guide.html`.
+
+### 1. config.toml
 
 ```toml
-name = "coin-rush"
-runtime = "assemblyscript"
-source = "src/room.ts"
-out = "out/room_logic.wasm"
-port = 7779            # game data (WebRTC over UDP)
-tick_rate = 128
+name = "my-game"
+runtime = "assemblyscript"      # the standard path
+source = "src/index.ts"        # room entry
+out = "room_logic.wasm"
+
+port = 7777                    # game data (WebRTC over UDP)
+tick_rate = 30                 # 20 casual … 60/128 competitive
 max_clients = 16
+max_rooms = 1024
 
 [control]
-api_port = 8124        # matchmake, signaling, console, dashboard
+api_port = 8124                # matchmake, signaling, /v2, console, /cyg.js
 
 [control.session]
-database_endpoint = "surrealkv://data/cyg"   # embedded; or ws://host:8000
-database_memtable_mib = 64                   # SurrealKV ceilings, see "Memory"
-database_cache_mib = 32
-blobs = "file:data/uploads"                  # uploaded WASM modules + maps
+database_endpoint = "surrealkv://data/cyg"   # embedded accounts/chat/leaderboards
 ```
 
-`src/schema.ts` declares the state; codegen emits the typed server classes and the browser descriptor:
+The scaffolded config carries commented blocks for everything else — room lifetime (`[lifecycle]`: `room_max_seconds`, `reap_idle_secs`, `persistent_rooms`, drain grace), the guest watchdog (`[watchdog]`), gameplay event recording (`[gameplay]`), player quotas (`[control.quotas]`), IAP verification and social sign-in — each block documenting the shipped default. `cyg-game doctor` validates the whole project in one command.
+
+### 2. Schema — declare the state once
+
+`src/schema/player.ts` (the compiler scans `src/schema/*.ts`; `player.ts` is the conventional entry):
 
 ```ts
-// schema.ts
-const Player = schema({ pid: t.int64(), x: t.number(), y: t.number(), score: t.number() }, "Player");
+import { schema, t } from "cyg";
+
+export const Player = schema({
+    pid:   t.int64().default(0),    // player ids are i64
+    x:     t.number().default(0),   // f64 — positions, angles
+    y:     t.number().default(0),
+    hp:    t.uint8().default(100),  // 1 byte on the wire — size matters at 128 Hz
+    flags: t.uint8().default(0),    // held-key mask, readable by clients too
+}, "Player");
+
+export const PlayerSchema = Player;
+
 export const State = schema({
-    players: t.map(Player),
-    coinX: t.number(),
-    coinY: t.number(),
+    players: t.map(Player),         // the collection — keyed by entity id
 }, "State");
 ```
 
-`src/room.ts` — physics and input helpers included, no byte wrangling:
+Types: `t.number()/f64`, `f32`, `int8…int64`, `uint8…uint32`, `boolean`, `string`. Collections: `t.map(Entity)` (keyed), `t.array(Entity)` (ordered — chat log, bullet feed), `t.ref(Entity)` (entity reference). `.default(v)` works on primitives and strings. Reserved words cannot be field names.
+
+`cyg-game run` (or `cyg-game schema`) compiles this into three artifacts:
+
+| Artifact | Consumed by |
+|---|---|
+| `gen/cyg.schema.ts` — typed classes (`Player`, `PlayerSchema`, `GameState`) | your room, via `import { … } from "../gen/cyg.schema"` |
+| `out/cyg.schema.bin` — binary descriptor | delivered to every client in the join handshake |
+| `out/cyg.schema.d.ts` — browser type contract | editors and TS frontends |
+
+Import the generated classes from `../gen/cyg.schema` — never import `src/schema/*` directly from the room (the `"cyg"` module only resolves inside the schema compiler).
+
+### 3. The room — lifecycle, state, commit
 
 ```ts
-export class CoinRush extends Room {
-    onCreate(max: i32): void { this.setState(this.s); Rapier2D.init(0.0, 0.0); /* … */ }
-    onInputPacket(id: i64, input: InputReader): void {
-        if (isHeld(input.readU8(), Key.W)) { /* move via Rapier2D, mutate s.players */ }
+// src/index.ts
+import { Room, InputReader, SchemaState, Key, isHeld } from "../pkg/cyg-server";
+import { Player, PlayerSchema } from "../gen/cyg.schema";
+
+export class MyGame extends Room {
+    private state: SchemaState = new SchemaState(PlayerSchema);
+    private players: Array<Player> = [];
+    private speed: f64 = 120.0;
+
+    onCreate(max: i32): void {
+        this.setState(this.state);              // bind — commitState() syncs this
     }
-    onTick(dt: f64): i64 { /* … */ return this.commitState(); }
+
+    onJoin(id: i64, x: f64, y: f64): void {    // spawn x/y chosen by the host
+        const p = new Player();
+        p.pid = id; p.x = x; p.y = y;
+        this.players.push(p);
+        this.state.set(id as u32, p);           // add to the synced collection
+        this.broadcastText("joined", p.pid.toString());
+    }
+
+    onLeave(id: i64): void {
+        this.state.delete(id as u32);           // drop from this.players too
+    }
+
+    onInputPacket(id: i64, input: InputReader): void { /* §5 */ }
+
+    onTick(dt: f64): i64 {                      // dt in seconds — always scale by it
+        for (let i = 0; i < this.players.length; i++) {
+            const p = this.players[i];
+            if (isHeld(p.flags, Key.W)) p.y -= this.speed * dt;
+            if (isHeld(p.flags, Key.S)) p.y += this.speed * dt;
+            if (isHeld(p.flags, Key.A)) p.x -= this.speed * dt;
+            if (isHeld(p.flags, Key.D)) p.x += this.speed * dt;
+        }
+        return this.commitState();              // dirty-only delta out
+    }
 }
 ```
 
-The browser client needs no codegen — the descriptor arrives at join:
+All hooks: `onCreate(max)` (bind state, init physics), `onJoin(id, x, y)`, `onLeave(id)`, `onInputPacket(id, input)` (reliable app messages from one player), `onTick(dt)` (return `this.commitState()`), `onSave()/onLoad()` (persistence snapshots for hibernation). Throttle without touching `tick_rate`: `this.patchRate` (min ms between state patches) and `this.simulationInterval` (min ms between `onTick` calls).
+
+When the root carries scalars or several collections (`coinX`, `phase`, two maps), codegen emits a world class instead — same three lines, richer state:
+
+```ts
+import { GameState, Player } from "../gen/cyg.schema";
+
+private s: GameState = new GameState();
+onCreate(max: i32): void { this.setState(this.s); }
+// s.players.set(id, p) · s.players.get(id) · s.players.delete(id) · s.players.ids
+// s.coinX = 40.0 + rngNext() * 720.0 · s.phase = 2      (root scalars, synced the same way)
+```
+
+`commitState()` encodes only what changed — tagged TLV rows; a quiet room costs ~0 bytes. Clients receive one full snapshot at join and patches afterwards, decoded from the descriptor.
+
+### 4. Deterministic helpers
+
+None of these read the wall clock, so a replay re-simulates identically:
+
+```ts
+rngNext(): f64                       // 0..1 xorshift64, seeded per room
+Random.seed(s: u64) / Random.nextU32()
+clockTicks(): i64                    // the authoritative tick counter
+
+Timers.set(id, delayTicks, intervalTicks = 0)   // 0 = one-shot
+Timers.poll()                                  // call once per onTick → fired id (0 = none)
+Timers.cancel(id)
+
+Combat.applyDamage(…)                // zone-weighted damage + crits → DamageResult
+MatchStateMachine / CooldownTracker / TriggerZone   // match flow, cooldowns, zones
+```
+
+Timers are polled, not callbacks — that is what makes them replay-safe.
+
+### 5. Inputs — the movement lane
+
+Client (the easy way — a keyboard-bound input handle):
 
 ```js
-const client = new CYG.Client(location.origin);
-const room = await client.joinOrCreate("game_room");
-room.onStateChange((state) => render(state.players.get(room.playerId).x));
-callbacks.onAdd("players", (player) => player.listen("score", (v) => hud(v)));
-const reply = await room.request("login", { user });   // request/response RPC
+const input = room.input();               // data.up/down/left/right/jump/aimYaw/aimPitch
+const unbind = input.bindKeyboard();      // WASD + arrows + space, returns an unbind fn
+setInterval(() => input.send(), 33);      // one 23-byte frame on the unreliable lane
 ```
+
+Hand-packed frames when you need full control: `room.sendInput(flags, aimYaw, aimPitch, moveX, moveZ)`, or `room.sendUnreliable("input", bytes)`; `room.sendInputBatch([{ seq, payload: Uint8Array(20) }, …])` packs up to 64 samples into one packet for lossy/mobile paths.
+
+Server:
+
+```ts
+onInputPacket(id: i64, input: InputReader): void {
+    if (input.remaining < 20) return;
+    const flags = input.readU32();        // W=1 S=2 A=4 D=8 Jump=16
+    const aimYaw = input.readF32();
+    const aimPitch = input.readF32();
+    const mx = input.readF32();           // move vector (0 when keys-only)
+    const mz = input.readF32();
+    if (isHeld(flags, Key.W)) { /* … */ }
+}
+```
+
+`InputReader` is cursor-based: `readU8/readU32/readF32/readF64/readI64`, `remaining`, `hasRemaining(n)` — it never reads past what you checked. `Key` carries `W/S/A/D/Space/Shift`.
+
+**The lane rule:** everything you cannot afford to drop (fires, chats, RPCs, `onMessage` traffic) rides the **reliable ordered** lane via `room.send`. Per-tick movement and aim ride `sendUnreliable`/`sendInput` — newest-wins, no retransmit; a late movement packet is worthless by definition.
+
+### 6. Messaging — broadcast, targeted, RPC
+
+```ts
+this.broadcast("phase", bytes);                // server → everyone (reliable)
+this.broadcastText("chat", "welcome!");
+this.sendTo(playerId, "private", bytes);       // server → one player
+this.sendTextTo(playerId, "toast", "level up");
+
+this.onMessage("fire", (senderId, reader, room) => { /* typed app message */ });
+
+this.onRequest("login", (senderId, reader, ctx) => {    // request/response RPC
+    const payload = reader.remainingBytes();
+    ctx.replyText("ok");                                // or ctx.reply(bytes)
+});
+```
+
+Client side:
+
+```js
+room.onMessage("chat", (payload) => {});
+room.onMessage("*", (type, payload) => {});        // wildcard
+room.send("fire", { dir });                        // reliable, ordered
+const res = await room.request("login", { user }); // RPC — 5 s timeout, promise
+```
+
+### 7. 2D physics — Rapier2D in the host
+
+Physics runs host-side; the room only makes calls. With the batched ABI a whole room's velocities and position readbacks cross the wasm boundary in a handful of calls per tick — that is where the ~8k CCU/core @128 Hz figure below comes from:
+
+```ts
+import { Rapier2D, BodyType, Vec2, PhysicsBatch2D } from "../pkg/cyg-server";
+
+private batch: PhysicsBatch2D = Rapier2D.batch(4096);   // keep for the room's lifetime
+
+onCreate(max: i32): void {
+    this.setState(this.s);
+    Rapier2D.init(0.0, 0.0);                            // gravity (0,0 = top-down)
+    this.coinBody = Rapier2D.createBody(BodyType.Fixed, 400, 250);
+    Rapier2D.addCircleCollider(this.coinBody, 24.0, true, 0.0, 0.0);  // sensor = pickup
+}
+
+onJoin(id: i64, x: f64, y: f64): void {
+    const body = Rapier2D.createBody(BodyType.Dynamic, x, y);
+    Rapier2D.addCircleCollider(body, 14.0, false, 0.0, 0.0);
+    this.bodies.set(id, body);
+}
+
+onTick(dt: f64): i64 {
+    this.batch.begin();                                 // 1. queue velocities
+    for (let i = 0; i < ids.length; i++) this.batch.pushVelocity(this.bodies.get(ids[i] as i64), vx, vy);
+    this.batch.applyVelocities();                       //    ONE host call
+
+    Rapier2D.step(dt);                                  // 2. advance the world
+
+    this.batch.syncPositions(this.coinBody);            // 3. ONE readback call
+    let slot = 0;
+    for (/* same id order as the push loop */) {
+        p.x = this.batch.x(slot); p.y = this.batch.y(slot);
+        if (this.batch.hasContact(slot)) p.score += 10; // batched contact test
+        slot++;
+    }
+    return this.commitState();
+}
+```
+
+Single-body surface when you don't need the batch: `setVelocity / getVelocity / getPosition / setPosition / applyImpulse / checkContact(a, b) / removeBody / step(dt)`, colliders `addCircleCollider(body, radius, sensor, ox, oy)` and `addBoxCollider`. Arena walls ship as `arena_2d.json` (`{ arena_width, arena_height, obstacles: [{ x, y, w, h, rotation? }] }` — fixed colliders cloned into every room at boot) or as the same JSON uploaded from the console.
+
+### 8. 3D — kinematic controller + Rapier3D
+
+Two layers. **`Physics`** is the character controller over the loaded map — wall-sliding movement, raycasts, lag compensation:
+
+```ts
+import { Physics, Vec3 } from "../pkg/cyg-server";
+
+const res = Physics.move(pos, vel, 0.5, dt);         // MoveResult: res.pos, res.isGrounded
+const groundY = Physics.getSurfaceHeight(pos, 0.5);  // floors, ramps, stairs
+const hit = Physics.raycast(origin, dir, 200.0);     // CCD — hit.point, hit.distance
+const lag = Physics.lagRaycast(origin, dir, 200.0);  // rewinds to what the shooter saw
+```
+
+**`Rapier3D`** is the rigid-body layer — projectiles, debris, dynamic props. Vector-first API:
+
+```ts
+Rapier3D.init(new Vec3(0.0, -9.81, 0.0));
+const bullet = Rapier3D.createBody(BodyType.Dynamic, spawnPos);
+Rapier3D.addBallCollider(bullet, 0.1);
+Rapier3D.setVelocity(bullet, new Vec3(dir.x * 60, dir.y * 60, dir.z * 60));
+Rapier3D.step(dt);
+const p = Rapier3D.getPosition(bullet);              // → Vec3
+if (Rapier3D.checkContact(bullet, targetBody)) { /* damage */ }
+Rapier3D.removeBody(bullet);
+```
+
+Rest of the surface: `getVelocity / setPosition / applyImpulse(impulse: Vec3) / addBoxCollider(body, halfExtents: Vec3)`, plus `Rapier3D.batch(maxBodies)` → `PhysicsBatch3D` for large rooms. `Physics` also has `*Raw` scalar variants as escape hatches. 3D maps: `cyg-game cook map.glb arena.oxcl` (GLB → OXCL collision mesh, instant boot) or hand-written `arena_map.json` boxes; console-uploaded maps win over local files.
+
+### 9. Navmesh — bot pathfinding
+
+```ts
+import { NavMesh, Vec2 } from "../pkg/cyg-server";
+
+const path: Vec2[] = NavMesh.findPath(botPos, targetPos, 32);
+// corner waypoints — steer point-to-point, treat the last as "arrive"; [] = unreachable
+```
+
+Upload the baked navmesh (Polyanya `.nav2d` / `.mesh`) from the console (Project → Maps → Navmesh); the host injects it into every room. Nothing pathfinding-shaped runs in the guest.
+
+### 10. AOI — area of interest
+
+```ts
+spatialUpdate(playerId, new Vec2(p.x, p.y));     // insert-or-move, once per tick when moving
+const near = spatialQuery(new Vec2(x, y), 40.0, outIdsPtr);  // ids within R → count
+spatialRemove(playerId, new Vec2(p.x, p.y));     // on leave — or the ghost lingers
+```
+
+With `x`/`y` fields in your schema and `[aoi] enabled = true`, the host can filter deltas automatically — entities outside a viewer's radius are simply not encoded for that viewer.
+
+### 11. Client SDK (web) — the whole surface
+
+```html
+<script src="/cyg.js"></script>
+```
+
+```js
+const client = new CYG.Client("http://localhost:8124");   // the control plane
+const room = await client.joinOrCreate("game_room", { mode: "duo" });
+// also: client.join(name) · client.create(name) · client.joinById(id) · client.spectate(name)
+
+room.onStateChange((state) => draw(state.players.get(room.playerId)));
+
+const cb = CYG.getStateCallbacks(room);          // Colyseus v5 callback API
+cb.onAdd("players", (p, id) => p.listen("x", (v, prev) => move(id, v)));
+cb.onRemove("players", (p, id) => despawn(id));
+cb.listen("coinX", (v) => drawCoin(v));          // root scalars too
+
+room.onError((code, msg) => {});                 // signals + built-in auto-reconnect
+room.onLeave((code) => {});
+room.onReconnect(() => {}); room.onDrop(() => {});
+
+await client.auth.login(email, password);        // .device(id) · .register(…) · .provider(name, data)
+                                                 // .gameCenter(cred) · .instantGame(sr) · .setToken(t)
+
+room.clock.now(); room.clock.setTimeout(fn, ms); // server-clock aligned
+room.ping((rttMs) => show(rttMs));
+const voice = room.attachVoice();                // WebRTC voice mesh on the same room
+new CYG.Inspector(room);                         // live state-inspector overlay (dev)
+CYG.Storage.set("muted", true); CYG.Storage.get("muted", false);  // localStorage, JSON, ox_ prefix
+room.leave(true);
+```
+
+The schema descriptor arrives in the join handshake — no client codegen, ever. Typed bindings for engines that want them: `cyg-game schema-codegen --lang cs|gdscript|cpp|lua|all`.
+
+### 12. Other engines and backends
+
+- **Unity / Godot / Unreal / native** — sibling SDK repos mirror the same surface (join, state callbacks, messaging, RPC, auth, clock). A project with no `source` file boots in **Unity-relay mode** — C#-authoritative rooms, the server just relays.
+- **ECS rooms** — a room whose name contains `ecs` runs on the flat inbuilt ECS backend: same wire protocol, same console, 128 Hz at thousands of CCU per core.
+- **Room interfaces** — `cyg-game gen-interface` emits Lua/C/C++/Rust/C#/TS room interfaces.
 
 ## CLI
 
 ```
-cyg-game init            [dir]   scaffold a project (room.ts + schema.ts + SDK)
-cyg-game run             [dir]   compile if needed, then serve
-cyg-game aot             [dir]   precompile to native .cwasm (<1 ms cold start)
-cyg-game schema          [dir]   compile schema.ts → server bindings + client descriptor
+cyg-game init            [dir]   scaffold a project (src/index.ts + src/schema/ + pkg/ + gen/)
+cyg-game run             [dir]   compile if needed, then serve (hot-swap on save)
+cyg-game build | aot     [dir]   compile + AOT-precompile to native .cwasm (<1 ms cold start)
+cyg-game schema          [dir]   compile the schema → gen/ bindings + out/ descriptor
 cyg-game schema-codegen  [dir]   typed client bindings (--lang cs|gdscript|cpp|lua|all)
+cyg-game schema-status   [dir]   show the compiled schema's versions and hashes
 cyg-game doctor          [dir]   validate config, schema and ABI exports
 cyg-game gen-interface   [dir]   C++/Rust/C#/AS/TS room interfaces
 cyg-game cook <in.glb> <out.oxcl>  cook a 3D collision mesh for instant boot
+cyg-game backup | restore [dir]  export/import a remote SurrealDB (gzip + sha256)
+cyg-game migrate         [dir]   run DB schema migrations
+cyg-game openapi                 emit the /v2 OpenAPI document
+cyg-game secrets audit  [dir]    flag default/weak secrets
+cyg-game config diff    <a> <b>  diff two console config exports
+cyg-game rules check    --file … validate a rules/anti-cheat JSON
+cyg-game logs tail      --token …  tail server logs via the console API
 ```
 
 ## Architecture
@@ -384,8 +673,9 @@ crates/            the engine (see table above)
 src/main.rs        the `cyg-game` CLI
 dashboard/         the web console (React, served by the binary at /dashboard/)
 sdk/client/        web (cyg.js) + Unity/Unreal/Godot/native players
-sdk/server/        AssemblyScript (cyg-server.ts) + Lua/C/C++/Rust/C#/TS interfaces
-examples/          sky3d, blaster, coin-rush — complete runnable games
+sdk/server/        AssemblyScript server SDK (cyg-server.ts — what pkg/ vendors)
+examples/          sky3d, blaster, coin-rush, orbioo-agario, tank-3d — complete runnable games
+docs/site/         the landing + A-to-Z guide this README condenses
 docs/screenshots/  console captures used by this README
 deploy/            Dockerfile + compose for the game container
 ROADMAP-DX.md      the working roadmap (where the project is heading)

@@ -1997,6 +1997,78 @@
         }
 
         /**
+         * Colyseus parity: Room.input() handle.
+         * Creates or retrieves the input handle for this room.
+         */
+        input(options = {}) {
+            if (this._inputHandle) return this._inputHandle;
+            const self = this;
+            const data = {
+                seq: 0,
+                flags: 0,
+                aimYaw: 0,
+                aimPitch: 0,
+                moveX: 0,
+                moveZ: 0,
+                jump: false,
+                up: false,
+                down: false,
+                left: false,
+                right: false
+            };
+            const handle = {
+                data,
+                mode: options.mode || 'unreliable',
+                send() {
+                    let flags = data.flags || 0;
+                    if (data.up) flags |= 1;
+                    if (data.down) flags |= 2;
+                    if (data.left) flags |= 4;
+                    if (data.right) flags |= 8;
+                    if (data.jump) flags |= 16;
+                    let mx = data.moveX || 0;
+                    let mz = data.moveZ || 0;
+                    if (mx === 0 && mz === 0) {
+                        if (data.left) mx -= 1;
+                        if (data.right) mx += 1;
+                        if (data.up) mz -= 1;
+                        if (data.down) mz += 1;
+                    }
+                    self.sendInput(flags, data.aimYaw || 0, data.aimPitch || 0, mx, mz);
+                },
+                bindKeyboard(target = (typeof window !== 'undefined' ? window : null)) {
+                    if (!target) return () => {};
+                    const onKey = (e, down) => {
+                        let consumed = false;
+                        if (e.code === 'KeyW' || e.code === 'ArrowUp') { data.up = down; consumed = true; }
+                        if (e.code === 'KeyS' || e.code === 'ArrowDown') { data.down = down; consumed = true; }
+                        if (e.code === 'KeyA' || e.code === 'ArrowLeft') { data.left = down; consumed = true; }
+                        if (e.code === 'KeyD' || e.code === 'ArrowRight') { data.right = down; consumed = true; }
+                        if (e.code === 'Space') {
+                            data.jump = down;
+                            consumed = true;
+                            if (down && typeof e.preventDefault === 'function') e.preventDefault();
+                        }
+                        if (consumed) {
+                            data.moveX = (data.right ? 1 : 0) - (data.left ? 1 : 0);
+                            data.moveZ = (data.down ? 1 : 0) - (data.up ? 1 : 0);
+                        }
+                    };
+                    const downHandler = (e) => onKey(e, true);
+                    const upHandler = (e) => onKey(e, false);
+                    target.addEventListener('keydown', downHandler);
+                    target.addEventListener('keyup', upHandler);
+                    return () => {
+                        target.removeEventListener('keydown', downHandler);
+                        target.removeEventListener('keyup', upHandler);
+                    };
+                }
+            };
+            this._inputHandle = handle;
+            return handle;
+        }
+
+        /**
          * Stream a 23-byte QUIC-style unordered input frame to the authoritative server
          */
         sendInput(flags, aimYaw, aimPitch, moveX, moveZ) {
@@ -2083,16 +2155,40 @@
                 clearInterval(this._fragmentTimer);
                 this._fragmentTimer = null;
             }
+            if (this.serverChReliable) {
+                try {
+                    if (this.serverChReliable.readyState === 'open' && consented) {
+                        this.serverChReliable.send(new Uint8Array([12]));
+                    }
+                    this.serverChReliable.close();
+                } catch (_) {}
+                this.serverChReliable = null;
+            }
+            if (this.serverChUnreliable) {
+                try { this.serverChUnreliable.close(); } catch (_) {}
+                this.serverChUnreliable = null;
+            }
+            if (this.signalWs) {
+                try { this.signalWs.close(1000, "leave"); } catch (_) {}
+                this.signalWs = null;
+            }
             if (this.serverPc) {
                 try { this.serverPc.close(); } catch (_) {}
                 this.serverPc = null;
             }
             if (this.ws) {
-                try { this.ws.close(); } catch (_) {}
+                try {
+                    if (this.ws.readyState === WebSocket.OPEN && consented) {
+                        this.ws.send(new Uint8Array([12]));
+                    }
+                    this.ws.close(consented ? 4000 : 1000, "leave");
+                } catch (_) {}
+                this.ws = null;
             }
             if (this.voice) {
                 this.voice.dispose();
             }
+            this.emit('leave', this._leaveCode);
         }
 
         // --- SCHEMA STATE SYNC ---
@@ -2188,9 +2284,15 @@
                 return;
             }
 
+            const oldState = this.state;
             const oldCallbacks = this._entityCallbacks.get(this.state);
             this.schema = first.schema;
             this.state = new SchemaMap(this, first.name, first.schema);
+            if (oldState) {
+                if (oldState._onAddHandlers) this.state._onAddHandlers.push(...oldState._onAddHandlers);
+                if (oldState._onRemoveHandlers) this.state._onRemoveHandlers.push(...oldState._onRemoveHandlers);
+                if (oldState._onChangeHandlers) this.state._onChangeHandlers.push(...oldState._onChangeHandlers);
+            }
             this._entityCallbacks = new WeakMap();
             this._collectionMaps = new Map();
             this._collections = [];

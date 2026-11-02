@@ -17,7 +17,9 @@ export class MyGame extends Room {
     private players: Array<Player> = [];
     private speed: f64 = 120.0;
 
-    onCreate(max: i32): void {}
+    onCreate(max: i32): void {
+        this.setState(this.state);   // bind the state — commitState() syncs it
+    }
 
     onJoin(id: i64, x: f64, y: f64): void {
         const p = new Player();
