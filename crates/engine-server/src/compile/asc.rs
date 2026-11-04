@@ -4,7 +4,12 @@ use crate::compile::toolchain::detect_room_class;
 use crate::compile::toolchain::run;
 use crate::compile::toolchain::which;
 
-pub(crate) fn compile_asc(project_dir: &Path, src: &Path, out: &Path) -> std::io::Result<()> {
+pub(crate) fn compile_asc(
+    project_dir: &Path,
+    src: &Path,
+    out: &Path,
+    max_memory_mb: u32,
+) -> std::io::Result<()> {
     let content = std::fs::read_to_string(src)?;
 
     // The generated bindings decide how the bridge calls onJoin: a schema
@@ -298,6 +303,10 @@ export function on_simulation_rate(): i32 {{
         entry_to_compile.to_string_lossy().into_owned(),
         "-Ospeed".into(),
         "--noAssert".into(),
+        // A declared linear-memory maximum is required by the pooling
+        // allocator (wasm_pooling): bounded guests get pooled instance slots.
+        "--maximumMemory".into(),
+        format!("{}", max_memory_mb.max(1) * 16).into(), // MiB -> 64 KiB pages
         "--runtime".into(),
         "stub".into(),
         "-o".into(),

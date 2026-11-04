@@ -19,6 +19,10 @@ pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "web_port" => cfg.web_port = value.parse().unwrap_or(cfg.web_port),
         "tick_rate" => cfg.tick_rate = value.parse().unwrap_or(cfg.tick_rate),
         "patch_rate" => cfg.patch_rate = value.parse().unwrap_or(cfg.patch_rate),
+        "wasm_pooling" => cfg.wasm_pooling = value.parse().unwrap_or(cfg.wasm_pooling),
+        "wasm_max_memory_mb" => {
+            cfg.wasm_max_memory_mb = value.parse().unwrap_or(cfg.wasm_max_memory_mb)
+        }
         "max_clients" => cfg.max_clients = value.parse().unwrap_or(cfg.max_clients),
         "max_rooms" => cfg.max_rooms = value.parse().unwrap_or(cfg.max_rooms),
         "max_messages_per_second" => {

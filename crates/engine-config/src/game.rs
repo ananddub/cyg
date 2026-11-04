@@ -71,6 +71,13 @@ pub struct GameConfig {
     /// SLOWER of this and the guest's rate — the operator can throttle a
     /// room but never force it faster than the guest asked.
     pub patch_rate: u32,
+    /// Compile guests with a bounded linear memory (`--maxMemory`) and run
+    /// them on wasmtime's pooling allocator (instance slots reused across
+    /// room create/dispose). False restores the unbounded linear allocator.
+    pub wasm_pooling: bool,
+    /// Guest linear-memory cap in MiB when wasm_pooling is on (pooling needs
+    /// a declared maximum). Raise for memory-heavy rooms.
+    pub wasm_max_memory_mb: u32,
     pub max_clients: i32,
 
     pub max_rooms: u32,
@@ -125,6 +132,8 @@ impl Default for GameConfig {
             web_port: 8090,
             tick_rate: 30,
             patch_rate: 0,
+            wasm_pooling: true,
+            wasm_max_memory_mb: 64,
             max_clients: 16,
             max_rooms: 1024,
             max_messages_per_second: 0,

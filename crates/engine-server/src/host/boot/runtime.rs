@@ -17,6 +17,7 @@ pub(crate) fn boot_runtime(
             .watchdog
             .enabled
             .then_some(cfg.watchdog.epoch_deadline_ticks),
+        use_pooling_allocator: cfg.wasm_pooling,
         ..engine_wasm::WasmConfig::default()
     })
     .expect("wasm runtime");

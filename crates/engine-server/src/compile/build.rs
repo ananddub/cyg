@@ -52,7 +52,9 @@ pub fn build(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<std::path:
     );
 
     match cfg.runtime {
-        Runtime::AssemblyScript => compile_asc(&src, &out)?,
+        Runtime::AssemblyScript => {
+            compile_asc(project_dir, &src, &out, cfg.wasm_max_memory_mb.max(1))?
+        }
         Runtime::Lua => compile_lua(&src, &out)?,
     }
 

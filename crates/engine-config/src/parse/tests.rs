@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn wasm_pooling_defaults_on_and_parses() {
+    let cfg = parse_config("tick_rate: 60\n");
+    assert!(cfg.wasm_pooling, "pooling is the default — bounded guests pool slots");
+    assert_eq!(cfg.wasm_max_memory_mb, 64);
+
+    let cfg = parse_config("wasm_pooling: false\nwasm_max_memory_mb: 128\n");
+    assert!(!cfg.wasm_pooling);
+    assert_eq!(cfg.wasm_max_memory_mb, 128);
+
+    let toml = parse_config("wasm_pooling = false\nwasm_max_memory_mb = 256\n");
+    assert!(!toml.wasm_pooling);
+    assert_eq!(toml.wasm_max_memory_mb, 256);
+}
+
+#[test]
 fn patch_rate_parses_and_defaults_to_uncapped() {
     let cfg = parse_config("tick_rate: 60\npatch_rate: 20\n");
     assert_eq!(cfg.tick_rate, 60);

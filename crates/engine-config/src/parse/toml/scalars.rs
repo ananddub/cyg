@@ -51,6 +51,12 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = int("patch_rate") {
         cfg.patch_rate = (v.max(0)) as u32;
     }
+    if let Some(v) = boolean("wasm_pooling") {
+        cfg.wasm_pooling = v;
+    }
+    if let Some(v) = int("wasm_max_memory_mb") {
+        cfg.wasm_max_memory_mb = v.max(1) as u32;
+    }
     if let Some(v) = int("max_clients") {
         cfg.max_clients = v as i32;
     }
