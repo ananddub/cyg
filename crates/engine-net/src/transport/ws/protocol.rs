@@ -20,6 +20,8 @@ pub mod close_code {
     pub const WITH_ERROR: u16 = 4002;
     pub const FAILED_TO_RECONNECT: u16 = 4003;
     pub const MAY_TRY_RECONNECT: u16 = 4010;
+    /// Send queue overflowed repeatedly — the peer stopped draining.
+    pub const SLOW_CONSUMER: u16 = 4004;
 }
 
 pub mod response_status {

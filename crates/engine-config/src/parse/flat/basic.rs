@@ -18,14 +18,22 @@ pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "quic_port" => cfg.quic_port = value.parse().unwrap_or(cfg.quic_port),
         "web_port" => cfg.web_port = value.parse().unwrap_or(cfg.web_port),
         "tick_rate" => cfg.tick_rate = value.parse().unwrap_or(cfg.tick_rate),
+        "patch_rate" => cfg.patch_rate = value.parse().unwrap_or(cfg.patch_rate),
         "max_clients" => cfg.max_clients = value.parse().unwrap_or(cfg.max_clients),
         "max_rooms" => cfg.max_rooms = value.parse().unwrap_or(cfg.max_rooms),
         "max_messages_per_second" => {
             cfg.max_messages_per_second = value.parse().unwrap_or(cfg.max_messages_per_second)
         }
+        "room_options" => cfg.room_options = Some(value.to_string()),
         "ws_port" => cfg.ws_port = value.parse().unwrap_or(cfg.ws_port),
         "simulate_latency_ms" => {
             cfg.simulate_latency_ms = value.parse().unwrap_or(cfg.simulate_latency_ms)
+        }
+        "simulate_packet_loss" | "packet_loss" | "simulate_packet_loss_percent" => {
+            if let Ok(v) = value.parse::<f64>() {
+                let rate = if v > 1.0 { v / 100.0 } else { v };
+                cfg.simulate_packet_loss = rate.clamp(0.0, 1.0);
+            }
         }
         "width" => cfg.width = value.parse().unwrap_or(cfg.width),
         "height" => cfg.height = value.parse().unwrap_or(cfg.height),

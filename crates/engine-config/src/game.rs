@@ -32,6 +32,18 @@ impl Runtime {
     }
 }
 
+impl GameConfig {
+    /// Operator patch-interval cap in milliseconds (`patch_rate` Hz → ms).
+    /// 0 = uncapped (the guest's `setPatchRate` alone decides).
+    pub fn patch_rate_ms(&self) -> i32 {
+        if self.patch_rate == 0 {
+            0
+        } else {
+            (1000 / self.patch_rate.max(1)) as i32
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GameConfig {
     pub name: String,
@@ -53,15 +65,34 @@ pub struct GameConfig {
     pub quic_port: u16,
     pub web_port: u16,
     pub tick_rate: u32,
+    /// Operator cap on state-broadcast frequency, in patches per second
+    /// (Colyseus `patchRate` parity). 0 = follow the guest's `setPatchRate`
+    /// (default: patch every tick). When set, the effective interval is the
+    /// SLOWER of this and the guest's rate — the operator can throttle a
+    /// room but never force it faster than the guest asked.
+    pub patch_rate: u32,
     pub max_clients: i32,
 
     pub max_rooms: u32,
 
     pub max_messages_per_second: u32,
 
+    /// Server-side create options for every room (JSON object) — merged with
+    /// the creator's `joinOrCreate` options (client keys win) and handed to
+    /// `onCreate(max, options)`. Colyseus's `defineRoom(MyRoom, {…})` merge.
+    pub room_options: Option<String>,
+
+    /// Named room variants (Colyseus's `defineRoom` registry). A variant with
+    /// `filter_by` keys turns matchmaking into "join the room whose options
+    /// match, else create one": `joinOrCreate("duo", { region: "mumbai" })`
+    /// lands in the `duo` variant's `region=mumbai` room, not the first empty
+    /// seat. Declare as `[rooms.duo]` tables in config.toml.
+    pub rooms: std::collections::BTreeMap<String, RoomVariantDef>,
+
     pub ws_port: u16,
 
     pub simulate_latency_ms: u32,
+    pub simulate_packet_loss: f64,
     pub width: f64,
     pub height: f64,
     pub speed: f64,
@@ -93,11 +124,15 @@ impl Default for GameConfig {
             quic_port: 0,
             web_port: 8090,
             tick_rate: 30,
+            patch_rate: 0,
             max_clients: 16,
             max_rooms: 1024,
             max_messages_per_second: 0,
+            room_options: None,
+            rooms: Default::default(),
             ws_port: 0,
             simulate_latency_ms: 0,
+            simulate_packet_loss: 0.0,
             width: 800.0,
             height: 500.0,
             speed: 240.0,
@@ -111,5 +146,63 @@ impl Default for GameConfig {
             gameplay: GameplayConfig::default(),
             control: ControlConfig::default(),
         }
+    }
+}
+
+
+/// One named room variant — Colyseus's `defineRoom(MyRoom, {…}).filterBy([...])`
+/// equivalent. The variant name is the room name the client joins; `filter_by`
+/// lists the join options that split players into separate rooms.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RoomVariantDef {
+    /// Join-option keys that separate rooms ("region" → one room per region).
+    #[serde(default)]
+    pub filter_by: Vec<String>,
+    /// Per-variant capacity override (falls back to the game's max_clients).
+    #[serde(default)]
+    pub max_clients: Option<i32>,
+    /// Per-variant persistence override (hibernate instead of dispose).
+    #[serde(default)]
+    pub persistent: Option<bool>,
+    /// Per-variant create options handed to `onCreate` (client keys win).
+    #[serde(default)]
+    pub options: Option<String>,
+}
+
+impl RoomVariantDef {
+    /// The room-key suffix this variant produces for a join: sorted
+    /// `key-value` pairs over the declared `filter_by` keys present in the
+    /// options — deterministic, so equal filters land in one room.
+    pub fn room_key_suffix(&self, options: &str) -> String {
+        if self.filter_by.is_empty() {
+            return String::new();
+        }
+        let value = serde_json::from_str::<serde_json::Value>(options).ok();
+        let object = value.as_ref().and_then(|value| value.as_object());
+        let mut pairs: Vec<String> = self
+            .filter_by
+            .iter()
+            .filter_map(|key| {
+                object
+                    .and_then(|object| object.get(key.as_str()))
+                    .map(|value| format!("{key}-{}", flat_value(value)))
+            })
+            .collect();
+        pairs.sort();
+        if pairs.is_empty() {
+            return String::new();
+        }
+        format!("__{}", pairs.join("_"))
+    }
+}
+
+/// Scalars flattened for the room key: strings verbatim (sanitized upstream),
+/// numbers/bools as text, missing as `-`.
+fn flat_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Bool(flag) => flag.to_string(),
+        serde_json::Value::Number(number) => number.to_string(),
+        _ => "-".to_string(),
     }
 }

@@ -22,6 +22,9 @@ export function rngNext(): f64 {
 // --- SPATIAL AOI (kiddo KD-tree, host-owned) -------------------------------
 // Push each moving entity's position once per tick, then query neighbors.
 
+@external("env", "host_kick")
+declare function _sys_kick(player_id: i64): i32;
+
 @external("env", "sys_spatial_update")
 declare function _sys_spatial_update(entity_id: i64, x: f64, y: f64): i32;
 
@@ -70,6 +73,28 @@ export function clockTicks(): i64 {
 // --- INPUT FLAGS (Phase-3-lite: no more raw bitmask decoding) ---------------
 
 // AS has no object literals — static-class constants instead.
+/**
+ * Leave codes the room's `onLeave(id, code)` and `onDrop(id, code)` receive —
+ * the same values WebSocket close frames use where they overlap.
+ */
+export class CloseCode {
+    /** The client left on purpose (`room.leave()`). */
+    static readonly LEFT: i32 = 1000;
+    /** The server is shutting down (drain). */
+    static readonly SERVER_SHUTDOWN: i32 = 1001;
+    /** The reconnection window expired without the player coming back. */
+    static readonly TIMED_OUT: i32 = 1005;
+    /** The connection was lost and no reconnection hold was allowed. */
+    static readonly LOST: i32 = 1006;
+    /** The room removed this player via `client.leave()`. */
+    static readonly KICKED: i32 = 1004;
+
+    /** True when the player chose to leave (no state to hold). */
+    static isConsented(code: i32): bool {
+        return code == CloseCode.LEFT;
+    }
+}
+
 export class Key {
     static readonly W: u8 = 1;
     static readonly S: u8 = 2;
@@ -2455,6 +2480,38 @@ export class InputReader {
         return val;
     }
 
+    readI8(): i8 {
+        if (this._offset + 1 > this._len) return 0;
+        let val = load<i8>(this._ptr + this._offset);
+        this._offset += 1;
+        return val;
+    }
+
+    readI16(): i16 {
+        if (this._offset + 2 > this._len) return 0;
+        let val = load<i16>(this._ptr + this._offset);
+        this._offset += 2;
+        return val;
+    }
+
+    /** A boolean field (one byte, 0 = false). */
+    readBool(): bool {
+        if (this._offset + 1 > this._len) return false;
+        let val = load<u8>(this._ptr + this._offset);
+        this._offset += 1;
+        return val != 0;
+    }
+
+    /** A length-prefixed UTF-8 string ([len u16 LE][bytes]). */
+    readString(): string {
+        let len = this.readU16() as i32;
+        if (this._offset + len > this._len) len = this._len - this._offset;
+        if (len <= 0) return "";
+        let str = String.UTF8.decodeUnsafe(this._ptr + this._offset, len);
+        this._offset += len;
+        return str;
+    }
+
     readRemainingString(): string {
         let rem = this._len - this._offset;
         if (rem <= 0) return "";
@@ -2911,6 +2968,138 @@ export class EventEmitter {
  * Extend this class and implement the abstract lifecycle hooks.
  * The CYG compiler automatically creates the Flat WASM ABI bridge!
  */
+// =============================================================================
+// --- SCHEMA INPUT LANE --------------------------------------------------------
+// =============================================================================
+// A schema def named `Input` becomes the per-tick input frame. Codegen emits
+// a typed `decodeInput(r)` for it; the client packs `room.sendInput({...})`
+// from the same schema (delivered in the descriptor), so neither side ever
+// hand-packs a byte and the field order is the contract.
+
+/** Reserved app-message type carrying a schema input frame. */
+const SCHEMA_INPUT_TYPE = "__input";
+
+// =============================================================================
+// --- JOIN OPTIONS (flat-JSON extractors, no parser, no allocations) ----------
+// =============================================================================
+// `onJoin(id, options)` receives the JSON the client passed to
+// `joinOrCreate(room, options)`. These helpers pull flat keys out of it —
+// enough for names, skins, loadouts; no full JSON parser in the guest.
+
+function __jsonFind(json: string, key: string): string {
+    const needle = "\"" + key + "\"";
+    let at = json.indexOf(needle);
+    if (at < 0) return "";
+    at += needle.length;
+    // skip to the colon, then any whitespace
+    while (at < json.length && json.charCodeAt(at) != 0x3A) at++; // ':'
+    at++;
+    while (at < json.length && json.charCodeAt(at) == 0x20) at++;
+    if (at >= json.length) return "";
+    const first = json.charCodeAt(at);
+    if (first == 0x22) { // '"': string value — read to the closing quote
+        let end = at + 1;
+        let out = "";
+        while (end < json.length) {
+            const ch = json.charAt(end);
+            if (ch == "\\") {          // escaped char — keep the next one raw
+                end += 2;
+                continue;
+            }
+            if (ch == "\"") break;
+            end++;
+        }
+        if (end > at + 1) out = json.substring(at + 1, end);
+        return out;
+    }
+    // number / bool / null — read until a delimiter
+    let end = at;
+    while (end < json.length) {
+        const c = json.charCodeAt(end);
+        if (c == 0x2C || c == 0x7D || c == 0x5D || c == 0x20) break; // , } ] space
+        end++;
+    }
+    return json.substring(at, end);
+}
+
+/** String value of `key` in a flat JSON object, or `fallback` when absent. */
+export function jsonString(json: string, key: string, fallback: string): string {
+    if (json.length == 0) return fallback;
+    const value = __jsonFind(json, key);
+    return value.length == 0 ? fallback : value;
+}
+
+/** Number value of `key`, or `fallback` when absent or not numeric. */
+export function jsonNumber(json: string, key: string, fallback: f64): f64 {
+    if (json.length == 0) return fallback;
+    const value = __jsonFind(json, key);
+    if (value.length == 0) return fallback;
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? fallback : parsed;
+}
+
+/** Boolean value of `key`, or `fallback` when absent. */
+export function jsonBool(json: string, key: string, fallback: bool): bool {
+    if (json.length == 0) return fallback;
+    const value = __jsonFind(json, key);
+    if (value.length == 0) return fallback;
+    return value == "true" || value == "1";
+}
+
+/**
+ * A handle to one connected player — the `id` the lifecycle hooks receive,
+ * wrapped in Colyseus-shaped sugar. Cheap: it is a plain object over the id,
+ * nothing crosses the wire until you call send.
+ *
+ *   onJoin(id: i64, options: JoinOptions): void {
+ *       const c = this.client(id);
+ *       c.sendText("welcome", c.sessionId.toString());
+ *   }
+ */
+export class Client {
+    /** The player id the hooks carry (Colyseus: `sessionId`). Mutable so the
+     *  generated bridge can reuse ONE handle for hot hooks like onInputFrame
+     *  — zero allocation per frame. Treat it as read-only inside your room. */
+    id: i64;
+    private _room: Room | null;
+
+    constructor(id: i64, room: Room | null) {
+        this.id = id;
+        this._room = room;
+    }
+
+    /** Colyseus parity: the id as a string. */
+    get sessionId(): string {
+        return this.id.toString();
+    }
+
+    /** Reliable, ordered message to this player. */
+    send(type: string, payload: ArrayBuffer | null = null): bool {
+        const room = this._room;
+        if (room == null) return false;
+        return room.sendTo(this.id, type, payload);
+    }
+
+    /** Convenience overload for UTF-8 text payloads. */
+    sendText(type: string, text: string): bool {
+        const room = this._room;
+        if (room == null) return false;
+        return room.sendTextTo(this.id, type, text);
+    }
+
+    /** The auth data `onAuth` returned for this player, as a JSON string —
+     *  assign it in onJoin (`this.client(id).auth = auth;`) and read it back
+     *  anywhere with jsonString(client.auth, "role", …). Empty by default. */
+    auth: string = "";
+
+    /** Remove this player from the room: the host closes their connection
+     *  and the room receives onLeave(id, CloseCode.KICKED). Colyseus's
+     *  `client.leave()` equivalent for the room author. */
+    leave(): void {
+        _sys_kick(this.id);
+    }
+}
+
 export abstract class Room {
     maxPlayers: i32 = 16;
 
@@ -2943,8 +3132,10 @@ export abstract class Room {
 
     /// Broadcast a typed message to every player in the room.
     /// `payload` is opaque bytes; use a DeltaWriter/ArrayBuffer or `broadcastText`.
-    broadcast(type: string, payload: ArrayBuffer | null = null): bool {
-        return this._sendMessage(0, type, payload);
+    /// `except` skips one player id (the value passed to `onJoin`) — Colyseus's
+    /// `{ except }` option.
+    broadcast(type: string, payload: ArrayBuffer | null = null, except: i64 = 0): bool {
+        return this._sendMessage(except < 0 ? except : -except, type, payload);
     }
 
     /// Send a typed message to one player id (the value passed to `onJoin`).
@@ -2952,9 +3143,9 @@ export abstract class Room {
         return this._sendMessage(playerId, type, payload);
     }
 
-    /// Convenience overload for UTF-8 text payloads.
-    broadcastText(type: string, text: string): bool {
-        return this._sendMessage(0, type, String.UTF8.encode(text));
+    /// Convenience overload for UTF-8 text payloads. `except` skips one player.
+    broadcastText(type: string, text: string, except: i64 = 0): bool {
+        return this._sendMessage(except < 0 ? except : -except, type, String.UTF8.encode(text));
     }
 
     /// Convenience overload for a UTF-8 text payload to one player.
@@ -2993,14 +3184,17 @@ export abstract class Room {
         this.events.emit(event, id, val0, val1);
     }
 
-    /// Called once when the room instance is allocated on the host.
-    abstract onCreate(max: i32): void;
+    // onCreate is provided by YOUR room — the generated bridge calls it
+    // directly with (max, options) when it takes the merged create options,
+    // or (max) for the older shape.
 
-    /// Called when a new player joins the room.
-    abstract onJoin(id: i64, spawnX: f64, spawnZ: f64): void;
+    // onJoin is provided by YOUR room — no base default. Declare a
+    // `JoinOptions` def in the schema and the generated bridge hands you a
+    // typed instance (`options.name`, `options.team`…); without it, take the
+    // options as a string and use jsonString/jsonNumber. The room decides
+    // the spawn — the host does not choose x/y.
 
-    /// Called when a player leaves or disconnects.
-    abstract onLeave(id: i64): void;
+
 
     /// Called when an authoritative client input packet arrives.
     /// Typed app messages are routed to `onMessage`; legacy opcodes fall through to
@@ -3035,6 +3229,12 @@ export abstract class Room {
                     return;
                 }
 
+                // The __input lane is intercepted by the generated bridge's
+                // on_input export (it knows the room's declared hook shape);
+                // reaching here means a class-room never sees it. Manual
+                // flat-ABI rooms own their own dispatch entirely.
+                if (type == SCHEMA_INPUT_TYPE) return;
+
                 if (this._textMessageHandlers.has(type)) {
                     let handler = this._textMessageHandlers.get(type);
                     handler(id, new InputReader(ptr + 2 + typeLen, len - 2 - typeLen), this);
@@ -3056,6 +3256,22 @@ export abstract class Room {
         }
         this.onInputPacket(id, reader);
     }
+
+    /// Schema input lane: newest seq seen per player (wrap-safe stale drop).
+    private _inputLastSeq: Map<i64, u16> = new Map<i64, u16>();
+
+    /// A handle to one connected player — Colyseus-shaped sugar over the id
+    /// the hooks carry. `this.client(id).sendText("toast", "level up")`.
+    client(id: i64): Client {
+        return new Client(id, this);
+    }
+
+    // onInputFrame is provided by YOUR room — the bridge wires it. Declare
+    // `onInputFrame(client: Client, r: InputReader)` (or the raw
+    // `(id: i64, r: InputReader)` — both styles work) and decode with the
+    // generated helper:
+    //     const f = decodeInput(r);   // ← generated: your Input fields
+    // Requires the client to send with `room.sendInput({ moveX, moveZ, … })`.
 
     /// High-level client input packet hook. Zero raw pointers or offsets!
     onInputPacket(id: i64, input: InputReader): void {
@@ -3093,10 +3309,15 @@ export abstract class Room {
     }
 
     /// Minimum milliseconds between state patches; 0 broadcasts every
-    /// simulation tick (the backwards-compatible default). When a patch is
-    /// skipped the next sent frame carries a full snapshot, so no change is
-    /// ever lost.
+    /// simulation tick (the backwards-compatible default). The host signals
+    /// each tick via `setPatchDue` — a not-due commit keeps its dirty rows,
+    /// so the next due patch carries every change since the last send and
+    /// stays incremental (no full snapshot ever needed for skipped windows).
     patchRate: i32 = 0;
+
+    /// Host-driven: true when this tick's commit should seal. Ticks that are
+    /// not due return an empty delta and keep accumulating dirty rows.
+    patchDue: bool = true;
 
     /// Minimum milliseconds between simulation ticks; 0 runs every host tick.
     /// The host calls `onTick` with a fixed `dt` of `simulationInterval / 1000`.
@@ -3123,8 +3344,13 @@ export abstract class Room {
         this.schemaState = state;
     }
 
-    /** Call at the end of onTick: `return this.commitState();` */
+    /** Call at the end of onTick: `return this.commitState();`
+     *
+     *  When the host marked this tick not-due (patch cadence), returns an
+     *  empty delta WITHOUT clearing the schema's dirty rows — the changes
+     *  ride along with the next due commit, so patches stay incremental. */
     commitState(): i64 {
+        if (!this.patchDue) return 0;
         return this.schemaState.commit();
     }
 
@@ -3132,22 +3358,16 @@ export abstract class Room {
         this.patchRate = ms;
     }
 
+    /// Host calls this every tick (ABI export `on_patch_due`) BEFORE onTick,
+    /// with the patch-cadence decision already made.
+    setPatchDue(due: bool): void {
+        this.patchDue = due;
+    }
+
     setSimulationInterval(intervalMs: i32): void {
         this.simulationInterval = intervalMs;
     }
 
-    /// Seat admission. `options` is the raw JSON string the client passed to
-    /// `joinOrCreate(room, options)` (empty when it sent none). Return `false`
-    /// to reject the connection before any player id or state is created.
-    onAuth(clientId: i64, options: string): bool {
-        return true;
-    }
-
-    /// Called when a disconnected client resumes its reserved seat. The player
-    /// id and guest state are unchanged; `onJoin` is NOT called again.
-    onReconnect(clientId: i64): void {
-        // Override to restore per-client UI state
-    }
 
     /// Called once when the host disposes this room (empty timeout / shutdown).
     onDispose(): void {

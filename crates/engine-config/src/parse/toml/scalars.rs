@@ -48,6 +48,9 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = int("tick_rate") {
         cfg.tick_rate = v as u32;
     }
+    if let Some(v) = int("patch_rate") {
+        cfg.patch_rate = (v.max(0)) as u32;
+    }
     if let Some(v) = int("max_clients") {
         cfg.max_clients = v as i32;
     }
@@ -57,11 +60,21 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = int("max_messages_per_second") {
         cfg.max_messages_per_second = v.max(0) as u32;
     }
+    if let Some(v) = string("room_options") {
+        cfg.room_options = Some(v);
+    }
     if let Some(v) = int("ws_port") {
         cfg.ws_port = v.max(0) as u16;
     }
     if let Some(v) = int("simulate_latency_ms") {
         cfg.simulate_latency_ms = v.max(0) as u32;
+    }
+    if let Some(v) = float("simulate_packet_loss")
+        .or_else(|| float("packet_loss"))
+        .or_else(|| float("simulate_packet_loss_percent"))
+    {
+        let rate = if v > 1.0 { v / 100.0 } else { v };
+        cfg.simulate_packet_loss = rate.clamp(0.0, 1.0);
     }
     if let Some(v) = float("width") {
         cfg.width = v;

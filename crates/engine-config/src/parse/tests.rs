@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn patch_rate_parses_and_defaults_to_uncapped() {
+    let cfg = parse_config("tick_rate: 60\npatch_rate: 20\n");
+    assert_eq!(cfg.tick_rate, 60);
+    assert_eq!(cfg.patch_rate, 20);
+    assert_eq!(cfg.patch_rate_ms(), 50);
+
+    let cfg = parse_config("tick_rate: 60\n");
+    assert_eq!(cfg.patch_rate, 0, "unset patch_rate follows the guest");
+    assert_eq!(cfg.patch_rate_ms(), 0);
+
+    let cfg = parse_config("patch_rate: -5\n");
+    assert_eq!(cfg.patch_rate, 0, "negative patch_rate clamps to uncapped");
+
+    let toml = parse_config(
+        r#"
+tick_rate = 128
+patch_rate = 10
+"#,
+    );
+    assert_eq!(toml.patch_rate, 10);
+    assert_eq!(toml.patch_rate_ms(), 100);
+}
+
+#[test]
 fn a_lifecycle_block_replaces_the_host_windows() {
     let cfg = parse_config(
         r#"

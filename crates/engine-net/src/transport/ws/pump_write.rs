@@ -1,3 +1,4 @@
+use super::protocol::close_code;
 use std::io;
 use std::io::Write;
 
@@ -50,6 +51,7 @@ impl WsTransport {
     }
 
     pub(super) fn pump_flush(&mut self) -> io::Result<()> {
+        self.flush_delayed_pings(std::time::Instant::now());
 
         self.flush_dirty = self.clients.values().any(|c| !c.send_queue.is_empty());
         if !self.flush_dirty {
@@ -57,15 +59,20 @@ impl WsTransport {
         }
         let mut pending = false;
         let mut backpressure: Vec<(Token, bool)> = Vec::new();
+        let mut write_failed: Vec<Token> = Vec::new();
         for (token, client) in self.clients.iter_mut() {
             if !client.send_queue.is_empty() {
                 match client.stream.write(&client.send_queue) {
                     Ok(n) => {
                         client.send_queue.advance(n);
-
                         client.state_frame_start = None;
+                        if client.send_queue.is_empty() {
+                            client.overflow_strikes = 0;
+                        }
                     }
-                    Err(_) => {}
+                    Err(_) => {
+                        write_failed.push(*token);
+                    }
                 }
                 pending |= !client.send_queue.is_empty();
 
@@ -82,6 +89,14 @@ impl WsTransport {
         for (token, _want) in backpressure {
             if let Some(client) = self.clients.get_mut(&token) {
                 crate::transport::ws::client_io::sync_writable_interest(client, &self.poll, token);
+            }
+        }
+        for token in write_failed {
+            // Socket gone or peer unreachable — same cleanup as a server
+            // disconnect so the session does not linger holding buffers.
+            if let Some(client) = self.clients.get(&token) {
+                let client_id = client.session_id.to_string();
+                let _ = self.disconnect_with(&client_id, close_code::SLOW_CONSUMER, "write failed");
             }
         }
         self.flush_dirty = pending;

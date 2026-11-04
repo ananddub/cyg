@@ -20,10 +20,19 @@ impl TickRunner {
         let Some(schema) = netcode::split_schema(delta) else {
             return;
         };
-        if !room.should_send_patch(Instant::now()) {
+        let force_full = if room.patch_due_wired {
+            // The guest gated its own production: a delivered delta already
+            // contains every change since the last send, so send it as-is.
+            room.mark_patch_sent(Instant::now());
+            false
+        } else if !room.should_send_patch(Instant::now(), ctx.cfg.patch_rate_ms()) {
+            // Legacy guest (no on_patch_due export): skip the send and force a
+            // full snapshot next time, because the guest cleared its dirty
+            // rows at commit and the skipped diffs are unrecoverable.
             return;
-        }
-        let force_full = room.take_patch_skipped();
+        } else {
+            room.take_patch_skipped()
+        };
         if force_full {
             room.schema_sent.clear();
         }

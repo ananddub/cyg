@@ -56,6 +56,11 @@ impl TickRunner {
             flush_room_outbox(room, ctx.transport, name, &history);
             return;
         }
+        // Tell the guest up front whether this tick's commit should seal:
+        // due commits accumulate every change since the last send, so patches
+        // stay incremental even when patch_rate < tick_rate.
+        let patch_due = room.next_patch_due(Instant::now(), ctx.cfg.patch_rate_ms());
+        room.signal_patch_due(patch_due);
         let guest_t0 = Instant::now();
         let ticked = room.tick(dt, ctx.cfg.rollback.enabled);
         self.stage_guest_us_sum += guest_t0.elapsed().as_micros() as u64;
@@ -67,11 +72,13 @@ impl TickRunner {
                     "[server] ⛔ watchdog cut off a guest call in room '{name}' after {}ms; the room stays up and the next call re-arms, but its state may be torn",
                     ctx.cfg.watchdog.tick_budget_ms
                 );
+                room.guest_on_uncaught_exception("the watchdog cut off onTick", "onTick");
                 flush_room_outbox(room, ctx.transport, name, &history);
                 return;
             }
             Err(e) => {
                 tracing::warn!("[server] ⚠️ guest trap during on_tick in room '{name}': {e}");
+                room.guest_on_uncaught_exception(&e.to_string(), "onTick");
                 flush_room_outbox(room, ctx.transport, name, &history);
                 return;
             }

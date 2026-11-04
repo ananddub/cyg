@@ -4,7 +4,8 @@ use std::time::Instant;
 
 use bytes::BufMut;
 
-use super::client::MAX_SEND_QUEUE;
+use super::client::{MAX_OVERFLOW_STRIKES, MAX_SEND_QUEUE};
+use super::protocol::close_code;
 use super::msgpack::{mp_number, mp_str};
 use super::protocol::{PROTO_ERROR, PROTO_ROOM_RESPONSE};
 use super::rfc6455::encode_wire_frame;
@@ -49,17 +50,27 @@ impl WsTransport {
                 client.state_frame_start = None;
                 let required = payload.len() + 16;
                 if client.send_queue.len() + required > MAX_SEND_QUEUE {
-
                     self.dropped_frames = self.dropped_frames.saturating_add(1);
-                    if self.last_drop_log.elapsed().as_secs() >= 1 {
+                    client.overflow_strikes += 1;
+                    let kick = client.overflow_strikes >= MAX_OVERFLOW_STRIKES;
+                    if kick || self.last_drop_log.elapsed().as_secs() >= 1 {
                         tracing::info!(
-                            "[ws] peer {client_id} not draining ({} KB queued) — {} frames dropped",
+                            "[ws] peer {client_id} not draining ({} KB queued, {}/{} strikes){}",
                             client.send_queue.len() / 1024,
-                            self.dropped_frames
+                            client.overflow_strikes,
+                            MAX_OVERFLOW_STRIKES,
+                            if kick { " — disconnecting" } else { "" }
                         );
                         self.last_drop_log = Instant::now();
                     }
-                    return;
+                    if kick {
+                        let _ = self.disconnect_with(
+                            client_id,
+                            close_code::SLOW_CONSUMER,
+                            "send queue overflow (slow consumer)",
+                        );
+                        return;
+                    }
                 }
                 client.send_queue.reserve(required);
                 encode_wire_frame(colyseus_opcode, payload, &mut client.send_queue);
@@ -76,6 +87,7 @@ impl WsTransport {
         let frame = &self.sb[..];
         let frame_len = frame.len();
         let mut queued = false;
+        let mut kicked: Vec<&str> = Vec::new();
         for &client_id in client_ids {
             let Some(&token) = self.client_tokens.get(client_id) else {
                 continue;
@@ -87,7 +99,11 @@ impl WsTransport {
             let cur_len = client.send_queue.len();
             if cur_len + frame_len > MAX_SEND_QUEUE {
                 self.dropped_frames = self.dropped_frames.saturating_add(1);
-                continue;
+                client.overflow_strikes += 1;
+                if client.overflow_strikes >= MAX_OVERFLOW_STRIKES {
+                    kicked.push(client_id);
+                    continue;
+                }
             }
             if client.send_queue.capacity().saturating_sub(cur_len) >= frame_len {
                 unsafe {
@@ -102,6 +118,13 @@ impl WsTransport {
                 client.send_queue.extend_from_slice(frame);
             }
             queued = true;
+        }
+        for client_id in kicked {
+            let _ = self.disconnect_with(
+                client_id,
+                close_code::SLOW_CONSUMER,
+                "send queue overflow (slow consumer)",
+            );
         }
         if queued {
             self.flush_dirty = true;

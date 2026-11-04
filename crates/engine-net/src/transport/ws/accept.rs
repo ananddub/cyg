@@ -44,6 +44,7 @@ pub(super) fn on_listener_event(
                     room_id: String::new(),
                     recv_buf: first_bytes,
                     send_queue: BytesMut::with_capacity(4096),
+                    overflow_strikes: 0,
                     frag_opcode: None,
                     frag_buf: BytesMut::new(),
                     last_activity: now,
@@ -53,12 +54,14 @@ pub(super) fn on_listener_event(
                     state_frame_start: None,
                     state_frame_len: 0,
                     registered_writable: false,
+                    delayed_pings: Vec::new(),
                 };
 
                 if has_first_bytes {
                     let close = {
                         let mut ctx = ServerCtx {
                             matchmake_hook: pass.matchmake_hook.as_ref(),
+                            room_variants: pass.room_variants,
                             http_hook: pass.http_hook.as_ref(),
                             retained: pass.retained,
                             seat_tokens: &mut *pass.seat_tokens,
@@ -82,7 +85,7 @@ pub(super) fn on_listener_event(
                     }
 
                     if client.state == WsState::Connected && !client.recv_buf.is_empty() {
-                        process_ws_frames(&mut client, &mut *pass.buf, now);
+                        process_ws_frames(&mut client, &mut *pass.buf, now, pass.simulated_latency);
                     }
                 }
 

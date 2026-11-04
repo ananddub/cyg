@@ -10,7 +10,11 @@ pub(super) enum WsState {
     Connected,
 }
 
-pub(super) const MAX_SEND_QUEUE: usize = 1024 * 1024;
+/// Per-client send backlog ceiling. A client that stops draining holds at
+/// most this much RSS; past MAX_OVERFLOW_STRIKES consecutive overflows the
+/// peer is disconnected instead of being starved forever.
+pub(super) const MAX_SEND_QUEUE: usize = 256 * 1024;
+pub(super) const MAX_OVERFLOW_STRIKES: u32 = 3;
 
 pub(super) struct WsClient {
     pub(super) stream: mio::net::TcpStream,
@@ -28,9 +32,11 @@ pub(super) struct WsClient {
     pub(super) missed_pings: u32,
 
     pub(super) consented: bool,
+    pub(super) overflow_strikes: u32,
 
     pub(super) state_frame_start: Option<usize>,
     pub(super) state_frame_len: usize,
 
     pub(super) registered_writable: bool,
+    pub(super) delayed_pings: Vec<(Instant, bytes::Bytes)>,
 }
