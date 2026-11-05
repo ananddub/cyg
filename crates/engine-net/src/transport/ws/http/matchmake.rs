@@ -42,6 +42,8 @@ pub(super) fn serve_matchmake(
             &client.session_id,
             ctx.game_port,
             ctx.udp_port,
+            &ctx.room_variants,
+            ctx.client_rooms,
         ),
     };
     let (status, payload) = match result {

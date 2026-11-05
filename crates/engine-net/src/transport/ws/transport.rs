@@ -2,7 +2,7 @@
 use ahash::{AHashMap, AHashSet};
 use std::io;
 use std::net::SocketAddr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytes::{Bytes, BytesMut};
 use mio::net::TcpListener;
@@ -53,16 +53,41 @@ pub struct WsTransport {
 
     pub(super) advertised_udp_port: u16,
     pub(super) matchmake_hook: Option<MatchmakeHook>,
+    /// Named room variants ([rooms.x] in config) — matchmaking on this lane
+    /// splits joins into variant room keys, mirroring the control plane.
+    pub(super) room_variants: std::collections::BTreeMap<String, engine_config::RoomVariantDef>,
     pub(super) http_hook: Option<HttpHook>,
 
     pub(super) allowed_origins: Vec<String>,
 
     pub(super) schema_descriptor: Bytes,
+    pub(super) simulated_latency: Duration,
 }
 
 impl WsTransport {
     pub fn bound_addrs(&self) -> &[SocketAddr] {
         &self.bound_addrs
+    }
+
+    pub fn set_simulated_latency(&mut self, lat: Duration) {
+        self.simulated_latency = lat;
+    }
+
+    pub(super) fn flush_delayed_pings(&mut self, now: Instant) {
+        for client in self.clients.values_mut() {
+            if !client.delayed_pings.is_empty() {
+                let mut i = 0;
+                while i < client.delayed_pings.len() {
+                    if client.delayed_pings[i].0 <= now {
+                        let (_, payload) = client.delayed_pings.swap_remove(i);
+                        super::rfc6455::queue_message(client, super::protocol::PROTO_PING, &payload);
+                        self.flush_dirty = true;
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+        }
     }
 
     pub fn new(bind_addr: SocketAddr) -> io::Result<Self> {
@@ -127,9 +152,11 @@ impl WsTransport {
             bound_addrs: resolved_addrs,
             advertised_udp_port: 7778,
             matchmake_hook: None,
+            room_variants: Default::default(),
             http_hook: None,
             allowed_origins: Vec::new(),
             schema_descriptor: Bytes::new(),
+            simulated_latency: Duration::ZERO,
         })
     }
 }

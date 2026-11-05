@@ -81,7 +81,32 @@ impl WsTransport {
                 }
             }
 
-            let want = !client.send_queue.is_empty();
+            // Shared delta body: written from the room's single allocation
+            // once the inline queue is drained.
+            if client.send_queue.is_empty() {
+                if let Some((body, offset)) = client.shared_frame.as_mut() {
+                    match client.stream.write(&body[*offset as usize..]) {
+                        Ok(n) => {
+                            *offset += n as u32;
+                            client.state_frame_start = None;
+                            if *offset as usize >= body.len() {
+                                client.shared_frame = None;
+                            }
+                        }
+                        Err(_) => {
+                            write_failed.push(*token);
+                        }
+                    }
+                    pending |= client.shared_frame.is_some();
+                }
+                if client.shared_frame.is_none() && !client.post_shared.is_empty() {
+                    // tail bytes queued behind the shared body — move them
+                    // into the inline queue so the next pass sends them.
+                    client.send_queue.unsplit(client.post_shared.split());
+                }
+            }
+
+            let want = !client.send_queue.is_empty() || client.shared_frame.is_some();
             if client.registered_writable != want {
                 backpressure.push((*token, want));
             }

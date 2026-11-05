@@ -48,6 +48,7 @@ impl WsTransport {
                 retained: &self.retained,
                 seat_tokens: &mut self.seat_tokens,
                 matchmake_hook: &mut self.matchmake_hook,
+                room_variants: &self.room_variants,
                 http_hook: &mut self.http_hook,
                 next_token: &mut self.next_token,
                 disconnected: &mut disconnected,
@@ -56,6 +57,7 @@ impl WsTransport {
                 udp_port: self.advertised_udp_port,
                 schema_descriptor: &self.schema_descriptor,
                 allowed_origins: &self.allowed_origins,
+                simulated_latency: self.simulated_latency,
             };
             for event in events.iter() {
                 let tok = event.token();
@@ -85,6 +87,11 @@ impl WsTransport {
         }
         self.clients = clients;
         self.disconnected = disconnected;
+
+        self.flush_delayed_pings(now);
+        if self.flush_dirty {
+            let _ = self.pump_flush();
+        }
 
         ev.append(&mut buf);
         buf.clear();

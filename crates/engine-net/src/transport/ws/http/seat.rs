@@ -1,5 +1,9 @@
 
+use engine_config::RoomVariantDef;
 use ahash::AHashMap;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -16,7 +20,17 @@ pub(super) fn default_matchmake(
     fallback_session: &str,
     game_port: u16,
     udp_port: u16,
+    variants: &std::collections::BTreeMap<String, RoomVariantDef>,
+    client_rooms: &AHashMap<String, String>,
 ) -> Result<String, MatchMakeError> {
+    let chain = chain_tracker();
+    let Ok(mut chain) = chain.lock() else {
+        // tracker poisoned — degrade to no chaining rather than refuse joins
+        let session = next_session_id();
+        let token = format!("{}:{}", room, session);
+        return Ok(seat_json(room, &session, &token, game_port, udp_port));
+    };
+    let now = Instant::now();
     if method == "reconnect" {
         let token = parse_json_string(body, "reconnectionToken").unwrap_or_default();
         if retained.contains_key(&token) {
@@ -35,9 +49,79 @@ pub(super) fn default_matchmake(
         )));
     }
 
+    // Variant matchmaking: the variant's filter_by keys split the join
+    // options into a deterministic room key, mirroring the control plane.
+    // When that room is at the variant's cap, the join CHAINS into the next
+    // generation (`...__g1`, `__g2`…) instead of being refused. Occupancy is
+    // counted from this lane's own connected clients, so it is live.
+    let room_key = variants
+        .get(room)
+        .map(|variant| format!("{room}{}", variant.room_key_suffix(body)))
+        .unwrap_or_else(|| room.to_string());
+
+    let room_key = if let Some(variant) = variants.get(room) {
+        let cap = variant.max_clients.unwrap_or(0);
+        if cap > 0 {
+            let base = room_key;
+            let client_count = |key: &str| -> u32 {
+                client_rooms
+                    .values()
+                    .filter(|room| room.as_str() == key)
+                    .count() as u32
+            };
+            let mut generation = 0u32;
+            loop {
+                let key = if generation == 0 {
+                    base.clone()
+                } else {
+                    format!("{base}__g{generation}")
+                };
+                if (client_count(&key) as i64 + chain.outstanding(&key, now) as i64) < cap as i64 {
+                    chain.record(&key, now);
+                    break key;
+                }
+                generation += 1;
+                if generation > 512 {
+                    break format!("{base}__g{generation}");
+                }
+            }
+        } else {
+            room_key
+        }
+    } else {
+        room_key
+    };
+
     let session = next_session_id();
-    let token = format!("{}:{}", room, session);
-    Ok(seat_json(room, &session, &token, game_port, udp_port))
+    let token = format!("{}:{}", room_key, session);
+    Ok(seat_json(&room_key, &session, &token, game_port, udp_port))
+}
+
+/// Seats minted recently per room key — the join burst inside one occupancy
+/// refresh still counts toward the cap. Entries age out and stop reserving.
+#[derive(Default)]
+struct ChainState {
+    outstanding: HashMap<String, Vec<Instant>>,
+}
+
+impl ChainState {
+    fn record(&mut self, room_key: &str, now: Instant) {
+        self.outstanding.entry(room_key.to_string()).or_default().push(now);
+    }
+
+    fn outstanding(&mut self, room_key: &str, now: Instant) -> usize {
+        let Some(list) = self.outstanding.get_mut(room_key) else {
+            return 0;
+        };
+        const TTL: Duration = Duration::from_secs(15);
+        list.retain(|at| now.duration_since(*at) < TTL);
+        list.len()
+    }
+}
+
+fn chain_tracker() -> &'static Mutex<ChainState> {
+    static TRACKER: OnceLock<Mutex<ChainState>> = OnceLock::new();
+    TRACKER.get_or_init(|| Mutex::new(ChainState::default()))
 }
 
 fn next_session_id() -> String {

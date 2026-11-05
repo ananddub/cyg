@@ -303,6 +303,11 @@ export function on_simulation_rate(): i32 {{
         entry_to_compile.to_string_lossy().into_owned(),
         "-Ospeed".into(),
         "--noAssert".into(),
+        // Room instances are per-room: start the linear memory at 2 pages and
+        // let it grow — wasmtime commits only touched pages, but a fat initial
+        // declaration makes every pooled slot over-reserve.
+        "--initialMemory".into(),
+        "2".into(),
         // A declared linear-memory maximum is required by the pooling
         // allocator (wasm_pooling): bounded guests get pooled instance slots.
         "--maximumMemory".into(),

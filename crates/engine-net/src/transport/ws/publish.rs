@@ -42,6 +42,51 @@ impl WsTransport {
         Ok(())
     }
 
+    /// Queue one shared delta frame: head (magic + your_id) inline, body as
+    /// the shared Arc, tail (acked_seq + server_tick) after it. Falls back to
+    /// a plain inline copy when the client already has buffered inline bytes
+    /// (rare) so ordering is never broken.
+    pub fn queue_shared_delta(
+        &mut self,
+        client_id: &str,
+        head: &[u8],
+        body: std::sync::Arc<[u8]>,
+        tail: &[u8; 6],
+    ) -> bool {
+        let Some(&token) = self.client_tokens.get(client_id) else {
+            return false;
+        };
+        let Some(client) = self.clients.get_mut(&token) else {
+            return false;
+        };
+        if !matches!(client.state, super::client::WsState::Connected) {
+            return false;
+        }
+        let body_len = body.len();
+        if client.send_queue.is_empty() && client.shared_frame.is_none() && client.post_shared.is_empty() {
+            if body_len == 0 {
+                return false;
+            }
+            client.send_queue.extend_from_slice(head);
+            client.shared_frame = Some((body, 0));
+            client.shared_pending = true;
+            client.post_shared.extend_from_slice(tail); // pump writes: head -> body -> tail
+            self.flush_dirty = true;
+            return true;
+        }
+        let total = head.len() + body_len + 6;
+        if client.send_queue.len() + client.post_shared.len() + total > MAX_SEND_QUEUE {
+            self.dropped_frames = self.dropped_frames.saturating_add(1);
+            client.overflow_strikes += 1;
+            return false;
+        }
+        client.send_queue.extend_from_slice(head);
+        client.send_queue.extend_from_slice(&body);
+        client.send_queue.extend_from_slice(tail);
+        self.flush_dirty = true;
+        true
+    }
+
     #[inline]
     pub(super) fn queue_to(&mut self, client_id: &str, colyseus_opcode: u8, payload: &[u8]) {
         if let Some(&token) = self.client_tokens.get(client_id) {

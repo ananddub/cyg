@@ -44,6 +44,7 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                     let closed = {
                         let mut ctx = ServerCtx {
                             matchmake_hook: pass.matchmake_hook.as_ref(),
+                            room_variants: pass.room_variants,
                             http_hook: pass.http_hook.as_ref(),
                             retained: pass.retained,
                             seat_tokens: &mut *pass.seat_tokens,
@@ -67,13 +68,13 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                         }
                         if client.state == WsState::Connected {
 
-                            conn_dead |= process_ws_frames(client, &mut *pass.buf, now);
+                            conn_dead |= process_ws_frames(client, &mut *pass.buf, now, pass.simulated_latency);
                         }
                     }
                 }
                 WsState::Connected => {
 
-                    conn_dead |= process_ws_frames(client, &mut *pass.buf, now);
+                    conn_dead |= process_ws_frames(client, &mut *pass.buf, now, pass.simulated_latency);
                 }
             }
         }

@@ -1,6 +1,8 @@
 
+use engine_config::RoomVariantDef;
 use ahash::AHashMap;
 use std::borrow::Cow;
+use std::time::Duration;
 
 use bytes::Bytes;
 use mio::net::TcpListener;
@@ -25,11 +27,11 @@ pub(super) struct ServerCtx<'a> {
     pub(super) client_options: &'a mut AHashMap<String, String>,
 
     pub(super) game_port: u16,
+    pub(super) room_variants: &'a std::collections::BTreeMap<String, RoomVariantDef>,
 
     pub(super) udp_port: u16,
 
     pub(super) schema_descriptor: &'a [u8],
-
     pub(super) allowed_origins: &'a [String],
 }
 
@@ -48,7 +50,9 @@ pub(super) struct Pass<'a> {
     pub(super) disconnected: &'a mut Vec<Token>,
     pub(super) buf: &'a mut Vec<TransportEvent>,
     pub(super) game_port: u16,
+    pub(super) room_variants: &'a std::collections::BTreeMap<String, RoomVariantDef>,
     pub(super) udp_port: u16,
     pub(super) schema_descriptor: &'a [u8],
     pub(super) allowed_origins: &'a [String],
+    pub(super) simulated_latency: Duration,
 }

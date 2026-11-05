@@ -7,6 +7,14 @@ use super::heartbeat::HeartbeatConfig;
 use super::transport::WsTransport;
 
 impl WsTransport {
+    /// Room variants for filtered matchmaking on this lane.
+    pub fn set_room_variants(
+        &mut self,
+        variants: std::collections::BTreeMap<String, engine_config::RoomVariantDef>,
+    ) {
+        self.room_variants = variants;
+    }
+
     pub fn set_schema_descriptor(&mut self, descriptor: impl Into<Bytes>) {
         self.schema_descriptor = descriptor.into();
     }
