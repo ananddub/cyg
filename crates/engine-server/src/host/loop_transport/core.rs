@@ -25,6 +25,9 @@ impl LoopTransport {
             retained: HashMap::new(),
             inbound: Vec::new(),
             latency: Duration::ZERO,
+            packet_loss_rate: 0.0,
+            loss_rng: 0x9e3779b9,
+            dropped_packets: 0,
             delayed_out: VecDeque::new(),
             delayed_in: VecDeque::new(),
             local_addr,
@@ -33,6 +36,32 @@ impl LoopTransport {
 
     pub fn set_latency(&mut self, one_way: Duration) {
         self.latency = one_way;
+        if let Some(ws) = self.ws.as_mut() {
+            ws.set_simulated_latency(one_way * 2);
+        }
+    }
+
+    pub fn set_packet_loss_rate(&mut self, rate: f64) {
+        self.packet_loss_rate = rate.clamp(0.0, 1.0);
+    }
+
+    pub fn packet_loss_rate(&self) -> f64 {
+        self.packet_loss_rate
+    }
+
+    pub fn should_drop_packet(&mut self) -> bool {
+        if self.packet_loss_rate <= 0.0 {
+            return false;
+        }
+        self.loss_rng ^= self.loss_rng << 13;
+        self.loss_rng ^= self.loss_rng >> 17;
+        self.loss_rng ^= self.loss_rng << 5;
+        let roll = (self.loss_rng as f64) / (u32::MAX as f64);
+        let drop = roll < self.packet_loss_rate;
+        if drop {
+            self.dropped_packets += 1;
+        }
+        drop
     }
 
     pub fn register_seat(&mut self, session_id: &str, room: &str, options: &str) {

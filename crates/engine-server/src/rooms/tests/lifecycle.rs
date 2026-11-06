@@ -10,7 +10,7 @@ use super::*;
             "a room that never seated anybody is new, not emptied"
         );
 
-        room.join("sess_alice", 1.0, 1.0);
+        room.join("sess_alice", 1.0, 1.0, b"");
         room.note_state();
         assert_eq!(room.phase(), engine_bus::RoomPhase::Active);
 
@@ -18,7 +18,7 @@ use super::*;
         room.note_state();
         assert_eq!(room.phase(), engine_bus::RoomPhase::Hibernating);
 
-        room.join("sess_bob", 1.0, 1.0);
+        room.join("sess_bob", 1.0, 1.0, b"");
         room.note_state();
         assert_eq!(
             room.phase(),
@@ -28,7 +28,7 @@ use super::*;
 
         room.dispose();
         assert_eq!(room.phase(), engine_bus::RoomPhase::Closed);
-        room.join("sess_carol", 1.0, 1.0);
+        room.join("sess_carol", 1.0, 1.0, b"");
         room.note_state();
         assert_eq!(
             room.phase(),
@@ -52,7 +52,7 @@ use super::*;
         assert!(!gated_tick(&mut room), "a Created room is not simulated");
         assert_eq!(room.current_tick, 0);
 
-        room.join("sess_alice", 0.0, 0.0);
+        room.join("sess_alice", 0.0, 0.0, b"");
         assert!(gated_tick(&mut room), "joining and ticking share one pass");
         assert_eq!(room.current_tick, 1);
 
@@ -71,7 +71,7 @@ use super::*;
         let idle = engine_config::LifecycleConfig::default();
 
         let mut room = GameRoom::new_relay();
-        room.join("sess_carol", 1.0, 1.0);
+        room.join("sess_carol", 1.0, 1.0, b"");
         room.born = Instant::now() - Duration::from_secs(61);
         assert_eq!(
             room.close_reason(&limited, true, Instant::now()),

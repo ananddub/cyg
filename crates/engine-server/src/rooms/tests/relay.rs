@@ -11,7 +11,7 @@ use super::*;
         let res = room.tick(0.016, false);
         assert_eq!(res.unwrap(), 0);
 
-        let p1 = room.join("sess_alice", 50.0, 50.0);
+        let p1 = room.join("sess_alice", 50.0, 50.0, b"");
         assert_eq!(p1, 1);
         assert!(!room.is_hibernating());
         assert!(room.empty_since.is_none());
@@ -36,7 +36,7 @@ use super::*;
         room.empty_since = Some(Instant::now() - Duration::from_secs(31));
         assert!(room.reap_check(Duration::from_secs(30)));
 
-        let _ = room.join("sess_bob", 10.0, 10.0);
+        let _ = room.join("sess_bob", 10.0, 10.0, b"");
         assert!(!room.is_hibernating());
         assert!(!room.reap_check(Duration::from_secs(30)));
     }

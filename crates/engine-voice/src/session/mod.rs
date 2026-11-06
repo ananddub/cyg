@@ -8,10 +8,24 @@ mod dispatch;
 #[cfg(test)]
 mod tests;
 
+/// Stable FNV-1a hash for a team/squad label.
+///
+/// Team ids are authored as strings (`"red"`, `"squad-a"`) but routed as a
+/// fixed-width `u32` on the voice wire, so every peer computes the same bucket
+/// without paying for string compares per packet.
+pub fn hash_team(team: &str) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in team.trim().as_bytes() {
+        hash ^= *byte as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
 #[derive(Debug, Clone)]
 pub struct VoiceParticipant {
     pub entity_id: u32,
-    pub team_id: Option<u16>,
+    pub team_id: Option<u32>,
     pub is_muted: bool,
     pub is_deafened: bool,
     pub position: [f64; 3],
@@ -19,7 +33,7 @@ pub struct VoiceParticipant {
 }
 
 impl VoiceParticipant {
-    pub fn new(entity_id: u32, team_id: Option<u16>, position: [f64; 3]) -> Self {
+    pub fn new(entity_id: u32, team_id: Option<u32>, position: [f64; 3]) -> Self {
         Self {
             entity_id,
             team_id,
@@ -50,7 +64,7 @@ impl VoiceRoom {
         }
     }
 
-    pub fn join_participant(&mut self, entity_id: u32, team_id: Option<u16>, position: [f64; 3]) {
+    pub fn join_participant(&mut self, entity_id: u32, team_id: Option<u32>, position: [f64; 3]) {
         let p = VoiceParticipant::new(entity_id, team_id, position);
         self.participants.insert(entity_id, p);
         self.spatial_router.update_participant(entity_id, position);
@@ -74,7 +88,7 @@ impl VoiceRoom {
         }
     }
 
-    pub fn set_team(&mut self, entity_id: u32, team_id: Option<u16>) {
+    pub fn set_team(&mut self, entity_id: u32, team_id: Option<u32>) {
         if let Some(p) = self.participants.get_mut(&entity_id) {
             p.team_id = team_id;
         }

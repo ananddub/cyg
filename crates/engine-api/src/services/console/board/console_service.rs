@@ -68,6 +68,7 @@ impl super::super::ConsoleService {
                 join_required: write.join_required,
                 max_size: write.max_size,
                 max_num_score: write.max_num_score,
+                rule_key: write.rule_key.clone(),
             })
             .await
             .map_err(V2Error::from)?;

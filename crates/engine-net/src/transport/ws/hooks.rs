@@ -39,7 +39,7 @@ pub(super) struct Pass<'a> {
     pub(super) poll: &'a mut Poll,
     pub(super) listeners: &'a mut Vec<TcpListener>,
     pub(super) clients: &'a mut AHashMap<Token, WsClient>,
-    pub(super) client_tokens: &'a mut AHashMap<String, Token>,
+    pub(super) client_tokens: &'a mut AHashMap<std::sync::Arc<str>, Token>,
     pub(super) client_rooms: &'a mut AHashMap<String, String>,
     pub(super) retained: &'a AHashMap<String, String>,
     pub(super) seat_tokens: &'a mut AHashMap<String, String>,

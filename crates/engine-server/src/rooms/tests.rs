@@ -7,6 +7,7 @@ pub use helpers::*;
 
 mod guest_wasm_auth;
 mod guest_wasm_reconnect;
+mod features_gate;
 mod guest_wasm_permissions;
 mod host_extras;
 mod limits;

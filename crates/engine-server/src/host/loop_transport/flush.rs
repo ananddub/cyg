@@ -29,7 +29,7 @@ impl LoopTransport {
                     let _ = self.send_to_now(&client_id, opcode, &payload);
                 }
                 DelayedOut::State { client_id, payload } => {
-                    let _ = self.rtc.send_state(&client_id, &payload);
+                    let _ = self.send_state_now(&client_id, &payload);
                 }
                 DelayedOut::Delta {
                     session,
@@ -65,6 +65,13 @@ impl LoopTransport {
                 .send_to(client_id, opcode, payload);
         }
         self.rtc.send_to(client_id, opcode, payload)
+    }
+
+    pub(crate) fn send_state_now(&mut self, client_id: &str, payload: &[u8]) -> std::io::Result<()> {
+        if self.ws_knows(client_id) {
+            return self.ws.as_mut().unwrap().send_state(client_id, payload);
+        }
+        self.rtc.send_state(client_id, payload)
     }
 
 }

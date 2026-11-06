@@ -46,6 +46,7 @@ engine's `/v2/` control plane on `web_port` (8090 by default).
 | `resilience/` | `CYGSessionCookie`, `CYGNodePool`, `CYGLagComp2D/3D`, `CYGLagHitbox2D/3D` | identity across drops, pooling, rewind hit tests |
 | `profiler/` | `CYGNetworkProfiler`, `CYGProfilingTransport`, `CYGProfilerHUD` | per-second ring of bytes, packets, ticks, RTT, mispredicts |
 | `events/` | `CYGNetworkAudio2D/3D`, `CYGNetworkParticles2D/3D` | one-shot effects that dedup and pool instead of spawning |
+| `cyg_voice.gd` | `CYGVoice` | relay-only voice (native WebRTC is unavailable on most exports): peer roster, mute verdicts, team/squad routing |
 | `baas/` | `CYGHttp`, `CYGAuth`, `CYGStorage`, `CYGInventory`, `CYGLeaderboard`, `CYGChat` | the `/v2/` REST surface |
 | `editor/` | `cyg_editor_dock.gd`, `CYGSceneScanner` | live stats and a scene audit |
 
@@ -91,6 +92,27 @@ view.send_rpc("footstep", [pos], CYGOpcodes.Target.ALL)   # sender
 
 `CYGOpcodes.Target` picks the audience: `ALL`, `Owner`, `Others`, or a specific
 actor. `server_rpc()` is the same path aimed at the room's own listener.
+
+## Voice and networked audio
+
+Godot has no usable native WebRTC on most export targets, so `CYGVoice` is a
+relay-only port of the JS mesh: `is_supported()` is `false` and `is_p2p()` always
+reports `false`, while every speaker still rides the authoritative server relay
+(`room.send_voice`). Peer roster, mute verdicts and server config still flow
+through signaling.
+
+```gdscript
+var voice := room.attach_voice()
+voice.enable(mic_stream)                          # relay-only
+room.set_voice_team("red")                        # string or number — hashed to u32
+room.send_voice(2, seq, timestamp, flags, opus)   # 0=proximity · 1=global · 2=team · 3=whisper
+room.set_voice_muted(true)
+room.set_voice_deafened(false)
+```
+
+One-shot positional SFX use the pooled `CYGNetworkAudio3D` / `CYGNetworkAudio2D`
+components (`play_at(position, event_id)`), which dedup by event identity and
+never allocate a node per sound.
 
 ## BaaS
 

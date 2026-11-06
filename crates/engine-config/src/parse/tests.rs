@@ -168,3 +168,35 @@ fn a_quota_scope_can_be_switched_off_with_a_zero_cap() {
     let cfg = parse_config("[control.quotas]\nenabled = true\nlogin = 0\n");
     assert_eq!(cfg.control.quotas.window(quota::LOGIN).cap, 0);
 }
+
+#[test]
+fn features_table_gates_physics_and_voice() {
+    let cfg = parse_config(
+        r#"
+[features]
+physics = "2d"
+voice = false
+"#,
+    );
+    assert!(cfg.features.wants_rapier2d());
+    assert!(!cfg.features.wants_rapier3d());
+    assert!(!cfg.features.voice);
+
+    let none = parse_config("[features]\nphysics = \"none\"\n");
+    assert!(!none.features.wants_any_physics());
+
+    let cfg = parse_config("tick_rate = 60\n");
+    assert_eq!(
+        cfg.features.physics,
+        PhysicsFeature::Both,
+        "unset features keep today's behavior (both worlds)"
+    );
+    assert!(cfg.features.voice);
+
+    let bad = parse_config("[features]\nphysics = \"5d\"\n");
+    assert_eq!(
+        bad.features.physics,
+        PhysicsFeature::Both,
+        "an unknown mode keeps the default instead of silently disabling"
+    );
+}

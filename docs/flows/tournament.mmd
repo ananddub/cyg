@@ -1,0 +1,35 @@
+sequenceDiagram
+    autonumber
+    actor O as Console Operator
+    actor P as Player Client
+    participant API as Control Plane<br/>engine-api
+    participant DB as SurrealDB
+    participant GS as Game Server
+
+    O->>API: POST /v2/console/tournament<br/>window, join_required, rule_key
+    API->>DB: leaderboard row (category = 1)
+
+    P->>API: GET /v2/tournament
+    API-->>P: tournaments[] + cursor
+
+    P->>API: POST /v2/tournament/{id}/join
+    API->>DB: load board + active rule
+    API->>DB: load player_stat
+    alt rule missing or unmet
+        API-->>P: 400 "Player does not meet the tournament rule."
+    else eligible
+        API->>DB: create leaderboard_record + size++
+        API-->>P: 200
+    end
+
+    P->>API: POST /v2/tournament/{id}<br/>{ score, subscore, operator }
+    API->>DB: require rule again + upsert record
+    API-->>P: record + rank
+
+    P->>API: GET /v2/tournament/{id}
+    API-->>P: records[] sorted
+
+    opt authoritative board
+        GS->>API: result (server key)
+        API->>DB: write score
+    end

@@ -88,7 +88,7 @@ fn descriptor_v3_encodes_strings_arrays_and_flags() {
 }
 
 #[test]
-fn generated_types_expose_generic_room_state_and_colyseus_shim() {
+fn generated_types_expose_generic_room_state_and_schema_shim() {
     let parsed = ts::parse(SCHEMA_TS).expect("schema.ts parses");
     let generated = generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
     let dts = &generated.client_dts;
@@ -96,7 +96,7 @@ fn generated_types_expose_generic_room_state_and_colyseus_shim() {
     assert!(dts.contains("export interface PlayerState {"));
     assert!(dts.contains("players: SchemaMap<PlayerState>;"));
     assert!(dts.contains("export type GameRoom = CYGRoom<GameState>;"));
-    assert!(dts.contains("declare module \"@colyseus/schema\""));
+    assert!(dts.contains("declare module \"cyg\""));
     assert!(dts.contains("export function schema<"));
 }
 

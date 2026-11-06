@@ -19,9 +19,9 @@ use super::*;
 
               (i64.const 0) (i32.const 0) (i32.const 4) (i32.const 8) (i32.const 3))))
 
-          (func (export "on_join") (param i64 f64 f64))
+          (func (export "on_join") (param i64 i32 i32 i32 i32))
 
-          (func (export "on_leave") (param i64))
+          (func (export "on_leave") (param i64 i32))
 
           (func (export "on_alloc") (param i32) (result i32) (i32.const 0))
 
@@ -77,18 +77,18 @@ use super::*;
     fn guest_on_is_full_overrides_the_host_ceiling() {
         let mut room = wat_room();
 
-        room.join("a", 0.0, 0.0);
+        room.join("a", 0.0, 0.0, b"");
         assert!(!room.is_full(16), "guest says not full at one player");
 
-        room.join("b", 0.0, 0.0);
+        room.join("b", 0.0, 0.0, b"");
         assert!(
             room.is_full(16),
             "the guest's on_is_full(count >= 2) must drive the decision, not the host's 16"
         );
 
         let mut relay = GameRoom::new_relay();
-        relay.join("a", 0.0, 0.0);
-        relay.join("b", 0.0, 0.0);
+        relay.join("a", 0.0, 0.0, b"");
+        relay.join("b", 0.0, 0.0, b"");
         assert!(!relay.is_full(16));
         assert!(relay.is_at_capacity(2));
     }
@@ -142,6 +142,6 @@ use super::*;
             "a manifest without storage must not reach the snapshot store"
         );
 
-        let room = denied.get_or_create("zone").expect("relay room");
+        let room = denied.get_or_create("zone", b"").expect("relay room");
         assert!(!room.storage_enabled);
     }

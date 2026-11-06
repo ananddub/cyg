@@ -1,6 +1,7 @@
 use auto_di::singleton;
 
 pub mod handoff;
+pub mod chain;
 pub mod reserve;
 
 #[cfg(test)]

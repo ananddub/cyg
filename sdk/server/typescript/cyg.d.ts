@@ -12,11 +12,16 @@ export interface ICYGRoom {
     /** Called once when the room is created */
     onCreate(maxClients: number): void;
 
-    /** Called when a player joins with spawn coordinates */
-    onJoin(id: bigint, spawnX: number, spawnZ: number): void;
+    /** Called when a player joins with the client's own join options (JSON) */
+    /**
+     * Called when a player joins with the CLIENT's own join options.
+     * Typed instance when the schema declares `JoinOptions`, else the raw
+     * JSON string (jsonString/jsonNumber helpers).
+     */
+    onJoin(id: bigint, options: unknown): void;
 
-    /** Called when a player leaves or disconnects */
-    onLeave(id: bigint): void;
+    /** Called when a player leaves; `consented` is false on timeout/kick */
+    onLeave(id: bigint, consented: boolean): void;
 
     /** Called when a client sends an authoritative input payload */
     onInput(id: bigint, data: Uint8Array): void;
@@ -45,8 +50,8 @@ export interface ICYGRoom {
  */
 export interface ICYGWasmExports {
     on_create(maxClients: number): void;
-    on_join(id: bigint, spawnX: number, spawnZ: number): void;
-    on_leave(id: bigint): void;
+    on_join(id: bigint, optionsPtr: number, optionsLen: number): void;
+    on_leave(id: bigint, consented: number): void;
     on_input(id: bigint, ptr: number, len: number): void;
     on_tick(dt: number): bigint;
     on_save(): bigint;
@@ -537,13 +542,25 @@ export declare class InputReader {
     readU8(): number;
     readU16(): number;
     readU32(): number;
+    readI8(): number;
+    readI16(): number;
     readI32(): number;
     readI64(): bigint;
     readF32(): number;
     readF64(): number;
+    readBool(): boolean;
+    /** A length-prefixed UTF-8 string ([len u16 LE][bytes]). */
+    readString(): string;
     readVec2(): Vec2;
     readVec3(): Vec3;
 }
+
+/** String value of `key` in the flat join-options JSON, or `fallback`. */
+export declare function jsonString(json: string, key: string, fallback: string): string;
+/** Number value of `key`, or `fallback` when absent or not numeric. */
+export declare function jsonNumber(json: string, key: string, fallback: number): number;
+/** Boolean value of `key`, or `fallback` when absent. */
+export declare function jsonBool(json: string, key: string, fallback: boolean): boolean;
 
 
 
@@ -649,22 +666,46 @@ export declare class EventEmitter {
     clear(): void;
 }
 
+export declare class Client {
+    /** Mutable only for the bridge's scratch-reuse; treat as read-only. */
+    id: bigint;
+    get sessionId(): string;
+    auth: string;
+    send(type: string, payload?: ArrayBuffer | null): boolean;
+    sendText(type: string, text: string): boolean;
+    /** Remove this player; the room gets onLeave(id, CloseCode.KICKED). */
+    leave(): void;
+}
+
 export declare abstract class Room {
     maxPlayers: number;
     events: EventEmitter;
+    /** A Colyseus-shaped handle over the player id the hooks carry. */
+    client(id: bigint): Client;
     onMessage(type: string, handler: MessageHandlerCallback): void;
     onOpcodeMessage(opcode: number, handler: MessageHandlerCallback): void;
-    broadcast(type: string, payload?: ArrayBuffer | null): boolean;
+    broadcast(type: string, payload?: ArrayBuffer | null, except?: bigint): boolean;
     sendTo(playerId: bigint, type: string, payload?: ArrayBuffer | null): boolean;
-    broadcastText(type: string, text: string): boolean;
+    broadcastText(type: string, text: string, except?: bigint): boolean;
     sendTextTo(playerId: bigint, type: string, text: string): boolean;
     on(event: string, callback: RoomEventCallback): void;
     emit(event: string, id?: bigint, val0?: number, val1?: number): void;
     abstract onCreate(max: number): void;
-    abstract onJoin(id: bigint, spawnX: number, spawnZ: number): void;
-    abstract onLeave(id: bigint): void;
+    /**
+     * Called when a player joins with the CLIENT's own join options.
+     * Typed instance when the schema declares `JoinOptions`, else the raw
+     * JSON string (jsonString/jsonNumber helpers).
+     */
+    onJoin(id: bigint, options: unknown, auth?: string): void;
+    onLeave(id: bigint, code: number): void;
+    onDrop(id: bigint, code: number): void;
+    onAuth(id: bigint, options: string, context: string): string;
+    onBeforeShutdown(): void;
+    onUncaughtException(message: string, methodName: string): void;
     onInput(id: bigint, ptr: number, len: number): void;
     onInputPacket(id: bigint, input: InputReader): void;
+    /** Typed per-tick input — client-style or (id: bigint, input) both work */
+    onInputFrame(client: Client, input: InputReader): void;
     abstract onTick(dt: number): bigint;
     onSave(): bigint;
     onLoad(ptr: number, len: number): void;

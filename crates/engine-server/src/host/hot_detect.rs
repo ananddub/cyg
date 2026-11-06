@@ -39,7 +39,7 @@ impl<'a> HotReload<'a> {
                         Ok(pre) => {
                             self.loaded_wasm_time = Some(current);
                             tracing::info!("[server] 🔥 DEV HOT-RELOAD: room logic updated!");
-                            server.hot_reload(pre, cfg.width, cfg.height);
+                            server.hot_reload(pre);
                         }
                         Err(e) => {
                             tracing::error!("[server] ⚠️ hot-reload compilation failed: {e}");

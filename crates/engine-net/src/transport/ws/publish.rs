@@ -63,8 +63,17 @@ impl WsTransport {
             return false;
         }
         let body_len = body.len();
-        if client.send_queue.is_empty() && client.shared_frame.is_none() && client.post_shared.is_empty() {
+        let total = head.len() + body_len + 6;
+        if client.send_queue.is_empty()
+            && client.shared_frame.is_none()
+            && client.post_shared.is_empty()
+        {
             if body_len == 0 {
+                return false;
+            }
+            if total > MAX_SEND_QUEUE {
+                self.dropped_frames = self.dropped_frames.saturating_add(1);
+                client.overflow_strikes += 1;
                 return false;
             }
             client.send_queue.extend_from_slice(head);
@@ -74,17 +83,42 @@ impl WsTransport {
             self.flush_dirty = true;
             return true;
         }
-        let total = head.len() + body_len + 6;
+        // Shared path must keep the SAME slow-consumer contract as queue_to /
+        // send_many: strike on overflow, disconnect at MAX_OVERFLOW_STRIKES.
+        // Without the kick a stalled client sat forever at the cap holding
+        // its buffers + the body Arc (the shared-queue RSS leak).
+        let mut kick = false;
         if client.send_queue.len() + client.post_shared.len() + total > MAX_SEND_QUEUE {
             self.dropped_frames = self.dropped_frames.saturating_add(1);
             client.overflow_strikes += 1;
-            return false;
+            kick = client.overflow_strikes >= MAX_OVERFLOW_STRIKES;
+            if kick || self.last_drop_log.elapsed().as_secs() >= 1 {
+                tracing::info!(
+                    "[ws] peer {client_id} not draining shared deltas ({} KB queued, {}/{} strikes){}",
+                    client.send_queue.len() / 1024,
+                    client.overflow_strikes,
+                    MAX_OVERFLOW_STRIKES,
+                    if kick { " — disconnecting" } else { "" }
+                );
+                self.last_drop_log = Instant::now();
+            }
+            if !kick {
+                return false;
+            }
+        } else {
+            client.send_queue.extend_from_slice(head);
+            client.send_queue.extend_from_slice(&body);
+            client.send_queue.extend_from_slice(tail);
+            self.flush_dirty = true;
+            return true;
         }
-        client.send_queue.extend_from_slice(head);
-        client.send_queue.extend_from_slice(&body);
-        client.send_queue.extend_from_slice(tail);
-        self.flush_dirty = true;
-        true
+        drop(client);
+        let _ = self.disconnect_with(
+            client_id,
+            close_code::SLOW_CONSUMER,
+            "send queue overflow (slow consumer)",
+        );
+        false
     }
 
     #[inline]

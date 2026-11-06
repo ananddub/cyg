@@ -23,15 +23,42 @@ use engine_schema::{
 };
 use std::path::{Path, PathBuf};
 
+#[cfg(not(feature = "dhat"))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+/// `cargo build --features dhat` swaps the allocator for the heap profiler:
+/// on clean exit it writes dhat-heap.json with per-allocation backtraces.
+#[cfg(feature = "dhat")]
+#[global_allocator]
+static GLOBAL: dhat::Alloc = dhat::Alloc;
+
+#[cfg(feature = "dhat")]
+static DHAT_PROFILER: std::sync::Mutex<Option<dhat::Profiler>> = std::sync::Mutex::new(None);
+
+#[cfg(feature = "dhat")]
+fn install_dhat() {
+    *DHAT_PROFILER.lock().unwrap() = Some(dhat::Profiler::builder().build());
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(10));
+        let s = dhat::HeapStats::get();
+        tracing::info!(
+            "[dhat] curr {:.1} MiB / peak {:.1} MiB / total allocated {:.0} MiB in {} blocks",
+            s.curr_bytes as f64 / 1048576.0,
+            s.max_bytes as f64 / 1048576.0,
+            s.total_bytes as f64 / 1048576.0,
+            s.total_blocks
+        );
+    });
+}
 
 mod backup;
 mod cli;
 mod cook;
 mod schema;
+mod telemetry;
 
-fn init_logging() {
+fn init_logging() -> telemetry::Guard {
     use tracing_subscriber::prelude::*;
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
@@ -43,15 +70,21 @@ fn init_logging() {
     } else {
         fmt.compact().boxed()
     };
+    let (otel, guard) = telemetry::layer();
     tracing_subscriber::registry()
         .with(filter)
         .with(fmt)
         .with(engine_api::infra::logfeed::layer())
+        .with(otel)
         .init();
+    guard
 }
 
 fn main() {
-    init_logging();
+    #[cfg(feature = "dhat")]
+    install_dhat();
+    // Held for the whole process: dropping it flushes the OTLP batch processor.
+    let _telemetry = init_logging();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("run");
     let dir = args
@@ -1143,7 +1176,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
         .map(|plane| plane.boot_maps())
         .unwrap_or_default();
     let boot_module = _control.as_ref().and_then(|plane| plane.boot_module());
-    engine_server::host::run(
+    let result = engine_server::host::run(
         &project_dir,
         &wasm_path,
         &cfg,
@@ -1151,7 +1184,13 @@ fn run(dir: &Path) -> std::io::Result<()> {
         signals,
         boot_maps,
         boot_module,
-    )
+    );
+    #[cfg(feature = "dhat")]
+    {
+        // dropping the profiler flushes dhat-heap.json
+        let _ = DHAT_PROFILER.lock().unwrap().take();
+    }
+    result
 }
 
 /// `cyg-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.

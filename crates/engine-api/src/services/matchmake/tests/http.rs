@@ -84,9 +84,19 @@ fn http_rejects_a_body_over_the_limit() {
 }
 
 #[test]
-fn http_unknown_method_is_404_and_a_control_char_does_not_break_the_body() {
+fn http_spectate_mints_a_seat_like_a_join() {
     let server = TestServer::start(test_state(1000, 1000));
     let (status, _, body) = server.post("/matchmake/spectate/tank-3d", "{}");
+    assert_eq!(status, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).expect("seat is JSON");
+    assert_eq!(v["roomId"].as_str().unwrap(), "tank-3d");
+    assert!(!v["sessionId"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn http_unknown_method_is_404_and_a_control_char_does_not_break_the_body() {
+    let server = TestServer::start(test_state(1000, 1000));
+    let (status, _, body) = server.post("/matchmake/observe/tank-3d", "{}");
     assert_eq!(status, 404, "{body}");
     let (status, _, body) = server.post("/matchmake/spec%01tate/tank-3d", "{}");
     assert_eq!(status, 404);

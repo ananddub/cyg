@@ -49,6 +49,7 @@ pub(super) fn test_state() -> (ApiState, Receiver<SignalIn>) {
         blobs: None,
         realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(crate::infra::session_cache::SessionCache::new(60, 3600)),
+            chain: Default::default(),
     };
     let inbound = state
         .signals

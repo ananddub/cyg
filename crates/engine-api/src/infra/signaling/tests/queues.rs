@@ -74,6 +74,7 @@ fn the_inbound_queue_is_bounded_and_post_never_blocks() {
         room: "r".into(),
         token: "t".into(),
         expires_at: u64::MAX,
+        options: String::new(),
     };
     for _ in 0..INBOUND_QUEUE {
         assert!(hub.post(SignalIn::Offer {

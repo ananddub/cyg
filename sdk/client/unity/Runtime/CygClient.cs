@@ -43,6 +43,8 @@ namespace CYG
         public event Action<byte[]> OnRawDelta;
         /// App-level messages (typed). Reserved for the OP_APP lane.
         public event Action<string, byte[]> OnMessage;
+        /// Routed voice frame: speaker id + 15-byte header + Opus payload.
+        public event Action<long, byte[]> OnVoice;
         public event Action<string> OnError;
         public event Action OnLeave;
         public event Action OnReconnect;
@@ -218,6 +220,17 @@ namespace CYG
                         }
                     }
                     break;
+                case 0x56: // routed voice frame — speaker id is stamped by the host
+                    if (n >= 2)
+                    {
+                        long speakerId = n >= 5
+                            ? ((long)buf[1] << 24) | ((long)buf[2] << 16) | ((long)buf[3] << 8) | buf[4]
+                            : 0L;
+                        var voice = new byte[n];
+                        Buffer.BlockCopy(buf, 0, voice, 0, n);
+                        OnVoice?.Invoke(speakerId, voice);
+                    }
+                    break;
                 default: break;
             }
         }
@@ -291,9 +304,94 @@ namespace CYG
             _sock.Send(pkt);
         }
 
+        // ------------------------------------------------------------ voice
+        //
+        // Relay-only voice over the same UDP lane. The SDK owns the wire
+        // framing, team/squad routing and mute/deafen control; mic capture,
+        // Opus encode/decode and playback stay with the game (Unity's
+        // Microphone + your Opus codec). Routed frames arrive on OnVoice /
+        // CygVoice.OnPacket.
+
+        private CygVoice _voice;
+
+        /// <summary>Attach (or reuse) the room's relay-only voice handle.</summary>
+        public CygVoice AttachVoice() => _voice ??= new CygVoice(this);
+
+        /// <summary>FNV-1a over UTF-8 — same vectors as the web / Godot SDKs.</summary>
+        public static uint HashTeam(string team)
+        {
+            uint hash = 2166136261u;
+            var label = team == null ? "" : team.Trim();
+            foreach (var b in Encoding.UTF8.GetBytes(label))
+            {
+                hash ^= b;
+                hash *= 16777619u;
+            }
+            return hash;
+        }
+
+        /// <summary>
+        /// [0x56]['T'][hash u32 BE] — 0 means "leave team". Team labels are
+        /// hashed so the wire stays fixed-width and routing is one compare.
+        /// </summary>
+        public static byte[] BuildVoiceTeamPacket(string teamId)
+        {
+            var label = teamId == null ? "" : teamId.Trim();
+            uint hash = label.Length == 0 ? 0u : HashTeam(label);
+            return new byte[]
+            {
+                0x56, 0x54,
+                (byte)(hash >> 24), (byte)(hash >> 16), (byte)(hash >> 8), (byte)hash,
+            };
+        }
+
+        /// <summary>[0x56]['M'|'D'][1/0] — mic mute / deafen control frame.</summary>
+        public static byte[] BuildVoiceFlagPacket(byte kind, bool on)
+            => new byte[] { 0x56, kind, on ? (byte)1 : (byte)0 };
+
+        /// <summary>
+        /// 15-byte voice header + Opus payload, byte-for-byte with the web SDK:
+        /// [magic][sender u32 BE][seq u16 BE][timestamp u32 BE][mode][flags][len u16 BE].
+        /// The host overwrites the sender slot when relaying.
+        /// </summary>
+        public static byte[] BuildVoicePacket(
+            VoiceChannel mode, ushort seq, uint timestamp, byte flags, byte[] opusPayload)
+        {
+            opusPayload ??= Array.Empty<byte>();
+            if (opusPayload.Length > ushort.MaxValue)
+                throw new ArgumentException("Opus payload is at most 65535 bytes", nameof(opusPayload));
+
+            var pkt = new byte[15 + opusPayload.Length];
+            pkt[0] = 0x56;
+            pkt[5] = (byte)(seq >> 8); pkt[6] = (byte)seq;
+            pkt[7] = (byte)(timestamp >> 24); pkt[8] = (byte)(timestamp >> 16);
+            pkt[9] = (byte)(timestamp >> 8); pkt[10] = (byte)timestamp;
+            pkt[11] = (byte)mode;
+            pkt[12] = flags;
+            pkt[13] = (byte)(opusPayload.Length >> 8); pkt[14] = (byte)opusPayload.Length;
+            Buffer.BlockCopy(opusPayload, 0, pkt, 15, opusPayload.Length);
+            return pkt;
+        }
+
+        /// <summary>Set the squad/team used by <see cref="VoiceChannel.TeamOnly"/>.</summary>
+        public void SetVoiceTeam(string teamId) => _sock?.Send(BuildVoiceTeamPacket(teamId));
+
+        /// <summary>Number overload — stringified, then hashed like the web SDK.</summary>
+        public void SetVoiceTeam(int teamId) => SetVoiceTeam(teamId.ToString());
+
+        /// <summary>Notify the host that the local microphone is muted.</summary>
+        public void SetVoiceMuted(bool muted) => _sock?.Send(BuildVoiceFlagPacket(0x4D, muted));
+
+        /// <summary>Notify the host that the local player cannot hear anyone.</summary>
+        public void SetVoiceDeafened(bool deafened) => _sock?.Send(BuildVoiceFlagPacket(0x44, deafened));
+
+        /// <summary>Stream one Opus frame on the given channel.</summary>
+        public void SendVoice(
+            VoiceChannel mode, ushort seq, uint timestamp, byte flags, byte[] opusPayload)
+            => _sock?.Send(BuildVoicePacket(mode, seq, timestamp, flags, opusPayload));
+
         /// Server-clock aligned time (BIND ke baad ka offset).
-        public long ClockNow => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + _clockOffsetMs;
-        private long _clockOffsetMs;
+        public long ClockNow => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + _clockOffsetMs;        private long _clockOffsetMs;
 
         private ushort _reqSeq;
         private readonly ConcurrentDictionary<ushort, TaskCompletionSource<byte[]>> _pendingRpc

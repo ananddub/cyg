@@ -25,7 +25,7 @@ impl UdpLane {
             return;
         }
         let history = EventHistory::new(ctx.bus, ctx.game_cfg);
-        let room = match ctx.server.get_or_create(&ctx.cfg.name) {
+        let room = match ctx.server.get_or_create(&ctx.cfg.name, b"") {
             Ok(room) => room,
             Err(_) => return,
         };
@@ -61,7 +61,7 @@ impl UdpLane {
         data: &[u8],
         ctx: &mut UdpCtx,
     ) {
-        let room = match ctx.server.get_or_create(&ctx.cfg.name) {
+        let room = match ctx.server.get_or_create(&ctx.cfg.name, b"") {
             Ok(room) => room,
             Err(e) => {
                 tracing::error!("[server-udp] ⛔ room '{}' unavailable: {e}", ctx.cfg.name);

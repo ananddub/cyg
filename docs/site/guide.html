@@ -101,16 +101,27 @@ export const State = schema({
     coinX:   t.number(),             <span class="c">// root scalars = world-level values</span>
     coinY:   t.number(),
     phase:   t.int32(),
-}, "State");</pre>
-  <p>In the room, the pattern is always the same three lines:</p>
-<pre><span class="c">// src/room.ts</span>
-import { GameState, Player } from "./openoxide.schema";
+}, "State");
 
-export class CoinRush extends Room {
+<span class="c">// Typed join options (§3): the client sends { name, team } and onJoin
+// receives a typed instance — the host does the JSON→binary encoding.</span>
+export const JoinOptions = schema({
+    name: t.string(),
+    team:  t.uint8().default(0),
+}, "JoinOptions");</pre>
+  <p>In the room, the pattern is always the same three lines:</p>
+<pre><span class="c">// src/index.ts — hooks receive a Colyseus-shaped Client handle</span>
+import { Room, Client, GameState, Player } from "../pkg/cyg-server";
+import { GameState, Player } from "../gen/cyg.schema";
+
+export class MyGame extends Room {
     private s: GameState = new GameState();
 
-    onCreate(max: i32): void {
+    onCreate(max: i32, options: string): void {
         this.setState(this.s);                       <span class="c">// 1. bind the state</span>
+    }
+    onJoin(client: Client, options: JoinOptions, auth: string): void {
+        client.sendText("welcome", "hi " + options.name);
     }
     onTick(dt: f64): i64 {
         // ... mutate s.players / s.coinX ...
@@ -126,59 +137,84 @@ export class CoinRush extends Room {
 <!-- ============================================================ 3 -->
 <section id="life"><div class="wrap">
   <h2><span>03</span>Room lifecycle hooks</h2>
+  <p>The full lifecycle, in the order a client moves through the room — <code>onAuth</code> →
+  <code>onCreate</code> → <code>onJoin</code> → <code>onDrop</code>/<code>onReconnect</code> →
+  <code>onLeave</code> → <code>onDispose</code>, plus <code>onBeforeShutdown</code> (drain) and
+  <code>onUncaughtException</code> (watchdog). Room variants (<code>[rooms.duo] filter_by=["region"]</code>
+  in config.toml) split <code>joinOrCreate</code> joins into per-filter rooms with their own
+  <code>max_clients</code>/<code>tick_rate</code>/<code>persistent</code> — Colyseus <code>defineRoom</code> parity.
+  <code>onAuth</code> returns auth data that arrives as
+  <code>onJoin</code>'s third argument (throw to reject); <code>onCreate</code> receives the config's
+  <code>room_options</code> merged with the creator's join options; leave codes are
+  <code>CloseCode.LEFT / KICKED / SERVER_SHUTDOWN / TIMED_OUT / LOST</code>; <code>this.client(id)</code> is a Colyseus-shaped
+  handle (<code>.sessionId</code>, <code>.send</code>, <code>.sendText</code>, <code>.auth</code>, <code>.leave()</code> — kick with code KICKED).</p>
   <table>
     <tr><th>Hook</th><th>When</th><th>Return</th></tr>
     <tr><td><code>onCreate(max: i32)</code></td><td>room allocated; physics init, state bind</td><td>—</td></tr>
-    <tr><td><code>onJoin(id: i64, x: f64, y: f64)</code></td><td>player seated (spawn x/y from host)</td><td>—</td></tr>
-    <tr><td><code>onLeave(id: i64)</code></td><td>player gone (clean or timeout)</td><td>—</td></tr>
-    <tr><td><code>onInputPacket(id, input: InputReader)</code></td><td>reliable app message from one player</td><td>—</td></tr>
+    <tr><td><code>onJoin(client: Client, options, auth)</code></td><td>player seated — <b>options is the client's own data</b> (from <code>joinOrCreate(room, {"{"}name, team…{"}"})</code>) — <b>typed</b> when the schema declares a <code>JoinOptions</code> def (host encodes, bridge decodes — no JSON parsing), raw JSON string otherwise (<code>jsonString/jsonNumber/jsonBool</code>); <code>auth</code> is what <code>onAuth</code> returned; the room decides the spawn</td><td>—</td></tr>
+    <tr><td><code>onLeave(client: Client, code: i32)</code></td><td>player gone — <code>code</code> is a CloseCode (LEFT · KICKED · SERVER_SHUTDOWN · TIMED_OUT · LOST); hold state for reconnection on anything but LEFT</td><td>—</td></tr>
+    <tr><td><code>onAuth(client: Client, options: string, context: string): string</code></td><td>before onJoin — return auth data (throw to reject); it reaches onJoin's third argument</td><td>auth JSON</td></tr>
+    <tr><td><code>onDrop(client: Client, code: i32)</code></td><td>connection lost without consent — use <code>allowReconnection()</code> here; onReconnect fires when the player returns</td><td>—</td></tr>
+    <tr><td><code>onBeforeShutdown() / onUncaughtException(msg, method)</code></td><td>drain started (one broadcast flush follows) / a guest call trapped (watchdog)</td><td>—</td></tr>
+    <tr><td><code>onInputFrame(client: Client, f: Input)</code></td><td>typed per-tick input frame (§4) — <b>pre-decoded</b> by the bridge; raw <code>(…, r: InputReader)</code> + <code>decodeInput(r)</code> style bhi valid</td><td>—</td></tr>
+    <tr><td><code>onInputPacket(id, input: InputReader)</code></td><td>custom binary protocols on the reliable lane</td><td>—</td></tr>
     <tr><td><code>onTick(dt: f64)</code></td><td>every simulation tick at <code>tick_rate</code></td><td><code>i64</code> = <code>commitState()</code> result (ptr&lt;&lt;32 | len)</td></tr>
     <tr><td><code>onSave() / onLoad()</code></td><td>persistence snapshots (hibernation)</td><td>serialized state bytes</td></tr>
   </table>
   <p class="note">Per-tick flow: <b>inputs in → simulate → commitState()</b>. <code>dt</code> is the tick
-  delta in seconds (1/128 at 128 Hz) — always scale movement by it, never assume fixed values.</p>
+  delta in seconds (1/128 at 128 Hz) — always scale movement by it, never assume fixed values.
+  Broadcasts can skip one player: <code>this.broadcastText("chat", text, senderId)</code>.</p>
 </div></section>
 
 <!-- ============================================================ 4 -->
 <section id="input"><div class="wrap">
-  <h2><span>04</span>Inputs — the 128 Hz movement lane</h2>
-  <p>Movement input is special: it rides the <b>unreliable newest-wins lane</b> (a late packet is
-  worthless). The client packs a small binary frame; the server reads it with <code>InputReader</code>.</p>
+  <h2><span>04</span>Inputs — declare once, send objects</h2>
+  <p>Input is <b>schema-declared</b>, like the state. Add an <code>Input</code> def with
+  your own fields (numeric/bool, fixed-size) — codegen emits a typed decoder, the
+  descriptor carries it to every client at join, and the field order below <b>is</b>
+  the wire order. Nobody packs a byte.</p>
+
+<pre><span class="c">// src/schema/player.ts — same file as the state</span>
+export const Input = schema({
+    moveX: t.f32().default(0),
+    moveZ: t.f32().default(0),
+    jump:  t.boolean().default(false),
+    skill: t.uint8().default(0),   <span class="c">// racing: throttle/steer — tumhara contract</span>
+}, "Input");</pre>
 
   <h3>Client side (web SDK)</h3>
-<pre><span class="c">// keys → one flag byte (W=1 S=2 A=4 D=8 …), aim as a normalized vector</span>
-let flags = 0;
-if (keys.has("w")) flags |= 1;
-if (keys.has("s")) flags |= 2;
-if (keys.has("a")) flags |= 4;
-if (keys.has("d")) flags |= 8;
+<pre>room.sendInput({ moveX: 1, moveZ: 0, jump: false, skill: 2 });
 
-<span class="c">// the movement packet: [flags u8][aimX f32][aimY f32] on the unreliable lane</span>
-const pkt = new DataView(new ArrayBuffer(9));
-pkt.setUint8(0, flags);
-pkt.setFloat32(1, aimX, true);
-pkt.setFloat32(5, aimY, true);
-room.sendUnreliable("input", new Uint8Array(pkt.buffer));</pre>
+<span class="c">// ya keyboard handle — declared fields khud bharta hai:</span>
+const input = room.input();
+const unbind = input.bindKeyboard();   <span class="c">// WASD + arrows + space</span>
+setInterval(() =&gt; input.send(), 33);</pre>
 
   <h3>Server side</h3>
-<pre>import { InputReader, Key, isHeld } from "./openoxide-server";
+<pre>import { InputReader } from "../pkg/cyg-server";
+import { decodeInput } from "../gen/cyg.schema";
 
-onInputPacket(id: i64, input: InputReader): void {
-    const flags = input.readU8();
-    const aimX  = input.readF32();
-    const aimY  = input.readF32();
-    if (isHeld(flags, Key.W)) { /* forward */ }
+onInputFrame(client: Client, f: Input): void {
+    <span class="c">// f is PRE-DECODED — the bridge ran the generated decoder for you</span>
+    this.moves.set(id, new Vec2(f.moveX, f.moveZ));
+    if (f.skill &gt; 0) this.castSkill(id, f.skill);
 }</pre>
-  <p class="note"><code>InputReader</code>: <code>readU8()</code>, <code>readF32()</code>,
-  <code>readF64()</code>, <code>readI64()</code>, <code>hasRemaining(n)</code> — cursor-based, never
-  throws past the end you check. <code>Key</code>/<code>KeyCode</code> carry the standard constants;
-  <code>heldFlags(ptr,len)</code> + <code>isHeld(flags,key)</code> decode packed key bytes. For
-  physics-based movement, <code>Physics.move(pos, vel, radius, dt)</code> (see §6) applies
-  wall-sliding kinematic motion in one call.</p>
+  <p class="note">Stale frames are dropped for you — per-player sequence numbers,
+  wrap-safe newest-wins, so a late packet never rewinds a player. Strings and arrays
+  are rejected in an input frame at <code>cyg-game schema</code> time (fixed-size
+  wire), and the name <code>Input</code> cannot double as a state entity.
+  <code>room.sendInput(…)</code> accepts exactly the input object — the old
+  positional <code>(flags, aimYaw, …)</code> form is gone.</p>
 
-  <div class="warn"><b>Rule:</b> <code>onInputPacket</code> is the <b>reliable</b> path (fires, chats,
-  RPC-shaped messages — things you cannot afford to drop). Per-tick movement stays on
-  <code>sendUnreliable</code>. Never swap them.</div>
+  <div class="warn"><b>Rule:</b> <code>onMessage</code>/<code>room.send</code> is the
+  <b>reliable</b> path (fires, chats, RPC-shaped messages — things you cannot afford
+  to drop). Per-tick movement stays on the input lane — newest-wins, no retransmit.
+  Never swap them.</div>
+
+  <p class="note">Custom binary protocols (rare) still have <code>onInputPacket(id,
+  input: InputReader)</code> on the reliable lane — cursor reads
+  (<code>readU8/readF32/readVec2/readRemainingString</code>), never reading past
+  what you checked.</p>
 </div></section>
 
 <!-- ============================================================ 5 -->
@@ -406,7 +442,7 @@ this.onMessage("chat", (senderId, reader, room) => { /* … */ });</pre>
   <table>
     <tr><th>Client call</th><th>Lane</th><th>Use for</th></tr>
     <tr><td><code>room.send(type, data)</code> / <code>sendBytes</code></td><td>reliable, ordered</td><td>fire, hit, chat, score — cannot drop</td></tr>
-    <tr><td><code>room.sendUnreliable(type, data)</code></td><td>newest-wins, no retransmit</td><td>movement/aim every tick</td></tr>
+    <tr><td><code>room.sendInput(inputObj)</code></td><td>schema input lane, newest-wins</td><td>movement/aim every tick (§4)</td></tr>
     <tr><td><code>room.request(type, data, timeoutMs=5000)</code></td><td>reliable + promise</td><td>login, buy, match action — await reply</td></tr>
   </table>
   <p class="note">Server events (Fire/Hit/Scores) ride an ordered event lane with sequence numbers and
@@ -439,7 +475,8 @@ const { Client, Callbacks, Storage } = CYG;
 
 <span class="c">// ── connect ──</span>
 const client = new Client(SERVER_ORIGIN);        <span class="c">// control-plane origin</span>
-const room = await client.joinOrCreate("game_room", { mode: "duo" });
+const room = await client.joinOrCreate("game_room", { name: "miya", skin: "ninja" });
+<span class="c">// options = the client's own data — the room receives it on onJoin</span>
 <span class="c">// also: client.join(name) · client.create(name) · client.joinById(id) · client.spectate(name)</span>
 
 <span class="c">// ── state (descriptor arrives on join; zero codegen) ──</span>
@@ -457,7 +494,7 @@ room.onReconnect(() => {});      room.onDrop(() => {});        <span class="c">/
 room.onMessage("chat", (payload) => {});
 room.onMessage("*", (type, payload) => {});                    <span class="c">// wildcard</span>
 room.send("fire", { dir });  room.sendBytes("bin", u8);
-room.sendUnreliable("move", u8);                               <span class="c">// newest-wins lane</span>
+room.sendInput({ moveX, moveZ, jump });                         <span class="c">// typed input lane (§4)</span>
 const res = await room.request("login", { user });              <span class="c">// RPC, 5 s timeout</span>
 
 <span class="c">// ── accounts ──</span>
@@ -546,6 +583,7 @@ hp: t.uint8().default(100),</pre>
   <ul>
     <li>Every schema file must <code>export const State = schema({...}, "State")</code> — the root.</li>
     <li>Entity defs (<code>Player</code> etc.) are referenced by name inside collections.</li>
+    <li><code>Input</code> is reserved for the per-tick input frame (§4) — numeric/bool fields only, and it cannot double as a state entity.</li>
     <li>Reserved words (<code>var</code>, <code>function</code>, <code>this</code>…) field names ke roop me allowed nahi.</li>
     <li>Room imports from <code>../gen/cyg.schema</code> — <code>src/schema/player.ts</code> ko import mat karo (colyseus module resolve nahi hota asc me).</li>
     <li>Run <code>cyg-game schema</code> after edits, ya <code>cyg-game run</code> auto-compiles.</li>

@@ -2,7 +2,7 @@
 use engine_net::framing::OpCode;
 use engine_net::transport::GameTransport;
 
-use crate::rooms::GameRoom;
+use crate::rooms::{close_code, GameRoom};
 
 use crate::host::*;
 pub(crate) fn claimed_user_id(options: &str) -> Option<String> {
@@ -45,6 +45,18 @@ pub(crate) fn flush_room_outbox(
             {
                 let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
             }
+        } else if message.target < 0 {
+            // Broadcast-except: the SDK's `broadcast(type, payload, except)`
+            // packs `target = -playerId`; everyone else still receives it.
+            let except = -message.target;
+            for (session, &id) in &room.sessions {
+                if id != except {
+                    let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
+                }
+            }
+            for spectator in &room.spectators {
+                let _ = transport.send_to(spectator, OpCode::RoomDataBytes, &frame);
+            }
         } else if message.target == 0 {
             for session in room.sessions.keys() {
                 let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
@@ -53,6 +65,20 @@ pub(crate) fn flush_room_outbox(
                 let _ = transport.send_to(spectator, OpCode::RoomDataBytes, &frame);
             }
         }
+    }
+
+    // Client.leave() calls the guest queued during the last invocation —
+    // close their connections now that the guest call has returned.
+    for id in room.drain_kicks() {
+        let Some(session) = room
+            .sessions
+            .iter()
+            .find_map(|(session, &pid)| (pid == id).then(|| session.clone()))
+        else {
+            continue;
+        };
+        let _ = transport.disconnect_with(&session, close_code::KICKED as u16, "kicked by room");
+        room.kick_player(&session, id);
     }
 }
 

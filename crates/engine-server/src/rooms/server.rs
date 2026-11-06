@@ -9,6 +9,7 @@ pub struct GameServer {
     pub(crate) physics: PhysicsWorld3D,
     pub(crate) rooms: HashMap<String, GameRoom>,
     pub(crate) permissions: engine_wasm::AbiPermissions,
+    pub(crate) features: engine_config::FeaturesConfig,
     pub(crate) persistent_snapshots: HashMap<String, Vec<u8>>,
     pub(crate) arena_2d: Option<engine_physics::MapConfig2D>,
     pub(crate) navmesh: Option<std::sync::Arc<NavMesh2D>>,
@@ -21,12 +22,23 @@ impl GameServer {
         physics: PhysicsWorld3D,
         permissions: engine_wasm::AbiPermissions,
     ) -> Self {
+        Self::new_with_features(pre, max_clients, physics, permissions, Default::default())
+    }
+
+    pub(crate) fn new_with_features(
+        pre: Option<engine_wasm::WasmPreInstance<RoomHostData>>,
+        max_clients: i32,
+        physics: PhysicsWorld3D,
+        permissions: engine_wasm::AbiPermissions,
+        features: engine_config::FeaturesConfig,
+    ) -> Self {
         Self {
             pre,
             max_clients,
             physics,
             rooms: HashMap::new(),
             permissions,
+            features,
             persistent_snapshots: HashMap::new(),
             arena_2d: None,
             navmesh: None,

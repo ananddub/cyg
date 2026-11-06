@@ -14,7 +14,7 @@ use engine_physics::PhysicsWorld3D;
 
         let mut t = transport();
         let bus = Bus::new(8, 8);
-        drain_rooms(&mut server, &mut t, &bus, "tank-3d");
+        drain_rooms(&mut server, &mut t, &bus, &engine_config::GameConfig::default(), "tank-3d");
 
         let saved = bus
             .snapshots_rx

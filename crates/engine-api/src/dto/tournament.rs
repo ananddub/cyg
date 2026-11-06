@@ -64,6 +64,9 @@ pub struct TournamentResponse {
     pub authoritative: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub join_required: bool,
+    /// Active rule set a player must satisfy to join or score.
+    #[serde(skip_serializing_if = "no_string")]
+    pub rule_key: Option<String>,
 }
 
 impl TournamentResponse {
@@ -102,6 +105,7 @@ impl TournamentResponse {
             operator: api_operator(board.operator),
             authoritative: board.authoritative,
             join_required: board.join_required,
+            rule_key: board.rule_key.clone(),
         })
     }
 }

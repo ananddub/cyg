@@ -200,6 +200,8 @@ mod tests {
             "fallback",
             9123,
             9124,
+            &std::collections::BTreeMap::new(),
+            &AHashMap::new(),
         )
         .expect("seat issued");
         assert!(body.contains("\"gamePort\":9123"), "{body}");
@@ -219,6 +221,8 @@ mod tests {
                 "fallback",
                 7777,
                 7778,
+                &std::collections::BTreeMap::new(),
+                &AHashMap::new(),
             )
             .expect("seat issued");
             let sid = parse_json_string(&body, "sessionId").expect("sessionId in body");

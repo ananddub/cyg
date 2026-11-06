@@ -117,4 +117,9 @@ pub(crate) struct Engine<'a> {
     pub(crate) rates: Rates,
     pub(crate) clock: Clock,
     pub(crate) stats: Stats,
+    /// The schema's `JoinOptions` fields, in wire order — join options are
+    /// re-encoded into this frame so the guest's `onJoin(id, options)` is
+    /// typed. Empty when the schema declares no `JoinOptions` def (raw JSON
+    /// passthrough instead).
+    pub(crate) join_options_fields: Vec<engine_schema::SchemaField>,
 }

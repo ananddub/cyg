@@ -80,3 +80,6 @@ examples/*
 .idea/
 .delta/
 /bench/release-out/
+bench-game-*
+dhat*.json
+

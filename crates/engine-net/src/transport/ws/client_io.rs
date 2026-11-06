@@ -64,7 +64,7 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                         if client.session_id != prev_id {
                             pass.client_tokens.remove(&*prev_id);
                             pass.client_tokens
-                                .insert(client.session_id.to_string(), token);
+                                .insert(client.session_id.clone(), token);
                         }
                         if client.state == WsState::Connected {
 
@@ -78,6 +78,8 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                 }
             }
         }
+
+        shrink_read_buffers(client);
 
         if event.is_writable() && !client.send_queue.is_empty() {
             match client.stream.write(&client.send_queue) {
@@ -95,6 +97,21 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
 
     if conn_dead {
         pass.disconnected.push(token);
+    }
+}
+
+/// Reclaims buffer capacity a burst (or a large inbound frame) left behind:
+/// inputs are ~20B frames, so a drained reader never needs more than the
+/// initial allocation. Keeps per-connection RSS at the floor under churn.
+fn shrink_read_buffers(client: &mut WsClient) {
+    if client.recv_buf.is_empty() && client.recv_buf.capacity() > 16 * 1024 {
+        client.recv_buf = bytes::BytesMut::with_capacity(4096);
+    }
+    if client.frag_buf.is_empty() && client.frag_buf.capacity() > 16 * 1024 {
+        client.frag_buf = bytes::BytesMut::new();
+    }
+    if client.post_shared.is_empty() && client.post_shared.capacity() > 4096 {
+        client.post_shared = bytes::BytesMut::new();
     }
 }
 

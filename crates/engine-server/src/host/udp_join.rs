@@ -24,7 +24,7 @@ impl UdpLane {
             tracing::error!("[server-udp] ⛔ join rate-limit hit by {peer_addr}");
             return;
         }
-        let room = match ctx.server.get_or_create(&ctx.cfg.name) {
+        let room = match ctx.server.get_or_create(&ctx.cfg.name, b"") {
             Ok(room) => room,
             Err(_) => return,
         };
@@ -85,7 +85,7 @@ impl UdpLane {
         is_spec_handshake: bool,
         ctx: &mut UdpCtx,
     ) {
-        let room = match ctx.server.get_or_create(&ctx.cfg.name) {
+        let room = match ctx.server.get_or_create(&ctx.cfg.name, b"") {
             Ok(room) => room,
             Err(_) => return,
         };

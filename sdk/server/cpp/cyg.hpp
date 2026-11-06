@@ -80,10 +80,14 @@ public:
     virtual void onCreate(int32_t maxClients) = 0;
 
     /// Called when a new player connects to the room.
-    virtual void onJoin(int64_t id, double spawnX, double spawnZ) = 0;
+    virtual std::string onAuth(int64_t id, const std::string& options, const std::string& context) { (void)id; (void)options; (void)context; return "{}"; }
+    virtual void onJoin(int64_t id, const std::string& options, const std::string& auth) = 0;
+    virtual void onDrop(int64_t id, int32_t code) { (void)id; (void)code; }
+    virtual void onBeforeShutdown() {}
+    virtual void onUncaughtException(const std::string& message, const std::string& method) { (void)message; (void)method; }
 
     /// Called when a player disconnects or leaves.
-    virtual void onLeave(int64_t id) = 0;
+    virtual void onLeave(int64_t id, int32_t code) = 0;
 
     /// Called when a client sends an input packet (WebSocket / UDP / WebRTC DataChannel).
     virtual void onInput(int64_t id, const uint8_t* data, size_t len) = 0;
@@ -136,11 +140,14 @@ inline uint64_t pack_delta(const void* ptr, uint32_t len) {
             g_cyg_room = &s_room_instance; \
             g_cyg_room->onCreate(max); \
         } \
-        __attribute__((visibility("default"))) void on_join(int64_t id, double x, double z) { \
-            if (g_cyg_room) g_cyg_room->onJoin(id, x, z); \
+        __attribute__((visibility("default"))) void on_join(int64_t id, int32_t opt_ptr, int32_t opt_len, int32_t auth_ptr, int32_t auth_len) { \
+            std::string options, auth; \
+            if (opt_ptr != 0 && opt_len > 0) options.assign(reinterpret_cast<const char*>(opt_ptr), (size_t)opt_len); \
+            if (auth_ptr != 0 && auth_len > 0) auth.assign(reinterpret_cast<const char*>(auth_ptr), (size_t)auth_len); \
+            if (g_cyg_room) g_cyg_room->onJoin(id, options, auth); \
         } \
-        __attribute__((visibility("default"))) void on_leave(int64_t id) { \
-            if (g_cyg_room) g_cyg_room->onLeave(id); \
+        __attribute__((visibility("default"))) void on_leave(int64_t id, int32_t code) { \
+            if (g_cyg_room) g_cyg_room->onLeave(id, code); \
         } \
         __attribute__((visibility("default"))) void on_input(int64_t id, int32_t ptr, int32_t len) { \
             if (g_cyg_room) { \

@@ -25,6 +25,8 @@ max_messages_per_second = 0
 # Synthetic round-trip latency (ms) for local testing; app data both ways is
 # delayed by half of this. 0 = off.
 simulate_latency_ms = 0
+# Synthetic packet loss (0.0 to 1.0 or percentage 0 to 100) for network testing. 0 = off.
+simulate_packet_loss = 0.0
 
 # Playfield
 width = 800.0

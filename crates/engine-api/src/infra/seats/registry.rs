@@ -57,6 +57,10 @@ impl SeatRegistry {
     }
 
     pub fn mint(&mut self, room: &str, ttl_secs: u64) -> Option<Seat> {
+        self.mint_with_options(room, ttl_secs, "")
+    }
+
+    pub fn mint_with_options(&mut self, room: &str, ttl_secs: u64, options: &str) -> Option<Seat> {
         if room.is_empty() || room.contains(':') || room.contains('.') {
             self.rejected += 1;
             return None;
@@ -85,6 +89,7 @@ impl SeatRegistry {
             room: room.to_string(),
             token: self.sign(room, expires_at),
             expires_at,
+            options: options.to_string(),
         };
         self.minted += 1;
         self.by_token.insert(seat.token.clone(), seat.clone());

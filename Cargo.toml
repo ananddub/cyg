@@ -34,6 +34,12 @@ edition = "2024"
 [dependencies]
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# OTLP trace export. Off by default: `--features otel` adds the bridge and the
+# HTTP/protobuf exporter, so a plain build keeps the old dependency graph.
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"], optional = true }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"], optional = true }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "http-proto", "reqwest-blocking-client"], optional = true }
+tracing-opentelemetry = { version = "0.34", default-features = false, optional = true }
 engine-bus = { path = "crates/engine-bus" }
 engine-api = { path = "crates/engine-api" }
 engine-config = { path = "crates/engine-config" }
@@ -54,6 +60,10 @@ flate2 = "1"
 chrono = "0.4"
 serde_json = "1"
 
+
+# Heap profiler for allocation break-downs (`cargo build --features dhat`, OX_DHAT_SECS=n exits cleanly)
+dhat = { version = "0.3", optional = true }
+
 [dev-dependencies]
 engine-core = { path = "crates/engine-core" }
 engine-nav = { path = "crates/engine-nav" }
@@ -61,6 +71,18 @@ bevy_ecs = { version = "0.15", default-features = false }
 rapier3d = "0.36"
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
+
+[features]
+default = []
+# `cargo build --features otel` (+ OTEL_EXPORTER_OTLP_ENDPOINT) exports spans
+# over OTLP/HTTP. Without the feature the binary has no OpenTelemetry code.
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+dhat = ["dep:dhat"]
 
 
 

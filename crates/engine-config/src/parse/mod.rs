@@ -7,7 +7,7 @@ mod toml;
 
 use std::path::Path;
 
-use crate::game::GameConfig;
+use crate::game::{GameConfig, PhysicsFeature};
 
 fn clamp_windows(cfg: &mut GameConfig) {
     cfg.lifecycle.clamp();

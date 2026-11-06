@@ -1,0 +1,23 @@
+flowchart LR
+  subgraph L["Players & backend"]
+    C["Player Client<br/>Web · Unity · Godot · Unreal"]
+    O["Console Operator<br/>Dashboard"]
+    GS["Game Server / Host<br/>server key"]
+  end
+
+  subgraph M["Control plane"]
+    API["engine-api<br/>auth · matchmake<br/>quests · tournaments · rules"]
+  end
+
+  subgraph R["Runtime"]
+    ROOM["Game Room<br/>engine-net + WASM"]
+    DB[("SurrealDB<br/>player_stat · quests<br/>boards · rules")]
+  end
+
+  O -->|"define quests,<br/>tournaments, rules"| API
+  C -->|"1 login<br/>2 matchmake / list / claim / score"| API
+  API -->|"3 seat ticket"| C
+  C <-->|"4 state / input / messages"| ROOM
+  ROOM -->|"5 mirrored events"| API
+  GS -->|"5 events + results<br/>(server key)"| API
+  API <--> DB

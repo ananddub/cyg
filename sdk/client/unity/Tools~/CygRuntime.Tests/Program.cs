@@ -37,6 +37,7 @@ namespace CYG.Tests
         {
             DeltaDecoderTests.Run();
             AuthTests.Run();
+            VoiceTests.Run();
             var origin = Environment.GetEnvironmentVariable("CYG_E2E_ORIGIN");
             if (!string.IsNullOrEmpty(origin))
             {
@@ -129,6 +130,55 @@ namespace CYG.Tests
             Runner.Check("token starts empty", string.IsNullOrEmpty(auth.Token));
             // Token capture after a successful body is a live-server flow
             // (needs the control plane) — covered by the host e2e suites.
+        }
+    }
+
+    /// Voice control framing and the shared FNV-1a team vectors. These are the
+    /// bytes the web (`schemaFnv1a`) and Godot (`CYGCodec.fnv1a`) SDKs send.
+    internal static class VoiceTests
+    {
+        internal static void Run()
+        {
+            Runner.Check("voice hash red matches web/godot",
+                CygClient.HashTeam("red") == 0x40F480DCu);
+            Runner.Check("voice hash blue matches web/godot",
+                CygClient.HashTeam("blue") == 0x82FBF5CDu);
+            Runner.Check("voice hash trims labels",
+                CygClient.HashTeam("  red  ") == CygClient.HashTeam("red"));
+
+            var team = CygClient.BuildVoiceTeamPacket("red");
+            Runner.Check("team packet is 6 bytes with magic/opcode",
+                team.Length == 6 && team[0] == 0x56 && team[1] == 0x54);
+            Runner.Check("team packet carries the big-endian hash",
+                team[2] == 0x40 && team[3] == 0xF4 && team[4] == 0x80 && team[5] == 0xDC);
+
+            var clear = CygClient.BuildVoiceTeamPacket(null);
+            Runner.Check("leaving the team sends a zero hash",
+                clear.Length == 6 && clear[2] == 0 && clear[3] == 0 && clear[4] == 0 && clear[5] == 0);
+
+            var mute = CygClient.BuildVoiceFlagPacket(0x4D, true);
+            Runner.Check("mute packet",
+                mute.Length == 3 && mute[0] == 0x56 && mute[1] == 0x4D && mute[2] == 1);
+
+            var deafen = CygClient.BuildVoiceFlagPacket(0x44, false);
+            Runner.Check("deafen packet",
+                deafen.Length == 3 && deafen[0] == 0x56 && deafen[1] == 0x44 && deafen[2] == 0);
+
+            var opus = new byte[] { 1, 2, 3, 4 };
+            var frame = CygClient.BuildVoicePacket(
+                VoiceChannel.TeamOnly, 0x1234, 0xAABBCCDD, 0x02, opus);
+            Runner.Check("voice frame length is header + payload", frame.Length == 19);
+            Runner.Check("voice frame magic + seq",
+                frame[0] == 0x56 && frame[5] == 0x12 && frame[6] == 0x34);
+            Runner.Check("voice frame timestamp",
+                frame[7] == 0xAA && frame[8] == 0xBB && frame[9] == 0xCC && frame[10] == 0xDD);
+            Runner.Check("voice frame mode + flags", frame[11] == 2 && frame[12] == 0x02);
+            Runner.Check("voice frame payload length + bytes",
+                frame[13] == 0 && frame[14] == 4 && frame[15] == 1 && frame[18] == 4);
+
+            var empty = CygClient.BuildVoicePacket(VoiceChannel.Global, 0, 0, 0, null);
+            Runner.Check("voice frame with no payload is exactly 15 bytes",
+                empty.Length == 15 && empty[13] == 0 && empty[14] == 0);
         }
     }
 

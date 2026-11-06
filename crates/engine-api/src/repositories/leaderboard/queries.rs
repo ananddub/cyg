@@ -254,6 +254,7 @@ impl Queries {
                 join_required = params_in.join_required,
                 max_size = params_in.max_size,
                 max_num_score = params_in.max_num_score,
+                rule_key = &params_in.rule_key,
             ),
         )
         .await

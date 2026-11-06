@@ -49,7 +49,7 @@ function respawn_coin(): void {
 var input_buf = new ArrayBuffer(256);
 var delta_buf = new ArrayBuffer(8192);
 
-export function on_create(max: i32): void {
+export function on_create(max: i32, options_ptr: i32, options_len: i32): void {
     max_players = max;
     players.length = 0;
     bullets.length = 0;
@@ -60,11 +60,13 @@ export function is_full(count: i32): bool {
     return count >= max_players;
 }
 
-export function on_join(id: i64, x: f64, y: f64): void {
+export function on_join(id: i64, opt_ptr: i32, opt_len: i32, auth_ptr: i32, auth_len: i32): void {
     let p = new Player();
     p.id = id;
-    p.x = x;
-    p.y = y;
+    // spawn: deterministic slot layout (options are the client's own JSON)
+    let n = players.length;
+    p.x = 60.0 + ((n as f64) * 97.0) % (play_w - 120.0);
+    p.y = 60.0 + ((n as f64) * 61.0) % (play_h - 120.0);
     p.hp = 100.0;
     p.score = 0.0;
     p.cooldown = 0.0;
@@ -72,7 +74,7 @@ export function on_join(id: i64, x: f64, y: f64): void {
     players.push(p);
 }
 
-export function on_leave(id: i64): void {
+export function on_leave(id: i64, code: i32): void {
     for (let i = 0; i < players.length; i++) {
         if (unchecked(players[i]).id == id) {
             players.splice(i, 1);

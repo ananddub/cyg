@@ -11,7 +11,7 @@ impl<'a> Engine<'a> {
         while let Ok(sig) = rx.try_recv() {
             match sig {
                 SignalIn::Offer { seat, sdp } => {
-                    self.transport.register_seat(&seat.id, &seat.room, "");
+                    self.transport.register_seat(&seat.id, &seat.room, &seat.options);
                     match self.transport.rtc_server().handle_offer(&seat.id, &sdp) {
                         Ok(answer) => {
                             hub.publish(

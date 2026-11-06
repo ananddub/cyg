@@ -5,6 +5,7 @@ pub const MATCHMAKE_METHODS: &[&str] = &[
     "create",
     "rejoin",
     "reconnect",
+    "spectate",
 ];
 
 pub fn valid_room_name(room: &str) -> bool {

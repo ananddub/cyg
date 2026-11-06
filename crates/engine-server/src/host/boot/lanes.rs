@@ -61,6 +61,7 @@ pub(crate) fn boot_lanes(cfg: &GameConfig, schema_descriptor: &[u8]) -> Lanes {
             Ok(mut ws) => {
                 ws.set_schema_descriptor(schema_descriptor.to_vec());
                 ws.set_udp_port(cfg.port);
+                ws.set_room_variants(cfg.rooms.clone());
                 tracing::info!(
                     "[server] 🕹️  WebSocket room-data lane on ws://0.0.0.0:{} (Godot / Unity / Unreal / cyg.js)",
                     cfg.ws_port

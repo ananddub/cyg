@@ -25,6 +25,21 @@ pub(crate) fn register(
         linker
             .func_wrap(
                 ns,
+                "host_kick",
+                |mut caller: wasmtime::Caller<'_, RoomHostData>, player_id: i64| -> i32 {
+                    let data = caller.data_mut();
+                    if data.kick_requests.len() >= MAX_OUTBOX_MESSAGES {
+                        return engine_wasm::ABI_ERR_BUFFER_OVERFLOW;
+                    }
+                    data.kick_requests.push(player_id);
+                    engine_wasm::ABI_OK
+                },
+            )
+            .expect("link host_kick");
+
+        linker
+            .func_wrap(
+                ns,
                 "host_log",
                 move |mut caller: wasmtime::Caller<'_, RoomHostData>, ptr: i32, len: i32| -> i32 {
                     if !permissions.logging {

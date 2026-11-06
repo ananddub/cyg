@@ -893,6 +893,9 @@
             // Schema state: mirror of the server's `SchemaState`/`SchemaWorld`.
             this.schema = null;
             this.schemas = [];
+            /** The descriptor's `Input` def — drives `room.sendInput({...})` packing. */
+            this._inputSchema = null;
+            this._inputLaneWarned = false;
             /** Primary collection name from the descriptor ("players", ...). */
             this._rootCollection = null;
             /** collection name -> SchemaMap. */
@@ -1917,11 +1920,25 @@
         }
 
         /**
-         * Set current squad/team ID on server voice router
+         * Set the current squad/team on the server voice router.
+         *
+         * `teamId` may be a number or a string (`"red"`, `"squad-a"`). The
+         * label is hashed with the same FNV-1a used by the schema, so the wire
+         * stays a fixed-width u32 and routing is one integer compare per
+         * packet. Pass `null`/`""` to leave the team.
          */
         setVoiceTeam(teamId) {
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-            this.ws.send(new Uint8Array([VOICE_MAGIC, 0x54, teamId])); // 'V', 'T', teamId
+            const label = (teamId == null) ? "" : String(teamId).trim();
+            const hash = label.length === 0 ? 0 : schemaFnv1a(2166136261, label);
+            const buf = new Uint8Array(6);
+            buf[0] = VOICE_MAGIC;
+            buf[1] = 0x54; // 'T'
+            buf[2] = (hash >>> 24) & 0xFF;
+            buf[3] = (hash >>> 16) & 0xFF;
+            buf[4] = (hash >>> 8) & 0xFF;
+            buf[5] = hash & 0xFF;
+            this.ws.send(buf);
         }
 
         /**
@@ -2034,7 +2051,30 @@
                         if (data.up) mz -= 1;
                         if (data.down) mz += 1;
                     }
-                    self.sendInput(flags, data.aimYaw || 0, data.aimPitch || 0, mx, mz);
+                    if (!self._inputSchema) {
+                        if (!self._inputLaneWarned) {
+                            self._inputLaneWarned = true;
+                            console.warn('[CYG SDK] room.input() needs a schema-declared '
+                                + '`Input` def — add `export const Input = schema({…}, "Input")` '
+                                + 'to src/schema/ and sendInput({ moveX, moveZ, … }) starts working');
+                        }
+                        return false;
+                    }
+                    // Schema input lane: fill the declared fields from the
+                    // handle state; movement/jump/aim map by name.
+                    const willJump = !!(data.jump || data._jumpLatched);
+                    data._jumpLatched = false;
+                    const obj = {};
+                    for (const f of self._inputSchema.fields) {
+                        if (f.name === 'moveX') obj.moveX = mx;
+                        else if (f.name === 'moveZ') obj.moveZ = mz;
+                        else if (f.name === 'jump') obj.jump = willJump;
+                        else if (f.name === 'flags') obj.flags = flags;
+                        else if (f.name === 'aimYaw') obj.aimYaw = data.aimYaw || 0;
+                        else if (f.name === 'aimPitch') obj.aimPitch = data.aimPitch || 0;
+                        else obj[f.name] = data[f.name] || 0;
+                    }
+                    return self._sendSchemaInput(obj);
                 },
                 bindKeyboard(target = (typeof window !== 'undefined' ? window : null)) {
                     if (!target) return () => {};
@@ -2046,6 +2086,7 @@
                         if (e.code === 'KeyD' || e.code === 'ArrowRight') { data.right = down; consumed = true; }
                         if (e.code === 'Space') {
                             data.jump = down;
+                            if (down) data._jumpLatched = true;
                             consumed = true;
                             if (down && typeof e.preventDefault === 'function') e.preventDefault();
                         }
@@ -2069,43 +2110,78 @@
         }
 
         /**
-         * Stream a 23-byte QUIC-style unordered input frame to the authoritative server
+         * Schema input lane — the project's `Input` def from the descriptor
+         * drives the packing, so the game only ever passes a plain object:
+         *   room.sendInput({ moveX, moveZ, jump, skill })
+         * Wire: one typed app message ("__input", reserved) carrying
+         * [seq u16 LE][field bytes in schema order]; the guest decodes it back
+         * into the same generated class and drops stale frames by seq.
          */
-        sendInput(flags, aimYaw, aimPitch, moveX, moveZ) {
-            if (this.isSpectator) {
-                return;
-            }
-
+        _packSchemaInput(obj) {
+            const def = this._inputSchema;
+            if (!def || !def.fields || def.fields.length === 0) return null;
+            let size = 2; // seq
+            for (const f of def.fields) size += f.size || 0;
+            const buf = new Uint8Array(size);
+            const view = new DataView(buf.buffer);
             this.inputSeq = (this.inputSeq + 1) & 0xFFFF;
-            const buf = encodeInputFrame({
-                seq: this.inputSeq,
-                flags,
-                aimYaw,
-                aimPitch,
-                moveX,
-                moveZ
-            });
-
-            // Pure WebRTC DataChannel (UDP, 0 retransmits, no TCP HOL blocking):
-            // When WebRTC is active, NO message is sent on WebSocket!
-            if (this.serverChUnreliable && this.serverChUnreliable.readyState === 'open') {
-                this.serverRtcActive = true;
-                try {
-                    this.serverChUnreliable.send(buf);
-                    // Guarantee fire pulse delivery over SCTP reliable channel
-                    if ((flags & 16) && this.serverChReliable && this.serverChReliable.readyState === 'open') {
-                        this.sendEvent(1, 0xFFFF, 0, 1.0);
-                    }
-                    return;
-                } catch (e) {
-                    console.warn('[CYG SDK] serverChUnreliable.send error:', e);
+            view.setUint16(0, this.inputSeq, true);
+            let off = 2;
+            for (const f of def.fields) {
+                const v = obj ? obj[f.name] : undefined;
+                const num = Number(v) || 0;
+                switch (f.type) {
+                    case 'bool': view.setUint8(off, v ? 1 : 0); off += 1; break;
+                    case 'u8': view.setUint8(off, num & 0xFF); off += 1; break;
+                    case 'i8': view.setInt8(off, num | 0); off += 1; break;
+                    case 'u16': view.setUint16(off, num & 0xFFFF, true); off += 2; break;
+                    case 'i16': view.setInt16(off, num | 0, true); off += 2; break;
+                    case 'u32': view.setUint32(off, num >>> 0, true); off += 4; break;
+                    case 'i32': view.setInt32(off, num | 0, true); off += 4; break;
+                    case 'f32': view.setFloat32(off, num, true); off += 4; break;
+                    case 'f64': view.setFloat64(off, num, true); off += 8; break;
+                    case 'i64':
+                        view.setBigUint64(off, BigInt(Math.trunc(num)), true); off += 8; break;
+                    default: return null; // string/array fields cannot be declared on Input
                 }
             }
+            return buf;
+        }
 
-            // Fallback to WebSocket only while WebRTC connection is negotiating
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(buf);
+        _sendSchemaInput(obj) {
+            if (this.isSpectator) return false;
+            const body = this._packSchemaInput(obj);
+            if (!body) return false;
+            const frame = this._encodeAppMessage('__input', body);
+            this.bytesOut += frame.byteLength;
+            if (this.serverChUnreliable && this.serverChUnreliable.readyState === 'open') {
+                this.serverRtcActive = true;
+                try { this.serverChUnreliable.send(frame); return true; } catch (e) { /* closing */ }
             }
+            if (this.serverChReliable && this.serverChReliable.readyState === 'open') {
+                try { this.serverChReliable.send(frame); return true; } catch (e) { /* closing */ }
+            }
+            // WebRTC not negotiated yet — the WS lane reaches the same guest dispatch.
+            return this.send('__input', body);
+        }
+
+        /**
+         * Typed input lane — pass the object matching your schema's `Input`
+         * def; the SDK packs it (field order = wire order) and sends it on
+         * the newest-wins unreliable lane:
+         *   room.sendInput({ moveX, moveZ, jump, skill })
+         * Declaring the def is required — `export const Input = schema({...}, "Input")`
+         * in src/schema/, then `room.input()` + `bindKeyboard()` fill it for you.
+         */
+        sendInput(input) {
+            if (input === null || typeof input !== 'object') {
+                throw new TypeError(
+                    '[CYG SDK] sendInput(input) takes the schema-declared input object — '
+                    + 'declare `export const Input = schema({…}, "Input")` and pass e.g. '
+                    + 'room.sendInput({ moveX, moveZ, jump })'
+                );
+            }
+            return this._sendSchemaInput(input);
         }
 
         /**
@@ -2146,6 +2222,14 @@
         leave(consented = true) {
             this._leaveCode = consented ? 1000 : 1001;
             this._intentionalClose = true;
+            // Colyseus parity: resolves once the close handshake completes
+            // (or immediately when there is nothing left to close).
+            const closed = new Promise((resolve) => {
+                if (!this.isOpen && !this.ws) { resolve(this._leaveCode); return; }
+                const onClosed = () => resolve(this._leaveCode);
+                this.on('leave', onClosed);
+                setTimeout(() => resolve(this._leaveCode), 3000); // safety net
+            });
             if (this._reconnectTimer) {
                 clearTimeout(this._reconnectTimer);
                 this._reconnectTimer = null;
@@ -2189,6 +2273,7 @@
                 this.voice.dispose();
             }
             this.emit('leave', this._leaveCode);
+            return closed;
         }
 
         // --- SCHEMA STATE SYNC ---
@@ -2268,6 +2353,7 @@
                 return;
             }
             this.schemas = parsed.schemas;
+            this._inputSchema = parsed.schemas.find(s => s.name === 'Input') || null;
             this._rootCollection = first.name;
             this._rootScalars = parsed.rootScalars;
 
@@ -4493,21 +4579,35 @@
             if (!response.ok) {
                 let detail = text;
                 try { detail = JSON.parse(text).error || JSON.parse(text).message || text; } catch (_) {}
-                throw new Error(`[CYG SDK] matchmake ${method}/${roomName} failed (${response.status}): ${detail}`);
+                throw this._matchmakeError(`${method}/${roomName} failed: ${detail}`, response.status);
             }
             let seat;
             try { seat = JSON.parse(text); } catch (_) {
-                throw new Error(`[CYG SDK] matchmake returned invalid JSON: ${text.slice(0, 200)}`);
+                throw this._matchmakeError('matchmake returned invalid JSON', 500);
             }
             if (!seat || !seat.sessionId) {
-                throw new Error('[CYG SDK] matchmake reply carried no sessionId');
+                throw this._matchmakeError('matchmake reply carried no sessionId', 500);
             }
             this.lastSeat = seat;
             return seat;
         }
 
+        /** Colyseus parity: matchmaking failures throw a MatchMakeError-shaped
+         *  error — `err.name === 'MatchMakeError'`, `err.code` is the HTTP
+         *  status, so games can branch (404 room unknown, 429 busy, …). */
+        _matchmakeError(message, code) {
+            const err = new Error(`[CYG SDK] matchmake ${message}`);
+            err.name = 'MatchMakeError';
+            err.code = code;
+            return err;
+        }
+
         async _connectSeat(seat, roomName, options = {}) {
-            const room = new CYGRoom(this._wsBase(seat), roomName, {
+            // The seat's room may be a variant room-key ("duo__region-mumbai")
+            // minted by filtered matchmaking — connect to THAT, not the name
+            // the caller typed.
+            const roomPath = seat.name || seat.room_id || roomName;
+            const room = new CYGRoom(this._wsBase(seat), roomPath, {
                 ...options,
                 sessionId: seat.sessionId,
                 reconnectionToken: seat.reconnectionToken || seat.seatToken || null,
@@ -4550,8 +4650,20 @@
             return this.spectate(roomName, options);
         }
 
-        /** Resume a seat after a reload or a dropped socket. */
-        async reconnect(reconnectionToken, roomName, options = {}) {
+        /**
+         * Resume a seat after a reload or a dropped socket — pass the
+         * `room.reconnectionToken` from the previous connection. Colyseus
+         * parity: a missing token throws MatchMakeError(400). The room's
+         * built-in auto-reconnect covers the common case; this is the
+         * manual path (fresh page, new process, explicit UX).
+         */
+        async reconnect(reconnectionToken, roomName = 'game_room', options = {}) {
+            if (!reconnectionToken) {
+                const err = new Error('[CYG SDK] reconnect() needs a reconnectionToken (from room.reconnectionToken)');
+                err.name = 'MatchMakeError';
+                err.code = 400;
+                throw err;
+            }
             const seat = await this._reserve('reconnect', roomName, {
                 ...options,
                 reconnectionToken

@@ -37,6 +37,9 @@ pub fn state() -> engine_api::ApiState {
         sessions: Arc::new(engine_api::infra::session_cache::SessionCache::new(
             60, 3600,
         )),
+        chain: Arc::new(Mutex::new(
+            engine_api::services::matchmake::chain::ChainTracker::default(),
+        )),
     }
 }
 #[tokio::test]

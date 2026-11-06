@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::host::*;
+use crate::rooms::close_code;
 
 impl<'a> Engine<'a> {
     pub(crate) fn run_disconnected(&mut self, client_id: &str) {
@@ -32,6 +33,15 @@ impl<'a> Engine<'a> {
         let gone = if consented {
             room.handle_disconnect(client_id)
         } else {
+            // Unexpected: the room gets onDrop(id, LOST) first — its window
+            // to message others / mark the player "dropped" — then the
+            // reconnection hold starts.
+            let dropped = room
+                .sessions
+                .get(&*client_id)
+                .copied()
+                .unwrap_or(room.next_player_id);
+            room.guest_on_drop(dropped, close_code::LOST);
             room.handle_unexpected_disconnect(
                 client_id,
                 Duration::from_secs(self.cfg.lifecycle.seat_hold_secs),

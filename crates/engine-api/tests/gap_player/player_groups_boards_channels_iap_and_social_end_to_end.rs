@@ -8,6 +8,7 @@ pub async fn player_groups_boards_channels_iap_and_social_end_to_end() {
     group_surface(&env).await;
     leaderboard_surface(&env).await;
     tournament_surface(&env, &console).await;
+    tournament_rules(&env, &console).await;
     storage_index_surface(&env).await;
     channel_surface(&env).await;
     iap_surface(&env).await;

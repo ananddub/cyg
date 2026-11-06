@@ -7,7 +7,7 @@ impl GameRoom {
         let gone = self.detach_session(session);
         self.pending_leaves.remove(session);
         if let Some(id) = self.sessions.remove(session) {
-            self.release_player(session, id);
+            self.release_player_with(session, id, close_code::LEFT);
         }
         self.arm_empty_timer();
         gone
@@ -30,7 +30,7 @@ impl GameRoom {
                     .insert(session.to_string(), (id, deadline));
             } else {
                 self.sessions.remove(session);
-                self.release_player(session, id);
+                self.release_player_with(session, id, close_code::LOST);
             }
         }
         self.arm_empty_timer();

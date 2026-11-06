@@ -43,10 +43,11 @@ static inline int64_t ox_pack_delta(const void* ptr, uint32_t len) {
 OX_EXPORT void on_create(int32_t max_clients);
 
 /// Called when a new player joins with authoritative spawn coordinates.
-OX_EXPORT void on_join(int64_t id, double spawn_x, double spawn_z);
+OX_EXPORT int64_t on_auth(int64_t id, int32_t opt_ptr, int32_t opt_len, int32_t ctx_ptr, int32_t ctx_len);
+OX_EXPORT void on_join(int64_t id, int32_t opt_ptr, int32_t opt_len, int32_t auth_ptr, int32_t auth_len);
 
 /// Called when a player leaves or disconnects.
-OX_EXPORT void on_leave(int64_t id);
+OX_EXPORT void on_leave(int64_t id, int32_t code);
 
 /// Called when an authoritative client input packet arrives.
 OX_EXPORT void on_input(int64_t id, int32_t ptr, int32_t len);

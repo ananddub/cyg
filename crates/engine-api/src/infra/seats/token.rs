@@ -8,4 +8,5 @@ pub struct Seat {
     pub room: String,
     pub token: String,
     pub expires_at: u64,
+    pub options: String,
 }

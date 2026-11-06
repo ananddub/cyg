@@ -15,6 +15,9 @@ impl GameTransport for LoopTransport {
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
+        if (opcode == OpCode::PlayerInput || opcode == OpCode::RoomDataBytes) && self.should_drop_packet() {
+            return Ok(());
+        }
         if !self.latency.is_zero() {
             self.delayed_out.push_back((
                 Instant::now() + self.latency,

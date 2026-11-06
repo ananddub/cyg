@@ -55,8 +55,6 @@ impl GameRoom {
         &mut self,
         pre: &engine_wasm::WasmPreInstance<RoomHostData>,
         max_clients: i32,
-        width: f64,
-        height: f64,
     ) -> Result<usize, String> {
         let physics = if let Some(ref wasm) = self.wasm {
             wasm.data().physics.clone()
@@ -65,17 +63,15 @@ impl GameRoom {
         };
         let mut new_wasm =
             RoomLogic::from_pre(pre, RoomHostData::new(physics)).map_err(|e| e.to_string())?;
-        let _ = new_wasm.on_create(max_clients);
+        GameRoom::call_on_create(&mut new_wasm, max_clients, &self.create_options);
         if let Some(map) = &self.arena_2d {
             new_wasm.data_mut().load_arena_2d(map);
         }
         new_wasm.data_mut().navmesh = self.navmesh.clone();
         for (_sid, &pid) in &self.sessions {
-            let (x, y) = (
-                60.0 + ((pid as f64) * 97.0) % (width - 120.0),
-                60.0 + ((pid as f64) * 61.0) % (height - 120.0),
-            );
-            let _ = new_wasm.on_join(pid, x, y);
+            let options = self.player_options.get(&pid).cloned().unwrap_or_default();
+            let auth = self.auth_data.get(&pid).cloned().unwrap_or_default();
+            GameRoom::call_on_join(&mut new_wasm, pid, &options, &auth);
         }
         let players = self.sessions.len();
         self.wasm = Some(new_wasm);

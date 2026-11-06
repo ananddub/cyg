@@ -1,13 +1,13 @@
 use super::*;
 
 pub(crate) const HOST_SOURCE: &str =
-    include_str!("../../../../../crates/engine-server/src/rooms.rs");
+    include_str!("../../../../../crates/engine-server/src/rooms/types.rs");
 pub(crate) fn abi_exports() -> Vec<String> {
     let runtime_source = HOST_SOURCE
         .split("#[cfg(test)]")
         .next()
         .unwrap_or(HOST_SOURCE);
-    runtime_source
+    let mut names: Vec<String> = runtime_source
         .lines()
         .filter_map(|line| {
             let (_, after) = line.trim().split_once("fn on_")?;
@@ -17,7 +17,17 @@ pub(crate) fn abi_exports() -> Vec<String> {
                 .collect();
             (!name.is_empty()).then(|| format!("on_{name}"))
         })
-        .collect()
+        .collect();
+    // on_create / on_join are invoked through GameRoom's signature-probing
+    // helpers (ABI v1 modules still export the old shapes), so they do not
+    // appear in the wasm_module! list above — but the host always calls them.
+    for invoked in ["on_create", "on_join"] {
+        if !names.iter().any(|name| name == invoked) {
+            names.push(invoked.to_string());
+        }
+    }
+    names.sort();
+    names
 }
 pub(crate) fn empty_wasm() -> Vec<u8> {
     vec![0x00, b'a', b's', b'm', 0x01, 0x00, 0x00, 0x00]

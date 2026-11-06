@@ -106,9 +106,96 @@ pub fn parse(source: &str) -> Result<TsSchema, Vec<SchemaDiagnostic>> {
     if diagnostics.is_empty() {
         validate(&schemas, root.as_ref(), &mut diagnostics);
     }
+    validate_input_frame(&schemas, root.as_ref(), &mut diagnostics);
+    validate_join_options(&schemas, root.as_ref(), &mut diagnostics);
 
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
     Ok(TsSchema { schemas, root })
+}
+
+/// The reserved `JoinOptions` def types the join options. Strings are fine
+/// here (the host encodes them length-prefixed), but the name may not double
+/// as a state entity.
+fn validate_join_options(
+    schemas: &[SchemaDef],
+    root: Option<&RootState>,
+    diagnostics: &mut Vec<SchemaDiagnostic>,
+) {
+    use crate::JOIN_OPTIONS_SCHEMA_NAME;
+    let Some(def) = schemas
+        .iter()
+        .find(|schema| schema.name == JOIN_OPTIONS_SCHEMA_NAME)
+    else {
+        return;
+    };
+    if let Some(root) = root {
+        if root
+            .collections
+            .iter()
+            .any(|collection| collection.schema == JOIN_OPTIONS_SCHEMA_NAME)
+        {
+            diagnostics.push(SchemaDiagnostic {
+                line: def.line,
+                column: def.column,
+                message: format!(
+                    "`{JOIN_OPTIONS_SCHEMA_NAME}` is reserved for the typed join options and cannot also be a state collection — rename the entity"
+                ),
+            });
+        }
+    }
+    if def.fields.is_empty() {
+        diagnostics.push(SchemaDiagnostic {
+            line: def.line,
+            column: def.column,
+            message: format!(
+                "`{JOIN_OPTIONS_SCHEMA_NAME}` must declare at least one field"
+            ),
+        });
+    }
+}
+
+/// The reserved `Input` def is the per-tick input frame. Its field order is
+/// the wire order and the client packs each field at its fixed size, so it
+/// can only hold fixed-size kinds and cannot double as a state entity.
+fn validate_input_frame(
+    schemas: &[SchemaDef],
+    root: Option<&RootState>,
+    diagnostics: &mut Vec<SchemaDiagnostic>,
+) {
+    use crate::INPUT_SCHEMA_NAME;
+    let Some(input) = schemas
+        .iter()
+        .find(|schema| schema.name == INPUT_SCHEMA_NAME)
+    else {
+        return;
+    };
+    if let Some(root) = root {
+        if root
+            .collections
+            .iter()
+            .any(|collection| collection.schema == crate::INPUT_SCHEMA_NAME)
+        {
+            diagnostics.push(SchemaDiagnostic {
+                line: input.line,
+                column: input.column,
+                message: format!(
+                    "`{INPUT_SCHEMA_NAME}` is reserved for the per-tick input frame and cannot also be a state collection — rename the entity"
+                ),
+            });
+        }
+    }
+    for field in &input.fields {
+        if matches!(field.kind, crate::wire::WireKind::String | crate::wire::WireKind::Array) {
+            diagnostics.push(SchemaDiagnostic {
+                line: input.line,
+                column: input.column,
+                message: format!(
+                    "input frame field `{}` must be numeric or boolean (fixed-size on the wire); strings and arrays are state-only",
+                    field.name
+                ),
+            });
+        }
+    }
 }

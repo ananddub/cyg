@@ -7,6 +7,7 @@
 //! *same file* through what `engine-server/src/host.rs` does at boot and on
 //! reload: compile, link against the real game-host imports, instantiate, tick.
 
+use engine_server::rooms::GameRoom;
 use engine_api::services::wasm::{REQUIRED_EXPORTS, WasmService};
 use engine_server::rooms::{RoomHostData, RoomLogic, build_host_linker};
 use engine_wasm::{AbiPermissions, WasmRuntime};
@@ -77,8 +78,9 @@ fn a_console_accepted_module_compiles_links_and_runs_in_the_host() {
     .expect("every host import resolves and all eight ABI exports bind");
 
     // ---- And then it actually simulates a frame ----
-    logic.on_create(16).expect("guest on_create");
-    logic.on_join(7, 100.0, 100.0).expect("guest on_join");
+    GameRoom::call_on_create(&mut logic, 16, b"{}");
+    // on_join(id, ptr, len): write the join options (JSON) into guest memory.
+    GameRoom::call_on_join(&mut logic, 7, b"{\"name\":\"seven\"}", b"");
 
     let (ptr, len) = unpack(logic.on_tick(0.05).expect("guest on_tick"));
     let blob = logic
@@ -86,7 +88,7 @@ fn a_console_accepted_module_compiles_links_and_runs_in_the_host() {
         .expect("the guest's delta buffer is in its linear memory");
     assert_eq!(
         decode_players(&blob),
-        vec![(7, 100.0, 100.0, 0.0, 100.0)],
+        vec![(7, 60.0, 60.0, 0.0, 100.0)],
         "the join landed in the state the guest encodes"
     );
 
@@ -111,12 +113,12 @@ fn a_console_accepted_module_compiles_links_and_runs_in_the_host() {
     assert_eq!(moved.len(), 1, "{moved:?}");
     // The guest's own speed is 150 units/sec, so one 0.05 s tick moves 7.5.
     assert!(
-        (moved[0].2 - 107.5).abs() < 1e-9,
+        (moved[0].2 - 67.5).abs() < 1e-9,
         "the input moved the player through the guest's simulation: {moved:?}"
     );
 
     // The remaining ABI entries, all called through the host's handles.
-    logic.on_leave(7).expect("guest on_leave");
+    logic.on_leave(7, 1000).expect("guest on_leave (LEFT)");
     let (ptr, len) = unpack(logic.on_tick(0.05).expect("on_tick after the leave"));
     assert!(
         decode_players(&logic.read_memory(ptr, len).expect("the third delta")).is_empty(),

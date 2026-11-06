@@ -44,6 +44,9 @@ pub struct Leaderboard {
     pub start_time: DateTime<Utc>,
     pub enable_ranks: Option<bool>,
     pub game_id: Option<Uuid>,
+    /// Active rule set (`rules_definition.key`) a player must match before
+    /// joining or scoring. Empty/`None` means the board is open.
+    pub rule_key: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, somnia::SurrealRecord)]
 #[table("leaderboard_record", schemaless)]

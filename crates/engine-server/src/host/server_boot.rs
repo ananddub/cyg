@@ -42,7 +42,13 @@ pub(crate) fn select_pre_module(
     let mut console_active = false;
     let pre = match boot_module.as_ref() {
         Some(module) => {
-            match prepare_console_module(&runtime, &module.sha256, &module.bytes, cfg.permissions) {
+            match prepare_console_module(
+                &runtime,
+                &module.sha256,
+                &module.bytes,
+                cfg.permissions,
+                &cfg.features,
+            ) {
                 Ok(pre) => {
                     console_active = true;
                     tracing::info!(
@@ -59,11 +65,11 @@ pub(crate) fn select_pre_module(
                         module.version,
                         wasm_path.display()
                     );
-                    prepare_file_module(&runtime, wasm_path, cfg.permissions)
+                    prepare_file_module(&runtime, wasm_path, cfg.permissions, &cfg.features)
                 }
             }
         }
-        None => prepare_file_module(&runtime, wasm_path, cfg.permissions),
+        None => prepare_file_module(&runtime, wasm_path, cfg.permissions, &cfg.features),
     };
     let wasm_available = pre.is_some();
     if wasm_available && !console_active {
@@ -97,7 +103,13 @@ pub(crate) fn assemble_server(
     arena_2d: Option<engine_physics::MapConfig2D>,
     boot: &BootMaps,
 ) -> GameServer {
-    let mut server = GameServer::new(pre, cfg.max_clients, physics, cfg.permissions);
+    let mut server = GameServer::new_with_features(
+        pre,
+        cfg.max_clients,
+        physics,
+        cfg.permissions,
+        cfg.features.clone(),
+    );
     server.arena_2d = arena_2d;
     if let Some(asset) = boot.navmesh.as_ref() {
         match engine_nav::nav2d::NavMesh2D::from_bytes(&asset.bytes) {

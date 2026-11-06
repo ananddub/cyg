@@ -18,7 +18,7 @@ pub use types::{
 };
 
 pub(crate) use room::JournalInput;
-pub(crate) use types::{CloseReason, DRAIN_REASON};
+pub(crate) use types::{close_code, CloseReason, DRAIN_REASON};
 
 #[cfg(test)]
 mod tests;

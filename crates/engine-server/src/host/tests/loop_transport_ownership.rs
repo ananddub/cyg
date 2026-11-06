@@ -9,12 +9,12 @@ use engine_physics::PhysicsWorld3D;
             PhysicsWorld3D::default(),
             engine_wasm::AbiPermissions::default(),
         );
-        server.get_or_create("arena").expect("relay room");
-        server.get_or_create("lobby").expect("relay room");
+        server.get_or_create("arena", b"").expect("relay room");
+        server.get_or_create("lobby", b"").expect("relay room");
 
         let mut t = transport();
         let bus = Bus::new(8, 8);
-        drain_rooms(&mut server, &mut t, &bus, "tank-3d");
+        drain_rooms(&mut server, &mut t, &bus, &engine_config::GameConfig::default(), "tank-3d");
         assert!(server.rooms.is_empty(), "a drained room kept its slot");
         let match_ = bus
             .matches_rx
@@ -45,7 +45,7 @@ use engine_physics::PhysicsWorld3D;
             PhysicsWorld3D::default(),
             engine_wasm::AbiPermissions::default(),
         );
-        server.get_or_create("arena").expect("relay room");
+        server.get_or_create("arena", b"").expect("relay room");
         let bus = Bus::new(8, 8);
 
         let room = server.rooms.get("arena").expect("the room is live");

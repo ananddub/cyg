@@ -3,9 +3,12 @@ use std::time::{Duration, Instant};
 use crate::host::*;
 
 impl<'a> Engine<'a> {
-    pub(crate) fn step(&mut self) -> std::io::Result<()> {
+    /// Returns true when the process should exit (drain grace elapsed and
+    /// rooms are closed). The run loop used to ignore this and spin forever
+    /// re-running `drain_rooms` every tick at 100% CPU.
+    pub(crate) fn step(&mut self) -> std::io::Result<bool> {
         if self.drain_phase()? {
-            return Ok(());
+            return Ok(true);
         }
         self.pump_signals();
         self.wait_events();
@@ -43,7 +46,7 @@ impl<'a> Engine<'a> {
         self.hot
             .run(&mut self.server, &self.bus, self.cfg, &mut self.clock.tick_interval);
         self.transport.flush().expect("flush");
-        Ok(())
+        Ok(false)
     }
 
     pub(crate) fn drain_phase(&mut self) -> std::io::Result<bool> {
@@ -64,6 +67,7 @@ impl<'a> Engine<'a> {
                 &mut self.server,
                 &mut self.transport,
                 &self.bus,
+                self.cfg,
                 &self.game_id,
             );
             return Ok(true);

@@ -19,7 +19,7 @@ struct MatchmakeController {
     service: Arc<MatchmakeService>,
 }
 
-#[controller("")]
+#[controller]
 impl MatchmakeController {
     fn new(service: Arc<MatchmakeService>) -> Self {
         Self { service }

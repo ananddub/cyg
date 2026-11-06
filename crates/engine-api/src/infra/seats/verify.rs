@@ -67,6 +67,7 @@ impl SeatRegistry {
             room: room.to_string(),
             token: token.to_string(),
             expires_at: exp,
+            options: String::new(),
         }))
     }
 

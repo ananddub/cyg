@@ -233,8 +233,22 @@ pub async fn request_id(
             .and_then(|v| v.to_str().ok()),
     )
     .unwrap_or_else(|| Uuid::new_v4().to_string());
-    let span = tracing::info_span!("http", request_id = %id, method = %request.method());
-    let mut response = next.run(request).instrument(span).await;
+    let route = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|path| path.as_str().to_string());
+    let span = tracing::info_span!(
+        "http",
+        request_id = %id,
+        method = %request.method(),
+        http.route = tracing::field::Empty,
+        http.status_code = tracing::field::Empty,
+    );
+    if let Some(route) = route {
+        span.record("http.route", route.as_str());
+    }
+    let mut response = next.run(request).instrument(span.clone()).await;
+    span.record("http.status_code", response.status().as_u16());
     if let Ok(value) = axum::http::HeaderValue::from_str(&id) {
         response.headers_mut().insert(REQUEST_ID_HEADER, value);
     }

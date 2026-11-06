@@ -76,7 +76,12 @@ impl<'a> Engine<'a> {
             return;
         }
 
-        if data.len() == 3 && data[0] == engine_voice::VOICE_MAGIC {
+        // Voice settings: [VOICE_MAGIC][b'T'|b'M'|b'D'][payload...].
+        // 'T' carries a client-hashed u32 team id; 'M'/'D' are one byte.
+        if data.len() >= 2
+            && data[0] == engine_voice::VOICE_MAGIC
+            && matches!(data[1], b'T' | b'M' | b'D')
+        {
             self.run_packet_voice_settings(id, data, room_name);
             return;
         }

@@ -10,13 +10,14 @@ source = "crates/engine-net/examples/e2e/room.ts"
 out = "crates/engine-net/examples/e2e/room_logic.wasm"
 sdk_dir = "../colyseus"
 website = "crates/engine-net/examples/e2e/website.html"
-port = 7777
+port = 7776
+ws_port = 7776
 web_port = 8090
-tick_rate = 128
-max_clients = 16
+tick_rate = 60
+max_clients = 64
 
 [control.session]
-database_endpoint = "ws://localhost:8000"
+database_endpoint = ""
 database_user = "root"
 database_pass = "root"
 database_ns = "cyg"

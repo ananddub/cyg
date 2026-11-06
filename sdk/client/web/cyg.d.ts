@@ -185,6 +185,32 @@ export class Room<TState extends object = Record<string, unknown>> {
     /** WebRTC voice mesh, attached on demand. */
     voice: Voice | null;
 
+    /** Attach (or reuse) the room's WebRTC voice mesh. */
+    attachVoice(options?: Record<string, unknown>): Voice;
+
+    /**
+     * Stream one Opus voice frame. `channelMode`: 0 = proximity,
+     * 1 = global, 2 = team-only, 3 = whisper.
+     */
+    sendVoice(
+        channelMode: 0 | 1 | 2 | 3,
+        seq: number,
+        timestamp: number,
+        flags: number,
+        opusPayload: Uint8Array,
+    ): void;
+
+    /**
+     * Set the squad/team used by `sendVoice(2, ...)`.
+     * Accepts a string (`"red"`, `"squad-a"`) or any number; the host hashes
+     * the UTF-8 label to a u32. `null`/`""` leaves the team.
+     */
+    setVoiceTeam(teamId: string | number | null): void;
+    /** Notify the server that the local microphone is muted. */
+    setVoiceMuted(isMuted: boolean): void;
+    /** Notify the server that the local player cannot hear anyone. */
+    setVoiceDeafened(isDeafened: boolean): void;
+
     /** Interpolation / prediction controls (legacy delta rooms). */
     enableInterpolation(options?: Record<string, unknown>, decoder?: ((bytes: Uint8Array) => unknown) | null): void;
     enableJitterBuffer?(): void;

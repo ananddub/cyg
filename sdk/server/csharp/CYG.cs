@@ -4,6 +4,7 @@
 
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace CYG
 {
@@ -18,10 +19,11 @@ namespace CYG
         public abstract void OnCreate(int maxClients);
 
         /// <summary>Called when a player joins.</summary>
-        public abstract void OnJoin(long id, double spawnX, double spawnZ);
+        public virtual string OnAuth(long id, string options, string context) { return "{}"; }
+        public abstract void OnJoin(long id, string options, string auth);
 
         /// <summary>Called when a player disconnects.</summary>
-        public abstract void OnLeave(long id);
+        public abstract void OnLeave(long id, int code);
 
         /// <summary>Called on inbound client input packet.</summary>
         public abstract void OnInput(long id, ReadOnlySpan<byte> data);
@@ -61,11 +63,30 @@ namespace CYG
         [UnmanagedCallersOnly(EntryPoint = "on_create")]
         public static void OnCreate(int max) => ActiveRoom?.OnCreate(max);
 
+        [UnmanagedCallersOnly(EntryPoint = "on_auth")]
+        public static long OnAuth(long id, IntPtr optPtr, int optLen, IntPtr ctxPtr, int ctxLen)
+        {
+            return 0; // C# guests reject nothing by default; auth data flows via OnJoin
+        }
+
         [UnmanagedCallersOnly(EntryPoint = "on_join")]
-        public static void OnJoin(long id, double x, double z) => ActiveRoom?.OnJoin(id, x, z);
+        public static void OnJoin(long id, IntPtr optPtr, int optLen, IntPtr authPtr, int authLen)
+        {
+            string options = ReadString(optPtr, optLen);
+            string auth = ReadString(authPtr, authLen);
+            ActiveRoom?.OnJoin(id, options, auth);
+        }
+
+        private static string ReadString(IntPtr ptr, int len)
+        {
+            if (ptr == IntPtr.Zero || len <= 0) return "";
+            var bytes = new byte[len];
+            Marshal.Copy(ptr, bytes, 0, len);
+            return Encoding.UTF8.GetString(bytes);
+        }
 
         [UnmanagedCallersOnly(EntryPoint = "on_leave")]
-        public static void OnLeave(long id) => ActiveRoom?.OnLeave(id);
+        public static void OnLeave(long id, int code) => ActiveRoom?.OnLeave(id, code);
 
         [UnmanagedCallersOnly(EntryPoint = "on_input")]
         public static unsafe void OnInput(long id, int ptr, int len)

@@ -114,6 +114,7 @@ pub struct GameConfig {
 
     pub gameplay: GameplayConfig,
     pub control: ControlConfig,
+    pub features: FeaturesConfig,
 }
 
 impl Default for GameConfig {
@@ -154,10 +155,86 @@ impl Default for GameConfig {
             watchdog: WatchdogConfig::default(),
             gameplay: GameplayConfig::default(),
             control: ControlConfig::default(),
+            features: FeaturesConfig::default(),
         }
     }
 }
 
+
+/// Which per-room physics backend the engine should construct and expose.
+/// "none" keeps the guest's `sys_rapier*` imports unfulfilled-by-host: the
+/// linker answers with permission-denied and no rapier world is allocated.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PhysicsFeature {
+    /// Every backend available (today's behavior — backwards compatible).
+    #[default]
+    Both,
+    /// Only the 2D rapier world (`sys_rapier2d_*`); 3D calls are refused.
+    D2,
+    /// Only the 3D rapier world (`sys_rapier3d_*`); 2D calls are refused.
+    D3,
+    /// No rapier world at all — pure-logic/turn-based games save the
+    /// per-room world allocations entirely.
+    None,
+}
+
+impl FeaturesConfig {
+    pub fn wants_rapier2d(&self) -> bool {
+        self.physics.wants_rapier2d()
+    }
+
+    pub fn wants_rapier3d(&self) -> bool {
+        self.physics.wants_rapier3d()
+    }
+
+    pub fn wants_any_physics(&self) -> bool {
+        self.physics.wants_any()
+    }
+}
+
+impl PhysicsFeature {
+    pub fn wants_rapier2d(self) -> bool {
+        matches!(self, PhysicsFeature::Both | PhysicsFeature::D2)
+    }
+
+    pub fn wants_rapier3d(self) -> bool {
+        matches!(self, PhysicsFeature::Both | PhysicsFeature::D3)
+    }
+
+    pub fn wants_any(self) -> bool {
+        self != PhysicsFeature::None
+    }
+
+    /// `"both" | "2d" | "3d" | "none"` for TOML/env parsing.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "both" | "all" => Some(PhysicsFeature::Both),
+            "2d" => Some(PhysicsFeature::D2),
+            "3d" => Some(PhysicsFeature::D3),
+            "none" | "off" => Some(PhysicsFeature::None),
+            _ => None,
+        }
+    }
+}
+
+/// Config-driven feature loading — `[features]` table. Anything the operator
+/// leaves off is never constructed per room, saving its RAM and tick CPU.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeaturesConfig {
+    pub physics: PhysicsFeature,
+    /// When false, voice packets are dropped at the door and the voice mesh
+    /// never routes (structs stay, allocation cost is negligible).
+    pub voice: bool,
+}
+
+impl Default for FeaturesConfig {
+    fn default() -> Self {
+        Self {
+            physics: PhysicsFeature::Both,
+            voice: true,
+        }
+    }
+}
 
 /// One named room variant — Colyseus's `defineRoom(MyRoom, {…}).filterBy([...])`
 /// equivalent. The variant name is the room name the client joins; `filter_by`

@@ -93,7 +93,7 @@ pub(super) fn on_listener_event(
                 }
 
                 pass.client_tokens
-                    .insert(client.session_id.to_string(), token);
+                    .insert(client.session_id.clone(), token);
                 pass.clients.insert(token, client);
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,

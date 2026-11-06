@@ -34,6 +34,11 @@ pub struct TournamentWriteRequest {
     pub max_num_score: Option<i32>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+    /// Active rule set (`rules_definition.key`) a player must match before
+    /// joining or scoring. Omit to keep the stored rule, send an empty string
+    /// to clear it.
+    #[serde(default)]
+    pub rule_key: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -56,6 +61,7 @@ pub struct LeaderboardRow {
     pub end_time: DateTime<Utc>,
     pub duration: i32,
     pub create_time: DateTime<Utc>,
+    pub rule_key: Option<String>,
 }
 
 impl From<Leaderboard> for LeaderboardRow {
@@ -83,6 +89,7 @@ impl From<Leaderboard> for LeaderboardRow {
             end_time: l.end_time,
             duration: l.duration,
             create_time: l.create_time,
+            rule_key: l.rule_key,
         }
     }
 }

@@ -72,6 +72,27 @@ impl LoopTransport {
         }
         let now = Instant::now();
         self.flush_delayed_out(now);
+        if self.packet_loss_rate > 0.0 {
+            let rate = self.packet_loss_rate;
+            let rng = &mut self.loss_rng;
+            let dropped = &mut self.dropped_packets;
+            self.inbound.retain(|(_, msg)| {
+                match msg {
+                    Inbound::Input { .. } => {
+                        *rng ^= *rng << 13;
+                        *rng ^= *rng >> 17;
+                        *rng ^= *rng << 5;
+                        let roll = (*rng as f64) / (u32::MAX as f64);
+                        let drop = roll < rate;
+                        if drop {
+                            *dropped += 1;
+                        }
+                        !drop
+                    }
+                    _ => true,
+                }
+            });
+        }
         if !self.latency.is_zero() {
             for (id, msg) in self.inbound.drain(..) {
                 self.delayed_in.push_back((now + self.latency, id, msg));

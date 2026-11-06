@@ -35,11 +35,36 @@ pub fn run(
     let arena_2d = boot_map2d(&boot_maps, project_dir);
     let physics = boot_map3d(&boot_maps, project_dir, &arena_2d);
     let (schema_descriptor, schema_aoi) = boot_schema(&boot_maps, project_dir, cfg, &mut raw_transport);
+    let join_options_fields = if schema_descriptor.is_empty() {
+        Vec::new()
+    } else {
+        engine_schema::parse_descriptor(&schema_descriptor)
+            .and_then(|descriptor| {
+                descriptor
+                    .schemas
+                    .into_iter()
+                    .find(|schema| schema.name == engine_schema::JOIN_OPTIONS_SCHEMA_NAME)
+            })
+            .map(|schema| schema.fields)
+            .unwrap_or_default()
+    };
     let udp_socket = boot_udp();
     let Lanes { quic, ws } = boot_lanes(cfg, &schema_descriptor);
     let mut transport = LoopTransport::new(raw_transport, quic, ws);
     if cfg.simulate_latency_ms > 0 {
         transport.set_latency(Duration::from_millis(cfg.simulate_latency_ms as u64 / 2));
+        tracing::warn!(
+            "[server] NETWORK SIMULATION: simulated latency = {}ms RTT ({}ms one-way)",
+            cfg.simulate_latency_ms,
+            cfg.simulate_latency_ms / 2
+        );
+    }
+    if cfg.simulate_packet_loss > 0.0 {
+        transport.set_packet_loss_rate(cfg.simulate_packet_loss);
+        tracing::warn!(
+            "[server] ⚠️ NETWORK SIMULATION: simulated packet loss = {:.1}%",
+            cfg.simulate_packet_loss * 100.0
+        );
     }
     let PreSelection {
         pre,
@@ -86,6 +111,7 @@ pub fn run(
         transport,
         server,
         arena_mesh,
+        join_options_fields,
         udp: UdpLane {
             udp_sock: udp_socket.map(Arc::new),
             udp_peers: HashMap::new(),
@@ -130,7 +156,24 @@ pub fn run(
             match_peaks: HashMap::new(),
         },
     };
+    // Profiling builds exit cleanly after OX_DHAT_SECS so the dhat tracker
+    // drops and writes dhat-heap.json (release runs never exit on their own).
+    // Runtime env check (not cfg): crate features don't propagate from the bin.
+    let dhat_deadline = std::env::var("OX_DHAT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|secs| std::time::Instant::now() + std::time::Duration::from_secs(secs));
     loop {
-        engine.step()?;
+        if engine.step()? {
+            tracing::info!("[server] 🛑 drain complete — shutting down");
+            break;
+        }
+        if let Some(deadline) = dhat_deadline {
+            if std::time::Instant::now() >= deadline {
+                tracing::info!("[dhat] window elapsed — clean exit for heap dump");
+                break;
+            }
+        }
     }
+    Ok(())
 }

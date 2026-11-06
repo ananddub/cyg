@@ -651,8 +651,19 @@ func send_voice(channel_mode: int, seq: int, timestamp: int, flags: int,
 	_send_wire(out)
 
 
-func set_voice_team(team_id: int) -> void:
-	_send_wire(PackedByteArray([CYGCodec.VOICE_MAGIC, 0x54, team_id & 0xFF]))
+func set_voice_team(team_id: Variant) -> void:
+	## Team labels are strings (`"red"`, `"squad-a"`); numbers still work — they
+	## are stringified. The label is hashed with the shared FNV-1a so the wire
+	## stays a fixed-width u32 (`0` = leave team).
+	var label := "" if team_id == null else str(team_id).strip_edges()
+	var team_hash := 0
+	if label != "":
+		team_hash = CYGCodec.fnv1a(2166136261, label)
+	_send_wire(PackedByteArray([
+		CYGCodec.VOICE_MAGIC, 0x54,
+		(team_hash >> 24) & 0xFF, (team_hash >> 16) & 0xFF,
+		(team_hash >> 8) & 0xFF, team_hash & 0xFF,
+	]))
 
 
 func set_voice_muted(is_muted: bool) -> void:

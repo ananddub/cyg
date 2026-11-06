@@ -10,6 +10,14 @@ impl<'a> Engine<'a> {
         payload: &bytes::Bytes,
         room_name: &str,
     ) {
+        if !self
+            .server
+            .rooms
+            .get(room_name)
+            .is_some_and(|room| room.voice_enabled)
+        {
+            return; // [features] voice = false — drop at the door
+        }
         let wire = payload.slice(payload.len() - data.len()..);
         let Ok(signal) = engine_voice::SignalFrame::decode(&wire) else {
             tracing::warn!("[server] ⚠️ dropped malformed signal from {client_id}");
@@ -96,33 +104,51 @@ impl<'a> Engine<'a> {
         }
     }
     pub(crate) fn run_packet_voice_settings(&mut self, id: i64, data: &[u8], room_name: &str) {
+        if data.len() < 2 {
+            return;
+        }
         let room = self.server.rooms.get_mut(room_name).unwrap();
-        if data[1] == b'T' {
-            let team_id = data[2] as u16;
-            room.voice_room.set_team(id as u32, Some(team_id));
-            tracing::info!("[server] 🛡️ Player {id} switched to Squad {team_id}");
-        } else if data[1] == b'M' {
-            let muted = data[2] == 1;
-            room.voice_room.set_muted(id as u32, muted);
-            tracing::info!("[server] 🎙️ Player {id} mic muted={muted}");
-            if room.voice_mesh.peer_count() > 1 {
-                let note = engine_voice::SignalFrame::new(
-                    engine_voice::SignalKind::Muted,
-                    engine_voice::SERVER_SENDER,
-                    engine_voice::BROADCAST,
-                    bytes::Bytes::from(format!("[{id},{}]", muted as u8)),
-                )
-                .encode();
-                room.voice_mesh.for_each_peer(id as u32, |target| {
-                    let _ = self
-                        .transport
-                        .send_to(target.session_id, OpCode::RoomDataBytes, &note);
-                });
+        match data[1] {
+            b'T' => {
+                // Team is a client-hashed FNV-1a u32 (same label → same bucket
+                // on every client). 0 means "leave the team". Older 3-byte
+                // numeric squad packets are still accepted as raw ids.
+                let team_id = if data.len() >= 6 {
+                    let raw = u32::from_be_bytes([data[2], data[3], data[4], data[5]]);
+                    (raw != 0).then_some(raw)
+                } else if data.len() >= 3 {
+                    Some(data[2] as u32)
+                } else {
+                    None
+                };
+                room.voice_room.set_team(id as u32, team_id);
+                tracing::info!("[server] 🛡️ Player {id} switched to Squad {team_id:?}");
             }
-        } else if data[1] == b'D' {
-            let deafened = data[2] == 1;
-            room.voice_room.set_deafened(id as u32, deafened);
-            tracing::info!("[server] 🎧 Player {id} deafened={deafened}");
+            b'M' if data.len() >= 3 => {
+                let muted = data[2] == 1;
+                room.voice_room.set_muted(id as u32, muted);
+                tracing::info!("[server] 🎙️ Player {id} mic muted={muted}");
+                if room.voice_mesh.peer_count() > 1 {
+                    let note = engine_voice::SignalFrame::new(
+                        engine_voice::SignalKind::Muted,
+                        engine_voice::SERVER_SENDER,
+                        engine_voice::BROADCAST,
+                        bytes::Bytes::from(format!("[{id},{}]", muted as u8)),
+                    )
+                    .encode();
+                    room.voice_mesh.for_each_peer(id as u32, |target| {
+                        let _ = self
+                            .transport
+                            .send_to(target.session_id, OpCode::RoomDataBytes, &note);
+                    });
+                }
+            }
+            b'D' if data.len() >= 3 => {
+                let deafened = data[2] == 1;
+                room.voice_room.set_deafened(id as u32, deafened);
+                tracing::info!("[server] 🎧 Player {id} deafened={deafened}");
+            }
+            _ => {}
         }
     }
 }

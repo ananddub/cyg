@@ -4,6 +4,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::load_tournament;
+use super::require_rule;
 use super::submit::submit;
 use crate::ApiState;
 use crate::app::middleware::Authed;
@@ -91,6 +92,7 @@ impl super::TournamentService {
         if deadlines.start_active > now.timestamp() || deadlines.end_active <= now.timestamp() {
             return Err(V2Error::failed_precondition(INACTIVE_WRITE));
         }
+        require_rule(&queries, &board, auth.uid()).await?;
         let operator = match db_operator(input.operator)? {
             None => board.operator,
             Some(operator) => operator,

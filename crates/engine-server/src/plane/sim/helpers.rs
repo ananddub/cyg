@@ -30,11 +30,11 @@ pub(super) fn bind_peer(
     let id = room.next_player_id;
     room.next_player_id += 1;
     if let Some(ref mut wasm) = room.wasm {
-        if let Err(e) = wasm.on_join(id, x, y) {
-            tracing::error!("[sim] ⚠️ guest on_join error for player {id}: {e}");
-        }
+        GameRoom::call_on_join(wasm, id, b"", b"");
     }
+    room.voice_room.join_participant(id as u32, Some(engine_voice::hash_team("1")), [x, 0.0, y]);
     room.sessions.insert(peer_id.clone(), id);
+    room.player_options.insert(id, b"".to_vec());
     session_of.insert(id, peer_id);
     id
 }
@@ -47,8 +47,9 @@ pub(super) fn drop_peer(
 ) {
     if let Some(id) = room.sessions.remove(peer_id) {
         if let Some(ref mut wasm) = room.wasm {
-            let _ = wasm.on_leave(id);
+            let _ = wasm.on_leave(id, false as i32);
         }
+        room.player_options.remove(&id);
         room.last_input_seq.remove(peer_id.as_str());
         browser_players.remove(&id);
         session_of.remove(&id);

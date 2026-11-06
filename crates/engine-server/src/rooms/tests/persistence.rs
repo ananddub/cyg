@@ -9,13 +9,13 @@ use super::*;
             engine_wasm::AbiPermissions::default(),
         );
 
-        let room_a = server.get_or_create("room_a").expect("relay room");
-        room_a.join("p1_a", 0.0, 0.0);
-        room_a.join("p2_a", 10.0, 10.0);
+        let room_a = server.get_or_create("room_a", b"").expect("relay room");
+        room_a.join("p1_a", 0.0, 0.0, b"");
+        room_a.join("p2_a", 10.0, 10.0, b"");
         assert!(!room_a.is_hibernating());
 
-        let room_b = server.get_or_create("room_b").expect("relay room");
-        room_b.join("p1_b", 0.0, 0.0);
+        let room_b = server.get_or_create("room_b", b"").expect("relay room");
+        room_b.join("p1_b", 0.0, 0.0, b"");
         assert!(!room_b.is_hibernating());
         assert_eq!(server.rooms.len(), 2);
 
@@ -45,8 +45,8 @@ use super::*;
         assert!(!server.rooms.contains_key("room_a"));
         assert!(server.rooms.contains_key("room_b"));
 
-        let room_a_fresh = server.get_or_create("room_a").expect("relay room");
-        room_a_fresh.join("p3_a", 0.0, 0.0);
+        let room_a_fresh = server.get_or_create("room_a", b"").expect("relay room");
+        room_a_fresh.join("p3_a", 0.0, 0.0, b"");
         assert!(!room_a_fresh.is_hibernating());
         assert_eq!(server.rooms.len(), 2);
     }
@@ -61,9 +61,9 @@ use super::*;
         );
 
         let room = server
-            .get_or_create("world_zone_survival")
+            .get_or_create("world_zone_survival", b"")
             .expect("relay room");
-        room.join("player_builder", 0.0, 0.0);
+        room.join("player_builder", 0.0, 0.0, b"");
 
         room.handle_disconnect("player_builder");
         assert!(room.is_hibernating());
@@ -82,7 +82,7 @@ use super::*;
         let has_snapshot = server.has_snapshot("world_zone_survival");
         let restored_wasm = {
             let restored = server
-                .get_or_create("world_zone_survival")
+                .get_or_create("world_zone_survival", b"")
                 .expect("restored room");
             restored.wasm.is_none()
         };

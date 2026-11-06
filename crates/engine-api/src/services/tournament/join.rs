@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::load_tournament;
+use super::require_rule;
 use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
@@ -33,6 +34,7 @@ impl super::TournamentService {
         if deadlines.end_active <= now.timestamp() {
             return Err(V2Error::invalid_argument(INACTIVE_JOIN));
         }
+        require_rule(&queries, &board, auth.uid()).await?;
 
         enter(
             &queries,

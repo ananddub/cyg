@@ -19,7 +19,7 @@ pub struct WsTransport {
     pub(super) events: Events,
     pub(super) listeners: Vec<TcpListener>,
     pub(super) clients: AHashMap<Token, WsClient>,
-    pub(super) client_tokens: AHashMap<String, Token>,
+    pub(super) client_tokens: AHashMap<std::sync::Arc<str>, Token>,
 
     pub(super) client_rooms: AHashMap<String, String>,
 

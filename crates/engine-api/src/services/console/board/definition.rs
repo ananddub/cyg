@@ -27,6 +27,7 @@ pub struct BoardWrite {
     pub join_required: bool,
     pub max_size: i32,
     pub max_num_score: i32,
+    pub rule_key: Option<String>,
 }
 
 pub fn tournament_row(write: &BoardWrite, game: Option<Uuid>, now: DateTime<Utc>) -> Leaderboard {
@@ -50,6 +51,7 @@ pub fn tournament_row(write: &BoardWrite, game: Option<Uuid>, now: DateTime<Utc>
         start_time: write.start_time,
         enable_ranks: Some(true),
         game_id: game,
+        rule_key: write.rule_key.clone(),
     }
 }
 
@@ -90,6 +92,10 @@ impl BoardWrite {
         } else if body.reset_schedule.is_some() {
             base.reset_schedule = None;
         }
+        if let Some(key) = body.rule_key.as_deref() {
+            let key = key.trim();
+            base.rule_key = (!key.is_empty()).then(|| key.to_owned());
+        }
         Ok(base)
     }
 
@@ -109,6 +115,7 @@ impl BoardWrite {
             join_required: board.join_required,
             max_size: board.max_size,
             max_num_score: board.max_num_score,
+            rule_key: board.rule_key.clone(),
         }
     }
 
@@ -128,6 +135,7 @@ impl BoardWrite {
             join_required: false,
             max_size: 100_000_000,
             max_num_score: 1_000_000,
+            rule_key: None,
         }
     }
 }

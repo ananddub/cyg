@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 engine-wasm = { path = "../engine-wasm" }
 toml = "0.8"

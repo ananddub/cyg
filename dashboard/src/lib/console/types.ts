@@ -140,6 +140,8 @@ export interface ConsoleLeaderboard {
   end_time: string;
   duration: number;
   create_time: string;
+  /** Active rule set (`rules_definition.key`) that gates joining and scoring. */
+  rule_key?: string | null;
 }
 
 export interface ConsoleRecord {

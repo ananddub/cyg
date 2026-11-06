@@ -1,67 +1,76 @@
 // CYG starter room — reactive state, server-authoritative.
 //
-// Flow: onJoin/onInputPacket collect inputs → onTick simulates →
-// commitState() encodes the dirty-only delta. The browser rebuilds state
-// from the descriptor — no client codegen needed.
+// Flow: the client's join options (name, skin, anything) arrive on onJoin →
+// onInputFrame collects decoded input → onTick simulates → commitState()
+// encodes the dirty-only delta. The browser rebuilds state from the
+// descriptor — no client codegen needed.
 //
 // Edit this file and run `cyg-game run .` — the compiler generates the WASM
 // ABI bridge for you.
 
 import {
-    Room, InputReader, SchemaState, Key, isHeld,
+    Room, Client, SchemaState, Vec2, CloseCode,
 } from "../pkg/cyg-server";
-import { Player, PlayerSchema } from "../gen/cyg.schema";
+import {
+    Player, PlayerSchema, Input, JoinOptions,
+} from "../gen/cyg.schema";
 
 export class MyGame extends Room {
     private state: SchemaState = new SchemaState(PlayerSchema);
     private players: Array<Player> = [];
+    private moves: Map<i64, Vec2> = new Map<i64, Vec2>();
     private speed: f64 = 120.0;
 
-    onCreate(max: i32): void {
-        this.setState(this.state);   // bind the state — commitState() syncs it
+    // options = config room_options ⊕ the creator's joinOrCreate options.
+    onCreate(max: i32, options: string): void {
+        this.setState(this.state);
     }
 
-    onJoin(id: i64, x: f64, y: f64): void {
+    // Typed join options — the schema's JoinOptions def, decoded by the
+    // bridge. The client sent { name, team } via joinOrCreate; the room spawns.
+    onJoin(client: Client, options: JoinOptions, auth: string): void {
+        client.auth = auth;              // what onAuth returned, if you use it
+        const id = client.id;
         const p = new Player();
         p.pid = id;
-        p.x = x;
-        p.y = y;
+        p.name = options.name == "" ? "player " + id.toString() : options.name;
+        p.x = 120.0 + (this.players.length % 8) * 70.0;   // our spawn choice
+        p.y = 100.0 + ((this.players.length / 8) as i32) * 70.0;
         this.players.push(p);
+        this.moves.set(id, new Vec2(0.0, 0.0));
         this.state.set(id as u32, p);
-        this.broadcastText("joined", p.pid.toString());
+        client.sendText("welcome", p.name);            // targeted — via the handle
+        this.broadcastText("joined", p.name, id); // everyone except them
     }
 
-    onLeave(id: i64): void {
+    // code is a CloseCode (LEFT / KICKED / SERVER_SHUTDOWN / TIMED_OUT / LOST).
+    onLeave(client: Client, code: i32): void {
+        const id = client.id;
         for (let i = this.players.length - 1; i >= 0; i--) {
             if (this.players[i].pid == id) {
                 this.players.splice(i, 1);
-                return;
+                break;
             }
         }
+        this.moves.delete(id);
+        this.state.delete(id as u32);
     }
 
-    // Movement flags from the unreliable lane — stored straight on the
-    // player entity (free bonus: clients see facing/keys if they want).
-    onInputPacket(id: i64, input: InputReader): void {
-        for (let i = 0; i < this.players.length; i++) {
-            if (this.players[i].pid == id) {
-                this.players[i].flags = input.readU8();
-                return;
-            }
-        }
+    // Typed input lane — the bridge already decoded the frame into your
+    // `Input` class. No reader, no decode call. Newest frame wins (stale
+    // seqs are dropped for you).
+    onInputFrame(client: Client, f: Input): void {
+        const id = client.id;
+        if (!this.moves.has(id)) return;
+        this.moves.set(id, new Vec2(f.moveX, f.moveZ));
     }
 
     onTick(dt: f64): i64 {
         for (let i = 0; i < this.players.length; i++) {
             const p = this.players[i];
-            let dx: f64 = 0;
-            let dy: f64 = 0;
-            if (isHeld(p.flags, Key.W)) dy -= this.speed * dt;
-            if (isHeld(p.flags, Key.S)) dy += this.speed * dt;
-            if (isHeld(p.flags, Key.A)) dx -= this.speed * dt;
-            if (isHeld(p.flags, Key.D)) dx += this.speed * dt;
-            p.x += dx;
-            p.y += dy;
+            const move = this.moves.get(p.pid);
+            p.x += move.x * this.speed * dt;
+            p.y += move.y * this.speed * dt;
         }
         return this.commitState();
     }

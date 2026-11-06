@@ -81,7 +81,10 @@ pub async fn report_surface(env: &Harness, console: &str) {
     assert_eq!(filed["status"], "open");
     assert_eq!(filed["reported_id"], tgt.uid);
     let details = filed["details"].as_str().expect("details");
-    assert!(!details.contains("fuck") && !details.contains("shitty"), "{details}");
+    assert!(
+        !details.contains("fuck") && !details.contains("shitty"),
+        "{details}"
+    );
     let report_id = filed["id"].as_str().expect("report id").to_owned();
 
     assert_eq!(
@@ -207,10 +210,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
         "You are muted and cannot send messages."
     );
 
-    for (label, path) in [
-        ("email signup", "/email"),
-        ("custom signup", "/custom"),
-    ] {
+    for (label, path) in [("email signup", "/email"), ("custom signup", "/custom")] {
         let mut request = env
             .client
             .post(format!(

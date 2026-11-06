@@ -19,6 +19,7 @@ use engine_physics::PhysicsWorld3D;
             &digest(MODULE),
             MODULE,
             engine_wasm::AbiPermissions::default(),
+            &Default::default(),
         )
         .expect("the console's bytes link against the host imports");
 
@@ -28,8 +29,8 @@ use engine_physics::PhysicsWorld3D;
             PhysicsWorld3D::default(),
             engine_wasm::AbiPermissions::default(),
         );
-        server.hot_reload(pre, 100.0, 100.0);
-        let room = server.get_or_create("uploaded").expect("a room spawns");
+        server.hot_reload(pre);
+        let room = server.get_or_create("uploaded", b"").expect("a room spawns");
         assert!(
             room.is_wasm(),
             "rooms spawned after the swap run the uploaded module"
@@ -44,6 +45,7 @@ use engine_physics::PhysicsWorld3D;
             &digest(b"some other module"),
             MODULE,
             engine_wasm::AbiPermissions::default(),
+            &Default::default(),
         ) {
             Ok(_) => panic!("the payload must hash to the version the row recorded"),
             Err(err) => err,

@@ -79,6 +79,10 @@ pub struct ApiState {
     pub realtime: Arc<RealtimeHub>,
     pub blobs: Option<Arc<BlobStore>>,
     pub sessions: Arc<crate::infra::session_cache::SessionCache>,
+    /// Outstanding variant seats per room key — matchmaking chaining counts
+    /// these on top of the host's live occupancy so a burst of joins within
+    /// one status interval cannot all land in the same full room.
+    pub chain: Arc<std::sync::Mutex<crate::services::matchmake::chain::ChainTracker>>,
 }
 
 impl ApiState {
@@ -101,6 +105,9 @@ impl ApiState {
             control.session.token_expiry_secs,
             control.session.refresh_expiry_secs,
         ));
+        let chain = Arc::new(std::sync::Mutex::new(
+            crate::services::matchmake::chain::ChainTracker::default(),
+        ));
         // The per-account bucket stays off with the quotas, so a plane that has
         // not opted in cannot start refusing authenticated traffic.
         let mut limiter =
@@ -111,6 +118,7 @@ impl ApiState {
         ApiState {
             control: Arc::new(control.clone()),
             game: Arc::new(game.clone()),
+            chain,
             seats: Arc::new(std::sync::Mutex::new(seats::SeatRegistry::new(
                 &control.seat_secret,
             ))),

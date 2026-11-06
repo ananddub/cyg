@@ -66,6 +66,12 @@ build:
     cargo build --release
     @echo "💡 Done! Run 'just restart' to load the new binary in the container."
 
+# Release build with OTLP trace export; inert unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+build-otel:
+    @echo "🦀 Compiling engine with the OpenTelemetry bridge..."
+    cargo build --release --features otel
+    @echo "💡 Set OTEL_EXPORTER_OTLP_ENDPOINT (e.g. http://collector:4318) before running."
+
 # Rebuild both dashboard UI + Rust binary and restart the game server container
 rebuild: build-dashboard build restart
 
@@ -126,6 +132,9 @@ test-sdks:
     (cd sdk/client/web && node test/schema.test.mjs) || fail=1
     (cd sdk/client/web && node test/signal.test.mjs) || fail=1
     (cd sdk/client/web && node test/extras.test.mjs) || fail=1
+    (cd sdk/client/web && node test/input.test.mjs) || fail=1
+    echo "== schema input lane (live e2e: scaffold + server + real SDK)"
+    node tests/e2e/input_lane_e2e.mjs || fail=1
     echo "== Unity runtime (dotnet)"
     if command -v dotnet >/dev/null; then
         (cd "sdk/client/unity/Tools~/CygRuntime.Tests" && dotnet run) || fail=1

@@ -4,6 +4,7 @@ impl GameServer {
     pub(crate) fn get_or_create(
         &mut self,
         name: &str,
+        create_options: &[u8],
     ) -> Result<&mut GameRoom, engine_wasm::WasmError> {
         if !self.rooms.contains_key(name) {
             let mut room = if let Some(pre) = &self.pre {
@@ -13,6 +14,8 @@ impl GameServer {
                     self.physics.clone(),
                     self.arena_2d.as_ref(),
                     self.navmesh.clone(),
+                    create_options,
+                    &self.features,
                 )?;
                 if let Some(w) = room.wasm.as_mut() {
                     w.data_mut().seed_rng(name);
@@ -62,16 +65,11 @@ impl GameServer {
         self.rooms.get_mut(name).expect("room just inserted")
     }
 
-    pub(crate) fn hot_reload(
-        &mut self,
-        pre: engine_wasm::WasmPreInstance<RoomHostData>,
-        width: f64,
-        height: f64,
-    ) {
+    pub(crate) fn hot_reload(&mut self, pre: engine_wasm::WasmPreInstance<RoomHostData>) {
         self.pre = Some(pre);
         let pre = self.pre.as_ref().expect("just set by hot_reload");
         for (room_name, room) in &mut self.rooms {
-            match room.reload_wasm(pre, self.max_clients, width, height) {
+            match room.reload_wasm(pre, self.max_clients) {
                 Ok(players) => {
                     tracing::info!(
                         "[server] 🔄 Room '{room_name}' hot-reloaded with {players} active players!"

@@ -923,9 +923,14 @@ Work:
 3. `docs/` dashboards: Prometheus scrape config + a minimal Grafana/JSON panel
    set for the gauges above; alert rules for tick p99 budget, desync rate, webhook
    dead-letter growth, snapshot failures.
-4. Only if the budget check passes (record the `cargo tree` + image-size delta in
-   the PR description) consider the `tracing-opentelemetry` bridge with an OTLP
-   exporter behind a cargo feature, off by default.
+4. Shipped as an opt-in feature: `tracing-opentelemetry` 0.34 +
+   `opentelemetry-otlp` 0.33 (OTLP/HTTP + protobuf, `reqwest-blocking-client`,
+   no tonic) behind `--features otel`, inert unless
+   `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Dependency delta measured with
+   `cargo tree -e normal`: **+12 crates / +0 build deps**, no OpenSSL. The
+   default build links none of it. See `src/telemetry.rs` and the
+   "OpenTelemetry traces" section in `docs/MONITORING.md`; re-measure the
+   release-binary/image delta before turning it on in a manifest.
 5. Tests: `/metrics` output still parses (assert the `# TYPE` lines and one new
    counter), JSON log mode emits `trace_id`, missing request id is generated.
 
@@ -1152,6 +1157,13 @@ with an existing `--check` parity flag (`src/main.rs:324`).
 4. Tests: evaluator truth tables per operator; publish/rollback switches
    `is_active`; a rules body that is not valid is refused at write time with the
    exact field error.
+5. Enforcement point: a tournament carries an optional `rule_key`
+   (`leaderboard.rule_key`, console `TournamentWriteRequest.rule_key`). Player
+   `POST /v2/tournament/{id}/join` and score writes load the active rule and
+   evaluate it against the player's `player_stat` map before entering or
+   writing; an unpublished, invalid, or unmet rule refuses the call (fail
+   closed) instead of silently opening the round. Omitting `rule_key` on a
+   console update keeps the stored rule; an empty string clears it.
 
 ### 6.7 Config versioning and diff/rollback UI
 
