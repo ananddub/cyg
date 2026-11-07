@@ -51,7 +51,10 @@ impl GameRoom {
         }
         self.voice_room
             .join_participant(id as u32, Some(engine_voice::hash_team("1")), [x, 0.0, y]);
-        self.sessions.insert(session.to_string(), id);
+        // Interned once: the same Arc<str> backs the sessions key, so later
+        // spectator/pending-leave transitions refcount instead of re-allocating.
+        self.sessions
+            .insert(std::sync::Arc::from(session), id);
         self.entries.entry(id).or_default().options = options.to_vec();
         id
     }
@@ -127,7 +130,7 @@ impl GameRoom {
     #[allow(dead_code)]
     pub(crate) fn join_spectator(&mut self, session: &str) {
         self.empty_since = None;
-        self.spectators.insert(session.to_string());
+        self.spectators.insert(std::sync::Arc::from(session));
     }
 
     pub(crate) fn make_spectator(&mut self, session: &str) {
@@ -139,7 +142,7 @@ impl GameRoom {
             self.entries.remove(&id);
         }
         self.schema_sent.remove(session);
-        self.spectators.insert(session.to_string());
+        self.spectators.insert(std::sync::Arc::from(session));
     }
 
     pub(crate) fn add_raw_player(&mut self, _x: f64, _y: f64) -> i64 {

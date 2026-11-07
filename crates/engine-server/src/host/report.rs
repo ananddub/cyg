@@ -77,8 +77,8 @@ pub(crate) fn announce_closure(server: &GameServer, transport: &mut LoopTranspor
     for room in server.rooms.values() {
         let mut targets: Vec<&str> =
             Vec::with_capacity(room.sessions.len() + room.spectators.len());
-        targets.extend(room.sessions.keys().map(String::as_str));
-        targets.extend(room.spectators.iter().map(String::as_str));
+        targets.extend(room.sessions.keys().map(|s| s.as_ref()));
+        targets.extend(room.spectators.iter().map(|s| s.as_ref()));
         let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, &frame);
     }
     let _ = transport.flush();

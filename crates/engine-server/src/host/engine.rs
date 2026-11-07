@@ -34,7 +34,7 @@ pub(crate) struct Stats {
 
 pub(crate) struct TickRunner {
     /// Reused per-room session list — avoids re-allocating every tick.
-    pub(crate) session_scratch: Vec<(String, i64)>,
+    pub(crate) session_scratch: Vec<(std::sync::Arc<str>, i64)>,
     pub(crate) delta_buf: Vec<u8>,
     pub(crate) view_buf: Vec<u8>,
     pub(crate) frame_buf: Vec<u8>,

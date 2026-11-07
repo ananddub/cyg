@@ -24,12 +24,12 @@ pub(super) fn publish_report(
         let via_browser = browser_players.contains(&player_id);
         browser += via_browser as u32;
         sessions.push(SessionTelemetry {
-            session: peer_id.clone(),
+            session: peer_id.to_string(),
             transport: if via_browser { "webrtc" } else { "native-udp" }.to_string(),
             player_id: Some(player_id),
             acked_seq: room.seqs.get(&player_id).map(|s| s.input as u32),
             idle_ms: last_input_at
-                .get(peer_id)
+                .get(peer_id.as_ref())
                 .map(|t| t.elapsed().as_millis() as u64),
         });
     }

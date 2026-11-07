@@ -13,7 +13,7 @@ fn sample(flags: u32, yaw: f32, pitch: f32, mx: f32, mz: f32) -> [u8; 20] {
 
 fn seated_room() -> GameRoom {
     let mut room = GameRoom::new_relay();
-    room.sessions.insert("sess_alice".to_string(), 1);
+    room.sessions.insert("sess_alice".into(), 1);
     room
 }
 

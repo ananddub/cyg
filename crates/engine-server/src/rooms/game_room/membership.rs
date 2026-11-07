@@ -40,7 +40,7 @@ impl GameRoom {
         if self.pending_leaves.is_empty() {
             return false;
         }
-        let expired: Vec<(String, i64)> = self
+        let expired: Vec<(std::sync::Arc<str>, i64)> = self
             .pending_leaves
             .iter()
             .filter(|(_, (_, deadline))| now >= *deadline)

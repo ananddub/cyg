@@ -48,7 +48,7 @@ impl<'a> Engine<'a> {
             && 2 + type_len <= data.len()
             && &data[2..2 + type_len] == b"__ox_schema_ready"
         {
-            room.schema_sent.insert(client_id.to_string());
+            room.schema_sent.insert(std::sync::Arc::from(client_id));
             return;
         }
         if let Some(ref mut wasm) = room.wasm {

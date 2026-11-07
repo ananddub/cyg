@@ -28,8 +28,7 @@ impl TickRunner {
         // the perf book warns about). Capacity survives across rooms/ticks.
         self.session_scratch.clear();
         self.session_scratch
-            .extend(room.sessions.iter().map(|(s, &id)| (s.clone(), id)));
-        let sessions = &self.session_scratch;
+            .extend(room.sessions.iter().map(|(s, &id)| (s.clone(), id)));        let sessions = &self.session_scratch;
 
         // Shared bodies are built ONLY when the transport can actually use
         // them (WS lane + CYG_SHARED_DELTA gate). Building them unconditionally

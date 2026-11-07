@@ -48,7 +48,7 @@ impl<'a> Engine<'a> {
                 let live = self.transport.is_rtc_connected(session);
                 webrtc_live += live as u32;
                 sessions.push(SessionTelemetry {
-                    session: session.clone(),
+                    session: session.to_string(),
                     transport: if live { "webrtc" } else { "websocket" }.to_string(),
                     player_id,
                     acked_seq: player_id
@@ -57,7 +57,7 @@ impl<'a> Engine<'a> {
                     idle_ms: self
                         .rates
                         .last_input_at
-                        .get(session)
+                        .get(session.as_ref())
                         .map(|t| t.elapsed().as_millis() as u64),
                 });
             }

@@ -80,8 +80,8 @@ impl UdpLane {
                 self.udp_input_rates.remove(&peer_addr);
                 self.udp_reliable.remove(&peer_addr);
                 self.udp_rxd_seq.remove(&peer_addr);
-                room.sessions.remove(&sess);
-                room.schema_sent.remove(&sess);
+                room.sessions.remove(sess.as_str());
+                room.schema_sent.remove(sess.as_str());
                 if id > 0 {
                     room.remove_raw_player(id);
                 }

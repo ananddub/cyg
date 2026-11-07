@@ -62,8 +62,8 @@ impl UdpLane {
             tracing::info!("[server-udp] disconnected (timeout): {addr}");
             self.udp_input_rates.remove(&addr);
             if let Some(room) = server.rooms.get_mut(&cfg.name) {
-                room.sessions.remove(&sess);
-                room.schema_sent.remove(&sess);
+                room.sessions.remove(sess.as_str());
+                room.schema_sent.remove(sess.as_str());
                 if id > 0 {
                     room.remove_raw_player(id);
                 }

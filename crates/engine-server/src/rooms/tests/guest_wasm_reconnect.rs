@@ -69,7 +69,7 @@ use super::*;
         let id = room.join("bob", 0.0, 0.0, b"");
         room.handle_unexpected_disconnect("bob", Duration::from_secs(120));
         room.pending_leaves
-            .insert("bob".to_string(), (id, Instant::now()));
+            .insert("bob".into(), (id, Instant::now()));
         assert!(room.expire_pending_leaves(Instant::now()));
         assert_eq!(room.rejoin("bob"), None);
         assert_eq!(guest_i32(&mut room, "reconnect_count"), 0);

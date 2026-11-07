@@ -40,7 +40,7 @@ use super::*;
             None
         );
         room.pending_leaves
-            .insert("alice".to_string(), (id, Instant::now()));
+            .insert("alice".into(), (id, Instant::now()));
         assert!(room.expire_pending_leaves(Instant::now()));
         assert!(room.sessions.is_empty());
         assert_eq!(guest_i32(&mut room, "leave_count"), 1);

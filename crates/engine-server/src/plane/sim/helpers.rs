@@ -33,7 +33,7 @@ pub(super) fn bind_peer(
         GameRoom::call_on_join(wasm, id, b"", b"");
     }
     room.voice_room.join_participant(id as u32, Some(engine_voice::hash_team("1")), [x, 0.0, y]);
-    room.sessions.insert(peer_id.clone(), id);
+    room.sessions.insert(std::sync::Arc::from(peer_id.as_str()), id);
     room.entries.entry(id).or_default();
     session_of.insert(id, peer_id);
     id
@@ -45,7 +45,7 @@ pub(super) fn drop_peer(
     browser_players: &mut std::collections::HashSet<i64>,
     session_of: &mut HashMap<i64, PeerId>,
 ) {
-    if let Some(id) = room.sessions.remove(peer_id) {
+    if let Some(id) = room.sessions.remove(peer_id.as_str()) {
         if let Some(ref mut wasm) = room.wasm {
             let _ = wasm.on_leave(id, false as i32);
         }

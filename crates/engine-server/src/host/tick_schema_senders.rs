@@ -14,7 +14,7 @@ impl TickRunner {
         };
         if let Some(ref udp_sock) = ctx.udp.udp_sock {
             for (peer_addr, (peer_id, peer_session, _)) in &ctx.udp.udp_peers {
-                let is_full = force_full || !room.schema_sent.contains(peer_session);
+                let is_full = force_full || !room.schema_sent.contains(peer_session.as_str());
                 let body = if is_full { schema.full } else { schema.patch };
                 netcode::wrap_delta_into(
                     &mut self.delta_body,
@@ -25,7 +25,7 @@ impl TickRunner {
                 );
                 let _ = udp_sock.send_to(&self.delta_body, *peer_addr);
                 if is_full {
-                    room.schema_sent.insert(peer_session.clone());
+                    room.schema_sent.insert(std::sync::Arc::from(peer_session.as_str()));
                 }
             }
         }
@@ -47,9 +47,9 @@ impl TickRunner {
         let Some(schema) = netcode::split_schema(delta) else {
             return;
         };
-        let spectators: Vec<String> = room.spectators.iter().cloned().collect();
+        let spectators: Vec<std::sync::Arc<str>> = room.spectators.iter().cloned().collect();
         for spec in spectators {
-            let is_full = force_full || !room.schema_sent.contains(&spec);
+            let is_full = force_full || !room.schema_sent.contains(spec.as_ref());
             let body = if is_full { schema.full } else { schema.patch };
             netcode::wrap_delta_into(&mut self.delta_body, 0, body, 0, server_tick_u32);
             let framed = ctx

@@ -111,7 +111,7 @@ impl<'a> Engine<'a> {
         room.empty_since = None;
 
         if is_spectator {
-            room.spectators.insert(client_id.to_string());
+            room.spectators.insert(std::sync::Arc::from(client_id));
             tracing::info!(
                 "[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'"
             );

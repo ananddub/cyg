@@ -27,7 +27,7 @@ impl GameRoom {
             if let Some(hold) = hold {
                 let deadline = Instant::now() + hold;
                 self.pending_leaves
-                    .insert(session.to_string(), (id, deadline));
+                    .insert(std::sync::Arc::from(session), (id, deadline));
             } else {
                 self.sessions.remove(session);
                 self.release_player_with(session, id, close_code::LOST);

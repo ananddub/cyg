@@ -37,7 +37,7 @@ impl Plane {
             self.window_ticks = 0;
             self.status_start = Instant::now();
             self.last_input_at
-                .retain(|peer, _| self.room.sessions.contains_key(peer));
+                .retain(|peer, _| self.room.sessions.contains_key(peer.as_str()));
             let report = self.report(
                 (self.stage_sim_us_sum / ticks.max(1)) as u64,
                 (self.stage_guest_us_sum / ticks.max(1)) as u64,

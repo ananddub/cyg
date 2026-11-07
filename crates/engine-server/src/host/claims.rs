@@ -41,7 +41,7 @@ pub(crate) fn flush_room_outbox(
             if let Some(session) = room
                 .sessions
                 .iter()
-                .find_map(|(session, id)| (*id == message.target).then_some(session.as_str()))
+                .find_map(|(session, id)| (*id == message.target).then_some(session.as_ref()))
             {
                 let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
             }
