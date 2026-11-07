@@ -1,8 +1,100 @@
 
+use std::io::{self, IoSlice, Write};
 use std::sync::Arc;
 use std::time::Instant;
 
+use bytes::Buf;
+
 use bytes::BytesMut;
+
+impl WsClient {
+    /// Drains buffered output in ONE syscall (`write_vectored`) instead of
+    /// separate `write()` calls per segment. Message ordering is the wire
+    /// contract, so the iovec chain is built in exact order:
+    ///   pending shared body:  [inline queue][shared body][tail]
+    ///   finished shared body: [leftover tail][inline queue]  (tail FIRST —
+    ///   it completes the previous message; new frames must not jump ahead)
+    ///   otherwise:            [inline queue]
+    /// Returns bytes written (Ok(0) = socket backpressured, not an error).
+    pub(super) fn write_out(&mut self) -> io::Result<usize> {
+        // Snapshot the shared body behind an Arc clone so the iovecs borrow a
+        // local, not `self` — the client is advanced mutably afterwards.
+        let shared = self
+            .shared_frame
+            .as_ref()
+            .map(|(body, offset)| (Arc::clone(body), *offset as usize));
+
+        let mut bufs: [IoSlice; 3];
+        let tail_first = self.shared_frame.is_none() && !self.post_shared.is_empty();
+        let shared_rest_len = shared
+            .as_ref()
+            .map(|(body, offset)| body.len().saturating_sub(*offset))
+            .unwrap_or(0);
+        let shared_rest: &[u8] = shared
+            .as_ref()
+            .map(|(body, offset)| &body[(*offset).min(body.len())..])
+            .unwrap_or(&[]);
+
+        if shared.is_some() {
+            bufs = [
+                IoSlice::new(&self.send_queue),
+                IoSlice::new(shared_rest),
+                IoSlice::new(&self.post_shared),
+            ];
+        } else if tail_first {
+            bufs = [
+                IoSlice::new(&self.post_shared),
+                IoSlice::new(&self.send_queue),
+                IoSlice::new(&[]),
+            ];
+        } else {
+            bufs = [IoSlice::new(&self.send_queue), IoSlice::new(&[]), IoSlice::new(&[])];
+        }
+        let mut n = self.stream.write_vectored(&mut bufs)?;
+        if n == 0 {
+            return Ok(0);
+        }
+
+        // Advance segments in the SAME order they were offered.
+        if shared.is_some() {
+            let q = n.min(self.send_queue.len());
+            self.send_queue.advance(q);
+            n -= q;
+            if let Some((body, offset)) = self.shared_frame.as_mut() {
+                let s = n.min(body.len() - *offset as usize);
+                *offset += s as u32;
+                n -= s;
+            }
+            let t = n.min(self.post_shared.len());
+            self.post_shared.advance(t);
+            if self
+                .shared_frame
+                .as_ref()
+                .is_some_and(|(body, offset)| *offset as usize >= body.len())
+            {
+                self.shared_frame = None;
+            }
+        } else {
+            let first_len = if tail_first {
+                self.post_shared.len()
+            } else {
+                0
+            };
+            let t = n.min(first_len);
+            self.post_shared.advance(t);
+            n -= t;
+            let q = n.min(self.send_queue.len());
+            self.send_queue.advance(q);
+            n -= q;
+        }
+
+        if self.send_queue.is_empty() {
+            self.overflow_strikes = 0;
+        }
+        let _ = shared_rest_len;
+        Ok(n)
+    }
+}
 
 #[derive(PartialEq)]
 pub(super) enum WsState {

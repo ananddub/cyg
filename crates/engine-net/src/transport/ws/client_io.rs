@@ -19,7 +19,7 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
     if let Some(client) = pass.clients.get_mut(&token) {
         if event.is_readable() {
             loop {
-                match crate::bufio::read_tcp(&mut client.stream, &mut client.recv_buf, 4096) {
+                match crate::bufio::read_tcp(&mut client.stream, &mut client.recv_buf, 2048) {
                     Ok(0) => {
                         conn_dead = true;
                         break;
@@ -81,10 +81,10 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
 
         shrink_read_buffers(client);
 
-        if event.is_writable() && !client.send_queue.is_empty() {
-            match client.stream.write(&client.send_queue) {
-                Ok(n) => {
-                    client.send_queue.advance(n);
+        if event.is_writable() && (!client.send_queue.is_empty() || client.shared_frame.is_some())
+        {
+            match client.write_out() {
+                Ok(_) => {
                     client.state_frame_start = None;
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
@@ -105,7 +105,7 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
 /// initial allocation. Keeps per-connection RSS at the floor under churn.
 fn shrink_read_buffers(client: &mut WsClient) {
     if client.recv_buf.is_empty() && client.recv_buf.capacity() > 16 * 1024 {
-        client.recv_buf = bytes::BytesMut::with_capacity(4096);
+        client.recv_buf = bytes::BytesMut::with_capacity(2048);
     }
     if client.frag_buf.is_empty() && client.frag_buf.capacity() > 16 * 1024 {
         client.frag_buf = bytes::BytesMut::new();

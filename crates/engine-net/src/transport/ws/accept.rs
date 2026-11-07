@@ -43,7 +43,7 @@ pub(super) fn on_listener_event(
                     session_id: format!("colyseus_{}_{}", token.0, peer.port()).into(),
                     room_id: String::new(),
                     recv_buf: first_bytes,
-                    send_queue: BytesMut::with_capacity(4096),
+                    send_queue: BytesMut::with_capacity(2048),
                     shared_frame: None,
                     shared_pending: false,
                     post_shared: BytesMut::new(),

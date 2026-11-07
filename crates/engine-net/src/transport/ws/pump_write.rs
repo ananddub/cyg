@@ -61,49 +61,24 @@ impl WsTransport {
         let mut backpressure: Vec<(Token, bool)> = Vec::new();
         let mut write_failed: Vec<Token> = Vec::new();
         for (token, client) in self.clients.iter_mut() {
-            if !client.send_queue.is_empty() {
-                match client.stream.write(&client.send_queue) {
-                    Ok(n) => {
-                        client.send_queue.advance(n);
+            // One vectored syscall per client: inline queue + shared body +
+            // post-shared tail offered together (writev batching).
+            if !client.send_queue.is_empty() || client.shared_frame.is_some() {
+                match client.write_out() {
+                    Ok(_) => {
                         client.state_frame_start = None;
-                        if client.send_queue.is_empty() {
-                            client.overflow_strikes = 0;
-                        }
                     }
                     Err(_) => {
                         write_failed.push(*token);
                     }
                 }
-                pending |= !client.send_queue.is_empty();
-
-                if client.send_queue.is_empty() && client.send_queue.capacity() > 64 * 1024 {
-                    client.send_queue = bytes::BytesMut::with_capacity(4096);
-                }
             }
+            pending |= !client.send_queue.is_empty() || client.shared_frame.is_some();
 
-            // Shared delta body: written from the room's single allocation
-            // once the inline queue is drained.
-            if client.send_queue.is_empty() {
-                if let Some((body, offset)) = client.shared_frame.as_mut() {
-                    match client.stream.write(&body[*offset as usize..]) {
-                        Ok(n) => {
-                            *offset += n as u32;
-                            client.state_frame_start = None;
-                            if *offset as usize >= body.len() {
-                                client.shared_frame = None;
-                            }
-                        }
-                        Err(_) => {
-                            write_failed.push(*token);
-                        }
-                    }
-                    pending |= client.shared_frame.is_some();
-                }
-                if client.shared_frame.is_none() && !client.post_shared.is_empty() {
-                    // tail bytes queued behind the shared body — move them
-                    // into the inline queue so the next pass sends them.
-                    client.send_queue.unsplit(client.post_shared.split());
-                }
+            if client.shared_frame.is_none() && !client.post_shared.is_empty() {
+                // tail bytes queued behind a finished shared body — move them
+                // into the inline queue so the next pass sends them.
+                client.send_queue.unsplit(client.post_shared.split());
             }
 
             let want = !client.send_queue.is_empty() || client.shared_frame.is_some();
