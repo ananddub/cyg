@@ -7,12 +7,13 @@ pub struct GameServer {
     pub(crate) pre: Option<engine_wasm::WasmPreInstance<RoomHostData>>,
     pub(crate) max_clients: i32,
     pub(crate) physics: PhysicsWorld3D,
-    pub(crate) rooms: HashMap<String, GameRoom>,
+    pub(crate) rooms: HashMap<std::sync::Arc<str>, GameRoom>,
     pub(crate) permissions: engine_wasm::AbiPermissions,
     pub(crate) features: engine_config::FeaturesConfig,
     pub(crate) persistent_snapshots: HashMap<String, Vec<u8>>,
     pub(crate) arena_2d: Option<engine_physics::MapConfig2D>,
     pub(crate) navmesh: Option<std::sync::Arc<NavMesh2D>>,
+    pub(crate) input_coalesce: bool,
 }
 
 impl GameServer {
@@ -42,6 +43,7 @@ impl GameServer {
             persistent_snapshots: HashMap::new(),
             arena_2d: None,
             navmesh: None,
+            input_coalesce: false,
         }
     }
 

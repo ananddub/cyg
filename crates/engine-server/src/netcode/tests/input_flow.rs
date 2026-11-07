@@ -114,3 +114,56 @@ fn a_batch_that_contradicts_its_header_is_refused_whole() {
         "over the per-packet cap"
     );
 }
+
+#[test]
+fn staged_inputs_coalesce_newest_wins_per_player() {
+    let mut room = seated_room();
+    room.input_coalesce = true;
+
+    deliver_input(&mut room, 1, &sample(0, 0.0, 0.0, 1.0, 0.0));
+    deliver_input(&mut room, 1, &sample(0, 0.0, 0.0, 2.0, 0.0));
+    deliver_input(&mut room, 2, &sample(0, 0.0, 0.0, 3.0, 0.0));
+
+    assert_eq!(
+        room.input_inbox.len(),
+        2,
+        "two players staged, not three frames"
+    );
+    assert_eq!(
+        room.input_inbox[0].1,
+        sample(0, 0.0, 0.0, 2.0, 0.0),
+        "the player's newest frame replaced the earlier one"
+    );
+}
+
+#[test]
+fn flushing_the_inbox_drops_departed_players_and_clears_it() {
+    let mut room = seated_room();
+    room.input_coalesce = true;
+    deliver_input(&mut room, 1, &sample(0, 0.0, 0.0, 1.0, 0.0));
+    deliver_input(&mut room, 9, &sample(0, 0.0, 0.0, 1.0, 0.0));
+    room.sessions.remove("sess_alice");
+
+    room.flush_input_inbox();
+    assert!(
+        room.input_inbox.is_empty(),
+        "a flush consumes the staging area"
+    );
+}
+
+#[test]
+fn coalesce_off_delivers_immediately_without_staging() {
+    let cfg = engine_config::GameConfig::default();
+    let mut room = seated_room();
+    assert!(!room.input_coalesce, "default dispatch is immediate");
+
+    let payload = sample(0, 0.0, 0.0, 1.0, 0.0);
+    assert_eq!(
+        apply_input(&mut room, &cfg, 0.033, "sess_alice", 1, 1, &payload),
+        Ok(())
+    );
+    assert!(
+        room.input_inbox.is_empty(),
+        "immediate dispatch never stages"
+    );
+}

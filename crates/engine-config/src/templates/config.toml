@@ -23,6 +23,10 @@ tick_rate = 30
 # out in a smooth spread instead of one burst at the tick boundary. Per-room
 # tick rate is unchanged. 1 = off; try 4 for 100+ room servers.
 tick_stagger = 1
+# Batch the input lane: one guest `on_input` call per player per tick (newest
+# frame wins) instead of one call per arriving frame. Cuts host↔wasm calls
+# ~5x at high input rates; inputs land at tick boundaries. Off by default.
+input_coalesce = false
 max_clients = 16
 max_rooms = 1024
 # Per-client message budget per second; a client exceeding it is kicked (0 = off).

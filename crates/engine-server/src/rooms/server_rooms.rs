@@ -32,6 +32,7 @@ impl GameServer {
                 GameRoom::new_relay()
             };
             room.storage_enabled = self.permissions.storage;
+            room.input_coalesce = self.input_coalesce;
 
             if let Some(snap_bytes) = self.persistent_snapshots.get(name) {
                 if let Err(e) = room.import_snapshot(snap_bytes) {
@@ -43,7 +44,7 @@ impl GameServer {
                 }
             }
 
-            self.rooms.insert(name.to_string(), room);
+            self.rooms.insert(std::sync::Arc::from(name), room);
         }
         Ok(self.rooms.get_mut(name).expect("room just inserted"))
     }
@@ -60,7 +61,7 @@ impl GameServer {
                 if arena.is_some() { " + OXCL arena" } else { "" }
             );
             room.storage_enabled = self.permissions.storage;
-            self.rooms.insert(name.to_string(), room);
+            self.rooms.insert(std::sync::Arc::from(name), room);
         }
         self.rooms.get_mut(name).expect("room just inserted")
     }

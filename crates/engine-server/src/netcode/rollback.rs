@@ -1,13 +1,13 @@
 use crate::rooms::{GameRoom, JournalInput};
 
-use super::deliver::deliver_input;
+use super::deliver::deliver_input_now;
 use super::input::InputRejection;
 
 pub(super) fn apply_late(
     room: &mut GameRoom,
     cfg: &engine_config::GameConfig,
     dt: f64,
-    session: &str,
+    session: &std::sync::Arc<str>,
     id: i64,
     seq: u16,
     payload: &[u8; 20],
@@ -19,14 +19,14 @@ pub(super) fn apply_late(
     if room
         .input_journal
         .iter()
-        .any(|j| j.session == session && j.seq == seq)
+        .any(|j| j.session == *session && j.seq == seq)
     {
         return Ok(());
     }
     let Some(pred_idx) = room
         .input_journal
         .iter()
-        .rposition(|j| j.session == session && j.seq == seq.wrapping_sub(1))
+        .rposition(|j| j.session == *session && j.seq == seq.wrapping_sub(1))
     else {
         tracing::debug!(
             "[dbg] late seq {seq}: no predecessor in journal ({} entries)",
@@ -65,7 +65,7 @@ pub(super) fn apply_late(
         pred_idx + 1,
         JournalInput {
             tick: pred_tick,
-            session: session.to_string(),
+            session: session.clone(),
             id,
             seq,
             payload: *payload,
@@ -85,7 +85,7 @@ pub(super) fn apply_late(
             .collect();
         redelivered += batch.len();
         for (jid, jpayload) in batch {
-            deliver_input(room, jid, &jpayload);
+            deliver_input_now(room.wasm.as_mut(), jid, &jpayload);
         }
         if let Some(ref mut wasm) = room.wasm {
             if let Ok(packed) = wasm.on_tick(dt) {

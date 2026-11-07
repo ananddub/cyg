@@ -8,6 +8,9 @@ pub fn apply(cfg: &mut GameConfig) {
     {
         cfg.tick_stagger = groups.clamp(1, 64);
     }
+    if std::env::var("OX_INPUT_COALESCE").is_ok_and(|v| v == "1" || v == "true") {
+        cfg.input_coalesce = true;
+    }
     crate::parse::env_social::apply(cfg);
 }
 

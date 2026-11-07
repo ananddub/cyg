@@ -84,6 +84,13 @@ pub struct GameConfig {
     /// tick rate is unchanged — only the phase shifts. 1 = off (all rooms
     /// tick together, the historical behavior).
     pub tick_stagger: u32,
+    /// Batch the input lane: instead of one guest `on_input` call per arriving
+    /// frame, stage the newest frame per player and deliver one call per
+    /// player per tick, right before `onTick`. Cuts host↔wasm transitions
+    /// ~5x on high input rates; frames land at tick boundaries instead of
+    /// mid-arrival. Rollback replay delivery is unaffected. False keeps the
+    /// historical immediate dispatch.
+    pub input_coalesce: bool,
     pub max_clients: i32,
 
     pub max_rooms: u32,
@@ -142,6 +149,7 @@ impl Default for GameConfig {
             wasm_pooling: true,
             wasm_max_memory_mb: 64,
             tick_stagger: 1,
+            input_coalesce: false,
             max_clients: 16,
             max_rooms: 1024,
             max_messages_per_second: 0,

@@ -1,8 +1,37 @@
+use crate::netcode::deliver_input_now;
 use crate::rooms::*;
 use engine_physics::PhysicsWorld3D;
 use std::time::Duration;
 
 impl GameRoom {
+
+    /// Stage a frame for tick-time batch delivery (input_coalesce). Newest
+    /// frame per player wins; the seq gate in `apply_input` already ensures
+    /// only newer frames reach here.
+    pub(crate) fn stage_input(&mut self, id: i64, payload: [u8; 20]) {
+        for (staged_id, staged) in &mut self.input_inbox {
+            if *staged_id == id {
+                *staged = payload;
+                return;
+            }
+        }
+        self.input_inbox.push((id, payload));
+    }
+
+    /// Deliver every staged frame — one `on_input` per player — then clear
+    /// the inbox. Departed players are dropped instead of delivered.
+    pub(crate) fn flush_input_inbox(&mut self) {
+        if self.input_inbox.is_empty() {
+            return;
+        }
+        let staged = std::mem::take(&mut self.input_inbox);
+        for (id, payload) in staged {
+            if !self.sessions.values().any(|&pid| pid == id) {
+                continue;
+            }
+            deliver_input_now(self.wasm.as_mut(), id, &payload);
+        }
+    }
 
     pub(crate) fn tick(
         &mut self,
@@ -10,6 +39,7 @@ impl GameRoom {
         rollback_enabled: bool,
     ) -> Result<i64, engine_wasm::WasmError> {
         self.current_tick += 1;
+        self.flush_input_inbox();
         let rate_ms = self.guest_simulation_rate_ms();
         let mut guest_dt = dt;
         if rate_ms > 0 {

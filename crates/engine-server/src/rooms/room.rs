@@ -42,6 +42,13 @@ pub struct GameRoom {
     pub(crate) sim_accum: Duration,
 
     pub(crate) input_journal: VecDeque<JournalInput>,
+    /// Input-coalesce staging: newest frame per player id, flushed as one
+    /// `on_input` call per player at the next tick. Empty unless
+    /// `input_coalesce` is on.
+    pub(crate) input_inbox: Vec<(i64, [u8; 20])>,
+    /// Config gate (`input_coalesce`): stage inputs for tick-time batch
+    /// delivery instead of calling the guest per arriving frame.
+    pub(crate) input_coalesce: bool,
     pub(crate) state: engine_bus::RoomPhase,
     pub(crate) snapshot_seq: u64,
     pub(crate) result: Option<Vec<u8>>,
@@ -77,7 +84,7 @@ pub(crate) struct SessionSeqs {
 
 pub(crate) struct JournalInput {
     pub(crate) tick: u64,
-    pub(crate) session: String,
+    pub(crate) session: std::sync::Arc<str>,
     pub(crate) id: i64,
     pub(crate) seq: u16,
     pub(crate) payload: [u8; 20],
