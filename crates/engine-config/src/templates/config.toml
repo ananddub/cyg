@@ -18,6 +18,11 @@ web_port = 8090
 # 30 Hz is the easy-mode default; use 20 for slower/casual rooms or 60/128 for
 # competitive/rollback games.
 tick_rate = 30
+# Room tick staggering: split each tick interval into this many phase slots
+# and give every room its own slot, so many-room deployments simulate and fan
+# out in a smooth spread instead of one burst at the tick boundary. Per-room
+# tick rate is unchanged. 1 = off; try 4 for 100+ room servers.
+tick_stagger = 1
 max_clients = 16
 max_rooms = 1024
 # Per-client message budget per second; a client exceeding it is kicked (0 = off).

@@ -78,6 +78,12 @@ pub struct GameConfig {
     /// Guest linear-memory cap in MiB when wasm_pooling is on (pooling needs
     /// a declared maximum). Raise for memory-heavy rooms.
     pub wasm_max_memory_mb: u32,
+    /// Room tick staggering: split the tick interval into this many phase
+    /// slots and give each room its own slot, so hundreds of rooms no longer
+    /// all simulate and fan out in one burst at the tick boundary. Per-room
+    /// tick rate is unchanged — only the phase shifts. 1 = off (all rooms
+    /// tick together, the historical behavior).
+    pub tick_stagger: u32,
     pub max_clients: i32,
 
     pub max_rooms: u32,
@@ -135,6 +141,7 @@ impl Default for GameConfig {
             patch_rate: 0,
             wasm_pooling: true,
             wasm_max_memory_mb: 64,
+            tick_stagger: 1,
             max_clients: 16,
             max_rooms: 1024,
             max_messages_per_second: 0,

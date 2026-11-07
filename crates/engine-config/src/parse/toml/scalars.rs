@@ -51,6 +51,9 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = int("patch_rate") {
         cfg.patch_rate = (v.max(0)) as u32;
     }
+    if let Some(v) = int("tick_stagger") {
+        cfg.tick_stagger = (v.max(1).min(64)) as u32;
+    }
     if let Some(v) = boolean("wasm_pooling") {
         cfg.wasm_pooling = v;
     }

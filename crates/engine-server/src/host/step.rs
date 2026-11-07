@@ -88,6 +88,15 @@ impl<'a> Engine<'a> {
             .clock
             .tick_interval
             .saturating_sub(self.tick.last_tick.elapsed());
+        let mut wait = remaining_to_tick;
+        // Staggered rooms fire on slot boundaries inside the interval, so the
+        // loop must wake for the next slot, not just the interval boundary.
+        let groups = self.cfg.tick_stagger.max(1);
+        if groups > 1 {
+            let slot = self.clock.tick_interval / groups;
+            let to_slot = (self.tick.slot_base + slot).saturating_duration_since(Instant::now());
+            wait = wait.min(to_slot);
+        }
         let all_idle = self
             .server
             .rooms
@@ -95,9 +104,9 @@ impl<'a> Engine<'a> {
             .all(|r| r.is_hibernating())
             && self.udp.udp_peers.is_empty();
         let wait = if all_idle {
-            remaining_to_tick.min(Duration::from_millis(5))
+            wait.min(Duration::from_millis(5))
         } else {
-            remaining_to_tick
+            wait
         };
         if let Err(e) = self.transport.poll_events(wait, &mut self.scratch.events) {
             if e.kind() != std::io::ErrorKind::Interrupted {

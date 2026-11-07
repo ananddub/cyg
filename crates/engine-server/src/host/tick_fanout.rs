@@ -3,22 +3,38 @@ use std::time::Instant;
 use crate::host::*;
 
 impl TickRunner {
-    pub(crate) fn tick_all_rooms(
+    /// Tick every room belonging to `phase` for `ticks_to_run` catch-up
+    /// passes. With staggering off, all rooms share phase 0 and this is the
+    /// whole tick; with staggering on, each phase's slice runs separately.
+    pub(crate) fn run_phase(
         &mut self,
         ctx: &mut TickCtx,
-        __gate_t0: Instant,
+        phase: u32,
         ticks_to_run: u32,
         dt: f64,
-        tick_start: Instant,
+        run_t0: Instant,
     ) {
         for tick_idx in 0..ticks_to_run {
             let is_last_tick = tick_idx + 1 == ticks_to_run;
             let names: Vec<String> = ctx.server.rooms.keys().cloned().collect();
             for name in names {
+                if self.phase_of(&name, ctx.cfg.tick_stagger.max(1)) != phase {
+                    continue;
+                }
                 self.tick_one_room(ctx, is_last_tick, dt, &name);
             }
-            self.tick_after_batch(ctx, __gate_t0, ticks_to_run, tick_start);
+            self.tick_after_batch(ctx, run_t0, ticks_to_run, run_t0);
         }
+    }
+
+    fn phase_of(&mut self, name: &str, groups: u32) -> u32 {
+        if let Some(phase) = self.room_phase.get(name) {
+            return *phase;
+        }
+        let phase = self.phase_ctr % groups;
+        self.phase_ctr = self.phase_ctr.wrapping_add(1);
+        self.room_phase.insert(name.to_string(), phase);
+        phase
     }
 
     pub(crate) fn tick_after_batch(
@@ -104,5 +120,49 @@ impl TickRunner {
             }
             self.tick_delta(ctx, name);
         }
+    }
+}
+
+#[cfg(test)]
+mod stagger_phase_tests {
+    use super::*;
+
+    #[test]
+    fn phases_are_handed_out_round_robin_and_stable_per_room() {
+        let mut runner = TickRunner {
+            session_scratch: Vec::new(),
+            delta_buf: Vec::new(),
+            view_buf: Vec::new(),
+            frame_buf: Vec::new(),
+            delta_body: Vec::new(),
+            filtered_buf: Vec::new(),
+            udp_batch: Vec::new(),
+            schema_aoi: None,
+            dead_rooms: Vec::new(),
+            last_tick: Instant::now(),
+            tick_counter: 0,
+            tick_stat_start: Instant::now(),
+            window_ticks: 0,
+            stage_sim_us_sum: 0,
+            stage_guest_us_sum: 0,
+            match_peaks: HashMap::new(),
+            room_phase: HashMap::new(),
+            phase_ctr: 0,
+            next_phase: 0,
+            slot_base: Instant::now(),
+            interval_pending: 0,
+        };
+
+        let first = runner.phase_of("room_a", 4);
+        let second = runner.phase_of("room_b", 4);
+        let third = runner.phase_of("room_c", 4);
+        let fourth = runner.phase_of("room_d", 4);
+        assert_eq!(
+            (first, second, third, fourth),
+            (0, 1, 2, 3),
+            "rooms spread across every slot instead of piling on phase 0"
+        );
+        assert_eq!(runner.phase_of("room_a", 4), 0, "a room keeps its phase");
+        assert_eq!(runner.phase_of("room_e", 4), 0, "the wheel wraps around");
     }
 }

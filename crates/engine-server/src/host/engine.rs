@@ -50,6 +50,18 @@ pub(crate) struct TickRunner {
     pub(crate) stage_sim_us_sum: u64,
     pub(crate) stage_guest_us_sum: u64,
     pub(crate) match_peaks: HashMap<String, u32>,
+    /// Tick staggering: room name -> phase slot, handed out round-robin on
+    /// first sighting so each room simulates in its own slice of the tick
+    /// interval instead of every room bursting at the boundary.
+    pub(crate) room_phase: HashMap<String, u32>,
+    pub(crate) phase_ctr: u32,
+    /// The phase slot that fires on the next stagger wake.
+    pub(crate) next_phase: u32,
+    /// Start of the currently-elapsed stagger slot.
+    pub(crate) slot_base: Instant,
+    /// Catch-up budget computed at the last interval boundary; each phase
+    /// runs its rooms this many ticks once per interval.
+    pub(crate) interval_pending: u32,
 }
 
 pub(crate) struct TickCtx<'e> {

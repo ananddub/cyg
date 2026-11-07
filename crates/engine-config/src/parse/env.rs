@@ -3,6 +3,11 @@ use crate::game::GameConfig;
 pub fn apply(cfg: &mut GameConfig) {
     session(cfg);
     console(cfg);
+    if let Ok(v) = std::env::var("OX_TICK_STAGGER")
+        && let Ok(groups) = v.parse::<u32>()
+    {
+        cfg.tick_stagger = groups.clamp(1, 64);
+    }
     crate::parse::env_social::apply(cfg);
 }
 

@@ -200,3 +200,27 @@ voice = false
         "an unknown mode keeps the default instead of silently disabling"
     );
 }
+
+#[test]
+fn tick_stagger_defaults_to_off_and_parses_from_both_config_shapes() {
+    let cfg = parse_config("tick_rate = 60\n");
+    assert_eq!(cfg.tick_stagger, 1, "staggering is opt-in");
+
+    let flat = parse_config("tick_stagger = 4\n");
+    assert_eq!(flat.tick_stagger, 4);
+
+    let toml = parse_config("[meta]\nname = \"x\"\n[tick]\n");
+    assert_eq!(toml.tick_stagger, 1, "unrelated blocks leave it alone");
+
+    let scalar = parse_config("tick_stagger = 8\n");
+    assert_eq!(scalar.tick_stagger, 8);
+}
+
+#[test]
+fn an_absurd_tick_stagger_is_pulled_into_the_slot_range() {
+    let low = parse_config("tick_stagger = 0\n");
+    assert_eq!(low.tick_stagger, 1, "0 would divide the interval by zero");
+
+    let high = parse_config("tick_stagger = 999\n");
+    assert_eq!(high.tick_stagger, 64);
+}

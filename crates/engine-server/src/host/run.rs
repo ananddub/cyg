@@ -155,6 +155,11 @@ pub fn run(
             stage_sim_us_sum: 0,
             stage_guest_us_sum: 0,
             match_peaks: HashMap::new(),
+            room_phase: HashMap::new(),
+            phase_ctr: 0,
+            next_phase: 0,
+            slot_base: Instant::now(),
+            interval_pending: 0,
         },
     };
     // Profiling builds exit cleanly after OX_DHAT_SECS so the dhat tracker

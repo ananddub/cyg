@@ -6,28 +6,60 @@ use crate::rooms::CloseReason;
 impl TickRunner {
     pub(crate) fn run(&mut self, ctx: &mut TickCtx) {
         let tick_interval = ctx.tick_interval;
-        let elapsed = self.last_tick.elapsed();
-        if elapsed < tick_interval {
-            return;
-        }
-        let __gate_t0 = Instant::now();
-        let mut ticks_to_run = (elapsed.as_secs_f64() / tick_interval.as_secs_f64()) as u32;
-        if ticks_to_run > ctx.cfg.watchdog.max_ticks_per_frame {
-            ticks_to_run = ctx.cfg.watchdog.max_ticks_per_frame;
-            self.last_tick = Instant::now();
-        } else {
-            self.last_tick += tick_interval * ticks_to_run;
-        }
         let dt = tick_interval.as_secs_f64();
 
-        self.tick_counter += ticks_to_run as u64;
-        self.tick_stat(ctx, dt);
+        // Interval boundary: budget the catch-up, refresh dead-room scan.
+        // Reap stays after the phase runs below so the order matches the
+        // historical scan → tick → cleanup → reap → flush pass.
+        let elapsed = self.last_tick.elapsed();
+        if elapsed >= tick_interval {
+            let mut ticks_to_run = (elapsed.as_secs_f64() / tick_interval.as_secs_f64()) as u32;
+            if ticks_to_run > ctx.cfg.watchdog.max_ticks_per_frame {
+                ticks_to_run = ctx.cfg.watchdog.max_ticks_per_frame;
+                self.last_tick = Instant::now();
+            } else {
+                self.last_tick += tick_interval * ticks_to_run;
+            }
+            self.interval_pending = ticks_to_run;
+            self.tick_counter += ticks_to_run as u64;
+            self.tick_stat(ctx, dt);
+            let reap_now = Instant::now();
+            self.tick_scan_dead(ctx, reap_now);
+        }
 
-        let tick_start = Instant::now();
-        let reap_now = Instant::now();
+        let groups = ctx.cfg.tick_stagger.max(1);
+        let run_t0 = Instant::now();
+        if groups <= 1 {
+            if self.interval_pending > 0 {
+                let pending = self.interval_pending;
+                self.interval_pending = 0;
+                self.run_phase(ctx, 0, pending, dt, run_t0);
+            }
+        } else {
+            // Staggered: the loop wakes once per slot (see wait_events); every
+            // slot boundary fires the next phase's rooms. Each phase runs once
+            // per interval, so every room still ticks at the full tick rate —
+            // only the phase within the interval shifts.
+            let slot = tick_interval / groups;
+            let mut slots = self.slot_base.elapsed().as_nanos() / slot.as_nanos().max(1);
+            if slots > groups as u128 {
+                // Stalled past a whole interval (busy frame, debugger):
+                // resync instead of replaying a backlog of empty slots.
+                self.slot_base = Instant::now();
+                slots = 1;
+            }
+            for _ in 0..slots {
+                let phase = self.next_phase;
+                self.next_phase = (self.next_phase + 1) % groups;
+                self.slot_base += slot;
+                if self.interval_pending > 0 {
+                    let pending = self.interval_pending;
+                    self.run_phase(ctx, phase, pending, dt, run_t0);
+                }
+            }
+            self.interval_pending = 0;
+        }
 
-        self.tick_scan_dead(ctx, reap_now);
-        self.tick_all_rooms(ctx, __gate_t0, ticks_to_run, dt, tick_start);
         ctx.udp.cleanup(ctx.server, ctx.cfg);
         self.tick_reap_dead(ctx);
 
@@ -87,6 +119,7 @@ impl TickRunner {
                     .match_peaks
                     .remove(&name)
                     .unwrap_or(room.sessions.len() as u32);
+                self.room_phase.remove(&name);
                 report_match(ctx.bus, ctx.game_id, &room, &name, reason.label(), peak);
                 report_ownership(
                     ctx.bus,
