@@ -204,3 +204,41 @@ test-sdks:
         rm -rf "$work"
     fi
     exit $fail
+
+# Full docker 1-core/2GB capacity benchmark: builds, runs 5k + 10k CCU stages,
+# prints a summary table, cleans up.
+#   just cyg-bench            (default: 5k + 10k)
+#   just cyg-bench 2000       (single stage)
+cyg-bench stages="5k 10k":
+    #!/usr/bin/env bash
+    set -e
+    echo "==> building release binary"
+    cargo build --release --bin cyg-game 2>&1 | tail -1
+    pkill -9 -x cyg-game 2>/dev/null || true
+    docker rm -f cyg-bench >/dev/null 2>&1 || true
+    echo "==> starting docker container (1 CPU / 2GB)"
+    docker run -d --name cyg-bench --cpus=1.0 --memory=2g --memory-swap=2g \
+        --ulimit nofile=65536:65536 -e OX_ALLOW_DEFAULT_SECRETS=1 \
+        -p 7796:7796 -p 8297:8297 \
+        -v "$PWD/bench-game-none:/game" \
+        -v "$PWD/target/release/cyg-game:/cyg-game:ro" \
+        -v /usr/lib64:/hostlib:ro \
+        ubuntu:24.04 /hostlib/ld-linux-x86-64.so.2 --library-path /hostlib /cyg-game run /game >/dev/null
+    sleep 3
+    for stage in {{stages}}; do
+        case "$stage" in
+            2k) procs=4  ;;
+            5k) procs=10 ;;
+            10k) procs=20 ;;
+            *) echo "unknown stage: $stage"; exit 1 ;;
+        esac
+        node bench/spawn_mt.mjs --engine cyg --container cyg-bench \
+            --procs "$procs" --clients 500 --rooms 320 --seconds 30 --hz 20 \
+            --ramp 60 --stagger 6 --stage "$stage" | grep STAGE
+    done
+    echo
+    echo "================ 10k BENCH SUMMARY ================"
+    printf "%-6s %8s %8s %8s %10s %s\n" stage joined errors cpu mem oom
+    python3 bench/summary.py {{stages}}
+    docker rm -f cyg-bench >/dev/null 2>&1 || true
+    echo "===================================================="
