@@ -23,7 +23,9 @@ use engine_schema::{
 };
 use std::path::{Path, PathBuf};
 
-#[cfg(not(feature = "dhat"))]
+/// `cargo build --features mimalloc` opts into mimalloc; the default build
+/// uses the system (glibc) allocator.
+#[cfg(all(feature = "mimalloc", not(feature = "dhat")))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
