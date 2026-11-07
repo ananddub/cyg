@@ -14,6 +14,8 @@ pub struct GameServer {
     pub(crate) arena_2d: Option<engine_physics::MapConfig2D>,
     pub(crate) navmesh: Option<std::sync::Arc<NavMesh2D>>,
     pub(crate) input_coalesce: bool,
+    /// Round-robin counter handing each new room its tick-stagger phase.
+    pub(crate) next_room_phase: u32,
 }
 
 impl GameServer {
@@ -44,6 +46,7 @@ impl GameServer {
             arena_2d: None,
             navmesh: None,
             input_coalesce: false,
+            next_room_phase: 0,
         }
     }
 

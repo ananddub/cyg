@@ -23,6 +23,16 @@ impl TickRunner {
             self.interval_pending = ticks_to_run;
             self.tick_counter += ticks_to_run as u64;
             self.tick_stat(ctx, dt);
+            // Room snapshot ONCE per interval — the fan-out reuses it for
+            // every catch-up pass and phase slice; a room created mid-interval
+            // joins at the next boundary.
+            self.room_names.clear();
+            self.room_names.extend(
+                ctx.server
+                    .rooms
+                    .iter()
+                    .map(|(name, room)| (name.clone(), room.tick_phase)),
+            );
             let reap_now = Instant::now();
             self.tick_scan_dead(ctx, reap_now);
         }
@@ -33,7 +43,7 @@ impl TickRunner {
             if self.interval_pending > 0 {
                 let pending = self.interval_pending;
                 self.interval_pending = 0;
-                self.run_phase(ctx, 0, pending, dt, run_t0);
+                self.run_phase(ctx, None, pending, dt, run_t0);
             }
         } else {
             // Staggered: the loop wakes once per slot (see wait_events); every
@@ -54,7 +64,7 @@ impl TickRunner {
                 self.slot_base += slot;
                 if self.interval_pending > 0 {
                     let pending = self.interval_pending;
-                    self.run_phase(ctx, phase, pending, dt, run_t0);
+                    self.run_phase(ctx, Some(phase), pending, dt, run_t0);
                 }
             }
             self.interval_pending = 0;
@@ -87,22 +97,22 @@ impl TickRunner {
         self.dead_rooms.clear();
         for (name, room) in ctx.server.rooms.iter_mut() {
             let live = room.sessions.len() as u32;
-            match self.match_peaks.get_mut(name.as_str()) {
+            match self.match_peaks.get_mut(name.as_ref()) {
                 Some(peak) => *peak = (*peak).max(live),
                 None => {
-                    self.match_peaks.insert(name.clone(), live);
+                    self.match_peaks.insert(name.to_string(), live);
                 }
             }
             let reapable = room_is_reapable(ctx.cfg, name, ctx.udp.udp_peers.len());
             if let Some(reason) = room.close_reason(&ctx.cfg.lifecycle, reapable, reap_now) {
-                self.dead_rooms.push((name.clone(), reason));
+                self.dead_rooms.push((name.to_string(), reason));
             }
         }
     }
 
     pub(crate) fn tick_reap_dead(&mut self, ctx: &mut TickCtx) {
         for (name, reason) in self.dead_rooms.drain(..) {
-            if let Some(mut room) = ctx.server.rooms.remove(&name) {
+            if let Some(mut room) = ctx.server.rooms.remove(name.as_str()) {
                 if reason == CloseReason::Duration && !room.is_hibernating() {
                     close_room_sessions(
                         ctx.transport,
@@ -119,7 +129,6 @@ impl TickRunner {
                     .match_peaks
                     .remove(&name)
                     .unwrap_or(room.sessions.len() as u32);
-                self.room_phase.remove(&name);
                 report_match(ctx.bus, ctx.game_id, &room, &name, reason.label(), peak);
                 report_ownership(
                     ctx.bus,

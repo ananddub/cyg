@@ -18,9 +18,22 @@ pub(crate) struct Scratch {
 }
 
 pub(crate) struct Rates {
-    pub(crate) rtc_input_rates: HashMap<String, netcode::InputRateLimiter>,
+    pub(crate) rtc_input_rates: HashMap<Arc<str>, netcode::InputRateLimiter>,
     pub(crate) message_rate_limits: MessageRateLimits,
-    pub(crate) last_input_at: HashMap<String, Instant>,
+    pub(crate) last_input_at: HashMap<Arc<str>, Instant>,
+}
+
+impl Rates {
+    /// Borrow-first update: an active session's key already exists, so the hot
+    /// path mutates in place with no allocation; only the first input interns.
+    pub(crate) fn note_input(&mut self, session: &str) {
+        let now = Instant::now();
+        if let Some(t) = self.last_input_at.get_mut(session) {
+            *t = now;
+        } else {
+            self.last_input_at.insert(Arc::from(session), now);
+        }
+    }
 }
 
 pub(crate) struct Clock {
@@ -35,9 +48,12 @@ pub(crate) struct Stats {
 pub(crate) struct TickRunner {
     /// Reused per-room session list — avoids re-allocating every tick.
     pub(crate) session_scratch: Vec<(std::sync::Arc<str>, i64)>,
+    /// Reused room-name snapshot for the tick fan-out, collected ONCE per
+    /// tick interval (not per catch-up pass) — Arc clones only, each entry
+    /// carrying the room's assigned stagger phase.
+    pub(crate) room_names: Vec<(std::sync::Arc<str>, u32)>,
     pub(crate) delta_buf: Vec<u8>,
     pub(crate) view_buf: Vec<u8>,
-    pub(crate) frame_buf: Vec<u8>,
     pub(crate) delta_body: Vec<u8>,
     pub(crate) filtered_buf: Vec<u8>,
     pub(crate) udp_batch: Vec<(SocketAddr, Vec<u8>)>,
@@ -50,11 +66,6 @@ pub(crate) struct TickRunner {
     pub(crate) stage_sim_us_sum: u64,
     pub(crate) stage_guest_us_sum: u64,
     pub(crate) match_peaks: HashMap<String, u32>,
-    /// Tick staggering: room name -> phase slot, handed out round-robin on
-    /// first sighting so each room simulates in its own slice of the tick
-    /// interval instead of every room bursting at the boundary.
-    pub(crate) room_phase: HashMap<String, u32>,
-    pub(crate) phase_ctr: u32,
     /// The phase slot that fires on the next stagger wake.
     pub(crate) next_phase: u32,
     /// Start of the currently-elapsed stagger slot.

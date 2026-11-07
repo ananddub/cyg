@@ -33,6 +33,8 @@ impl GameServer {
             };
             room.storage_enabled = self.permissions.storage;
             room.input_coalesce = self.input_coalesce;
+            room.tick_phase = self.next_room_phase;
+            self.next_room_phase = self.next_room_phase.wrapping_add(1);
 
             if let Some(snap_bytes) = self.persistent_snapshots.get(name) {
                 if let Err(e) = room.import_snapshot(snap_bytes) {
@@ -61,6 +63,8 @@ impl GameServer {
                 if arena.is_some() { " + OXCL arena" } else { "" }
             );
             room.storage_enabled = self.permissions.storage;
+            room.tick_phase = self.next_room_phase;
+            self.next_room_phase = self.next_room_phase.wrapping_add(1);
             self.rooms.insert(std::sync::Arc::from(name), room);
         }
         self.rooms.get_mut(name).expect("room just inserted")

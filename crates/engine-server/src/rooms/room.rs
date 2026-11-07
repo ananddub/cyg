@@ -49,9 +49,12 @@ pub struct GameRoom {
     /// Config gate (`input_coalesce`): stage inputs for tick-time batch
     /// delivery instead of calling the guest per arriving frame.
     pub(crate) input_coalesce: bool,
+    /// Tick-stagger phase slot this room simulates in (assigned round-robin
+    /// at creation). Ignored when staggering is off.
+    pub(crate) tick_phase: u32,
     pub(crate) state: engine_bus::RoomPhase,
     pub(crate) snapshot_seq: u64,
-    pub(crate) result: Option<Vec<u8>>,
+    pub(crate) result: Option<bytes::Bytes>,
     /// Join options per player id — the JSON the client passed to
     /// `joinOrCreate`. Kept so a hot-swap can re-seat players with the same
     /// data and `onJoin` always sees what the client sent.
