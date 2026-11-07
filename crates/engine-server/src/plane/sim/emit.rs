@@ -38,7 +38,7 @@ impl Plane {
                 }
                 None => delta_buf,
             };
-            let acked_seq = last_seq.get(peer_id.as_str()).map(|s| s.input).unwrap_or(0);
+            let acked_seq = last_seq.get(&player_id).map(|s| s.input).unwrap_or(0);
             self.frames.clear();
             if plane::dispatch::emit_delta(
                 peer_id,

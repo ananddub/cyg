@@ -50,7 +50,7 @@ pub(super) fn drop_peer(
             let _ = wasm.on_leave(id, false as i32);
         }
         room.entries.remove(&id);
-        room.seqs.remove(peer_id.as_str());
+        room.seqs.remove(&id);
         browser_players.remove(&id);
         session_of.remove(&id);
         room.input_journal.retain(|j| j.id != id);

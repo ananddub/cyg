@@ -62,14 +62,16 @@ pub fn record_channel_ack(
     client_id: &str,
     ack: engine_webrtc_protocol::Ack,
 ) {
-    let slot = room
+    // Keyed by player id (session-slab step 2): an ack from a session the
+    // room no longer seats has no player to acknowledge — drop it.
+    let Some(&id) = room.sessions.get(client_id) else {
+        return;
+    };
+    let entry = room
         .seqs
-        .entry(client_id.to_string())
-        .or_insert(SessionSeqs { input: 0, acked_event: ack.seq })
-        .acked_event;
-    let entry = room.seqs.get_mut(client_id).unwrap();
+        .entry(id)
+        .or_insert(SessionSeqs { input: 0, acked_event: 0 });
     if engine_webrtc_protocol::is_newer(entry.acked_event, ack.seq) {
         entry.acked_event = ack.seq;
     }
-    let _ = slot;
 }

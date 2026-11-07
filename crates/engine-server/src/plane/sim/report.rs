@@ -27,7 +27,7 @@ pub(super) fn publish_report(
             session: peer_id.clone(),
             transport: if via_browser { "webrtc" } else { "native-udp" }.to_string(),
             player_id: Some(player_id),
-            acked_seq: room.seqs.get(peer_id.as_str()).map(|s| s.input as u32),
+            acked_seq: room.seqs.get(&player_id).map(|s| s.input as u32),
             idle_ms: last_input_at
                 .get(peer_id)
                 .map(|t| t.elapsed().as_millis() as u64),

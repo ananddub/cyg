@@ -19,7 +19,7 @@ impl GameRoom {
             let _ = wasm.on_leave(id, code);
         }
         self.voice_room.leave_participant(id as u32);
-        self.seqs.remove(session);
+        self.seqs.remove(&id);
         self.entries.remove(&id);
         self.input_journal.retain(|j| j.session != session);
     }
@@ -135,6 +135,7 @@ impl GameRoom {
             if let Some(ref mut wasm) = self.wasm {
                 let _ = wasm.on_leave(id, close_code::LEFT);
             }
+            self.seqs.remove(&id);
             self.entries.remove(&id);
         }
         self.schema_sent.remove(session);
@@ -155,6 +156,7 @@ impl GameRoom {
         if let Some(ref mut wasm) = self.wasm {
             let _ = wasm.on_leave(id, close_code::LEFT);
         }
+        self.seqs.remove(&id);
         self.entries.remove(&id);
     }
 

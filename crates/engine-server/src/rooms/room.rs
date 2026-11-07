@@ -25,9 +25,10 @@ pub struct GameRoom {
     pub(crate) voice_room: engine_voice::VoiceRoom,
     pub(crate) voice_mesh: engine_voice::VoiceMesh,
     /// Per-session sequence numbers merged into ONE entry (session-slab
-    /// step 1): two separate string-keyed maps were two hash lookups +
-    /// two map entries per player.
-    pub(crate) seqs: HashMap<String, SessionSeqs>,
+    /// step 1), re-keyed from the session String to the player id (step 2):
+    /// every caller either already holds the id or resolves it through
+    /// `sessions`, so the room stores no per-player key copy at all.
+    pub(crate) seqs: HashMap<i64, SessionSeqs>,
     pub(crate) event_seq: u16,
     pub(crate) delta_seq: u16,
     pub(crate) schema_sent: HashSet<String>,

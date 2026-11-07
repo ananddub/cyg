@@ -85,7 +85,7 @@ fn a_seq_beyond_the_window_re_anchors_instead_of_locking_the_seat_out() {
         apply_input(&mut room, &cfg, 0.033, "sess_alice", 1, jumped, &payload),
         Ok(())
     );
-    assert_eq!(room.seqs["sess_alice"].input, jumped);
+    assert_eq!(room.seqs[&1].input, jumped);
 }
 
 #[test]
