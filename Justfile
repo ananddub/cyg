@@ -227,14 +227,14 @@ cyg-bench stages="5k 10k":
     sleep 3
     for stage in {{stages}}; do
         case "$stage" in
-            2k) procs=4  ;;
-            5k) procs=10 ;;
-            10k) procs=20 ;;
+            2k) procs=4; rooms=128; stagger=6 ;;
+            5k) procs=10; rooms=320; stagger=6 ;;
+            10k) procs=20; rooms=640; stagger=8 ;;
             *) echo "unknown stage: $stage"; exit 1 ;;
         esac
         node bench/spawn_mt.mjs --engine cyg --container cyg-bench \
-            --procs "$procs" --clients 500 --rooms 320 --seconds 30 --hz 20 \
-            --ramp 60 --stagger 6 --stage "$stage" | grep STAGE
+            --procs "$procs" --clients 500 --rooms "$rooms" --seconds 30 --hz 20 \
+            --ramp 60 --stagger "$stagger" --stage "$stage" | grep STAGE
     done
     echo
     echo "================ 10k BENCH SUMMARY ================"
