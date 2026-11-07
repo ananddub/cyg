@@ -6,6 +6,11 @@ impl<'a> Engine<'a> {
     /// Returns true when the process should exit (drain grace elapsed and
     /// rooms are closed). The run loop used to ignore this and spin forever
     /// re-running `drain_rooms` every tick at 100% CPU.
+    /// Live room count — used by the run loop's idle allocator trim.
+    pub(crate) fn room_count(&self) -> usize {
+        self.server.rooms.len()
+    }
+
     pub(crate) fn step(&mut self) -> std::io::Result<bool> {
         if self.drain_phase()? {
             return Ok(true);

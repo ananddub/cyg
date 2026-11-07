@@ -164,7 +164,16 @@ pub fn run(
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .map(|secs| std::time::Instant::now() + std::time::Duration::from_secs(secs));
+    // Return freed arena pages to the OS on quiet ticks — glibc holds freed
+    // memory for reuse, which inflated post-disconnect RSS to ~2.1GB in
+    // loadtests even with zero clients. Trim only when the room set is
+    // idle-ish; trimming under load would fight the allocator.
+    let mut last_trim = std::time::Instant::now();
     loop {
+        if last_trim.elapsed().as_secs() >= 60 && engine.room_count() <= 1 {
+            unsafe { libc::malloc_trim(0) };
+            last_trim = std::time::Instant::now();
+        }
         if engine.step()? {
             tracing::info!("[server] 🛑 drain complete — shutting down");
             break;
