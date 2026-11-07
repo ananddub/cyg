@@ -47,10 +47,11 @@ pub struct GameRoom {
     /// Join options per player id — the JSON the client passed to
     /// `joinOrCreate`. Kept so a hot-swap can re-seat players with the same
     /// data and `onJoin` always sees what the client sent.
-    pub(crate) player_options: HashMap<i64, Vec<u8>>,
+    /// Session-slab step 3: options + auth merged into ONE per-player entry.
+    pub(crate) entries: HashMap<i64, PlayerEntry>,
     /// Auth data per player id — what `onAuth` returned, handed to `onJoin`
     /// (Colyseus's third argument) and re-applied on hot-swaps.
-    pub(crate) auth_data: HashMap<i64, Vec<u8>>,
+
     /// The merged create options this room was built with (config
     /// `room_options` ⊕ the creator's joinOrCreate options).
     pub(crate) create_options: Vec<u8>,
@@ -59,6 +60,12 @@ pub struct GameRoom {
     /// Per-variant persistence override — a persistent variant's room never
     /// auto-closes for being empty.
     pub(crate) persistent_override: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct PlayerEntry {
+    pub(crate) options: Vec<u8>,
+    pub(crate) auth: Vec<u8>,
 }
 
 #[derive(Clone, Copy)]

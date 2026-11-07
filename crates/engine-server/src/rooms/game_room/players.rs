@@ -20,8 +20,7 @@ impl GameRoom {
         }
         self.voice_room.leave_participant(id as u32);
         self.seqs.remove(session);
-        self.player_options.remove(&id);
-        self.auth_data.remove(&id);
+        self.entries.remove(&id);
         self.input_journal.retain(|j| j.session != session);
     }
 
@@ -46,14 +45,14 @@ impl GameRoom {
         if let Some(ref mut ecs) = self.ecs {
             ecs.add_player(session, id, x, y);
         }
-        let auth = self.auth_data.get(&id).cloned().unwrap_or_default();
+        let auth = self.entries.get(&id).map(|e| e.auth.clone()).unwrap_or_default();
         if let Some(ref mut wasm) = self.wasm {
             Self::call_on_join(wasm, id, options, &auth);
         }
         self.voice_room
             .join_participant(id as u32, Some(engine_voice::hash_team("1")), [x, 0.0, y]);
         self.sessions.insert(session.to_string(), id);
-        self.player_options.insert(id, options.to_vec());
+        self.entries.entry(id).or_default().options = options.to_vec();
         id
     }
 
@@ -136,8 +135,7 @@ impl GameRoom {
             if let Some(ref mut wasm) = self.wasm {
                 let _ = wasm.on_leave(id, close_code::LEFT);
             }
-            self.player_options.remove(&id);
-            self.auth_data.remove(&id);
+            self.entries.remove(&id);
         }
         self.schema_sent.remove(session);
         self.spectators.insert(session.to_string());
@@ -157,8 +155,7 @@ impl GameRoom {
         if let Some(ref mut wasm) = self.wasm {
             let _ = wasm.on_leave(id, close_code::LEFT);
         }
-        self.player_options.remove(&id);
-        self.auth_data.remove(&id);
+        self.entries.remove(&id);
     }
 
     /// Remove a player the room kicked via `client.leave()` — the seat dies

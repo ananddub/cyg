@@ -34,7 +34,7 @@ pub(super) fn bind_peer(
     }
     room.voice_room.join_participant(id as u32, Some(engine_voice::hash_team("1")), [x, 0.0, y]);
     room.sessions.insert(peer_id.clone(), id);
-    room.player_options.insert(id, b"".to_vec());
+    room.entries.entry(id).or_default();
     session_of.insert(id, peer_id);
     id
 }
@@ -49,7 +49,7 @@ pub(super) fn drop_peer(
         if let Some(ref mut wasm) = room.wasm {
             let _ = wasm.on_leave(id, false as i32);
         }
-        room.player_options.remove(&id);
+        room.entries.remove(&id);
         room.seqs.remove(peer_id.as_str());
         browser_players.remove(&id);
         session_of.remove(&id);

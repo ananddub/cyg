@@ -69,8 +69,10 @@ impl GameRoom {
         }
         new_wasm.data_mut().navmesh = self.navmesh.clone();
         for (_sid, &pid) in &self.sessions {
-            let options = self.player_options.get(&pid).cloned().unwrap_or_default();
-            let auth = self.auth_data.get(&pid).cloned().unwrap_or_default();
+            let (options, auth) = match self.entries.get(&pid) {
+                Some(e) => (e.options.clone(), e.auth.clone()),
+                None => (Vec::new(), Vec::new()),
+            };
             GameRoom::call_on_join(&mut new_wasm, pid, &options, &auth);
         }
         let players = self.sessions.len();

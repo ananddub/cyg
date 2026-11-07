@@ -17,7 +17,7 @@ pub use types::{
     MAX_OUTBOX_MESSAGES, OutboundMessage, RoomBackend, RoomLogic, RoomSnapshotData,
 };
 
-pub(crate) use room::{JournalInput, SessionSeqs};
+pub(crate) use room::{JournalInput, PlayerEntry, SessionSeqs};
 pub(crate) use types::{close_code, CloseReason, DRAIN_REASON};
 
 #[cfg(test)]

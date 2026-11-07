@@ -42,7 +42,7 @@ impl GameRoom {
         }
         match self.guest_on_auth(id, options, auth_context) {
             Some(auth) => {
-                self.auth_data.insert(id, auth);
+                self.entries.entry(id).or_default().auth = auth;
                 true
             }
             None => false,
