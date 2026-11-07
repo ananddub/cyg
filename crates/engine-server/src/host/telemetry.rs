@@ -51,7 +51,7 @@ impl<'a> Engine<'a> {
                     session: session.clone(),
                     transport: if live { "webrtc" } else { "websocket" }.to_string(),
                     player_id,
-                    acked_seq: room.last_input_seq.get(session).map(|&seq| seq as u32),
+                    acked_seq: room.seqs.get(session).map(|s| s.input as u32),
                     idle_ms: self
                         .rates
                         .last_input_at

@@ -1,5 +1,7 @@
 use engine_net::transport::WebRtcServer;
 
+use crate::rooms::SessionSeqs;
+
 use super::DeltaEntity;
 
 pub fn parse_delta_sections(
@@ -61,10 +63,13 @@ pub fn record_channel_ack(
     ack: engine_webrtc_protocol::Ack,
 ) {
     let slot = room
-        .acked_event_seq
+        .seqs
         .entry(client_id.to_string())
-        .or_insert(ack.seq);
-    if engine_webrtc_protocol::is_newer(*slot, ack.seq) {
-        *slot = ack.seq;
+        .or_insert(SessionSeqs { input: 0, acked_event: ack.seq })
+        .acked_event;
+    let entry = room.seqs.get_mut(client_id).unwrap();
+    if engine_webrtc_protocol::is_newer(entry.acked_event, ack.seq) {
+        entry.acked_event = ack.seq;
     }
+    let _ = slot;
 }

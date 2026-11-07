@@ -56,7 +56,7 @@ impl TickRunner {
                 _ => false,
             };
             let is_full = force_full || !room.schema_sent.contains(session);
-            let acked_seq = room.last_input_seq.get(session).copied().unwrap_or(0);
+            let acked_seq = room.seqs.get(session).map(|s| s.input).unwrap_or(0);
 
             if !culled {
                 let shared = match (is_full, &full_arc, &patch_arc) {

@@ -1,4 +1,4 @@
-use crate::rooms::{GameRoom, JournalInput};
+use crate::rooms::{GameRoom, JournalInput, SessionSeqs};
 
 use super::input::{InputRejection, MAX_SEQ_AHEAD, validate_input_payload};
 
@@ -33,7 +33,7 @@ pub fn apply_input(
         return Err(InputRejection::Malformed);
     }
 
-    let last = *room.last_input_seq.get(session).unwrap_or(&0);
+    let last = room.seqs.get(session).map(|s| s.input).unwrap_or(0);
 
     if last == 0 || engine_webrtc_protocol::is_newer(last, seq) {
         let jump = seq.wrapping_sub(last);
@@ -42,7 +42,11 @@ pub fn apply_input(
                 "[server] ⏩ re-anchoring player {id}: input seq jumped {jump} samples ({last} -> {seq})"
             );
         }
-        room.last_input_seq.insert(session.to_string(), seq);
+        room
+            .seqs
+            .entry(session.to_string())
+            .or_insert(SessionSeqs { input: seq, acked_event: 0 })
+            .input = seq;
         deliver_input(room, id, payload);
         let tick = room.current_tick;
         room.input_journal.push_back(JournalInput {

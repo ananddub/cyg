@@ -24,7 +24,10 @@ pub struct GameRoom {
     pub(crate) voice_enabled: bool,
     pub(crate) voice_room: engine_voice::VoiceRoom,
     pub(crate) voice_mesh: engine_voice::VoiceMesh,
-    pub(crate) last_input_seq: HashMap<String, u16>,
+    /// Per-session sequence numbers merged into ONE entry (session-slab
+    /// step 1): two separate string-keyed maps were two hash lookups +
+    /// two map entries per player.
+    pub(crate) seqs: HashMap<String, SessionSeqs>,
     pub(crate) event_seq: u16,
     pub(crate) delta_seq: u16,
     pub(crate) schema_sent: HashSet<String>,
@@ -36,7 +39,7 @@ pub struct GameRoom {
     /// host never needs the skip-then-force-full fallback.
     pub(crate) patch_due_wired: bool,
     pub(crate) sim_accum: Duration,
-    pub(crate) acked_event_seq: HashMap<String, u16>,
+
     pub(crate) input_journal: VecDeque<JournalInput>,
     pub(crate) state: engine_bus::RoomPhase,
     pub(crate) snapshot_seq: u64,
@@ -58,7 +61,12 @@ pub struct GameRoom {
     pub(crate) persistent_override: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
+pub(crate) struct SessionSeqs {
+    pub(crate) input: u16,
+    pub(crate) acked_event: u16,
+}
+
 pub(crate) struct JournalInput {
     pub(crate) tick: u64,
     pub(crate) session: String,

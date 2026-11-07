@@ -19,7 +19,7 @@ impl GameRoom {
             let _ = wasm.on_leave(id, code);
         }
         self.voice_room.leave_participant(id as u32);
-        self.last_input_seq.remove(session);
+        self.seqs.remove(session);
         self.player_options.remove(&id);
         self.auth_data.remove(&id);
         self.input_journal.retain(|j| j.session != session);
@@ -182,7 +182,6 @@ impl GameRoom {
     pub(crate) fn detach_session(&mut self, session: &str) -> Option<u32> {
         self.spectators.remove(session);
         self.schema_sent.remove(session);
-        self.acked_event_seq.remove(session);
         self.voice_mesh.leave_session(session)
     }
 

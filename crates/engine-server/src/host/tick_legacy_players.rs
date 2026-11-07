@@ -34,7 +34,7 @@ impl TickRunner {
                     &ctx.cfg.aoi,
                     &mut self.filtered_buf,
                 );
-                let acked_seq = room.last_input_seq.get(session).copied().unwrap_or(0);
+                let acked_seq = room.seqs.get(session).map(|s| s.input).unwrap_or(0);
                 netcode::wrap_delta_into(
                     &mut self.delta_body,
                     *id,
@@ -43,7 +43,7 @@ impl TickRunner {
                     server_tick_u32,
                 );
             } else {
-                let acked_seq = room.last_input_seq.get(session).copied().unwrap_or(0);
+                let acked_seq = room.seqs.get(session).map(|s| s.input).unwrap_or(0);
                 netcode::wrap_delta_into(
                     &mut self.delta_body,
                     *id,

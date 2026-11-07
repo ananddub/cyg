@@ -37,7 +37,7 @@ fn an_input_for_a_seat_the_session_does_not_hold_is_refused() {
         Err(InputRejection::NotSeated)
     );
     assert!(
-        room.last_input_seq.is_empty(),
+        room.seqs.is_empty(),
         "a refused input moved the baseline"
     );
     assert_eq!(
@@ -65,7 +65,7 @@ fn a_non_finite_or_absurd_axis_is_refused_before_the_guest_sees_it() {
         );
     }
     assert!(
-        room.last_input_seq.is_empty(),
+        room.seqs.is_empty(),
         "a refused input moved the baseline"
     );
 }
@@ -85,7 +85,7 @@ fn a_seq_beyond_the_window_re_anchors_instead_of_locking_the_seat_out() {
         apply_input(&mut room, &cfg, 0.033, "sess_alice", 1, jumped, &payload),
         Ok(())
     );
-    assert_eq!(room.last_input_seq["sess_alice"], jumped);
+    assert_eq!(room.seqs["sess_alice"].input, jumped);
 }
 
 #[test]

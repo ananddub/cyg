@@ -18,7 +18,7 @@ impl Plane {
         let delta_buf = &self.delta_buf;
         let aoi_cfg = &self.aoi_cfg;
         let tick = self.room.current_tick;
-        let last_seq = &self.room.last_input_seq;
+        let last_seq = &self.room.seqs;
         for (peer_id, &player_id) in sessions {
             let body: &[u8] = match &parsed {
                 Some((_, entities, bullet_count, bullets_range)) => {
@@ -38,7 +38,7 @@ impl Plane {
                 }
                 None => delta_buf,
             };
-            let acked_seq = last_seq.get(peer_id.as_str()).copied().unwrap_or(0);
+            let acked_seq = last_seq.get(peer_id.as_str()).map(|s| s.input).unwrap_or(0);
             self.frames.clear();
             if plane::dispatch::emit_delta(
                 peer_id,
