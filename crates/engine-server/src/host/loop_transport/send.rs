@@ -9,6 +9,15 @@ use crate::host::*;
 impl LoopTransport {
 
     /// Zero-copy WS delta: the body is the room's single shared allocation.
+    /// True when the WS lane exists AND the shared-body gate is on. Hot
+    /// callers consult this BEFORE building Arc bodies — building them and
+    /// then getting a `false` back allocated ~76k Arcs/s for nothing at 10k.
+    pub fn shared_delta_enabled(&self) -> bool {
+        static GATE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *GATE.get_or_init(|| std::env::var_os("CYG_SHARED_DELTA").is_some())
+            && self.ws.is_some()
+    }
+
     /// Returns false when the session is not on the WS lane — callers fall
     /// back to the wrapped/copy path (WebRTC, spectators, culled views).
     pub fn send_delta_shared(
@@ -22,7 +31,7 @@ impl LoopTransport {
         // EXPERIMENTAL: the shared-body queue leaks under sustained load
         // (RSS regression caught at ~3000 CCU) — keep it off by default and
         // opt in with CYG_SHARED_DELTA=1 until the leak is fixed.
-        if std::env::var_os("CYG_SHARED_DELTA").is_none() {
+        if !self.shared_delta_enabled() {
             return false;
         }
         // Wire frame (RoomDataBytes lane, RFC6455): [0x82][len][code] +

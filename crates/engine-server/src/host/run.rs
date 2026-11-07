@@ -125,7 +125,7 @@ pub fn run(
         },
         signal_rx,
         drain: Drain::new(Duration::from_secs(cfg.lifecycle.drain_grace_secs)),
-        scratch: Scratch { events: Vec::new() },
+        scratch: Scratch { events: Vec::with_capacity(1024) },
         rates: Rates {
             rtc_input_rates: HashMap::new(),
             message_rate_limits: MessageRateLimits::new(cfg.max_messages_per_second),
@@ -139,6 +139,7 @@ pub fn run(
             publish_start: Instant::now(),
         },
         tick: TickRunner {
+            session_scratch: Vec::with_capacity(64),
             delta_buf: Vec::with_capacity(8 * 1024),
             view_buf: Vec::with_capacity(8 * 1024),
             frame_buf: Vec::with_capacity(8 * 1024),
