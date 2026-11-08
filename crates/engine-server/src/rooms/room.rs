@@ -1,4 +1,12 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
+
+/// Room maps are keyed by short session ids and player ids and are touched on
+/// every input frame and every tick, so the hasher matters: `std`'s SipHash is
+/// DoS-resistant but slow, and nothing here is attacker-controlled in a way
+/// that matters (keys are opaque ids we generated). FxHash is ~2-3x faster on
+/// these short keys.
+pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
+pub(crate) type HashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
 use std::time::{Duration, Instant};
 
 use engine_nav::nav2d::NavMesh2D;

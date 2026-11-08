@@ -1,7 +1,7 @@
 use crate::rooms::*;
 use engine_nav::nav2d::NavMesh2D;
 use engine_physics::PhysicsWorld3D;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 impl GameRoom {
@@ -46,8 +46,8 @@ impl GameRoom {
             wasm: Some(wasm),
             ecs: None,
             ecs_outbox: Vec::new(),
-            sessions: HashMap::new(),
-            spectators: HashSet::new(),
+            sessions: HashMap::default(),
+            spectators: HashSet::default(),
             next_player_id: 1,
             empty_since: Some(Instant::now()),
             born: Instant::now(),
@@ -59,11 +59,11 @@ impl GameRoom {
                 rolloff: 1.0,
             }),
             voice_mesh: engine_voice::VoiceMesh::default(),
-            seqs: HashMap::new(),
+            seqs: HashMap::default(),
             event_seq: 0,
             delta_seq: 0,
-            schema_sent: HashSet::new(),
-            pending_leaves: HashMap::new(),
+            schema_sent: HashSet::default(),
+            pending_leaves: HashMap::default(),
             patch_skipped: false,
             patch_due_wired: false,
             guest_fns_probed: false,
@@ -79,7 +79,7 @@ impl GameRoom {
             state: engine_bus::RoomPhase::Created,
             snapshot_seq: 0,
             result: None,
-            entries: HashMap::new(),
+            entries: HashMap::default(),
             create_options: create_options.to_vec(),
             max_clients_override: None,
             persistent_override: false,
@@ -96,8 +96,8 @@ impl GameRoom {
             wasm: None,
             ecs: None,
             ecs_outbox: Vec::new(),
-            sessions: HashMap::new(),
-            spectators: HashSet::new(),
+            sessions: HashMap::default(),
+            spectators: HashSet::default(),
             next_player_id: 1,
             empty_since: Some(Instant::now()),
             born: Instant::now(),
@@ -109,11 +109,11 @@ impl GameRoom {
                 rolloff: 1.0,
             }),
             voice_mesh: engine_voice::VoiceMesh::default(),
-            seqs: HashMap::new(),
+            seqs: HashMap::default(),
             event_seq: 0,
             delta_seq: 0,
-            schema_sent: HashSet::new(),
-            pending_leaves: HashMap::new(),
+            schema_sent: HashSet::default(),
+            pending_leaves: HashMap::default(),
             patch_skipped: false,
             patch_due_wired: false,
             guest_fns_probed: false,
@@ -129,7 +129,7 @@ impl GameRoom {
             state: engine_bus::RoomPhase::Created,
             snapshot_seq: 0,
             result: None,
-            entries: HashMap::new(),
+            entries: HashMap::default(),
             create_options: Vec::new(),
             max_clients_override: None,
             persistent_override: false,

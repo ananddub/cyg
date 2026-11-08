@@ -3201,6 +3201,7 @@ dependencies = [
  "mio",
  "rapier2d",
  "rapier3d",
+ "rustc-hash 2.1.3",
  "scc",
  "serde",
  "serde_json",
