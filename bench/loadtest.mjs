@@ -289,10 +289,16 @@ function bytes(value) {
 function waitForFullSnapshot(room, timeoutMs) {
     return new Promise((resolve, reject) => {
         let settled = false;
+        let readyPoll = null;
+        const cleanupPoll = () => {
+            if (readyPoll !== null) clearInterval(readyPoll);
+            readyPoll = null;
+        };
         const finish = (error) => {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
+            cleanupPoll();
             room.off('schema', onSchema);
             room.off('schemaerror', onSchemaError);
             room.off('close', onClose);
@@ -308,6 +314,14 @@ function waitForFullSnapshot(room, timeoutMs) {
             () => finish(new Error(`no full schema snapshot within ${timeoutMs} ms`)),
             timeoutMs
         );
+        if (room._schemaReady) finish();
+        // The host can ship the first full keyframe in the same write burst as
+        // the join reply, i.e. before this listener attaches. Poll the SDK's
+        // ready flag on the timer tick so that race cannot turn into a false
+        // 15 s timeout.
+        readyPoll = setInterval(() => {
+            if (room._schemaReady) finish();
+        }, 5);
         room.on('schema', onSchema);
         room.on('schemaerror', onSchemaError);
         room.on('close', onClose);

@@ -1,4 +1,4 @@
-use super::common::{default_literal, emit_accessors, emit_field_builder, HEADER};
+use super::common::{HEADER, default_literal, emit_accessors, emit_field_builder};
 use super::world::emit_world;
 use crate::model::{RootState, SchemaDef};
 use crate::wire::WireKind;
@@ -15,7 +15,9 @@ pub(crate) fn emit_server(
     out.push_str(&format!(
         "// Generated from {source_name} by `cyg-game schema`. Edit the schema source, not this file.\n\n"
     ));
-    let input = schemas.iter().find(|schema| schema.name == INPUT_SCHEMA_NAME);
+    let input = schemas
+        .iter()
+        .find(|schema| schema.name == INPUT_SCHEMA_NAME);
     let join_options = schemas
         .iter()
         .find(|schema| schema.name == JOIN_OPTIONS_SCHEMA_NAME);
@@ -102,7 +104,9 @@ fn is_multi_root(root: Option<&RootState>) -> bool {
 fn emit_input_lane(out: &mut String, input: &SchemaDef) {
     out.push('\n');
     out.push_str("// --- Per-tick input lane ---------------------------------------------\n");
-    out.push_str("// The schema's `Input` def, decoded from the client's `room.sendInput({...})`\n");
+    out.push_str(
+        "// The schema's `Input` def, decoded from the client's `room.sendInput({...})`\n",
+    );
     out.push_str("// packets. Use it from the room:\n");
     out.push_str("//   onInputFrame(id: i64, r: InputReader): void {\n");
     out.push_str("//       const f = decodeInput(r);   // typed — your fields\n");
@@ -110,6 +114,23 @@ fn emit_input_lane(out: &mut String, input: &SchemaDef) {
     out.push_str("@inline\n");
     out.push_str(&format!(
         "export function decodeInput(r: InputReader): {} {{\n    const f = new {}();\n",
+        input.name, input.name
+    ));
+    for field in &input.fields {
+        out.push_str(&format!(
+            "    f.{} = r.{}();\n",
+            field.name,
+            input_read_method(field.kind)
+        ));
+    }
+    out.push_str("    return f;\n}\n");
+
+    // Allocation-free variant for the generated bridge: keeping one `Input`
+    // per room and refilling it avoids an object allocation per input frame.
+    out.push_str("\n/// Decode into an existing `Input` (no allocation; the bridge reuses one).\n");
+    out.push_str("@inline\n");
+    out.push_str(&format!(
+        "export function decodeInputInto(f: {}, r: InputReader): {} {{\n",
         input.name, input.name
     ));
     for field in &input.fields {
@@ -149,7 +170,9 @@ fn emit_join_options_lane(out: &mut String, def: &SchemaDef) {
     out.push('\n');
     out.push_str("// --- Typed join options -----------------------------------------------\n");
     out.push_str("// The host encodes the client's joinOrCreate JSON into this field order;\n");
-    out.push_str("// the bridge calls onJoin(id, decodeJoinOptions(r)) — typed, no JSON parsing.\n");
+    out.push_str(
+        "// the bridge calls onJoin(id, decodeJoinOptions(r)) — typed, no JSON parsing.\n",
+    );
     out.push_str("@inline\n");
     out.push_str(&format!(
         "export function decodeJoinOptions(r: InputReader): {} {{\n    const o = new {}();\n",

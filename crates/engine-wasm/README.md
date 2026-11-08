@@ -75,6 +75,14 @@ asc game_room.ts -o game_room.wasm -Ospeed --noAssert --runtime stub
 ```
 *(Produces a hyper-optimized ~239 byte binary!)*
 
+> **Measure first — `stub` is for the micro-benchmark above, not for room
+> guests.** `stub` has no allocator GC, so any object a hook creates while the
+> room runs is permanent. A real room that allocates per input frame or per
+> schema write grows its linear memory monotonically; measured on a 16-player
+> room at 20 Hz inputs, `stub` climbed 128 KiB -> 1 MiB within a minute and kept
+> going, while `incremental` held it flat at 128 KiB. `cyg-game` therefore
+> compiles rooms with `--runtime incremental`.
+
 ---
 
 ### 2. Call from Rust with `wasm_module!` (Invisible WASM)

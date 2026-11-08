@@ -41,7 +41,7 @@ pub(crate) fn compile_asc(
             "    __room_instance.onJoin({join_client}, decodeJoinOptions(new InputReader(ptr, len)));"
         }
     } else {
-                if room_takes_auth {
+        if room_takes_auth {
             "    const options = len > 0 ? String.UTF8.decodeUnsafe(ptr as usize, len) : \"\";
     const auth = len2 > 0 ? String.UTF8.decodeUnsafe(auth_ptr as usize, len2) : \"\";
     __room_instance.onJoin({join_client}, options, auth);"
@@ -78,7 +78,8 @@ pub(crate) fn compile_asc(
         String::new()
     };
     let on_before_shutdown_body = if content.contains("onBeforeShutdown(") {
-        "export function on_before_shutdown(): void {\n    __room_instance.onBeforeShutdown();\n}".to_string()
+        "export function on_before_shutdown(): void {\n    __room_instance.onBeforeShutdown();\n}"
+            .to_string()
     } else {
         String::new()
     };
@@ -123,21 +124,33 @@ pub(crate) fn compile_asc(
         .map(|generated| generated.contains("export function decodeInput"))
         .unwrap_or(false);
     let input_reader_style = content.contains("onInputFrame(") && content.contains(": InputReader");
+    // Reuse one `Input` + one `InputReader` for every input frame instead of
+    // allocating a pair per call. The guest runtime's GC would eventually
+    // reclaim them, but at the input rate that garbage kept the collector busy
+    // and inflated the room's linear memory between collections.
     let input_frame_expr = if input_reader_style || !gen_has_input_decoder {
-        "new InputReader(ptr + 4 + type_len, len - 4 - type_len)".to_string()
+        "__input_reader.reset(ptr + 4 + type_len, len - 4 - type_len)".to_string()
     } else {
-        "decodeInput(new InputReader(ptr + 4 + type_len, len - 4 - type_len))".to_string()
+        "decodeInputInto(__input_frame, __input_reader.reset(ptr + 4 + type_len, len - 4 - type_len))".to_string()
     };
     let on_input_body = if input_takes_client {
         format!(
             r#"const __input_client = new Client(0, __room_instance);
 const __input_last_seq = new Map<i64, u16>();
+const __input_frame = new Input();
+const __input_reader = new InputReader(0, 0);
 
 export function on_input(id: i64, ptr: i32, len: i32): void {{
     // reserved __input lane: [0x05][type_len]["__input"][seq u16 LE][frame]
     if (len >= 9 && load<u8>(ptr) == 0x05) {{
         const type_len: i32 = load<u8>(ptr + 1) as i32;
-        if (type_len == 7 && len >= 4 + type_len && String.UTF8.decodeUnsafe(ptr + 2, 7) == "__input") {{
+        // Compare the 7 tag bytes in place. `String.UTF8.decodeUnsafe` here
+        // allocated a fresh string per input frame and nothing freed it.
+        if (type_len == 7 && len >= 4 + type_len
+            && load<u8>(ptr + 2) == 0x5F && load<u8>(ptr + 3) == 0x5F
+            && load<u8>(ptr + 4) == 0x69 && load<u8>(ptr + 5) == 0x6E
+            && load<u8>(ptr + 6) == 0x70 && load<u8>(ptr + 7) == 0x75
+            && load<u8>(ptr + 8) == 0x74) {{
             const seq: u16 = (load<u8>(ptr + 2 + type_len) as u16) | ((load<u8>(ptr + 3 + type_len) as u16) << 8);
             const prev = __input_last_seq.has(id) ? __input_last_seq.get(id) : 0;
             const diff: u16 = prev - seq;
@@ -158,21 +171,32 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
         "export function on_input(id: i64, ptr: i32, len: i32): void {\n    __room_instance.onInput(id, ptr as usize, len);\n}".to_string()
     };
 
-    let needs_client = ["onJoin", "onAuth", "onLeave", "onDrop", "onReconnect", "onInputFrame"]
-        .iter()
-        .any(|hook| takes_client(hook));
+    let needs_client = [
+        "onJoin",
+        "onAuth",
+        "onLeave",
+        "onDrop",
+        "onReconnect",
+        "onInputFrame",
+    ]
+    .iter()
+    .any(|hook| takes_client(hook));
     let gen_imports = {
         let mut imports = Vec::new();
         if typed_join {
             imports.push("decodeJoinOptions");
         }
         if !input_reader_style && gen_has_input_decoder {
-            imports.push("decodeInput");
+            imports.push("decodeInputInto");
+            imports.push("Input");
         }
         if imports.is_empty() {
             String::new()
         } else {
-            format!("import {{ {} }} from \"../gen/cyg.schema\";\n", imports.join(", "))
+            format!(
+                "import {{ {} }} from \"../gen/cyg.schema\";\n",
+                imports.join(", ")
+            )
         }
     };
     let join_options_import = if typed_join || (!input_reader_style && gen_has_input_decoder) {
@@ -312,8 +336,13 @@ export function on_simulation_rate(): i32 {{
         // allocator (wasm_pooling): bounded guests get pooled instance slots.
         "--maximumMemory".into(),
         format!("{}", max_memory_mb.max(1) * 16).into(), // MiB -> 64 KiB pages
+        // "stub" has no allocator GC: every object a hook creates is permanent
+        // garbage. Under input traffic a room grew from 128 KiB to MiB of linear
+        // memory within minutes (measured 16 clients @ 20 Hz: 1 MiB and rising),
+        // which is what made 10k CCU need ~200 KiB per client. "incremental"
+        // reclaims that garbage and holds a room flat at its initial memory.
         "--runtime".into(),
-        "stub".into(),
+        "incremental".into(),
         "-o".into(),
         out.to_string_lossy().into_owned(),
     ];

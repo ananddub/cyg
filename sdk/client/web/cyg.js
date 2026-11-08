@@ -23,6 +23,15 @@
     // ['W'][version u8][kind u8][from u32][to u32][opaque JSON body], big-endian.
     const VOICE_MAGIC = 0x56;
     const SIGNAL_MAGIC = 0x57;
+
+    /** Normalise a WebSocket payload (ArrayBuffer / TypedArray / Buffer) to a Uint8Array view. */
+    function toBinaryBytes(data) {
+        if (!data) return null;
+        if (data instanceof ArrayBuffer) return new Uint8Array(data);
+        if (data.buffer) return new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength || data.length);
+        if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(data)) return new Uint8Array(data);
+        return null;
+    }
     const SIGNAL_VERSION = 1;
     const SIGNAL_HEADER_LEN = 11;
     const SIGNAL_BROADCAST = 0xFFFFFFFF;
@@ -1517,7 +1526,18 @@
 
                 try {
                     this.ws = new WebSocket(wsUrl);
+                    // `binaryType` must be set before the first frame lands and
+                    // the message handler attached immediately: the host writes
+                    // the join reply, the schema descriptor and the first full
+                    // snapshot in the same burst as the 101, so frames can
+                    // arrive before the handlers further down are installed and
+                    // would otherwise be dropped (client 0 wins the race, every
+                    // later joiner loses it).
                     this.ws.binaryType = 'arraybuffer';
+                    this.ws.onmessage = (ev) => {
+                        const bytes = toBinaryBytes(ev.data);
+                        if (bytes) this._handleInboundBinary(bytes);
+                    };
                 } catch (e) {
                     return reject(e);
                 }
@@ -1557,20 +1577,6 @@
                     this._maybeAutoReconnect(ev);
                 };
 
-                this.ws.onmessage = (ev) => {
-                    let bytes = null;
-                    if (ev.data instanceof ArrayBuffer) {
-                        bytes = new Uint8Array(ev.data);
-                    } else if (ev.data && ev.data.buffer) {
-                        bytes = new Uint8Array(ev.data.buffer, ev.data.byteOffset || 0, ev.data.byteLength || ev.data.length);
-                    } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(ev.data)) {
-                        bytes = new Uint8Array(ev.data);
-                    }
-
-                    if (bytes) {
-                        this._handleInboundBinary(bytes);
-                    }
-                };
             });
         }
 

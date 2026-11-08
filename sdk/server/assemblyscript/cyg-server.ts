@@ -1369,22 +1369,30 @@ export class DeltaWriter {
 
     /** Append an existing byte buffer (used by the schema encoder). */
     writeBytes(src: ArrayBuffer): this {
-        let bytes = Uint8Array.wrap(src);
-        this.ensureCapacity(bytes.length);
-        let dst = Uint8Array.wrap(this._buf);
-        dst.set(bytes, this._offset);
-        this._offset += bytes.length;
+        let len = src.byteLength;
+        this.copyFrom(changetype<usize>(src), len);
         return this;
     }
 
     /** Append another writer's written region without allocating a copy. */
     writeWriter(src: DeltaWriter): this {
-        this.ensureCapacity(src.length);
-        let dst = Uint8Array.wrap(this._buf);
-        let bytes = Uint8Array.wrap(src.buffer, 0, src.length);
-        dst.set(bytes, this._offset);
-        this._offset += src.length;
+        this.copyFrom(changetype<usize>(src.buffer), src.length);
         return this;
+    }
+
+    /// Copy `len` bytes from guest address `src` to the write cursor.
+    ///
+    /// Deliberately pointer-based: `Uint8Array.wrap(...)` allocates a fresh view
+    /// object on every call and nothing frees it, so the copy helpers below used
+    /// to leak two objects per entity per tick (a steady linear heap climb that
+    /// ended in wasm `memory.grow` every few hundred ticks).
+    @inline
+    private copyFrom(src: usize, len: i32): void {
+        if (len <= 0) return;
+        this.ensureCapacity(len);
+        let dst = changetype<usize>(this._buf) + this._offset;
+        memory.copy(dst, src, len);
+        this._offset += len;
     }
 
     /** Number of bytes written since the last reset. */
@@ -1664,6 +1672,11 @@ export class SchemaEntity {
     private _dirty: u32 = 0;
     private _present: u32 = 0;
     private _strings: Array<string> = new Array<string>();
+    /// UTF-8 cache for `_strings`, filled lazily by writeStringValue and
+    /// dropped in setString. Encoding on every emit allocated a fresh
+    /// ArrayBuffer per string field per tick and nothing freed it, so the
+    /// guest heap grew forever under input traffic.
+    private _stringBytes: Array<ArrayBuffer> = new Array<ArrayBuffer>();
     private _arrays: Array<Array<f64>> = new Array<Array<f64>>();
     private _id: u32 = 0;
 
@@ -1796,7 +1809,10 @@ export class SchemaEntity {
     getString(i: i32): string { return this._strings[i]; }
     setString(i: i32, v: string): void {
         let changed = this._strings[i] != v;
-        if (changed) this._strings[i] = v;
+        if (changed) {
+            this._strings[i] = v;
+            if (i < this._stringBytes.length) this._stringBytes[i] = changetype<ArrayBuffer>(0);
+        }
         this._touch(i, changed);
     }
 
@@ -1816,7 +1832,14 @@ export class SchemaEntity {
     }
 
     private writeStringValue(w: DeltaWriter, index: i32): void {
-        let bytes = String.UTF8.encode(this._strings[index]);
+        let bytes = index < this._stringBytes.length ? this._stringBytes[index] : changetype<ArrayBuffer>(0);
+        if (!bytes) {
+            bytes = String.UTF8.encode(this._strings[index]);
+            while (this._stringBytes.length <= index) {
+                this._stringBytes.push(changetype<ArrayBuffer>(0));
+            }
+            this._stringBytes[index] = bytes;
+        }
         let length = bytes.byteLength;
         if (length > 255) length = 255;
         w.writeU8(length as u8);
@@ -2406,6 +2429,17 @@ export class InputReader {
         this._ptr = ptr;
         this._len = len;
         this._offset = 0;
+    }
+
+    /// Retarget this reader at a new window. The bridge reuses one reader for
+    /// every input frame: the guest runs on `--runtime stub` (no GC), so a
+    /// fresh `InputReader` per frame is permanent garbage that grew a room from
+    /// 128 KiB to several MiB of linear memory within minutes.
+    reset(ptr: usize, len: i32): InputReader {
+        this._ptr = ptr;
+        this._len = len;
+        this._offset = 0;
+        return this;
     }
 
     get remaining(): i32 {
@@ -3299,8 +3333,26 @@ export abstract class Room {
     }
 
     /// Guest memory allocator for inbound client network packets.
+    ///
+    /// The host calls this for EVERY inbound payload (an input frame at the
+    /// tick rate, join options, auth blobs) and only ever writes the bytes into
+    /// the returned window before invoking the matching hook. A fresh
+    /// `new ArrayBuffer(len)` per call leaks: nothing frees it, so the guest
+    /// heap grows without bound under input traffic (measured: 0.5 MiB -> 4 MiB
+    /// per room in ~25 s, i.e. ~250 KiB of pure garbage per client).
+    ///
+    /// One scratch window that only ever grows is all the host needs; it gets
+    /// the pointer here and the byte length as a separate argument.
+    private _scratch: ArrayBuffer = new ArrayBuffer(4096);
+
     onAlloc(len: i32): i32 {
-        return changetype<usize>(new ArrayBuffer(len)) as i32;
+        if (len <= 0) return 0;
+        if (len > this._scratch.byteLength) {
+            let cap = this._scratch.byteLength;
+            while (cap < len) cap *= 2;
+            this._scratch = new ArrayBuffer(cap);
+        }
+        return changetype<usize>(this._scratch) as i32;
     }
 
     /// Room fullness check.
