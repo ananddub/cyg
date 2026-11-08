@@ -168,8 +168,8 @@ test-sdks:
             echo 'height = 500.0'
             echo 'speed = 240.0'
         } > "$work/config.toml"
-        BIN="target/release/cyg-game"
-        if [[ ! -x "$BIN" ]]; then echo "server binary missing: cargo build --release --bin cyg-game"; exit 1; fi
+        BIN="target/release/cyg"
+        if [[ ! -x "$BIN" ]]; then echo "server binary missing: cargo build --release --bin cyg"; exit 1; fi
         "$BIN" build "$work" >/dev/null
         OX_ALLOW_DEFAULT_SECRETS=1 "$BIN" run "$work" >/tmp/cyg-sdk-e2e-server.log 2>&1 &
         srv=$!
@@ -213,17 +213,17 @@ cyg-bench stages="5k 10k":
     #!/usr/bin/env bash
     set -e
     echo "==> building release binary"
-    cargo build --release --bin cyg-game 2>&1 | tail -1
-    pkill -9 -x cyg-game 2>/dev/null || true
+    cargo build --release --bin cyg 2>&1 | tail -1
+    pkill -9 -x cyg 2>/dev/null || true
     docker rm -f cyg-bench >/dev/null 2>&1 || true
     echo "==> starting docker container (1 CPU / 2GB)"
     docker run -d --name cyg-bench --cpus=1.0 --memory=2g --memory-swap=2g \
         --ulimit nofile=65536:65536 -e OX_ALLOW_DEFAULT_SECRETS=1 \
         -p 7796:7796 -p 8297:8297 \
         -v "$PWD/bench-game-none:/game" \
-        -v "$PWD/target/release/cyg-game:/cyg-game:ro" \
+        -v "$PWD/target/release/cyg:/cyg:ro" \
         -v /usr/lib64:/hostlib:ro \
-        ubuntu:24.04 /hostlib/ld-linux-x86-64.so.2 --library-path /hostlib /cyg-game run /game >/dev/null
+        ubuntu:24.04 /hostlib/ld-linux-x86-64.so.2 --library-path /hostlib /cyg run /game >/dev/null
     sleep 3
     for stage in {{stages}}; do
         case "$stage" in
@@ -268,17 +268,17 @@ cyg-bench-prof stage="10k" mode="cpu":
     # Symbol-ful builds are huge; keep them off the repo SSD (often near-full).
     proftarget="$HOME/.cache/cyg-prof-target"
     echo "==> building profiling binary ($feat, symbols kept, target: $proftarget)"
-    cargo build --profile profiling --target-dir "$proftarget" --features "$feat" --bin cyg-game 2>&1 | tail -1
-    pkill -9 -x cyg-game 2>/dev/null || true
+    cargo build --profile profiling --target-dir "$proftarget" --features "$feat" --bin cyg 2>&1 | tail -1
+    pkill -9 -x cyg 2>/dev/null || true
     docker rm -f cyg-bench >/dev/null 2>&1 || true
     echo "==> starting docker container (1 CPU / $mem, {{mode}} profile)"
     docker run -d --name cyg-bench --cpus=1.0 --memory=$mem --memory-swap=$mem \
         --ulimit nofile=65536:65536 -e OX_ALLOW_DEFAULT_SECRETS=1 -e "$envname=$profsecs" \
         -w /game -p 7796:7796 -p 8297:8297 \
         -v "$PWD/bench-game-none:/game" \
-        -v "$proftarget/profiling/cyg-game:/cyg-game:ro" \
+        -v "$proftarget/profiling/cyg:/cyg:ro" \
         -v /usr/lib64:/hostlib:ro \
-        ubuntu:24.04 /hostlib/ld-linux-x86-64.so.2 --library-path /hostlib /cyg-game run /game >/dev/null
+        ubuntu:24.04 /hostlib/ld-linux-x86-64.so.2 --library-path /hostlib /cyg run /game >/dev/null
     sleep 3
     node bench/spawn_mt.mjs --engine cyg --container cyg-bench \
         --procs "$procs" --clients 500 --rooms "$rooms" --seconds 30 --hz 20 \

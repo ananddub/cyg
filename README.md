@@ -2,7 +2,7 @@
 
 An open-source multiplayer backend that does what Colyseus + Nakama do, in **one Rust binary**: authoritative WASM game rooms, WebRTC + UDP netcode, a player accounts/chat/friends/leaderboards API, and a web console to run it all — self-hosted, on a $10/mo VPS.
 
-No Node cluster, no sidecar orchestra. `cyg-game run` **is** the production artifact. Everything below ships **in the box** — game runtime, physics, ECS, netcode, BaaS, console. There is nothing to bolt together.
+No Node cluster, no sidecar orchestra. `cyg run` **is** the production artifact. Everything below ships **in the box** — game runtime, physics, ECS, netcode, BaaS, console. There is nothing to bolt together.
 
 ```
 ┌──────────────────────────  one process  ──────────────────────────┐
@@ -50,8 +50,8 @@ curl -fsSL https://raw.githubusercontent.com/ananddub/cyg/main/scripts/install.s
 Then scaffold and run:
 
 ```bash
-cyg-gaming init my-game && cd my-game
-cyg-gaming run
+cyg init my-game && cd my-game
+cyg run
 # console → http://localhost:8124/dashboard/
 ```
 
@@ -75,21 +75,21 @@ Local, without Docker:
 
 ```bash
 cargo build --release
-OX_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg-gaming run examples/coin-rush
+OX_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg run examples/coin-rush
 # console  http://localhost:8124/dashboard/
 ```
 
 Fresh project:
 
 ```bash
-cyg-game init my-game && cd my-game
-cyg-game doctor          # config + schema + ABI check
-cyg-game run             # compile src/index.ts → wasm and serve
+cyg init my-game && cd my-game
+cyg doctor          # config + schema + ABI check
+cyg run             # compile src/index.ts → wasm and serve
 ```
 
 ## Writing a game — every use case
 
-`cyg-game init` scaffolds the modern layout; every snippet below is that syntax:
+`cyg init` scaffolds the modern layout; every snippet below is that syntax:
 
 ```
 my-game/
@@ -103,7 +103,7 @@ my-game/
 └── tsconfig.json          editor types (VSCode opens with zero errors)
 ```
 
-Save `src/index.ts` or anything under `src/schema/` while `cyg-game run` is up and the room recompiles and hot-swaps — players stay connected. The browser SDK is served by the server itself at `/cyg.js`; nothing to copy. A deeper version of this tour ships in `docs/site/guide.html`.
+Save `src/index.ts` or anything under `src/schema/` while `cyg run` is up and the room recompiles and hot-swaps — players stay connected. The browser SDK is served by the server itself at `/cyg.js`; nothing to copy. A deeper version of this tour ships in `docs/site/guide.html`.
 
 ### 1. config.toml
 
@@ -127,7 +127,7 @@ api_port = 8124                # matchmake, signaling, /v2, console, /cyg.js
 database_endpoint = "surrealkv://data/cyg"   # embedded accounts/chat/leaderboards
 ```
 
-The scaffolded config carries commented blocks for everything else — room lifetime (`[lifecycle]`: `room_max_seconds`, `reap_idle_secs`, `persistent_rooms`, drain grace), the guest watchdog (`[watchdog]`), gameplay event recording (`[gameplay]`), player quotas (`[control.quotas]`), IAP verification and social sign-in — each block documenting the shipped default. `cyg-game doctor` validates the whole project in one command.
+The scaffolded config carries commented blocks for everything else — room lifetime (`[lifecycle]`: `room_max_seconds`, `reap_idle_secs`, `persistent_rooms`, drain grace), the guest watchdog (`[watchdog]`), gameplay event recording (`[gameplay]`), player quotas (`[control.quotas]`), IAP verification and social sign-in — each block documenting the shipped default. `cyg doctor` validates the whole project in one command.
 
 ### 2. Schema — declare the state once
 
@@ -167,7 +167,7 @@ export const Input = schema({
 
 Types: `t.number()/f64`, `f32`, `int8…int64`, `uint8…uint32`, `boolean`, `string`. Collections: `t.map(Entity)` (keyed), `t.array(Entity)` (ordered — chat log, bullet feed), `t.ref(Entity)` (entity reference). `.default(v)` works on primitives and strings. Reserved words cannot be field names; `Input` and `JoinOptions` are reserved (the input frame and the typed join options).
 
-`cyg-game run` (or `cyg-game schema`) compiles this into three artifacts:
+`cyg run` (or `cyg schema`) compiles this into three artifacts:
 
 | Artifact | Consumed by |
 |---|---|
@@ -339,7 +339,7 @@ onInputFrame(client: Client, f: Input): void {
 
 Want raw control instead? Declare `onInputFrame(client: Client, r: InputReader)` and call the generated `decodeInput(r)` yourself — both styles work.
 
-Stale frames are dropped for you (per-player seq, wrap-safe newest-wins) — a late packet never rewinds a player. Strings/arrays are not allowed in the input frame (fixed-size wire), and `Input` cannot double as a state entity; both are caught at `cyg-game schema` time. `room.sendInput(…)` accepts exactly the input object — the old positional `(flags, aimYaw, …)` form is gone.
+Stale frames are dropped for you (per-player seq, wrap-safe newest-wins) — a late packet never rewinds a player. Strings/arrays are not allowed in the input frame (fixed-size wire), and `Input` cannot double as a state entity; both are caught at `cyg schema` time. `room.sendInput(…)` accepts exactly the input object — the old positional `(flags, aimYaw, …)` form is gone.
 
 **The lane rule:** everything you cannot afford to drop (fires, chats, RPCs, `onMessage` traffic) rides the **reliable ordered** lane via `room.send`. Per-tick movement and aim ride the unreliable input lane — newest-wins, no retransmit; a late movement packet is worthless by definition.
 
@@ -441,7 +441,7 @@ if (Rapier3D.checkContact(bullet, targetBody)) { /* damage */ }
 Rapier3D.removeBody(bullet);
 ```
 
-Rest of the surface: `getVelocity / setPosition / applyImpulse(impulse: Vec3) / addBoxCollider(body, halfExtents: Vec3)`, plus `Rapier3D.batch(maxBodies)` → `PhysicsBatch3D` for large rooms. `Physics` also has `*Raw` scalar variants as escape hatches. 3D maps: `cyg-game cook map.glb arena.oxcl` (GLB → OXCL collision mesh, instant boot) or hand-written `arena_map.json` boxes; console-uploaded maps win over local files.
+Rest of the surface: `getVelocity / setPosition / applyImpulse(impulse: Vec3) / addBoxCollider(body, halfExtents: Vec3)`, plus `Rapier3D.batch(maxBodies)` → `PhysicsBatch3D` for large rooms. `Physics` also has `*Raw` scalar variants as escape hatches. 3D maps: `cyg cook map.glb arena.oxcl` (GLB → OXCL collision mesh, instant boot) or hand-written `arena_map.json` boxes; console-uploaded maps win over local files.
 
 ### 9. Navmesh — bot pathfinding
 
@@ -516,33 +516,33 @@ room.leave(true);
 
 **Voice channels.** `TeamOnly` reaches only peers with the same team label; `Proximity` attenuates by distance (default inverse, 1.5–25 m); `Global` covers the whole room. Team ids can be strings (`"red"`, `"squad-a"`) or numbers — the SDK hashes the label with FNV‑1a into a u32, so routing stays one integer compare per packet (pass `null` to leave the team). Godot is relay-only (`CYGVoice.is_supported()` is false — native WebRTC is unavailable on most export targets) and uses the same wire: `room.set_voice_team("red")`.
 
-The schema descriptor arrives in the join handshake — no client codegen, ever. Typed bindings for engines that want them: `cyg-game schema-codegen --lang cs|gdscript|cpp|lua|all`.
+The schema descriptor arrives in the join handshake — no client codegen, ever. Typed bindings for engines that want them: `cyg schema-codegen --lang cs|gdscript|cpp|lua|all`.
 
 ### 12. Other engines and backends
 
 - **Unity / Godot / Unreal / native** — sibling SDK repos mirror the same surface (join, state callbacks, messaging, RPC, auth, clock). A project with no `source` file boots in **Unity-relay mode** — C#-authoritative rooms, the server just relays.
 - **ECS rooms** — a room whose name contains `ecs` runs on the flat inbuilt ECS backend: same wire protocol, same console, 128 Hz at thousands of CCU per core.
-- **Room interfaces** — `cyg-game gen-interface` emits Lua/C/C++/Rust/C#/TS room interfaces.
+- **Room interfaces** — `cyg gen-interface` emits Lua/C/C++/Rust/C#/TS room interfaces.
 
 ## CLI
 
 ```
-cyg-game init            [dir]   scaffold a project (src/index.ts + src/schema/ + pkg/ + gen/)
-cyg-game run             [dir]   compile if needed, then serve (hot-swap on save)
-cyg-game build | aot     [dir]   compile + AOT-precompile to native .cwasm (<1 ms cold start)
-cyg-game schema          [dir]   compile the schema → gen/ bindings + out/ descriptor
-cyg-game schema-codegen  [dir]   typed client bindings (--lang cs|gdscript|cpp|lua|all)
-cyg-game schema-status   [dir]   show the compiled schema's versions and hashes
-cyg-game doctor          [dir]   validate config, schema and ABI exports
-cyg-game gen-interface   [dir]   C++/Rust/C#/AS/TS room interfaces
-cyg-game cook <in.glb> <out.oxcl>  cook a 3D collision mesh for instant boot
-cyg-game backup | restore [dir]  export/import a remote SurrealDB (gzip + sha256)
-cyg-game migrate         [dir]   run DB schema migrations
-cyg-game openapi                 emit the /v2 OpenAPI document
-cyg-game secrets audit  [dir]    flag default/weak secrets
-cyg-game config diff    <a> <b>  diff two console config exports
-cyg-game rules check    --file … validate a rules/anti-cheat JSON
-cyg-game logs tail      --token …  tail server logs via the console API
+cyg init            [dir]   scaffold a project (src/index.ts + src/schema/ + pkg/ + gen/)
+cyg run             [dir]   compile if needed, then serve (hot-swap on save)
+cyg build | aot     [dir]   compile + AOT-precompile to native .cwasm (<1 ms cold start)
+cyg schema          [dir]   compile the schema → gen/ bindings + out/ descriptor
+cyg schema-codegen  [dir]   typed client bindings (--lang cs|gdscript|cpp|lua|all)
+cyg schema-status   [dir]   show the compiled schema's versions and hashes
+cyg doctor          [dir]   validate config, schema and ABI exports
+cyg gen-interface   [dir]   C++/Rust/C#/AS/TS room interfaces
+cyg cook <in.glb> <out.oxcl>  cook a 3D collision mesh for instant boot
+cyg backup | restore [dir]  export/import a remote SurrealDB (gzip + sha256)
+cyg migrate         [dir]   run DB schema migrations
+cyg openapi                 emit the /v2 OpenAPI document
+cyg secrets audit  [dir]    flag default/weak secrets
+cyg config diff    <a> <b>  diff two console config exports
+cyg rules check    --file … validate a rules/anti-cheat JSON
+cyg logs tail      --token …  tail server logs via the console API
 ```
 
 ## Architecture

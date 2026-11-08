@@ -56,16 +56,16 @@ the process at an OTLP/HTTP collector:
 ```bash
 cargo build --release --features otel
 OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 \
-OTEL_SERVICE_NAME=cyg-game \
+OTEL_SERVICE_NAME=cyg \
 OTEL_TRACES_SAMPLER=parentbased_traceidratio \
 OTEL_TRACES_SAMPLER_ARG=0.1 \
-  ./target/release/cyg-gaming run .
+  ./target/release/cyg run .
 ```
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Collector base URL. Unset ⇒ the bridge is inert even in an `otel` build. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` takes precedence. |
-| `OTEL_SERVICE_NAME` | `cyg-gaming` | `service.name` resource attribute |
+| `OTEL_SERVICE_NAME` | `cyg` | `service.name` resource attribute |
 | `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | `always_on`, `always_off`, `traceidratio`, `parentbased_*` |
 | `OTEL_TRACES_SAMPLER_ARG` | `1.0` | Ratio for `*traceidratio` samplers |
 | `OTEL_SDK_DISABLED` | unset | `true` turns the bridge off without a rebuild |
@@ -92,7 +92,7 @@ replaced with a fresh UUID v4.
 
 ```yaml
 scrape_configs:
-  - job_name: cyg-game
+  - job_name: cyg
     metrics_path: /metrics
     scheme: http                       # or https behind the ingress
     basic_auth:
@@ -106,7 +106,7 @@ Alert rules:
 
 ```yaml
 groups:
-  - name: cyg-game
+  - name: cyg
     rules:
       - alert: CygTickP99OverBudget
         expr: cyg_tick_budget_p99_us > cyg_nominal_tick_us

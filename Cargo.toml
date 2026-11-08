@@ -30,6 +30,8 @@ members = [
 name = "cyg-gaming"
 version = "0.1.0"
 edition = "2024"
+# Only the [[bin]] below is built; no `cyg-gaming` / `cyg-game` duplicates.
+autobins = false
 
 [dependencies]
 tracing = "0.1"
@@ -92,9 +94,14 @@ mimalloc = ["dep:mimalloc"]
 
 
 
-# `cyg-game` short alias — templates/docs isse reference karte hain
+# One binary, one name: `cyg`.
+#
+# `autobins = false` in [package] stops cargo from ALSO emitting
+# `cyg-gaming` (from the package name) and the old `cyg-game` alias, so a
+# build produces exactly one executable and users never have to guess which
+# of three spellings to type.
 [[bin]]
-name = "cyg-game"
+name = "cyg"
 path = "src/main.rs"
 
 [profile.release]

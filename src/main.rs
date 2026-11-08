@@ -1,8 +1,8 @@
-//! # cyg-game — CYG game server CLI
+//! # cyg — CYG game server CLI
 //!
-//!   cyg-game init \[dir]    create a game project (room.ts + schema.ts + own SDK + website)
-//!   cyg-game run  \[dir]    compile (if needed) and run the server
-//!   cyg-game run            (with no config.toml present) runs the built-in demo
+//!   cyg init \[dir]    create a game project (room.ts + schema.ts + own SDK + website)
+//!   cyg run  \[dir]    compile (if needed) and run the server
+//!   cyg run            (with no config.toml present) runs the built-in demo
 //!
 //! Everything is driven by config.toml — runtime, source, ports, tick rate.
 //!
@@ -154,7 +154,7 @@ fn main() {
         "schema-debug" | "schema-inspect" => schema_debug_command(&args[1..]),
         "cook" => {
             if args.len() < 3 {
-                tracing::info!("Usage: cyg-game cook <input.glb> <output.bin>");
+                tracing::info!("Usage: cyg cook <input.glb> <output.bin>");
                 std::process::exit(1);
             }
             let input = Path::new(&args[1]);
@@ -172,28 +172,28 @@ fn main() {
         "secrets" => match args.get(1).map(String::as_str) {
             Some("audit") => cli::secrets::run(&dir),
             _ => {
-                tracing::info!("Usage: cyg-game secrets audit [dir]");
+                tracing::info!("Usage: cyg secrets audit [dir]");
                 std::process::exit(1);
             }
         },
         "config" => match args.get(1).map(String::as_str) {
             Some("diff") => cli::config_diff::run(&args[2..], &dir),
             _ => {
-                tracing::info!("Usage: cyg-game config diff <a.json> <b.json|live> [--game <id>]");
+                tracing::info!("Usage: cyg config diff <a.json> <b.json|live> [--game <id>]");
                 std::process::exit(1);
             }
         },
         "rules" => match args.get(1).map(String::as_str) {
             Some("check") => cli::rules_check::run(&args[2..], &dir),
             _ => {
-                tracing::info!("Usage: cyg-game rules check --file <rules.json>");
+                tracing::info!("Usage: cyg rules check --file <rules.json>");
                 std::process::exit(1);
             }
         },
         "logs" => match args.get(1).map(String::as_str) {
             Some("tail") => cli::logs_tail::run(&args[2..]),
             _ => {
-                tracing::info!("Usage: cyg-game logs tail --token <console token>");
+                tracing::info!("Usage: cyg logs tail --token <console token>");
                 std::process::exit(1);
             }
         },
@@ -206,14 +206,14 @@ fn main() {
     }
 }
 
-/// `cyg-game doctor [dir]` — one command that validates everything a project
+/// `cyg doctor [dir]` — one command that validates everything a project
 /// needs: config, schema, wasm presence and the exact ABI export names the
 /// host will look up, plus the secrets the boot guard would refuse to start
 /// with. Catches contract mismatches (e.g. `tick()` vs
 /// `on_tick()`) in seconds instead of at room-join time.
 fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
     let mut problems = 0usize;
-    tracing::info!("🩺 cyg-game doctor — {}\n", dir.display());
+    tracing::info!("🩺 cyg doctor — {}\n", dir.display());
 
     // 1. config
     let cfg = match engine_config::load_config(dir) {
@@ -293,10 +293,7 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
                 }
             }
         }
-        None => tracing::info!(
-            "• room wasm not built yet (run: cyg-game run {})",
-            dir.display()
-        ),
+        None => tracing::info!("• room wasm not built yet (run: cyg run {})", dir.display()),
     }
 
     // 4. secrets. The boot guard refuses to start a plane on these, so asking
@@ -365,7 +362,7 @@ fn backup_command(dir: &Path, args: &[String]) {
     if args.iter().any(|a| a == "--out")
         && args.iter().position(|a| a == "--out") == Some(args.len() - 1)
     {
-        tracing::info!("Usage: cyg-game backup [dir] [--out backups/]");
+        tracing::info!("Usage: cyg backup [dir] [--out backups/]");
         std::process::exit(1);
     }
     let out = args
@@ -403,7 +400,7 @@ fn restore_command(args: &[String]) {
         [dir, archive] => (PathBuf::from(dir), PathBuf::from(archive)),
         [archive] => (PathBuf::from("."), PathBuf::from(archive)),
         _ => {
-            tracing::info!("Usage: cyg-game restore [dir] <archive.sql.gz> [--force]");
+            tracing::info!("Usage: cyg restore [dir] <archive.sql.gz> [--force]");
             std::process::exit(1);
         }
     };
@@ -455,34 +452,34 @@ fn schema_status(
 
 fn print_help() {
     tracing::info!(
-        "cyg-game — CYG game server
+        "cyg — CYG game server
 
 USAGE:
-  cyg-game init          [dir]    create a game project (room.ts + schema.ts + own SDK)
-  cyg-game run           [dir]    compile the room (if needed) and start the server
-  cyg-game aot           [dir]    AOT precompile room to native .cwasm for <1ms cold starts
-  cyg-game gen-interface [dir]    auto-generate C++, Rust, C#, AssemblyScript & TypeScript interfaces
-  cyg-game cook <in.glb> <out.bin> extract 3D collision geometry to instant-boot OXCL binary
-  cyg-game schema [dir] --dump     compile schema.ts and print the descriptor as hex
-  cyg-game schema [dir] --json     compile schema.ts and print a machine-readable report
-  cyg-game schema        [dir]    compile schema.ts to server code + browser descriptor
-  cyg-game schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|all)
-  cyg-game schema-debug [path]    inspect a compiled descriptor (--json)
-  cyg-game doctor       [dir]    validate config, schema, wasm ABI exports and secrets
-  cyg-game doctor --check-schema report pending SurrealDB schema migrations
-  cyg-game backup  [dir] [--out backups]  export the HTTP database to a timestamped gzip + sha256 sidecar
-  cyg-game restore [dir] <archive> [--force]  import a backup archive produced by backup
-  cyg-game migrate [dir]                  apply pending schema migrations, then exit
-  cyg-game openapi [--out spec.json] [--check golden.json]  emit / verify the OpenAPI spec
-  cyg-game secrets audit [dir]            run the boot guard's secret checks
-  cyg-game config diff <a.json> <b.json|live> [--game <id>]  key-path config diff
-  cyg-game rules check --file <rules.json>  validate a rule document
-  cyg-game logs tail [--url base] [--token t] [--limit n]   newest mirrored log lines
-  cyg-game                        same as `run` in the current directory
+  cyg init          [dir]    create a game project (room.ts + schema.ts + own SDK)
+  cyg run           [dir]    compile the room (if needed) and start the server
+  cyg aot           [dir]    AOT precompile room to native .cwasm for <1ms cold starts
+  cyg gen-interface [dir]    auto-generate C++, Rust, C#, AssemblyScript & TypeScript interfaces
+  cyg cook <in.glb> <out.bin> extract 3D collision geometry to instant-boot OXCL binary
+  cyg schema [dir] --dump     compile schema.ts and print the descriptor as hex
+  cyg schema [dir] --json     compile schema.ts and print a machine-readable report
+  cyg schema        [dir]    compile schema.ts to server code + browser descriptor
+  cyg schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|all)
+  cyg schema-debug [path]    inspect a compiled descriptor (--json)
+  cyg doctor       [dir]    validate config, schema, wasm ABI exports and secrets
+  cyg doctor --check-schema report pending SurrealDB schema migrations
+  cyg backup  [dir] [--out backups]  export the HTTP database to a timestamped gzip + sha256 sidecar
+  cyg restore [dir] <archive> [--force]  import a backup archive produced by backup
+  cyg migrate [dir]                  apply pending schema migrations, then exit
+  cyg openapi [--out spec.json] [--check golden.json]  emit / verify the OpenAPI spec
+  cyg secrets audit [dir]            run the boot guard's secret checks
+  cyg config diff <a.json> <b.json|live> [--game <id>]  key-path config diff
+  cyg rules check --file <rules.json>  validate a rule document
+  cyg logs tail [--url base] [--token t] [--limit n]   newest mirrored log lines
+  cyg                        same as `run` in the current directory
 
 CONFIG:
   Everything lives in config.toml — runtime, source file, ports, tick rate.
-  See the template `cyg-game init` writes."
+  See the template `cyg init` writes."
     );
 }
 
@@ -496,7 +493,7 @@ fn schema_command(args: &[String]) {
             "--json" => json = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: cyg-game schema [dir] [--dump] [--json]\n\
+                    "usage: cyg schema [dir] [--dump] [--json]\n\
                      \x20 --dump   print the binary descriptor as lowercase hex\n\
                      \x20 --json   print paths, byte count and descriptor hex as JSON"
                 );
@@ -559,7 +556,7 @@ fn schema_codegen_command(args: &[String]) {
             "--check" => check = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: cyg-game schema-codegen [dir] [--lang <cs|gdscript|cpp|lua|all>] [--out DIR] [--check]\n\
+                    "usage: cyg schema-codegen [dir] [--lang <cs|gdscript|cpp|lua|all>] [--out DIR] [--check]\n\
                      \x20 --lang    target language; defaults to all\n\
                      \x20 --out     output directory; defaults to <dir>/generated\n\
                      \x20 --check   fail if generated files are missing or stale (CI)"
@@ -621,7 +618,7 @@ fn schema_codegen_command(args: &[String]) {
                 tracing::info!("✗ stale {}", path.display());
             }
             tracing::info!(
-                "run `cyg-game schema-codegen {} --out {}` to regenerate",
+                "run `cyg schema-codegen {} --out {}` to regenerate",
                 dir.display(),
                 out_dir.display()
             );
@@ -654,7 +651,7 @@ fn schema_debug_command(args: &[String]) {
             "--json" => json = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: cyg-game schema-debug [dir|file] [--json]\n\
+                    "usage: cyg schema-debug [dir|file] [--json]\n\
                      \x20 Reads cyg.schema.bin (or the given file) and prints the\n\
                      \x20 root, collections, schemas, fields and recomputed hashes."
                 );
@@ -945,7 +942,7 @@ fn json_escape(value: &str) -> String {
     out
 }
 
-/// `cyg-game aot [dir]` — compile room source to WASM and AOT precompile to native `.cwasm`.
+/// `cyg aot [dir]` — compile room source to WASM and AOT precompile to native `.cwasm`.
 fn aot(dir: &Path) -> std::io::Result<()> {
     let cfg =
         if dir.join("config.toml").exists() || dir.join("config.yml").exists() || dir.is_file() {
@@ -969,7 +966,7 @@ fn aot(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// `cyg-game init [dir]` — scaffold a project.
+/// `cyg init [dir]` — scaffold a project.
 fn init(dir: &Path) -> std::io::Result<()> {
     let config_path = dir.join("config.toml");
     if config_path.exists() {
@@ -1040,7 +1037,7 @@ declare module "cyg" {
     if !gitignore.exists() {
         std::fs::write(
             &gitignore,
-            "# Regenerable schema bindings (cyg-game schema-codegen)\ngen/\n",
+            "# Regenerable schema bindings (cyg schema-codegen)\ngen/\n",
         )?;
     }
 
@@ -1078,11 +1075,11 @@ declare module "cyg" {
     tracing::info!("");
     print_schema_output(&generated, false, false)?;
     tracing::info!("");
-    tracing::info!("next: cyg-game run {}", dir.display());
+    tracing::info!("next: cyg run {}", dir.display());
     Ok(())
 }
 
-/// `cyg-game run [dir]` — compile (if needed) and serve.
+/// `cyg run [dir]` — compile (if needed) and serve.
 fn run(dir: &Path) -> std::io::Result<()> {
     let cfg = if dir.join("config.toml").exists()
         || dir.join("config.yml").exists()
@@ -1228,7 +1225,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
     result
 }
 
-/// `cyg-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.
+/// `cyg gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.
 fn generate_interfaces(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
 
