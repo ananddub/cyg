@@ -4,9 +4,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::app::middleware::ConsoleAuthed;
-use crate::dto::report::{
-    ListQuery, ReportListResponse, ReportResponse, STATUSES, StatusRequest,
-};
+use crate::dto::report::{ListQuery, ReportListResponse, ReportResponse, STATUSES, StatusRequest};
 use crate::error::V2Error;
 use crate::repositories::report::{
     CreateInfractionParams, ListReportsByStatusPagedParams, ListReportsPagedParams,
@@ -80,8 +78,8 @@ impl ReportService {
         req: StatusRequest,
     ) -> Result<Json<ReportResponse>, V2Error> {
         auth.require_write()?;
-        let id =
-            Uuid::parse_str(id.trim()).map_err(|_| V2Error::invalid_argument("Invalid report ID."))?;
+        let id = Uuid::parse_str(id.trim())
+            .map_err(|_| V2Error::invalid_argument("Invalid report ID."))?;
         if !STATUSES.contains(&req.status.as_str()) {
             return Err(V2Error::invalid_argument("Invalid report status."));
         }
@@ -114,15 +112,16 @@ async fn record_infraction(
             "Infraction duration must be between 1 and 2592000 seconds.",
         ));
     }
-    queries.create_infraction(&CreateInfractionParams {
-        id: Uuid::new_v4(),
-        user_id: *reported_id,
-        kind,
-        note: crate::moderation::clean_text(&req.note),
-        expires_at: Utc::now() + chrono::Duration::seconds(duration),
-        issued_by: auth.0.uuid(),
-    })
-    .await?;
+    queries
+        .create_infraction(&CreateInfractionParams {
+            id: Uuid::new_v4(),
+            user_id: *reported_id,
+            kind,
+            note: crate::moderation::clean_text(&req.note),
+            expires_at: Utc::now() + chrono::Duration::seconds(duration),
+            issued_by: auth.0.uuid(),
+        })
+        .await?;
     Ok(())
 }
 

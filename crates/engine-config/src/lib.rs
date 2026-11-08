@@ -1,4 +1,3 @@
-
 mod console;
 mod control;
 mod game;
@@ -40,7 +39,6 @@ pub use social::SocialConfig;
 pub use templates::{CONFIG_TEMPLATE, ROOM_TEMPLATE, SCHEMA_TS_TEMPLATE};
 pub use watchdog::WatchdogConfig;
 
-
 #[cfg(test)]
 mod room_variants_tests {
     use super::*;
@@ -68,9 +66,7 @@ mod room_variants_tests {
 
     #[test]
     fn room_key_suffix_groups_equal_filters_and_splits_others() {
-        let cfg = crate::parse_config(
-            "[rooms.duo]\nfilter_by = [\"region\", \"skill\"]\n",
-        );
+        let cfg = crate::parse_config("[rooms.duo]\nfilter_by = [\"region\", \"skill\"]\n");
         let duo = cfg.rooms.get("duo").unwrap();
 
         let a = duo.room_key_suffix(r#"{"region":"mumbai","skill":5}"#);

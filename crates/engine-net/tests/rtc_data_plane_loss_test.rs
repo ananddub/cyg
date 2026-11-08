@@ -1,4 +1,3 @@
-
 use std::collections::{HashMap, HashSet};
 
 use engine_webrtc_protocol::channel::{
@@ -80,7 +79,6 @@ fn build_pipe() -> Pipe {
         let total = delta_fragment_count(body.len()).expect("body must be carryable");
         let emit_ms = t as u64 * TICK_MS;
         for (idx, chunk) in body.chunks(MAX_DELTA_CHUNK).enumerate() {
-
             let drop_roll = rng.next() as u64 % 100;
             let jitter = rng.next() as u64 % JITTER_MS;
             fragments_total += 1;
@@ -119,7 +117,6 @@ fn run_pipe(pipe: &Pipe) -> Delivered {
     let mut assembler = FragmentAssembler::default();
     let mut out = Delivered::default();
     for event in &pipe.events {
-
         assembler.cleanup(event.arrival_ms);
         let (header, chunk) = DeltaHeader::parse(&event.wire).expect("pipe frames parse");
         if let Some(delta) = assembler.insert(&header, chunk, event.arrival_ms) {
@@ -275,7 +272,6 @@ fn ttl_evicts_a_stalled_partial() {
 
 #[test]
 fn backpressure_newest_wins_for_a_stalled_consumer() {
-
     let mut assembler = FragmentAssembler::default();
     let mut applied: Option<(u16, u32)> = None;
 
@@ -325,7 +321,6 @@ fn oversized_delta_is_dropped_not_truncated() {
 
 #[test]
 fn server_egress_backpressure_is_blocked() {
-
     println!(
         "SKIP server-side egress backpressure: send_unreliable/broadcast_unreliable \
          report only success or a datagram count, so there is no per-channel queue \

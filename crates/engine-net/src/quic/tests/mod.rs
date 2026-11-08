@@ -4,7 +4,7 @@ use super::*;
 use std::time::{Duration, Instant};
 
 use quinn_proto::Dir;
-use support::{client_config, install_crypto_provider, CLIENT_ADDR, SERVER_ADDR};
+use support::{CLIENT_ADDR, SERVER_ADDR, client_config, install_crypto_provider};
 
 fn wire(server: &mut QuicEngine, client: &mut QuicEngine, now: &mut Instant) {
     for _ in 0..400 {

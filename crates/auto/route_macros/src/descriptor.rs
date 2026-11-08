@@ -3,7 +3,9 @@ use syn::LitStr;
 
 use crate::model::{OpenApiParam, ParamSource, RequestBody, RequestContent, ResponseBody};
 
-pub(crate) fn request_schema_descriptor_tokens(body: Option<&RequestBody>) -> proc_macro2::TokenStream {
+pub(crate) fn request_schema_descriptor_tokens(
+    body: Option<&RequestBody>,
+) -> proc_macro2::TokenStream {
     match body {
         Some(RequestBody {
             ty,
@@ -21,7 +23,9 @@ pub(crate) fn request_schema_descriptor_tokens(body: Option<&RequestBody>) -> pr
     }
 }
 
-pub(crate) fn response_schema_descriptor_tokens(body: Option<&ResponseBody>) -> proc_macro2::TokenStream {
+pub(crate) fn response_schema_descriptor_tokens(
+    body: Option<&ResponseBody>,
+) -> proc_macro2::TokenStream {
     match body {
         Some(ResponseBody::Json(ty)) => quote! {
             ::std::option::Option::Some(::auto_route::OpenApiSchemaDescriptor::json::<#ty>())

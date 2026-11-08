@@ -18,9 +18,9 @@ pub(crate) struct Scratch {
 }
 
 pub(crate) struct Rates {
-    pub(crate) rtc_input_rates: HashMap<Arc<str>, netcode::InputRateLimiter>,
+    pub(crate) rtc_input_rates: HashMap<std::rc::Rc<str>, netcode::InputRateLimiter>,
     pub(crate) message_rate_limits: MessageRateLimits,
-    pub(crate) last_input_at: HashMap<Arc<str>, Instant>,
+    pub(crate) last_input_at: HashMap<std::rc::Rc<str>, Instant>,
 }
 
 impl Rates {
@@ -31,7 +31,7 @@ impl Rates {
         if let Some(t) = self.last_input_at.get_mut(session) {
             *t = now;
         } else {
-            self.last_input_at.insert(Arc::from(session), now);
+            self.last_input_at.insert(std::rc::Rc::from(session), now);
         }
     }
 }
@@ -47,11 +47,11 @@ pub(crate) struct Stats {
 
 pub(crate) struct TickRunner {
     /// Reused per-room session list — avoids re-allocating every tick.
-    pub(crate) session_scratch: Vec<(std::sync::Arc<str>, i64)>,
+    pub(crate) session_scratch: Vec<(std::rc::Rc<str>, i64)>,
     /// Reused room-name snapshot for the tick fan-out, collected ONCE per
     /// tick interval (not per catch-up pass) — Arc clones only, each entry
     /// carrying the room's assigned stagger phase.
-    pub(crate) room_names: Vec<(std::sync::Arc<str>, u32)>,
+    pub(crate) room_names: Vec<(std::rc::Rc<str>, u32)>,
     pub(crate) delta_buf: Vec<u8>,
     pub(crate) view_buf: Vec<u8>,
     pub(crate) delta_body: Vec<u8>,

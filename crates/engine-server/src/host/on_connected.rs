@@ -1,4 +1,3 @@
-
 use engine_net::transport::GameTransport;
 
 use crate::host::*;
@@ -25,20 +24,27 @@ impl<'a> Engine<'a> {
     /// ([rooms.duo] `options`), then the config's `room_options`, then the
     /// creator's joinOrCreate options — later keys win, like Colyseus's
     /// defineRoom defaults ⊕ join options.
-    pub(crate) fn build_create_options(&self, join_options: &str, variant: Option<&engine_config::RoomVariantDef>) -> Vec<u8> {
+    pub(crate) fn build_create_options(
+        &self,
+        join_options: &str,
+        variant: Option<&engine_config::RoomVariantDef>,
+    ) -> Vec<u8> {
         let mut merged = serde_json::Map::new();
         if let Some(variant) = variant
             && let Some(text) = &variant.options
-            && let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(text)
+            && let Ok(map) =
+                serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(text)
         {
             merged.extend(map);
         }
         if let Some(text) = &self.cfg.room_options
-            && let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(text)
+            && let Ok(map) =
+                serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(text)
         {
             merged.extend(map);
         }
-        if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(join_options)
+        if let Ok(map) =
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(join_options)
         {
             merged.extend(map);
         }
@@ -58,7 +64,10 @@ impl<'a> Engine<'a> {
         let room_name = sanitize_room_name(raw_room);
         let join_options = self.transport.options_of(client_id).unwrap_or_default();
 
-        if self.server.would_exceed_room_limit(room_name, self.cfg.max_rooms) {
+        if self
+            .server
+            .would_exceed_room_limit(room_name, self.cfg.max_rooms)
+        {
             tracing::error!(
                 "[server] ⛔ room limit reached ({}/{}): rejecting {client_id} for '{room_name}'",
                 self.server.rooms.len(),
@@ -69,7 +78,8 @@ impl<'a> Engine<'a> {
         }
 
         let room = if is_ecs {
-            self.server.get_or_create_ecs(room_name, self.arena_mesh.as_ref())
+            self.server
+                .get_or_create_ecs(room_name, self.arena_mesh.as_ref())
         } else {
             let create = self.build_create_options(&join_options, self.cfg.rooms.get(raw_room));
             match self.server.get_or_create(room_name, &create) {
@@ -85,7 +95,7 @@ impl<'a> Engine<'a> {
         };
         room.empty_since = None;
 
-        self.connected_create(client_id, room_name, is_spectator, join_options)
+        self.connected_create(client_id, room_name, is_spectator, &join_options)
     }
 
     pub(crate) fn connected_create(
@@ -93,7 +103,7 @@ impl<'a> Engine<'a> {
         client_id: &str,
         room_name: &str,
         is_spectator: bool,
-        join_options: String,
+        join_options: &str,
     ) -> Option<()> {
         let options_frame = self.encode_join_options(&join_options);
         // room_key is "<variant>__filters"; the variant name is the prefix.
@@ -111,10 +121,8 @@ impl<'a> Engine<'a> {
         room.empty_since = None;
 
         if is_spectator {
-            room.spectators.insert(std::sync::Arc::from(client_id));
-            tracing::info!(
-                "[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'"
-            );
+            room.spectators.insert(std::rc::Rc::from(client_id));
+            tracing::info!("[server] 👁️  {client_id} connected as SPECTATOR to room '{room_name}'");
         } else if let Some(id) = room
             .takeover(client_id)
             .filter(|_| room.sessions.contains_key(client_id))

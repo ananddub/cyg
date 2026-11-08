@@ -36,7 +36,10 @@ fn physics_2d_only_skips_the_3d_world_but_runs_2d() {
         },
     );
     assert!(data.rapier2d.is_some());
-    assert!(data.rapier3d.is_none(), "3D world skipped for a 2D-only game");
+    assert!(
+        data.rapier3d.is_none(),
+        "3D world skipped for a 2D-only game"
+    );
 
     let body = data.rapier2d_create_body(1, 0.0, 5.0);
     assert!(body > 0, "the requested backend works normally");
@@ -57,9 +60,7 @@ fn a_guest_importing_a_denied_backend_is_refused_at_boot() {
 
     let runtime = engine_wasm::WasmRuntime::new().expect("wasm runtime");
     let rapier2d_guest = runtime
-        .compile(
-            r#"(module (import "cyg" "sys_rapier2d_init" (func (param f64 f64))))"#.as_bytes(),
-        )
+        .compile(r#"(module (import "cyg" "sys_rapier2d_init" (func (param f64 f64))))"#.as_bytes())
         .expect("wat compiles");
     let rapier3d_guest = runtime
         .compile(

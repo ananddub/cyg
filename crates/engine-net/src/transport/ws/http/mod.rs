@@ -1,10 +1,11 @@
-
 mod matchmake;
 mod query;
 mod request;
 mod seat;
 mod static_get;
 mod upgrade;
+
+use mio::Token;
 
 use super::client::WsClient;
 use super::hooks::ServerCtx;
@@ -17,9 +18,17 @@ use upgrade::complete_upgrade;
 pub(super) fn handle_client_greeting(
     client: &mut WsClient,
     peer: &str,
+    token: Token,
     events_out: &mut Vec<TransportEvent>,
     ctx: &mut ServerCtx<'_>,
 ) -> bool {
+    // A request split across TCP reads (common under a join burst) has no
+    // terminating CRLFCRLF yet. Wait for the rest instead of parsing a
+    // truncated request: parsing it early would misclassify the method and
+    // then fail the upgrade, dropping a healthy connection before any 101.
+    if !headers_complete(&client.recv_buf) {
+        return false;
+    }
     let req = parse_greeting(&client.recv_buf);
 
     let cors_allow = cors_origin(&req.origin, &req.host, ctx.allowed_origins)
@@ -42,7 +51,12 @@ pub(super) fn handle_client_greeting(
         }
     }
 
-    complete_upgrade(client, &req, peer, events_out, ctx)
+    complete_upgrade(client, &req, peer, token, events_out, ctx)
+}
+
+/// True once the HTTP header block is fully buffered (`\r\n\r\n`).
+fn headers_complete(buf: &[u8]) -> bool {
+    buf.windows(4).any(|w| w == b"\r\n\r\n")
 }
 
 fn cors_origin(origin: &str, host: &str, allowed: &[String]) -> Option<String> {

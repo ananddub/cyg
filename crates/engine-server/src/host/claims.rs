@@ -1,13 +1,16 @@
-
 use engine_net::framing::OpCode;
 use engine_net::transport::GameTransport;
 
-use crate::rooms::{close_code, GameRoom};
+use crate::rooms::{GameRoom, close_code};
 
 use crate::host::*;
 pub(crate) fn claimed_user_id(options: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(options).ok()?;
-    value.get("userId")?.as_str().map(str::to_string).filter(|id| !id.is_empty())
+    value
+        .get("userId")?
+        .as_str()
+        .map(str::to_string)
+        .filter(|id| !id.is_empty())
 }
 
 pub(crate) fn flush_room_outbox(
@@ -124,13 +127,22 @@ pub(crate) fn reject_room(transport: &mut LoopTransport, client_id: &str, messag
     let _ = transport.flush();
 }
 
-pub(crate) fn close_room_sessions(transport: &mut LoopTransport, room: &GameRoom, code: u16, message: &str) {
+pub(crate) fn close_room_sessions(
+    transport: &mut LoopTransport,
+    room: &GameRoom,
+    code: u16,
+    message: &str,
+) {
     for session in room.sessions.keys().chain(room.spectators.iter()) {
         let _ = transport.disconnect_with(session, code, message);
     }
     let _ = transport.flush();
 }
 
-pub(crate) fn room_is_reapable(cfg: &engine_config::GameConfig, name: &str, udp_peers: usize) -> bool {
+pub(crate) fn room_is_reapable(
+    cfg: &engine_config::GameConfig,
+    name: &str,
+    udp_peers: usize,
+) -> bool {
     !cfg.lifecycle.is_persistent(name) && (name != cfg.name.as_str() || udp_peers == 0)
 }

@@ -43,7 +43,6 @@ impl TransformSnapshot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Interpolation {
-
     #[default]
     Linear,
 

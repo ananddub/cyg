@@ -44,12 +44,7 @@ fn rewind_unknown_entity_and_remove_are_none() {
     assert!(mgr.is_empty());
     assert_eq!(mgr.rewind_entity(42, 100.0), None);
 
-    mgr.record(
-        42,
-        1,
-        16.0,
-        TransformSnapshot::new(1.0, 2.0, 3.0, 1.0),
-    );
+    mgr.record(42, 1, 16.0, TransformSnapshot::new(1.0, 2.0, 3.0, 1.0));
     assert_eq!(mgr.len(), 1);
     assert!(mgr.rewind_entity(42, 16.0).is_some());
 
@@ -86,8 +81,18 @@ fn rewind_rejects_non_monotonic_ticks() {
 fn rewind_all_matches_rewind_all_into() {
     let mut mgr = RewindManager::new(500, 60);
     for id in 0..4u64 {
-        mgr.record(id, 1, 16.0, TransformSnapshot::new(id as f32, 0.0, 0.0, 1.0));
-        mgr.record(id, 2, 32.0, TransformSnapshot::new(id as f32 * 2.0, 0.0, 0.0, 1.0));
+        mgr.record(
+            id,
+            1,
+            16.0,
+            TransformSnapshot::new(id as f32, 0.0, 0.0, 1.0),
+        );
+        mgr.record(
+            id,
+            2,
+            32.0,
+            TransformSnapshot::new(id as f32 * 2.0, 0.0, 0.0, 1.0),
+        );
     }
     let allocating = mgr.rewind_all(24.0);
     let mut reused = Vec::new();

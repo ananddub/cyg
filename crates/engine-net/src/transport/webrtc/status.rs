@@ -1,10 +1,8 @@
-
 use super::WebRtcServer;
 use super::contract::Lane;
 use super::types::TransportStats;
 
 impl WebRtcServer {
-
     pub fn last_input_seq(&self, client_id: &str) -> Option<u16> {
         self.sessions
             .get(client_id)

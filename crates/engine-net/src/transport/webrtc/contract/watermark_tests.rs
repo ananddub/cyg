@@ -1,4 +1,3 @@
-
 use super::SeqWatermark;
 
 #[test]

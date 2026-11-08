@@ -1,4 +1,3 @@
-
 use std::io::{self, IoSlice, Write};
 use std::sync::Arc;
 use std::time::Instant;
@@ -48,7 +47,11 @@ impl WsClient {
                 IoSlice::new(&[]),
             ];
         } else {
-            bufs = [IoSlice::new(&self.send_queue), IoSlice::new(&[]), IoSlice::new(&[])];
+            bufs = [
+                IoSlice::new(&self.send_queue),
+                IoSlice::new(&[]),
+                IoSlice::new(&[]),
+            ];
         }
         let mut n = self.stream.write_vectored(&mut bufs)?;
         if n == 0 {

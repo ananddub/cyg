@@ -27,7 +27,7 @@ impl<'a> Engine<'a> {
                 room.phase(),
             );
             rooms.push(RoomTelemetry {
-                name: room_name.clone(),
+                name: room_name.to_string(),
                 phase: room.phase(),
                 clients: room.sessions.len() as u32,
                 spectators: room.spectators.len() as u32,

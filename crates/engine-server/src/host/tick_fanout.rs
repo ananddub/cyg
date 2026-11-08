@@ -45,7 +45,13 @@ impl TickRunner {
         self.window_ticks += ticks_to_run as u64;
     }
 
-    pub(crate) fn tick_one_room(&mut self, ctx: &mut TickCtx, is_last_tick: bool, dt: f64, name: &str) {
+    pub(crate) fn tick_one_room(
+        &mut self,
+        ctx: &mut TickCtx,
+        is_last_tick: bool,
+        dt: f64,
+        name: &str,
+    ) {
         let history = EventHistory::new(ctx.bus, ctx.game_cfg);
         let room = match ctx.server.rooms.get_mut(name) {
             Some(room) => room,
@@ -105,10 +111,10 @@ impl TickRunner {
         }
         if len > 0 && is_last_tick {
             if let Some(ref mut wasm) = room.wasm {
-                if let Err(e) =
-                    wasm.read_memory_into(ptr as u32, len as u32, &mut self.delta_buf)
-                {
-                    tracing::error!("[server] ⚠️ failed to read delta memory in room '{name}': {e}");
+                if let Err(e) = wasm.read_memory_into(ptr as u32, len as u32, &mut self.delta_buf) {
+                    tracing::error!(
+                        "[server] ⚠️ failed to read delta memory in room '{name}': {e}"
+                    );
                     return;
                 }
             }

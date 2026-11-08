@@ -9,7 +9,6 @@ pub(crate) fn register(
         engine_wasm::HOST_NAMESPACE_LEGACY,
         "ox",
     ] {
-
         linker
             .func_wrap(
                 ns,
@@ -115,6 +114,5 @@ pub(crate) fn register(
                 },
             )
             .expect("link sys_physics_raycast");
-
     }
 }

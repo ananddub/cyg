@@ -7,7 +7,7 @@ pub struct GameServer {
     pub(crate) pre: Option<engine_wasm::WasmPreInstance<RoomHostData>>,
     pub(crate) max_clients: i32,
     pub(crate) physics: PhysicsWorld3D,
-    pub(crate) rooms: HashMap<std::sync::Arc<str>, GameRoom>,
+    pub(crate) rooms: HashMap<std::rc::Rc<str>, GameRoom>,
     pub(crate) permissions: engine_wasm::AbiPermissions,
     pub(crate) features: engine_config::FeaturesConfig,
     pub(crate) persistent_snapshots: HashMap<String, Vec<u8>>,
@@ -81,5 +81,4 @@ impl GameServer {
     pub(crate) fn would_exceed_room_limit(&self, name: &str, max_rooms: u32) -> bool {
         max_rooms > 0 && !self.rooms.contains_key(name) && self.rooms.len() >= max_rooms as usize
     }
-
 }

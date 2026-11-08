@@ -7,5 +7,11 @@ mod recorder;
 mod sessions;
 
 pub(super) fn publish_report() -> PublishReport {
-    PublishReport { tick_hz_est: 128.0, tick_rate_hz: 128, players: 3, session_cap: 8, ..Default::default() }
+    PublishReport {
+        tick_hz_est: 128.0,
+        tick_rate_hz: 128,
+        players: 3,
+        session_cap: 8,
+        ..Default::default()
+    }
 }

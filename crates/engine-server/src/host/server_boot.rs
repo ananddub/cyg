@@ -4,10 +4,7 @@ use std::time::Instant;
 use engine_physics::PhysicsWorld3D;
 use engine_wasm::WasmRuntime;
 
-use crate::rooms::{
-    GameServer,
-    RoomHostData,
-};
+use crate::rooms::{GameServer, RoomHostData};
 
 use crate::host::*;
 use engine_config::{BootMaps, BootModule, GameConfig};

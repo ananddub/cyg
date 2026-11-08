@@ -1,4 +1,3 @@
-
 use engine_core::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -11,15 +10,32 @@ struct Player {
 fn run_pipeline(players: usize, ticks: u64) -> Duration {
     let mut runner = TickRunner::new();
     let mut inputs: HashMap<u32, Player> = (0..players as u32)
-        .map(|i| (i, Player { input: PlayerInputBuffer::new(64), next_seq: 0 }))
+        .map(|i| {
+            (
+                i,
+                Player {
+                    input: PlayerInputBuffer::new(64),
+                    next_seq: 0,
+                },
+            )
+        })
         .collect();
 
     for i in 0..players as u32 {
         runner.world.spawn((
             EntityId(i),
-            Position2D { x: i as f32, y: 0.0 },
-            Velocity { vx: 1.0, vy: 0.5, vz: 0.0 },
-            PlayerControlled { client_id: i as u64 },
+            Position2D {
+                x: i as f32,
+                y: 0.0,
+            },
+            Velocity {
+                vx: 1.0,
+                vy: 0.5,
+                vz: 0.0,
+            },
+            PlayerControlled {
+                client_id: i as u64,
+            },
             Health::new(100.0),
         ));
     }
@@ -27,18 +43,16 @@ fn run_pipeline(players: usize, ticks: u64) -> Duration {
     let mut rewind = RewindManager::new(500, 60);
     let mut rng = RoomRng::from_seed_str("capacity-probe");
 
-    runner.add_system(|mut q: bevy_ecs::prelude::Query<(
-        &mut Position2D,
-        &Velocity,
-        &mut Health,
-    )>| {
-        for (mut pos, vel, mut hp) in &mut q {
-            pos.x += vel.vx * 0.016_6;
-            pos.y += vel.vy * 0.016_6;
+    runner.add_system(
+        |mut q: bevy_ecs::prelude::Query<(&mut Position2D, &Velocity, &mut Health)>| {
+            for (mut pos, vel, mut hp) in &mut q {
+                pos.x += vel.vx * 0.016_6;
+                pos.y += vel.vy * 0.016_6;
 
-            let _ = hp.take_damage(0.001);
-        }
-    });
+                let _ = hp.take_damage(0.001);
+            }
+        },
+    );
 
     let mut clock = FixedClock::new(60);
     let start = Instant::now();
@@ -79,7 +93,10 @@ fn run_pipeline(players: usize, ticks: u64) -> Duration {
 #[ignore = "capacity probe: run with --ignored --nocapture"]
 fn one_thread_capacity() {
     println!("\n=== 1-thread sim capacity (60 Hz, full per-player pipeline) ===");
-    println!("{:>8} {:>10} {:>12} {:>12}", "players", "ticks", "per-tick", "per-player");
+    println!(
+        "{:>8} {:>10} {:>12} {:>12}",
+        "players", "ticks", "per-tick", "per-player"
+    );
 
     let mut per_player_ns = 0.0f64;
     let mut samples = 0usize;

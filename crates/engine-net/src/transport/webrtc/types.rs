@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 pub enum WebRtcServerEvent {
     Connected {
@@ -20,7 +19,6 @@ pub enum WebRtcServerEvent {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TransportStats {
-
     pub frames_sent: u64,
 
     pub frames_queued: u64,
@@ -70,7 +68,6 @@ pub(super) enum WriteAttempt {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeltaSendReport {
-
     pub frames_accepted: usize,
 
     pub frames_dropped: usize,

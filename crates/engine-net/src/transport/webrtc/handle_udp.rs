@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::time::Instant;
 
-use str0m::net::{Protocol, Receive};
 use str0m::Input;
+use str0m::net::{Protocol, Receive};
 
 use super::WebRtcServer;
 

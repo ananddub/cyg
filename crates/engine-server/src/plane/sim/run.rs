@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use engine_bus::Bus;
 
-use crate::plane::{self, PlaneConfig, tick_period};
 use crate::plane::sim::state::Plane;
+use crate::plane::{self, PlaneConfig, tick_period};
 use crate::telemetry::Recorder;
 
 pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {

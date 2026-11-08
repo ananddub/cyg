@@ -149,9 +149,7 @@ fn validate_join_options(
         diagnostics.push(SchemaDiagnostic {
             line: def.line,
             column: def.column,
-            message: format!(
-                "`{JOIN_OPTIONS_SCHEMA_NAME}` must declare at least one field"
-            ),
+            message: format!("`{JOIN_OPTIONS_SCHEMA_NAME}` must declare at least one field"),
         });
     }
 }
@@ -187,7 +185,10 @@ fn validate_input_frame(
         }
     }
     for field in &input.fields {
-        if matches!(field.kind, crate::wire::WireKind::String | crate::wire::WireKind::Array) {
+        if matches!(
+            field.kind,
+            crate::wire::WireKind::String | crate::wire::WireKind::Array
+        ) {
             diagnostics.push(SchemaDiagnostic {
                 line: input.line,
                 column: input.column,

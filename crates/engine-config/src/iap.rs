@@ -1,7 +1,5 @@
-
 #[derive(Debug, Clone)]
 pub struct IapConfig {
-
     pub apple_shared_secret: String,
 
     pub apple_verify_url: String,
@@ -35,7 +33,6 @@ impl Default for IapConfig {
 }
 
 impl IapConfig {
-
     pub fn apple_configured(&self) -> bool {
         !self.apple_shared_secret.trim().is_empty()
     }

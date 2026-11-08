@@ -1,4 +1,3 @@
-
 use std::collections::VecDeque;
 
 use engine_webrtc_protocol::is_newer;
@@ -14,9 +13,7 @@ pub struct OutboundQueue {
 }
 
 impl OutboundQueue {
-
     pub fn push(&mut self, item: OutboundDelta, capacity: usize) -> (u64, u64) {
-
         if item.frames() > capacity {
             self.dropped_deltas += 1;
             self.dropped_frames += item.frames() as u64;

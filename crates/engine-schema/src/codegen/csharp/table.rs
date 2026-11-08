@@ -16,7 +16,6 @@ pub(super) fn cs_field_table(fields: &[SchemaField]) -> String {
             field.element.unwrap_or(WireKind::U8),
             kind_size(field)
         );
-
     }
     out.replace("OxWireKind::", "OxWireKind.")
 }

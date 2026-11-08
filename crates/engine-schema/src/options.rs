@@ -12,8 +12,7 @@ use crate::wire::WireKind;
 /// zero (`0`, `false`, `""`) — lenient like Colyseus. Garbage JSON encodes as
 /// defaults rather than failing the join.
 pub fn encode_join_options(fields: &[SchemaField], json: &str) -> Vec<u8> {
-    let value = serde_json::from_str::<serde_json::Value>(json)
-        .unwrap_or(serde_json::Value::Null);
+    let value = serde_json::from_str::<serde_json::Value>(json).unwrap_or(serde_json::Value::Null);
     let object = value.as_object();
     let mut out = Vec::new();
     for field in fields {
@@ -33,10 +32,17 @@ fn encode_field(out: &mut Vec<u8>, field: &SchemaField, value: Option<&serde_jso
         ),
         WireKind::U8 => out.push(num(value, field).clamp(0.0, 255.0) as u8),
         WireKind::I8 => out.push(num(value, field).clamp(-128.0, 127.0) as i8 as u8),
-        WireKind::U16 => out.extend_from_slice(&(num(value, field).clamp(0.0, 65535.0) as u16).to_le_bytes()),
-        WireKind::I16 => out.extend_from_slice(&(num(value, field).clamp(-32768.0, 32767.0) as i16).to_le_bytes()),
-        WireKind::U32 => out.extend_from_slice(&(num(value, field).clamp(0.0, u32::MAX as f64) as u32).to_le_bytes()),
-        WireKind::I32 => out.extend_from_slice(&(num(value, field).clamp(i32::MIN as f64, i32::MAX as f64) as i32).to_le_bytes()),
+        WireKind::U16 => {
+            out.extend_from_slice(&(num(value, field).clamp(0.0, 65535.0) as u16).to_le_bytes())
+        }
+        WireKind::I16 => out
+            .extend_from_slice(&(num(value, field).clamp(-32768.0, 32767.0) as i16).to_le_bytes()),
+        WireKind::U32 => out.extend_from_slice(
+            &(num(value, field).clamp(0.0, u32::MAX as f64) as u32).to_le_bytes(),
+        ),
+        WireKind::I32 => out.extend_from_slice(
+            &(num(value, field).clamp(i32::MIN as f64, i32::MAX as f64) as i32).to_le_bytes(),
+        ),
         WireKind::I64 => out.extend_from_slice(&(num(value, field) as i64).to_le_bytes()),
         WireKind::F32 => out.extend_from_slice(&(num(value, field) as f32).to_le_bytes()),
         WireKind::F64 => out.extend_from_slice(&num(value, field).to_le_bytes()),
@@ -54,7 +60,14 @@ fn encode_field(out: &mut Vec<u8>, field: &SchemaField, value: Option<&serde_jso
             out.extend_from_slice(bytes);
         }
         // Arrays are state-only; the parse layer never lets one reach here.
-        WireKind::Array => encode_field(out, &SchemaField { kind: WireKind::F64, ..field.clone() }, value),
+        WireKind::Array => encode_field(
+            out,
+            &SchemaField {
+                kind: WireKind::F64,
+                ..field.clone()
+            },
+            value,
+        ),
     }
 }
 

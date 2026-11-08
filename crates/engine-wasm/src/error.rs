@@ -32,7 +32,6 @@ pub enum WasmError {
 }
 
 impl WasmError {
-
     pub fn is_interrupt(&self) -> bool {
         const INTERRUPTED: &str = "wasm trap: interrupt";
         match self {

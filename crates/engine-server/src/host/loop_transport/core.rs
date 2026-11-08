@@ -6,9 +6,9 @@ use std::time::Duration;
 use engine_net::transport::webrtc::contract::Inbound;
 use engine_net::transport::{GameTransport, WebRtcServer, WebRtcTransport};
 
+use super::state::SeatEntry;
 use crate::host::*;
 impl LoopTransport {
-
     pub(crate) fn new(
         rtc: WebRtcTransport,
         quic: Option<engine_net::QuicTransport>,
@@ -19,8 +19,7 @@ impl LoopTransport {
             rtc,
             quic,
             ws,
-            client_rooms: Arc::new(scc::HashMap::new()),
-            client_options: HashMap::new(),
+            seats: HashMap::new(),
             consented: std::collections::HashSet::new(),
             retained: HashMap::new(),
             inbound: Vec::new(),
@@ -65,33 +64,31 @@ impl LoopTransport {
     }
 
     pub fn register_seat(&mut self, session_id: &str, room: &str, options: &str) {
-        let _ = self
-            .client_rooms
-            .insert_sync(session_id.to_string(), room.to_string());
-        self.client_options
-            .insert(session_id.to_string(), options.to_string());
+        self.seats.insert(
+            session_id.to_string(),
+            SeatEntry {
+                room: Arc::from(room),
+                options: Arc::from(options),
+            },
+        );
     }
 
-    pub fn room_of(&self, client_id: &str) -> Option<String> {
-        if let Some(room) = self
-            .ws
-            .as_ref()
-            .and_then(|ws| ws.room_of(client_id).map(str::to_string))
-        {
+    pub fn room_of(&self, client_id: &str) -> Option<Arc<str>> {
+        if let Some(room) = self.ws.as_ref().and_then(|ws| ws.room_of_shared(client_id)) {
             return Some(room);
         }
-        self.client_rooms.read_sync(client_id, |_, r| r.clone())
+        self.seats.get(client_id).map(|s| s.room.clone())
     }
 
-    pub fn options_of(&self, client_id: &str) -> Option<String> {
+    pub fn options_of(&self, client_id: &str) -> Option<Arc<str>> {
         if let Some(opts) = self
             .ws
             .as_ref()
-            .and_then(|ws| ws.options_of(client_id).map(str::to_string))
+            .and_then(|ws| ws.options_of_shared(client_id))
         {
             return Some(opts);
         }
-        self.client_options.get(client_id).cloned()
+        self.seats.get(client_id).map(|s| s.options.clone())
     }
 
     pub fn take_consented(&mut self, client_id: &str) -> bool {
@@ -112,12 +109,8 @@ impl LoopTransport {
         );
     }
 
-    pub fn take_room_of(&mut self, client_id: &str) -> Option<String> {
-        let room = self.client_rooms.remove_sync(client_id).map(|(_, r)| r);
-        if room.is_some() {
-            self.client_options.remove(client_id);
-        }
-        room
+    pub fn take_room_of(&mut self, client_id: &str) -> Option<Arc<str>> {
+        self.seats.remove(client_id).map(|s| s.room)
     }
 
     pub fn dropped_frames(&self) -> u64 {
@@ -132,8 +125,7 @@ impl LoopTransport {
         self.rtc.server().is_connected(session)
     }
 
-    pub fn take_inbound(&mut self) -> Vec<(String, Inbound)> {
+    pub fn take_inbound(&mut self) -> Vec<(Arc<str>, Inbound)> {
         std::mem::take(&mut self.inbound)
     }
-
 }

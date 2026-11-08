@@ -1,13 +1,11 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, FnArg, ItemFn, LitStr, PatType};
+use syn::{FnArg, ItemFn, LitStr, PatType, parse_macro_input};
 
 use crate::descriptor::{
     param_descriptor_tokens, request_schema_descriptor_tokens, response_schema_descriptor_tokens,
 };
-use crate::docs::{
-    doc_comment_summary, join_paths, merged_docs, openapi_tag, option_lit_tokens,
-};
+use crate::docs::{doc_comment_summary, join_paths, merged_docs, openapi_tag, option_lit_tokens};
 use crate::model::ResponseBody;
 use crate::options::RouteOptions;
 use crate::params::infer_params;

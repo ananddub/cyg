@@ -1,9 +1,7 @@
-
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct WatchdogConfig {
-
     pub enabled: bool,
 
     pub tick_budget_ms: u64,
@@ -25,7 +23,6 @@ impl Default for WatchdogConfig {
 }
 
 impl WatchdogConfig {
-
     pub fn clamp(&mut self) {
         self.tick_budget_ms = self.tick_budget_ms.clamp(250, 60_000);
         self.epoch_deadline_ticks = self.epoch_deadline_ticks.clamp(1, 64);

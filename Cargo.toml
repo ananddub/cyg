@@ -63,6 +63,9 @@ serde_json = "1"
 
 # Heap profiler for allocation break-downs (`cargo build --features dhat`, OX_DHAT_SECS=n exits cleanly)
 dhat = { version = "0.3", optional = true }
+# CPU sampling profiler (SIGPROF, no perf/sudo needed): `--features cpu-prof`,
+# OX_CPU_PROF_SECS=n exits cleanly and writes cpu-flamegraph.svg
+pprof = { version = "0.14", default-features = false, features = ["flamegraph"], optional = true }
 
 [dev-dependencies]
 engine-core = { path = "crates/engine-core" }
@@ -83,6 +86,7 @@ otel = [
     "dep:tracing-opentelemetry",
 ]
 dhat = ["dep:dhat"]
+cpu-prof = ["dep:pprof"]
 # Opt-in mimalloc global allocator; default is the system (glibc) allocator.
 mimalloc = ["dep:mimalloc"]
 
@@ -99,6 +103,13 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Profiler builds: same codegen as release, but keep symbols so dhat/pprof
+# backtraces resolve to function names instead of hex addresses.
+[profile.profiling]
+inherits = "release"
+debug = 1
+strip = false
 
 # local auto-di checkout (register_instance API) until 0.6.1 is published
 [patch.crates-io]

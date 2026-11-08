@@ -1,4 +1,3 @@
-
 use std::time::Duration;
 
 use engine_api::ApiState;
@@ -16,7 +15,6 @@ pub struct ControlPlane {
 }
 
 impl ControlPlane {
-
     pub fn shutdown(self) {
         self.runtime.shutdown_timeout(Duration::from_secs(2));
     }

@@ -1,18 +1,16 @@
 use std::collections::HashMap;
 
-use super::types::{Interpolation, TransformSnapshot};
 use super::history::EntityHistory;
+use super::types::{Interpolation, TransformSnapshot};
 
 #[derive(Debug, Clone)]
 pub struct RewindManager {
-
     capacity: usize,
     interp: Interpolation,
     histories: HashMap<u64, EntityHistory<TransformSnapshot>>,
 }
 
 impl RewindManager {
-
     pub fn new(max_rewind_ms: u32, tick_rate: u32) -> Self {
         Self::new_with_interpolation(max_rewind_ms, tick_rate, Interpolation::Linear)
     }

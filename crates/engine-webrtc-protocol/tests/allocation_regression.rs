@@ -1,7 +1,6 @@
-
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 static ALLOCS: AtomicU64 = AtomicU64::new(0);
 static DEALLOCS: AtomicU64 = AtomicU64::new(0);
@@ -25,7 +24,10 @@ static GLOBAL: CountingAlloc = CountingAlloc;
 static MEASURE_LOCK: Mutex<()> = Mutex::new(());
 
 fn snapshot() -> (u64, u64) {
-    (ALLOCS.load(Ordering::Relaxed), DEALLOCS.load(Ordering::Relaxed))
+    (
+        ALLOCS.load(Ordering::Relaxed),
+        DEALLOCS.load(Ordering::Relaxed),
+    )
 }
 
 fn min_allocs_per_iter<F: FnMut()>(windows: usize, iterations: usize, mut f: F) -> f64 {
@@ -63,10 +65,9 @@ fn flat_delta_cycle_is_a_fixed_tiny_alloc_count() {
         let mut delivered = None;
         for fragment in packing.fragments() {
             let flen = DELTA_HEADER + fragment.chunk.len();
-            let (header, chunk) = engine_webrtc_protocol::channel::DeltaHeader::parse(
-                &wire[pos..pos + flen],
-            )
-            .expect("parses");
+            let (header, chunk) =
+                engine_webrtc_protocol::channel::DeltaHeader::parse(&wire[pos..pos + flen])
+                    .expect("parses");
             if let Some(delta) = assembler.insert(&header, chunk, 0) {
                 delivered = Some(delta.body);
             }

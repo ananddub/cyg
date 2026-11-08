@@ -116,8 +116,12 @@ impl UdpLane {
                     let Ok(sample) = <&[u8; 20]>::try_from(data) else {
                         return;
                     };
-                    if !udp_input_allowed(&mut self.udp_input_rates, ctx.tick_interval, peer_addr, sample)
-                    {
+                    if !udp_input_allowed(
+                        &mut self.udp_input_rates,
+                        ctx.tick_interval,
+                        peer_addr,
+                        sample,
+                    ) {
                         ctx.recorder.inputs_dropped += 1;
                         return;
                     }

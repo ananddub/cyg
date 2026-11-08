@@ -1,6 +1,6 @@
 use super::*;
-use crate::rooms::close_code;
 use crate::rooms::GameRoom;
+use crate::rooms::close_code;
 
 #[test]
 fn ecs_room_movement_and_delta_flow() {
@@ -15,7 +15,7 @@ fn ecs_room_movement_and_delta_flow() {
     for _ in 0..30 {
         room.tick_ecs(1.0 / 60.0);
         for msg in room.drain_outbox() {
-            assert_eq!(msg.event, "delta");
+            assert_eq!(msg.event.as_ref(), "delta");
             assert_eq!(msg.target, 0, "delta broadcasts room-wide");
             saw_delta = true;
             let mut i = 0;

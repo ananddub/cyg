@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 pub(crate) struct PartialDelta {
     pub seq: u16,
@@ -40,7 +39,6 @@ impl PartialDelta {
 
         let is_last = idx + 1 == self.total as usize;
         if self.sparse.is_none() && !is_last && chunk.len() != crate::channel::MAX_DELTA_CHUNK {
-
             let max_chunk = crate::channel::MAX_DELTA_CHUNK;
             let last = self.total as usize - 1;
             let last_len = if self.present[last] {
@@ -92,7 +90,6 @@ impl PartialDelta {
                 body
             }
             None => {
-
                 let mut buf = self.buf;
                 buf.truncate(self.bytes);
                 buf

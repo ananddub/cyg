@@ -41,17 +41,37 @@ static DHAT_PROFILER: std::sync::Mutex<Option<dhat::Profiler>> = std::sync::Mute
 #[cfg(feature = "dhat")]
 fn install_dhat() {
     *DHAT_PROFILER.lock().unwrap() = Some(dhat::Profiler::builder().build());
-    std::thread::spawn(|| loop {
-        std::thread::sleep(std::time::Duration::from_secs(10));
-        let s = dhat::HeapStats::get();
-        tracing::info!(
-            "[dhat] curr {:.1} MiB / peak {:.1} MiB / total allocated {:.0} MiB in {} blocks",
-            s.curr_bytes as f64 / 1048576.0,
-            s.max_bytes as f64 / 1048576.0,
-            s.total_bytes as f64 / 1048576.0,
-            s.total_blocks
-        );
+    std::thread::spawn(|| {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            let s = dhat::HeapStats::get();
+            tracing::info!(
+                "[dhat] curr {:.1} MiB / peak {:.1} MiB / total allocated {:.0} MiB in {} blocks",
+                s.curr_bytes as f64 / 1048576.0,
+                s.max_bytes as f64 / 1048576.0,
+                s.total_bytes as f64 / 1048576.0,
+                s.total_blocks
+            );
+        }
     });
+}
+
+#[cfg(feature = "cpu-prof")]
+static CPU_PROFILER: std::sync::Mutex<Option<pprof::ProfilerGuard<'static>>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(feature = "cpu-prof")]
+fn install_cpu_prof() {
+    if std::env::var("OX_CPU_PROF_SECS").is_err() {
+        return;
+    }
+    match pprof::ProfilerGuardBuilder::default()
+        .frequency(999)
+        .build()
+    {
+        Ok(guard) => *CPU_PROFILER.lock().unwrap() = Some(guard),
+        Err(e) => tracing::warn!("[cpu-prof] failed to start: {e}"),
+    }
 }
 
 mod backup;
@@ -85,6 +105,8 @@ fn init_logging() -> telemetry::Guard {
 fn main() {
     #[cfg(feature = "dhat")]
     install_dhat();
+    #[cfg(feature = "cpu-prof")]
+    install_cpu_prof();
     // Held for the whole process: dropping it flushes the OTLP batch processor.
     let _telemetry = init_logging();
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -1052,9 +1074,7 @@ declare module "cyg" {
         "  {}/out/                 — cyg.schema.bin descriptor + wasm build",
         dir.display()
     );
-    tracing::info!(
-        "  browser SDK: served by the server at /cyg.js — no copy needed"
-    );
+    tracing::info!("  browser SDK: served by the server at /cyg.js — no copy needed");
     tracing::info!("");
     print_schema_output(&generated, false, false)?;
     tracing::info!("");
@@ -1191,6 +1211,19 @@ fn run(dir: &Path) -> std::io::Result<()> {
     {
         // dropping the profiler flushes dhat-heap.json
         let _ = DHAT_PROFILER.lock().unwrap().take();
+    }
+    #[cfg(feature = "cpu-prof")]
+    if let Some(guard) = CPU_PROFILER.lock().unwrap().take() {
+        match guard.report().build() {
+            Ok(report) => match std::fs::File::create("cpu-flamegraph.svg") {
+                Ok(file) => {
+                    let _ = report.flamegraph(file);
+                    tracing::info!("[cpu-prof] wrote cpu-flamegraph.svg");
+                }
+                Err(e) => tracing::warn!("[cpu-prof] cannot create svg: {e}"),
+            },
+            Err(e) => tracing::warn!("[cpu-prof] report failed: {e}"),
+        }
     }
     result
 }

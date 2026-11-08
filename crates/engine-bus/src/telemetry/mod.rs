@@ -17,7 +17,6 @@ pub struct SessionTelemetry {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RoomPhase {
-
     Created,
 
     #[default]
@@ -29,7 +28,6 @@ pub enum RoomPhase {
 }
 
 impl RoomPhase {
-
     pub fn allows(self, next: Self) -> bool {
         match self {
             RoomPhase::Created => matches!(next, RoomPhase::Active | RoomPhase::Closed),

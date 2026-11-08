@@ -69,7 +69,6 @@ pub enum ReloadKind {
 
 #[derive(Clone, Debug)]
 pub struct WasmReload {
-
     pub game_id: String,
 
     pub game_key: String,
@@ -94,13 +93,11 @@ pub struct MapReload {
 
 #[derive(Clone, Copy, Debug)]
 pub struct SettingsReload {
-
     pub tick_rate: u32,
 }
 
 #[derive(Debug)]
 pub enum SimCommand {
-
     BindPeer {
         peer_id: PeerId,
         room: String,

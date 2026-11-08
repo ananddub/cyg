@@ -2,7 +2,6 @@ use crate::rooms::*;
 use std::time::{Duration, Instant};
 
 impl GameRoom {
-
     pub(crate) fn handle_disconnect(&mut self, session: &str) -> Option<u32> {
         let gone = self.detach_session(session);
         self.pending_leaves.remove(session);
@@ -27,7 +26,7 @@ impl GameRoom {
             if let Some(hold) = hold {
                 let deadline = Instant::now() + hold;
                 self.pending_leaves
-                    .insert(std::sync::Arc::from(session), (id, deadline));
+                    .insert(std::rc::Rc::from(session), (id, deadline));
             } else {
                 self.sessions.remove(session);
                 self.release_player_with(session, id, close_code::LOST);
@@ -75,5 +74,4 @@ impl GameRoom {
         }
         None
     }
-
 }

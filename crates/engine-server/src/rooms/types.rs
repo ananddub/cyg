@@ -60,8 +60,8 @@ pub enum RoomSnapshotData {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutboundMessage {
     pub target: i64,
-    pub event: String,
-    pub payload: Vec<u8>,
+    pub event: std::sync::Arc<str>,
+    pub payload: bytes::Bytes,
 }
 
 pub const MAX_OUTBOX_MESSAGES: usize = 256;

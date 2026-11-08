@@ -1,8 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use engine_bus::{
-    Bus, SeatUpdate, SimEvent,
-};
+use engine_bus::{Bus, SeatUpdate, SimEvent};
 
 use crate::rooms::OutboundMessage;
 
@@ -21,7 +19,14 @@ impl<'a> EventHistory<'a> {
         }
     }
 
-    pub(crate) fn emit(&self, room: &str, tick: u64, target: i64, event: String, payload: Vec<u8>) {
+    pub(crate) fn emit(
+        &self,
+        room: &str,
+        tick: u64,
+        target: i64,
+        event: std::sync::Arc<str>,
+        payload: bytes::Bytes,
+    ) {
         self.bus.push_event(SimEvent {
             room: room.to_string(),
             tick: tick as i64,
@@ -46,14 +51,25 @@ impl<'a> EventHistory<'a> {
     }
 
     pub(crate) fn carries_result(&self, message: &OutboundMessage) -> bool {
-        message.event == self.record.result_event
+        message.event.as_ref() == self.record.result_event.as_str()
     }
 
-    pub(crate) fn record_desync(&self, room: &str, target: i64, desync: &engine_wasm::DesyncReport) {
+    pub(crate) fn record_desync(
+        &self,
+        room: &str,
+        target: i64,
+        desync: &engine_wasm::DesyncReport,
+    ) {
         let mut payload = Vec::with_capacity(16);
         payload.extend_from_slice(&desync.expected_checksum.to_le_bytes());
         payload.extend_from_slice(&desync.client_checksum.to_le_bytes());
-        self.emit(room, desync.tick, target, "desync".to_string(), payload);
+        self.emit(
+            room,
+            desync.tick,
+            target,
+            std::sync::Arc::from("desync"),
+            bytes::Bytes::from(payload),
+        );
     }
 
     pub(crate) fn bridge_seat(&self, room: &str, seat: i64, user_id: Option<String>) {

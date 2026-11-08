@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::host::*;
 
 impl<'a> Engine<'a> {
-    pub(crate) fn run_packet(&mut self, client_id: String, payload: bytes::Bytes) {
+    pub(crate) fn run_packet(&mut self, client_id: &str, payload: bytes::Bytes) {
         let history = EventHistory::new(&self.bus, &self.game_cfg);
         let Some(data) = strip_type_header(&payload) else {
             return;
@@ -39,7 +39,7 @@ impl<'a> Engine<'a> {
                 && 2 + type_len <= data.len()
                 && &data[2..2 + type_len] == b"__ox_schema_ready"
             {
-                room.schema_sent.insert(std::sync::Arc::from(client_id.as_str()));
+                room.schema_sent.insert(std::rc::Rc::from(client_id));
                 return;
             }
         }
@@ -127,7 +127,7 @@ impl<'a> Engine<'a> {
             return;
         }
 
-        self.rates.last_input_at.insert(client_id.to_string(), Instant::now());
+        self.rates.note_input(client_id);
         if room.is_ecs() {
             room.ecs_input(&client_id, data);
             flush_room_outbox(room, &mut self.transport, room_name, &history);

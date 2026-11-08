@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use bevy_ecs::prelude::*;
 use engine_core::{RoomRng, TickRunner};
-use engine_physics::{CookedMesh, RapierWorld3D, step_rapier_3d, sync_ecs_to_rapier_3d, sync_rapier_to_ecs_3d, sync_velocity_to_rapier_3d};
+use engine_physics::{
+    CookedMesh, RapierWorld3D, step_rapier_3d, sync_ecs_to_rapier_3d, sync_rapier_to_ecs_3d,
+    sync_velocity_to_rapier_3d,
+};
 use rapier3d::prelude as r3d;
 
 use crate::ecs_room::systems::apply_inputs;

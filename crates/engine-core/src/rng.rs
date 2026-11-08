@@ -9,7 +9,6 @@ pub struct RoomRng {
 }
 
 impl RoomRng {
-
     pub fn from_seed_str(seed: &str) -> Self {
         let inner: ChaCha8Rng = Seeder::from(seed).make_rng();
         Self { inner }
@@ -37,7 +36,6 @@ impl RoomRng {
     }
 
     pub fn next_bool(&mut self, p: f64) -> bool {
-
         self.inner.gen_bool(p.max(0.0).min(1.0))
     }
 }

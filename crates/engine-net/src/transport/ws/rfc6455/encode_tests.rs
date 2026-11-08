@@ -4,7 +4,6 @@ use super::encode::encode_wire_frame;
 
 #[test]
 fn test_encode_wire_frame_boundaries() {
-
     let mut out = BytesMut::new();
     encode_wire_frame(15, &[], &mut out);
     assert_eq!(out.len(), 3);

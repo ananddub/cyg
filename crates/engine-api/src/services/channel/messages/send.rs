@@ -25,7 +25,12 @@ impl ChannelService {
         let stream = stream_of_channel(channel_id)?;
         let uid = auth.0.uuid()?;
         assert_member(state, uid, &stream).await?;
-        if q(state).await?.active_infraction(uid, "mute").await?.is_some() {
+        if q(state)
+            .await?
+            .active_infraction(uid, "mute")
+            .await?
+            .is_some()
+        {
             return Err(V2Error::permission_denied(
                 "You are muted and cannot send messages.",
             ));

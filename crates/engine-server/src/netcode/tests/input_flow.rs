@@ -36,10 +36,7 @@ fn an_input_for_a_seat_the_session_does_not_hold_is_refused() {
         apply_input(&mut room, &cfg, 0.033, "sess_bob", 2, 1, &payload),
         Err(InputRejection::NotSeated)
     );
-    assert!(
-        room.seqs.is_empty(),
-        "a refused input moved the baseline"
-    );
+    assert!(room.seqs.is_empty(), "a refused input moved the baseline");
     assert_eq!(
         apply_input(&mut room, &cfg, 0.033, "sess_alice", 1, 1, &payload),
         Ok(())
@@ -64,10 +61,7 @@ fn a_non_finite_or_absurd_axis_is_refused_before_the_guest_sees_it() {
             "{label} reached the guest"
         );
     }
-    assert!(
-        room.seqs.is_empty(),
-        "a refused input moved the baseline"
-    );
+    assert!(room.seqs.is_empty(), "a refused input moved the baseline");
 }
 
 #[test]
@@ -107,7 +101,11 @@ fn a_batch_that_contradicts_its_header_is_refused_whole() {
 
     assert_eq!(batch_sample_count(&batch(1)), Some(1));
     assert_eq!(batch_sample_count(&[]), None);
-    assert_eq!(batch_sample_count(&[OP_INPUT_BATCH, 0]), None, "empty batch");
+    assert_eq!(
+        batch_sample_count(&[OP_INPUT_BATCH, 0]),
+        None,
+        "empty batch"
+    );
     assert_eq!(
         batch_sample_count(&batch(MAX_BATCHED_INPUTS + 1)),
         None,

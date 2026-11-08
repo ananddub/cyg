@@ -1,7 +1,6 @@
 use crate::rooms::*;
 
 impl GameRoom {
-
     pub fn export_snapshot(&mut self) -> Option<Vec<u8>> {
         let bytes = self.export_snapshot_bytes()?;
         self.snapshot_seq += 1;
@@ -69,5 +68,4 @@ impl GameRoom {
             }
         }
     }
-
 }

@@ -6,7 +6,6 @@ pub struct NavMesh2D {
 }
 
 impl NavMesh2D {
-
     pub fn new(vertices: Vec<Vertex>, polygons: Vec<Polygon>) -> Result<Self, MeshError> {
         let mesh = Mesh::new(vertices, polygons)?;
         Ok(Self { mesh })

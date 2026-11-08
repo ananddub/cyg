@@ -36,8 +36,7 @@ impl<'a> HotReload<'a> {
                 &reload.bytes,
                 cfg.permissions,
                 &cfg.features,
-            )
-            {
+            ) {
                 Ok(pre) => {
                     self.console_active = true;
                     server.hot_reload(pre);
@@ -47,7 +46,10 @@ impl<'a> HotReload<'a> {
                     );
                 }
                 Err(e) => {
-                    tracing::error!("[server] ⚠️ console reload v{} rejected: {e}", reload.version);
+                    tracing::error!(
+                        "[server] ⚠️ console reload v{} rejected: {e}",
+                        reload.version
+                    );
                 }
             }
         }

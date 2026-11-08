@@ -9,7 +9,6 @@ pub const MAX_DELTA_CHUNK: usize = MAX_FRAME - DELTA_HEADER_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeltaHeader {
-
     pub seq: u16,
     pub tick: u32,
     pub frag_idx: u8,
@@ -18,7 +17,6 @@ pub struct DeltaHeader {
 }
 
 impl DeltaHeader {
-
     pub fn parse(buf: &[u8]) -> Option<(Self, &[u8])> {
         let (&op, rest) = buf.split_first()?;
         if op != OP_DELTA || rest.len() < DELTA_HEADER_LEN - 1 {

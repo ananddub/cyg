@@ -37,7 +37,11 @@ pub(crate) fn assert_exact(run: &Run, seed: u64, loss: u64) {
     }
 
     let unique: HashSet<u16> = run.delivered.iter().map(|d| d.seq).collect();
-    assert_eq!(unique.len(), run.delivered.len(), "a delta was delivered twice");
+    assert_eq!(
+        unique.len(),
+        run.delivered.len(),
+        "a delta was delivered twice"
+    );
     for pair in run.delivered.windows(2) {
         assert!(
             is_newer(pair[0].seq, pair[1].seq),

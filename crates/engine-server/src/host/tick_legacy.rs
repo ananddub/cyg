@@ -25,12 +25,10 @@ impl TickRunner {
             for i in 0..count {
                 let base = 4 + i * 72;
                 if base + 32 <= delta.len() {
-                    let pid = i64::from_le_bytes(
-                        delta[base..base + 8].try_into().unwrap_or([0; 8]),
-                    );
-                    let px = f64::from_le_bytes(
-                        delta[base + 8..base + 16].try_into().unwrap_or([0; 8]),
-                    );
+                    let pid =
+                        i64::from_le_bytes(delta[base..base + 8].try_into().unwrap_or([0; 8]));
+                    let px =
+                        f64::from_le_bytes(delta[base + 8..base + 16].try_into().unwrap_or([0; 8]));
                     let py = f64::from_le_bytes(
                         delta[base + 16..base + 24].try_into().unwrap_or([0; 8]),
                     );

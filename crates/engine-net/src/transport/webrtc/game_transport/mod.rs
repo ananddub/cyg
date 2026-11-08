@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -20,10 +21,10 @@ pub struct WebRtcTransport {
     pub(super) poll: mio::Poll,
     pub(super) events: mio::Events,
 
-    pub(super) last_seen: HashMap<String, Instant>,
+    pub(super) last_seen: HashMap<Arc<str>, Instant>,
     pub(super) idle_after: Duration,
     pub(super) pending: Vec<TransportEvent>,
-    pub(super) inbound: Vec<(String, super::contract::Inbound)>,
+    pub(super) inbound: Vec<(Arc<str>, super::contract::Inbound)>,
 
     pub(super) schema_descriptor: Bytes,
 }
@@ -66,7 +67,7 @@ impl WebRtcTransport {
         &mut self.server
     }
 
-    pub fn poll_inbound(&mut self) -> Vec<(String, super::contract::Inbound)> {
+    pub fn poll_inbound(&mut self) -> Vec<(Arc<str>, super::contract::Inbound)> {
         std::mem::take(&mut self.inbound)
     }
 

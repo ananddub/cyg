@@ -1,4 +1,3 @@
-
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
@@ -11,7 +10,6 @@ use super::{LABEL_RELIABLE, LABEL_UNRELIABLE};
 use crate::rtc_plane::RtcPlaneError;
 
 impl RtcSession {
-
     pub fn accepts(&self, now: Instant, from: SocketAddr, payload: &[u8]) -> bool {
         match Receive::new(Protocol::Udp, from, self.local_addr, payload) {
             Ok(recv) => self.rtc.accepts(&Input::Receive(now, recv)),
@@ -76,7 +74,6 @@ impl RtcSession {
                     break;
                 }
                 Err(_) => {
-
                     self.next_timeout = Instant::now() + Duration::from_secs(3600);
                     out.push(Outbound::Event(SessionEvent::Closed));
                     break;

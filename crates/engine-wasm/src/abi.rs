@@ -1,4 +1,3 @@
-
 use std::cell::Cell;
 
 pub const HOST_NAMESPACE_V1: &str = "game_host_v1";

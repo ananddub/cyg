@@ -13,8 +13,8 @@ pub struct GameRoom {
     pub(crate) navmesh: Option<std::sync::Arc<NavMesh2D>>,
     pub(crate) ecs: Option<crate::ecs_room::EcsRoomState>,
     pub(crate) ecs_outbox: Vec<OutboundMessage>,
-    pub(crate) sessions: HashMap<std::sync::Arc<str>, i64>,
-    pub(crate) spectators: HashSet<std::sync::Arc<str>>,
+    pub(crate) sessions: HashMap<std::rc::Rc<str>, i64>,
+    pub(crate) spectators: HashSet<std::rc::Rc<str>>,
     pub(crate) next_player_id: i64,
     pub(crate) empty_since: Option<Instant>,
     pub(crate) born: Instant,
@@ -31,14 +31,21 @@ pub struct GameRoom {
     pub(crate) seqs: HashMap<i64, SessionSeqs>,
     pub(crate) event_seq: u16,
     pub(crate) delta_seq: u16,
-    pub(crate) schema_sent: HashSet<std::sync::Arc<str>>,
-    pub(crate) pending_leaves: HashMap<std::sync::Arc<str>, (i64, Instant)>,
+    pub(crate) schema_sent: HashSet<std::rc::Rc<str>>,
+    pub(crate) pending_leaves: HashMap<std::rc::Rc<str>, (i64, Instant)>,
     pub(crate) patch_skipped: bool,
     pub(crate) last_patch_at: Option<Instant>,
     /// Set once the guest answers `on_patch_due`: the guest then gates its own
     /// delta production (accumulating dirty rows until a due commit), so the
     /// host never needs the skip-then-force-full fallback.
     pub(crate) patch_due_wired: bool,
+    /// Optional guest exports resolved once per instance — per-tick
+    /// `get_typed_func` name lookups were ~40% of tick CPU in profiles.
+    /// Re-probed after `reload_wasm` swaps the instance.
+    pub(crate) guest_fns_probed: bool,
+    pub(crate) on_patch_rate_fn: Option<wasmtime::TypedFunc<(), i32>>,
+    pub(crate) on_simulation_rate_fn: Option<wasmtime::TypedFunc<(), i32>>,
+    pub(crate) on_patch_due_fn: Option<wasmtime::TypedFunc<(i32,), ()>>,
     pub(crate) sim_accum: Duration,
 
     pub(crate) input_journal: VecDeque<JournalInput>,
@@ -87,7 +94,7 @@ pub(crate) struct SessionSeqs {
 
 pub(crate) struct JournalInput {
     pub(crate) tick: u64,
-    pub(crate) session: std::sync::Arc<str>,
+    pub(crate) session: std::rc::Rc<str>,
     pub(crate) id: i64,
     pub(crate) seq: u16,
     pub(crate) payload: [u8; 20],

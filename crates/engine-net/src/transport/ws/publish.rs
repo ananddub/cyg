@@ -1,18 +1,16 @@
-
 use std::io;
 use std::time::Instant;
 
 use bytes::BufMut;
 
 use super::client::{MAX_OVERFLOW_STRIKES, MAX_SEND_QUEUE};
-use super::protocol::close_code;
 use super::msgpack::{mp_number, mp_str};
+use super::protocol::close_code;
 use super::protocol::{PROTO_ERROR, PROTO_ROOM_RESPONSE};
 use super::rfc6455::encode_wire_frame;
 use super::transport::WsTransport;
 
 impl WsTransport {
-
     pub fn send_error(&mut self, client_id: &str, code: u16, message: &str) -> io::Result<()> {
         let mut payload = std::mem::take(&mut self.sb);
         payload.reserve(8 + message.len());
@@ -53,7 +51,7 @@ impl WsTransport {
         body: std::sync::Arc<[u8]>,
         tail: &[u8; 6],
     ) -> bool {
-        let Some(&token) = self.client_tokens.get(client_id) else {
+        let Some(token) = self.clients_meta.get(client_id).map(|m| m.token) else {
             return false;
         };
         let Some(client) = self.clients.get_mut(&token) else {
@@ -123,9 +121,8 @@ impl WsTransport {
 
     #[inline]
     pub(super) fn queue_to(&mut self, client_id: &str, colyseus_opcode: u8, payload: &[u8]) {
-        if let Some(&token) = self.client_tokens.get(client_id) {
+        if let Some(token) = self.clients_meta.get(client_id).map(|m| m.token) {
             if let Some(client) = self.clients.get_mut(&token) {
-
                 client.state_frame_start = None;
                 let required = payload.len() + 16;
                 if client.send_queue.len() + required > MAX_SEND_QUEUE {
@@ -168,7 +165,7 @@ impl WsTransport {
         let mut queued = false;
         let mut kicked: Vec<&str> = Vec::new();
         for &client_id in client_ids {
-            let Some(&token) = self.client_tokens.get(client_id) else {
+            let Some(token) = self.clients_meta.get(client_id).map(|m| m.token) else {
                 continue;
             };
             let Some(client) = self.clients.get_mut(&token) else {

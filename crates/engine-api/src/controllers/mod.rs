@@ -15,9 +15,9 @@ pub mod leaderboard;
 pub mod link;
 pub mod marketplace;
 pub mod match_history;
+pub mod match_result;
 #[path = "match.rs"]
 pub mod match_routes;
-pub mod match_result;
 pub mod matchmake;
 pub mod notification;
 pub mod notify;

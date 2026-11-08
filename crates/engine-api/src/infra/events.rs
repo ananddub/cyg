@@ -17,7 +17,9 @@ use engine_bus::{RoomSnapshot, SeatUpdate, SimEvent};
 use uuid::Uuid;
 
 use crate::ApiState;
-use crate::repositories::models::{DesyncReport, GameplayEvent, MatchHistory, QuestDefinition, RoomRegistry};
+use crate::repositories::models::{
+    DesyncReport, GameplayEvent, MatchHistory, QuestDefinition, RoomRegistry,
+};
 use crate::services::quest::catalog::{open_seasons, visible};
 
 const PUMP_INTERVAL: Duration = Duration::from_millis(250);
@@ -103,12 +105,15 @@ impl QuestCounters {
                 return;
             }
         };
-        self.by_counter = visible(&definitions, &seasons, now)
-            .into_iter()
-            .fold(HashMap::new(), |mut map, quest| {
-                map.entry(quest.goal_kind.clone()).or_default().push(quest.clone());
+        self.by_counter = visible(&definitions, &seasons, now).into_iter().fold(
+            HashMap::new(),
+            |mut map, quest| {
+                map.entry(quest.goal_kind.clone())
+                    .or_default()
+                    .push(quest.clone());
                 map
-            });
+            },
+        );
     }
 
     fn due(&self) -> bool {
@@ -174,7 +179,7 @@ pub async fn pump_events(state: ApiState) {
             seats.apply(seat);
         }
         while let Ok(event) = rx.try_recv() {
-            let desync = if event.event == DESYNC_EVENT {
+            let desync = if event.event.as_ref() == DESYNC_EVENT {
                 checksum_pair(&event.payload)
             } else {
                 None
@@ -220,8 +225,8 @@ pub async fn pump_events(state: ApiState) {
                         tick: event.tick,
                         seq: event.seq as i64,
                         player_id: event.target,
-                        event: event.event,
-                        payload: event.payload,
+                        event: event.event.to_string(),
+                        payload: event.payload.to_vec(),
                         create_time: Utc::now(),
                     })
                     .await
@@ -278,7 +283,10 @@ pub async fn pump_events(state: ApiState) {
                 }),
                 Ok(None) => None,
                 Err(err) => {
-                    tracing::warn!("[control] snapshot fetch for '{}' failed: {err}", fetch.room);
+                    tracing::warn!(
+                        "[control] snapshot fetch for '{}' failed: {err}",
+                        fetch.room
+                    );
                     None
                 }
             };
@@ -310,7 +318,10 @@ pub async fn pump_events(state: ApiState) {
                 .await
             };
             if let Err(err) = stored {
-                tracing::warn!("[control] dropped the registry row for '{}': {err}", row.room);
+                tracing::warn!(
+                    "[control] dropped the registry row for '{}': {err}",
+                    row.room
+                );
             }
         }
     }
@@ -329,7 +340,7 @@ async fn credit_mirrored_event(
     counters: &QuestCounters,
     event: &SimEvent,
 ) -> Result<(), String> {
-    let Some(quests) = counters.by_counter.get(&event.event) else {
+    let Some(quests) = counters.by_counter.get(event.event.as_ref()) else {
         return Ok(());
     };
     let Some(user_id) = seats.resolve(event) else {
@@ -413,7 +424,7 @@ mod seat_credit_tests {
                 seq: 1,
                 target: 1,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             }),
             Some(user)
         );
@@ -425,7 +436,7 @@ mod seat_credit_tests {
                 seq: 2,
                 target: 2,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             }),
             None
         );
@@ -436,7 +447,7 @@ mod seat_credit_tests {
                 seq: 3,
                 target: 0,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             }),
             None
         );
@@ -452,7 +463,7 @@ mod seat_credit_tests {
                 seq: 4,
                 target: 1,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             }),
             None,
             "the leave cleared the bridge"
@@ -463,7 +474,10 @@ mod seat_credit_tests {
             user_id: Some(user.to_string()),
         });
         bridges.drop_room("arena");
-        assert!(bridges.0.is_empty(), "the closed room took its bridges with it");
+        assert!(
+            bridges.0.is_empty(),
+            "the closed room took its bridges with it"
+        );
     }
 
     /// The full loop: a seated guest's mirrored `coins` events move the same
@@ -529,7 +543,7 @@ mod seat_credit_tests {
                 seq,
                 target: 1,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             });
         }
 
@@ -551,7 +565,10 @@ mod seat_credit_tests {
         pump.abort();
         assert!(credited, "the pump never credited the second event");
 
-        let rows = queries.list_player_quests(user).await.expect("progress rows");
+        let rows = queries
+            .list_player_quests(user)
+            .await
+            .expect("progress rows");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].quest_key, "coin-hoarder");
         assert_eq!(rows[0].state, "completed", "the goal was crossed");
@@ -619,7 +636,7 @@ mod seat_credit_tests {
             seq: 1,
             target: 4,
             event: "coins".into(),
-            payload: vec![],
+            payload: vec![].into(),
         });
 
         let pump = tokio::spawn(crate::pump_events(state.clone()));
@@ -627,6 +644,9 @@ mod seat_credit_tests {
         pump.abort();
 
         let stats = queries.list_player_stats(user).await.expect("stat query");
-        assert!(stats.is_empty(), "the event on seat 4 credited seat 9's user");
+        assert!(
+            stats.is_empty(),
+            "the event on seat 4 credited seat 9's user"
+        );
     }
 }

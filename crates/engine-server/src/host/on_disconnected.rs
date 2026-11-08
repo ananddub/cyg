@@ -18,14 +18,14 @@ impl<'a> Engine<'a> {
             let mut found = None;
             for (rname, r) in &self.server.rooms {
                 if r.sessions.contains_key(&*client_id) || r.spectators.contains(&*client_id) {
-                    found = Some(rname.clone());
+                    found = Some(rname.to_string());
                     break;
                 }
             }
             found.unwrap_or_else(|| self.cfg.name.clone())
         };
         self.transport.retain_session(&room_name, client_id);
-        let Some(room) = self.server.rooms.get_mut(&room_name) else {
+        let Some(room) = self.server.rooms.get_mut(room_name.as_str()) else {
             return;
         };
         let consented = self.transport.take_consented(client_id);

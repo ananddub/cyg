@@ -2,7 +2,7 @@ mod read;
 mod reader;
 mod write;
 
-pub use read::{parse_descriptor, Descriptor};
+pub use read::{Descriptor, parse_descriptor};
 pub use write::emit_descriptor;
 
 pub(crate) use reader::Reader;

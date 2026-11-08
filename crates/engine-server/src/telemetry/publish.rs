@@ -1,4 +1,3 @@
-
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -11,7 +10,6 @@ use super::report::PublishReport;
 use super::stats::nominal_tick_us;
 
 impl Recorder {
-
     pub fn maybe_publish(&mut self, bus: &Arc<Bus>, report: PublishReport) -> bool {
         if self.last_publish.elapsed() < Duration::from_secs(1) {
             return false;
@@ -48,7 +46,6 @@ impl Recorder {
             self.empty_since = None;
             0
         } else {
-
             let since = *self.empty_since.get_or_insert(Instant::now());
             since.elapsed().as_secs()
         };
@@ -66,7 +63,8 @@ impl Recorder {
         tracing::debug!("[status] {}", serde_json::json!(&snap));
 
         let _ = bus.status_tx.try_send(snap.clone());
-        LAST.get_or_init(ArcSwapOption::default).store(Some(Arc::new(snap)));
+        LAST.get_or_init(ArcSwapOption::default)
+            .store(Some(Arc::new(snap)));
 
         self.n_input = 0;
         self.n_tick = 0;

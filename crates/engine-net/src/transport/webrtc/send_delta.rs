@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::WebRtcServer;
 use super::contract::Lane;
 use super::session::{Sink, WebRtcSession};
@@ -8,7 +10,7 @@ impl WebRtcServer {
         session: &mut WebRtcSession,
         seq: u16,
         tick: u32,
-        frames: Vec<Vec<u8>>,
+        frames: Vec<Arc<[u8]>>,
         fragments: usize,
         sink: &mut Sink,
     ) -> DeltaSendReport {

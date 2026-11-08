@@ -1,4 +1,4 @@
-use crate::rooms::{OutboundMessage, RoomHostData, MAX_OUTBOX_MESSAGES};
+use crate::rooms::{MAX_OUTBOX_MESSAGES, OutboundMessage, RoomHostData};
 
 pub(crate) fn register(
     linker: &mut wasmtime::Linker<RoomHostData>,
@@ -9,7 +9,6 @@ pub(crate) fn register(
         engine_wasm::HOST_NAMESPACE_LEGACY,
         "ox",
     ] {
-
         linker
             .func_wrap(
                 ns,
@@ -107,13 +106,13 @@ pub(crate) fn register(
                     }
 
                     let event = match std::str::from_utf8(&memory[t_off..t_end]) {
-                        Ok(name) => name.to_string(),
+                        Ok(name) => std::sync::Arc::from(name),
                         Err(_) => return engine_wasm::ABI_ERR_INVALID_UTF8,
                     };
                     let payload = if data_len > 0 {
-                        memory[d_off..d_end].to_vec()
+                        bytes::Bytes::copy_from_slice(&memory[d_off..d_end])
                     } else {
-                        Vec::new()
+                        bytes::Bytes::new()
                     };
 
                     let data = caller.data_mut();
@@ -139,6 +138,5 @@ pub(crate) fn register(
                 },
             )
             .expect("link get_abi_version");
-
     }
 }

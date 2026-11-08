@@ -1,4 +1,3 @@
-
 use crate::framing::OpCode;
 
 pub(super) const PROTO_JOIN_ROOM: u8 = 10;

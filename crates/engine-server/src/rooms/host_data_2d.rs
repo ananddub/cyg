@@ -4,12 +4,13 @@ use rapier2d::prelude as r2d;
 use super::RoomHostData;
 
 impl RoomHostData {
-
     pub fn init_rapier2d(&mut self, gx: f32, gy: f32) {
         if !self.features.wants_rapier2d() {
             return; // feature off — the world must never be resurrected
         }
-        let Some(world) = self.rapier2d.as_mut() else { return };
+        let Some(world) = self.rapier2d.as_mut() else {
+            return;
+        };
         if world.arena_width > 0.0 || world.collider_set.len() > 0 {
             world.gravity = r2d::Vector::new(gx, gy);
             return;
@@ -22,7 +23,9 @@ impl RoomHostData {
     }
 
     pub fn rapier2d_create_body(&mut self, body_type: i32, x: f32, y: f32) -> i32 {
-        let Some(world) = self.rapier2d.as_mut() else { return 0 };
+        let Some(world) = self.rapier2d.as_mut() else {
+            return 0;
+        };
         let handle = world.create_body(body_type, x, y);
         let id = self.rapier2d_next_body_id;
         self.rapier2d_next_body_id += 1;
@@ -41,7 +44,9 @@ impl RoomHostData {
         let Some(&handle) = self.rapier2d_bodies.get(&body_id) else {
             return 0;
         };
-        let Some(world) = self.rapier2d.as_mut() else { return 0 };
+        let Some(world) = self.rapier2d.as_mut() else {
+            return 0;
+        };
         let col_handle =
             world.add_circle_collider(handle, radius, is_sensor, restitution, friction);
         let col_id = self.rapier2d_next_col_id;
@@ -62,7 +67,9 @@ impl RoomHostData {
         let Some(&handle) = self.rapier2d_bodies.get(&body_id) else {
             return 0;
         };
-        let Some(world) = self.rapier2d.as_mut() else { return 0 };
+        let Some(world) = self.rapier2d.as_mut() else {
+            return 0;
+        };
         let col_handle =
             world.add_box_collider(handle, half_w, half_h, is_sensor, restitution, friction);
         let col_id = self.rapier2d_next_col_id;
@@ -108,7 +115,9 @@ impl RoomHostData {
     }
 
     pub fn rapier2d_step(&mut self, dt: f32) {
-        let Some(world) = self.rapier2d.as_mut() else { return };
+        let Some(world) = self.rapier2d.as_mut() else {
+            return;
+        };
         if dt > 0.0 {
             world.integration_parameters.dt = dt;
         }
@@ -127,9 +136,10 @@ impl RoomHostData {
     }
 
     pub fn rapier2d_remove_body(&mut self, body_id: i32) {
-        if let (Some(handle), Some(world)) =
-            (self.rapier2d_bodies.remove(&body_id), self.rapier2d.as_mut())
-        {
+        if let (Some(handle), Some(world)) = (
+            self.rapier2d_bodies.remove(&body_id),
+            self.rapier2d.as_mut(),
+        ) {
             world.remove_body(handle);
         }
     }
@@ -143,7 +153,9 @@ impl RoomHostData {
             let (gw, gh) = (world.gravity.x, world.gravity.y);
             let arena = (world.arena_width, world.arena_height);
             let counters = (self.rapier2d_next_body_id, self.rapier2d_next_col_id);
-            let Some(slot) = self.rapier2d.as_mut() else { return };
+            let Some(slot) = self.rapier2d.as_mut() else {
+                return;
+            };
             *slot = world;
             slot.gravity = r2d::Vector::new(gw, gh);
             slot.arena_width = arena.0;
@@ -152,5 +164,4 @@ impl RoomHostData {
             self.rapier2d_next_col_id = counters.1;
         }
     }
-
 }

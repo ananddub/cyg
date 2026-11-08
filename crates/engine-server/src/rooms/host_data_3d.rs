@@ -1,7 +1,6 @@
 use super::RoomHostData;
 
 impl RoomHostData {
-
     pub fn init_rapier3d(&mut self, gx: f32, gy: f32, gz: f32) {
         if !self.features.wants_rapier3d() {
             return; // feature off — the world must never be resurrected
@@ -14,7 +13,9 @@ impl RoomHostData {
     }
 
     pub fn rapier3d_create_body(&mut self, body_type: i32, x: f32, y: f32, z: f32) -> i32 {
-        let Some(world) = self.rapier3d.as_mut() else { return 0 };
+        let Some(world) = self.rapier3d.as_mut() else {
+            return 0;
+        };
         let handle = world.create_body(body_type, x, y, z);
         let id = self.rapier3d_next_body_id;
         self.rapier3d_next_body_id += 1;
@@ -26,7 +27,9 @@ impl RoomHostData {
         let Some(&handle) = self.rapier3d_bodies.get(&body_id) else {
             return 0;
         };
-        let Some(world) = self.rapier3d.as_mut() else { return 0 };
+        let Some(world) = self.rapier3d.as_mut() else {
+            return 0;
+        };
         let col = world.add_ball_collider(handle, radius);
         let id = self.rapier3d_next_col_id;
         self.rapier3d_next_col_id += 1;
@@ -38,7 +41,9 @@ impl RoomHostData {
         let Some(&handle) = self.rapier3d_bodies.get(&body_id) else {
             return 0;
         };
-        let Some(world) = self.rapier3d.as_mut() else { return 0 };
+        let Some(world) = self.rapier3d.as_mut() else {
+            return 0;
+        };
         let col = world.add_box_collider(handle, hx, hy, hz);
         let id = self.rapier3d_next_col_id;
         self.rapier3d_next_col_id += 1;
@@ -83,7 +88,9 @@ impl RoomHostData {
     }
 
     pub fn rapier3d_step(&mut self, dt: f32) {
-        let Some(world) = self.rapier3d.as_mut() else { return };
+        let Some(world) = self.rapier3d.as_mut() else {
+            return;
+        };
         if dt > 0.0 {
             world.integration_parameters.dt = dt;
         }
@@ -102,11 +109,11 @@ impl RoomHostData {
     }
 
     pub fn rapier3d_remove_body(&mut self, body_id: i32) {
-        if let (Some(handle), Some(world)) =
-            (self.rapier3d_bodies.remove(&body_id), self.rapier3d.as_mut())
-        {
+        if let (Some(handle), Some(world)) = (
+            self.rapier3d_bodies.remove(&body_id),
+            self.rapier3d.as_mut(),
+        ) {
             world.remove_body(handle);
         }
     }
-
 }

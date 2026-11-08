@@ -23,7 +23,10 @@ fn percentile_nearest_rank_small_window() {
     assert_eq!(s.tick_budget_p50_us, 10);
     assert_eq!(s.tick_budget_p99_us, 10);
     let empty = Recorder::new().snapshot();
-    assert_eq!((empty.tick_budget_p50_us, empty.kernel_to_sim_p99_us), (0, 0));
+    assert_eq!(
+        (empty.tick_budget_p50_us, empty.kernel_to_sim_p99_us),
+        (0, 0)
+    );
 }
 
 #[test]

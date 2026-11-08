@@ -3,9 +3,7 @@ use std::time::{Duration, Instant};
 use engine_bus::Bus;
 use engine_net::transport::{GameTransport, TransportEvent};
 
-use crate::rooms::{
-    DRAIN_REASON, GameServer,
-};
+use crate::rooms::{DRAIN_REASON, GameServer};
 
 use crate::host::*;
 pub(crate) fn drain_rooms(
@@ -15,8 +13,7 @@ pub(crate) fn drain_rooms(
     game_cfg: &engine_config::GameConfig,
     game_id: &str,
 ) {
-
-    let names: Vec<String> = server.rooms.keys().cloned().collect();
+    let names: Vec<std::rc::Rc<str>> = server.rooms.keys().cloned().collect();
     for name in &names {
         if let Some(room) = server.rooms.get_mut(name) {
             // Give every room one flush to say goodbye (its broadcast goes

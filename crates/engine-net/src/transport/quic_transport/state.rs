@@ -7,8 +7,8 @@ use std::time::Instant;
 use mio::net::UdpSocket as MioUdp;
 use mio::{Interest, Poll, Token};
 
-use super::frame_bytes;
 use super::QuicTransport;
+use super::frame_bytes;
 use crate::quic::{QuicEngine, endpoint_config, self_signed_server_config};
 
 impl QuicTransport {
@@ -54,10 +54,11 @@ impl QuicTransport {
         self.by_handle.insert(handle, id.clone());
         self.by_client.insert(id.clone(), handle);
         self.remote.insert(id.clone(), peer);
-        self.pending.push(crate::transport::TransportEvent::Connected {
-            client_id: id,
-            peer_addr: peer,
-        });
+        self.pending
+            .push(crate::transport::TransportEvent::Connected {
+                client_id: id,
+                peer_addr: peer,
+            });
     }
 
     fn drop_client(&mut self, id: &Arc<str>) {

@@ -1,18 +1,15 @@
-
 use str0m::channel::{ChannelConfig, Reliability};
 
 use super::{LABEL_RELIABLE, LABEL_UNRELIABLE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lane {
-
     Unreliable,
 
     Reliable,
 }
 
 impl Lane {
-
     pub fn label(self) -> &'static str {
         match self {
             Lane::Unreliable => LABEL_UNRELIABLE,
@@ -23,7 +20,6 @@ impl Lane {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabelVerdict {
-
     Contract(Lane),
 
     LegacyAlias(Lane),

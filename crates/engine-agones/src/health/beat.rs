@@ -1,9 +1,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use super::UNHEALTHY_AFTER_MISSES;
 use super::outcome::PingOutcome;
 use super::stats::PingStats;
-use super::UNHEALTHY_AFTER_MISSES;
 use crate::client::AgonesClient;
 use crate::error::SidecarError;
 use crate::state::AgonesController;

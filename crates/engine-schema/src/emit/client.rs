@@ -1,4 +1,4 @@
-use super::common::{field_typescript_type, HEADER};
+use super::common::{HEADER, field_typescript_type};
 use crate::model::{RootState, SchemaDef};
 
 pub(crate) fn emit_client_dts(

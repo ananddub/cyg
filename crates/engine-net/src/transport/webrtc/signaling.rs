@@ -1,4 +1,3 @@
-
 use std::time::Instant;
 
 use str0m::change::SdpOffer;
@@ -8,7 +7,6 @@ use super::WebRtcServer;
 use super::session::WebRtcSession;
 
 impl WebRtcServer {
-
     pub fn handle_offer(&mut self, client_id: &str, sdp: &str) -> Result<String, String> {
         let offer =
             SdpOffer::from_sdp_string(sdp).map_err(|e| format!("invalid SDP offer: {e:?}"))?;

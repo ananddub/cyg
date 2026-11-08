@@ -242,3 +242,56 @@ cyg-bench stages="5k 10k":
     python3 bench/summary.py {{stages}}
     docker rm -f cyg-bench >/dev/null 2>&1 || true
     echo "===================================================="
+
+# Profiled capacity bench: who eats CPU / RAM under real load.
+#   just cyg-bench-prof 10k cpu    # SIGPROF sampling -> cpu-flamegraph.svg
+#   just cyg-bench-prof 10k heap   # dhat per-alloc backtraces -> dhat-heap.json
+# Artifacts land in /tmp/cyg-prof/. Server self-exits after the stage so the
+# profiler flushes; heap mode gets 3GB (dhat's own tables) — cpu mode keeps
+# the real 1 CPU / 2GB capacity envelope.
+cyg-bench-prof stage="10k" mode="cpu":
+    #!/usr/bin/env bash
+    set -e
+    case "{{mode}}" in
+        cpu)  feat=cpu-prof; envname=OX_CPU_PROF_SECS ;;
+        heap) feat=dhat;     envname=OX_DHAT_SECS ;;
+        *) echo "mode must be cpu|heap"; exit 1 ;;
+    esac
+    case "{{stage}}" in
+        2k)  procs=4;  rooms=128; stagger=6; profsecs=150 ;;
+        5k)  procs=10; rooms=320; stagger=6; profsecs=220 ;;
+        10k) procs=20; rooms=640; stagger=8; profsecs=340 ;;
+        *) echo "unknown stage: {{stage}}"; exit 1 ;;
+    esac
+    mem=2g
+    [ "{{mode}}" = heap ] && mem=3g
+    # Symbol-ful builds are huge; keep them off the repo SSD (often near-full).
+    proftarget="$HOME/.cache/cyg-prof-target"
+    echo "==> building profiling binary ($feat, symbols kept, target: $proftarget)"
+    cargo build --profile profiling --target-dir "$proftarget" --features "$feat" --bin cyg-game 2>&1 | tail -1
+    pkill -9 -x cyg-game 2>/dev/null || true
+    docker rm -f cyg-bench >/dev/null 2>&1 || true
+    echo "==> starting docker container (1 CPU / $mem, {{mode}} profile)"
+    docker run -d --name cyg-bench --cpus=1.0 --memory=$mem --memory-swap=$mem \
+        --ulimit nofile=65536:65536 -e OX_ALLOW_DEFAULT_SECRETS=1 -e "$envname=$profsecs" \
+        -w /game -p 7796:7796 -p 8297:8297 \
+        -v "$PWD/bench-game-none:/game" \
+        -v "$proftarget/profiling/cyg-game:/cyg-game:ro" \
+        -v /usr/lib64:/hostlib:ro \
+        ubuntu:24.04 /hostlib/ld-linux-x86-64.so.2 --library-path /hostlib /cyg-game run /game >/dev/null
+    sleep 3
+    node bench/spawn_mt.mjs --engine cyg --container cyg-bench \
+        --procs "$procs" --clients 500 --rooms "$rooms" --seconds 30 --hz 20 \
+        --ramp 60 --stagger "$stagger" --stage "{{stage}}" | grep STAGE
+    echo "==> waiting for profiler clean exit (deadline ${profsecs}s from server boot)"
+    docker wait cyg-bench >/dev/null
+    docker logs cyg-bench 2>&1 | grep -E "\[dhat\]|\[cpu-prof\]" | tail -4 || true
+    mkdir -p /tmp/cyg-prof
+    if [ "{{mode}}" = heap ]; then
+        cp bench-game-none/dhat-heap.json "/tmp/cyg-prof/dhat-heap-{{stage}}.json"
+        echo "==> artifact: /tmp/cyg-prof/dhat-heap-{{stage}}.json"
+    else
+        cp bench-game-none/cpu-flamegraph.svg "/tmp/cyg-prof/cpu-{{stage}}.svg"
+        echo "==> artifact: /tmp/cyg-prof/cpu-{{stage}}.svg"
+    fi
+    docker rm -f cyg-bench >/dev/null 2>&1 || true

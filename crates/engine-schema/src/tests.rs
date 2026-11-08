@@ -90,20 +90,29 @@ fn input_def_emits_typed_decoder() {
     let generated = generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
 
     // One import statement from the SDK, merged (duplicate imports break asc).
-    assert!(generated
-        .server_ts
-        .contains("import { SchemaDef, SchemaEntity, InputReader } from \"./cyg-server\";"));
+    assert!(
+        generated
+            .server_ts
+            .contains("import { SchemaDef, SchemaEntity, InputReader } from \"./cyg-server\";")
+    );
     // The exported decoder returns the generated class, reading each field in
     // schema order.
-    assert!(generated
-        .server_ts
-        .contains("export function decodeInput(r: InputReader): Input {"));
+    assert!(
+        generated
+            .server_ts
+            .contains("export function decodeInput(r: InputReader): Input {")
+    );
     assert!(generated.server_ts.contains("f.moveX = r.readF32();"));
     assert!(generated.server_ts.contains("f.jump = r.readBool();"));
     assert!(generated.server_ts.contains("f.skill = r.readU8();"));
     // The Input def stays in the descriptor — the client packs from it by name.
-    let descriptor = generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts").descriptor;
-    assert!(descriptor.windows(7).any(|window| window == b"\x05\x00Input"));
+    let descriptor =
+        generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts").descriptor;
+    assert!(
+        descriptor
+            .windows(7)
+            .any(|window| window == b"\x05\x00Input")
+    );
 }
 
 #[test]
@@ -148,11 +157,9 @@ fn input_frame_name_cannot_double_as_state_entity() {
     )
     .unwrap_err();
     assert!(
-        error
-            .iter()
-            .any(|diagnostic| diagnostic
-                .message
-                .contains("cannot also be a state collection")),
+        error.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("cannot also be a state collection")),
         "Input referenced as a collection is rejected: {error:?}"
     );
 }
@@ -181,16 +188,20 @@ fn join_options_fields() -> Vec<SchemaField> {
 fn join_options_emit_typed_decoder_and_descriptor() {
     let parsed = ts::parse(JOIN_PROJECT).unwrap();
     let generated = generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
-    assert!(generated
-        .server_ts
-        .contains("export function decodeJoinOptions(r: InputReader): JoinOptions {"));
+    assert!(
+        generated
+            .server_ts
+            .contains("export function decodeJoinOptions(r: InputReader): JoinOptions {")
+    );
     assert!(generated.server_ts.contains("o.name = r.readString();"));
     assert!(generated.server_ts.contains("o.team = r.readU8();"));
     // The def rides the descriptor so the client/host can see the contract.
     let descriptor = generated.descriptor;
-    assert!(descriptor
-        .windows(13)
-        .any(|window| window == b"\x0b\x00JoinOptions"));
+    assert!(
+        descriptor
+            .windows(13)
+            .any(|window| window == b"\x0b\x00JoinOptions")
+    );
 }
 
 #[test]

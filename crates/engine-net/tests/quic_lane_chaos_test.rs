@@ -1,4 +1,3 @@
-
 use engine_net::quic::{
     QuicEngine, QuicEvent, endpoint_config, frame_bytes, self_signed_server_config,
 };
@@ -39,7 +38,12 @@ impl rustls::client::danger::ServerCertVerifier for TrustAnything {
     }
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
         use rustls::SignatureScheme::*;
-        vec![RSA_PSS_SHA256, ECDSA_NISTP256_SHA256, ED25519, RSA_PKCS1_SHA256]
+        vec![
+            RSA_PSS_SHA256,
+            ECDSA_NISTP256_SHA256,
+            ED25519,
+            RSA_PKCS1_SHA256,
+        ]
     }
 }
 
@@ -122,8 +126,11 @@ impl LossyPipe {
             } else {
                 0
             };
-            self.queue
-                .push_back((now + Duration::from_millis(extra_delay), from, bytes.to_vec()));
+            self.queue.push_back((
+                now + Duration::from_millis(extra_delay),
+                from,
+                bytes.to_vec(),
+            ));
         }
     }
 
@@ -223,12 +230,7 @@ fn handshake_survives_loss_and_jitter() {
     let mut h = Harness::new(42, 150, 80, 20);
     let handle = h
         .client
-        .connect(
-            h.now,
-            client_config(),
-            SERVER_ADDR,
-            "cyg.local",
-        )
+        .connect(h.now, client_config(), SERVER_ADDR, "cyg.local")
         .expect("connect starts");
 
     let _ = handle;
@@ -255,7 +257,9 @@ fn reliable_stream_is_byte_exact_through_the_pipe() {
         .expect("connect starts");
     let events = h.run_steps(600);
     assert!(
-        events.iter().any(|(_, e)| matches!(e, QuicEvent::Connected(_))),
+        events
+            .iter()
+            .any(|(_, e)| matches!(e, QuicEvent::Connected(_))),
         "handshake must complete"
     );
 
@@ -293,7 +297,9 @@ fn unreliable_datagrams_survive_verbatim_and_never_duplicate() {
         .expect("connect starts");
     let events = h.run_steps(600);
     assert!(
-        events.iter().any(|(_, e)| matches!(e, QuicEvent::Connected(_))),
+        events
+            .iter()
+            .any(|(_, e)| matches!(e, QuicEvent::Connected(_))),
         "handshake must complete"
     );
 
@@ -318,9 +324,7 @@ fn unreliable_datagrams_survive_verbatim_and_never_duplicate() {
                 received.push(bytes);
             }
         }
-        if received.len() + (h.to_client.dropped as usize) >= sent.len() {
-
-        }
+        if received.len() + (h.to_client.dropped as usize) >= sent.len() {}
     }
 
     assert!(!received.is_empty(), "datagrams must get through the pipe");
@@ -363,8 +367,7 @@ fn connection_close_surfaces_on_the_peer() {
         for (_, event) in events {
             if let QuicEvent::Lost(_, reason) = event {
                 if let quinn_proto::ConnectionError::ApplicationClosed(close) = reason {
-                    reason_seen =
-                        String::from_utf8_lossy(&close.reason).into_owned();
+                    reason_seen = String::from_utf8_lossy(&close.reason).into_owned();
                 }
                 server_lost = true;
             }
@@ -374,7 +377,10 @@ fn connection_close_surfaces_on_the_peer() {
         }
     }
     assert!(server_lost, "the peer must see the close");
-    assert_eq!(reason_seen, "test-close", "the close reason must survive the wire");
+    assert_eq!(
+        reason_seen, "test-close",
+        "the close reason must survive the wire"
+    );
 }
 
 #[test]

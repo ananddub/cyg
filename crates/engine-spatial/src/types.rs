@@ -7,7 +7,6 @@ pub struct SpatialQueryResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct VisibilityDelta {
-
     pub entered: Vec<u32>,
 
     pub left: Vec<u32>,

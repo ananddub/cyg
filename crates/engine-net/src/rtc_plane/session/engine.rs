@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -35,7 +34,6 @@ pub struct RtcSession {
 }
 
 impl RtcSession {
-
     pub fn new_server(
         session_id: Arc<str>,
         local_addr: SocketAddr,

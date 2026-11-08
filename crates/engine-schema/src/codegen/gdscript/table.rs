@@ -2,8 +2,8 @@ use std::fmt::Write as _;
 
 use super::ident::gd_ident;
 use super::value::{gd_convert, gd_default, gd_type};
-use crate::codegen::common::{escape_string, kind_name, kind_size};
 use crate::SchemaField;
+use crate::codegen::common::{escape_string, kind_name, kind_size};
 
 pub(super) fn gd_field_meta(fields: &[SchemaField], indent: &str) -> String {
     let mut out = String::new();
@@ -39,7 +39,6 @@ pub(super) fn emit_gd_entity(
     }
     for field in fields {
         if field.optional() {
-
             let _ = writeln!(out, "    var {} = null", gd_ident(&field.name));
         } else {
             let _ = writeln!(

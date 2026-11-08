@@ -1,7 +1,5 @@
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WasmConfig {
-
     pub optimize_for_speed: bool,
 
     pub enable_epoch_interruption: bool,

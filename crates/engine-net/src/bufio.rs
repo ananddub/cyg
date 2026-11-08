@@ -1,4 +1,3 @@
-
 use std::io::{self, Read};
 use std::net::SocketAddr;
 
@@ -18,7 +17,6 @@ pub(crate) fn read_tcp(
     match stream.read(buf) {
         Ok(0) => Ok(0),
         Ok(n) => {
-
             unsafe { dst.set_len(dst.len() + n) };
             Ok(n)
         }
@@ -38,7 +36,6 @@ pub(crate) fn recv_udp(
     let buf = unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr() as *mut u8, len) };
     match socket.recv_from(buf) {
         Ok((n, addr)) => {
-
             unsafe { dst.set_len(dst.len() + n) };
             Ok(Some((n, addr)))
         }

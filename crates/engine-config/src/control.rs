@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone)]
 pub struct ControlConfig {
     pub enabled: bool,

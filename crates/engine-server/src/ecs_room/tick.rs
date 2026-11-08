@@ -1,5 +1,5 @@
-use engine_core::{EntityId, Health, Position3D};
 use bevy_ecs::prelude::*;
+use engine_core::{EntityId, Health, Position3D};
 
 use crate::ecs_room::state::EcsRoomState;
 
@@ -48,6 +48,8 @@ impl EcsRoomState {
         dir: [f32; 3],
         max_dist: f32,
     ) -> Option<(u32, f32)> {
-        self.rapier_mut().into_inner().raycast_hit(origin, dir, max_dist)
+        self.rapier_mut()
+            .into_inner()
+            .raycast_hit(origin, dir, max_dist)
     }
 }

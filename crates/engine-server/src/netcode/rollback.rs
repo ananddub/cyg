@@ -7,7 +7,7 @@ pub(super) fn apply_late(
     room: &mut GameRoom,
     cfg: &engine_config::GameConfig,
     dt: f64,
-    session: &std::sync::Arc<str>,
+    session: &std::rc::Rc<str>,
     id: i64,
     seq: u16,
     payload: &[u8; 20],

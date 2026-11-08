@@ -1,4 +1,3 @@
-
 use smallvec::SmallVec;
 use std::collections::VecDeque;
 
@@ -6,7 +5,6 @@ pub type InputData = SmallVec<[u8; 32]>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlayerInput {
-
     pub seq: u64,
 
     pub client_time_ms: f64,
@@ -15,7 +13,6 @@ pub struct PlayerInput {
 }
 
 impl PlayerInput {
-
     pub fn new(seq: u64, client_time_ms: f64, data: impl AsRef<[u8]>) -> Self {
         Self {
             seq,
@@ -48,7 +45,6 @@ impl PlayerInputBuffer {
 
     #[inline]
     pub fn push(&mut self, input: PlayerInput) -> bool {
-
         if self.consumed_count > 0 && input.seq <= self.last_consumed_seq {
             return false;
         }
@@ -60,7 +56,13 @@ impl PlayerInputBuffer {
         }
 
         if self.queue.len() >= self.max_backlog {
-            if input.seq < self.queue.front().expect("queue at max_backlog is non-empty").seq {
+            if input.seq
+                < self
+                    .queue
+                    .front()
+                    .expect("queue at max_backlog is non-empty")
+                    .seq
+            {
                 return false;
             }
             self.queue.pop_front();

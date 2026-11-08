@@ -2,10 +2,11 @@ use crate::rooms::*;
 use std::time::{Duration, Instant};
 
 impl GameRoom {
-
     #[allow(dead_code)]
     pub(crate) fn pending_deadline(&self, session: &str) -> Option<Instant> {
-        self.pending_leaves.get(session).map(|(_, deadline)| *deadline)
+        self.pending_leaves
+            .get(session)
+            .map(|(_, deadline)| *deadline)
     }
 
     pub(crate) fn has_pending_leave(&self, session: &str) -> bool {
@@ -31,7 +32,9 @@ impl GameRoom {
         self.pending_leaves.remove(session);
         self.note_activity();
         if let Some(ref mut wasm) = self.wasm {
-            let _ = wasm.raw_instance().call::<(i64,), ()>("on_reconnect", (id,));
+            let _ = wasm
+                .raw_instance()
+                .call::<(i64,), ()>("on_reconnect", (id,));
         }
         Some(id)
     }
@@ -40,7 +43,7 @@ impl GameRoom {
         if self.pending_leaves.is_empty() {
             return false;
         }
-        let expired: Vec<(std::sync::Arc<str>, i64)> = self
+        let expired: Vec<(std::rc::Rc<str>, i64)> = self
             .pending_leaves
             .iter()
             .filter(|(_, (_, deadline))| now >= *deadline)
@@ -82,12 +85,13 @@ impl GameRoom {
     /// empty delta and RETAINS its dirty rows, so the next due patch carries
     /// every change since the last send — no full snapshot needed.
     pub(crate) fn signal_patch_due(&mut self, due: bool) {
+        self.probe_guest_fns();
+        let Some(func) = &self.on_patch_due_fn else {
+            return;
+        };
+        self.patch_due_wired = true;
         if let Some(ref mut wasm) = self.wasm {
-            let instance = wasm.raw_instance();
-            if let Ok(func) = instance.get_typed_func::<(i32,), ()>("on_patch_due") {
-                self.patch_due_wired = true;
-                let _ = func.call(instance.store_mut(), (due as i32,));
-            }
+            let _ = func.call(wasm.raw_instance().store_mut(), (due as i32,));
         }
     }
 
@@ -121,5 +125,4 @@ impl GameRoom {
     pub(crate) fn take_patch_skipped(&mut self) -> bool {
         std::mem::take(&mut self.patch_skipped)
     }
-
 }

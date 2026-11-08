@@ -6,24 +6,25 @@ use std::time::{Duration, Instant};
 use engine_wasm::WasmRuntime;
 
 use crate::netcode;
-use crate::rooms::{
-    self,
-    RoomHostData,
-};
+use crate::rooms::{self, RoomHostData};
 
 pub(crate) fn live_tick_rate(tick_interval: Duration) -> u32 {
     (1.0 / tick_interval.as_secs_f64()).round().max(1.0) as u32
 }
 
 pub(crate) fn input_budget_allows(
-    rates: &mut HashMap<String, netcode::InputRateLimiter>,
+    rates: &mut HashMap<std::rc::Rc<str>, netcode::InputRateLimiter>,
     tick_interval: Duration,
     session: &str,
 ) -> bool {
+    let now = Instant::now();
+    if let Some(limiter) = rates.get_mut(session) {
+        return limiter.allow(now);
+    }
     rates
-        .entry(session.to_string())
+        .entry(std::rc::Rc::from(session))
         .or_insert_with(|| netcode::InputRateLimiter::for_tick_rate(live_tick_rate(tick_interval)))
-        .allow(Instant::now())
+        .allow(now)
 }
 
 pub(crate) fn udp_input_allowed(

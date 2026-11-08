@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use quinn_proto::{ConnectionHandle, Dir, Event, StreamEvent};
 
-use super::{read_stream, QuicEngine, QuicEvent};
+use super::{QuicEngine, QuicEvent, read_stream};
 
 impl QuicEngine {
     pub fn poll_events(&mut self) -> Vec<QuicEvent> {
@@ -92,7 +92,12 @@ impl QuicEngine {
             .unwrap_or(false)
     }
 
-    pub fn connection_close(&mut self, now: Instant, handle: ConnectionHandle, reason: &str) -> bool {
+    pub fn connection_close(
+        &mut self,
+        now: Instant,
+        handle: ConnectionHandle,
+        reason: &str,
+    ) -> bool {
         self.connections
             .get_mut(&handle)
             .map(|conn| {

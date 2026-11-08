@@ -1,6 +1,6 @@
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 static ALLOCS: AtomicU64 = AtomicU64::new(0);
 static DEALLOCS: AtomicU64 = AtomicU64::new(0);
@@ -24,7 +24,10 @@ static GLOBAL: CountingAlloc = CountingAlloc;
 pub static MEASURE_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn snapshot() -> (u64, u64) {
-    (ALLOCS.load(Ordering::Relaxed), DEALLOCS.load(Ordering::Relaxed))
+    (
+        ALLOCS.load(Ordering::Relaxed),
+        DEALLOCS.load(Ordering::Relaxed),
+    )
 }
 
 pub fn allocs_in<F: FnMut()>(iterations: usize, mut f: F) -> (u64, u64) {

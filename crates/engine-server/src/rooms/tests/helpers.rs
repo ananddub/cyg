@@ -1,6 +1,6 @@
 use super::*;
 
-    const LIFECYCLE_GUEST_WAT: &str = r#"
+const LIFECYCLE_GUEST_WAT: &str = r#"
         (module
 
           (memory (export "memory") 1)
@@ -82,11 +82,11 @@ use super::*;
 
     "#;
 
-    /// A guest whose `on_input` kicks the sender via `host_kick` and whose
-    /// `on_leave` records the close code it received.
-    pub(crate) fn kick_room() -> GameRoom {
-        let runtime = engine_wasm::WasmRuntime::new().expect("wasm runtime");
-        let wat = r#"
+/// A guest whose `on_input` kicks the sender via `host_kick` and whose
+/// `on_leave` records the close code it received.
+pub(crate) fn kick_room() -> GameRoom {
+    let runtime = engine_wasm::WasmRuntime::new().expect("wasm runtime");
+    let wat = r#"
             (module
               (import "env" "host_kick" (func $kick (param i64) (result i32)))
               (memory (export "memory") 1)
@@ -103,32 +103,32 @@ use super::*;
               (func (export "on_load") (param i32 i32))
               (func (export "last_code") (result i32) (global.get $last_code)))
         "#;
-        let module = runtime.compile(wat.as_bytes()).expect("compile kick wat");
-        let linker = build_host_linker(&runtime, engine_wasm::AbiPermissions::default());
-        let pre = runtime.prepare(&linker, &module).expect("prepare guest");
-        GameRoom::new(&pre, 16, PhysicsWorld3D::default()).expect("instantiate kick room")
-    }
+    let module = runtime.compile(wat.as_bytes()).expect("compile kick wat");
+    let linker = build_host_linker(&runtime, engine_wasm::AbiPermissions::default());
+    let pre = runtime.prepare(&linker, &module).expect("prepare guest");
+    GameRoom::new(&pre, 16, PhysicsWorld3D::default()).expect("instantiate kick room")
+}
 
-    pub(crate) fn lifecycle_room() -> GameRoom {
-        let runtime = engine_wasm::WasmRuntime::new().expect("wasm runtime");
-        let module = runtime
-            .compile(LIFECYCLE_GUEST_WAT.as_bytes())
-            .expect("compile lifecycle wat");
-        let linker = build_host_linker(&runtime, engine_wasm::AbiPermissions::default());
-        let pre = runtime.prepare(&linker, &module).expect("prepare guest");
-        GameRoom::new(&pre, 16, PhysicsWorld3D::default()).expect("instantiate lifecycle room")
-    }
+pub(crate) fn lifecycle_room() -> GameRoom {
+    let runtime = engine_wasm::WasmRuntime::new().expect("wasm runtime");
+    let module = runtime
+        .compile(LIFECYCLE_GUEST_WAT.as_bytes())
+        .expect("compile lifecycle wat");
+    let linker = build_host_linker(&runtime, engine_wasm::AbiPermissions::default());
+    let pre = runtime.prepare(&linker, &module).expect("prepare guest");
+    GameRoom::new(&pre, 16, PhysicsWorld3D::default()).expect("instantiate lifecycle room")
+}
 
-    pub(crate) fn guest_i32(room: &mut GameRoom, export: &str) -> i32 {
-        room.wasm
-            .as_mut()
-            .expect("wasm guest")
-            .raw_instance()
-            .call::<(), i32>(export, ())
-            .expect("counter export")
-    }
+pub(crate) fn guest_i32(room: &mut GameRoom, export: &str) -> i32 {
+    room.wasm
+        .as_mut()
+        .expect("wasm guest")
+        .raw_instance()
+        .call::<(), i32>(export, ())
+        .expect("counter export")
+}
 
-    pub(crate) const ABI_GUEST_WAT: &str = r#"
+pub(crate) const ABI_GUEST_WAT: &str = r#"
         (module
 
           (memory (export "memory") 1)
@@ -157,12 +157,12 @@ use super::*;
 
     "#;
 
-    pub(crate) fn wat_room() -> GameRoom {
-        let runtime = engine_wasm::WasmRuntime::new().expect("wasm runtime");
-        let module = runtime
-            .compile(ABI_GUEST_WAT.as_bytes())
-            .expect("compile guest wat");
-        let linker = build_host_linker(&runtime, engine_wasm::AbiPermissions::default());
-        let pre = runtime.prepare(&linker, &module).expect("prepare guest");
-        GameRoom::new(&pre, 16, PhysicsWorld3D::default()).expect("instantiate guest room")
-    }
+pub(crate) fn wat_room() -> GameRoom {
+    let runtime = engine_wasm::WasmRuntime::new().expect("wasm runtime");
+    let module = runtime
+        .compile(ABI_GUEST_WAT.as_bytes())
+        .expect("compile guest wat");
+    let linker = build_host_linker(&runtime, engine_wasm::AbiPermissions::default());
+    let pre = runtime.prepare(&linker, &module).expect("prepare guest");
+    GameRoom::new(&pre, 16, PhysicsWorld3D::default()).expect("instantiate guest room")
+}

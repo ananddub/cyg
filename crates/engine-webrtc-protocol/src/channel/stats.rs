@@ -1,7 +1,6 @@
 use super::assembler::FragmentAssembler;
 
 impl FragmentAssembler {
-
     pub fn stale(&self) -> u64 {
         self.stale
     }

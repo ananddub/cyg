@@ -64,7 +64,19 @@ impl WsTransport {
             // One vectored syscall per client: inline queue + shared body +
             // post-shared tail offered together (writev batching).
             if !client.send_queue.is_empty() || client.shared_frame.is_some() {
-                match client.write_out() {
+                let before = client.send_queue.len();
+                let r = client.write_out();
+                if std::env::var_os("CYG_T").is_some() {
+                    eprintln!(
+                        "[t] WO {:?} sid={} before={} after={} ok={}",
+                        token,
+                        client.session_id,
+                        before,
+                        client.send_queue.len(),
+                        r.is_ok()
+                    );
+                }
+                match r {
                     Ok(_) => {
                         client.state_frame_start = None;
                     }

@@ -1,13 +1,8 @@
-
-use engine_bus::{
-    Bus, MatchFinished, RoomSnapshot,
-};
+use engine_bus::{Bus, MatchFinished, RoomSnapshot};
 use engine_net::framing::OpCode;
 use engine_net::transport::GameTransport;
 
-use crate::rooms::{
-    GameRoom, GameServer, RoomBackend,
-};
+use crate::rooms::{GameRoom, GameServer, RoomBackend};
 
 use crate::host::*;
 pub(crate) fn report_match(
@@ -28,7 +23,7 @@ pub(crate) fn report_match(
         ticks: room.current_tick as i64,
         peak_players: peak_players as i64,
         snapshot_seq: room.snapshot_seq as i64,
-        result: room.result.clone().unwrap_or_default(),
+        result: room.result.as_deref().unwrap_or_default().to_vec(),
     });
 }
 

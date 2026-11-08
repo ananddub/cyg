@@ -1,9 +1,9 @@
 use std::time::{Duration, Instant};
 
-use engine_webrtc_protocol::{INPUT_WIRE_LEN as WS_INPUT_WIRE_LEN, HEADER_LEN as WS_HEADER_LEN};
 use engine_net::framing::OpCode;
 use engine_net::transport::webrtc::contract::Inbound;
 use engine_net::transport::{GameTransport, TransportEvent};
+use engine_webrtc_protocol::{HEADER_LEN as WS_HEADER_LEN, INPUT_WIRE_LEN as WS_INPUT_WIRE_LEN};
 
 use crate::host::*;
 impl LoopTransport {
@@ -31,43 +31,45 @@ impl LoopTransport {
         self.inbound.extend(self.rtc.poll_inbound());
         if let Some(quic) = self.quic.as_mut() {
             quic.poll_events(timeout, events)?;
-            self.inbound.extend(
-                quic.poll_inbound()
-                    .into_iter()
-                    .map(|(id, msg)| (id.to_string(), msg)),
-            );
+            self.inbound.extend(quic.poll_inbound());
         }
         if let Some(ws) = self.ws.as_mut() {
             ws.poll_events(timeout, events)?;
-            events.retain(|ev| {
-                match ev {
-                    TransportEvent::Packet { client_id, opcode, payload } => {
-                        match opcode {
-                            OpCode::PlayerInput => {
-                                const SAMPLE: usize = WS_INPUT_WIRE_LEN - WS_HEADER_LEN;
-                                if payload.len() >= 2 + SAMPLE {
-                                    let seq = u16::from_le_bytes([payload[0], payload[1]]);
-                                    let mut sample = [0u8; SAMPLE];
-                                    sample.copy_from_slice(&payload[2..2 + SAMPLE]);
-                                    self.inbound.push((
-                                        client_id.to_string(),
-                                        Inbound::Input { seq, payload: sample, resupplied: false },
-                                    ));
-                                }
-                                false
-                            }
-                            OpCode::RoomDataBytes => {
-                                self.inbound.push((
-                                    client_id.to_string(),
-                                    Inbound::App { data: payload.to_vec() },
-                                ));
-                                false
-                            }
-                            _ => true,
+            events.retain(|ev| match ev {
+                TransportEvent::Packet {
+                    client_id,
+                    opcode,
+                    payload,
+                } => match opcode {
+                    OpCode::PlayerInput => {
+                        const SAMPLE: usize = WS_INPUT_WIRE_LEN - WS_HEADER_LEN;
+                        if payload.len() >= 2 + SAMPLE {
+                            let seq = u16::from_le_bytes([payload[0], payload[1]]);
+                            let mut sample = [0u8; SAMPLE];
+                            sample.copy_from_slice(&payload[2..2 + SAMPLE]);
+                            self.inbound.push((
+                                client_id.clone(),
+                                Inbound::Input {
+                                    seq,
+                                    payload: sample,
+                                    resupplied: false,
+                                },
+                            ));
                         }
+                        false
+                    }
+                    OpCode::RoomDataBytes => {
+                        self.inbound.push((
+                            client_id.clone(),
+                            Inbound::App {
+                                data: payload.clone(),
+                            },
+                        ));
+                        false
                     }
                     _ => true,
-                }
+                },
+                _ => true,
             });
         }
         let now = Instant::now();
@@ -76,21 +78,19 @@ impl LoopTransport {
             let rate = self.packet_loss_rate;
             let rng = &mut self.loss_rng;
             let dropped = &mut self.dropped_packets;
-            self.inbound.retain(|(_, msg)| {
-                match msg {
-                    Inbound::Input { .. } => {
-                        *rng ^= *rng << 13;
-                        *rng ^= *rng >> 17;
-                        *rng ^= *rng << 5;
-                        let roll = (*rng as f64) / (u32::MAX as f64);
-                        let drop = roll < rate;
-                        if drop {
-                            *dropped += 1;
-                        }
-                        !drop
+            self.inbound.retain(|(_, msg)| match msg {
+                Inbound::Input { .. } => {
+                    *rng ^= *rng << 13;
+                    *rng ^= *rng >> 17;
+                    *rng ^= *rng << 5;
+                    let roll = (*rng as f64) / (u32::MAX as f64);
+                    let drop = roll < rate;
+                    if drop {
+                        *dropped += 1;
                     }
-                    _ => true,
+                    !drop
                 }
+                _ => true,
             });
         }
         if !self.latency.is_zero() {

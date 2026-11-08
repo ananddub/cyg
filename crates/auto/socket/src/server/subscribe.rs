@@ -1,6 +1,8 @@
 use super::SocketIdentity;
 use crate::{
-    LiveIdentity, auth::AUTHORIZER, reactivity::refresh_subscription,
+    LiveIdentity,
+    auth::AUTHORIZER,
+    reactivity::refresh_subscription,
     rooms::{LiveSubscriptionRequest, SocketSubscriptions, retain, scoped},
     state::{ACCESS_ENDPOINTS, latest_channels, stream_history},
 };

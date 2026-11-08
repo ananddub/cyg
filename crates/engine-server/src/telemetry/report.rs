@@ -1,9 +1,7 @@
-
 use engine_bus::{RoomTelemetry, SessionTelemetry};
 
 #[derive(Clone, Debug, Default)]
 pub struct PublishReport {
-
     pub tick_hz_est: f64,
 
     pub stage_sim_us: u64,

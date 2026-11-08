@@ -57,7 +57,7 @@ pub(super) fn emit_as_entity(
         let ty = f
             .ref_target
             .as_ref()
-            .map(|_| "u64".to_string()) 
+            .map(|_| "u64".to_string())
             .unwrap_or_else(|| as_type(&f.kind).to_string());
         out.push_str(&format!("    {}: {} = 0;\n", f.name, ty));
         out.push_str(&format!("    private _b{i}: {ty} = 0;\n", i = scalar_idx));

@@ -100,7 +100,8 @@ impl super::QuestService {
         let quests = visible(&definitions, &seasons, now);
         let mut completed = Vec::new();
         for (name, delta, user_id) in credited {
-            completed.extend(credit_counter(state, &queries, user_id, &name, delta, &quests).await?);
+            completed
+                .extend(credit_counter(state, &queries, user_id, &name, delta, &quests).await?);
         }
         Ok(Json(IngestEventsResponse {
             success: true,

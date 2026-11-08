@@ -15,7 +15,9 @@ impl GameTransport for LoopTransport {
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> std::io::Result<()> {
-        if (opcode == OpCode::PlayerInput || opcode == OpCode::RoomDataBytes) && self.should_drop_packet() {
+        if (opcode == OpCode::PlayerInput || opcode == OpCode::RoomDataBytes)
+            && self.should_drop_packet()
+        {
             return Ok(());
         }
         if !self.latency.is_zero() {
@@ -63,10 +65,7 @@ impl GameTransport for LoopTransport {
                 .disconnect_with(client_id, code, reason);
         }
         if self.ws_knows(client_id) {
-            self.ws
-                .as_mut()
-                .unwrap()
-                .disconnect(client_id)?;
+            self.ws.as_mut().unwrap().disconnect(client_id)?;
             return Ok(());
         }
         self.rtc.disconnect(client_id)

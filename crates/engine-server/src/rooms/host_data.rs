@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use super::OutboundMessage;
-use std::ops::{Deref, DerefMut};
 use engine_physics::{PhysicsWorld3D, RapierWorld2D};
 use rapier2d::prelude as r2d;
 use rapier3d::prelude as r3d;
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
 pub struct TimerState {
@@ -40,7 +40,6 @@ pub struct RoomHostData {
     pub clock_ticks: i64,
 }
 impl RoomHostData {
-
     pub fn new(physics: PhysicsWorld3D) -> Self {
         Self::new_with_features(physics, &engine_config::FeaturesConfig::default())
     }
@@ -55,9 +54,9 @@ impl RoomHostData {
             physics,
             features: features.clone(),
             rapier2d: features.wants_rapier2d().then(RapierWorld2D::default),
-            rapier3d: features.wants_rapier3d().then(|| {
-                engine_physics::RapierWorld3D::new(0.0, -9.81, 0.0)
-            }),
+            rapier3d: features
+                .wants_rapier3d()
+                .then(|| engine_physics::RapierWorld3D::new(0.0, -9.81, 0.0)),
             timers: std::collections::BTreeMap::new(),
             fired_timers: Vec::new(),
             navmesh: None,
@@ -80,14 +79,11 @@ impl RoomHostData {
     pub fn seed_rng(&mut self, room_name: &str) {
         self.rng = engine_core::RoomRng::from_seed_str(room_name);
     }
-
 }
 impl RoomHostData {
-
     pub fn navmesh_find_path(&self, from: (f32, f32), to: (f32, f32)) -> Option<Vec<(f32, f32)>> {
         self.navmesh.as_ref().and_then(|m| m.find_path(from, to))
     }
-
 }
 impl Deref for RoomHostData {
     type Target = PhysicsWorld3D;

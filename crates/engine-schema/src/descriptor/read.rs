@@ -1,4 +1,4 @@
-use super::{Reader, DESCRIPTOR_MAGIC, DESCRIPTOR_VERSION};
+use super::{DESCRIPTOR_MAGIC, DESCRIPTOR_VERSION, Reader};
 use crate::model::{RootCollection, RootState, SchemaDef, SchemaField};
 use crate::wire::WireKind;
 

@@ -1,4 +1,3 @@
-
 use str0m::{Event, Output};
 
 use super::WebRtcServer;
@@ -9,7 +8,6 @@ use super::session::{Sink, WebRtcSession};
 use super::types::WebRtcServerEvent;
 
 impl WebRtcServer {
-
     pub(super) fn settle(session: &mut WebRtcSession, sink: &mut Sink) {
         Self::poll_session_events(session, sink);
     }
@@ -124,7 +122,6 @@ impl WebRtcServer {
                         session.ch_reliable = None;
                     }
                     if let Some(lane) = lane {
-
                         let n = session.queue(lane).clear();
                         sink.stats.frames_dropped_no_channel += n as u64;
                     }

@@ -40,6 +40,6 @@ pub struct SimEvent {
     pub seq: u64,
 
     pub target: i64,
-    pub event: String,
-    pub payload: Vec<u8>,
+    pub event: std::sync::Arc<str>,
+    pub payload: bytes::Bytes,
 }

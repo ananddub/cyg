@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{compute_checksum_64, DesyncReport, RollbackRingBuffer, SnapshotFrame};
+use super::{DesyncReport, RollbackRingBuffer, SnapshotFrame, compute_checksum_64};
 use crate::error::WasmError;
 use crate::instance::WasmInstance;
 

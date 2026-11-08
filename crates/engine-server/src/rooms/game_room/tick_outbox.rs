@@ -4,7 +4,6 @@ use engine_physics::PhysicsWorld3D;
 use std::time::Duration;
 
 impl GameRoom {
-
     /// Stage a frame for tick-time batch delivery (input_coalesce). Newest
     /// frame per player wins; the seq gate in `apply_input` already ensures
     /// only newer frames reach here.
@@ -107,8 +106,8 @@ impl GameRoom {
         }
         let players = self.sessions.len();
         self.wasm = Some(new_wasm);
+        self.guest_fns_probed = false;
         self.backend = RoomBackend::Wasm;
         Ok(players)
     }
-
 }

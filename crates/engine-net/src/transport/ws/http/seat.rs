@@ -1,10 +1,9 @@
-
-use engine_config::RoomVariantDef;
 use ahash::AHashMap;
+use engine_config::RoomVariantDef;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::super::error::MatchMakeError;
@@ -21,7 +20,7 @@ pub(super) fn default_matchmake(
     game_port: u16,
     udp_port: u16,
     variants: &std::collections::BTreeMap<String, RoomVariantDef>,
-    client_rooms: &AHashMap<String, String>,
+    clients_meta: &AHashMap<std::sync::Arc<str>, super::super::hooks::ClientMeta>,
 ) -> Result<String, MatchMakeError> {
     let chain = chain_tracker();
     let Ok(mut chain) = chain.lock() else {
@@ -64,9 +63,9 @@ pub(super) fn default_matchmake(
         if cap > 0 {
             let base = room_key;
             let client_count = |key: &str| -> u32 {
-                client_rooms
+                clients_meta
                     .values()
-                    .filter(|room| room.as_str() == key)
+                    .filter(|meta| meta.room.as_deref() == Some(key))
                     .count() as u32
             };
             let mut generation = 0u32;
@@ -106,7 +105,10 @@ struct ChainState {
 
 impl ChainState {
     fn record(&mut self, room_key: &str, now: Instant) {
-        self.outstanding.entry(room_key.to_string()).or_default().push(now);
+        self.outstanding
+            .entry(room_key.to_string())
+            .or_default()
+            .push(now);
     }
 
     fn outstanding(&mut self, room_key: &str, now: Instant) -> usize {
@@ -157,12 +159,11 @@ pub(super) fn parse_json_string(body: &str, key: &str) -> Option<String> {
 pub(super) fn build_join_reply(
     session_id: &str,
     room_id: &str,
-    seat_tokens: &AHashMap<String, String>,
+    seat_token: Option<&str>,
 ) -> Vec<u8> {
-    let rt = seat_tokens
-        .get(session_id)
-        .cloned()
-        .unwrap_or_else(|| format!("{}:{}", room_id, session_id));
+    let rt = seat_token
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("{room_id}:{session_id}"));
     let mut reply = Vec::with_capacity(1 + 1 + rt.len() + 1 + SERIALIZER_ID.len() + 1);
     reply.push(PROTO_JOIN_ROOM);
     reply.push(rt.len() as u8);

@@ -1,4 +1,3 @@
-
 pub fn node_id() -> String {
     named(
         std::env::var("OX_NODE_ID").ok().as_deref(),

@@ -48,8 +48,12 @@ impl<'a> Engine<'a> {
             self.tick.run(&mut ctx);
         }
         self.run_telemetry();
-        self.hot
-            .run(&mut self.server, &self.bus, self.cfg, &mut self.clock.tick_interval);
+        self.hot.run(
+            &mut self.server,
+            &self.bus,
+            self.cfg,
+            &mut self.clock.tick_interval,
+        );
         self.transport.flush().expect("flush");
         Ok(false)
     }
@@ -97,12 +101,8 @@ impl<'a> Engine<'a> {
             let to_slot = (self.tick.slot_base + slot).saturating_duration_since(Instant::now());
             wait = wait.min(to_slot);
         }
-        let all_idle = self
-            .server
-            .rooms
-            .values()
-            .all(|r| r.is_hibernating())
-            && self.udp.udp_peers.is_empty();
+        let all_idle =
+            self.server.rooms.values().all(|r| r.is_hibernating()) && self.udp.udp_peers.is_empty();
         let wait = if all_idle {
             wait.min(Duration::from_millis(5))
         } else {

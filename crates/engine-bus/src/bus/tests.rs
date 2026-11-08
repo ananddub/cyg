@@ -19,7 +19,7 @@ fn gameplay_event(seq: u64) -> SimEvent {
         seq,
         target: 1,
         event: "discard".into(),
-        payload: vec![seq as u8],
+        payload: vec![seq as u8].into(),
     }
 }
 
@@ -60,7 +60,7 @@ fn an_event_reaches_the_reader_that_owns_the_database() {
     bus.push_event(gameplay_event(7));
     let event = bus.events_rx.try_recv().expect("the event is queued");
     assert_eq!(event.room, "arena");
-    assert_eq!(event.event, "discard");
+    assert_eq!(event.event.as_ref(), "discard");
     assert_eq!(event.seq, 7);
     assert_eq!(event.payload, vec![7]);
 }

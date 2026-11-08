@@ -1,16 +1,16 @@
 use super::*;
-use std::time::{Duration, Instant};
 use engine_physics::PhysicsWorld3D;
+use std::time::{Duration, Instant};
 
 mod helpers;
 pub use helpers::*;
 
-mod guest_wasm_auth;
-mod guest_wasm_reconnect;
 mod features_gate;
+mod guest_wasm_auth;
 mod guest_wasm_permissions;
+mod guest_wasm_reconnect;
 mod host_extras;
+mod lifecycle;
 mod limits;
 mod persistence;
-mod lifecycle;
 mod relay;

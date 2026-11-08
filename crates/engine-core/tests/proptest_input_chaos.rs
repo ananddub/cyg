@@ -1,10 +1,8 @@
-
 use engine_core::{PlayerInput, PlayerInputBuffer};
 use proptest::prelude::*;
 
 #[derive(Debug, Clone)]
 enum Op {
-
     Push(u64),
 
     Consume(u64),

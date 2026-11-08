@@ -139,7 +139,10 @@ impl TickRunner {
                     engine_bus::RoomPhase::Closed,
                 );
                 room.dispose();
-                tracing::info!("[server] room '{name}' disposed and state saved ({})", reason.label());
+                tracing::info!(
+                    "[server] room '{name}' disposed and state saved ({})",
+                    reason.label()
+                );
             }
         }
     }

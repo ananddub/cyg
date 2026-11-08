@@ -1,4 +1,3 @@
-
 use crate::host::*;
 
 impl<'a> Engine<'a> {
@@ -137,9 +136,9 @@ impl<'a> Engine<'a> {
                     )
                     .encode();
                     room.voice_mesh.for_each_peer(id as u32, |target| {
-                        let _ = self
-                            .transport
-                            .send_to(target.session_id, OpCode::RoomDataBytes, &note);
+                        let _ =
+                            self.transport
+                                .send_to(target.session_id, OpCode::RoomDataBytes, &note);
                     });
                 }
             }

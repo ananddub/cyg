@@ -1,4 +1,3 @@
-
 use std::sync::OnceLock;
 
 pub const CURRENT_KEY_ID: &str = "current";

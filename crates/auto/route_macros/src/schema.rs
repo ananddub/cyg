@@ -7,7 +7,9 @@ pub(crate) fn validate_route_function(function: &ItemFn, label: &str) -> syn::Re
     crate::docs::validate_route_signature(&function.sig, label)
 }
 
-pub(crate) fn route_argument_types<'a>(inputs: impl Iterator<Item = &'a FnArg>) -> syn::Result<Vec<Type>> {
+pub(crate) fn route_argument_types<'a>(
+    inputs: impl Iterator<Item = &'a FnArg>,
+) -> syn::Result<Vec<Type>> {
     inputs
         .map(|argument| match argument {
             FnArg::Typed(PatType { ty, .. }) => Ok((**ty).clone()),

@@ -1,9 +1,7 @@
 use quote::{format_ident, quote};
 use syn::Ident;
 
-use crate::live::{
-    is_live_auth_type, is_live_server_arg, live_argument_type, live_auth_user_id,
-};
+use crate::live::{is_live_auth_type, is_live_server_arg, live_argument_type, live_auth_user_id};
 use crate::model::{LiveStrategy, Route};
 
 pub(crate) fn strategy_tokens(route: &Route) -> proc_macro2::TokenStream {
@@ -69,10 +67,7 @@ pub(crate) fn controller_publishers(
         .collect()
 }
 
-pub(crate) fn live_handles(
-    routes: &[Route],
-    type_ident: &Ident,
-) -> Vec<proc_macro2::TokenStream> {
+pub(crate) fn live_handles(routes: &[Route], type_ident: &Ident) -> Vec<proc_macro2::TokenStream> {
     routes
         .iter()
         .filter_map(|route| {

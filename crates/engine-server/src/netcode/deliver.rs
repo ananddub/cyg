@@ -5,11 +5,7 @@ use super::input::{InputRejection, MAX_SEQ_AHEAD, validate_input_payload};
 /// Immediate host→guest delivery: alloc, write, `on_input`. The rollback
 /// replay path calls this directly — replayed frames must reach the guest
 /// even when live inputs are being staged for tick-time batching.
-pub fn deliver_input_now(
-    wasm: Option<&mut RoomLogic<RoomHostData>>,
-    id: i64,
-    payload: &[u8; 20],
-) {
+pub fn deliver_input_now(wasm: Option<&mut RoomLogic<RoomHostData>>, id: i64, payload: &[u8; 20]) {
     if let Some(wasm) = wasm {
         if let Ok(ptr_i32) = wasm.on_alloc(20) {
             let _ = wasm.write_memory(ptr_i32 as u32, payload);
@@ -60,7 +56,13 @@ pub fn apply_input(
                 "[server] ⏩ re-anchoring player {id}: input seq jumped {jump} samples ({last} -> {seq})"
             );
         }
-        room.seqs.entry(id).or_insert(SessionSeqs { input: seq, acked_event: 0 }).input = seq;
+        room.seqs
+            .entry(id)
+            .or_insert(SessionSeqs {
+                input: seq,
+                acked_event: 0,
+            })
+            .input = seq;
         deliver_input(room, id, payload);
         let tick = room.current_tick;
         room.input_journal.push_back(JournalInput {

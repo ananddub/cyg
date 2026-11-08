@@ -7,8 +7,8 @@
 //! *same file* through what `engine-server/src/host.rs` does at boot and on
 //! reload: compile, link against the real game-host imports, instantiate, tick.
 
-use engine_server::rooms::GameRoom;
 use engine_api::services::wasm::{REQUIRED_EXPORTS, WasmService};
+use engine_server::rooms::GameRoom;
 use engine_server::rooms::{RoomHostData, RoomLogic, build_host_linker};
 use engine_wasm::{AbiPermissions, WasmRuntime};
 

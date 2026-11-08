@@ -34,7 +34,6 @@ const OWNERSHIP_CAP: usize = 32;
 const SEAT_CAP: usize = 256;
 
 pub struct Bus {
-
     pub inputs_tx: Sender<InputMsg>,
     pub inputs_rx: Receiver<InputMsg>,
 

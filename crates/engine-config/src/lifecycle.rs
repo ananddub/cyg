@@ -1,7 +1,5 @@
-
 #[derive(Debug, Clone)]
 pub struct LifecycleConfig {
-
     pub room_max_seconds: u64,
 
     pub reap_idle_secs: u64,
@@ -31,7 +29,6 @@ impl Default for LifecycleConfig {
 }
 
 impl LifecycleConfig {
-
     pub fn clamp(&mut self) {
         self.room_max_seconds = self.room_max_seconds.min(MAX_WINDOW_SECONDS);
         self.reap_idle_secs = self.reap_idle_secs.clamp(1, MAX_WINDOW_SECONDS);

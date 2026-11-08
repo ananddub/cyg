@@ -15,7 +15,10 @@ pub(crate) use responses::{
     chunked, close_delimited, framed, garbage, hang_up, non_utf8_body, ok, truncated_body,
 };
 
-pub(crate) fn ready_retries_seen(lifecycle: &Arc<Lifecycle>, budget: Duration) -> Vec<Option<String>> {
+pub(crate) fn ready_retries_seen(
+    lifecycle: &Arc<Lifecycle>,
+    budget: Duration,
+) -> Vec<Option<String>> {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&seen);
     let runner = {

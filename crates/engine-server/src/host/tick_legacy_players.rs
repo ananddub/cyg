@@ -52,9 +52,12 @@ impl TickRunner {
                     server_tick_u32,
                 );
             }
-            let framed = ctx
-                .transport
-                .send_delta_framed(session, delta_seq, server_tick_u32, &self.delta_body);
+            let framed = ctx.transport.send_delta_framed(
+                session,
+                delta_seq,
+                server_tick_u32,
+                &self.delta_body,
+            );
             if framed == 0 {
                 let _ = ctx
                     .transport
@@ -87,9 +90,9 @@ impl TickRunner {
                 &self.delta_body,
             );
             if framed == 0 {
-                let _ = ctx
-                    .transport
-                    .send_to(spec_session, OpCode::RoomDataBytes, &self.delta_body);
+                let _ =
+                    ctx.transport
+                        .send_to(spec_session, OpCode::RoomDataBytes, &self.delta_body);
             }
         }
     }

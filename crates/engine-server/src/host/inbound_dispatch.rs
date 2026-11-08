@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Instant;
 
 use engine_core::RateDecision;
@@ -10,7 +11,11 @@ impl<'a> Engine<'a> {
         self.rates.message_rate_limits.sweep(Instant::now());
         for (client_id, msg) in self.transport.take_inbound() {
             if self.rates.message_rate_limits.is_enabled() {
-                match self.rates.message_rate_limits.check(&client_id, Instant::now()) {
+                match self
+                    .rates
+                    .message_rate_limits
+                    .check(&client_id, Instant::now())
+                {
                     RateDecision::Allow => {}
                     RateDecision::Disconnect => {
                         self.stats.recorder.inputs_dropped += 1;
@@ -19,17 +24,20 @@ impl<'a> Engine<'a> {
                             self.cfg.max_messages_per_second
                         );
                         let _ = self.transport.disconnect(&client_id);
-                        self.rates.rtc_input_rates.remove(&client_id);
+                        self.rates.rtc_input_rates.remove(client_id.as_ref());
                         continue;
                     }
                 }
             }
-            let room_name = self
+            let room_name: Arc<str> = self
                 .transport
                 .room_of(&client_id)
-                .map(|r| sanitize_room_name(&r).to_string())
-                .unwrap_or_else(|| self.cfg.name.clone());
-            let Some(room) = self.server.rooms.get_mut(&room_name) else {
+                .map(|r| {
+                    let s = sanitize_room_name(&r);
+                    if s.len() == r.len() { r } else { Arc::from(s) }
+                })
+                .unwrap_or_else(|| Arc::from(self.cfg.name.as_str()));
+            let Some(room) = self.server.rooms.get_mut(room_name.as_ref()) else {
                 continue;
             };
             let Some(&id) = room.sessions.get(&*client_id) else {
@@ -41,7 +49,7 @@ impl<'a> Engine<'a> {
                     payload,
                     resupplied,
                 } => {
-                    self.rates.last_input_at.insert(client_id.clone(), Instant::now());
+                    self.rates.note_input(&client_id);
                     if !input_budget_allows(
                         &mut self.rates.rtc_input_rates,
                         self.clock.tick_interval,

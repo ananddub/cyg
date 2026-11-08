@@ -13,12 +13,10 @@ pub use host_data::{RoomHostData, TimerState};
 pub use linker::build_host_linker;
 pub use room::GameRoom;
 pub use server::GameServer;
-pub use types::{
-    MAX_OUTBOX_MESSAGES, OutboundMessage, RoomBackend, RoomLogic, RoomSnapshotData,
-};
+pub use types::{MAX_OUTBOX_MESSAGES, OutboundMessage, RoomBackend, RoomLogic, RoomSnapshotData};
 
 pub(crate) use room::{JournalInput, PlayerEntry, SessionSeqs};
-pub(crate) use types::{close_code, CloseReason, DRAIN_REASON};
+pub(crate) use types::{CloseReason, DRAIN_REASON, close_code};
 
 #[cfg(test)]
 mod tests;

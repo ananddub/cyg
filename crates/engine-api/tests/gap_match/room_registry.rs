@@ -2,10 +2,10 @@ use super::*;
 
 use std::path::Path;
 
+use chrono::Utc;
 use engine_api::ApiState;
 use engine_api::repositories::db::Queries;
 use engine_api::repositories::models::RoomRegistry;
-use chrono::Utc;
 use engine_bus::{Bus, RoomOwnership, RoomPhase};
 use engine_config::{ControlConfig, GameConfig, SessionConfig};
 
@@ -275,7 +275,10 @@ async fn a_host_beat_becomes_a_row_and_a_release_removes_it() {
     bus.push_ownership(beat(RoomPhase::Hibernating));
     let until_hibernating = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let rows = queries.list_room_registry().await.expect("the list reads back");
+            let rows = queries
+                .list_room_registry()
+                .await
+                .expect("the list reads back");
             if rows.first().is_some_and(|row| row.state == "hibernating") {
                 break rows;
             }

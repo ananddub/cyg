@@ -11,7 +11,8 @@ impl<'a> Engine<'a> {
         while let Ok(sig) = rx.try_recv() {
             match sig {
                 SignalIn::Offer { seat, sdp } => {
-                    self.transport.register_seat(&seat.id, &seat.room, &seat.options);
+                    self.transport
+                        .register_seat(&seat.id, &seat.room, &seat.options);
                     match self.transport.rtc_server().handle_offer(&seat.id, &sdp) {
                         Ok(answer) => {
                             hub.publish(
@@ -32,7 +33,9 @@ impl<'a> Engine<'a> {
                         }
                     }
                 }
-                SignalIn::Candidate { seat, candidate, .. } => {
+                SignalIn::Candidate {
+                    seat, candidate, ..
+                } => {
                     if let Err(e) = self
                         .transport
                         .rtc_server()
@@ -46,9 +49,9 @@ impl<'a> Engine<'a> {
                 }
                 SignalIn::Close { seat } => {
                     tracing::info!("[server] signaling socket closed for seat {}", seat.id);
-                    let _ = self
-                        .transport
-                        .disconnect_with(&seat.id, 1000, "signaling socket closed");
+                    let _ =
+                        self.transport
+                            .disconnect_with(&seat.id, 1000, "signaling socket closed");
                 }
             }
         }

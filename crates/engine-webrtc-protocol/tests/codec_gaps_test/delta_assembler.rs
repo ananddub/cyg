@@ -43,7 +43,10 @@ fn byte_budget_evicts_oldest_partial_deltas() {
 
     let frame = first_fragment(1008, 1, TOTAL);
     assembler.insert_frame(&frame, 0);
-    assert!(assembler.evicted() >= 1, "budget forced at least one eviction");
+    assert!(
+        assembler.evicted() >= 1,
+        "budget forced at least one eviction"
+    );
     assert_eq!(assembler.inflight(), MAX_INFLIGHT_DELTAS);
 }
 

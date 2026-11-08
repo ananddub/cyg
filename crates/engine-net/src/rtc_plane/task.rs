@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -43,7 +42,6 @@ pub(crate) async fn session_task(
                 }
             }
             SessionInbound::Delta { seq, tick, body } => {
-
                 rtc.send_delta(seq, tick, &body).unwrap_or_default()
             }
             SessionInbound::Reliable { body } => rtc.send_reliable(&body).unwrap_or_default(),
@@ -78,7 +76,6 @@ async fn pump_flush(
                 destination,
                 contents,
             } => {
-
                 let _ = socket.send_to(&contents, destination).await;
             }
             Outbound::Data {

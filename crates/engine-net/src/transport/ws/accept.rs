@@ -1,4 +1,3 @@
-
 use std::io;
 use std::time::Instant;
 
@@ -7,7 +6,7 @@ use mio::{Interest, Token};
 
 use super::client::{WsClient, WsState};
 use super::frames::process_ws_frames;
-use super::hooks::{Pass, ServerCtx};
+use super::hooks::{ClientMeta, Pass, ServerCtx};
 use super::http::handle_client_greeting;
 
 pub(super) fn on_listener_event(
@@ -67,9 +66,7 @@ pub(super) fn on_listener_event(
                             room_variants: pass.room_variants,
                             http_hook: pass.http_hook.as_ref(),
                             retained: pass.retained,
-                            seat_tokens: &mut *pass.seat_tokens,
-                            client_rooms: &mut *pass.client_rooms,
-                            client_options: &mut *pass.client_options,
+                            clients_meta: &mut *pass.clients_meta,
                             game_port: pass.game_port,
                             udp_port: pass.udp_port,
                             schema_descriptor: pass.schema_descriptor,
@@ -78,12 +75,12 @@ pub(super) fn on_listener_event(
                         handle_client_greeting(
                             &mut client,
                             &peer.to_string(),
+                            token,
                             &mut *pass.buf,
                             &mut ctx,
                         )
                     };
                     if close {
-
                         continue;
                     }
 
@@ -92,8 +89,16 @@ pub(super) fn on_listener_event(
                     }
                 }
 
-                pass.client_tokens
-                    .insert(client.session_id.clone(), token);
+                // Only keyed clients get a meta entry. A socket whose handshake
+                // has not landed yet still has an empty `session_id`; storing it
+                // would collide every pending socket under the "" key and hand
+                // the wrong Token to whoever looks that session up later.
+                if !client.session_id.is_empty() {
+                    pass.clients_meta
+                        .entry(client.session_id.clone())
+                        .or_insert_with(|| ClientMeta::new(token))
+                        .token = token;
+                }
                 pass.clients.insert(token, client);
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,

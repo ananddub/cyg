@@ -58,8 +58,7 @@ fn kick_user_leaves_every_match_with_the_presence_event() {
     let kicked = RealtimeSessionHub::global().kick_user(uid, "Banned");
     assert_eq!(kicked, 1);
 
-    if let Some(snapshot) =
-        crate::services::realtime::RealtimeMatchService::get_snapshot(match_id)
+    if let Some(snapshot) = crate::services::realtime::RealtimeMatchService::get_snapshot(match_id)
     {
         assert!(
             snapshot

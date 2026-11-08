@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 
-use super::{UdpPeer, UdpTransport, UDP_SOCKET_TOKEN};
+use super::{UDP_SOCKET_TOKEN, UdpPeer, UdpTransport};
 use crate::framing::{OpCode, encode_frame, iter_frame_ranges};
 use crate::transport::{GameTransport, TransportEvent};
 
@@ -20,7 +20,6 @@ impl GameTransport for UdpTransport {
         for event in self.events.iter() {
             if event.token() == UDP_SOCKET_TOKEN && event.is_readable() {
                 loop {
-
                     let (len, peer_addr) = match crate::bufio::recv_udp(
                         &mut self.socket,
                         &mut self.recv_buf,

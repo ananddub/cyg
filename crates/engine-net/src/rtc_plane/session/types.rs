@@ -1,4 +1,3 @@
-
 use std::net::SocketAddr;
 
 use str0m::channel::ChannelId;
@@ -11,7 +10,6 @@ pub enum PlaneChannel {
 
 #[derive(Debug)]
 pub enum Outbound {
-
     Datagram {
         destination: SocketAddr,
         contents: Vec<u8>,
@@ -30,15 +28,8 @@ pub enum Outbound {
 pub enum SessionEvent {
     Connected,
     Closed,
-    ChannelOpen {
-        id: ChannelId,
-        label: String,
-    },
-    ChannelClose {
-        id: ChannelId,
-    },
+    ChannelOpen { id: ChannelId, label: String },
+    ChannelClose { id: ChannelId },
 
-    RemoteAddrBound {
-        addr: SocketAddr,
-    },
+    RemoteAddrBound { addr: SocketAddr },
 }

@@ -1,4 +1,3 @@
-
 use engine_webrtc_protocol::channel::{MAX_DELTA_CHUNK, delta_fragment_count, write_delta_frame};
 
 use super::engine::RtcSession;
@@ -7,7 +6,6 @@ use super::{LABEL_RELIABLE, LABEL_UNRELIABLE};
 use crate::rtc_plane::RtcPlaneError;
 
 impl RtcSession {
-
     pub fn send_delta(
         &mut self,
         seq: u16,
@@ -27,7 +25,6 @@ impl RtcSession {
             let end = (start + MAX_DELTA_CHUNK).min(body.len());
             write_delta_frame(&mut frame, seq, tick, idx, total, &body[start..end]);
             if let Some(mut ch) = self.rtc.channel(cid) {
-
                 let _ = ch.write(true, &frame);
             }
 

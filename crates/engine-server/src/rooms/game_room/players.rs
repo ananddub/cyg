@@ -2,7 +2,6 @@ use crate::rooms::*;
 use std::time::Instant;
 
 impl GameRoom {
-
     pub(crate) fn release_player(&mut self, session: &str, id: i64) {
         self.release_player_with(session, id, close_code::LEFT);
     }
@@ -21,7 +20,7 @@ impl GameRoom {
         self.voice_room.leave_participant(id as u32);
         self.seqs.remove(&id);
         self.entries.remove(&id);
-        self.input_journal.retain(|j| j.session != session);
+        self.input_journal.retain(|j| j.session.as_ref() != session);
     }
 
     #[allow(dead_code)]
@@ -45,16 +44,22 @@ impl GameRoom {
         if let Some(ref mut ecs) = self.ecs {
             ecs.add_player(session, id, x, y);
         }
-        let auth = self.entries.get(&id).map(|e| e.auth.clone()).unwrap_or_default();
+        let auth = self
+            .entries
+            .get(&id)
+            .map(|e| e.auth.clone())
+            .unwrap_or_default();
         if let Some(ref mut wasm) = self.wasm {
             Self::call_on_join(wasm, id, options, &auth);
         }
-        self.voice_room
-            .join_participant(id as u32, Some(engine_voice::hash_team("1")), [x, 0.0, y]);
-        // Interned once: the same Arc<str> backs the sessions key, so later
+        self.voice_room.join_participant(
+            id as u32,
+            Some(engine_voice::hash_team("1")),
+            [x, 0.0, y],
+        );
+        // Interned once: the same Rc<str> backs the sessions key, so later
         // spectator/pending-leave transitions refcount instead of re-allocating.
-        self.sessions
-            .insert(std::sync::Arc::from(session), id);
+        self.sessions.insert(std::rc::Rc::from(session), id);
         self.entries.entry(id).or_default().options = options.to_vec();
         id
     }
@@ -63,19 +68,15 @@ impl GameRoom {
     /// `on_join(id, opt_ptr, opt_len, auth_ptr, auth_len)`; modules still
     /// exporting the ABI v1 `on_join(id, ptr, len)` get the options only.
     #[doc(hidden)]
-    pub fn call_on_join(
-        wasm: &mut RoomLogic<RoomHostData>,
-        id: i64,
-        bytes: &[u8],
-        auth: &[u8],
-    ) {
+    pub fn call_on_join(wasm: &mut RoomLogic<RoomHostData>, id: i64, bytes: &[u8], auth: &[u8]) {
         let opt = Self::write_guest_bytes(wasm, bytes, "join options");
         let auth_ref = Self::write_guest_bytes(wasm, auth, "auth data");
         let instance = wasm.raw_instance();
-        if let Ok(func) = instance
-            .get_typed_func::<(i64, i32, i32, i32, i32), ()>("on_join")
-        {
-            let _ = func.call(instance.store_mut(), (id, opt.0, opt.1, auth_ref.0, auth_ref.1));
+        if let Ok(func) = instance.get_typed_func::<(i64, i32, i32, i32, i32), ()>("on_join") {
+            let _ = func.call(
+                instance.store_mut(),
+                (id, opt.0, opt.1, auth_ref.0, auth_ref.1),
+            );
             return;
         }
         if let Ok(func) = instance.get_typed_func::<(i64, i32, i32), ()>("on_join") {
@@ -130,7 +131,7 @@ impl GameRoom {
     #[allow(dead_code)]
     pub(crate) fn join_spectator(&mut self, session: &str) {
         self.empty_since = None;
-        self.spectators.insert(std::sync::Arc::from(session));
+        self.spectators.insert(std::rc::Rc::from(session));
     }
 
     pub(crate) fn make_spectator(&mut self, session: &str) {
@@ -142,7 +143,7 @@ impl GameRoom {
             self.entries.remove(&id);
         }
         self.schema_sent.remove(session);
-        self.spectators.insert(std::sync::Arc::from(session));
+        self.spectators.insert(std::rc::Rc::from(session));
     }
 
     pub(crate) fn add_raw_player(&mut self, _x: f64, _y: f64) -> i64 {
@@ -225,8 +226,8 @@ impl GameRoom {
             let msg = Self::write_guest_bytes(wasm, message.as_bytes(), "exception message");
             let method_ref = Self::write_guest_bytes(wasm, method.as_bytes(), "exception method");
             let instance = wasm.raw_instance();
-            if let Ok(func) = instance
-                .get_typed_func::<(i32, i32, i32, i32), ()>("on_uncaught_exception")
+            if let Ok(func) =
+                instance.get_typed_func::<(i32, i32, i32, i32), ()>("on_uncaught_exception")
             {
                 let _ = func.call(
                     instance.store_mut(),
@@ -235,5 +236,4 @@ impl GameRoom {
             }
         }
     }
-
 }

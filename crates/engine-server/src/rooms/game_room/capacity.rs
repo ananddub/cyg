@@ -1,7 +1,6 @@
 use crate::rooms::*;
 
 impl GameRoom {
-
     #[inline]
     pub(crate) fn is_at_capacity(&self, max_clients: i32) -> bool {
         // The variant override applies to every backend — an operator cap on
@@ -58,10 +57,10 @@ impl GameRoom {
         let opt = GameRoom::write_guest_bytes(wasm, options.as_bytes(), "auth options");
         let ctx = GameRoom::write_guest_bytes(wasm, auth_context.as_bytes(), "auth context");
         let instance = wasm.raw_instance();
-        if let Ok(func) = instance
-            .get_typed_func::<(i64, i32, i32, i32, i32), i64>("on_auth")
-        {
-            let packed = func.call(instance.store_mut(), (id, opt.0, opt.1, ctx.0, ctx.1)).ok()?;
+        if let Ok(func) = instance.get_typed_func::<(i64, i32, i32, i32, i32), i64>("on_auth") {
+            let packed = func
+                .call(instance.store_mut(), (id, opt.0, opt.1, ctx.0, ctx.1))
+                .ok()?;
             let len = (packed & 0xFFFF_FFFF) as u32;
             let ptr = ((packed >> 32) & 0xFFFF_FFFF) as u32;
             if len == 0 {
@@ -69,13 +68,11 @@ impl GameRoom {
             }
             return wasm.read_memory(ptr, len).ok();
         }
-        let func = instance.get_typed_func::<(i64, i32, i32), i32>("on_auth").ok()?;
+        let func = instance
+            .get_typed_func::<(i64, i32, i32), i32>("on_auth")
+            .ok()?;
         let allowed = func.call(instance.store_mut(), (id, opt.0, opt.1)).ok()?;
-        if allowed != 0 {
-            Some(Vec::new())
-        } else {
-            None
-        }
+        if allowed != 0 { Some(Vec::new()) } else { None }
     }
 
     pub(crate) fn guest_allow_reconnection(&mut self, id: i64) -> Option<i32> {
@@ -87,26 +84,47 @@ impl GameRoom {
         func.call(instance.store_mut(), (id,)).ok()
     }
 
+    /// Resolve the optional per-tick exports once. Missing exports stay
+    /// `None` (guest opted out); a wasm swap resets `guest_fns_probed`.
+    pub(crate) fn probe_guest_fns(&mut self) {
+        if self.guest_fns_probed {
+            return;
+        }
+        self.guest_fns_probed = true;
+        let Some(wasm) = self.wasm.as_mut() else {
+            return;
+        };
+        let instance = wasm.raw_instance();
+        self.on_patch_rate_fn = instance.get_typed_func::<(), i32>("on_patch_rate").ok();
+        self.on_simulation_rate_fn = instance
+            .get_typed_func::<(), i32>("on_simulation_rate")
+            .ok();
+        self.on_patch_due_fn = instance.get_typed_func::<(i32,), ()>("on_patch_due").ok();
+    }
+
     pub(crate) fn guest_patch_rate_ms(&mut self) -> i32 {
+        self.probe_guest_fns();
+        let Some(func) = &self.on_patch_rate_fn else {
+            return 0;
+        };
         let Some(wasm) = self.wasm.as_mut() else {
             return 0;
         };
-        let instance = wasm.raw_instance();
-        let Ok(func) = instance.get_typed_func::<(), i32>("on_patch_rate") else {
-            return 0;
-        };
-        func.call(instance.store_mut(), ()).unwrap_or(0).max(0)
+        func.call(wasm.raw_instance().store_mut(), ())
+            .unwrap_or(0)
+            .max(0)
     }
 
     pub(crate) fn guest_simulation_rate_ms(&mut self) -> i32 {
+        self.probe_guest_fns();
+        let Some(func) = &self.on_simulation_rate_fn else {
+            return 0;
+        };
         let Some(wasm) = self.wasm.as_mut() else {
             return 0;
         };
-        let instance = wasm.raw_instance();
-        let Ok(func) = instance.get_typed_func::<(), i32>("on_simulation_rate") else {
-            return 0;
-        };
-        func.call(instance.store_mut(), ()).unwrap_or(0).max(0)
+        func.call(wasm.raw_instance().store_mut(), ())
+            .unwrap_or(0)
+            .max(0)
     }
-
 }

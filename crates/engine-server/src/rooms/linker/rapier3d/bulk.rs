@@ -9,7 +9,6 @@ pub(crate) fn register(
         engine_wasm::HOST_NAMESPACE_LEGACY,
         "ox",
     ] {
-
         linker
             .func_wrap(
                 ns,
@@ -47,9 +46,8 @@ pub(crate) fn register(
                         bodies
                             .iter()
                             .map(|body_id| {
-                                let pos = host
-                                    .rapier3d_get_position(*body_id)
-                                    .unwrap_or([0.0f32; 3]);
+                                let pos =
+                                    host.rapier3d_get_position(*body_id).unwrap_or([0.0f32; 3]);
                                 let contact = if other_body >= 0
                                     && host.rapier3d_check_contact(*body_id, other_body)
                                 {
@@ -57,10 +55,7 @@ pub(crate) fn register(
                                 } else {
                                     0
                                 };
-                                (
-                                    [pos[0] as f64, pos[1] as f64, pos[2] as f64],
-                                    contact,
-                                )
+                                ([pos[0] as f64, pos[1] as f64, pos[2] as f64], contact)
                             })
                             .collect()
                     };
@@ -108,6 +103,5 @@ pub(crate) fn register(
                 },
             )
             .expect("link sys_rapier3d_step");
-
     }
 }

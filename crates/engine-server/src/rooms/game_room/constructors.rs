@@ -5,13 +5,20 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 impl GameRoom {
-
     pub(crate) fn new(
         pre: &engine_wasm::WasmPreInstance<RoomHostData>,
         max_clients: i32,
         physics: PhysicsWorld3D,
     ) -> Result<Self, engine_wasm::WasmError> {
-        Self::new_with_extras(pre, max_clients, physics, None, None, b"", &Default::default())
+        Self::new_with_extras(
+            pre,
+            max_clients,
+            physics,
+            None,
+            None,
+            b"",
+            &Default::default(),
+        )
     }
 
     pub(crate) fn new_with_extras(
@@ -59,6 +66,10 @@ impl GameRoom {
             pending_leaves: HashMap::new(),
             patch_skipped: false,
             patch_due_wired: false,
+            guest_fns_probed: false,
+            on_patch_rate_fn: None,
+            on_simulation_rate_fn: None,
+            on_patch_due_fn: None,
             last_patch_at: None,
             sim_accum: Duration::ZERO,
             input_journal: VecDeque::new(),
@@ -105,6 +116,10 @@ impl GameRoom {
             pending_leaves: HashMap::new(),
             patch_skipped: false,
             patch_due_wired: false,
+            guest_fns_probed: false,
+            on_patch_rate_fn: None,
+            on_simulation_rate_fn: None,
+            on_patch_due_fn: None,
             last_patch_at: None,
             sim_accum: Duration::ZERO,
             input_journal: VecDeque::new(),
@@ -127,5 +142,4 @@ impl GameRoom {
         room.ecs = Some(crate::ecs_room::EcsRoomState::new(name, arena));
         room
     }
-
 }

@@ -1,5 +1,5 @@
 use crate::codegen::common::root_class_name;
-use crate::codegen::{emit, Language};
+use crate::codegen::{Language, emit};
 use crate::{RootCollection, RootState, SchemaDef};
 
 fn sample() -> (Vec<SchemaDef>, Option<RootState>) {
@@ -75,10 +75,10 @@ fn gdscript_emits_nested_typed_classes_and_metadata() {
     assert!(text.contains("var name: String = \"\""));
     assert!(text.contains("var tags: Array = []"));
     assert!(text.contains("var target = null"));
-    assert!(text.contains("\"name\": \"flags\", \"kind\": \"u32\", \"code\": 3, \"flags\": 0, \"element\": \"none\""));
-    assert!(
-        text.contains("\"name\": \"target\", \"kind\": \"u32\", \"code\": 3, \"flags\": 1")
-    );
+    assert!(text.contains(
+        "\"name\": \"flags\", \"kind\": \"u32\", \"code\": 3, \"flags\": 0, \"element\": \"none\""
+    ));
+    assert!(text.contains("\"name\": \"target\", \"kind\": \"u32\", \"code\": 3, \"flags\": 1"));
     assert!(text.contains("const ROOT_COLLECTIONS := ["));
     assert!(text.contains("{\"name\": \"players\", \"schema\": \"Player\"},"));
     assert!(text.contains("registry.register(\"Player\", func(): return Player.new())"));
@@ -118,8 +118,8 @@ fn lua_emits_tables_factories_and_registration() {
 
 #[test]
 fn root_named_like_an_entity_gets_a_distinct_class() {
-    let parsed = crate::ts::parse(r#"export const Player = schema({ x: t.number() }, "Player");"#)
-        .unwrap();
+    let parsed =
+        crate::ts::parse(r#"export const Player = schema({ x: t.number() }, "Player");"#).unwrap();
     let schemas = parsed.schemas;
     let root = RootState {
         name: "Player".into(),
@@ -134,7 +134,5 @@ fn root_named_like_an_entity_gets_a_distinct_class() {
     let text = emit(Language::CSharp, &schemas, Some(&root), "schema.ts");
     assert!(text.contains("public sealed class Player : OxSchemaEntity"));
     assert!(text.contains("public sealed class PlayerRoot : OxSchemaEntity"));
-    assert!(
-        text.contains("registry.Register(\"Player\", delegate { return new PlayerRoot(); });")
-    );
+    assert!(text.contains("registry.Register(\"Player\", delegate { return new PlayerRoot(); });"));
 }

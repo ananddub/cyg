@@ -28,7 +28,6 @@ pub fn spawn(state: &ApiState) {
 
     let lifecycle = Lifecycle::new(sidecar, interval);
     if install(Arc::clone(&lifecycle)).is_err() {
-
         tracing::info!(
             "[agones] 🛰️  lifecycle already running at {}; reusing it",
             lifecycle.addr()
@@ -56,7 +55,6 @@ pub fn spawn(state: &ApiState) {
 }
 
 fn run(lifecycle: Arc<Lifecycle>) {
-
     match lifecycle.mark_ready() {
         Ok(()) => match lifecycle.refresh_state() {
             Ok(state) => tracing::info!("[agones] ✅ GameServer is {}", state.display()),

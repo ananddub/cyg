@@ -175,7 +175,6 @@ impl Default for GameConfig {
     }
 }
 
-
 /// Which per-room physics backend the engine should construct and expose.
 /// "none" keeps the guest's `sys_rapier*` imports unfulfilled-by-host: the
 /// linker answers with permission-denied and no rapier world is allocated.

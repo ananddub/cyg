@@ -23,7 +23,6 @@ pub const FIELD_STATIC: u8 = 2;
 pub const FIELD_TRANSIENT: u8 = 4;
 
 impl WireKind {
-
     pub fn size(self) -> usize {
         match self {
             WireKind::U8 | WireKind::I8 | WireKind::Bool => 1,

@@ -1,4 +1,3 @@
-
 use bytes::{Bytes, BytesMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,7 +24,6 @@ pub enum OpCode {
 }
 
 impl OpCode {
-
     pub fn from_u8(val: u8) -> Option<Self> {
         match val {
             0 => Some(Self::Ping),

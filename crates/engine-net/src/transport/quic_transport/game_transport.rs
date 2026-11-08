@@ -25,9 +25,7 @@ impl GameTransport for QuicTransport {
             .map_or(timeout, |left| left.min(timeout));
         self.events.clear();
         self.poll.poll(&mut self.events, Some(wait))?;
-        if self.events.is_empty() {
-
-        }
+        if self.events.is_empty() {}
         let now = Instant::now();
         if self.events.iter().any(|e| e.token() == Token(0)) {
             self.readable(now);
@@ -52,7 +50,6 @@ impl GameTransport for QuicTransport {
             return Ok(());
         };
         match opcode {
-
             OpCode::StateDelta | OpCode::StateSnapshot => {
                 let mut datagram = Vec::with_capacity(1 + payload.len());
                 datagram.push(opcode as u8);

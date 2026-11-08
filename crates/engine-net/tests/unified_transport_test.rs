@@ -1,4 +1,3 @@
-
 use std::io::{Read, Write};
 use std::net::{TcpStream, UdpSocket};
 use std::time::Duration;
@@ -79,7 +78,6 @@ fn test_unified_transport_auto_switch() {
     assert!(resp_str.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
     println!("✓ 4. WireSocket upgrade handshake confirmed (101 Switching Protocols)!");
 
-    
     for _ in 0..5 {
         let _ = ws_transport.poll_events(Duration::from_millis(20), &mut Vec::new());
         let _ = ws_transport.flush();

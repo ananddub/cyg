@@ -9,7 +9,6 @@ pub(crate) fn register(
         engine_wasm::HOST_NAMESPACE_LEGACY,
         "ox",
     ] {
-
         linker
             .func_wrap(
                 ns,
@@ -39,9 +38,7 @@ pub(crate) fn register(
                                 let off = start + i * 28;
                                 (
                                     i32::from_le_bytes(data[off..off + 4].try_into().unwrap()),
-                                    f64::from_le_bytes(
-                                        data[off + 4..off + 12].try_into().unwrap(),
-                                    ),
+                                    f64::from_le_bytes(data[off + 4..off + 12].try_into().unwrap()),
                                     f64::from_le_bytes(
                                         data[off + 12..off + 20].try_into().unwrap(),
                                     ),
@@ -117,6 +114,5 @@ pub(crate) fn register(
                 },
             )
             .expect("link sys_rapier3d_get_velocities");
-
     }
 }

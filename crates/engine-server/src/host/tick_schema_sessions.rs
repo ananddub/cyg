@@ -28,7 +28,8 @@ impl TickRunner {
         // the perf book warns about). Capacity survives across rooms/ticks.
         self.session_scratch.clear();
         self.session_scratch
-            .extend(room.sessions.iter().map(|(s, &id)| (s.clone(), id)));        let sessions = &self.session_scratch;
+            .extend(room.sessions.iter().map(|(s, &id)| (s.clone(), id)));
+        let sessions = &self.session_scratch;
 
         // Shared bodies are built ONLY when the transport can actually use
         // them (WS lane + CYG_SHARED_DELTA gate). Building them unconditionally
@@ -64,10 +65,13 @@ impl TickRunner {
                     _ => None,
                 };
                 if let Some(body) = shared {
-                    if ctx
-                        .transport
-                        .send_delta_shared(session, *id, body, acked_seq, server_tick_u32)
-                    {
+                    if ctx.transport.send_delta_shared(
+                        session,
+                        *id,
+                        body,
+                        acked_seq,
+                        server_tick_u32,
+                    ) {
                         continue;
                     }
                 }
@@ -81,15 +85,22 @@ impl TickRunner {
                 schema.patch
             };
             netcode::wrap_delta_into(&mut self.delta_body, *id, body, acked_seq, server_tick_u32);
-            let framed = ctx
-                .transport
-                .send_delta_framed(session, delta_seq, server_tick_u32, &self.delta_body);
+            let framed = ctx.transport.send_delta_framed(
+                session,
+                delta_seq,
+                server_tick_u32,
+                &self.delta_body,
+            );
+            if std::env::var_os("CYG_T").is_some() && is_full {
+                eprintln!("[t] FULL{session} framed={framed} culled={culled}");
+            }
             if framed == 0 {
                 if is_full || culled {
                     let _ = ctx.transport.send_state(session, &self.delta_body);
                 } else {
-                    let _ =
-                        ctx.transport.send_to(session, OpCode::RoomDataBytes, &self.delta_body);
+                    let _ = ctx
+                        .transport
+                        .send_to(session, OpCode::RoomDataBytes, &self.delta_body);
                 }
             }
         }

@@ -55,14 +55,10 @@ impl GroupService {
                 id: Uuid::new_v4(),
                 creator_id: creator,
                 name,
-                description: crate::moderation::clean_text(
-                    &body.description.unwrap_or_default(),
-                ),
+                description: crate::moderation::clean_text(&body.description.unwrap_or_default()),
                 avatar_url: body.avatar_url.unwrap_or_default(),
                 lang_tag: body.lang_tag.unwrap_or_default(),
-                metadata: crate::moderation::sanitize_json(metadata_of(
-                    body.metadata.as_ref(),
-                )?),
+                metadata: crate::moderation::sanitize_json(metadata_of(body.metadata.as_ref())?),
                 max_count,
                 state: if open { GROUP_OPEN } else { GROUP_CLOSED },
             })

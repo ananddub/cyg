@@ -19,9 +19,15 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
                         .collect()
                 })
                 .unwrap_or_default(),
-            max_clients: def.get("max_clients").and_then(|v| v.as_integer()).map(|v| v as i32),
+            max_clients: def
+                .get("max_clients")
+                .and_then(|v| v.as_integer())
+                .map(|v| v as i32),
             persistent: def.get("persistent").and_then(|v| v.as_bool()),
-            options: def.get("options").and_then(|v| v.as_str()).map(str::to_string),
+            options: def
+                .get("options")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
         };
         cfg.rooms.insert(name.clone(), variant);
     }

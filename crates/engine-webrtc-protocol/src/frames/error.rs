@@ -1,20 +1,11 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameError {
-    TooShort {
-        need: usize,
-        got: usize,
-    },
+    TooShort { need: usize, got: usize },
     UnknownOpcode(u8),
     UnknownEventKind(u8),
 
-    LengthMismatch {
-        want: usize,
-        got: usize,
-    },
-    TooManyEntities {
-        max: usize,
-        got: usize,
-    },
+    LengthMismatch { want: usize, got: usize },
+    TooManyEntities { max: usize, got: usize },
     EmptyState,
 }
 

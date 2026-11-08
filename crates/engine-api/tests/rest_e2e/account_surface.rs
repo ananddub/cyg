@@ -516,7 +516,10 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
         ("wallet_ledger", "(user_id = <uuid>$u OR user_id = $u)"),
         ("user_device", "(user_id = <uuid>$u OR user_id = $u)"),
         ("storage", "(user_id = <uuid>$u OR user_id = $u)"),
-        ("user_edge", "(source_id = <uuid>$u OR destination_id = <uuid>$u)"),
+        (
+            "user_edge",
+            "(source_id = <uuid>$u OR destination_id = <uuid>$u)",
+        ),
     ] {
         assert_eq!(
             count(pool, table, Some(filter), &[("u", json!(doomed.uid))]).await,

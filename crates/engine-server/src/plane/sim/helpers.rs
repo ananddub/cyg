@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use engine_bus::PeerId;
 use crate::rooms::GameRoom;
+use engine_bus::PeerId;
 
 pub(super) const SPAWN_W: f64 = 800.0;
 pub(super) const SPAWN_H: f64 = 500.0;
@@ -32,8 +32,10 @@ pub(super) fn bind_peer(
     if let Some(ref mut wasm) = room.wasm {
         GameRoom::call_on_join(wasm, id, b"", b"");
     }
-    room.voice_room.join_participant(id as u32, Some(engine_voice::hash_team("1")), [x, 0.0, y]);
-    room.sessions.insert(std::sync::Arc::from(peer_id.as_str()), id);
+    room.voice_room
+        .join_participant(id as u32, Some(engine_voice::hash_team("1")), [x, 0.0, y]);
+    room.sessions
+        .insert(std::rc::Rc::from(peer_id.as_str()), id);
     room.entries.entry(id).or_default();
     session_of.insert(id, peer_id);
     id

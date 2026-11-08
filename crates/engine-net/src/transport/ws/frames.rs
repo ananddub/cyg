@@ -1,4 +1,3 @@
-
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -24,7 +23,6 @@ pub(super) fn process_ws_frames(
         let (ws_opcode, fin, payload) = match frame {
             Ok(frame) => frame,
             Err(()) => {
-
                 client.consented = true;
                 queue_close_frame(client, 1009, "frame too large");
                 return true;
@@ -37,22 +35,18 @@ pub(super) fn process_ws_frames(
 
         match ws_opcode {
             0x8 => {
-
                 client.consented = true;
                 queue_close_frame(client, close_code::CONSENTED, "leave");
                 return true;
             }
             0x9 => {
-
                 queue_ws_control(client, 0xA, &payload);
                 continue;
             }
             0xA => {
-
                 continue;
             }
             0x0 => {
-
                 if client.frag_opcode.is_some() {
                     if client.frag_buf.len() + payload.len()
                         > super::rfc6455::MAX_INBOUND_FRAME_SIZE
@@ -103,11 +97,8 @@ fn dispatch_message(
     let code = msg[0] & PROTOCOL_CODE_MASK;
 
     match code {
-        PROTO_JOIN_ROOM => {
-
-        }
+        PROTO_JOIN_ROOM => {}
         PROTO_LEAVE_ROOM => {
-
             client.consented = true;
             queue_close_frame(client, close_code::CONSENTED, "leave");
             return true;
@@ -130,7 +121,9 @@ fn dispatch_message(
             if simulated_latency.is_zero() {
                 queue_message(client, PROTO_PING, &msg[1..]);
             } else {
-                client.delayed_pings.push((now + simulated_latency, msg.slice(1..)));
+                client
+                    .delayed_pings
+                    .push((now + simulated_latency, msg.slice(1..)));
             }
         }
         PROTO_ROOM_REQUEST => {
@@ -141,7 +134,6 @@ fn dispatch_message(
             });
         }
         _ => {
-
             events_out.push(TransportEvent::Packet {
                 client_id: client.session_id.clone(),
                 opcode: OpCode::Custom,

@@ -9,7 +9,6 @@ pub struct DeltaPacker {
 }
 
 impl DeltaPacker {
-
     pub fn new(first_seq: u16, tick: u32) -> Self {
         Self {
             seq: first_seq,

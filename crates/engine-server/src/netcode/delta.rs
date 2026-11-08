@@ -4,9 +4,7 @@ use crate::rooms::SessionSeqs;
 
 use super::DeltaEntity;
 
-pub fn parse_delta_sections(
-    delta: &[u8],
-) -> Option<(u32, Vec<DeltaEntity>, u32, usize, usize)> {
+pub fn parse_delta_sections(delta: &[u8]) -> Option<(u32, Vec<DeltaEntity>, u32, usize, usize)> {
     let (ver, entities, bullets, (bc_off, bullet_end)) = engine_spatial::aoi::parse_delta(delta)?;
     Some((ver, entities, bullets, bc_off, bullet_end))
 }
@@ -67,10 +65,10 @@ pub fn record_channel_ack(
     let Some(&id) = room.sessions.get(client_id) else {
         return;
     };
-    let entry = room
-        .seqs
-        .entry(id)
-        .or_insert(SessionSeqs { input: 0, acked_event: 0 });
+    let entry = room.seqs.entry(id).or_insert(SessionSeqs {
+        input: 0,
+        acked_event: 0,
+    });
     if engine_webrtc_protocol::is_newer(entry.acked_event, ack.seq) {
         entry.acked_event = ack.seq;
     }

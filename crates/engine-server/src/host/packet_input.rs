@@ -1,13 +1,15 @@
-use std::time::Instant;
-
 use crate::host::*;
 
 impl<'a> Engine<'a> {
-    pub(crate) fn run_packet_input(&mut self, client_id: &str, id: i64, data: &[u8], room_name: &str) {
+    pub(crate) fn run_packet_input(
+        &mut self,
+        client_id: &str,
+        id: i64,
+        data: &[u8],
+        room_name: &str,
+    ) {
         if let Ok(input) = engine_webrtc_protocol::InputFrame::decode(data) {
-            self.rates
-                .last_input_at
-                .insert(client_id.to_string(), Instant::now());
+            self.rates.note_input(client_id);
             if !input_budget_allows(
                 &mut self.rates.rtc_input_rates,
                 self.clock.tick_interval,
@@ -35,11 +37,15 @@ impl<'a> Engine<'a> {
         }
     }
 
-    pub(crate) fn run_packet_batch(&mut self, client_id: &str, id: i64, data: &[u8], room_name: &str) {
+    pub(crate) fn run_packet_batch(
+        &mut self,
+        client_id: &str,
+        id: i64,
+        data: &[u8],
+        room_name: &str,
+    ) {
         if let Some(samples) = netcode::batch_sample_count(data) {
-            self.rates
-                .last_input_at
-                .insert(client_id.to_string(), Instant::now());
+            self.rates.note_input(client_id);
             let room = self.server.rooms.get_mut(room_name).unwrap();
             let cfg = self.cfg;
             for i in 0..samples {
@@ -55,8 +61,16 @@ impl<'a> Engine<'a> {
                 let seq = u16::from_le_bytes([data[off], data[off + 1]]);
                 let mut payload_20 = [0u8; 20];
                 payload_20.copy_from_slice(&data[off + 2..off + 22]);
-                if netcode::apply_input(room, cfg, self.clock.tick_interval.as_secs_f64(), client_id, id, seq, &payload_20)
-                    .is_err()
+                if netcode::apply_input(
+                    room,
+                    cfg,
+                    self.clock.tick_interval.as_secs_f64(),
+                    client_id,
+                    id,
+                    seq,
+                    &payload_20,
+                )
+                .is_err()
                 {
                     self.stats.recorder.inputs_dropped += 1;
                 }

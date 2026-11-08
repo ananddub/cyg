@@ -1,9 +1,10 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use str0m::channel::ChannelId;
 
 use super::WebRtcServer;
-use super::contract::{MAX_QUEUED_FRAMES, OutboundDelta, Lane};
+use super::contract::{Lane, MAX_QUEUED_FRAMES, OutboundDelta};
 use super::session::{Sink, WebRtcSession};
 use super::types::WriteAttempt;
 
@@ -42,9 +43,7 @@ impl WebRtcServer {
             }
             match saturated_at {
                 Some(idx) => {
-
-                    let tail =
-                        VecDeque::from(delta.frames.into_iter().skip(idx).collect::<Vec<_>>());
+                    let tail = delta.frames.into_iter().skip(idx).collect::<VecDeque<_>>();
                     session.queue(lane).push_front(OutboundDelta {
                         seq: delta.seq,
                         tick: delta.tick,
@@ -91,7 +90,7 @@ impl WebRtcServer {
             }
         }
 
-        Self::enqueue(session, lane, seq, tick, vec![frame.to_vec()], sink);
+        Self::enqueue(session, lane, seq, tick, vec![Arc::from(frame)], sink);
         sink.stats.frames_queued += 1;
         true
     }
@@ -101,7 +100,7 @@ impl WebRtcServer {
         lane: Lane,
         seq: Option<u16>,
         tick: Option<u32>,
-        frames: Vec<Vec<u8>>,
+        frames: Vec<Arc<[u8]>>,
         sink: &mut Sink,
     ) -> usize {
         let count = frames.len();
@@ -127,7 +126,6 @@ impl WebRtcServer {
             return WriteAttempt::Lost;
         };
         match channel.write(true, frame) {
-
             Ok(true) => WriteAttempt::Accepted,
             Ok(false) => WriteAttempt::Saturated,
             Err(_) => WriteAttempt::Lost,

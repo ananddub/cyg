@@ -22,7 +22,6 @@ fn test_mio_worker_client_echo_and_ticks() {
     println!("✓ MioWorker bound to 127.0.0.1:{} with SO_REUSEPORT", port);
 
     let client_handle = thread::spawn(move || {
-
         thread::sleep(Duration::from_millis(50));
 
         let mut stream =

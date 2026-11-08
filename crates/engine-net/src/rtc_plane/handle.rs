@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
@@ -15,7 +14,6 @@ pub struct PlaneHandle {
 }
 
 impl PlaneHandle {
-
     pub async fn create_session(
         &self,
         session_id: Arc<str>,

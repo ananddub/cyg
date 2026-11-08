@@ -1,8 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use crate::messages::{
-    InputMsg, MatchFinished, RoomOwnership, RoomSnapshot, SeatUpdate, SimEvent,
-};
+use crate::messages::{InputMsg, MatchFinished, RoomOwnership, RoomSnapshot, SeatUpdate, SimEvent};
 
 use super::*;
 

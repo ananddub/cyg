@@ -1,4 +1,3 @@
-
 use std::io::{self, Write};
 use std::time::Instant;
 
@@ -9,7 +8,7 @@ use mio::{Interest, Token};
 
 use super::client::WsState;
 use super::frames::process_ws_frames;
-use super::hooks::{Pass, ServerCtx};
+use super::hooks::{ClientMeta, Pass, ServerCtx};
 use super::http::handle_client_greeting;
 
 pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) {
@@ -47,42 +46,72 @@ pub(super) fn on_client_event(pass: &mut Pass<'_>, event: &Event, now: Instant) 
                             room_variants: pass.room_variants,
                             http_hook: pass.http_hook.as_ref(),
                             retained: pass.retained,
-                            seat_tokens: &mut *pass.seat_tokens,
-                            client_rooms: &mut *pass.client_rooms,
-                            client_options: &mut *pass.client_options,
+                            clients_meta: &mut *pass.clients_meta,
                             game_port: pass.game_port,
                             udp_port: pass.udp_port,
                             schema_descriptor: pass.schema_descriptor,
                             allowed_origins: pass.allowed_origins,
                         };
-                        handle_client_greeting(client, &peer, &mut *pass.buf, &mut ctx)
+                        handle_client_greeting(client, &peer, token, &mut *pass.buf, &mut ctx)
                     };
                     if closed {
                         conn_dead = true;
                     } else {
-
                         if client.session_id != prev_id {
-                            pass.client_tokens.remove(&*prev_id);
-                            pass.client_tokens
-                                .insert(client.session_id.clone(), token);
+                            // The upgrade already created the entry under the
+                            // real session id (with room + options). Prefer it:
+                            // a `new()` default here would wipe the room and
+                            // `ws_knows()` would then route state to WebRTC
+                            // instead of the socket, so the join snapshot never
+                            // reaches the client.
+                            if !client.session_id.is_empty() {
+                                let had_entry = pass.clients_meta.contains_key(&client.session_id);
+                                if had_entry {
+                                    // The upgrade already created the entry
+                                    // under the real session id (with room and
+                                    // options). Keep it and only refresh the
+                                    // token — reinserting a default would wipe
+                                    // the room and `ws_knows()` would route the
+                                    // join snapshot to WebRTC instead of the
+                                    // socket.
+                                    if let Some(meta) =
+                                        pass.clients_meta.get_mut(&client.session_id)
+                                    {
+                                        meta.token = token;
+                                    }
+                                    pass.clients_meta.remove(&*prev_id);
+                                } else {
+                                    // Carry the metadata across the rename so
+                                    // room/options/seat survive a re-key.
+                                    let mut meta = pass
+                                        .clients_meta
+                                        .remove(&*prev_id)
+                                        .unwrap_or_else(|| ClientMeta::new(token));
+                                    meta.token = token;
+                                    pass.clients_meta.insert(client.session_id.clone(), meta);
+                                }
+                            }
                         }
                         if client.state == WsState::Connected {
-
-                            conn_dead |= process_ws_frames(client, &mut *pass.buf, now, pass.simulated_latency);
+                            conn_dead |= process_ws_frames(
+                                client,
+                                &mut *pass.buf,
+                                now,
+                                pass.simulated_latency,
+                            );
                         }
                     }
                 }
                 WsState::Connected => {
-
-                    conn_dead |= process_ws_frames(client, &mut *pass.buf, now, pass.simulated_latency);
+                    conn_dead |=
+                        process_ws_frames(client, &mut *pass.buf, now, pass.simulated_latency);
                 }
             }
         }
 
         shrink_read_buffers(client);
 
-        if event.is_writable() && (!client.send_queue.is_empty() || client.shared_frame.is_some())
-        {
+        if event.is_writable() && (!client.send_queue.is_empty() || client.shared_frame.is_some()) {
             match client.write_out() {
                 Ok(_) => {
                     client.state_frame_start = None;

@@ -68,12 +68,19 @@ impl AccountController {
     }
 
     #[post("/delete")]
-    async fn delete_by_id(&self, headers: HeaderMap, Json(body): JsonBody<EraseRequest>) -> Response {
+    async fn delete_by_id(
+        &self,
+        headers: HeaderMap,
+        Json(body): JsonBody<EraseRequest>,
+    ) -> Response {
         let state = current_state();
         if let Err(err) = server_key_or_console(&headers, &state) {
             return err.into_response();
         }
-        self.service.erase(&state, body.user_id).await.into_response()
+        self.service
+            .erase(&state, body.user_id)
+            .await
+            .into_response()
     }
 
     #[get("/wallet")]

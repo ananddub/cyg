@@ -12,7 +12,10 @@ impl super::ConsoleService {
     pub async fn list_rooms(&self, state: &ApiState) -> Result<Json<ConsoleRoomList>, V2Error> {
         let rows = q(state).await?.list_room_registry().await?;
         Ok(Json(ConsoleRoomList {
-            rooms: rows.into_iter().map(ConsoleRoomRow::from_registry).collect(),
+            rooms: rows
+                .into_iter()
+                .map(ConsoleRoomRow::from_registry)
+                .collect(),
         }))
     }
 }

@@ -78,11 +78,7 @@ impl UdpPlane {
         }
     }
 
-    pub(super) fn send_raw(
-        sock: &mut UdpSocket,
-        bytes: &[u8],
-        addr: SocketAddr,
-    ) -> io::Result<()> {
+    pub(super) fn send_raw(sock: &mut UdpSocket, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
         let mut tries: u8 = 0;
         loop {
             match sock.send_to(bytes, addr) {

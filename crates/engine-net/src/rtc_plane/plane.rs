@@ -1,4 +1,3 @@
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -18,7 +17,6 @@ pub struct Plane {
 }
 
 impl Plane {
-
     pub fn spawn(
         bind_addr: SocketAddr,
         announced_addr: SocketAddr,
@@ -84,7 +82,6 @@ impl Plane {
 
 impl Drop for Plane {
     fn drop(&mut self) {
-
         if let Some(thread) = self.thread.take() {
             let _ = self.cmd_tx.send(PlaneCommand::Shutdown);
             let _ = thread.join();

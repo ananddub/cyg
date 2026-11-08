@@ -1,4 +1,3 @@
-
 use super::WebRtcServer;
 use engine_webrtc_protocol::{MAX_DELTA_BODY, delta_fragment_count};
 
@@ -6,7 +5,6 @@ use super::contract::{DeltaTooLarge, Lane, split_delta};
 use super::types::DeltaSendReport;
 
 impl WebRtcServer {
-
     pub fn send_delta(
         &mut self,
         client_id: &str,
@@ -98,5 +96,4 @@ impl WebRtcServer {
     pub fn broadcast_reliable(&mut self, data: &[u8]) -> usize {
         self.broadcast_frame(Lane::Reliable, data)
     }
-
 }

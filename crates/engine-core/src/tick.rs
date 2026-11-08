@@ -19,7 +19,6 @@ impl Default for TickRunner {
 }
 
 impl TickRunner {
-
     pub fn new() -> Self {
         let mut world = World::new();
         let despawn_query = world.query_filtered::<(Entity, &PendingDespawn), ()>();

@@ -1,8 +1,7 @@
-
 pub mod components;
 pub mod input;
-pub mod rewind;
 pub mod rate_limit;
+pub mod rewind;
 pub mod rng;
 pub mod tick;
 
@@ -10,8 +9,8 @@ use std::time::Duration;
 
 pub use components::*;
 pub use input::{PlayerInput, PlayerInputBuffer};
-pub use rewind::{EntityHistory, Interpolation, RewindManager, TransformSnapshot};
 pub use rate_limit::{MessageRateLimits, RateDecision};
+pub use rewind::{EntityHistory, Interpolation, RewindManager, TransformSnapshot};
 pub use rng::RoomRng;
 pub use tick::TickRunner;
 
@@ -25,7 +24,6 @@ pub struct StepContext {
 }
 
 pub trait Room {
-
     fn on_create(&mut self);
 
     fn on_join(&mut self, session_id: &SessionId);
@@ -46,7 +44,6 @@ pub struct FixedClock {
 }
 
 impl FixedClock {
-
     pub fn new(tick_rate: u32) -> Self {
         assert!(
             tick_rate > 0,

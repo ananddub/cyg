@@ -1,4 +1,3 @@
-
 use std::time::{Duration, Instant};
 
 use super::client::WsState;
@@ -14,7 +13,6 @@ pub struct HeartbeatConfig {
 
 impl Default for HeartbeatConfig {
     fn default() -> Self {
-
         Self {
             enabled: true,
             ping_interval: Duration::from_millis(3000),
@@ -24,7 +22,6 @@ impl Default for HeartbeatConfig {
 }
 
 impl WsTransport {
-
     pub(super) fn run_heartbeat(&mut self, now: Instant) {
         let (hb, clients) = (&mut self.hb_kills, &mut self.clients);
         hb.clear();

@@ -1,6 +1,6 @@
 use super::common::{capitalize, default_literal, emit_field_builder};
 use crate::model::RootState;
-use crate::wire::{array_assemblyscript_type, WireKind};
+use crate::wire::{WireKind, array_assemblyscript_type};
 
 pub(super) fn emit_world(out: &mut String, root: &RootState) {
     out.push('\n');

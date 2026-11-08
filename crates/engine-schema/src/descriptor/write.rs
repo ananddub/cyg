@@ -1,6 +1,6 @@
 use crate::model::{RootState, SchemaDef, SchemaField};
 use crate::wire::WireKind;
-use crate::{wire_hash, DESCRIPTOR_MAGIC, DESCRIPTOR_VERSION};
+use crate::{DESCRIPTOR_MAGIC, DESCRIPTOR_VERSION, wire_hash};
 
 fn write_u16(out: &mut Vec<u8>, value: usize) {
     out.extend_from_slice(&(value as u16).to_le_bytes());

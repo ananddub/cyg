@@ -1,4 +1,3 @@
-
 use crate::framing::{OpCode, encode_frame, take_frame};
 use bytes::{Buf, Bytes, BytesMut};
 use mio::net::TcpStream;
@@ -27,7 +26,6 @@ impl ClientConn {
         loop {
             match crate::bufio::read_tcp(&mut self.stream, &mut self.read_buf, 16 * 1024) {
                 Ok(0) => {
-
                     if total == 0 {
                         return Ok(0);
                     }

@@ -1,4 +1,3 @@
-
 use engine_schema::{generate_with_root, ts};
 
 const SCHEMA_TS: &str = r#"

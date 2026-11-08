@@ -1,7 +1,6 @@
 use crate::rooms::*;
 
 impl GameRoom {
-
     #[inline]
     pub fn is_hibernating(&self) -> bool {
         self.sessions.is_empty() && self.spectators.is_empty()
@@ -62,12 +61,14 @@ impl GameRoom {
             return 0;
         }
         const MAX_ECS_OUTBOX: usize = 256;
+        static DELTA_EVENT: std::sync::LazyLock<std::sync::Arc<str>> =
+            std::sync::LazyLock::new(|| std::sync::Arc::from("delta"));
         let len = delta.len();
         if self.ecs_outbox.len() < MAX_ECS_OUTBOX {
             self.ecs_outbox.push(OutboundMessage {
                 target: 0,
-                event: "delta".to_string(),
-                payload: delta,
+                event: DELTA_EVENT.clone(),
+                payload: bytes::Bytes::from(delta),
             });
         }
         len
@@ -78,5 +79,4 @@ impl GameRoom {
             ecs.apply_input(session, data);
         }
     }
-
 }

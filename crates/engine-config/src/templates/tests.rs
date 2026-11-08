@@ -19,7 +19,7 @@ fn easy_mode_defaults_to_30hz_and_20hz_remains_available() {
 #[test]
 fn room_template_is_a_class_with_all_three_channels() {
     assert!(ROOM_TEMPLATE.contains("export class MyGame extends Room"));
-    
+
     assert!(
         ROOM_TEMPLATE.contains("onInputFrame(client: Client, f: Input)"),
         "the input frame arrives pre-decoded"

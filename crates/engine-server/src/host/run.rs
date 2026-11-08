@@ -34,7 +34,8 @@ pub fn run(
     let arena_mesh = boot_oxcl(&boot_maps, project_dir);
     let arena_2d = boot_map2d(&boot_maps, project_dir);
     let physics = boot_map3d(&boot_maps, project_dir, &arena_2d);
-    let (schema_descriptor, schema_aoi) = boot_schema(&boot_maps, project_dir, cfg, &mut raw_transport);
+    let (schema_descriptor, schema_aoi) =
+        boot_schema(&boot_maps, project_dir, cfg, &mut raw_transport);
     let join_options_fields = if schema_descriptor.is_empty() {
         Vec::new()
     } else {
@@ -125,7 +126,9 @@ pub fn run(
         },
         signal_rx,
         drain: Drain::new(Duration::from_secs(cfg.lifecycle.drain_grace_secs)),
-        scratch: Scratch { events: Vec::with_capacity(1024) },
+        scratch: Scratch {
+            events: Vec::with_capacity(1024),
+        },
         rates: Rates {
             rtc_input_rates: HashMap::new(),
             message_rate_limits: MessageRateLimits::new(cfg.max_messages_per_second),
@@ -160,11 +163,13 @@ pub fn run(
             interval_pending: 0,
         },
     };
-    // Profiling builds exit cleanly after OX_DHAT_SECS so the dhat tracker
-    // drops and writes dhat-heap.json (release runs never exit on their own).
-    // Runtime env check (not cfg): crate features don't propagate from the bin.
+    // Profiling builds exit cleanly after OX_DHAT_SECS / OX_CPU_PROF_SECS so
+    // the profiler drops and writes its report (release runs never exit on
+    // their own). Runtime env check (not cfg): crate features don't propagate
+    // from the bin.
     let dhat_deadline = std::env::var("OX_DHAT_SECS")
         .ok()
+        .or_else(|| std::env::var("OX_CPU_PROF_SECS").ok())
         .and_then(|v| v.parse::<u64>().ok())
         .map(|secs| std::time::Instant::now() + std::time::Duration::from_secs(secs));
     // Return freed arena pages to the OS on quiet ticks — glibc holds freed

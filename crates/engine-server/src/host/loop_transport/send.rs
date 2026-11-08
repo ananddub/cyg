@@ -7,15 +7,13 @@ use crate::netcode;
 
 use crate::host::*;
 impl LoopTransport {
-
     /// Zero-copy WS delta: the body is the room's single shared allocation.
     /// True when the WS lane exists AND the shared-body gate is on. Hot
     /// callers consult this BEFORE building Arc bodies — building them and
     /// then getting a `false` back allocated ~76k Arcs/s for nothing at 10k.
     pub fn shared_delta_enabled(&self) -> bool {
         static GATE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *GATE.get_or_init(|| std::env::var_os("CYG_SHARED_DELTA").is_some())
-            && self.ws.is_some()
+        *GATE.get_or_init(|| std::env::var_os("CYG_SHARED_DELTA").is_some()) && self.ws.is_some()
     }
 
     /// Returns false when the session is not on the WS lane — callers fall
@@ -65,8 +63,7 @@ impl LoopTransport {
     }
 
     pub fn send_delta_framed(&mut self, session: &str, seq: u16, tick: u32, body: &[u8]) -> usize {
-        let count =
-            engine_webrtc_protocol::delta_fragment_count(body.len()).unwrap_or(0) as usize;
+        let count = engine_webrtc_protocol::delta_fragment_count(body.len()).unwrap_or(0) as usize;
         if self.should_drop_packet() {
             return count;
         }
@@ -116,5 +113,4 @@ impl LoopTransport {
         }
         Ok(())
     }
-
 }

@@ -6,7 +6,11 @@ use super::http::{Parse, try_parse};
 use super::{MAX_BODY_BYTES, MAX_HEAD_BYTES, READ_SLICE, Reply, SidecarConfig};
 use crate::error::SidecarError;
 
-pub(super) fn request(config: &SidecarConfig, method: &str, path: &str) -> Result<Reply, SidecarError> {
+pub(super) fn request(
+    config: &SidecarConfig,
+    method: &str,
+    path: &str,
+) -> Result<Reply, SidecarError> {
     let started = Instant::now();
     let deadline = started + config.timeout;
     let mut stream = connect(config, deadline)?;

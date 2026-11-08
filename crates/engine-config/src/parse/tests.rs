@@ -3,7 +3,10 @@ use super::*;
 #[test]
 fn wasm_pooling_defaults_on_and_parses() {
     let cfg = parse_config("tick_rate: 60\n");
-    assert!(cfg.wasm_pooling, "pooling is the default — bounded guests pool slots");
+    assert!(
+        cfg.wasm_pooling,
+        "pooling is the default — bounded guests pool slots"
+    );
     assert_eq!(cfg.wasm_max_memory_mb, 64);
 
     let cfg = parse_config("wasm_pooling: false\nwasm_max_memory_mb: 128\n");

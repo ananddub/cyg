@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 
-
 use engine_config::GameConfig;
 use engine_net::QuicTransport;
 use engine_net::transport::WsTransport;
@@ -55,9 +54,10 @@ pub(crate) fn boot_lanes(cfg: &GameConfig, schema_descriptor: &[u8]) -> Lanes {
         None
     };
     let ws_transport = if cfg.ws_port > 0 {
-        match engine_net::transport::WsTransport::new(
-            std::net::SocketAddr::from(([0, 0, 0, 0], cfg.ws_port)),
-        ) {
+        match engine_net::transport::WsTransport::new(std::net::SocketAddr::from((
+            [0, 0, 0, 0],
+            cfg.ws_port,
+        ))) {
             Ok(mut ws) => {
                 ws.set_schema_descriptor(schema_descriptor.to_vec());
                 ws.set_udp_port(cfg.port);
@@ -69,7 +69,10 @@ pub(crate) fn boot_lanes(cfg: &GameConfig, schema_descriptor: &[u8]) -> Lanes {
                 Some(ws)
             }
             Err(e) => {
-                tracing::error!("[server] ⚠️ ws bind 0.0.0.0:{} failed — WebSocket clients disabled: {e}", cfg.ws_port);
+                tracing::error!(
+                    "[server] ⚠️ ws bind 0.0.0.0:{} failed — WebSocket clients disabled: {e}",
+                    cfg.ws_port
+                );
                 None
             }
         }

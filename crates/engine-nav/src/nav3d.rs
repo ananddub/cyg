@@ -7,7 +7,6 @@ pub struct NavMesh3D {
 }
 
 impl NavMesh3D {
-
     pub fn new() -> Self {
         Self {
             config: ConfigBuilder::default().build(),

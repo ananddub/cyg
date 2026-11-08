@@ -15,7 +15,6 @@ pub fn filter_for_viewer(
 ) {
     let mut visible: Vec<bool> = vec![false; entities.len()];
     match viewer_pos {
-
         None => visible.iter_mut().for_each(|v| *v = true),
         Some(vp) => {
             let mut index = crate::SpatialIndex3D::new();

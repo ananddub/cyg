@@ -46,11 +46,19 @@ impl WsTransport {
     }
 
     pub fn room_of(&self, client_id: &str) -> Option<&str> {
-        self.client_rooms.get(client_id).map(String::as_str)
+        self.clients_meta.get(client_id)?.room.as_deref()
     }
 
     pub fn options_of(&self, client_id: &str) -> Option<&str> {
-        self.client_options.get(client_id).map(String::as_str)
+        self.clients_meta.get(client_id)?.options.as_deref()
+    }
+
+    pub fn room_of_shared(&self, client_id: &str) -> Option<std::sync::Arc<str>> {
+        self.clients_meta.get(client_id)?.room.clone()
+    }
+
+    pub fn options_of_shared(&self, client_id: &str) -> Option<std::sync::Arc<str>> {
+        self.clients_meta.get(client_id)?.options.clone()
     }
 
     pub fn take_consented(&mut self, client_id: &str) -> bool {

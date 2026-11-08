@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -19,7 +18,6 @@ pub struct RtcDownlink {
 
 #[derive(Debug, Clone)]
 pub enum UplinkEvent {
-
     Connected { player_id: Arc<str> },
 
     Disconnected { player_id: Arc<str> },
