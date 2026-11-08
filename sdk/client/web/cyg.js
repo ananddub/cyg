@@ -940,6 +940,13 @@
             this._client = options.client || null;
             this._autoReconnect = options.autoReconnect !== false;
             this._maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
+            /** Milliseconds to wait for the first full schema snapshot before
+             *  giving up with `schemaerror`. 0 (the default) waits forever,
+             *  matching the previous behaviour. A busy server can legitimately
+             *  take seconds to seat and seed a room, so this is a watchdog for
+             *  "never arrives", not a latency budget. */
+            this._joinTimeoutMs = options.joinTimeout ?? 0;
+            this._joinTimer = null;
             this._reconnectAttempts = 0;
             this._reconnectTimer = null;
             this._intentionalClose = false;
@@ -1538,6 +1545,7 @@
                         const bytes = toBinaryBytes(ev.data);
                         if (bytes) this._handleInboundBinary(bytes);
                     };
+                    this._armJoinWatchdog();
                 } catch (e) {
                     return reject(e);
                 }
@@ -2707,6 +2715,38 @@
             this._emitStateChange();
         }
 
+        /**
+         * Start the optional join watchdog (`joinTimeout` option).
+         *
+         * Without a deadline a client whose first full snapshot never arrives
+         * just sits there: the socket is open, no error fires, and the game
+         * shows an empty world forever. 0 disables it, which stays the
+         * default so existing clients keep their behaviour.
+         */
+        _armJoinWatchdog() {
+            this._clearJoinWatchdog();
+            if (!this._joinTimeoutMs) return;
+            this._joinTimer = setTimeout(() => {
+                this._joinTimer = null;
+                if (this._schemaReady) return;
+                const message = `[CYG SDK] no full schema snapshot within ${this._joinTimeoutMs} ms`;
+                this._schemaError = message;
+                this.emit('schemaerror', message);
+                try { this.close(4000, 'join timeout'); } catch (_) { /* already closing */ }
+            }, this._joinTimeoutMs);
+            // Do not hold a Node process (or a test runner) open for the timer.
+            if (this._joinTimer && typeof this._joinTimer.unref === 'function') {
+                this._joinTimer.unref();
+            }
+        }
+
+        _clearJoinWatchdog() {
+            if (this._joinTimer) {
+                clearTimeout(this._joinTimer);
+                this._joinTimer = null;
+            }
+        }
+
         _applySchemaFrame(section) {
             if (!section || section.length < 5) return false;
             for (let i = 0; i < 4; i++) {
@@ -2720,6 +2760,7 @@
                 if (kind === 1) {
                     entry.map._ready = true;
                     this._schemaReady = true;
+                    this._clearJoinWatchdog();
                     this._ackSchema();
                 }
                 return true;

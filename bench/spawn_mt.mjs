@@ -25,6 +25,14 @@ const SECONDS = Number(arg('seconds', 30));
 const HZ = Number(arg('hz', 20));
 const RAMP = Number(arg('ramp', 250));
 const STAGGER = Number(arg('stagger', 0));
+// CYG endpoint overrides so the ladder can target any example game, not just
+// the no-op bench room (e.g. jump-box-2d at :7796 with real Rapier2D physics).
+const CYG_URL = arg('cyg-url', 'http://127.0.0.1:8297');
+const CYG_ROOM = arg('cyg-room', 'free');
+const CYG_DESC = arg('cyg-descriptor', 'bench-game-10k/out/cyg.schema.bin');
+// Join deadline per client. Real-physics rooms need a longer one under
+// saturation; a genuine hang still fails, just later.
+const JOIN_TIMEOUT_MS = arg('join-timeout', '15000');
 const STAGE = arg('stage', `${PROCS * PER_PROC}`);
 const OUT = arg('out', `/tmp/mt_${ENGINE}_${STAGE}.json`);
 
@@ -39,7 +47,7 @@ done`], { detached: true, stdio: 'ignore' });
 const childCmds = [];
 for (let p = 0; p < PROCS; p++) {
     childCmds.push(ENGINE === 'cyg'
-        ? { cmd: 'node', args: ['bench/loadtest.mjs', '--url', 'http://127.0.0.1:8297', '--room', 'free', '--rooms', String(ROOMS), '--clients', String(PER_PROC), '--seconds', String(SECONDS), '--hz', String(HZ), '--ramp', String(RAMP), '--descriptor', 'bench-game-10k/out/cyg.schema.bin', '--json'], cwd: '/mnt/SSD/Devloper/pannel/openoxide-gaming' }
+        ? { cmd: 'node', args: ['bench/loadtest.mjs', '--url', CYG_URL, '--room', CYG_ROOM, '--rooms', String(ROOMS), '--clients', String(PER_PROC), '--seconds', String(SECONDS), '--hz', String(HZ), '--ramp', String(RAMP), '--timeout', String(JOIN_TIMEOUT_MS), '--descriptor', CYG_DESC, '--json'], cwd: '/mnt/SSD/Devloper/pannel/openoxide-gaming' }
         : { cmd: 'node_modules/.bin/tsx', args: ['packages/example/bench_client.mjs', '--clients', String(PER_PROC), '--seconds', String(SECONDS), '--hz', String(HZ), '--room', 'bench', '--rooms', String(ROOMS)], cwd: '/mnt/SSD/Devloper/pannel/colyseus' });
 }
 
@@ -76,7 +84,12 @@ try {
 const reports = children.map((c, i) => {
     const text = c.out();
     const start = text.indexOf('{');
-    try { return JSON.parse(text.slice(start)); } catch (e) { console.error(`proc ${i} parse failed: ${e.message} len=${text.length} tail=${JSON.stringify(text.slice(-150))}`); return null; }
+    try { return JSON.parse(text.slice(start)); } catch (e) {
+        console.error(`proc ${i} parse failed: ${e.message} len=${text.length} tail=${JSON.stringify(text.slice(-150))}`);
+        const err = c.err();
+        if (err) console.error(`proc ${i} stderr: ${err.slice(-400)}`);
+        return null;
+    }
 });
 const ok = reports.filter(Boolean);
 const sum = (f) => ok.reduce((a, r) => a + f(r), 0);
@@ -95,7 +108,7 @@ if (fs.existsSync(statsFile)) {
 }
 const base = ok[0] || {};
 const report = {
-    engine: ENGINE, stage: STAGE, procs: PROCS, perProc: PER_PROC,
+    engine: ENGINE, stage: STAGE, cygUrl: ENGINE === 'cyg' ? CYG_URL : undefined, procs: PROCS, perProc: PER_PROC,
     exitCodes: codes, exitOk: codes.every((c) => c === 0),
     joined, fatal, errors: errs,
     elapsedSec: +elapsed.toFixed(1),

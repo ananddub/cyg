@@ -210,11 +210,17 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
     } else {
         String::new()
     };
+    // The host passes the operator's `max_clients` as `max`; seat it into
+    // `maxPlayers` before the game's own `onCreate` runs. Without this every
+    // room that does not remember to do it itself keeps the SDK default of 16
+    // and `onIsFull` silently rejects session 17 onwards, whatever
+    // config.toml says. A game may still override it inside onCreate.
     let on_create_body = if room_takes_create_options {
         "export function on_create(max: i32, ptr: i32, len: i32): void {
+    __room_instance.maxPlayers = max;
     const options = len > 0 ? String.UTF8.decodeUnsafe(ptr as usize, len) : \"\";\n    __room_instance.onCreate(max, options);\n}"
     } else {
-        "export function on_create(max: i32, ptr: i32, len: i32): void {\n    __room_instance.onCreate(max);\n}"
+        "export function on_create(max: i32, ptr: i32, len: i32): void {\n    __room_instance.maxPlayers = max;\n    __room_instance.onCreate(max);\n}"
     };
 
     let has_manual_flat_bridge =
