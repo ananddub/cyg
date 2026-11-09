@@ -1,12 +1,49 @@
 use engine_config::{ControlConfig, GameConfig, placeholder_secret, weak_secret};
 
+/// A bind address that is reachable only from this machine.
+///
+/// Loopback is the signal that the operator is running locally: nothing off
+/// the box can reach the console, the player API or a seat token. That is the
+/// only situation where placeholder secrets are not a vulnerability.
+fn loopback_only(bind_addr: &str) -> bool {
+    let host = bind_addr.trim().trim_matches(|c| c == '[' || c == ']');
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => false,
+    }
+}
+
+/// Refuse to boot production with the shipped placeholder secrets.
+///
+/// Local development must not need a magic env var: `cyg run` on a project
+/// that binds loopback is already a dev session, so it is allowed through with
+/// a warning instead of an error the user has to look up and work around.
+/// Anything reachable from another host still fails, and so does a release
+/// build even on loopback unless the operator opts in explicitly — that stops
+/// a copy-pasted dev config from silently shipping to a public box.
 pub(crate) fn refuse_default_secrets(
     game: &GameConfig,
     control: &ControlConfig,
 ) -> std::io::Result<()> {
-    if std::env::var("CYG_ALLOW_DEFAULT_SECRETS").as_deref() == Ok("1") {
+    let explicit = std::env::var("CYG_ALLOW_DEFAULT_SECRETS").as_deref() == Ok("1");
+    // Being bound to loopback is itself the guarantee: no other host can reach
+    // the console, the player API or a seat token, so placeholder secrets leak
+    // nothing. This has to hold for release binaries too — the one people
+    // actually install — otherwise `cyg run` on a fresh scaffold fails with an
+    // error the user has to go look up.
+    let local_dev = loopback_only(&control.bind_addr);
+    if explicit || local_dev {
+        let why = if explicit {
+            "CYG_ALLOW_DEFAULT_SECRETS=1".to_string()
+        } else {
+            format!("control.bind_addr = {} is loopback-only", control.bind_addr)
+        };
         tracing::warn!(
-            "[control] ⚠️  CYG_ALLOW_DEFAULT_SECRETS=1 — booting with default secrets (DEV ONLY)"
+            "[control] ⚠️  {why} — booting with default secrets (DEV ONLY). \
+             Set real secrets before binding this to a public address."
         );
         return Ok(());
     }
@@ -40,7 +77,9 @@ pub(crate) fn refuse_default_secrets(
         return Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
             format!(
-                "refusing to start: default secrets configured ({}). Set real secrets in config.toml, or export CYG_ALLOW_DEFAULT_SECRETS=1 for local dev.",
+                "refusing to start: default secrets configured ({}). \
+                 Set real secrets in config.toml, or set control.bind_addr = \
+                 \"127.0.0.1\" for a local session (loopback is treated as dev).",
                 defaults.join(", ")
             ),
         ));

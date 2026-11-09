@@ -103,7 +103,10 @@ allow_messaging = true
 # website port over to Axum entirely.
 [control]
 enabled = true
-bind_addr = "0.0.0.0"
+# Loopback by default: a freshly scaffolded project is reachable only from
+# this machine, and that is also what lets it boot with placeholder secrets
+# without any env var. Change to "0.0.0.0" (and set real secrets) to expose it.
+bind_addr = "127.0.0.1"
 api_port = 8124
 workers = 2
 seat_ttl_secs = 300

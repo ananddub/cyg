@@ -42,7 +42,10 @@ impl Default for ControlConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            bind_addr: "0.0.0.0".into(),
+            // Loopback: the *default* must never be the exposed one. An operator
+            // putting this on a public host opts in by editing config.toml (or
+            // setting the env var), and then also has to supply real secrets.
+            bind_addr: "127.0.0.1".into(),
             api_port: 8124,
             workers: 2,
             seat_ttl_secs: 300,
