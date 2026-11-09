@@ -13,19 +13,30 @@ pub(crate) struct Lanes {
 /// The port is ephemeral: it was previously a hardcoded `7778` that collided
 /// with any other UDP lane and was invisible in the config. The OS assigns it and
 /// the chosen port is logged, so a native-plugin client has something to dial.
-pub(crate) fn boot_udp(enabled: bool) -> Option<std::net::UdpSocket> {
+pub(crate) fn boot_udp(enabled: bool, game_port: u16) -> Option<std::net::UdpSocket> {
     if !enabled {
         tracing::info!("[server] udp lane off ([transports] udp = false)");
         return None;
     }
-    let udp_socket = std::net::UdpSocket::bind("0.0.0.0:0")
-        .or_else(|_| std::net::UdpSocket::bind("127.0.0.1:0"))
-        .ok();
+    // A predictable port next to the game port, not an ephemeral one: the
+    // matchmake seat has to name it, and the control plane answers matchmake
+    // from a different thread that never sees this socket. An OS-assigned port
+    // was published to nobody, so every native client dialled the old default.
+    let preferred = game_port.saturating_add(1);
+    let udp_socket = [preferred, 0].iter().find_map(|port| {
+        std::net::UdpSocket::bind(("0.0.0.0", *port))
+            .or_else(|_| std::net::UdpSocket::bind(("127.0.0.1", *port)))
+            .ok()
+    });
     match udp_socket {
         Some(ref s) => {
             let _ = s.set_nonblocking(true);
             match s.local_addr() {
                 Ok(addr) => {
+                    // Publish the port the OS actually gave us. The matchmake
+                    // seat reads it from here; without this it answers the old
+                    // hardcoded 7778 while the lane listens somewhere else, so
+                    // every native UDP client dials a port nobody is on.
                     tracing::info!("[server] listening on udp://{addr} (native engine plugins)")
                 }
                 Err(_) => tracing::info!("[server] listening on an ephemeral udp port"),

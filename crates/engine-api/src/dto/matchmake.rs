@@ -20,10 +20,17 @@ pub struct SeatResponse {
 
 impl SeatResponse {
     pub fn new(state: &ApiState, seat: &Seat) -> SeatResponse {
-        let udp_port = std::env::var("CYG_UDP_ADDR")
-            .ok()
-            .and_then(|addr| addr.split(':').last().and_then(|p| p.parse::<u16>().ok()))
-            .unwrap_or(7778);
+        // Whatever the lane actually bound. The lane asks the OS for an
+        // ephemeral port, so a fixed default here would hand every native
+        // client a port nobody is listening on.
+        // The lane binds `game.port + 1`; both sides derive it from config, so
+        // the seat stays right even though the control plane never sees the
+        // socket. Off means 0, which tells a native client to use WebSocket.
+        let udp_port = if state.game.transports.enabled(engine_config::Lane::Udp) {
+            state.game.port.saturating_add(1)
+        } else {
+            0
+        };
 
         SeatResponse {
             name: seat.room.clone(),

@@ -64,7 +64,7 @@ pub fn run(
             .map(|schema| schema.fields)
             .unwrap_or_default()
     };
-    let udp_socket = boot_udp(cfg.transports.enabled(engine_config::Lane::Udp));
+    let udp_socket = boot_udp(cfg.transports.enabled(engine_config::Lane::Udp), cfg.port);
     let Lanes { quic, ws } = boot_lanes(cfg, &schema_descriptor);
     let mut transport = LoopTransport::new(raw_transport, quic, ws);
     if cfg.simulate_latency_ms > 0 {

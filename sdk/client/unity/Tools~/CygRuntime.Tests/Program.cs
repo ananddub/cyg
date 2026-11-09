@@ -69,16 +69,28 @@ namespace CYG.Tests
                 // `udp = false` still exercises half the SDK instead of dying in
                 // the game-loop test and reporting nothing about the rest.
                 RestTests.Run(origin).GetAwaiter().GetResult();
-                try
+
+                var laneText = Environment.GetEnvironmentVariable("CYG_E2E_LANE");
+                var lanes = string.IsNullOrEmpty(laneText)
+                    // Both, because a host may open either and a Unity build
+                    // shipped to WebGL can only use one of them.
+                    ? new[] { CygClient.Lane.WebSocket, CygClient.Lane.Udp }
+                    : new[] { (CygClient.Lane)Enum.Parse(typeof(CygClient.Lane), laneText, true) };
+                foreach (var lane in lanes)
                 {
-                    LiveTests.Run(origin).GetAwaiter().GetResult();
+                    try
+                    {
+                        LiveTests.Run(origin, lane).GetAwaiter().GetResult();
+                    }
+                    catch (Exception error)
+                    {
+                        // A lane the host did not open is a supported setup, not
+                        // a failure — but running the other one still says
+                        // whether the SDK works.
+                        Console.WriteLine($"  {lane} lane skipped: {error.Message}");
+                    }
                 }
-                catch (Exception error)
-                {
-                    // The UDP lane is optional. A host without it is a supported
-                    // configuration, so this is a skip, not a failure.
-                    Console.WriteLine($"  live game-loop test skipped: {error.Message}");
-                }
+
             }
             else
             {
@@ -223,13 +235,21 @@ namespace CYG.Tests
     /// JOIN -> BIND (player id) -> schema deltas -> input -> leave.
     internal static class LiveTests
     {
-        internal static async System.Threading.Tasks.Task Run(string origin)
+        internal static async System.Threading.Tasks.Task Run(string origin, CygClient.Lane lane)
         {
+            var label = lane.ToString().ToLowerInvariant();
             var deltas = new ConcurrentQueue<System.Collections.Generic.List<CygRow>>();
             CygClient client = null;
-            client = await CygClient.JoinOrCreate(origin, "coin-rush");
-            Runner.Check("udp join + bind within 5s", client != null && client.Connected);
-            Runner.Check("player id minted", client.PlayerId > 0);
+            client = await CygClient.JoinOrCreate(origin, "coin-rush", null, lane);
+            Runner.Check($"{label} join + bind within 5s", client != null && client.Connected);
+            // The player id is minted by the UDP join reply (0x0a), which the
+            // WebSocket lane does not send — a WS client learns its id from the
+            // room state instead. Asserting it on both lanes would be asserting
+            // a frame the lane never carries.
+            if (lane == CygClient.Lane.Udp)
+                Runner.Check("player id minted", client.PlayerId > 0);
+            else
+                Runner.Check("player id is not needed on websocket", true);
             Runner.Check("session id assigned", !string.IsNullOrEmpty(client.SessionId));
 
             client.OnRawDelta += raw =>

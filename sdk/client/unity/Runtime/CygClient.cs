@@ -1,8 +1,14 @@
-// CYG Unity SDK — same surface as the web SDK (openoxide.js), over raw UDP.
+// CYG Unity SDK — same surface as the web SDK (cyg.js), over UDP or WebSocket.
 //
-// Flow: matchmake (HTTP) → seat token → UDP join → room binds → deltas in,
-// inputs out. State decode pairs with `ox-game schema-codegen --lang cs`
-// output (CYGSchemaGenerated) via CygDeltaDecoder.
+// Flow: matchmake (HTTP) → seat token → join → room binds → deltas in, inputs
+// out. State decode pairs with `cyg schema-codegen --lang cs` output
+// (CYGSchemaGenerated) via CygDeltaDecoder.
+//
+// Two lanes carry the same frames, because a Unity project does not always ship
+// to a platform where raw UDP is available: consoles and desktop have it, a
+// WebGL build does not (the browser offers no UDP socket), and WeChat hands the
+// game a socket it only lets you talk to over WebSocket. The host's `[transports]`
+// section decides which lanes exist; the SDK picks one that is actually open.
 //
 // Wire (server: crates/engine-server/src/plane/udp.rs):
 //   JOIN  [0x20][tokenLen u8][seatToken utf8]
@@ -25,7 +31,7 @@ namespace CYG
 {
     public sealed class CygClient : IDisposable
     {
-        private UdpSocketHolder _sock;
+        private ICygTransport _link;
         private string _seatToken;
         private string _room;
         private IPEndPoint _server;
@@ -53,17 +59,61 @@ namespace CYG
 
         // ------------------------------------------------------------ join
 
-        /// <summary>joinOrCreate equivalent: matchmake over HTTP, then UDP join.</summary>
+        /// <summary>
+        /// False in a WebGL build, where the browser gives the game no UDP
+        /// socket. Read from the compile symbol rather than a runtime probe,
+        /// because the probe would be a socket that throws for a reason the
+        /// caller cannot act on.
+        /// </summary>
+        public static bool UdpAvailable =>
+#if UNITY_WEBGL && !UNITY_EDITOR
+            false;
+#else
+            true;
+#endif
+
+        /// <summary>Which lane to open. <see cref="Auto"/> reads the seat.</summary>
+        public enum Lane
+        {
+            /// <summary>UDP when the seat offers it, otherwise WebSocket.</summary>
+            Auto,
+            /// <summary>Raw UDP. Absent on WebGL and on a host with `udp = false`.</summary>
+            Udp,
+            /// <summary>WebSocket. Present on every host that has `websocket = true`.</summary>
+            WebSocket,
+        }
+
+        /// <summary>
+        /// joinOrCreate equivalent: matchmake over HTTP, then join on a lane.
+        /// </summary>
+        /// <param name="lane">
+        /// Leave this <see cref="Lane.Auto"/> unless the project knows which
+        /// lanes the host opened. Auto prefers UDP because it drops a stale
+        /// input instead of queueing it behind a lost packet, and falls back to
+        /// WebSocket — which is the only lane a browser build can use.
+        /// </param>
         public static async Task<CygClient> JoinOrCreate(
-            string httpOrigin, string roomName, string playerName = null)
+            string httpOrigin, string roomName, string playerName = null, Lane lane = Lane.Auto)
         {
             var seat = await Matchmake(httpOrigin, "joinOrCreate", roomName, playerName);
             var client = new CygClient();
-            await client.ConnectUdp(seat, roomName);
+            await client.Connect(seat, roomName, lane, httpOrigin);
             return client;
         }
 
-        private sealed class Seat { public string Host; public int Port; public string SeatToken; public string SessionId; }
+        private sealed class Seat
+        {
+            public string Host;
+            public int Port;
+            /// <summary>The WebSocket/WebRTC lane's port. Not the control API port.</summary>
+            public int GamePort;
+            public string SeatToken;
+            public string SessionId;
+            /// <summary>Set when the seat names a WebSocket lane.</summary>
+            public string WsUrl;
+            /// <summary>True when the seat carried a UDP port at all.</summary>
+            public bool HasUdp;
+        }
 
         private static async Task<Seat> Matchmake(string origin, string method, string room, string playerName)
         {
@@ -91,12 +141,18 @@ namespace CYG
             // the WebRTC DataChannel lane, a different socket). Fall back to
             // the raw `port` for deployments that expose UDP on it.
             var port = Extract(json, "udpPort") ?? Extract(json, "gamePort") ?? Extract(json, "port") ?? "7777";
+            seat.HasUdp = Extract(json, "udpPort") != null;
+            if (int.TryParse(Extract(json, "gamePort") ?? "", out var gamePort))
+                seat.GamePort = gamePort;
             // host may be null here — Matchmake defaults it to the matchmake
             // origin's host (the seat JSON carries no address field).
             var host = Extract(json, "host") ?? Extract(json, "address") ?? Extract(json, "ip");
             if (seat.SeatToken == null)
                 throw new Exception($"seat missing token: {json}");
             seat.Host = host; seat.Port = int.Parse(port);
+            // A host with `udp = false` still answers matchmake; the seat then
+            // carries no udpPort and the WebSocket lane is the one to open.
+            seat.WsUrl = Extract(json, "wsUrl") ?? Extract(json, "websocketUrl");
             return seat;
         }
 
@@ -124,6 +180,72 @@ namespace CYG
             return json.Substring(p, stop - p).Trim();
         }
 
+        // -------------------------------------------------------- transports
+
+        /// <summary>
+        /// Open the chosen lane and wait for the room to bind this client.
+        /// </summary>
+        /// <remarks>
+        /// Both lanes speak the same frames, so everything above this method —
+        /// input, messages, voice, delta decode — is written once. Only the
+        /// seat token handshake and the framing differ.
+        /// </remarks>
+        private async Task Connect(Seat seat, string room, Lane lane, string httpOrigin)
+        {
+            var chosen = lane;
+            if (chosen == Lane.Auto)
+            {
+                // UDP is preferred for play: a dropped packet costs one input
+                // sample rather than stalling the whole stream behind a retransmit.
+                chosen = seat.HasUdp && UdpAvailable ? Lane.Udp : Lane.WebSocket;
+            }
+
+            if (chosen == Lane.Udp)
+                await ConnectUdp(seat, room);
+            else
+                await ConnectWebSocket(seat, room, httpOrigin);
+        }
+
+        /// <summary>
+        /// Open the WebSocket lane.
+        ///
+        /// This is the lane a browser build must use — WebGL offers no UDP
+        /// socket at all — and the one a host with `udp = false` still serves.
+        /// The URL is derived from the matchmake origin unless the seat names
+        /// one, so a project behind a proxy does not have to hard-code it.
+        /// </summary>
+        private async Task ConnectWebSocket(Seat seat, string room, string httpOrigin)
+        {
+            _seatToken = seat.SeatToken;
+            _room = room;
+            SessionId = seat.SessionId;
+
+            var url = seat.WsUrl;
+            if (string.IsNullOrEmpty(url))
+            {
+                // The room-data lane is its own listener, and the seat names its
+                // port as `gamePort`. Using the matchmake origin here would open
+                // a socket against the control API and get a 404 for an upgrade.
+                var origin = new Uri(httpOrigin);
+                var scheme = origin.Scheme == "https" ? "wss" : "ws";
+                var host = string.IsNullOrEmpty(seat.Host) ? origin.Host : seat.Host;
+                var port = seat.GamePort > 0 ? seat.GamePort : origin.Port;
+                url = $"{scheme}://{host}:{port}/{Uri.EscapeDataString(room)}";
+            }
+
+            var link = new WebSocketTransport();
+            await link.Open(url, SessionId);
+            _link = link;
+
+            _running = true;
+            _ = Task.Run(ReceiveLoop);
+            _ = Task.Run(PingLoop);
+
+            // BIND arrives when the room has us; up to 5 s, same as UDP.
+            for (int i = 0; i < 50 && !Connected; i++) await Task.Delay(100);
+            if (!Connected) throw new Exception($"WebSocket join timed out — no BIND from {url}");
+        }
+
         // ------------------------------------------------------------ udp
 
         private async Task ConnectUdp(Seat seat, string room)
@@ -132,15 +254,16 @@ namespace CYG
             _room = room;
             SessionId = seat.SessionId;
             _server = new IPEndPoint(IPAddress.Parse(seat.Host), seat.Port);
-            _sock = new UdpSocketHolder();
-            _sock.BindAndConnect(_server);
+            var link = new UdpSocketHolder();
+            link.BindAndConnect(_server);
+            _link = link;
 
             // JOIN [0x20][tokenLen][token]
             var token = Encoding.UTF8.GetBytes(_seatToken);
             var join = new byte[2 + token.Length];
             join[0] = 0x20; join[1] = (byte)token.Length;
             Buffer.BlockCopy(token, 0, join, 2, token.Length);
-            _sock.Send(join);
+            _link.Send(join);
 
             _running = true;
             _ = Task.Run(ReceiveLoop);
@@ -157,7 +280,7 @@ namespace CYG
             while (_running)
             {
                 int n;
-                try { n = _sock.Receive(buf); }
+                try { n = _link.Receive(buf); }
                 catch (SocketException) { Thread.Sleep(2); continue; }
                 catch (ObjectDisposedException) { break; }
                 if (n <= 0) continue;
@@ -242,7 +365,7 @@ namespace CYG
                 var ping = new byte[9];
                 ping[0] = 0x22;
                 new Random().NextBytes(ping.AsSpan(1, 8));
-                _sock.Send(ping);
+                _link.Send(ping);
                 await Task.Delay(3000);
             }
         }
@@ -260,7 +383,7 @@ namespace CYG
             pkt[2] = (byte)(_inputSeq >> 8);
             Buffer.BlockCopy(payload20, 0, pkt, 3, 20);
             _inputSeq++;
-            _sock.Send(pkt);
+            _link.Send(pkt);
         }
 
         /// Typed app message (reliable-style): [0x05][typeLen][type][payload]
@@ -272,7 +395,7 @@ namespace CYG
             frame[0] = 0x05; frame[1] = (byte)typeB.Length;
             Buffer.BlockCopy(typeB, 0, frame, 2, typeB.Length);
             if (payload != null) Buffer.BlockCopy(payload, 0, frame, 2 + typeB.Length, payload.Length);
-            _sock.Send(frame);
+            _link.Send(frame);
             OnMessage?.Invoke(type, payload ?? Array.Empty<byte>());
         }
 
@@ -284,7 +407,7 @@ namespace CYG
             frame[0] = 0x05; frame[1] = (byte)typeB.Length;
             Buffer.BlockCopy(typeB, 0, frame, 2, typeB.Length);
             if (payload != null) Buffer.BlockCopy(payload, 0, frame, 2 + typeB.Length, payload.Length);
-            _sock.Send(frame);
+            _link.Send(frame);
         }
 
         /// Input batching — N movement samples ek packet me (lossy networks pe 4x kam packets).
@@ -301,7 +424,7 @@ namespace CYG
                 Buffer.BlockCopy(payload, 0, pkt, off + 2, 20);
                 off += 22;
             }
-            _sock.Send(pkt);
+            _link.Send(pkt);
         }
 
         // ------------------------------------------------------------ voice
@@ -374,21 +497,21 @@ namespace CYG
         }
 
         /// <summary>Set the squad/team used by <see cref="VoiceChannel.TeamOnly"/>.</summary>
-        public void SetVoiceTeam(string teamId) => _sock?.Send(BuildVoiceTeamPacket(teamId));
+        public void SetVoiceTeam(string teamId) => _link?.Send(BuildVoiceTeamPacket(teamId));
 
         /// <summary>Number overload — stringified, then hashed like the web SDK.</summary>
         public void SetVoiceTeam(int teamId) => SetVoiceTeam(teamId.ToString());
 
         /// <summary>Notify the host that the local microphone is muted.</summary>
-        public void SetVoiceMuted(bool muted) => _sock?.Send(BuildVoiceFlagPacket(0x4D, muted));
+        public void SetVoiceMuted(bool muted) => _link?.Send(BuildVoiceFlagPacket(0x4D, muted));
 
         /// <summary>Notify the host that the local player cannot hear anyone.</summary>
-        public void SetVoiceDeafened(bool deafened) => _sock?.Send(BuildVoiceFlagPacket(0x44, deafened));
+        public void SetVoiceDeafened(bool deafened) => _link?.Send(BuildVoiceFlagPacket(0x44, deafened));
 
         /// <summary>Stream one Opus frame on the given channel.</summary>
         public void SendVoice(
             VoiceChannel mode, ushort seq, uint timestamp, byte flags, byte[] opusPayload)
-            => _sock?.Send(BuildVoicePacket(mode, seq, timestamp, flags, opusPayload));
+            => _link?.Send(BuildVoicePacket(mode, seq, timestamp, flags, opusPayload));
 
         /// Server-clock aligned time (BIND ke baad ka offset).
         public long ClockNow => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + _clockOffsetMs;        private long _clockOffsetMs;
@@ -413,7 +536,7 @@ namespace CYG
             if (payload != null) Buffer.BlockCopy(payload, 0, frame, 10 + typeB.Length, payload.Length);
             var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pendingRpc[rid] = tcs;
-            _sock.Send(frame);
+            _link.Send(frame);
             Task.Run(async () => {
                 await Task.Delay(timeoutMs);
                 if (_pendingRpc.TryRemove(rid, out var t)) t.TrySetException(new TimeoutException($"request '{type}' timed out"));
@@ -434,7 +557,8 @@ namespace CYG
         public void Leave()
         {
             _running = false;
-            _sock?.Dispose();
+            _link?.Dispose();
+            _link = null;
             Connected = false;
             OnLeave?.Invoke();
         }
@@ -475,7 +599,22 @@ namespace CYG
     }
 
     /// Tiny UDP wrapper keeping the socket off Unity's main thread.
-    internal sealed class UdpSocketHolder : IDisposable
+    /// <summary>
+    /// What the client needs from a lane: send a frame, receive a frame, close.
+    ///
+    /// Deliberately tiny. UDP and WebSocket agree on nothing else — one is a
+    /// datagram you may never receive, the other a stream that arrives whole
+    /// but can stall — so anything richer would leak one lane's assumptions
+    /// into the other.
+    /// </summary>
+    internal interface ICygTransport : IDisposable
+    {
+        void Send(byte[] data);
+        /// <summary>One frame. Throws when none is ready, so the loop can yield.</summary>
+        int Receive(byte[] buffer);
+    }
+
+    internal sealed class UdpSocketHolder : ICygTransport
     {
         private Socket _s;
         private IPEndPoint _server;
@@ -497,5 +636,117 @@ namespace CYG
         }
 
         public void Dispose() => _s?.Dispose();
+    }
+
+    /// <summary>
+    /// The WebSocket lane.
+    ///
+    /// A WebSocket carries messages, not packets, so the framing differs from
+    /// UDP: every frame the client sends is one message, and every message the
+    /// host sends is one frame. That is exactly how the web SDK talks, which
+    /// is why a browser build and a Unity build can share a room.
+    ///
+    /// `ClientWebSocket` is used rather than a Unity-specific API because it
+    /// needs no main-thread pump: received frames are read on a background
+    /// task and handed to the client through a queue, so a frame arriving
+    /// during a long frame does not stall the game.
+    /// </summary>
+    internal sealed class WebSocketTransport : ICygTransport
+    {
+        private System.Net.WebSockets.ClientWebSocket _socket;
+        private readonly ConcurrentQueue<byte[]> _incoming = new ConcurrentQueue<byte[]>();
+        private readonly CancellationTokenSource _closed = new CancellationTokenSource();
+        private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+
+        /// <param name="sessionId">
+        /// The id the matchmake reply called `sessionId`. The host keys its
+        /// pending seat on it, so the upgrade has to carry it — a client that
+        /// omits it upgrades into a room with no seat and waits for a BIND
+        /// that never comes.
+        /// </param>
+        public async Task Open(string url, string sessionId)
+        {
+            _socket = new System.Net.WebSockets.ClientWebSocket();
+            _socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+            if (!string.IsNullOrEmpty(sessionId))
+            {
+                // Query parameter, not a header: a browser WebSocket cannot set
+                // an Authorization header, and the web SDK passes the same one.
+                url += (url.Contains("?") ? "&" : "?") + "sessionId=" + Uri.EscapeDataString(sessionId);
+            }
+            await _socket.ConnectAsync(new Uri(url), _closed.Token);
+
+            _ = Task.Run(async () =>
+            {
+                var buffer = new byte[64 * 1024];
+                var assembled = new List<byte>(64 * 1024);
+                try
+                {
+                    while (!_closed.IsCancellationRequested)
+                    {
+                        assembled.Clear();
+                        System.Net.WebSockets.WebSocketReceiveResult result;
+                        do
+                        {
+                            result = await _socket.ReceiveAsync(
+                                new ArraySegment<byte>(buffer), _closed.Token);
+                            if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) return;
+                            // A frame larger than the buffer arrives in pieces;
+                            // treating a piece as a whole frame would hand the
+                            // decoder half a delta.
+                            assembled.AddRange(new ArraySegment<byte>(buffer, 0, result.Count));
+                        }
+                        while (!result.EndOfMessage);
+
+                        if (assembled.Count > 0)
+                            _incoming.Enqueue(assembled.ToArray());
+                    }
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception) { /* a closed socket ends the loop */ }
+            });
+        }
+
+        public void Send(byte[] data)
+        {
+            // Serialised: two threads sending at once would interleave the
+            // fragments of two messages and the host would read garbage.
+            _sendLock.Wait();
+            try
+            {
+                _socket.SendAsync(
+                    new ArraySegment<byte>(data),
+                    System.Net.WebSockets.WebSocketMessageType.Binary,
+                    true,
+                    _closed.Token).GetAwaiter().GetResult();
+            }
+            catch (Exception) { /* a send on a dying socket is not worth a throw */ }
+            finally { _sendLock.Release(); }
+        }
+
+        public int Receive(byte[] buffer)
+        {
+            if (!_incoming.TryDequeue(out var frame))
+                throw new SocketException(10035); // WouldBlock — same contract as UDP
+            var count = Math.Min(buffer.Length, frame.Length);
+            Buffer.BlockCopy(frame, 0, buffer, 0, count);
+            return count;
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                if (_socket?.State == System.Net.WebSockets.WebSocketState.Open)
+                    _socket.CloseAsync(
+                        System.Net.WebSockets.WebSocketCloseStatus.NormalClosure,
+                        "leave", CancellationToken.None).GetAwaiter().GetResult();
+            }
+            catch (Exception) { }
+            _closed.Cancel();
+            _socket?.Dispose();
+            _closed.Dispose();
+            _sendLock.Dispose();
+        }
     }
 }
