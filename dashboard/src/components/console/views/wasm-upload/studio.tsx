@@ -206,8 +206,12 @@ export function WasmUploadPanel({ gameId, disabled = false }: { gameId: string; 
 
   return (
     <Panel
-      title="Upload module"
-      description="A .wasm binary; optionally its .ts source, stored alongside for audit."
+      title={disabled ? "Room module" : "Upload module"}
+      description={
+        disabled
+          ? "The server loads the module from the project directory at boot, so there is nothing to upload here. The deployment history below is read-only."
+          : "A .wasm binary; optionally its .ts source, stored alongside for audit."
+      }
     >
       <div className="space-y-3 px-4 py-3">
         <div
