@@ -3,9 +3,9 @@ use crate::control::ControlConfig;
 
 pub(super) fn audit(control: &ControlConfig, env: Env, out: &mut Vec<Check>) {
     for (name, configured) in [
-        ("OX_IAP_ALLOW_UNVERIFIED", control.iap.allow_unverified),
+        ("CYG_IAP_ALLOW_UNVERIFIED", control.iap.allow_unverified),
         (
-            "OX_SOCIAL_ALLOW_UNVERIFIED",
+            "CYG_SOCIAL_ALLOW_UNVERIFIED",
             control.social.allow_unverified,
         ),
     ] {

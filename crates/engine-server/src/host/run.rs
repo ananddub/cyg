@@ -163,13 +163,13 @@ pub fn run(
             interval_pending: 0,
         },
     };
-    // Profiling builds exit cleanly after OX_DHAT_SECS / OX_CPU_PROF_SECS so
+    // Profiling builds exit cleanly after CYG_DHAT_SECS / CYG_CPU_PROF_SECS so
     // the profiler drops and writes its report (release runs never exit on
     // their own). Runtime env check (not cfg): crate features don't propagate
     // from the bin.
-    let dhat_deadline = std::env::var("OX_DHAT_SECS")
+    let dhat_deadline = std::env::var("CYG_DHAT_SECS")
         .ok()
-        .or_else(|| std::env::var("OX_CPU_PROF_SECS").ok())
+        .or_else(|| std::env::var("CYG_CPU_PROF_SECS").ok())
         .and_then(|v| v.parse::<u64>().ok())
         .map(|secs| std::time::Instant::now() + std::time::Duration::from_secs(secs));
     // Return freed arena pages to the OS on quiet ticks — glibc holds freed

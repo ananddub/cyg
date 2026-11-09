@@ -52,11 +52,11 @@ impl LifecycleConfig {
 
     pub fn apply_env(&mut self) {
         for (name, field) in [
-            ("OX_ROOM_MAX_SECONDS", &mut self.room_max_seconds),
-            ("OX_REAP_IDLE_SECS", &mut self.reap_idle_secs),
-            ("OX_PEER_IDLE_MS", &mut self.peer_idle_ms),
-            ("OX_SEAT_HOLD_SECS", &mut self.seat_hold_secs),
-            ("OX_DRAIN_GRACE_SECS", &mut self.drain_grace_secs),
+            ("CYG_ROOM_MAX_SECONDS", &mut self.room_max_seconds),
+            ("CYG_REAP_IDLE_SECS", &mut self.reap_idle_secs),
+            ("CYG_PEER_IDLE_MS", &mut self.peer_idle_ms),
+            ("CYG_SEAT_HOLD_SECS", &mut self.seat_hold_secs),
+            ("CYG_DRAIN_GRACE_SECS", &mut self.drain_grace_secs),
         ] {
             if let Ok(value) = std::env::var(name)
                 && let Ok(parsed) = value.parse()
@@ -64,7 +64,7 @@ impl LifecycleConfig {
                 *field = parsed;
             }
         }
-        if let Ok(value) = std::env::var("OX_PERSISTENT_ROOMS") {
+        if let Ok(value) = std::env::var("CYG_PERSISTENT_ROOMS") {
             self.persistent_rooms = crate::social::split_ids(&value);
         }
     }

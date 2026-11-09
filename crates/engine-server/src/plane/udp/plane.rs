@@ -64,7 +64,7 @@ impl UdpPlane {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         let std_socket = crate::plane::udp::bind::bind_udp(addr)?;
         let socket = RefCell::new(UdpSocket::from_std(std_socket));
-        let tick_hz = std::env::var("OX_TICK_HZ")
+        let tick_hz = std::env::var("CYG_TICK_HZ")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(128.0);

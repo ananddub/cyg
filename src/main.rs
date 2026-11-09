@@ -62,7 +62,7 @@ static CPU_PROFILER: std::sync::Mutex<Option<pprof::ProfilerGuard<'static>>> =
 
 #[cfg(feature = "cpu-prof")]
 fn install_cpu_prof() {
-    if std::env::var("OX_CPU_PROF_SECS").is_err() {
+    if std::env::var("CYG_CPU_PROF_SECS").is_err() {
         return;
     }
     match pprof::ProfilerGuardBuilder::default()
@@ -87,7 +87,7 @@ fn init_logging() -> telemetry::Guard {
     let fmt = tracing_subscriber::fmt::layer()
         .with_target(false)
         .with_writer(std::io::stderr);
-    let fmt = if std::env::var("OX_LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json")) {
+    let fmt = if std::env::var("CYG_LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json")) {
         fmt.json().boxed()
     } else {
         fmt.compact().boxed()
@@ -1150,14 +1150,14 @@ fn run(dir: &Path) -> std::io::Result<()> {
     // projects it is the only thing that ever publishes telemetry.
     let bus = engine_bus::Bus::new(4096, 8192);
 
-    // Optional raw-UDP + pinned 128 Hz sim plane. Gated by OX_PLANES=1 so the
+    // Optional raw-UDP + pinned 128 Hz sim plane. Gated by CYG_PLANES=1 so the
     // WS/WebRTC flow is untouched by default.
     let mut plane_cfg = engine_server::plane::PlaneConfig::from_env(&project_dir);
     plane_cfg.wasm_path = wasm_path.clone();
     if plane_cfg.enabled {
         let udp_addr = plane_cfg.udp_addr.clone();
         match engine_server::plane::spawn_sim_plane(bus.clone(), plane_cfg) {
-            Ok(_) => tracing::info!("[main] 🧵 sim plane spawned (OX_PLANES=1, udp {udp_addr})"),
+            Ok(_) => tracing::info!("[main] 🧵 sim plane spawned (CYG_PLANES=1, udp {udp_addr})"),
             Err(e) => tracing::error!("[main] ✖ sim plane spawn failed: {e}"),
         }
     }

@@ -4,7 +4,7 @@
 # JO IS FILE ME LIKHA HAI WAHI BIND HOTA HAI:
 #   port      = game data port (WebRTC DataChannel over UDP)
 #   api_port  = website + matchmake + signaling (control plane)
-# Local dev: OX_ALLOW_DEFAULT_SECRETS=1 · Debug logs: RUST_LOG=debug
+# Local dev: CYG_ALLOW_DEFAULT_SECRETS=1 · Debug logs: RUST_LOG=debug
 
 # Name of the game
 name = "sky3d"

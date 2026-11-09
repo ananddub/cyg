@@ -20,7 +20,7 @@ pub struct SeatResponse {
 
 impl SeatResponse {
     pub fn new(state: &ApiState, seat: &Seat) -> SeatResponse {
-        let udp_port = std::env::var("OX_UDP_ADDR")
+        let udp_port = std::env::var("CYG_UDP_ADDR")
             .ok()
             .and_then(|addr| addr.split(':').last().and_then(|p| p.parse::<u16>().ok()))
             .unwrap_or(7778);

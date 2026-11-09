@@ -19,7 +19,7 @@ fn plumbing(state: &ApiState, host: &str, age_ms: Option<u64>, tick_hz: f64) -> 
         "controlPort": state.control_port(),
         "serverId": format!("http://{host}:{}", state.control_port()),
         "signalingUrl": format!("ws://{host}:{}/ws/signal", state.control_port()),
-        "udpPort": std::env::var("OX_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into()),
+        "udpPort": std::env::var("CYG_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into()),
         "ageMs": age_ms,
     })
 }

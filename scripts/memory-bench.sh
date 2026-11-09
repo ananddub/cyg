@@ -44,8 +44,8 @@ if [[ ${1:-} == --inner ]]; then
 
   # Own ports for UDP: an unrelated server on the default 0.0.0.0:7778 would
   # otherwise log a bind error (harmless, but the benchmark log should be clean).
-  export OX_UDP_ADDR="${OX_UDP_ADDR:-127.0.0.1:17778}"
-  OX_ALLOW_DEFAULT_SECRETS=1 "$BIN" run "$dir" >"$log" 2>&1 &
+  export CYG_UDP_ADDR="${CYG_UDP_ADDR:-127.0.0.1:17778}"
+  CYG_ALLOW_DEFAULT_SECRETS=1 "$BIN" run "$dir" >"$log" 2>&1 &
   srv=$!
 
   ready=0
@@ -75,7 +75,7 @@ if [[ ${1:-} == --inner ]]; then
   fi
 
   # The sim loop's own denominator: a boot that never ticks is not a sample.
-  metrics=$(curl -sf --max-time 2 "http://127.0.0.1:${OX_BENCH_API:-18124}/metrics" || true)
+  metrics=$(curl -sf --max-time 2 "http://127.0.0.1:${CYG_BENCH_API:-18124}/metrics" || true)
   tick=$(awk '$1=="cyg_tick_hz_est"{print $2}' <<<"$metrics" | tail -n 1)
   players=$(awk '$1=="cyg_players"{print $2}' <<<"$metrics" | tail -n 1)
   db=$(grep -E '\[database\] .*memtable' "$log" | tail -n 1 | sed -E 's/^.*: (memtable .*)$/\1/' || true)
@@ -161,7 +161,7 @@ run_session() {
 
   local inner=(bash "$0" --inner "$WORK" "$SETTLE" "$engine" "$log")
   local out
-  export OX_UDP_ADDR="127.0.0.1:$((GAME_PORT + 1))" OX_BENCH_API=$API_PORT
+  export CYG_UDP_ADDR="127.0.0.1:$((GAME_PORT + 1))" CYG_BENCH_API=$API_PORT
   if [[ $engine == cgroup ]]; then
     out=$(systemd-run --user --scope -q --collect \
       --unit="cyg-membench-$$-$3" \

@@ -31,17 +31,17 @@ Never commit real secrets. Copy the template, replace every `REPLACE_ME`, or
 create the Secret imperatively (the recipe is inside `secret.template.yaml`):
 
     kubectl create secret generic cyg-secrets -n cyg \
-      --from-literal=OX_SIGNING_KEY="$(openssl rand -hex 32)" \
-      --from-literal=OX_REFRESH_SIGNING_KEY="$(openssl rand -hex 32)" \
-      --from-literal=OX_SEAT_SECRET="$(openssl rand -hex 32)" \
-      --from-literal=OX_SERVER_KEY="$(openssl rand -hex 32)" \
-      --from-literal=OX_CONSOLE_SIGNING_KEY="$(openssl rand -hex 32)" \
-      --from-literal=OX_CONSOLE_USERNAME=admin \
-      --from-literal=OX_CONSOLE_PASSWORD="$(openssl rand -hex 16)" \
+      --from-literal=CYG_SIGNING_KEY="$(openssl rand -hex 32)" \
+      --from-literal=CYG_REFRESH_SIGNING_KEY="$(openssl rand -hex 32)" \
+      --from-literal=CYG_SEAT_SECRET="$(openssl rand -hex 32)" \
+      --from-literal=CYG_SERVER_KEY="$(openssl rand -hex 32)" \
+      --from-literal=CYG_CONSOLE_SIGNING_KEY="$(openssl rand -hex 32)" \
+      --from-literal=CYG_CONSOLE_USERNAME=admin \
+      --from-literal=CYG_CONSOLE_PASSWORD="$(openssl rand -hex 16)" \
       --from-literal=SURREAL_USER=root \
       --from-literal=SURREAL_PASS="$(openssl rand -hex 16)"
 
-No manifest sets `OX_ALLOW_DEFAULT_SECRETS`: the boot guard
+No manifest sets `CYG_ALLOW_DEFAULT_SECRETS`: the boot guard
 (`refuse_default_secrets`) refuses to start on development defaults, and the
 deployment relies on that rather than overriding it. See `docs/SECRETS.md` for
 the rotation runbook.
@@ -75,7 +75,7 @@ Wait for `surrealdb-0` to be Ready before continuing; the control plane's
 
 The Fleet schedules 4 `cyg-room` GameServers (Packed) behind the same image.
 Direct ports: 7777 tcp+udp (WS), 7778 udp (native), 7779 udp (WebRTC). Each pod
-sets `OX_AGONES=1` so the server talks to the `agones-sdk` sidecar on
+sets `CYG_AGONES=1` so the server talks to the `agones-sdk` sidecar on
 127.0.0.1:9358. Allocate one for a player:
 
     kubectl create -f - <<'EOF'
@@ -96,7 +96,7 @@ and shrinks the Fleet from demand.
 
 ## Room ownership across nodes
 
-Each pod names itself with `OX_NODE_ID` from the downward API (`metadata.name`);
+Each pod names itself with `CYG_NODE_ID` from the downward API (`metadata.name`);
 without it every container would be pid 1 and every node would be `cyg_1`, so a
 registry row would say nothing about who owns the room. A host pushes one
 ownership row per status beat over the bus and the control plane writes it to
@@ -109,7 +109,7 @@ ownership row per status beat over the bus and the control plane writes it to
 - `POST /api/matchmake/{method}/{room}` on a room leased to another node answers
   `409 room '<name>' is running on node '<id>'; attach there`. `reconnect` and
   `rejoin` are exempt: the seat ticket is HMAC'd with the shared
-  `OX_SEAT_SECRET`, so it is portable and the player lands on the owning node.
+  `CYG_SEAT_SECRET`, so it is portable and the player lands on the owning node.
 - `GET /v2/console/room` (console auth) lists every row with a `stale` flag for
   a lease that has lapsed, which is how you tell a dead host from a quiet one.
 

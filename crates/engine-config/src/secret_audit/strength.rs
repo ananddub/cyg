@@ -8,7 +8,7 @@ use crate::rotation::Rotation;
 pub(super) fn audit(control: &ControlConfig, rotation: &Rotation, env: Env, out: &mut Vec<Check>) {
     if env(ALLOW_DEFAULTS_ENV).as_deref() == Some("1") {
         out.push(Check::pass(
-            "the boot guard is switched off (OX_ALLOW_DEFAULT_SECRETS=1), so secret strength is not audited. Local dev only: the manifests in deploy/k8s must never set it".into(),
+            "the boot guard is switched off (CYG_ALLOW_DEFAULT_SECRETS=1), so secret strength is not audited. Local dev only: the manifests in deploy/k8s must never set it".into(),
         ));
     } else {
         let s = &control.session;

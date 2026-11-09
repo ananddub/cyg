@@ -24,7 +24,7 @@ pub fn not_built(status: StatusCode) -> Response {
     (
         status,
         [(header::CONTENT_TYPE, header::HeaderValue::from_static("text/plain; charset=utf-8"))],
-        "dashboard not built yet — run `npm install && npm run build` in the dashboard/ directory, or set OX_DASHBOARD_DIST\n",
+        "dashboard not built yet — run `npm install && npm run build` in the dashboard/ directory, or set CYG_DASHBOARD_DIST\n",
     )
         .into_response()
 }

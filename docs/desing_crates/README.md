@@ -1,6 +1,6 @@
 # CYG Engine: Full Crates Architecture & System Design
 
-Is document me CYG / OpenOxide game engine ke har crate ki responsibility, execution lifecycle, networking model, aur data flow ka complete technical breakdown diya gaya hai.
+Is document me CYG / CYG game engine ke har crate ki responsibility, execution lifecycle, networking model, aur data flow ka complete technical breakdown diya gaya hai.
 
 ### Architecture Views
 - **Static High-Res PNG (Instant, No Scripts)**: [crates-architecture.png](file:///mnt/SSD/Devloper/pannel/openoxide-gaming/docs/desing_crates/crates-architecture.png)

@@ -40,7 +40,7 @@ and alert on the current value, not `rate()`.
 ## Logs
 
 Default format is `tracing`'s compact line on stderr. Set
-`OX_LOG_FORMAT=json` for one JSON object per line (fields `timestamp`, `level`,
+`CYG_LOG_FORMAT=json` for one JSON object per line (fields `timestamp`, `level`,
 `fields.message`, and span fields). Every HTTP request runs inside an
 `http` span carrying `request_id` and `method`, so JSON logs are greppable by
 request id. `RUST_LOG` still controls the filter (default `info`). The sim's
@@ -76,7 +76,7 @@ receiver). Spans are batched in a dedicated thread and flushed when the process
 exits cleanly; `std::process::exit` paths (startup failures) skip the flush.
 
 The `http` span carries `request_id`, `method`, `http.route` (the matched Axum
-path, not the raw URL) and `http.status_code`. With `OX_LOG_FORMAT=json`, the
+path, not the raw URL) and `http.status_code`. With `CYG_LOG_FORMAT=json`, the
 same lines include the span's `trace_id`/`span_id`, so a log line and its trace
 can be joined. `/metrics`, Prometheus scraping and alert rules are unchanged —
 OpenTelemetry here is traces only, not a second metrics pipeline.

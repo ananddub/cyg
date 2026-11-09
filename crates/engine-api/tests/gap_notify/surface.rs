@@ -431,7 +431,7 @@ pub async fn the_console_can_ask(env: &Harness, relay: &Relay, console: &str) {
     )
     .await;
     assert!(
-        why.contains("OX_PUSH_APNS_TEAM"),
+        why.contains("CYG_PUSH_APNS_TEAM"),
         "the refusal does not name the settings to set: {why}"
     );
 

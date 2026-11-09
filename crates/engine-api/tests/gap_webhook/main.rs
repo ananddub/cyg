@@ -24,13 +24,13 @@ static TUNING: std::sync::Once = std::sync::Once::new();
 /// wants the same machine running on a wristwatch.
 fn tuning() {
     TUNING.call_once(|| unsafe {
-        std::env::set_var("OX_WEBHOOK_POLL_MS", "50");
-        std::env::set_var("OX_WEBHOOK_BACKOFF_MS", "100");
-        std::env::set_var("OX_WEBHOOK_TIMEOUT_MS", "1500");
-        std::env::set_var("OX_WEBHOOK_CONCURRENCY", "1");
-        std::env::set_var("OX_WEBHOOK_MAX_ATTEMPTS", "4");
-        std::env::set_var("OX_WEBHOOK_CIRCUIT_TRIPS", "2");
-        std::env::set_var("OX_WEBHOOK_CIRCUIT_COOLDOWN_MS", "5000");
+        std::env::set_var("CYG_WEBHOOK_POLL_MS", "50");
+        std::env::set_var("CYG_WEBHOOK_BACKOFF_MS", "100");
+        std::env::set_var("CYG_WEBHOOK_TIMEOUT_MS", "1500");
+        std::env::set_var("CYG_WEBHOOK_CONCURRENCY", "1");
+        std::env::set_var("CYG_WEBHOOK_MAX_ATTEMPTS", "4");
+        std::env::set_var("CYG_WEBHOOK_CIRCUIT_TRIPS", "2");
+        std::env::set_var("CYG_WEBHOOK_CIRCUIT_COOLDOWN_MS", "5000");
     });
 }
 

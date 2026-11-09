@@ -37,20 +37,20 @@ pub struct Apns {
 }
 
 const APNS_KEYS: [&str; 4] = [
-    "OX_PUSH_APNS_TEAM",
-    "OX_PUSH_APNS_KEY_ID",
-    "OX_PUSH_APNS_KEY_PEM",
-    "OX_PUSH_APNS_TOPIC",
+    "CYG_PUSH_APNS_TEAM",
+    "CYG_PUSH_APNS_KEY_ID",
+    "CYG_PUSH_APNS_KEY_PEM",
+    "CYG_PUSH_APNS_TOPIC",
 ];
 
 impl Apns {
     pub fn read() -> Result<Apns, String> {
         let row = Apns {
-            team: env("OX_PUSH_APNS_TEAM"),
-            key_id: env("OX_PUSH_APNS_KEY_ID"),
-            signing_key: env("OX_PUSH_APNS_KEY_PEM"),
-            topic: env("OX_PUSH_APNS_TOPIC"),
-            host: env_or("OX_PUSH_APNS_HOST", "https://api.push.apple.com"),
+            team: env("CYG_PUSH_APNS_TEAM"),
+            key_id: env("CYG_PUSH_APNS_KEY_ID"),
+            signing_key: env("CYG_PUSH_APNS_KEY_PEM"),
+            topic: env("CYG_PUSH_APNS_TOPIC"),
+            host: env_or("CYG_PUSH_APNS_HOST", "https://api.push.apple.com"),
         };
         let empty: Vec<&'static str> = APNS_KEYS
             .iter()
@@ -82,22 +82,22 @@ pub struct Fcm {
 }
 
 const FCM_KEYS: [&str; 3] = [
-    "OX_PUSH_FCM_PROJECT",
-    "OX_PUSH_FCM_CLIENT_EMAIL",
-    "OX_PUSH_FCM_SERVICE_ACCOUNT_PEM",
+    "CYG_PUSH_FCM_PROJECT",
+    "CYG_PUSH_FCM_CLIENT_EMAIL",
+    "CYG_PUSH_FCM_SERVICE_ACCOUNT_PEM",
 ];
 
 impl Fcm {
     pub fn read() -> Result<Fcm, String> {
         let row = Fcm {
-            project: env("OX_PUSH_FCM_PROJECT"),
-            client_email: env("OX_PUSH_FCM_CLIENT_EMAIL"),
-            signing_key: env("OX_PUSH_FCM_SERVICE_ACCOUNT_PEM"),
+            project: env("CYG_PUSH_FCM_PROJECT"),
+            client_email: env("CYG_PUSH_FCM_CLIENT_EMAIL"),
+            signing_key: env("CYG_PUSH_FCM_SERVICE_ACCOUNT_PEM"),
             token_url: env_or(
-                "OX_PUSH_FCM_TOKEN_URL",
+                "CYG_PUSH_FCM_TOKEN_URL",
                 "https://oauth2.googleapis.com/token",
             ),
-            api_host: env_or("OX_PUSH_FCM_API_HOST", "https://fcm.googleapis.com"),
+            api_host: env_or("CYG_PUSH_FCM_API_HOST", "https://fcm.googleapis.com"),
         };
         let empty: Vec<&'static str> = FCM_KEYS
             .iter()
@@ -139,26 +139,26 @@ pub struct Smtp {
 impl Smtp {
     pub fn read() -> Result<Smtp, String> {
         let row = Smtp {
-            host: env("OX_EMAIL_HOST"),
-            port: env("OX_EMAIL_PORT").parse::<u16>().unwrap_or(
-                match env("OX_EMAIL_TLS").as_str() {
+            host: env("CYG_EMAIL_HOST"),
+            port: env("CYG_EMAIL_PORT").parse::<u16>().unwrap_or(
+                match env("CYG_EMAIL_TLS").as_str() {
                     "implicit" => 465,
                     "none" => 25,
                     _ => 587,
                 },
             ),
-            username: env("OX_EMAIL_USERNAME"),
-            password: env("OX_EMAIL_PASSWORD"),
-            from: env("OX_EMAIL_FROM"),
-            ehlo: env_or("OX_EMAIL_DOMAIN", "localhost"),
-            transport: match env("OX_EMAIL_TLS").as_str() {
+            username: env("CYG_EMAIL_USERNAME"),
+            password: env("CYG_EMAIL_PASSWORD"),
+            from: env("CYG_EMAIL_FROM"),
+            ehlo: env_or("CYG_EMAIL_DOMAIN", "localhost"),
+            transport: match env("CYG_EMAIL_TLS").as_str() {
                 "none" => Transport::Plain,
                 "implicit" => Transport::Implicit,
                 _ => Transport::StartTls,
             },
         };
         if row.host.is_empty() || row.from.is_empty() {
-            Err(missing(&["OX_EMAIL_HOST", "OX_EMAIL_FROM"]))
+            Err(missing(&["CYG_EMAIL_HOST", "CYG_EMAIL_FROM"]))
         } else {
             Ok(row)
         }
@@ -175,8 +175,8 @@ pub struct Face {
 impl Face {
     pub fn read() -> Face {
         Face {
-            push_title: env_or("OX_NOTIFY_TITLE", "Notifications"),
-            link_base: env("OX_NOTIFY_UNSUBSCRIBE_BASE")
+            push_title: env_or("CYG_NOTIFY_TITLE", "Notifications"),
+            link_base: env("CYG_NOTIFY_UNSUBSCRIBE_BASE")
                 .trim_end_matches('/')
                 .to_owned(),
         }

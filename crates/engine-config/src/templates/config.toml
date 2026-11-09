@@ -109,7 +109,7 @@ workers = 2
 seat_ttl_secs = 300
 rate_limit_rps = 20
 rate_limit_burst = 40
-# seat_secret = "change-me"   # prefer the OX_SEAT_SECRET environment variable
+# seat_secret = "change-me"   # prefer the CYG_SEAT_SECRET environment variable
 
 # Per-player quotas. Each charged route spends from a named window, and the
 # over-cap refusal carries a Retry-After. Off until a game opts in: a cap that

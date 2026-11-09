@@ -396,7 +396,7 @@ Work:
    `V2Error::unavailable` (helper already exists:
    `crates/engine-api/src/error/v2.rs unavailable(...)`), driven by config
    presence exactly like Pattern A.
-3. Email: one SMTP client (explicit `OX_EMAIL_*` config, STARTTLS/implicit TLS via
+3. Email: one SMTP client (explicit `CYG_EMAIL_*` config, STARTTLS/implicit TLS via
    the existing rustls stack), templates as data not code, unsubscribe token in
    the footer verified with HMAC (reuse the seats signing pattern).
 4. Respect `verify_time`/`disable_time` and the GDPR erase from §2.3 (deleted

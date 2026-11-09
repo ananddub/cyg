@@ -205,7 +205,7 @@ In the host loop `crates/engine-server/src/host.rs` (`run()` at `:518`, main
 tick `:1950-1974`) the timers are literals:
 `room.reap_check(Duration::from_secs(30))` at **`:1943`**, UDP peer idle
 **3000 ms at `:2292`**, pinned-plane UDP idle **10 s at `plane/udp.rs:59`**,
-`OX_TICK_HZ` default 128 at `plane/udp.rs:142`. `room_max_seconds`,
+`CYG_TICK_HZ` default 128 at `plane/udp.rs:142`. `room_max_seconds`,
 `reap_idle_secs`, `hibernate`, `persistent_rooms` do not exist.
 
 Work:
@@ -217,8 +217,8 @@ Work:
    Clamp in `Default`/parse (`max_rooms`-style): values must be sane, not panic.
 2. Parse them: `crates/engine-config/src/parse/toml.rs` `[game]` block,
    `parse/flat.rs` flat keys, `parse/mod.rs` env loop
-   (`OX_ROOM_MAX_SECONDS`, `OX_REAP_IDLE_SECS`, `OX_PEER_IDLE_MS`,
-   `OX_SEAT_HOLD_SECS`, `OX_PERSISTENT_ROOMS` comma-split).
+   (`CYG_ROOM_MAX_SECONDS`, `CYG_REAP_IDLE_SECS`, `CYG_PEER_IDLE_MS`,
+   `CYG_SEAT_HOLD_SECS`, `CYG_PERSISTENT_ROOMS` comma-split).
 3. Replace the literals `host.rs:1943` and `host.rs:2292`
    (`plane/udp.rs:59`) with config reads. Keep the 1 s telemetry publish (`:2325`)
    and 500 ms wasm hot-reload (`:2385`) as they are.

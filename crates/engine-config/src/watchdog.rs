@@ -35,22 +35,22 @@ impl WatchdogConfig {
     }
 
     pub fn apply_env(&mut self) {
-        if let Ok(v) = std::env::var("OX_WATCHDOG_ENABLED")
+        if let Ok(v) = std::env::var("CYG_WATCHDOG_ENABLED")
             && (v == "0" || v == "false")
         {
             self.enabled = false;
         }
-        if let Ok(v) = std::env::var("OX_WATCHDOG_BUDGET_MS")
+        if let Ok(v) = std::env::var("CYG_WATCHDOG_BUDGET_MS")
             && let Ok(ms) = v.parse()
         {
             self.tick_budget_ms = ms;
         }
-        if let Ok(v) = std::env::var("OX_WATCHDOG_TICKS")
+        if let Ok(v) = std::env::var("CYG_WATCHDOG_TICKS")
             && let Ok(ticks) = v.parse()
         {
             self.epoch_deadline_ticks = ticks;
         }
-        if let Ok(v) = std::env::var("OX_MAX_TICKS_PER_FRAME")
+        if let Ok(v) = std::env::var("CYG_MAX_TICKS_PER_FRAME")
             && let Ok(cap) = v.parse()
         {
             self.max_ticks_per_frame = cap;

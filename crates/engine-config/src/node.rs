@@ -1,6 +1,6 @@
 pub fn node_id() -> String {
     named(
-        std::env::var("OX_NODE_ID").ok().as_deref(),
+        std::env::var("CYG_NODE_ID").ok().as_deref(),
         std::process::id(),
     )
 }

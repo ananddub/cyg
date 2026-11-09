@@ -121,7 +121,7 @@ from it on join, and `schema.ts` is the only file you edit.
 | Language | Interface File | Target Runtime | How Bridge is Handled |
 | :--- | :--- | :--- | :--- |
 | 🥇 **Rust** *(Recommended)* | [`rust/cyg_room.rs`](./rust/cyg_room.rs) | `wasm32-unknown-unknown` | `export_room!(MyRoom)` macro |
-| 🥇 **Pure C** *(Recommended)* | [`c/cyg.h`](./c/cyg.h) | `clang` / `wasi-sdk` / `emscripten` | **Direct Normal C Functions** (`OX_EXPORT`) |
+| 🥇 **Pure C** *(Recommended)* | [`c/cyg.h`](./c/cyg.h) | `clang` / `wasi-sdk` / `emscripten` | **Direct Normal C Functions** (`CYG_EXPORT`) |
 | 🥇 **C++** *(Recommended)* | [`cpp/cyg.hpp`](./cpp/cyg.hpp) | `clang` / `emscripten` / `wasi-sdk` | `CYG_ROOM(MyRoom)` macro |
 | 🥈 **AssemblyScript** | [`assemblyscript/cyg.ts`](./assemblyscript/cyg.ts) | `asc` | **100% Automatic** by CYG compiler! |
 | 🥉 **Lua** | [`lua/cyg.lua`](./lua/cyg.lua) | Native LuaJIT (`engine-lua`) / WASM | `CYG.Room:extend()` / Procedural |
@@ -213,22 +213,22 @@ export class MyBattleRoom extends Room {
 #include "cyg.h"
 
 // Provides default on_alloc, on_save, on_load, on_is_full
-OX_DEFAULT_HOOKS
+CYG_DEFAULT_HOOKS
 
-OX_EXPORT void on_create(int32_t max_clients) {
+CYG_EXPORT void on_create(int32_t max_clients) {
     // Initialize room
 }
 
-OX_EXPORT void on_join(int64_t id, double spawn_x, double spawn_z) {}
+CYG_EXPORT void on_join(int64_t id, double spawn_x, double spawn_z) {}
 
-OX_EXPORT void on_leave(int64_t id) {}
+CYG_EXPORT void on_leave(int64_t id) {}
 
-OX_EXPORT void on_input(int64_t id, int32_t ptr, int32_t len) {
+CYG_EXPORT void on_input(int64_t id, int32_t ptr, int32_t len) {
     const uint8_t* data = (const uint8_t*)(uintptr_t)ptr;
     // Process input
 }
 
-OX_EXPORT int64_t on_tick(double dt) {
+CYG_EXPORT int64_t on_tick(double dt) {
     // Return ox_pack_delta(delta_buf, delta_len);
     return 0;
 }

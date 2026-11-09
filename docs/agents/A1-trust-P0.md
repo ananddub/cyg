@@ -216,7 +216,7 @@ Current state, verified:
 - `SocialConfig` exists at `crates/engine-config/src/social.rs:11` with
   `*_configured()` (`:52-66`) and `allow_unverified` (`:30`), mounted at
   `crates/engine-config/src/control.rs:19`. TOML `[control.social]` parsing and
-  `OX_SOCIAL_*` env vars are already written
+  `CYG_SOCIAL_*` env vars are already written
   (`parse/toml.rs`, `parse/flat.rs`, `parse/mod.rs:164-202`).
 - Repository layer is **already complete** — no DB work needed:
   `repositories/auth/queries.rs` has `get_user_by_{google,apple,facebook,steam}_id`

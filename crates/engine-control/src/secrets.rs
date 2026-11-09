@@ -4,9 +4,9 @@ pub(crate) fn refuse_default_secrets(
     game: &GameConfig,
     control: &ControlConfig,
 ) -> std::io::Result<()> {
-    if std::env::var("OX_ALLOW_DEFAULT_SECRETS").as_deref() == Ok("1") {
+    if std::env::var("CYG_ALLOW_DEFAULT_SECRETS").as_deref() == Ok("1") {
         tracing::warn!(
-            "[control] ⚠️  OX_ALLOW_DEFAULT_SECRETS=1 — booting with default secrets (DEV ONLY)"
+            "[control] ⚠️  CYG_ALLOW_DEFAULT_SECRETS=1 — booting with default secrets (DEV ONLY)"
         );
         return Ok(());
     }
@@ -40,7 +40,7 @@ pub(crate) fn refuse_default_secrets(
         return Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
             format!(
-                "refusing to start: default secrets configured ({}). Set real secrets in config.toml, or export OX_ALLOW_DEFAULT_SECRETS=1 for local dev.",
+                "refusing to start: default secrets configured ({}). Set real secrets in config.toml, or export CYG_ALLOW_DEFAULT_SECRETS=1 for local dev.",
                 defaults.join(", ")
             ),
         ));

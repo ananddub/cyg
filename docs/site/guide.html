@@ -531,7 +531,7 @@ room.ping((rttMs) => {}); room.leave(/*consented*/ true);</pre>
 docker compose up -d            <span class="c"># the server, repo mounted (embedded SurrealDB)</span>
 <span class="c"># open in firewall: cfg.port/udp, quic_port/udp, 7778/udp, api_port/tcp</span></pre>
   <ul>
-    <li><b>Secrets:</b> real <code>[control.session]</code> signing keys + console credentials; the server refuses default secrets unless <code>OX_ALLOW_DEFAULT_SECRETS=1</code> (dev only).</li>
+    <li><b>Secrets:</b> real <code>[control.session]</code> signing keys + console credentials; the server refuses default secrets unless <code>CYG_ALLOW_DEFAULT_SECRETS=1</code> (dev only).</li>
     <li><b>Identity:</b> set <code>game_id</code> (or <code>game_key</code>) — with 2+ games in the database the process refuses to guess.</li>
     <li><b>Scale-out:</b> Agones hooks are built in — the pod reports Ready, health-pings, and retires cleanly. One binary per pod; the console shows which game each node hosts.</li>
     <li><b>Health:</b> <code>/status</code> (live tick rate, CCU, uptime), <code>/health</code>, <code>cyg-game doctor</code>.</li>

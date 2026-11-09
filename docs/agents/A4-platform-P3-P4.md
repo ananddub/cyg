@@ -266,7 +266,7 @@ Work:
    histogram for tick duration sourced from the existing `tick_histogram`.
    Keep `/metrics` behind `server_key_or_console`.
 2. Structured logs: switch the fmt layer to a JSON target when
-   `OX_LOG_FORMAT=json`, keep `compact` as default, and propagate a
+   `CYG_LOG_FORMAT=json`, keep `compact` as default, and propagate a
    `trace_id`/`request_id` field per request (new small middleware in
    `src/app/middleware.rs`). That request id doubles as the idempotency
    correlation key in §4.1.
@@ -284,7 +284,7 @@ Work:
 Facts: `docker-compose.yml` runs `surrealdb/surrealdb:latest` (port 8000,
 volume `./data`) + `server` built from `fedora:latest` exposing **19224**
 HTTP/WS/dashboard and **7977/7778/7978** UDP, env
-`OX_ALLOW_DEFAULT_SECRETS=1`, `RUST_LOG`, `GAME_DIR`, `SURREAL_*`, bind mount
+`CYG_ALLOW_DEFAULT_SECRETS=1`, `RUST_LOG`, `GAME_DIR`, `SURREAL_*`, bind mount
 `.:/app`, entrypoint `deploy/entrypoint.sh`. `deploy/Dockerfile` is
 `fedora:latest`, non-root uid 10001, copies `target/release/cyg-gaming`,
 `HEALTHCHECK curl http://127.0.0.1:7777/health`, `EXPOSE 7777/8090/7778-79`.
@@ -301,7 +301,7 @@ the Agones *runtime* integration (sidecar SDK client on `:9358`) already exists
    control plane, `service` + `ingress` with TLS, `pdb`, `NetworkPolicy`,
    `surrealdb` StatefulSet with a `VolumeClaimTemplate`, and `podMonitor`.
 2. Agones `Fleet`/`GameServer` + `GameServerAllocation` for the host pods, wired
-   to the existing `OX_AGONES` (`crates/engine-config/src/parse/mod.rs:56`) code
+   to the existing `CYG_AGONES` (`crates/engine-config/src/parse/mod.rs:56`) code
    path and the §3.7 drain.
 3. Probes: `/health` already exists (`controllers/health.rs:13`, static
    `controllers/static_routes.rs:22`, used by the Docker healthcheck). Add
@@ -310,7 +310,7 @@ the Agones *runtime* integration (sidecar SDK client on `:9358`) already exists
    UDP ports need `hostPort`/`direct` Agones ports.
 4. `deploy/helm/` optional but keep the raw manifests working without it.
 5. Note for review: the compose `server` currently sets
-   `OX_ALLOW_DEFAULT_SECRETS=1`. Every manifest must set it to `0`/omit it, since
+   `CYG_ALLOW_DEFAULT_SECRETS=1`. Every manifest must set it to `0`/omit it, since
    `refuse_default_secrets()` (`crates/engine-control/src/run.rs:106`) is the
    guard that blocks weak session signing/refresh/server key, seat secret, console
    password and remote DB password.
@@ -340,38 +340,38 @@ a `release.yml` that used to exist). No `rustfmt.toml`, no `clippy.toml`;
 ### 5.6 Secret rotation
 
 Facts: env is read once at boot; no vault, no rotation. Recognized `OX_*` vars
-(`crates/engine-config/src/parse/mod.rs` unless noted): `OX_SEAT_SECRET` (`:51`),
-`OX_AGONES` (`:56`), `OX_BLOBS` (`:68`), `OX_DB_MEMTABLE_MIB` (`:82`),
-`OX_DB_CACHE_MIB` (`:85`), `OX_DATABASE_URL` (`:95`, also `DATABASE_URL`),
-`OX_SIGNING_KEY` (`:105`), `OX_REFRESH_SIGNING_KEY` (`:107`), `OX_SERVER_KEY`
-(`:110`), `OX_CONSOLE_USERNAME` (`:119`), `OX_CONSOLE_PASSWORD` (`:120`),
-`OX_CONSOLE_SIGNING_KEY` (`:122`), `OX_CONSOLE_TOKEN_EXPIRES_SEC` (`:132`),
-`OX_IAP_APPLE_SHARED_SECRET/VERIFY_URL/SANDBOX_URL` (`:139-141`),
-`OX_IAP_GOOGLE_SERVICE_ACCOUNT/PACKAGE_NAME/TOKEN_URL/API_BASE` (`:143-151`),
-`OX_IAP_ALLOW_UNVERIFIED` (`:159`), `OX_SOCIAL_GOOGLE_TOKENINFO_URL` (`:164`),
-`OX_SOCIAL_APPLE_CLIENT_ID/KEYS_URL` (`:167-168`),
-`OX_SOCIAL_FACEBOOK_APP_ID/APP_SECRET/GRAPH_URL` (`:170-178`),
-`OX_SOCIAL_STEAM_WEB_API_KEY/API_URL` (`:182-185`),
-`OX_SOCIAL_GOOGLE_CLIENT_IDS` (`:193`), `OX_SOCIAL_STEAM_APP_ID` (`:196`),
-`OX_SOCIAL_ALLOW_UNVERIFIED` (`:202`); plus `OX_ALLOW_DEFAULT_SECRETS`
-(`engine-control/src/run.rs:104`), `OX_PLANES/SIM_CORE/UDP_ADDR/TICK_HZ/WASM_PATH/
-ROOM/MAX_PLAYERS` (`engine-server/src/plane/mod.rs:32-63`), `OX_MESSAGES`
-(`engine-server/src/rooms.rs:69`), `OX_DASHBOARD_DIST`
+(`crates/engine-config/src/parse/mod.rs` unless noted): `CYG_SEAT_SECRET` (`:51`),
+`CYG_AGONES` (`:56`), `CYG_BLOBS` (`:68`), `CYG_DB_MEMTABLE_MIB` (`:82`),
+`CYG_DB_CACHE_MIB` (`:85`), `CYG_DATABASE_URL` (`:95`, also `DATABASE_URL`),
+`CYG_SIGNING_KEY` (`:105`), `CYG_REFRESH_SIGNING_KEY` (`:107`), `CYG_SERVER_KEY`
+(`:110`), `CYG_CONSOLE_USERNAME` (`:119`), `CYG_CONSOLE_PASSWORD` (`:120`),
+`CYG_CONSOLE_SIGNING_KEY` (`:122`), `CYG_CONSOLE_TOKEN_EXPIRES_SEC` (`:132`),
+`CYG_IAP_APPLE_SHARED_SECRET/VERIFY_URL/SANDBOX_URL` (`:139-141`),
+`CYG_IAP_GOOGLE_SERVICE_ACCOUNT/PACKAGE_NAME/TOKEN_URL/API_BASE` (`:143-151`),
+`CYG_IAP_ALLOW_UNVERIFIED` (`:159`), `CYG_SOCIAL_GOOGLE_TOKENINFO_URL` (`:164`),
+`CYG_SOCIAL_APPLE_CLIENT_ID/KEYS_URL` (`:167-168`),
+`CYG_SOCIAL_FACEBOOK_APP_ID/APP_SECRET/GRAPH_URL` (`:170-178`),
+`CYG_SOCIAL_STEAM_WEB_API_KEY/API_URL` (`:182-185`),
+`CYG_SOCIAL_GOOGLE_CLIENT_IDS` (`:193`), `CYG_SOCIAL_STEAM_APP_ID` (`:196`),
+`CYG_SOCIAL_ALLOW_UNVERIFIED` (`:202`); plus `CYG_ALLOW_DEFAULT_SECRETS`
+(`engine-control/src/run.rs:104`), `CYG_PLANES/SIM_CORE/UDP_ADDR/TICK_HZ/WASM_PATH/
+ROOM/MAX_PLAYERS` (`engine-server/src/plane/mod.rs:32-63`), `CYG_MESSAGES`
+(`engine-server/src/rooms.rs:69`), `CYG_DASHBOARD_DIST`
 (`engine-api/src/utils/dashboard/*`), `SURREAL_ENDPOINT/NS/DB/USER/PASS`
 (`parse/mod.rs:62-67`). `ConsoleUser.mfa_secret`/`mfa_recovery_codes` are b64
 fields (`repositories/models/console_acl_template.rs:53-55`).
 
-1. Accept **keyed** secrets for the signing pairs: `OX_SIGNING_KEY_ID` +
-   `OX_SIGNING_KEY`, and let verification accept the previous key id for one
+1. Accept **keyed** secrets for the signing pairs: `CYG_SIGNING_KEY_ID` +
+   `CYG_SIGNING_KEY`, and let verification accept the previous key id for one
    token TTL window (dual-key rotation, no mass logout). Same for
-   `OX_SERVER_KEY` and `OX_SEAT_SECRET` (seat HMAC
+   `CYG_SERVER_KEY` and `CYG_SEAT_SECRET` (seat HMAC
    `infra/seats/registry.rs:9`).
 2. Document the runbook in `docs/`: generate new key → deploy with both → drain →
    retire old; per-secret blast radius; who may read each; k8s `Secret` versioning
    from §5.4.
 3. `cyg-gaming doctor` (`src/main.rs:79,112`) gains checks: secret length/entropy
    (mirror `refuse_default_secrets` rules, `run.rs:106`), dual-key overlap
-   configured, `OX_IAP_ALLOW_UNVERIFIED`/`OX_SOCIAL_ALLOW_UNVERIFIED` **set to
+   configured, `CYG_IAP_ALLOW_UNVERIFIED`/`CYG_SOCIAL_ALLOW_UNVERIFIED` **set to
    anything but false ⇒ fail** with the reason (rule 3).
 4. Tests: a token minted with key id A verifies during the A+B window and fails
    after B-only; doctor fails on `allow_unverified=true`.

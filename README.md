@@ -75,7 +75,7 @@ Local, without Docker:
 
 ```bash
 cargo build --release
-OX_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg run examples/coin-rush
+CYG_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg run examples/coin-rush
 # console  http://localhost:8124/dashboard/
 ```
 

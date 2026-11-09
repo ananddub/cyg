@@ -48,19 +48,19 @@ fn csharp_emits_typed_entities_tables_and_registration() {
     let (schemas, root) = sample();
     let text = emit(Language::CSharp, &schemas, root.as_ref(), "schema.ts");
     assert!(text.contains("namespace CYG.Schema.Generated"));
-    assert!(text.contains("public sealed class Player : OxSchemaEntity"));
+    assert!(text.contains("public sealed class Player : CygSchemaEntity"));
     assert!(text.contains("public double x = 0.0;"));
     assert!(text.contains("public byte hp = 0;"));
     assert!(text.contains("public string name = string.Empty;"));
     assert!(text.contains("public uint[] tags = new uint[0];"));
     assert!(text.contains("public uint? target = null;"));
-    assert!(text.contains("new OxFieldDef(\"flags\", OxWireKind.U32, 0, OxWireKind.U8, 4)"));
-    assert!(text.contains("new OxFieldDef(\"target\", OxWireKind.U32, 1, OxWireKind.U8, 4)"));
-    assert!(text.contains("new OxFieldDef(\"secret\", OxWireKind.U32, 4, OxWireKind.U8, 4)"));
-    assert!(text.contains("new OxSchemaCollectionDef(\"players\", \"Player\")"));
-    assert!(text.contains("new OxSchemaCollectionDef(\"projectiles\", \"Projectile\")"));
+    assert!(text.contains("new CygFieldDef(\"flags\", CygWireKind.U32, 0, CygWireKind.U8, 4)"));
+    assert!(text.contains("new CygFieldDef(\"target\", CygWireKind.U32, 1, CygWireKind.U8, 4)"));
+    assert!(text.contains("new CygFieldDef(\"secret\", CygWireKind.U32, 4, CygWireKind.U8, 4)"));
+    assert!(text.contains("new CygSchemaCollectionDef(\"players\", \"Player\")"));
+    assert!(text.contains("new CygSchemaCollectionDef(\"projectiles\", \"Projectile\")"));
     assert!(text.contains("registry.Register(\"Player\", delegate { return new Player(); });"));
-    assert!(text.contains("public sealed class State : OxSchemaEntity"));
+    assert!(text.contains("public sealed class State : CygSchemaEntity"));
     assert!(text.contains("public ushort round = 0;"));
 }
 
@@ -132,7 +132,7 @@ fn root_named_like_an_entity_gets_a_distinct_class() {
     };
     assert_eq!(root_class_name(&root, &schemas), "PlayerRoot");
     let text = emit(Language::CSharp, &schemas, Some(&root), "schema.ts");
-    assert!(text.contains("public sealed class Player : OxSchemaEntity"));
-    assert!(text.contains("public sealed class PlayerRoot : OxSchemaEntity"));
+    assert!(text.contains("public sealed class Player : CygSchemaEntity"));
+    assert!(text.contains("public sealed class PlayerRoot : CygSchemaEntity"));
     assert!(text.contains("registry.Register(\"Player\", delegate { return new PlayerRoot(); });"));
 }

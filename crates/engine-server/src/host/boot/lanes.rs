@@ -9,7 +9,7 @@ pub(crate) struct Lanes {
 }
 
 pub(crate) fn boot_udp() -> Option<std::net::UdpSocket> {
-    let udp_addr = std::env::var("OX_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into());
+    let udp_addr = std::env::var("CYG_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into());
     let udp_socket = std::net::UdpSocket::bind(&udp_addr).ok();
     if let Some(ref s) = udp_socket {
         let _ = s.set_nonblocking(true);

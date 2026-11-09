@@ -28,8 +28,8 @@ fn every_documented_default_is_named_in_the_report() {
 #[test]
 fn doctor_fails_when_a_credential_is_accepted_unverified() {
     for (name, why) in [
-        ("OX_IAP_ALLOW_UNVERIFIED", "currency"),
-        ("OX_SOCIAL_ALLOW_UNVERIFIED", "identity"),
+        ("CYG_IAP_ALLOW_UNVERIFIED", "currency"),
+        ("CYG_SOCIAL_ALLOW_UNVERIFIED", "identity"),
     ] {
         for value in ["1", "true"] {
             let checks = audit_strong(&[(name, value)]);
