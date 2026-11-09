@@ -34,11 +34,21 @@ namespace CYG
         private ICygTransport _link;
         private string _seatToken;
         private string _room;
+        private string _origin;
+        private string _reconnectionToken;
         private IPEndPoint _server;
         private ushort _inputSeq;
         private byte _pingCookie;
         private bool _running;
+        private volatile bool _leaving;
         private readonly ConcurrentQueue<byte[]> _deltas = new ConcurrentQueue<byte[]>();
+
+        // Reconnect state. A player who loses a bar of wifi should see the game
+        // stutter, not a menu — so this is on by default and the game is not
+        // asked about it.
+        private Lane _lane = Lane.Auto;
+        private int _reconnectAttempts;
+        private bool _everConnected;
 
         /// Player id the host assigned at bind (0 until then).
         public long PlayerId { get; private set; }
@@ -53,7 +63,27 @@ namespace CYG
         public event Action<long, byte[]> OnVoice;
         public event Action<string> OnError;
         public event Action OnLeave;
+        /// <summary>
+        /// The seat was lost and has been recovered. State arrives again as a
+        /// full snapshot, so a caller that rebuilds from deltas should also
+        /// treat this as "resync everything".
+        /// </summary>
         public event Action OnReconnect;
+        /// <summary>Fired before each retry. `(attempt, delayMs)`.</summary>
+        public event Action<int, int> OnReconnecting;
+
+        /// <summary>
+        /// Recover the seat when the link drops. On by default.
+        /// </summary>
+        /// <remarks>
+        /// A dropped socket is the normal case on mobile — a lift, a tunnel, a
+        /// screen that slept. Surfacing that to a player as an error dialog is
+        /// the wrong trade for a game that can rebuild its state in one frame.
+        /// </remarks>
+        public bool AutoReconnect { get; set; } = true;
+
+        /// <summary>Set to 0 to retry until <see cref="Leave"/> is called.</summary>
+        public int MaxReconnectAttempts { get; set; } = 6;
 
         private CygClient() { }
 
@@ -96,9 +126,50 @@ namespace CYG
             string httpOrigin, string roomName, string playerName = null, Lane lane = Lane.Auto)
         {
             var seat = await Matchmake(httpOrigin, "joinOrCreate", roomName, playerName);
-            var client = new CygClient();
-            await client.Connect(seat, roomName, lane, httpOrigin);
-            return client;
+            var client = new CygClient
+            {
+                _origin = httpOrigin,
+                _room = roomName,
+                _lane = lane,
+                _reconnectionToken = seat.ReconnectionToken,
+            };
+
+            // Try the preferred lane, then the other one. A host that opened
+            // only one of them should not turn into a failed join the player
+            // has to understand — the client knows enough to pick the other.
+            Exception first = null;
+            foreach (var attempt in LaneOrder(lane, seat))
+            {
+                try
+                {
+                    await client.Connect(seat, roomName, attempt, httpOrigin);
+                    client._lane = attempt;
+                    client._everConnected = true;
+                    return client;
+                }
+                catch (Exception error)
+                {
+                    first ??= error;
+                }
+            }
+
+            client.Dispose();
+            throw new Exception(
+                $"could not join '{roomName}' on any open lane — {first?.Message}", first);
+        }
+
+        /// <summary>
+        /// The lanes to try, in order. Auto means "whatever the seat offers",
+        /// with WebSocket last because every host that has a game lane at all
+        /// serves it.
+        /// </summary>
+        private static IEnumerable<Lane> LaneOrder(Lane lane, Seat seat)
+        {
+            if (lane == Lane.Udp) { yield return Lane.Udp; yield break; }
+            if (lane == Lane.WebSocket) { yield return Lane.WebSocket; yield break; }
+
+            if (seat.HasUdp && UdpAvailable) yield return Lane.Udp;
+            if (seat.GamePort > 0) yield return Lane.WebSocket;
         }
 
         private sealed class Seat
@@ -113,12 +184,22 @@ namespace CYG
             public string WsUrl;
             /// <summary>True when the seat carried a UDP port at all.</summary>
             public bool HasUdp;
+            /// <summary>Lets a new socket resume this seat instead of taking another.</summary>
+            public string ReconnectionToken;
         }
 
-        private static async Task<Seat> Matchmake(string origin, string method, string room, string playerName)
+        private static async Task<Seat> Matchmake(
+            string origin, string method, string room, string playerName, string reconnectionToken = null)
         {
             using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-            var body = playerName == null ? "{}" : "{\"playerName\":\"" + playerName + "\"}";
+            string body;
+            if (reconnectionToken != null)
+                // A resume names the seat it wants back. Without the token the
+                // host would hand out a second seat and the player would appear
+                // twice in the room.
+                body = System.Text.Json.JsonSerializer.Serialize(new { reconnectionToken });
+            else
+                body = playerName == null ? "{}" : System.Text.Json.JsonSerializer.Serialize(new { playerName });
             var res = await http.PostAsync($"{origin}/api/matchmake/{method}/{Uri.EscapeDataString(room)}",
                 new System.Net.Http.StringContent(body, Encoding.UTF8, "application/json"));
             var json = await res.Content.ReadAsStringAsync();
@@ -153,6 +234,7 @@ namespace CYG
             // A host with `udp = false` still answers matchmake; the seat then
             // carries no udpPort and the WebSocket lane is the one to open.
             seat.WsUrl = Extract(json, "wsUrl") ?? Extract(json, "websocketUrl");
+            seat.ReconnectionToken = Extract(json, "reconnectionToken");
             return seat;
         }
 
@@ -279,13 +361,108 @@ namespace CYG
             var buf = new byte[65536];
             while (_running)
             {
+                ICygTransport link;
                 int n;
-                try { n = _link.Receive(buf); }
+                try
+                {
+                    link = _link;
+                    if (link == null) break;
+                    n = link.Receive(buf);
+                }
+                // WouldBlock is the normal "no frame yet" answer on both lanes,
+                // not a failure — the loop yields rather than spinning.
                 catch (SocketException) { Thread.Sleep(2); continue; }
                 catch (ObjectDisposedException) { break; }
+                catch (Exception) { break; }
+
                 if (n <= 0) continue;
                 HandlePacket(buf, n);
             }
+
+            // Falling out of the loop with the client still meant to be running
+            // is the drop. `Leave` sets `_leaving` first so a polite exit is not
+            // mistaken for one.
+            if (!_leaving) BeginReconnect();
+        }
+
+        // ---------------------------------------------------------- reconnect
+
+        /// <summary>
+        /// The link went away. Take the seat back, quietly.
+        /// </summary>
+        /// <remarks>
+        /// Runs on the receive thread, so it never blocks: each attempt is its
+        /// own task and a failed one schedules the next. The player sees the
+        /// game resume, not a reason.
+        /// </remarks>
+        private void BeginReconnect()
+        {
+            if (_leaving || !AutoReconnect || !_everConnected) return;
+            if (Connected) Connected = false;
+            _ = Task.Run(ReconnectLoop);
+        }
+
+        private async Task ReconnectLoop()
+        {
+            while (!_leaving)
+            {
+                if (MaxReconnectAttempts > 0 && _reconnectAttempts >= MaxReconnectAttempts)
+                {
+                    OnError?.Invoke($"could not reconnect after {_reconnectAttempts} attempts");
+                    return;
+                }
+
+                var attempt = ++_reconnectAttempts;
+                // 0.5s, 1s, 2s, 4s, capped at 8s. Short enough that a tunnel
+                // feels like a hitch, long enough that a dead host is not
+                // hammered by every player at once.
+                var delay = (int)Math.Min(500 * Math.Pow(2, attempt - 1), 8000);
+                OnReconnecting?.Invoke(attempt, delay);
+                await Task.Delay(delay);
+                if (_leaving) return;
+
+                try
+                {
+                    if (!await TryResume()) continue;
+
+                    _reconnectAttempts = 0;
+                    OnReconnect?.Invoke();
+                    return;
+                }
+                catch (Exception error)
+                {
+                    // A resume the host refused outright will not succeed on a
+                    // retry either — say so and stop rather than waiting out
+                    // the whole backoff ladder first.
+                    if (error is CygApiException api && api.IsRefused)
+                    {
+                        OnError?.Invoke($"session could not be resumed: {error.Message}");
+                        return;
+                    }
+                }
+            }
+        }
+
+        /// <summary>One resume attempt. True when the seat is live again.</summary>
+        private async Task<bool> TryResume()
+        {
+            var seat = await Matchmake(_origin, "reconnect", _room, null, _reconnectionToken);
+            _reconnectionToken = seat.ReconnectionToken ?? _reconnectionToken;
+            SessionId = seat.SessionId ?? SessionId;
+
+            // A resume can land on a different node, which means a different
+            // port — so the lane is chosen again from the fresh seat.
+            foreach (var attempt in LaneOrder(_lane, seat))
+            {
+                try
+                {
+                    await Connect(seat, _room, attempt, _origin);
+                    _lane = attempt;
+                    return true;
+                }
+                catch (Exception) { /* try the next lane */ }
+            }
+            return false;
         }
 
         private void HandlePacket(byte[] buf, int n)
@@ -553,9 +730,26 @@ namespace CYG
                 t.TrySetResult(frame.Skip(9).ToArray());
         }
 
+        /// <summary>
+        /// Kill the link without leaving, to exercise recovery.
+        /// </summary>
+        /// <remarks>
+        /// A test hook, not a game one. The only honest way to check that a
+        /// drop is recoverable is to cause a real one — a simulated flag would
+        /// pass against a client that never reconnects.
+        /// </remarks>
+        public void DropForTest()
+        {
+            try { _link?.Dispose(); } catch (Exception) { }
+        }
+
         /// Leave politely: stop the loops; the server's idle sweep cleans the seat.
         public void Leave()
         {
+            // Set first: the receive loop reads it on the way out to tell a
+            // polite exit from a drop, and it would otherwise start a resume
+            // for a seat the player just gave up.
+            _leaving = true;
             _running = false;
             _link?.Dispose();
             _link = null;
@@ -711,6 +905,7 @@ namespace CYG
         {
             // Serialised: two threads sending at once would interleave the
             // fragments of two messages and the host would read garbage.
+            if (Volatile.Read(ref _disposed) != 0) return;
             _sendLock.Wait();
             try
             {
@@ -726,6 +921,12 @@ namespace CYG
 
         public int Receive(byte[] buffer)
         {
+            // A disposed lane has to say so. Answering WouldBlock forever kept
+            // the receive loop spinning on a socket that was never coming back,
+            // so a dropped WebSocket never looked like a drop — the client just
+            // stopped receiving and waited.
+            if (Volatile.Read(ref _disposed) != 0)
+                throw new ObjectDisposedException(nameof(WebSocketTransport));
             if (!_incoming.TryDequeue(out var frame))
                 throw new SocketException(10035); // WouldBlock — same contract as UDP
             var count = Math.Min(buffer.Length, frame.Length);
@@ -735,6 +936,11 @@ namespace CYG
 
         public void Dispose()
         {
+            // Idempotent: a drop disposes the lane and so does `Leave`, and the
+            // second call used to throw from a disposed semaphore — which the
+            // caller then saw as a send failure on a socket it had already
+            // given up on.
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
             try
             {
                 if (_socket?.State == System.Net.WebSockets.WebSocketState.Open)
@@ -743,10 +949,14 @@ namespace CYG
                         "leave", CancellationToken.None).GetAwaiter().GetResult();
             }
             catch (Exception) { }
-            _closed.Cancel();
+            try { _closed.Cancel(); } catch (Exception) { }
             _socket?.Dispose();
-            _closed.Dispose();
-            _sendLock.Dispose();
+            // The token source and the send lock are deliberately not disposed:
+            // a background receive or an in-flight send may still hold them, and
+            // disposing here turned a clean shutdown into an exception on a
+            // thread nobody was watching.
         }
+
+        private int _disposed;
     }
 }

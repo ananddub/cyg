@@ -69,6 +69,10 @@ the same lane.
 Both lanes speak the same frames. Only the seat handshake and the framing
 differ; input, messages, voice and delta decode are identical.
 
+You do not have to pick. `Auto` tries the best lane the seat offers and falls
+back to the other one if that lane does not come up — a host that opened only
+one of them is not a failed join the player has to understand.
+
 ## The REST half
 
 ```csharp
@@ -155,6 +159,42 @@ argument. A game that only signs existing players in can leave it `null`.
 The device id must be **10–128 bytes**. A shorter one is refused as a bad
 credential, not as a bad request.
 
+## What the player never sees
+
+A dropped socket is the normal case on mobile: a lift, a tunnel, a screen that
+slept. The SDK takes the seat back on its own — no call, no flag, no dialog.
+
+```csharp
+// Nothing to do. On by default.
+await CygClient.JoinOrCreate(origin, "room");
+```
+
+What happens underneath, in 0.5–8 s backoff steps:
+
+1. The link dies. The client notices.
+2. `POST /api/matchmake/reconnect` takes the same seat back with
+   `reconnectionToken` — not a second seat, so the player does not appear twice.
+3. The lane is chosen again from the fresh reply, because a resume can land on
+   a different node with a different port.
+4. The full snapshot arrives, then deltas resume.
+
+A resume the host refuses outright stops the ladder immediately rather than
+waiting out six backoff steps for an answer that will not change.
+
+Tune it if you need to:
+
+```csharp
+room.AutoReconnect = true;      // default
+room.MaxReconnectAttempts = 6;  // 0 = retry until Leave() is called
+
+room.OnReconnecting += (attempt, delayMs) => showSpinner(attempt);
+room.OnReconnect    += () => resyncEverything();   // state arrives as a full snapshot
+room.OnError        += reason => { };              // only when recovery gave up
+```
+
+`Leave()` is never treated as a drop — the client marks the exit first, so a
+polite close does not start a resume for a seat the player just gave up.
+
 ## State classes
 
 `cyg schema-codegen --lang cs` emits `CYGSchemaGenerated.cs` — typed state
@@ -228,6 +268,8 @@ The live suite reports a lane the host did not open as **skipped**, not failed �
 ## Status
 
 - ✔ matchmake/join/bind over UDP **and** WebSocket, ping keep-alive
+- ✔ lane fallback when the preferred one is closed
+- ✔ automatic seat recovery after a drop, with backoff
 - ✔ movement input lane (20-byte frame, plus batched `0x26`)
 - ✔ delta receive + TLV decode
 - ✔ voice control + send + receive — relay-only

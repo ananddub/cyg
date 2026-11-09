@@ -17,6 +17,13 @@ namespace CYG.Tests
             room.SendInput(new byte[20]);
             room.Leave();
 
+            // ---- recovery knobs the README documents
+            room.AutoReconnect = true;
+            room.MaxReconnectAttempts = 6;
+            room.OnReconnecting += (attempt, delayMs) => { };
+            room.OnReconnect += () => { };
+            room.OnError += reason => { };
+
             // ---- auth
             var auth = new CygAuth(origin, serverKey);
             await auth.LoginDevice("device-id-long-enough");

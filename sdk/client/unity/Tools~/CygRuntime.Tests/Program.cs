@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 // Unity runtime test runner — no test framework, no external packages:
 // `dotnet run` compiles the real Runtime sources (CygDeltaDecoder, CygAuth)
 // and asserts the client half of the wire contract.
@@ -272,9 +273,44 @@ namespace CYG.Tests
             }
             Runner.Check("deltas decoded while driving", deltas.Count > 5);
 
-            client.Leave();
-            await System.Threading.Tasks.Task.Delay(300);
-            Runner.Check("left without error", true);
+            // ---- a drop the player should never notice
+            //
+            // The lane is killed underneath the client, which is what a lift or
+            // a sleeping screen looks like. The client must take the seat back
+            // on its own: no call, no flag, no error surfaced to the game.
+            string dropped = null;
+            client.OnError += reason => dropped = reason;
+            client.OnReconnecting += (n, ms) => Console.WriteLine($"  retry {n} in {ms}ms");
+            var started = DateTime.UtcNow;
+            var resumed = new TaskCompletionSource<bool>();
+            client.OnReconnect += () => resumed.TrySetResult(true);
+
+            client.DropForTest();
+            var back = await System.Threading.Tasks.Task.WhenAny(
+                resumed.Task, System.Threading.Tasks.Task.Delay(20000));
+            Runner.Check("an unannounced drop recovers by itself", back == resumed.Task);
+            Runner.Check("recovering the seat is not reported as an error", dropped == null);
+            // A player notices a stall, not a retry count. Anything past a few
+            // seconds on a first attempt reads as a freeze.
+            var took = DateTime.UtcNow - started;
+            Runner.Check($"recovery is under 3s (took {took.TotalSeconds:F1}s)", took < TimeSpan.FromSeconds(3));
+            Runner.Check("the resumed client can still drive", await StillMoves(client));
+
+        }
+
+        /// <summary>Send input again and see whether the room still answers.</summary>
+        private static async System.Threading.Tasks.Task<bool> StillMoves(CygClient client)
+        {
+            var seen = 0;
+            client.OnRawDelta += _ => seen++;
+            var payload = new byte[20];
+            BitConverter.GetBytes(1.0f).CopyTo(payload, 12);
+            for (int i = 0; i < 45; i++)
+            {
+                client.SendInput(payload);
+                await System.Threading.Tasks.Task.Delay(33);
+            }
+            return seen > 0;
         }
     }
 }
