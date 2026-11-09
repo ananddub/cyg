@@ -3437,18 +3437,28 @@ export abstract class Room {
     /// result stands), because a round that has been scored cannot be scored
     /// twice.
     ///
+    /// Two ways to write it, same result:
+    ///
     /// ```ts
+    /// // a list of outcomes — the usual shape
     /// if (this.aliveCount() === 1) {
-    ///     this.endMatch("weekly_kills")
-    ///         .participant(winner, 1200)
-    ///         .stat(winner, "wins", 1);
+    ///     this.endMatch("weekly_kills", [
+    ///         { user: winnerId, score: 1200, stats: { wins: 1, matches: 1 } },
+    ///         { user: loserId,  score: 10,   stats: { matches: 1 } },
+    ///     ]);
     ///     return;
     /// }
+    ///
+    /// // or one player at a time, when the list is not at hand
+    /// this.endMatch("weekly_kills")
+    ///     .participant(winnerId, 1200)
+    ///     .stat(winnerId, "wins", 1);
     /// ```
-    endMatch(leaderboard: string = ""): MatchResultBuilder {
+    endMatch(leaderboard: string = "", scores: Array<MatchScore> | null = null): MatchResultBuilder {
         const builder = new MatchResultBuilder(leaderboard);
         this._result = builder;
         this._matchEnded = true;
+        if (scores != null) builder.scores(scores);
         return builder;
     }
 
@@ -3514,6 +3524,47 @@ export abstract class Room {
 // has, so a retried write cannot double-count. Sending "total kills 42" would
 // mean the host had to know the previous value to work out the difference.
 
+/**
+ * What one player earned in a round, for `endMatch`.
+ *
+ * Written as a literal, so the common case is one line per player:
+ *
+ * ```ts
+ * this.endMatch("weekly_kills", [
+ *     { user: winnerId, score: 1200, stats: { wins: 1, matches: 1 } },
+ *     { user: loserId,  score: 10,   stats: { matches: 1 } },
+ * ]);
+ * ```
+ *
+ * Every field but `user` is optional. `stats` are deltas — `wins: 1` raises the
+ * counter by one, it does not set it to one.
+ */
+export class MatchScore {
+    /// The player's account id.
+    user: string = "";
+    /// The score this round posts to the leaderboard.
+    score: i64 = 0;
+    /// Tie-breaker, for boards that need one.
+    subscore: i64 = 0;
+    /// Counters this round raised, by name.
+    stats: MatchStats | null = null;
+    /// Attached to the leaderboard record; free-form JSON.
+    metadata: string = "";
+}
+
+/// The counters one player earned, as a literal: `{ wins: 1, matches: 1 }`.
+export class MatchStats {
+    wins: i64 = 0;
+    losses: i64 = 0;
+    matches: i64 = 0;
+    kills: i64 = 0;
+    deaths: i64 = 0;
+    assists: i64 = 0;
+    score: i64 = 0;
+    goals: i64 = 0;
+    time_played: i64 = 0;
+}
+
 /** One player's outcome in a round. */
 export class MatchParticipant {
     userId: string;
@@ -3550,6 +3601,51 @@ export class MatchResultBuilder {
 
     constructor(leaderboard: string = "") {
         this._leaderboard = leaderboard;
+    }
+
+    /**
+     * Report every player at once.
+     *
+     * The terse form of `participant(..)` + `stat(..)` chains, and the one most
+     * games want: a round has a list of outcomes, so write it as a list.
+     *
+     * ```ts
+     * this.endMatch("weekly_kills", [
+     *     { user: winnerId, score: 1200, stats: { wins: 1 } },
+     *     { user: loserId,  score: 10 },
+     * ]);
+     * ```
+     */
+    scores(list: Array<MatchScore>): this {
+        for (let i = 0; i < list.length; i++) {
+            const entry = list[i];
+            this.participant(entry.user, entry.score, entry.subscore, entry.metadata);
+            const stats = entry.stats;
+            if (stats == null) continue;
+            // A literal builds every field, so a zero is "not reported" — the
+            // alternative is a class with a presence flag per counter, which is
+            // a lot of machinery to avoid writing one extra `.stat(..)` line.
+            if (stats.wins != 0) this.stat(entry.user, "wins", stats.wins);
+            if (stats.losses != 0) this.stat(entry.user, "losses", stats.losses);
+            if (stats.matches != 0) this.stat(entry.user, "matches", stats.matches);
+            if (stats.kills != 0) this.stat(entry.user, "kills", stats.kills);
+            if (stats.deaths != 0) this.stat(entry.user, "deaths", stats.deaths);
+            if (stats.assists != 0) this.stat(entry.user, "assists", stats.assists);
+            if (stats.score != 0) this.stat(entry.user, "score", stats.score);
+            if (stats.goals != 0) this.stat(entry.user, "goals", stats.goals);
+            if (stats.time_played != 0) this.stat(entry.user, "time_played", stats.time_played);
+        }
+        return this;
+    }
+
+    /**
+     * Raise a counter whose name is not one of `MatchStats`' fields.
+     *
+     * The built-in names cover what most games count; anything else — `gold`,
+     * `headshots`, `xp` — goes through here.
+     */
+    counter(userId: string, name: string, delta: i64 = 1): this {
+        return this.stat(userId, name, delta);
     }
 
     /** Score one player. Calling again for the same player replaces the score. */

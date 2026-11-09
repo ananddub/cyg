@@ -677,6 +677,42 @@ export declare class Client {
     leave(): void;
 }
 
+/**
+ * What one player earned in a round, for `endMatch`.
+ *
+ * Written as a literal, so the common case is one line per player:
+ *
+ * ```ts
+ * this.endMatch("weekly_kills", [
+ *     { user: winnerId, score: 1200, stats: { wins: 1, matches: 1 } },
+ *     { user: loserId,  score: 10,   stats: { matches: 1 } },
+ * ]);
+ * ```
+ *
+ * Every field but `user` is optional. `stats` are deltas — `wins: 1` raises the
+ * counter by one, it does not set it to one.
+ */
+export interface MatchScore {
+    user: string;
+    score?: number | bigint;
+    subscore?: number | bigint;
+    stats?: MatchStats;
+    metadata?: string;
+}
+
+/** The counters one player earned, as a literal: `{ wins: 1, matches: 1 }`. */
+export interface MatchStats {
+    wins?: number | bigint;
+    losses?: number | bigint;
+    matches?: number | bigint;
+    kills?: number | bigint;
+    deaths?: number | bigint;
+    assists?: number | bigint;
+    score?: number | bigint;
+    goals?: number | bigint;
+    time_played?: number | bigint;
+}
+
 export declare class MatchParticipant {
     userId: string;
     score: bigint;
@@ -692,8 +728,8 @@ export declare class MatchParticipant {
  *
  * ```ts
  * this.endMatch("weekly_kills")
- *     .participant(winnerId, 1200n)
- *     .stat(winnerId, "wins", 1n);
+ *     .participant(winnerId, 1200)
+ *     .stat(winnerId, "wins", 1);
  * ```
  */
 export declare class MatchResultBuilder {
@@ -703,6 +739,10 @@ export declare class MatchResultBuilder {
     participant(userId: string, score: bigint, subscore?: bigint, metadata?: string): this;
     /** Raise one counter. Deltas add; the same stat twice in a round sums. */
     stat(userId: string, name: string, delta?: bigint): this;
+    /** Report every player at once — the terse form of `participant` + `stat`. */
+    scores(list: MatchScore[]): this;
+    /** Raise a counter whose name is not one of `MatchStats`' fields. */
+    counter(userId: string, name: string, delta?: bigint): this;
     readonly count: number;
     /** Host ABI: packed `(ptr << 32) | len`. */
     seal(): bigint;
@@ -740,7 +780,7 @@ export declare abstract class Room {
      * with the server key, which a guest never holds. Call once; a second call
      * in the same match is ignored.
      */
-    endMatch(leaderboard?: string): MatchResultBuilder;
+    endMatch(leaderboard?: string, scores?: MatchScore[] | null): MatchResultBuilder;
 
     /** True once `endMatch` has been called. */
     readonly matchEnded: boolean;
