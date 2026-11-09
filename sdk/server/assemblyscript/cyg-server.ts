@@ -3426,6 +3426,52 @@ export abstract class Room {
         // Override to flush scores, release external resources, ...
     }
 
+    /// Tell the host the match is over.
+    ///
+    /// This is the one call a game makes at the end of a round. The host posts
+    /// the result itself — counters, leaderboard, rules and webhooks all follow
+    /// with no backend service in between — using the server key, which a guest
+    /// must never hold.
+    ///
+    /// Call it once. A second call in the same match is ignored (the first
+    /// result stands), because a round that has been scored cannot be scored
+    /// twice.
+    ///
+    /// ```ts
+    /// if (this.aliveCount() === 1) {
+    ///     this.endMatch("weekly_kills")
+    ///         .participant(winner, 1200)
+    ///         .stat(winner, "wins", 1);
+    ///     return;
+    /// }
+    /// ```
+    endMatch(leaderboard: string = ""): MatchResultBuilder {
+        const builder = new MatchResultBuilder(leaderboard);
+        this._result = builder;
+        this._matchEnded = true;
+        return builder;
+    }
+
+    /** True once `endMatch` has been called for this match. */
+    get matchEnded(): bool {
+        return this._matchEnded;
+    }
+
+    /// Host ABI: the packed result, or 0 when the match never ended.
+    ///
+    /// The host calls this when it is about to dispose the room. Returning 0 is
+    /// a normal answer — a round abandoned mid-play has nothing to score, and a
+    /// game is not obliged to have a win condition at all.
+    on_match_end(): i64 {
+        if (!this._matchEnded) return 0;
+        const result = this._result;
+        if (result == null) return 0;
+        return result.seal();
+    }
+
+    private _result: MatchResultBuilder | null = null;
+    private _matchEnded: bool = false;
+
     /// Milliseconds a disconnected client may take to reconnect before
     /// `onLeave` runs. 0 (default) releases the seat immediately.
     allowReconnection(clientId: i64): i32 {
@@ -3449,6 +3495,224 @@ export abstract class Room {
 }
 
 // =============================================================================
+// =============================================================================
+// --- MATCH RESULT -----------------------------------------------------------
+// =============================================================================
+//
+// What the guest says happened, in the order it happened.
+//
+// Wire (`on_match_end` returns this, packed as (ptr << 32) | len):
+//
+//   [u8 1]                       version
+//   [u16 leaderboardLen][utf8]   "" when the round scores to no board
+//   [u16 count]                  participants, 1..64
+//     { [bytes16 userId] [i64 score] [i64 subscore]
+//       [u16 metadataLen][utf8 json]      "" when there is none
+//       [u16 statCount] { [u16 nameLen][utf8 name] [i64 delta] }* }
+//
+// Stats are deltas, not totals: the host adds them to what the player already
+// has, so a retried write cannot double-count. Sending "total kills 42" would
+// mean the host had to know the previous value to work out the difference.
+
+/** One player's outcome in a round. */
+export class MatchParticipant {
+    userId: string;
+    score: i64 = 0;
+    subscore: i64 = 0;
+    metadata: string = "";
+    statNames: Array<string> = new Array<string>();
+    statDeltas: Array<i64> = new Array<i64>();
+
+    constructor(userId: string) {
+        this.userId = userId;
+    }
+}
+
+/**
+ * Builds the result a round reports.
+ *
+ * ```ts
+ * this.endMatch("weekly_kills")
+ *     .participant(winnerId, 1200)
+ *     .stat(winnerId, "wins", 1)
+ *     .participant(loserId, 300);
+ * ```
+ */
+export class MatchResultBuilder {
+    private _leaderboard: string;
+    private _parts: Array<MatchParticipant> = new Array<MatchParticipant>();
+    private _buf: ArrayBuffer = new ArrayBuffer(1024);
+    private _view: DataView = new DataView(this._buf);
+    private _offset: i32 = 0;
+
+    /** The highest a participant list can be, matching the host's check. */
+    static readonly MAX_PARTICIPANTS: i32 = 64;
+
+    constructor(leaderboard: string = "") {
+        this._leaderboard = leaderboard;
+    }
+
+    /** Score one player. Calling again for the same player replaces the score. */
+    participant(userId: string, score: i64, subscore: i64 = 0, metadata: string = ""): this {
+        let existing = this._find(userId);
+        if (existing == null) {
+            existing = new MatchParticipant(userId);
+            this._parts.push(existing);
+        }
+        existing.score = score;
+        existing.subscore = subscore;
+        existing.metadata = metadata;
+        return this;
+    }
+
+    /**
+     * Raise one counter for one player. `delta` is added, never assigned.
+     *
+     * Adds the participant when the player has no score yet — a player who did
+     * not place still earned their kills.
+     */
+    stat(userId: string, name: string, delta: i64 = 1): this {
+        let part = this._find(userId);
+        if (part == null) {
+            part = new MatchParticipant(userId);
+            this._parts.push(part);
+        }
+        let at = part.statNames.indexOf(name);
+        if (at >= 0) {
+            // The same counter reported twice in one round is one increment:
+            // two goals scored are `stat(.., 1)` twice, and the player who sees
+            // "goals 2" is right.
+            part.statDeltas[at] = part.statDeltas[at] + delta;
+        } else {
+            part.statNames.push(name);
+            part.statDeltas.push(delta);
+        }
+        return this;
+    }
+
+    /** How many players have been reported. */
+    get count(): i32 {
+        return this._parts.length;
+    }
+
+    private _find(userId: string): MatchParticipant | null {
+        for (let i = 0; i < this._parts.length; i++) {
+            if (this._parts[i].userId == userId) return this._parts[i];
+        }
+        return null;
+    }
+
+    /// Host ABI: the packed (ptr << 32) | len of the encoded result.
+    seal(): i64 {
+        this._offset = 0;
+        let parts = this._parts.length;
+        if (parts > MatchResultBuilder.MAX_PARTICIPANTS) parts = MatchResultBuilder.MAX_PARTICIPANTS;
+
+        this._u8(1);
+        this._str16(this._leaderboard);
+        this._u16(parts as u16);
+        for (let i = 0; i < parts; i++) {
+            let part = this._parts[i];
+            this._uuid(part.userId);
+            this._i64(part.score);
+            this._i64(part.subscore);
+            this._str16(part.metadata);
+            let stats = part.statNames.length;
+            this._u16(stats as u16);
+            for (let j = 0; j < stats; j++) {
+                this._str16(part.statNames[j]);
+                this._i64(part.statDeltas[j]);
+            }
+        }
+        return ((changetype<usize>(this._buf) as i64) << 32) | (this._offset as i64);
+    }
+
+    private _grow(need: i32): void {
+        if (this._offset + need <= this._buf.byteLength) return;
+        let target = this._buf.byteLength * 2;
+        while (target < this._offset + need) target = target * 2;
+        let next = new ArrayBuffer(target);
+        memory.copy(changetype<usize>(next), changetype<usize>(this._buf), this._offset);
+        this._buf = next;
+        this._view = new DataView(next);
+    }
+
+    private _u8(v: u8): void {
+        this._grow(1);
+        this._view.setUint8(this._offset, v);
+        this._offset += 1;
+    }
+
+    private _u16(v: u16): void {
+        this._grow(2);
+        this._view.setUint16(this._offset, v, true);
+        this._offset += 2;
+    }
+
+    private _i64(v: i64): void {
+        this._grow(8);
+        this._view.setInt64(this._offset, v, true);
+        this._offset += 8;
+    }
+
+    /** A length-prefixed UTF-8 string. A string too long is cut, not refused. */
+    private _str16(v: string): void {
+        // `String.UTF8.encode` hands back a buffer whose address is only valid
+        // until the next allocation, and `_grow` allocates. The length is
+        // captured and the bytes are copied before anything can move them —
+        // reading through a stale pointer wrote whatever happened to be in that
+        // slot, which is how a leaderboard name turned into noise.
+        const encoded = String.UTF8.encode(v);
+        let len = encoded.byteLength;
+        if (len > 512) len = 512;
+        this._grow(2 + len);
+        this._view.setUint16(this._offset, len as u16, true);
+        this._offset += 2;
+        memory.copy(
+            changetype<usize>(this._buf) + this._offset,
+            changetype<usize>(encoded),
+            len);
+        this._offset += len;
+    }
+
+    /**
+     * A user id as 16 raw bytes.
+     *
+     * The host reads ids as UUIDs and a guest holds them as strings, but a
+     * string on the wire would be read back to bytes by the host anyway — so
+     * the hyphenated form is parsed here, once, and a malformed id is written
+     * as zeroes so the host rejects it as "not seated" rather than dying on it.
+     */
+    private _uuid(id: string): void {
+        this._grow(16);
+        let digits = 0;
+        let hi = 0;
+        let wrote = 0;
+        for (let i = 0; i < id.length && wrote < 16; i++) {
+            let code = id.charCodeAt(i);
+            let nibble = -1;
+            if (code >= 48 && code <= 57) nibble = code - 48;
+            else if (code >= 97 && code <= 102) nibble = code - 87;
+            else if (code >= 65 && code <= 70) nibble = code - 55;
+            if (nibble < 0) continue;
+            hi = (hi << 4) | nibble;
+            digits++;
+            if (digits == 2) {
+                this._view.setUint8(this._offset, hi as u8);
+                this._offset += 1;
+                digits = 0;
+                hi = 0;
+                wrote++;
+            }
+        }
+        while (wrote < 16) {
+            this._view.setUint8(this._offset, 0);
+            this._offset += 1;
+            wrote++;
+        }
+    }
+}
+
 // --- VECTORS (developer-facing: APIs take named vectors, not bare sx/sy) ----
 // =============================================================================
 

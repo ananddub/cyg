@@ -138,6 +138,48 @@ fn stamp(secs: i64) -> DateTime<Utc> {
     DateTime::from_timestamp(secs, 0).unwrap_or_else(Utc::now)
 }
 
+/// Score a result the room reported for itself.
+///
+/// The players are taken from the report, not from the realtime registry: a
+/// room that has just closed is gone from the registry, and asking it who was
+/// seated would answer "nobody" for every match. The room's own list is the
+/// authority here because the node that held it resolved those ids from the
+/// seats it was given, which is the same set the registry would have returned
+/// a moment earlier.
+///
+/// Everything after that is `record_result`'s own path — the same balance
+/// checks, the same counters, the same rules and webhook. A guest's claim is
+/// worth no more than an HTTP caller's.
+async fn score_reported_result(state: &ApiState, finished: &engine_bus::MatchFinished) {
+    let outcome = match crate::services::match_result::reported::decode(&finished.result) {
+        Ok(outcome) => outcome,
+        Err(problem) => {
+            // A result the control plane cannot read is dropped, loudly. The
+            // room is already gone; there is nowhere to return it to.
+            tracing::warn!(
+                "[control] room '{}' reported a result that could not be read: {problem}",
+                finished.room
+            );
+            return;
+        }
+    };
+    let seats: std::collections::HashMap<Uuid, String> = outcome
+        .participants
+        .iter()
+        .map(|part| (part.user_id, String::new()))
+        .collect();
+    let request = outcome.into_request();
+    let service = crate::services::match_result::MatchResultService::new();
+    match service.apply(state, Uuid::new_v4(), request, seats).await {
+        Ok(_) => tracing::info!("[control] room '{}' result scored", finished.room),
+        Err(error) => tracing::warn!(
+            "[control] room '{}' result refused: {:?}",
+            finished.room,
+            error
+        ),
+    }
+}
+
 fn checksum_pair(payload: &[u8]) -> Option<(u64, u64)> {
     if payload.len() != CHECKSUM_PAIR_LEN {
         return None;
@@ -239,6 +281,13 @@ pub async fn pump_events(state: ApiState) {
         // A finished match is one row per room, and the room is already gone by
         // the time it arrives: losing it is a hole in the ledger, not a stall.
         while let Ok(finished) = matches_rx.try_recv() {
+            // A round that reported its own result is scored here, before the
+            // history row takes ownership of the bytes. The guest said who won;
+            // the control plane decides whether that is worth scoring, through
+            // the same checks that guard the REST endpoint.
+            if !finished.result.is_empty() {
+                score_reported_result(&state, &finished).await;
+            }
             if let Err(err) = q
                 .record_match(&MatchHistory {
                     id: Uuid::new_v4(),

@@ -30,6 +30,22 @@ impl MatchResultService {
         })?;
         let match_id = Uuid::parse_str(raw_id).map_err(|_| not_a_match())?;
         let seats = seated(match_id).ok_or_else(not_a_match)?;
+        self.apply(state, match_id, req, seats).await
+    }
+
+    /// Store a result the caller has already attributed to a set of players.
+    ///
+    /// A room's own report arrives with the players it seated, resolved by the
+    /// node that held them — the realtime registry has no record of a room that
+    /// has already closed. Everything after the seating check is shared with the
+    /// REST path, so a room cannot store a result the endpoint would refuse.
+    pub async fn apply(
+        &self,
+        state: &ApiState,
+        match_id: Uuid,
+        req: MatchResultRequest,
+        seats: std::collections::HashMap<Uuid, String>,
+    ) -> Result<Json<MatchResultResponse>, V2Error> {
         check(&req, &seats)?;
         let counters = counter_writes(&req)?;
         let queries = q(state).await?;

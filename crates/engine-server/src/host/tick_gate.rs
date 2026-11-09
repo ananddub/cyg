@@ -129,6 +129,10 @@ impl TickRunner {
                     .match_peaks
                     .remove(&name)
                     .unwrap_or(room.sessions.len() as u32);
+                // Read what the round reported before disposing: `on_dispose`
+                // is the guest's chance to clear its own state, so a match
+                // result read afterwards would be read from a cleared room.
+                room.collect_match_result();
                 report_match(ctx.bus, ctx.game_id, &room, &name, reason.label(), peak);
                 report_ownership(
                     ctx.bus,

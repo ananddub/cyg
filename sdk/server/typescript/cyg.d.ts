@@ -677,6 +677,37 @@ export declare class Client {
     leave(): void;
 }
 
+export declare class MatchParticipant {
+    userId: string;
+    score: bigint;
+    subscore: bigint;
+    metadata: string;
+    statNames: string[];
+    statDeltas: bigint[];
+    constructor(userId: string);
+}
+
+/**
+ * Builds the result a round reports to the host.
+ *
+ * ```ts
+ * this.endMatch("weekly_kills")
+ *     .participant(winnerId, 1200n)
+ *     .stat(winnerId, "wins", 1n);
+ * ```
+ */
+export declare class MatchResultBuilder {
+    static readonly MAX_PARTICIPANTS: number;
+    constructor(leaderboard?: string);
+    /** Score one player. Calling again for the same player replaces the score. */
+    participant(userId: string, score: bigint, subscore?: bigint, metadata?: string): this;
+    /** Raise one counter. Deltas add; the same stat twice in a round sums. */
+    stat(userId: string, name: string, delta?: bigint): this;
+    readonly count: number;
+    /** Host ABI: packed `(ptr << 32) | len`. */
+    seal(): bigint;
+}
+
 export declare abstract class Room {
     maxPlayers: number;
     events: EventEmitter;
@@ -701,6 +732,21 @@ export declare abstract class Room {
     onDrop(id: bigint, code: number): void;
     onAuth(id: bigint, options: string, context: string): string;
     onBeforeShutdown(): void;
+
+    /**
+     * Tell the host the match is over.
+     *
+     * The host posts the result — counters, leaderboard, rules and webhooks —
+     * with the server key, which a guest never holds. Call once; a second call
+     * in the same match is ignored.
+     */
+    endMatch(leaderboard?: string): MatchResultBuilder;
+
+    /** True once `endMatch` has been called. */
+    readonly matchEnded: boolean;
+
+    /** Host ABI. Returns the packed result, or 0 when the match never ended. */
+    on_match_end(): bigint;
     onUncaughtException(message: string, methodName: string): void;
     onInput(id: bigint, ptr: number, len: number): void;
     onInputPacket(id: bigint, input: InputReader): void;

@@ -2,6 +2,7 @@ use auto_di::singleton;
 
 pub mod badges;
 pub mod record;
+pub mod reported;
 
 /// How many players a reported result may name.
 const MAX_PARTICIPANTS: usize = 64;
@@ -18,7 +19,7 @@ pub struct MatchResultService;
 
 #[singleton]
 impl MatchResultService {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self
     }
 }

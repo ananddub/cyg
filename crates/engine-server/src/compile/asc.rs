@@ -291,6 +291,13 @@ export function on_dispose(): void {{
     __room_instance.onDispose();
 }}
 
+/// What the round reported when it ended, or 0 when it never did. The host
+/// reads this just before disposing the room and scores it with the same
+/// service the REST endpoint uses.
+export function on_match_end(): i64 {{
+    return __room_instance.on_match_end();
+}}
+
 export function on_allow_reconnection(id: i64): i32 {{
     return __room_instance.allowReconnection(id);
 }}

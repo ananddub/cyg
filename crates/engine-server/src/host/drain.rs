@@ -69,6 +69,9 @@ pub(crate) fn drain_rooms(
             report_snapshot(bus, &room, &name, &snapshot);
             server.save_snapshot(&name, snapshot);
         }
+        // A drain ends every match at once. Read what each round reported
+        // before disposing it — `on_dispose` may clear the guest's state.
+        room.collect_match_result();
         report_match(
             bus,
             game_id,

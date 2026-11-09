@@ -60,6 +60,87 @@ impl GameRoom {
         !expired.is_empty()
     }
 
+    /// Ask the room whether its match produced a result worth scoring.
+    ///
+    /// Read before `dispose`, because disposing calls `on_dispose` and a guest
+    /// is entitled to clear its own state there. A room that never called
+    /// `endMatch` answers 0, which is a normal answer — an abandoned round has
+    /// nothing to score and not every game has a win condition.
+    ///
+    /// A result the host cannot read is logged and dropped rather than thrown:
+    /// the outside world has already moved on, and a guest bug must not become
+    /// a crash in the shutdown path.
+    pub(crate) fn take_match_outcome(&mut self) -> Option<super::match_outcome::MatchOutcome> {
+        let wasm = self.wasm.as_mut()?;
+        // Probed rather than declared on the module struct: a room built
+        // against an older SDK has no such export, and requiring it would make
+        // every existing room fail to boot.
+        let instance = wasm.raw_instance();
+        let func = match instance.get_typed_func::<(), i64>("on_match_end") {
+            Ok(func) => func,
+            Err(_) => return None,
+        };
+        let packed = match func.call(instance.store_mut(), ()) {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!("[server] on_match_end trapped: {error}");
+                return None;
+            }
+        };
+        if packed == 0 {
+            return None;
+        }
+
+        let ptr = (packed >> 32) as u32;
+        let len = packed as u32;
+        // A guest answering with a pointer outside its own memory is a guest
+        // bug; bounding it here keeps the read from being the thing that first
+        // notices.
+        if len as usize > super::match_outcome::MAX_RESULT_BYTES {
+            tracing::warn!("[server] on_match_end returned {len} bytes — refused");
+            return None;
+        }
+        let bytes = match wasm.read_memory(ptr, len) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                tracing::warn!("[server] on_match_end memory read failed: {error}");
+                return None;
+            }
+        };
+
+        match super::match_outcome::decode(&bytes) {
+            Ok(outcome) => Some(outcome),
+            Err(problem) => {
+                tracing::warn!("[server] on_match_end result refused: {problem}");
+                None
+            }
+        }
+    }
+
+    /// Take the round's result and keep it for the match report.
+    ///
+    /// Stored on the room rather than sent here, because the report carries
+    /// more than the result — end reason, tick count, peak players — and the
+    /// bus wants them as one message. A room that reported nothing leaves
+    /// `result` empty and the report says so.
+    pub(crate) fn collect_match_result(&mut self) {
+        let Some(outcome) = self.take_match_outcome() else {
+            return;
+        };
+        tracing::info!(
+            "[server] match ended: {} player(s){}",
+            outcome.participants.len(),
+            outcome
+                .leaderboard
+                .as_deref()
+                .map(|board| format!(", board '{board}'"))
+                .unwrap_or_default()
+        );
+        self.result = Some(bytes::Bytes::from(
+            crate::rooms::game_room::match_outcome::encode(&outcome),
+        ));
+    }
+
     pub(crate) fn dispose(&mut self) {
         if let Some(ref mut wasm) = self.wasm {
             let _ = wasm.raw_instance().call::<(), ()>("on_dispose", ());
