@@ -47,3 +47,31 @@ fn summary_lists_what_runs_and_what_does_not() {
     assert!(summary.contains("websocket"), "{summary}");
     assert!(summary.contains("udp, quic off"), "{summary}");
 }
+
+#[test]
+#[should_panic(expected = "was removed")]
+fn a_removed_port_key_is_refused_not_ignored() {
+    // Silently ignoring `quic_port` would leave the lane at its default and the
+    // operator believing they configured it.
+    crate::parse_config("name = \"x\"\nquic_port = 7778\n");
+}
+
+#[test]
+#[should_panic(expected = "was removed")]
+fn the_removed_ws_port_key_is_refused_too() {
+    crate::parse_config("name = \"x\"\nws_port = 7796\n");
+}
+
+#[test]
+fn the_transports_table_switches_lanes() {
+    let cfg = crate::parse_config(
+        "name = \"x\"\n[transports]\nwebrtc = false\nudp = true\nwebsocket = false\n",
+    );
+    assert!(!cfg.transports.enabled(Lane::WebRtc));
+    assert!(!cfg.transports.enabled(Lane::WebSocket));
+    assert!(cfg.transports.enabled(Lane::Udp));
+    assert!(
+        !cfg.transports.enabled(Lane::Quic),
+        "unset lanes keep their default"
+    );
+}

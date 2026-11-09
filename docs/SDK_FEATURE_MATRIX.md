@@ -42,7 +42,7 @@ or the Rust suites. This file is the contract for what "SDK complete" means.
 
 1. **Server WS lane feature depth**: events + reconnection + batched inputs
    over the WS lane reuse the rtc framing on the wire, but no automated test
-   drives them through `ws_port` yet (only state/input/leave are pinned).
+   drives them through the WebSocket lane yet (only state/input/leave are pinned).
 2. **Unity/C# runtime**: decoder contract tests green (12 checks, zero-dep
    `dotnet run`). The live native-UDP flow is built (CYG_E2E_ORIGIN env) and
    has already fixed three SDK bugs (seat host default, udpPort vs gamePort

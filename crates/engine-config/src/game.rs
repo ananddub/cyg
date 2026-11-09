@@ -67,7 +67,6 @@ pub struct GameConfig {
     pub website: PathBuf,
     pub port: u16,
 
-    pub quic_port: u16,
     pub web_port: u16,
     pub tick_rate: u32,
     /// Operator cap on state-broadcast frequency, in patches per second
@@ -114,8 +113,6 @@ pub struct GameConfig {
     /// seat. Declare as `[rooms.duo]` tables in config.toml.
     pub rooms: std::collections::BTreeMap<String, RoomVariantDef>,
 
-    pub ws_port: u16,
-
     pub simulate_latency_ms: u32,
     pub simulate_packet_loss: f64,
     pub width: f64,
@@ -148,7 +145,6 @@ impl Default for GameConfig {
             sdk_dir: "".into(),
             website: PathBuf::new(),
             port: 7777,
-            quic_port: 0,
             web_port: 8090,
             tick_rate: 30,
             patch_rate: 0,
@@ -161,7 +157,6 @@ impl Default for GameConfig {
             max_messages_per_second: 0,
             room_options: None,
             rooms: Default::default(),
-            ws_port: 0,
             simulate_latency_ms: 0,
             simulate_packet_loss: 0.0,
             width: 800.0,

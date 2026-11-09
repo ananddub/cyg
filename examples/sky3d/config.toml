@@ -16,7 +16,6 @@ website = "website.html"
 
 port = 7977
 # QUIC/WebTransport lane — browsers connect bina WebRTC ke (serverCertificateHashes pin)
-quic_port = 7978
 tick_rate = 60
 max_clients = 16
 
@@ -35,3 +34,9 @@ database_endpoint = "surrealkv://data/cyg"
 username = "admin"
 password = "change-me"
 
+# Which network lanes to open. Ports are assigned by the OS.
+[transports]
+webrtc = true
+websocket = false
+udp = false
+quic = true

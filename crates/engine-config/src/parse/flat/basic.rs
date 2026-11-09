@@ -15,7 +15,6 @@ pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "sdk_dir" => cfg.sdk_dir = value.into(),
         "website" => cfg.website = value.into(),
         "port" => cfg.port = value.parse().unwrap_or(cfg.port),
-        "quic_port" => cfg.quic_port = value.parse().unwrap_or(cfg.quic_port),
         "web_port" => cfg.web_port = value.parse().unwrap_or(cfg.web_port),
         "tick_rate" => cfg.tick_rate = value.parse().unwrap_or(cfg.tick_rate),
         "patch_rate" => cfg.patch_rate = value.parse().unwrap_or(cfg.patch_rate),
@@ -31,7 +30,6 @@ pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
             cfg.max_messages_per_second = value.parse().unwrap_or(cfg.max_messages_per_second)
         }
         "room_options" => cfg.room_options = Some(value.to_string()),
-        "ws_port" => cfg.ws_port = value.parse().unwrap_or(cfg.ws_port),
         "simulate_latency_ms" => {
             cfg.simulate_latency_ms = value.parse().unwrap_or(cfg.simulate_latency_ms)
         }

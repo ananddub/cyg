@@ -1,7 +1,30 @@
 use crate::game::{GameConfig, Runtime};
-use crate::transports::Lane;
+
+/// Keys that no longer exist, with what replaced them.
+///
+/// A config that sets one of these would otherwise parse fine and silently
+/// do nothing — the lane stays at its default and the operator believes they
+/// configured it. Refusing is the only honest answer.
+const RETIRED: [(&str, &str); 2] = [
+    ("quic_port", "[transports] quic = true"),
+    ("ws_port", "[transports] websocket = true/false"),
+];
 
 pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
+    // Checked before anything is read so a stale config cannot half-apply.
+    let retired: Vec<String> = RETIRED
+        .iter()
+        .filter(|(key, _)| table.contains_key(*key))
+        .map(|(key, replacement)| format!("`{key}` was removed — use {replacement}"))
+        .collect();
+    if !retired.is_empty() {
+        panic!(
+            "config uses removed keys:\n  {}\n\
+             Transport lanes are switched under [transports]; ports are assigned by the OS.",
+            retired.join("\n  ")
+        );
+    }
+
     let int = |k: &str| table.get(k).and_then(|v| v.as_integer());
     let float = |k: &str| {
         table
@@ -40,18 +63,6 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = int("port") {
         cfg.port = v as u16;
     }
-    // Retired: lanes are switched in `[transports]` now. A legacy `quic_port`
-    // still means what it always meant — "quic on at this port" — so it turns the
-    // lane on and is otherwise ignored, since ports are assigned by the OS.
-    if let Some(v) = int("quic_port") {
-        tracing::warn!(
-            "[config] `quic_port` is retired; use [transports] quic = true \
-             (port is assigned automatically)"
-        );
-        if v > 0 {
-            cfg.transports.set_enabled(Lane::Quic, true);
-        }
-    }
     if let Some(v) = int("web_port") {
         cfg.web_port = v as u16;
     }
@@ -84,14 +95,6 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     }
     if let Some(v) = string("room_options") {
         cfg.room_options = Some(v);
-    }
-    // Retired alongside `quic_port`: `ws_port = 0` used to mean "WebSocket off".
-    if let Some(v) = int("ws_port") {
-        tracing::warn!(
-            "[config] `ws_port` is retired; use [transports] websocket = true/false \
-             (port is assigned automatically)"
-        );
-        cfg.transports.set_enabled(Lane::WebSocket, v > 0);
     }
     if let Some(v) = int("simulate_latency_ms") {
         cfg.simulate_latency_ms = v.max(0) as u32;
