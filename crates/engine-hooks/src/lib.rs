@@ -32,9 +32,11 @@
 
 pub mod event;
 
+pub mod load;
 pub mod runtime;
 #[cfg(test)]
 mod tests;
 
 pub use event::{CurrencyGrant, HookEvent, HookInput, HookOutput, ItemGrant, Notification};
+pub use load::boot_hooks;
 pub use runtime::{HookError, HookRunner};

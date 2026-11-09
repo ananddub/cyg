@@ -83,6 +83,11 @@ pub struct ApiState {
     /// these on top of the host's live occupancy so a burst of joins within
     /// one status interval cannot all land in the same full room.
     pub chain: Arc<std::sync::Mutex<crate::services::matchmake::chain::ChainTracker>>,
+    /// Customer logic that answers account events, loaded once at boot.
+    ///
+    /// `None` when the project ships no hooks module, which is the common case —
+    /// every call site treats that as "no hook answered", not as an error.
+    pub hooks: Option<Arc<engine_hooks::HookRunner>>,
 }
 
 impl ApiState {
@@ -108,6 +113,10 @@ impl ApiState {
         let chain = Arc::new(std::sync::Mutex::new(
             crate::services::matchmake::chain::ChainTracker::default(),
         ));
+        // Loaded once, here, because the runner owns a compiled module: compiling
+        // it per request would cost more than the hook it runs. The server loads
+        // its own copy for room boot; both read the same file.
+        let hooks = engine_hooks::boot_hooks(project_dir, game).map(Arc::new);
         // The per-account bucket stays off with the quotas, so a plane that has
         // not opted in cannot start refusing authenticated traffic.
         let mut limiter =
@@ -138,6 +147,7 @@ impl ApiState {
             blobs,
             realtime,
             sessions,
+            hooks,
         }
     }
 

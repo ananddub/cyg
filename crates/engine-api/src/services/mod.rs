@@ -8,6 +8,7 @@ pub mod flag;
 pub mod friend;
 pub mod games;
 pub mod group;
+pub mod hook_apply;
 pub mod iap;
 pub(crate) mod idempotency;
 pub mod inventory;

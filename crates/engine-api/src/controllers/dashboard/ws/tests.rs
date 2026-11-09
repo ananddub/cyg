@@ -42,6 +42,7 @@ pub(super) fn state() -> ApiState {
         realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(SessionCache::new(60, 3600)),
         chain: Default::default(),
+        hooks: None,
     }
 }
 

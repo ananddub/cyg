@@ -7,13 +7,13 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::{HookEvent, HookRunner};
 use engine_config::GameConfig;
-use engine_hooks::{HookEvent, HookRunner};
 
 /// The largest document a hook may pass in either direction.
 const MAX_HOOK_BYTES: usize = 64 * 1024;
 
-pub(crate) fn boot_hooks(project_dir: &Path, cfg: &GameConfig) -> Option<HookRunner> {
+pub fn boot_hooks(project_dir: &Path, cfg: &GameConfig) -> Option<HookRunner> {
     let configured = cfg.hooks_path.to_str().unwrap_or("").trim();
     let path = if configured.is_empty() {
         // Convention over configuration: `hooks/hooks.wasm` is where `cyg build`

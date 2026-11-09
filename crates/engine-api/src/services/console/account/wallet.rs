@@ -60,6 +60,21 @@ impl super::ConsoleService {
             .ok_or_else(|| {
                 V2Error::failed_precondition("A currency balance cannot go negative.")
             })?;
+        // Fired after the write so the hook sees the balance it produced. A hook
+        // is not allowed to refuse a console write: an operator asked for this
+        // change, and refusing it would make the console report a failure for a
+        // change that had already been applied.
+        let _ = crate::services::hook_apply::fire(
+            state,
+            engine_hooks::HookEvent::WalletChange,
+            id,
+            serde_json::json!({
+                "changes": changes,
+                "result": result,
+                "source": "console",
+            }),
+        )
+        .await;
         super::audit(
             state,
             claims,

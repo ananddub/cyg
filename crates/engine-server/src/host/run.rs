@@ -34,7 +34,7 @@ pub fn run(
     // without the file runs without them, and one whose module is broken says so
     // and keeps serving rather than refusing every account event. Held for the
     // process lifetime; see `engine_hooks` for the event contract.
-    let _hooks = boot_hooks(project_dir, cfg);
+    let _hooks = engine_hooks::boot_hooks(project_dir, cfg);
     let (mut runtime, _epoch_ticker, mut raw_transport) = boot_runtime(wasm_path, cfg);
     match std::fs::metadata(wasm_path) {
         Ok(m) => tracing::info!(

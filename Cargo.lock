@@ -3028,6 +3028,7 @@ dependencies = [
  "engine-bus",
  "engine-config",
  "engine-dashboard",
+ "engine-hooks",
  "futures",
  "hex",
  "hmac 0.12.1",
@@ -3121,6 +3122,7 @@ dependencies = [
 name = "engine-hooks"
 version = "0.1.0"
 dependencies = [
+ "engine-config",
  "engine-wasm",
  "serde",
  "serde_json",

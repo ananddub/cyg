@@ -99,6 +99,22 @@ pub(super) async fn record_purchase(
             raw_response: verified.raw,
         })
         .await?;
+    // Fired after the row exists, so a hook that reads the purchase finds it, and
+    // before the response, so a hook that refuses it still refuses it to the
+    // client. A hook that merely proposes rewards cannot un-record the purchase:
+    // the store has already charged, so a failed grant is logged, not raised.
+    let _ = crate::services::hook_apply::fire(
+        state,
+        engine_hooks::HookEvent::Purchase,
+        uid,
+        serde_json::json!({
+            "transaction_id": row.transaction_id,
+            "product_id": row.product_id,
+            "store": row.store,
+            "environment": row.environment,
+        }),
+    )
+    .await;
     crate::services::webhook::emit(
         state,
         "iap.purchase.verified",

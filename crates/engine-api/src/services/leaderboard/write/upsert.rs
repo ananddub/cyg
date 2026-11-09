@@ -78,6 +78,21 @@ impl super::super::LeaderboardService {
             expiry: record_window(&board)?,
             operator,
         };
+        // Fired before the write, so a hook that refuses it means the score is
+        // never stored — a hook that only wants to award for a personal best can
+        // read the previous value from the board it was handed.
+        crate::services::hook_apply::fire(
+            state,
+            engine_hooks::HookEvent::LeaderboardSubmit,
+            auth.uid(),
+            serde_json::json!({
+                "leaderboard_id": board.id,
+                "score": input.score,
+                "subscore": input.subscore,
+                "authoritative": board.authoritative,
+            }),
+        )
+        .await?;
         Ok(Json(apply(&queries, &board, &write).await?))
     }
 }

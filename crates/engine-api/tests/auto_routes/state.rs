@@ -40,6 +40,7 @@ pub fn state() -> engine_api::ApiState {
         chain: Arc::new(Mutex::new(
             engine_api::services::matchmake::chain::ChainTracker::default(),
         )),
+        hooks: None,
     }
 }
 #[tokio::test]

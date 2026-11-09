@@ -8,6 +8,7 @@ description = "Server-side hooks: customer WASM logic that runs on account event
 wat = "1.261.0"
 
 [dependencies]
+engine-config = { path = "../engine-config" }
 engine-wasm = { path = "../engine-wasm" }
 thiserror = "2.0.21"
 serde = { version = "1.0", features = ["derive"] }
