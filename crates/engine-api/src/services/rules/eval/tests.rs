@@ -72,9 +72,12 @@ fn groups_compose_and_not_negates() {
 
 #[test]
 fn invalid_bodies_fail_with_the_exact_field() {
-    let err = validate(&json!({"field": "kills", "op": "between", "value": 1}))
+    let err = validate(&json!({"field": "kills", "op": "roughly", "value": 1}))
         .expect_err("unknown op is refused");
     assert_eq!(err.path, "op");
+    let err = validate(&json!({"field": "kills", "op": "between", "value": 1}))
+        .expect_err("between needs two bounds");
+    assert_eq!(err.path, "value");
     let err = validate(&json!({"field": "kills", "op": "in", "value": 3}))
         .expect_err("in needs an array");
     assert_eq!(err.path, "value");

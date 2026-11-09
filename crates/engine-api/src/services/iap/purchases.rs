@@ -99,6 +99,9 @@ pub(super) async fn record_purchase(
             raw_response: verified.raw,
         })
         .await?;
+    // Rules first: they are what an operator wrote in the console, and most
+    // projects have them while having no Wasm module at all.
+    crate::services::rules::dispatch::fire(state, "purchase", uid).await;
     // Fired after the row exists, so a hook that reads the purchase finds it, and
     // before the response, so a hook that refuses it still refuses it to the
     // client. A hook that merely proposes rewards cannot un-record the purchase:

@@ -14,6 +14,24 @@ impl Queries {
         .await
     }
 
+    /// Every active rule bound to one event.
+    ///
+    /// Filtered in the database rather than in Rust: a game accumulates rules
+    /// over a season, and reading all of them to discard most would make each
+    /// purchase pay for every rule the operator ever wrote.
+    pub async fn active_rules_for_trigger(
+        &self,
+        trigger: &str,
+    ) -> Result<Vec<RulesDefinition>, DbError> {
+        self.all(
+            "SELECT * FROM rules_definition \
+             WHERE is_active = true AND body.trigger = $trigger \
+             ORDER BY key ASC",
+            params!(trigger = trigger),
+        )
+        .await
+    }
+
     pub async fn list_rule_versions(&self, key: &str) -> Result<Vec<RulesDefinition>, DbError> {
         self.all(
             "SELECT * FROM rules_definition WHERE key = $key ORDER BY version DESC",

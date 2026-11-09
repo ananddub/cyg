@@ -53,5 +53,8 @@ pub struct RuleDryRun {
 pub struct RuleDryRunResult {
     pub matched: bool,
     pub evaluated_against: serde_json::Value,
+    /// What a match would do. Empty when the rule did not match, so the console
+    /// cannot show a reward for a rule the player does not qualify for.
+    pub actions: Vec<serde_json::Value>,
     pub error: Option<String>,
 }

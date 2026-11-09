@@ -11,7 +11,7 @@ use crate::repositories::models::RulesDefinition;
 use crate::repositories::rules::rules_definition_id;
 use crate::services::deps::q;
 use crate::services::quest::catalog::definition_key;
-use crate::services::rules::{evaluate, validate};
+use crate::services::rules::{Action, evaluate_with_actions, validate};
 
 impl super::ConsoleService {
     pub async fn list_rules(&self, state: &ApiState) -> Result<Json<Vec<RuleRow>>, V2Error> {
@@ -63,6 +63,9 @@ impl super::ConsoleService {
             return Err(V2Error::invalid_argument(format!(
                 "Invalid rule body at {err}"
             )));
+        }
+        if let Err(message) = crate::services::rules::dispatch::check_trigger(&body_value) {
+            return Err(V2Error::invalid_argument(message));
         }
 
         let version = queries.latest_rule_version(&key).await? + 1;
@@ -184,15 +187,33 @@ impl super::ConsoleService {
             },
         };
 
-        let (matched, error) =
-            match validate(&rule_body).and_then(|_| evaluate(&rule_body, &context)) {
-                Ok(matched) => (matched, None),
-                Err(err) => (false, Some(err.to_string())),
+        let (matched, actions, error) =
+            match validate(&rule_body).and_then(|_| evaluate_with_actions(&rule_body, &context)) {
+                Ok((matched, actions)) => (matched, actions, None),
+                Err(err) => (false, Vec::new(), Some(err.to_string())),
             };
+        let actions = actions.iter().map(describe).collect();
         Ok(Json(RuleDryRunResult {
             matched,
             evaluated_against: context,
+            actions,
             error,
         }))
+    }
+}
+
+/// One action as the console shows it back.
+fn describe(action: &Action) -> serde_json::Value {
+    match action {
+        Action::Currency { currency, amount } => {
+            serde_json::json!({"type": "currency", "currency": currency, "amount": amount})
+        }
+        Action::Item { item_id, quantity } => {
+            serde_json::json!({"type": "item", "item_id": item_id, "quantity": quantity})
+        }
+        Action::Notify { subject, body } => {
+            serde_json::json!({"type": "notify", "subject": subject, "body": body})
+        }
+        Action::Badge { badge } => serde_json::json!({"type": "badge", "badge": badge}),
     }
 }

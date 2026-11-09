@@ -1,6 +1,6 @@
 import { MarkerType, type Node, type Edge } from '@xyflow/react';
 import dagre from '@dagrejs/dagre';
-import type { ConditionNodeData, LogicGateNodeData } from './types';
+import type { ActionNodeData, ConditionNodeData, LogicGateNodeData, TriggerNodeData } from './types';
 
 export interface RuleComparison {
   field: string;
@@ -22,6 +22,24 @@ export interface RuleGroupNot {
 
 export interface RuleTruth {
   value: boolean;
+}
+
+/** One thing a matching rule does. Mirrors the server's action contract. */
+export interface RuleAction {
+  type: 'currency' | 'item' | 'notify' | 'badge';
+  currency?: string;
+  amount?: number;
+  item_id?: string;
+  quantity?: number;
+  subject?: string;
+  body?: string;
+  badge?: string;
+}
+
+/** A whole rule: what fires it, what it tests, what it does. */
+export interface RuleDocument {
+  trigger?: string;
+  actions?: RuleAction[];
 }
 
 export type RuleExpression =
@@ -94,6 +112,65 @@ export function getLayoutedElements(nodes: Node[], edges: Edge[]): { nodes: Node
  * outgoing edges point to (conditions or nested gates); unconnected nodes are
  * never smuggled into the output.
  */
+/**
+ * The trigger an event fires and the actions a match performs.
+ *
+ * Separate from the expression tree because the server reads them separately:
+ * the tree answers yes or no, these say what happens on yes. Keeping them out
+ * of `graphToRuleJson` means the expression stays exactly the shape the
+ * evaluator parses.
+ */
+export function graphToRuleDocument(nodes: Node[], edges: Edge[]): RuleDocument {
+  const trigger = nodes.find((n) => n.type === 'trigger');
+  const event = (trigger?.data as TriggerNodeData | undefined)?.event;
+  // An action runs when the rule matches. Ordering follows the graph so the
+  // console reads left to right, and a node not connected to anything is
+  // ignored rather than silently rewarded.
+  const reachable = new Set<string>();
+  const walk = (id: string) => {
+    for (const edge of edges) {
+      if (edge.source === id && !reachable.has(edge.target)) {
+        reachable.add(edge.target);
+        walk(edge.target);
+      }
+    }
+  };
+  if (trigger) walk(trigger.id);
+
+  const actions: RuleAction[] = [];
+  for (const node of nodes) {
+    if (node.type !== 'action') continue;
+    // Unconnected graphs have no reachable set at all, so an action on a
+    // one-box rule is still honoured.
+    if (reachable.size > 0 && !reachable.has(node.id)) continue;
+    const data = node.data as unknown as ActionNodeData;
+    const payload = (data.payload ?? '').trim();
+    switch (data.actionType) {
+      case 'coins':
+        if (payload) {
+          actions.push({ type: 'currency', currency: payload, amount: Number(data.amount ?? 0) });
+        }
+        break;
+      case 'skin':
+        if (payload) {
+          actions.push({ type: 'item', item_id: payload, quantity: Number(data.amount ?? 1) });
+        }
+        break;
+      case 'badge':
+        if (payload) actions.push({ type: 'badge', badge: payload });
+        break;
+      case 'event':
+        if (payload) actions.push({ type: 'notify', subject: payload, body: '' });
+        break;
+    }
+  }
+
+  const document: RuleDocument = {};
+  if (event) document.trigger = event;
+  if (actions.length > 0) document.actions = actions;
+  return document;
+}
+
 export function graphToRuleJson(nodes: Node[], edges: Edge[]): RuleExpression {
   const conditionNodes = nodes.filter((n) => n.type === 'condition');
   const gateNodes = nodes.filter((n) => n.type === 'logicGate');
@@ -121,7 +198,12 @@ export function graphToRuleJson(nodes: Node[], edges: Edge[]): RuleExpression {
       .map((e) => byId.get(e.target))
       .filter((n): n is Node => Boolean(n));
 
-  const buildFromGate = (gate: Node): RuleExpression => {
+  // A gate that feeds itself, directly or through others, would recurse until
+  // the tab dies. Tracking the path means a cycle stops at the repeat rather
+  // than never stopping.
+  const buildFromGate = (gate: Node, seen: Set<string> = new Set()): RuleExpression => {
+    if (seen.has(gate.id)) return DUMMY;
+    seen.add(gate.id);
     const gateData = gate.data as unknown as LogicGateNodeData;
     const gateType = gateData.gate || 'all';
 
@@ -130,10 +212,11 @@ export function graphToRuleJson(nodes: Node[], edges: Edge[]): RuleExpression {
       if (child.type === 'condition') {
         exprs.push(toComparison(child));
       } else if (child.type === 'logicGate') {
-        exprs.push(buildFromGate(child));
+        exprs.push(buildFromGate(child, seen));
       }
       // trigger / action targets are not part of the expression tree
     }
+    seen.delete(gate.id);
 
     if (gateType === 'not') {
       return { not: exprs[0] ?? DUMMY };
@@ -194,7 +277,11 @@ export function ruleJsonToGraph(
     type: 'trigger',
     position: { x: 40, y: 140 },
     data: {
-      event: 'player.stat_update',
+      // A stored rule names the event that fires it; showing the default here
+      // would silently rewrite an operator's trigger the moment they opened it.
+      event:
+        ((json as Record<string, unknown> | null)?.['trigger'] as string | undefined) ??
+        'purchase',
       onDataChange: (data: Record<string, unknown>) => onNodeChange(triggerId, data),
     },
   });
@@ -285,29 +372,47 @@ export function ruleJsonToGraph(
 
   parseExpr(json, triggerId, 'trigger', 0);
 
-  // Reward node at the end of the flow
+  // Reward nodes at the end of the flow. A stored rule says what it does, so
+  // one box is drawn per action; a rule with none gets no box at all rather
+  // than an invented badge the operator never asked for.
   const maxDepthX = nodes.reduce((max, n) => Math.max(max, n.position.x), 0);
-  const actionId = 'action-reward-1';
-  nodes.push({
-    id: actionId,
-    type: 'action',
-    position: { x: Math.max(maxDepthX + 340, 750), y: 140 },
-    data: {
-      actionType: 'badge',
-      payload: 'Centurion_Badge',
-      amount: 500,
-      onDataChange: (data: Record<string, unknown>) => onNodeChange(actionId, data),
-      onDelete: () => onDeleteNode(actionId),
-    },
+  const storedActions = Array.isArray(
+    (json as Record<string, unknown> | null)?.['actions'],
+  )
+    ? ((json as Record<string, unknown>)['actions'] as RuleAction[])
+    : [];
+  const actionIds: string[] = [];
+  storedActions.forEach((action, index) => {
+    const actionId = `action-reward-${index + 1}`;
+    actionIds.push(actionId);
+    const mapped: ActionNodeData =
+      action.type === 'currency'
+        ? { actionType: 'coins', payload: action.currency ?? '', amount: action.amount ?? 0 }
+        : action.type === 'item'
+          ? { actionType: 'skin', payload: action.item_id ?? '', amount: action.quantity ?? 1 }
+          : action.type === 'badge'
+            ? { actionType: 'badge', payload: action.badge ?? '', amount: 0 }
+            : { actionType: 'event', payload: action.subject ?? '', amount: 0 };
+    nodes.push({
+      id: actionId,
+      type: 'action',
+      position: { x: Math.max(maxDepthX + 340, 750), y: 140 + index * 200 },
+      data: {
+        ...mapped,
+        onDataChange: (data: Record<string, unknown>) => onNodeChange(actionId, data),
+        onDelete: () => onDeleteNode(actionId),
+      },
+    });
   });
+  const anchorId = actionIds[0];
 
   const lastCond = nodes.filter((n) => n.type === 'condition').pop();
-  if (lastCond) {
+  if (lastCond && anchorId) {
     const color = getNodeColor(lastCond.type);
     edges.push({
-      id: `e-${lastCond.id}-${actionId}`,
+      id: `e-${lastCond.id}-${anchorId}`,
       source: lastCond.id,
-      target: actionId,
+      target: anchorId,
       animated: true,
       style: { stroke: color, strokeWidth: 2.5 },
       markerEnd: { type: MarkerType.ArrowClosed, color, width: 22, height: 22 },

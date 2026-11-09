@@ -13,6 +13,9 @@
 use serde_json::Value;
 
 mod compare;
+
+pub use super::action::Action;
+pub(crate) use super::action::parse_actions;
 use compare::{compare, lookup};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,12 +40,25 @@ impl std::fmt::Display for RuleError {
     }
 }
 
-const OPERATORS: [&str; 8] = ["eq", "ne", "gt", "gte", "lt", "lte", "in", "contains"];
+const OPERATORS: [&str; 11] = [
+    "eq",
+    "ne",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "in",
+    "contains",
+    "between",
+    "within_days",
+    "older_than_days",
+];
 
 /// Checks the whole body without evaluating it, so an operator console can
 /// refuse a rule at write time with the exact field error.
 pub fn validate(body: &Value) -> Result<(), RuleError> {
-    parse(body, "").map(|_| ())
+    parse(body, "")?;
+    parse_actions(body, "").map(|_| ())
 }
 
 /// Evaluates the rule against `context` (a JSON object, usually a player's
@@ -51,6 +67,23 @@ pub fn validate(body: &Value) -> Result<(), RuleError> {
 pub fn evaluate(body: &Value, context: &Value) -> Result<bool, RuleError> {
     let expr = parse(body, "")?;
     Ok(expr.matches(context))
+}
+
+/// Evaluates the rule and reports what a match should do.
+///
+/// Actions come back only when the rule matched, so a caller cannot apply a
+/// reward it did not earn. A rule with no `actions` returns an empty list, which
+/// is the whole of a condition-only rule's behaviour.
+pub fn evaluate_with_actions(
+    body: &Value,
+    context: &Value,
+) -> Result<(bool, Vec<Action>), RuleError> {
+    let expr = parse(body, "")?;
+    let matched = expr.matches(context);
+    if !matched {
+        return Ok((false, Vec::new()));
+    }
+    Ok((true, parse_actions(body, "")?))
 }
 
 #[derive(Debug)]
@@ -163,6 +196,12 @@ fn parse_comparison(
         return Err(RuleError::at(
             &child_path(path, "value"),
             "in compares against an array of values",
+        ));
+    }
+    if op == "between" && value.as_array().is_none_or(|bounds| bounds.len() != 2) {
+        return Err(RuleError::at(
+            &child_path(path, "value"),
+            "between compares against a two-element [low, high] array",
         ));
     }
     Ok(Expr::Cmp {

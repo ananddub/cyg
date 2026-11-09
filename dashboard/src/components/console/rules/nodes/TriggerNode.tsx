@@ -4,12 +4,16 @@ import type { TriggerNodeData } from '../types';
 import { RuleSelect } from '../RuleSelect';
 
 export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
+  // These are the events the engine actually fires; a rule bound to anything
+  // else would be accepted and then never run, which looks like a broken rule
+  // rather than a wrong one.
   const events = [
-    { value: 'player.stat_update', label: 'Stat Update (Kills, Score, etc.)' },
-    { value: 'match.ended', label: 'Match Ended' },
-    { value: 'player.level_up', label: 'Player Level Up' },
-    { value: 'player.login', label: 'Daily Login' },
-    { value: 'iap.purchase_completed', label: 'Purchase Completed' },
+    { value: 'purchase', label: 'Purchase completed' },
+    { value: 'wallet_change', label: 'Wallet changed' },
+    { value: 'level_up', label: 'Player level up' },
+    { value: 'match_end', label: 'Match ended' },
+    { value: 'leaderboard_submit', label: 'Leaderboard score submitted' },
+    { value: 'player_create', label: 'Player created' },
   ];
 
   return (

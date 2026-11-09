@@ -41,7 +41,14 @@ import { TriggerNode } from './nodes/TriggerNode';
 import { ConditionNode } from './nodes/ConditionNode';
 import { LogicGateNode } from './nodes/LogicGateNode';
 import { ActionNode } from './nodes/ActionNode';
-import { graphToRuleJson, ruleJsonToGraph, getNodeColor, getLayoutedElements, NODE_SIZE } from './graph-to-rule';
+import {
+  graphToRuleDocument,
+  graphToRuleJson,
+  ruleJsonToGraph,
+  getNodeColor,
+  getLayoutedElements,
+  NODE_SIZE,
+} from './graph-to-rule';
 import { RuleSelect } from './RuleSelect';
 import { Button } from '@/components/ui/button';
 import { LiveJsonEditor } from './LiveJsonEditor';
@@ -296,10 +303,21 @@ export function VisualRuleBuilder({
     setCodeJson(JSON.stringify(parsed, null, 2));
   }, [handleNodeDataChange, handleDeleteNode]);
 
-  // Sync graph changes to JSON output
+  // Sync graph changes to JSON output.
+  //
+  // The trigger and the actions are merged in here rather than inside
+  // `graphToRuleJson`, because that function produces the expression tree the
+  // evaluator parses and nothing else. A saved rule is the tree *plus* what
+  // fires it and what it does — without this merge an action box would draw
+  // itself, save, and then never be run.
   useEffect(() => {
     if (nodes.length > 0) {
-      const generated = graphToRuleJson(nodes, edges);
+      const expression = graphToRuleJson(nodes, edges);
+      const document = graphToRuleDocument(nodes, edges);
+      const generated =
+        expression && typeof expression === 'object' && !Array.isArray(expression)
+          ? { ...(expression as Record<string, unknown>), ...document }
+          : { ...document, value: true };
       const jsonStr = JSON.stringify(generated, null, 2);
       setCodeJson(jsonStr);
       onChange(jsonStr);
