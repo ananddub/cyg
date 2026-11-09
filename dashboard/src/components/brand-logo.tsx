@@ -14,7 +14,7 @@ export function BrandLogo({ className, ...props }: BrandLogoProps) {
       viewBox="284 279.5 679 679"
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
-      aria-label="cookyourgame (CYG)"
+      aria-label="cyg"
       role="img"
       className={cn("shrink-0 transition-colors text-foreground", className)}
       {...props}
