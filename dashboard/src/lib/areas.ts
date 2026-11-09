@@ -14,7 +14,6 @@ import { Target,
   Cpu,
   Database,
   Fingerprint,
-  Gamepad2,
   History,
   KeyRound,
   Layers,
@@ -47,9 +46,6 @@ export const GAMES_AREA_ID = "games"
 export const GAME_DEFAULT_AREA = "runtime"
 
 export const CONSOLE_AREAS: ConsoleArea[] = [
-  // Cross-project (landing) areas.
-  { group: "Workspace", id: GAMES_AREA_ID, label: "Games & Projects", icon: Gamepad2 },
-
   // Inside one game.
   { group: "Project", id: "project", label: "Project", icon: LayoutDashboard },
   { group: "Project", id: "config-history", label: "Config History", icon: History },

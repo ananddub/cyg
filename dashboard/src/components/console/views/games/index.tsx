@@ -194,13 +194,13 @@ export function GamesView({ onOpenGame }: { onOpenGame?: (game: Game) => void })
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <PageHeading
-            title="Games & Projects"
-            description="Pick a game to open its project dashboard — live metrics, rooms, players and game data stay scoped to that game. Use the gear to configure or retire one."
+            title="Your Game"
+            description="This server runs one game. Opening it lands on its live metrics, rooms, players and game data. Use the gear to configure it."
           />
         </div>
         <Button className="h-9 shrink-0 gap-1.5" onClick={() => setRegistering(true)}>
           <Plus className="size-3.5" />
-          Register Game
+          Create Game
         </Button>
       </div>
 

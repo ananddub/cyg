@@ -245,25 +245,20 @@ function GameConsole({
   const activeWorker =
     worker === null ? null : ((data.workers ?? []).find((candidate) => candidate.name === worker.name) ?? worker)
 
-  // Single-game consoles skip the picker.
+  // One install, one game — there is no picker to show.
   //
-  // This build runs exactly one project, so a "Games & Projects" list is a
-  // choice the operator does not have: it just adds a click between logging in
-  // and seeing the thing they run. When the server reports exactly one game and
-  // we are sitting on the landing, enter it directly. Two or more games means
-  // the list is genuinely a choice and stays.
-  const soleGame = games.data !== undefined && games.data.games.length === 1 ? games.data.games[0] : null
+  // The product model is a single project per server, so a "Games & Projects"
+  // list would always be a list with one row in it. Whatever the endpoint
+  // happens to return, the console enters the game it runs and stays there: the
+  // first entry if the list is somehow non-empty. Distinct from a multi-tenant
+  // console, which would have to make the operator choose.
+  const theGame = games.data?.games[0] ?? null
   useEffect(() => {
-    if (soleGame === null || route.gameId !== null) return
-    onNavigate(gameRoute(soleGame.id, GAME_DEFAULT_AREA))
-  }, [soleGame, route.gameId, onNavigate])
+    if (theGame === null || route.gameId !== null) return
+    onNavigate(gameRoute(theGame.id, GAME_DEFAULT_AREA))
+  }, [theGame, route.gameId, onNavigate])
 
   const back = () => onNavigate(GAMES_ROUTE)
-  // No "All games" escape hatch when there is nowhere to escape to: with one
-  // project that entry would only bounce the operator back into the same
-  // workspace. The callback itself stays defined — the empty/error states still
-  // need something to click.
-  const showGamesLink = soleGame === null
   const navigateArea = (id: string) => onNavigate(gameRoute(gameId, id))
 
   return (
@@ -272,7 +267,10 @@ function GameConsole({
         area={area}
         areas={gameAreas()}
         game={game}
-        onBack={showGamesLink ? back : undefined}
+        // No "All games" escape hatch: with one game it would only bounce the
+        // operator back into the same workspace. `back` stays defined because
+        // the empty and error states still need something to click.
+        onBack={undefined}
         onNavigate={navigateArea}
         session={session}
         onLogout={onLogout}
