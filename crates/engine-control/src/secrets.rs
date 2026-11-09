@@ -16,6 +16,16 @@ fn loopback_only(bind_addr: &str) -> bool {
     }
 }
 
+/// Where the dashboard is reachable, for the dev hint. A wildcard bind is not
+/// an address a browser can open, so name the loopback it also covers.
+fn console_hint(bind_addr: &str, api_port: u16) -> String {
+    let host = bind_addr.trim();
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) if ip.is_unspecified() => format!("127.0.0.1:{api_port}"),
+        _ => format!("{host}:{api_port}"),
+    }
+}
+
 /// Refuse to boot production with the shipped placeholder secrets.
 ///
 /// Local development must not need a magic env var: `cyg run` on a project
@@ -45,6 +55,20 @@ pub(crate) fn refuse_default_secrets(
             "[control] ⚠️  {why} — booting with default secrets (DEV ONLY). \
              Set real secrets before binding this to a public address."
         );
+        // Say how to get into the console while it is still local. The
+        // credentials are already in config.toml; making a developer go and
+        // read the file (or guess) before their first dashboard login is
+        // friction with no security value, because these values are the ones
+        // this very warning has just declared public to anyone on loopback.
+        if local_dev {
+            tracing::info!(
+                "[control] 🖥️  Dashboard (DEV): http://{}/dashboard/  →  user `{}` / password `{}` \
+                 (from config.toml [control.console]; change both before going public)",
+                console_hint(&control.bind_addr, control.api_port),
+                control.console.username,
+                control.console.password
+            );
+        }
         return Ok(());
     }
     let mut defaults: Vec<&str> = Vec::new();
