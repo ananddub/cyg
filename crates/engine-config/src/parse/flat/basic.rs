@@ -14,6 +14,7 @@ pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "out" => cfg.out = value.into(),
         "sdk_dir" => cfg.sdk_dir = value.into(),
         "website" => cfg.website = value.into(),
+        "hooks" => cfg.hooks_path = value.into(),
         "port" => cfg.port = value.parse().unwrap_or(cfg.port),
         "web_port" => cfg.web_port = value.parse().unwrap_or(cfg.web_port),
         "tick_rate" => cfg.tick_rate = value.parse().unwrap_or(cfg.tick_rate),

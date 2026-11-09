@@ -2027,6 +2027,7 @@ dependencies = [
  "engine-config",
  "engine-control",
  "engine-core",
+ "engine-hooks",
  "engine-nav",
  "engine-physics",
  "engine-schema",
@@ -3117,6 +3118,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-hooks"
+version = "0.1.0"
+dependencies = [
+ "engine-wasm",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+ "wasmtime",
+ "wat",
+]
+
+[[package]]
 name = "engine-nav"
 version = "0.1.0"
 dependencies = [
@@ -3187,6 +3201,7 @@ dependencies = [
  "engine-config",
  "engine-core",
  "engine-dashboard",
+ "engine-hooks",
  "engine-nav",
  "engine-net",
  "engine-physics",

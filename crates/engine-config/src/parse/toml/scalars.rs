@@ -60,6 +60,9 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = string("website") {
         cfg.website = v.into();
     }
+    if let Some(v) = string("hooks") {
+        cfg.hooks_path = v.into();
+    }
     if let Some(v) = int("port") {
         cfg.port = v as u16;
     }

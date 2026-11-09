@@ -13,6 +13,16 @@ out = "room_logic.wasm"
 # CYG web SDK (`cyg.js`) and can leave this empty.
 sdk_dir = ""
 
+# Customer logic that runs on account events rather than on the room tick —
+# "on this purchase, grant coins". Empty means no hooks; `cyg build` writes a
+# compiled module to hooks/hooks.wasm, which is picked up automatically.
+#
+# events: purchase, wallet_change, level_up, match_end, leaderboard_submit,
+#         player_create, moderation
+# Only propose: the server applies each action through the same services the
+# REST API uses, so a hook cannot bypass a quota, a validation or an audit row.
+# hooks = "hooks/hooks.wasm"
+
 port = 7777
 web_port = 8090
 

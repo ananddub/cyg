@@ -53,6 +53,10 @@ pub struct GameConfig {
     /// is `port` and every other lane takes an ephemeral one.
     pub transports: TransportsConfig,
 
+    /// Path to a compiled hook module (customer logic on account events), if the
+    /// project ships one. Empty means no hooks run.
+    pub hooks_path: PathBuf,
+
     pub game_id: Option<String>,
 
     pub game_key: Option<String>,
@@ -137,6 +141,7 @@ impl Default for GameConfig {
         Self {
             name: "my-game".into(),
             transports: TransportsConfig::default(),
+            hooks_path: PathBuf::new(),
             game_id: None,
             game_key: None,
             runtime: Runtime::AssemblyScript,

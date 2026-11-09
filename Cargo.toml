@@ -16,6 +16,7 @@ members = [
     "crates/engine-server",
     "crates/engine-spatial",
     "crates/engine-wasm",
+    "crates/engine-hooks",
     "crates/engine-webrtc-protocol",
     "crates/engine-voice", "crates/test-datafusion",
     "crates/auto/route",
@@ -50,6 +51,7 @@ engine-server = { path = "crates/engine-server" }
 engine-physics = { path = "crates/engine-physics" }
 engine-schema = { path = "crates/engine-schema" }
 engine-spatial = { path = "crates/engine-spatial" }
+engine-hooks = { path = "crates/engine-hooks" }
 engine-wasm = { path = "crates/engine-wasm" }
 wasmtime = "50.0.0"
 hmac = "0.13.0"

@@ -12,6 +12,7 @@ engine-bus = { path = "../engine-bus" }
 engine-config = { path = "../engine-config" }
 engine-dashboard = { path = "../engine-dashboard" }
 engine-wasm = { path = "../engine-wasm" }
+engine-hooks = { path = "../engine-hooks" }
 engine-net = { path = "../engine-net" }
 engine-schema = { path = "../engine-schema" }
 engine-physics = { path = "../engine-physics" }
