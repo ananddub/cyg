@@ -1,4 +1,5 @@
 use crate::game::{GameConfig, Runtime};
+use crate::transports::Lane;
 
 pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     let int = |k: &str| table.get(k).and_then(|v| v.as_integer());
@@ -39,8 +40,17 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = int("port") {
         cfg.port = v as u16;
     }
+    // Retired: lanes are switched in `[transports]` now. A legacy `quic_port`
+    // still means what it always meant — "quic on at this port" — so it turns the
+    // lane on and is otherwise ignored, since ports are assigned by the OS.
     if let Some(v) = int("quic_port") {
-        cfg.quic_port = v as u16;
+        tracing::warn!(
+            "[config] `quic_port` is retired; use [transports] quic = true \
+             (port is assigned automatically)"
+        );
+        if v > 0 {
+            cfg.transports.set_enabled(Lane::Quic, true);
+        }
     }
     if let Some(v) = int("web_port") {
         cfg.web_port = v as u16;
@@ -75,8 +85,13 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = string("room_options") {
         cfg.room_options = Some(v);
     }
+    // Retired alongside `quic_port`: `ws_port = 0` used to mean "WebSocket off".
     if let Some(v) = int("ws_port") {
-        cfg.ws_port = v.max(0) as u16;
+        tracing::warn!(
+            "[config] `ws_port` is retired; use [transports] websocket = true/false \
+             (port is assigned automatically)"
+        );
+        cfg.transports.set_enabled(Lane::WebSocket, v > 0);
     }
     if let Some(v) = int("simulate_latency_ms") {
         cfg.simulate_latency_ms = v.max(0) as u32;

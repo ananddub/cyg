@@ -4,6 +4,7 @@ use crate::control::ControlConfig;
 use crate::gameplay::GameplayConfig;
 use crate::lifecycle::LifecycleConfig;
 use crate::netcode::{AoiConfig, RollbackConfig};
+use crate::transports::TransportsConfig;
 use crate::watchdog::WatchdogConfig;
 
 pub const DEV_SEAT_SECRET: &str = "ox-dev-seat-secret";
@@ -47,6 +48,10 @@ impl GameConfig {
 #[derive(Debug, Clone)]
 pub struct GameConfig {
     pub name: String,
+
+    /// Which network lanes to open. Ports are not configured here: the game port
+    /// is `port` and every other lane takes an ephemeral one.
+    pub transports: TransportsConfig,
 
     pub game_id: Option<String>,
 
@@ -134,6 +139,7 @@ impl Default for GameConfig {
     fn default() -> Self {
         Self {
             name: "my-game".into(),
+            transports: TransportsConfig::default(),
             game_id: None,
             game_key: None,
             runtime: Runtime::AssemblyScript,

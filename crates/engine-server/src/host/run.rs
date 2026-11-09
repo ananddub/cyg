@@ -20,6 +20,16 @@ pub fn run(
     boot_maps: BootMaps,
     boot_module: Option<BootModule>,
 ) -> std::io::Result<()> {
+    // Refuse a config with no lane before opening anything, and say which lanes
+    // this process is about to serve so the log answers "what is listening?"
+    // without needing to correlate four separate boot lines.
+    if let Err(problem) = cfg.transports.validate() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            problem,
+        ));
+    }
+    tracing::info!("[server] {}", cfg.transports.summary());
     let (mut runtime, _epoch_ticker, mut raw_transport) = boot_runtime(wasm_path, cfg);
     match std::fs::metadata(wasm_path) {
         Ok(m) => tracing::info!(
@@ -49,7 +59,7 @@ pub fn run(
             .map(|schema| schema.fields)
             .unwrap_or_default()
     };
-    let udp_socket = boot_udp();
+    let udp_socket = boot_udp(cfg.transports.enabled(engine_config::Lane::Udp));
     let Lanes { quic, ws } = boot_lanes(cfg, &schema_descriptor);
     let mut transport = LoopTransport::new(raw_transport, quic, ws);
     if cfg.simulate_latency_ms > 0 {
