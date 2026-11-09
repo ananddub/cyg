@@ -36,6 +36,7 @@ pub async fn device(
                 serde_json::json!({ "user_id": uid, "username": username, "method": "device" }),
             )
             .await;
+            crate::services::rules::dispatch::fire(state, "player_create", uid).await;
             quota::charge(state, uid, quota::LOGIN, 1).await?;
             Ok(session(uid, &username, true, vars))
         }
@@ -75,6 +76,7 @@ pub async fn custom(
                 serde_json::json!({ "user_id": user.id, "username": user.username, "method": "custom_id" }),
             )
             .await;
+            crate::services::rules::dispatch::fire(state, "player_create", user.id).await;
             quota::charge(state, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, true, vars))
         }
@@ -120,6 +122,10 @@ pub async fn email(
                     serde_json::json!({ "user_id": user.id, "username": user.username, "method": "email" }),
                 )
                 .await;
+                // After the account exists and belongs to the game, so a rule
+                // bound to player_create can grant a starter kit to a player it
+                // can actually find.
+                crate::services::rules::dispatch::fire(state, "player_create", user.id).await;
                 quota::charge(state, user.id, quota::LOGIN, 1).await?;
                 Ok(session(user.id, &user.username, true, vars))
             }

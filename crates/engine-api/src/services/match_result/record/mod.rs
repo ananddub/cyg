@@ -43,6 +43,12 @@ impl MatchResultService {
         };
         write(&queries, &counters, &req, board.as_ref(), &seats).await?;
         let recorded = read_back(&queries, board.as_ref(), &req).await?;
+        // Once per participant, after the result is stored: a rule bound to
+        // match_end wants to reward a player for a match that actually counted,
+        // and a match that failed to record has nothing to reward.
+        for part in &req.participants {
+            crate::services::rules::dispatch::fire(state, "match_end", part.user_id).await;
+        }
         crate::services::webhook::emit(
             state,
             "match.ended",

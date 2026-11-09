@@ -14,8 +14,8 @@ use serde_json::Value;
 
 mod compare;
 
-pub use super::action::Action;
-pub(crate) use super::action::parse_actions;
+pub use super::action::{Action, Limits};
+pub(crate) use super::action::{parse_actions, parse_limits};
 use compare::{compare, lookup};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

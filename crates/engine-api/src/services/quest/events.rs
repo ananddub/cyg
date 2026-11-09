@@ -32,6 +32,12 @@ pub(crate) async fn credit_counter(
     quests: &[&QuestDefinition],
 ) -> Result<Vec<CompletedQuest>, DbError> {
     let total = queries.increase_player_stat(user_id, name, delta).await?;
+    // A level is the `level` counter, so a level-up is that counter crossing a
+    // new number. Fired here rather than from a level service because there is
+    // no level service: the counter is the level.
+    if name == "level" && total > total - delta {
+        crate::services::rules::dispatch::fire(state, "level_up", user_id).await;
+    }
     let mut completed = Vec::new();
     for quest in quests.iter().filter(|quest| quest.goal_kind == name) {
         let crosses = total >= quest.goal_amount && total - delta < quest.goal_amount;

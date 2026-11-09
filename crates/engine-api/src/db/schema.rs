@@ -52,6 +52,7 @@ pub fn ddl() -> Vec<String> {
         RoomModules,
         RoomPersistentSnapshot,
         RoomRegistry,
+        RuleFire,
         RulesDefinition,
         SchemaVersion,
         Season,
@@ -119,7 +120,7 @@ mod tests {
             ddl.iter()
                 .filter(|line| line.starts_with("DEFINE TABLE"))
                 .count(),
-            51
+            52
         );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {

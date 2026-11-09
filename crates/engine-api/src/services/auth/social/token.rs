@@ -65,6 +65,7 @@ pub(crate) async fn token(
                 }),
             )
             .await;
+            crate::services::rules::dispatch::fire(state, "player_create", user.id).await;
             quota::charge(state, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, true, vars))
         }

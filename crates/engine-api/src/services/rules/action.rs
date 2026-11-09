@@ -29,6 +29,25 @@ pub enum Action {
     Badge { badge: String },
 }
 
+/// How often a rule may pay one player.
+///
+/// Read from the rule body, not from each action: an operator says "this rule
+/// pays once a day", not "this grant pays once a day and so does the item" —
+/// the second reading would let the two halves drift apart.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Limits {
+    /// Seconds that must pass before the rule pays again. Zero means no wait.
+    pub cooldown_secs: u64,
+    /// Lifetime cap on how many times the rule pays. Zero means no cap.
+    pub max_per_player: i64,
+}
+
+impl Limits {
+    pub fn is_unlimited(&self) -> bool {
+        self.cooldown_secs == 0 && self.max_per_player <= 0
+    }
+}
+
 /// The highest number of actions one rule may carry.
 ///
 /// A rule with more is a sign the operator wanted several rules, and the cap
@@ -44,6 +63,94 @@ impl Action {
             Action::Badge { .. } => "badge",
         }
     }
+}
+
+/// Read the `limits` object of a rule body.
+///
+/// Two spellings are accepted for the cooldown — `cooldown_secs` and a
+/// `cooldown` duration string like `"24h"` — because the console writes the
+/// first and a hand-written rule reads better as the second.
+pub(crate) fn parse_limits(body: &Value, path: &str) -> Result<Limits, RuleError> {
+    let Some(raw) = body.get("limits").filter(|value| !value.is_null()) else {
+        return Ok(Limits::default());
+    };
+    let object = raw.as_object().ok_or_else(|| RuleError {
+        path: format!("{path}.limits"),
+        message: "limits is an object with cooldown_secs and max_per_player".to_owned(),
+    })?;
+
+    let at = |field: &str, message: &str| RuleError {
+        path: format!("{path}.limits.{field}"),
+        message: message.to_owned(),
+    };
+
+    let cooldown_secs = match (object.get("cooldown_secs"), object.get("cooldown")) {
+        (Some(_), Some(_)) => {
+            return Err(at(
+                "cooldown",
+                "state the cooldown once, as cooldown_secs or as a duration string",
+            ));
+        }
+        (Some(value), None) => value.as_u64().ok_or_else(|| {
+            at(
+                "cooldown_secs",
+                "cooldown_secs is a whole number of seconds",
+            )
+        })?,
+        (None, Some(value)) => {
+            let text = value
+                .as_str()
+                .ok_or_else(|| at("cooldown", "cooldown is a duration string like 24h"))?;
+            parse_duration(text)
+                .ok_or_else(|| at("cooldown", "cooldown is a duration such as 30m, 24h or 7d"))?
+        }
+        (None, None) => 0,
+    };
+
+    let max_per_player = match object.get("max_per_player") {
+        None | Some(Value::Null) => 0,
+        Some(value) => value.as_i64().filter(|cap| *cap > 0).ok_or_else(|| {
+            at(
+                "max_per_player",
+                "max_per_player is a positive whole number",
+            )
+        })?,
+    };
+
+    Ok(Limits {
+        cooldown_secs,
+        max_per_player,
+    })
+}
+
+/// `30m`, `24h`, `7d`, `45s`. A bare number is seconds.
+///
+/// Deliberately small: the shapes an operator actually types. A full duration
+/// grammar would accept `1y2mo3d` and then disagree with itself about months.
+fn parse_duration(text: &str) -> Option<u64> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    // Split at the first non-digit, so "24h" is (24, "h") and "45" is (45, "").
+    let split = text
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(text.len());
+    let (digits, unit) = text.split_at(split);
+    let unit = unit.trim();
+    if digits.is_empty() {
+        return None;
+    }
+    let amount: u64 = digits.parse().ok()?;
+    let multiplier = match unit {
+        "" | "s" => 1,
+        "m" => 60,
+        "h" => 3_600,
+        "d" => 86_400,
+        "w" => 604_800,
+        _ => return None,
+    };
+    amount.checked_mul(multiplier)
 }
 
 /// Read the `actions` array of a rule body.
@@ -191,6 +298,57 @@ mod tests {
         let body = json!({"value": true, "actions": [{"type": "teleport"}]});
         let error = parse_actions(&body, "").unwrap_err();
         assert!(error.message.contains("currency, item, notify or badge"));
+    }
+
+    #[test]
+    fn a_rule_without_limits_is_unlimited() {
+        assert!(
+            parse_limits(&json!({"value": true}), "")
+                .unwrap()
+                .is_unlimited()
+        );
+        assert!(
+            parse_limits(&json!({"value": true, "limits": null}), "")
+                .unwrap()
+                .is_unlimited()
+        );
+    }
+
+    #[test]
+    fn a_cooldown_reads_as_seconds_or_a_duration() {
+        let by_seconds = parse_limits(&json!({"limits": {"cooldown_secs": 3600}}), "").unwrap();
+        let by_text = parse_limits(&json!({"limits": {"cooldown": "1h"}}), "").unwrap();
+        assert_eq!(by_seconds, by_text);
+        assert_eq!(by_text.cooldown_secs, 3600);
+    }
+
+    #[test]
+    fn durations_the_operator_actually_types() {
+        assert_eq!(parse_duration("45s"), Some(45));
+        assert_eq!(parse_duration("45"), Some(45));
+        assert_eq!(parse_duration("30m"), Some(1800));
+        assert_eq!(parse_duration("24h"), Some(86_400));
+        assert_eq!(parse_duration("7d"), Some(604_800));
+        assert_eq!(parse_duration("2w"), Some(1_209_600));
+        // Things a small grammar should refuse rather than guess at.
+        assert_eq!(parse_duration("1y"), None);
+        assert_eq!(parse_duration("h"), None);
+        assert_eq!(parse_duration(""), None);
+    }
+
+    #[test]
+    fn stating_the_cooldown_twice_is_refused() {
+        let body = json!({"limits": {"cooldown_secs": 60, "cooldown": "1m"}});
+        let error = parse_limits(&body, "").unwrap_err();
+        assert!(error.message.contains("once"));
+    }
+
+    #[test]
+    fn a_lifetime_cap_must_be_positive() {
+        let body = json!({"limits": {"max_per_player": 0}});
+        assert!(parse_limits(&body, "").is_err());
+        let body = json!({"limits": {"max_per_player": 3}});
+        assert_eq!(parse_limits(&body, "").unwrap().max_per_player, 3);
     }
 
     #[test]

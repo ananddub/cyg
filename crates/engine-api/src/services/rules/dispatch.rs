@@ -17,7 +17,7 @@ use crate::error::V2Error;
 use crate::repositories::console_mutations::InsertNotificationParams;
 use crate::services::deps::q;
 
-use super::action::Action;
+use super::action::{Action, parse_limits};
 use super::eval::evaluate_with_actions;
 
 /// The events a rule may be bound to.
@@ -94,8 +94,25 @@ pub async fn fire(state: &ApiState, trigger: &str, player_id: Uuid) -> usize {
         match evaluate_with_actions(&rule.body, &context) {
             Ok((false, _)) => {}
             Ok((true, actions)) => {
+                match budget(&queries, &rule.key, &rule.body, player_id).await {
+                    Ok(true) => {}
+                    Ok(false) => continue,
+                    Err(error) => {
+                        tracing::warn!(
+                            "[rules] '{}' limits could not be checked: {error:?}",
+                            rule.key
+                        );
+                        continue;
+                    }
+                }
                 matched += 1;
                 apply(state, player_id, &rule.key, &actions).await;
+                // Recorded after the actions, so a rule whose apply is aborted
+                // mid-way has not spent the player's one allowance on a reward
+                // that never arrived.
+                if let Err(error) = queries.record_rule_fire(&rule.key, player_id).await {
+                    tracing::warn!("[rules] '{}' fire not recorded: {error}", rule.key);
+                }
             }
             Err(error) => {
                 tracing::warn!(
@@ -107,6 +124,40 @@ pub async fn fire(state: &ApiState, trigger: &str, player_id: Uuid) -> usize {
         }
     }
     matched
+}
+
+/// Whether the rule may pay this player again.
+///
+/// A rule with no `limits` is unlimited, which keeps every rule written before
+/// limits existed firing exactly as it did.
+async fn budget(
+    queries: &std::sync::Arc<crate::repositories::db::Queries>,
+    rule_key: &str,
+    body: &serde_json::Value,
+    player_id: Uuid,
+) -> Result<bool, crate::error::V2Error> {
+    // A rule whose limits do not parse cannot be trusted to be bounded, so it
+    // does not fire. This is the one case where skipping is safer than running.
+    let limits = parse_limits(body, "")
+        .map_err(|error| V2Error::invalid_argument(format!("Invalid rule limits at {error}")))?;
+    if limits.is_unlimited() {
+        return Ok(true);
+    }
+    let Some(previous) = queries.get_rule_fire(rule_key, player_id).await? else {
+        return Ok(true);
+    };
+    if limits.max_per_player > 0 && previous.count >= limits.max_per_player {
+        return Ok(false);
+    }
+    if limits.cooldown_secs > 0 {
+        if let Some(last) = previous.last_fire {
+            let elapsed = (chrono::Utc::now() - last).num_seconds().max(0) as u64;
+            if elapsed < limits.cooldown_secs {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
 }
 
 /// Apply one matched rule's actions.

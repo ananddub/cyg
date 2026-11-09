@@ -26,6 +26,7 @@ mod schema_version;
 mod users;
 mod webhook;
 
+mod rule_fire;
 pub use badge::*;
 pub use console_acl_template::*;
 pub use economy::*;
@@ -40,6 +41,7 @@ pub use quota::*;
 pub use report::*;
 pub use room_persistent_snapshot::*;
 pub use room_registry::*;
+pub use rule_fire::*;
 pub use rules::*;
 pub use schema_version::*;
 pub use users::*;
