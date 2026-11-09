@@ -28,6 +28,17 @@ impl ConsoleAuthController {
             .into_response()
     }
 
+    /// `GET /v2/console/mode` — is this a local development session?
+    ///
+    /// The dashboard asks before it decides whether to render a login form.
+    /// Deliberately unauthenticated: it reveals only whether `-d` was passed,
+    /// which the process already announced on its own stdout.
+    #[get("/mode")]
+    async fn mode(&self) -> Response {
+        let dev = std::env::var("CYG_DEV_MODE").as_deref() == Ok("1");
+        axum::Json(serde_json::json!({ "dev": dev })).into_response()
+    }
+
     #[post("/logout")]
     async fn logout(&self, headers: HeaderMap, Body(body): Body<LogoutRequest>) -> Response {
         let state = current_state();

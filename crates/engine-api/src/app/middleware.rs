@@ -144,12 +144,35 @@ impl<S: Send + Sync> FromRequestParts<S> for ConsoleAuthed {
 }
 
 pub fn console_claims(headers: &HeaderMap) -> Result<ConsoleClaims, V2Error> {
+    // `cyg run -d`: the operator asked for a local session. Making them log in
+    // to their own machine is a loop with no secret in it — the boot guard has
+    // already refused any bind another host could reach, so there is nothing on
+    // the other end of this request but the person who started the process.
+    if dev_console() {
+        return Ok(ConsoleClaims {
+            id: String::new(),
+            username: "dev".into(),
+            email: String::new(),
+            role: ConsoleRole::Admin.as_u8(),
+            jti: String::new(),
+            exp: i64::MAX,
+        });
+    }
     if auth_headers(headers) != 1 {
         return Err(V2Error::unauthenticated("Console token required"));
     }
     let token =
         bearer_token(headers).ok_or_else(|| V2Error::unauthenticated("Console token invalid"))?;
     console_token_claims(token)
+}
+
+/// Whether this process is an explicitly-started local development session.
+///
+/// `cyg run -d` publishes this before the server starts (see
+/// `engine_control::runtime_mode`). It is read from the environment so this
+/// crate does not have to depend on the control plane just to ask a yes/no.
+fn dev_console() -> bool {
+    std::env::var("CYG_DEV_MODE").as_deref() == Ok("1")
 }
 
 /// Browsers cannot set an `Authorization` header on a WebSocket handshake, so

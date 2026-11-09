@@ -10,6 +10,7 @@ import type { ConsoleSession } from "@/lib/console/types";
 
 /** Every console path this client knows, so a test can enumerate the surface. */
 export const CONSOLE_ENDPOINTS = {
+  mode: "/v2/console/authenticate/mode",
   authenticate: "/v2/console/authenticate",
   logout: "/v2/console/authenticate/logout",
   passwordChange: "/v2/console/password_change",
@@ -63,6 +64,15 @@ export class ConsoleError extends Error {
     this.name = "ConsoleError";
     this.status = status;
   }
+}
+
+/** Whether the server is an explicit local development session (`cyg run -d`).
+ *
+ * Unauthenticated on purpose: it answers only the question the console needs in
+ * order to decide whether a login form makes sense at all.
+ */
+export async function consoleMode(): Promise<{ dev: boolean }> {
+  return request<{ dev: boolean }>(CONSOLE_ENDPOINTS.mode, { method: "GET" });
 }
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {

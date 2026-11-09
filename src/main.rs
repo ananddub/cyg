@@ -111,9 +111,17 @@ fn main() {
     let _telemetry = init_logging();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("run");
+    // `-d` / `--dev` is a run-mode switch, not a path: an unauthenticated
+    // console is a local-development affordance only, so it has to be asked
+    // for explicitly rather than inferred from where the directory is.
+    let dev = args.iter().any(|a| a == "-d" || a == "--dev");
+    if dev {
+        engine_control::runtime_mode::enter_dev();
+    }
     let dir = args
-        .get(1)
-        .filter(|a| !a.starts_with("--"))
+        .iter()
+        .skip(1)
+        .find(|a| !a.starts_with('-'))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 

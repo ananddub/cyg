@@ -45,12 +45,19 @@ impl DashboardWsController {
         Params(scope): Params<DashboardScope>,
     ) -> Response {
         let state = crate::current_state();
-        let token = scope.token.as_deref().or_else(|| bearer_token(&headers));
-        let Some(token) = token else {
-            return V2Error::unauthenticated("Console token required").into_response();
-        };
-        if let Err(err) = console_token_claims(token) {
-            return err.into_response();
+        // The dashboard socket carries the same console token as the REST calls.
+        // In an explicit dev session (`cyg run -d`) there is no token to carry,
+        // and requiring one would leave the dashboard live metrics permanently
+        // disconnected — so the handshake is allowed without it.
+        let dev = std::env::var("CYG_DEV_MODE").as_deref() == Ok("1");
+        if !dev {
+            let token = scope.token.as_deref().or_else(|| bearer_token(&headers));
+            let Some(token) = token else {
+                return V2Error::unauthenticated("Console token required").into_response();
+            };
+            if let Err(err) = console_token_claims(token) {
+                return err.into_response();
+            }
         }
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
