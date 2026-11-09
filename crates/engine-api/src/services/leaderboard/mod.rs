@@ -6,6 +6,7 @@ use crate::repositories::models::Leaderboard;
 
 use crate::utils::leaderboard::types::NOT_FOUND;
 
+pub mod define;
 pub mod delete;
 pub mod haystack;
 pub mod list;

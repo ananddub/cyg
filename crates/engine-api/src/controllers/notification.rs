@@ -9,7 +9,7 @@ use crate::app::params::{Body, Params};
 use crate::current_state;
 use crate::dto::notification::{DeleteRequest, ListQuery};
 
-use crate::services::notification::NotificationService;
+use crate::services::notification::{NotificationService, SendRequest};
 
 struct NotificationController {
     service: Arc<NotificationService>,
@@ -45,6 +45,17 @@ impl NotificationController {
             .delete_many(&state, &auth, req)
             .await
             .into_response()
+    }
+
+    /// Raise a notification from the game's own code.
+    ///
+    /// An empty `user_id` addresses the caller, which is the only target a player
+    /// session may write to; naming another player is refused here and belongs on
+    /// the console route.
+    #[post("")]
+    async fn send(&self, auth: Authed, Body(body): Body<SendRequest>) -> Response {
+        let state = current_state();
+        self.service.send(&state, &auth, body).await.into_response()
     }
 
     #[delete("/{id}")]

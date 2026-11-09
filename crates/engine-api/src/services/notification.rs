@@ -145,3 +145,69 @@ async fn delete_one(
         })?;
     Ok(())
 }
+
+/// What the game may ask a notification to say.
+///
+/// `user_id` empty means "the caller" — the common case, and the one that needs
+/// no permission beyond being signed in. Naming another player is a
+/// server-authoritative action and requires an operator session, so a client
+/// cannot push notifications into someone else's inbox.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct SendRequest {
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub subject: String,
+    #[serde(default)]
+    pub content: serde_json::Value,
+    #[serde(default)]
+    pub code: i16,
+}
+
+impl NotificationService {
+    pub async fn send(
+        &self,
+        state: &ApiState,
+        auth: &Authed,
+        body: SendRequest,
+    ) -> Result<Json<Empty>, V2Error> {
+        let subject = body.subject.trim();
+        if subject.is_empty() {
+            return Err(V2Error::invalid_argument("A notification needs a subject."));
+        }
+        let target = if body.user_id.trim().is_empty() {
+            auth.uid()
+        } else {
+            let parsed = Uuid::parse_str(body.user_id.trim())
+                .map_err(|_| V2Error::invalid_argument("Invalid user ID."))?;
+            if parsed != auth.uid() {
+                // A player session may only write to its own inbox. Sending to
+                // someone else is what the console route is for, where the caller
+                // is an operator whose game owns both accounts.
+                return Err(V2Error::permission_denied(
+                    "A player may only send a notification to itself.",
+                ));
+            }
+            parsed
+        };
+        let queries = q(state).await?;
+        queries.get_user_by_id(target).await?;
+        queries
+            .create_notification(
+                &crate::repositories::notification::CreateNotificationParams {
+                    id: Uuid::new_v4(),
+                    user_id: target,
+                    subject: subject.to_owned(),
+                    content: if body.content.is_null() {
+                        serde_json::json!({})
+                    } else {
+                        body.content
+                    },
+                    code: body.code,
+                    sender_id: auth.uid(),
+                },
+            )
+            .await?;
+        Ok(Json(Empty {}))
+    }
+}
