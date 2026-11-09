@@ -24,6 +24,30 @@ namespace CYG.Tests
             else { _failures++; Console.Error.WriteLine($"FAIL {name}"); }
         }
 
+        /// <summary>
+        /// A call that must fail, and must fail the way the caller expects.
+        /// A test that only asked "did it throw" would pass on a null reference
+        /// just as happily as on the refusal it was written for.
+        /// </summary>
+        internal static async System.Threading.Tasks.Task CheckThrowsAsync(
+            string name, Func<System.Threading.Tasks.Task> call, Func<Exception, bool> matches)
+        {
+            _checks++;
+            try
+            {
+                await call();
+            }
+            catch (Exception error)
+            {
+                if (matches(error)) { Console.WriteLine($"CHECK {name}"); return; }
+                _failures++;
+                Console.Error.WriteLine($"FAIL {name} (wrong error: {error.GetType().Name}: {error.Message})");
+                return;
+            }
+            _failures++;
+            Console.Error.WriteLine($"FAIL {name} (did not throw)");
+        }
+
         internal static int Finish()
         {
             Console.WriteLine($"checks={_checks} failures={_failures}");
@@ -41,7 +65,20 @@ namespace CYG.Tests
             var origin = Environment.GetEnvironmentVariable("CYG_E2E_ORIGIN");
             if (!string.IsNullOrEmpty(origin))
             {
-                LiveTests.Run(origin).GetAwaiter().GetResult();
+                // REST first: it needs no UDP lane, so a project running with
+                // `udp = false` still exercises half the SDK instead of dying in
+                // the game-loop test and reporting nothing about the rest.
+                RestTests.Run(origin).GetAwaiter().GetResult();
+                try
+                {
+                    LiveTests.Run(origin).GetAwaiter().GetResult();
+                }
+                catch (Exception error)
+                {
+                    // The UDP lane is optional. A host without it is a supported
+                    // configuration, so this is a skip, not a failure.
+                    Console.WriteLine($"  live game-loop test skipped: {error.Message}");
+                }
             }
             else
             {

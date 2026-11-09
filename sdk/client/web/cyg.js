@@ -4545,7 +4545,7 @@
          *  Token andar store hota hai — future joins automatically use karte hain. */
         auth = {
             /** Device auth: naya/returning device account. Token save hota hai. */
-            device: async (deviceId) => this._authenticate('device', { device_id: deviceId }),
+            device: async (deviceId) => this._authenticate('device', { id: deviceId }),
             /** Email + password login (existing account). */
             login: async (email, password) => this._authenticate('email', { email, password }),
             /** Naya email account register karo. */
