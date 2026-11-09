@@ -442,6 +442,18 @@ function GameAreaView({
       return <PurchasesView />
     case "subscriptions":
       return <SubscriptionsView />
+    // Operator surfaces render identically inside the game: same components,
+    // same endpoints, just a page of the one game this console serves.
+    case "users":
+      return <ConsoleUsersView />
+    case "audit":
+      return <AuditLogView />
+    case "acl":
+      return <AclTemplatesView />
+    case "settings":
+      return <SettingsView />
+    case "security":
+      return <SecurityView />
     default:
       return <RuntimeView data={data} />
   }

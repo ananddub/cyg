@@ -68,23 +68,20 @@ export const CONSOLE_AREAS: ConsoleArea[] = [
   { group: "Monetization", id: "economy", label: "Economy", icon: Coins },
   { group: "Monetization", id: "subscriptions", label: "Subscriptions", icon: RefreshCw },
 
-  // Console administration stays at the landing scope: it is about operators,
-  // not about one project's players or metrics.
+  // Operator administration. It is a page of this console, so it lives inside
+  // the game's sidebar like everything else: with one game per install there is
+  // no separate "landing scope" for it to belong to.
   { group: "Administration", id: "users", label: "Console Users", icon: ShieldCheck },
   { group: "Administration", id: "audit", label: "Audit Log", icon: ScrollText },
   { group: "Administration", id: "acl", label: "ACL Templates", icon: KeyRound },
   { group: "Administration", id: "settings", label: "Settings", icon: Settings },
   { group: "Administration", id: "security", label: "My Security", icon: Fingerprint },
+
 ]
 
-const GLOBAL_AREA_IDS = new Set([
-  GAMES_AREA_ID,
-  "users",
-  "audit",
-  "acl",
-  "settings",
-  "security",
-])
+/** Areas that are not part of a game. Only the landing picker is left: every
+ * operator surface is a page of the one game this console serves. */
+const GLOBAL_AREA_IDS = new Set([GAMES_AREA_ID])
 
 const GAME_AREA_IDS = new Set([
   "project",
@@ -107,6 +104,13 @@ const GAME_AREA_IDS = new Set([
   "economy",
   "subscriptions",
   "logs",
+  // Operator administration. It is a page of the one game this console serves,
+  // so it belongs in the game's sidebar rather than in a scope of its own.
+  "users",
+  "audit",
+  "acl",
+  "settings",
+  "security",
 ])
 
 /** The areas the landing (no game selected) sidebar offers. */
