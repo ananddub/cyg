@@ -40,7 +40,9 @@ fn descriptor_carries_schema_fields_hash_and_root_collection() {
     };
     let bytes = emit_descriptor(&schemas, Some(&root));
     assert_eq!(&bytes[..4], b"OXSD");
-    assert_eq!(bytes[4], DESCRIPTOR_VERSION);
+    // No field asked for a custom encoding, so the descriptor stays v3: an older client keeps
+    // loading it. v4 is opt-in per schema, not a flag day.
+    assert_eq!(bytes[4], 3, "a schema without custom encodings stays on v3");
     assert!(
         bytes.windows(8).any(|window| window == b"\x06\x00Player"),
         "schema name is length-prefixed"
@@ -51,6 +53,96 @@ fn descriptor_carries_schema_fields_hash_and_root_collection() {
     );
     let descriptor = generate_with_root(&schemas, Some(&root), "schema.ts").descriptor;
     assert_eq!(descriptor, bytes);
+}
+
+#[test]
+fn a_range_modifier_bumps_the_descriptor_to_v4_and_carries_the_encoding() {
+    let parsed = ts::parse(
+        r#"
+        export const Player = schema({
+            x: t.number().range(-512, 512, 20),
+            yaw: t.number().range(0, 360, 8),
+            flags: t.uint32(),
+        }, "Player");
+        "#,
+    )
+    .unwrap();
+    let x = &parsed.schemas[0].fields[0];
+    assert_eq!(x.encoding.bits, 20);
+    assert_eq!(x.encoding.min(), -512.0);
+    assert_eq!(x.encoding.max(), 512.0);
+    assert!(x.encoding.error() < 0.001);
+
+    let yaw = &parsed.schemas[0].fields[1];
+    assert_eq!(yaw.encoding.bits, 8);
+    assert!((yaw.encoding.step() - 360.0 / 255.0).abs() < 1e-3);
+
+    let flags = &parsed.schemas[0].fields[2];
+    assert!(
+        flags.encoding_is_default(),
+        "an unannotated integer keeps its exact width"
+    );
+
+    let bytes = emit_descriptor(&parsed.schemas, None);
+    assert_eq!(bytes[4], DESCRIPTOR_VERSION, "custom encodings need v4");
+
+    let back = parse_descriptor(&bytes).expect("v4 round trip");
+    assert_eq!(back.version, DESCRIPTOR_VERSION);
+    assert_eq!(back.schemas[0].fields[0].encoding, x.encoding);
+    assert_eq!(back.schemas[0].fields[1].encoding, yaw.encoding);
+    assert_eq!(back.schemas[0].fields[2].encoding, flags.encoding);
+}
+
+#[test]
+fn an_encoding_change_changes_the_wire_hash() {
+    let coarse = ts::parse(
+        r#"
+        export const Player = schema({ yaw: t.number().range(0, 360, 8) }, "Player");
+        "#,
+    )
+    .unwrap();
+    let fine = ts::parse(
+        r#"
+        export const Player = schema({ yaw: t.number().range(0, 360, 16) }, "Player");
+        "#,
+    )
+    .unwrap();
+    let plain = ts::parse(
+        r#"
+        export const Player = schema({ yaw: t.number() }, "Player");
+        "#,
+    )
+    .unwrap();
+
+    assert_ne!(
+        wire_hash(&coarse.schemas[0]),
+        wire_hash(&fine.schemas[0]),
+        "8 bits and 16 bits are different wire contracts"
+    );
+    assert_ne!(
+        wire_hash(&coarse.schemas[0]),
+        wire_hash(&plain.schemas[0]),
+        "a packed field is not the same contract as a raw one"
+    );
+}
+
+#[test]
+fn a_v3_descriptor_still_loads_with_default_encodings() {
+    let parsed = ts::parse(
+        r#"
+        export const Player = schema({ x: t.number(), n: t.uint16() }, "Player");
+        "#,
+    )
+    .unwrap();
+    let mut bytes = emit_descriptor(&parsed.schemas, None);
+    assert_eq!(bytes[4], 3, "precondition: this emits v3");
+    // Force the version byte down: a v3 descriptor is exactly this one without the encoding bytes,
+    // which the writer already omitted.
+    bytes[4] = 3;
+    let back = parse_descriptor(&bytes).expect("v3 still parses");
+    assert_eq!(back.version, 3);
+    assert_eq!(back.schemas[0].fields[0].encoding, default_encoding(WireKind::F64));
+    assert_eq!(back.schemas[0].fields[1].encoding, default_encoding(WireKind::U16));
 }
 
 #[test]

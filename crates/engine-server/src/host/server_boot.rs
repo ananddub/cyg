@@ -109,6 +109,7 @@ pub(crate) fn assemble_server(
     );
     server.arena_2d = arena_2d;
     server.input_coalesce = cfg.input_coalesce;
+    server.idle_input_hold = cfg.idle_input_hold;
     if let Some(asset) = boot.navmesh.as_ref() {
         match engine_nav::nav2d::NavMesh2D::from_bytes(&asset.bytes) {
             Ok(mesh) => {

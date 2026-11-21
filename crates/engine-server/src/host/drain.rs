@@ -93,29 +93,4 @@ pub(crate) fn drain_rooms(
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct Drain {
-    pub(crate) grace: Duration,
-    pub(crate) deadline: Option<Instant>,
-}
 
-impl Drain {
-    pub(crate) fn new(grace: Duration) -> Self {
-        Self {
-            grace,
-            deadline: None,
-        }
-    }
-
-    pub(crate) fn begin(&mut self, now: Instant) -> bool {
-        if self.deadline.is_some() {
-            return false;
-        }
-        self.deadline = Some(now + self.grace);
-        true
-    }
-
-    pub(crate) fn expired(&self, now: Instant) -> bool {
-        self.deadline.is_some_and(|at| now >= at)
-    }
-}

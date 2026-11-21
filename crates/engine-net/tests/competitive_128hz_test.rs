@@ -71,7 +71,7 @@ fn test_competitive_128hz_tick_loop_benchmark() {
             payload.extend_from_slice(&25.0f32.to_be_bytes());
 
             send_buf.clear();
-            encode_frame(OpCode::PlayerInput, &payload, &mut send_buf);
+            let _ = encode_frame(OpCode::PlayerInput, &payload, &mut send_buf);
             stream.write_all(&send_buf).expect("Client write ok");
 
             thread::sleep(Duration::from_micros(7812));

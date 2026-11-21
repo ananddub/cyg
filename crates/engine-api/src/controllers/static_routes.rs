@@ -26,13 +26,20 @@ impl StaticRoutesController {
 
     #[get("/")]
     async fn root(&self) -> Response {
-        self.service.serve_root()
+        let state = current_state();
+        self.service.serve_root(&state)
     }
 
     #[get("/cyg.js")]
     async fn sdk(&self) -> Response {
         let state = current_state();
         self.service.serve_sdk(&state)
+    }
+
+    #[get("/cyg_core_rs.wasm")]
+    async fn sdk_core_wasm(&self) -> Response {
+        let state = current_state();
+        self.service.serve_sdk_core_wasm(&state)
     }
 
     #[get("/openoxide-client.js")]

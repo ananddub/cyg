@@ -30,7 +30,43 @@ pub struct SchemaOutput {
 }
 
 fn find_source(dir: &Path) -> Option<PathBuf> {
-    // Root first, then the conventional src/ layout.
+    // 1. server/ layout (server/schema.ts ya server/schema/*.ts)
+    let server_nested = dir.join("server").join(TS_SOURCE_FILE);
+    if server_nested.exists() {
+        return Some(server_nested);
+    }
+    let server_schema_dir = dir.join("server").join("schema");
+    if let Ok(entries) = std::fs::read_dir(&server_schema_dir) {
+        let player = server_schema_dir.join("player.ts");
+        if player.exists() {
+            return Some(player);
+        }
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().map(|x| x == "ts").unwrap_or(false) {
+                return Some(p);
+            }
+        }
+    }
+    // 2. shared/ layout (shared/schema.ts ya shared/schema/*.ts)
+    let shared_nested = dir.join("shared").join(TS_SOURCE_FILE);
+    if shared_nested.exists() {
+        return Some(shared_nested);
+    }
+    let shared_schema_dir = dir.join("shared").join("schema");
+    if let Ok(entries) = std::fs::read_dir(&shared_schema_dir) {
+        let player = shared_schema_dir.join("player.ts");
+        if player.exists() {
+            return Some(player);
+        }
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().map(|x| x == "ts").unwrap_or(false) {
+                return Some(p);
+            }
+        }
+    }
+    // 3. Root first, then the conventional src/ layout.
     let root = dir.join(TS_SOURCE_FILE);
     if root.exists() {
         return Some(root);

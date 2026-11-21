@@ -37,7 +37,7 @@ pub(super) fn test_state() -> (ApiState, Receiver<SignalIn>) {
         game: Arc::new(game.clone()),
         bus: bus.clone(),
         seats: Arc::new(Mutex::new(SeatRegistry::new("test-seat-secret"))),
-        limiter: Arc::new(Mutex::new(IpRateLimiter::new(1000, 1000))),
+        limiter: Arc::new(IpRateLimiter::new(1000, 1000)),
         signals: SignalHub::new(game.voice_ice_servers.clone()),
         statics: Arc::new(StaticServer::new(Path::new("."), &game)),
         port: 0,
@@ -51,6 +51,7 @@ pub(super) fn test_state() -> (ApiState, Receiver<SignalIn>) {
         sessions: Arc::new(crate::infra::session_cache::SessionCache::new(60, 3600)),
         chain: Default::default(),
         hooks: None,
+        dev_mode: false,
     };
     let inbound = state
         .signals

@@ -11,7 +11,6 @@ out = "crates/engine-net/examples/e2e/room_logic.wasm"
 sdk_dir = "../colyseus"
 website = "crates/engine-net/examples/e2e/website.html"
 port = 7776
-ws_port = 7776
 web_port = 8090
 tick_rate = 60
 max_clients = 64

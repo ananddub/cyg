@@ -66,14 +66,21 @@ pub fn check_id(id: &ObjectId) -> Result<(), V2Error> {
     Ok(())
 }
 
-pub fn read_owner(id: &ObjectId, caller: Uuid) -> Result<Uuid, V2Error> {
-    if id.user_id.is_empty() {
+/// The owner a storage request speaks for. An omitted (`""`) or nil user id
+/// means "the caller's own objects" — the one convention, in one place, for
+/// every read/list entry point.
+pub fn resolve_owner(user_id: &str, caller: Uuid) -> Result<Uuid, V2Error> {
+    if user_id.is_empty() {
         return Ok(caller);
     }
-    let owner = Uuid::parse_str(&id.user_id)
+    let owner = Uuid::parse_str(user_id)
         .map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
     if owner == Uuid::nil() {
-        return Err(V2Error::invalid_argument(INVALID_USER_MESSAGE));
+        return Ok(caller);
     }
     Ok(owner)
+}
+
+pub fn read_owner(id: &ObjectId, caller: Uuid) -> Result<Uuid, V2Error> {
+    resolve_owner(&id.user_id, caller)
 }

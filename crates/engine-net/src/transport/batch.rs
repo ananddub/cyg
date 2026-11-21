@@ -34,6 +34,42 @@ pub fn send_datagram_batch<S: BatchSend, B: AsRef<[u8]>>(
 }
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
+mod sendmmsg_scratch {
+    use super::SENDMMSG_CHUNK;
+
+    /// Per-thread reusable scratch for sendmmsg so steady-state batch sends
+    /// allocate nothing. The msgvec holds raw pointers into `iovecs` and
+    /// `addrs`, so all three share the same capacity and are cleared (never
+    /// shrunk) per chunk.
+    pub(super) struct SendBatchScratch {
+        pub msgvec: Vec<libc::mmsghdr>,
+        pub iovecs: Vec<libc::iovec>,
+        pub addrs: Vec<(libc::sockaddr_storage, libc::socklen_t)>,
+    }
+
+    impl SendBatchScratch {
+        pub(super) fn new() -> Self {
+            Self {
+                msgvec: Vec::with_capacity(SENDMMSG_CHUNK),
+                iovecs: Vec::with_capacity(SENDMMSG_CHUNK),
+                addrs: Vec::with_capacity(SENDMMSG_CHUNK),
+            }
+        }
+
+        pub(super) fn clear(&mut self) {
+            self.msgvec.clear();
+            self.iovecs.clear();
+            self.addrs.clear();
+        }
+    }
+
+    thread_local! {
+        pub(super) static SCRATCH: std::cell::RefCell<SendBatchScratch> =
+            std::cell::RefCell::new(SendBatchScratch::new());
+    }
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
 pub fn send_datagram_batch<F: std::os::unix::io::AsFd, B: AsRef<[u8]>>(
     socket: &F,
     msgs: &[(SocketAddr, B)],
@@ -47,56 +83,63 @@ pub fn send_datagram_batch<F: std::os::unix::io::AsFd, B: AsRef<[u8]>>(
     let mut sent_total = 0usize;
     let mut chunk_start = 0usize;
 
-    while chunk_start < msgs.len() {
-        let chunk = &msgs[chunk_start..(chunk_start + SENDMMSG_CHUNK).min(msgs.len())];
-        let mut msgvec: Vec<libc::mmsghdr> = Vec::with_capacity(chunk.len());
-        let mut iovecs: Vec<libc::iovec> = Vec::with_capacity(chunk.len());
-        let mut addrs: Vec<(libc::sockaddr_storage, libc::socklen_t)> =
-            Vec::with_capacity(chunk.len());
+    sendmmsg_scratch::SCRATCH.with(|scratch_cell| {
+        let mut scratch = scratch_cell.borrow_mut();
+        while chunk_start < msgs.len() {
+            let chunk = &msgs[chunk_start..(chunk_start + SENDMMSG_CHUNK).min(msgs.len())];
+            scratch.clear();
+            let s = &mut *scratch;
+            let (msgvec, iovecs, addrs) = (&mut s.msgvec, &mut s.iovecs, &mut s.addrs);
 
-        for (addr, data) in chunk {
-            let (storage, len) = crate::transport::socket::sockaddr_storage_of(addr);
-            addrs.push((storage, len));
-            let slice = data.as_ref();
-            iovecs.push(libc::iovec {
-                iov_base: slice.as_ptr() as *mut libc::c_void,
-                iov_len: slice.len(),
-            });
-        }
-        for i in 0..chunk.len() {
-            msgvec.push(libc::mmsghdr {
-                msg_hdr: libc::msghdr {
-                    msg_name: &mut addrs[i].0 as *mut libc::sockaddr_storage as *mut libc::c_void,
-                    msg_namelen: addrs[i].1,
-                    msg_iov: &mut iovecs[i],
-                    msg_iovlen: 1,
-                    msg_control: std::ptr::null_mut(),
-                    msg_controllen: 0,
-                    msg_flags: 0,
-                },
-                msg_len: 0,
-            });
-        }
-
-        let sent = unsafe { libc::sendmmsg(fd, msgvec.as_mut_ptr(), msgvec.len() as u32, 0) };
-        if sent < 0 {
             for (addr, data) in chunk {
-                let _ = socket_send_fallback(socket, addr, data.as_ref());
-                sent_total += 1;
+                let (storage, len) = crate::transport::socket::sockaddr_storage_of(addr);
+                addrs.push((storage, len));
+                let slice = data.as_ref();
+                iovecs.push(libc::iovec {
+                    iov_base: slice.as_ptr() as *mut libc::c_void,
+                    iov_len: slice.len(),
+                });
+            }
+            for i in 0..chunk.len() {
+                msgvec.push(libc::mmsghdr {
+                    msg_hdr: libc::msghdr {
+                        msg_name: &mut addrs[i].0 as *mut libc::sockaddr_storage
+                            as *mut libc::c_void,
+                        msg_namelen: addrs[i].1,
+                        msg_iov: &mut iovecs[i],
+                        msg_iovlen: 1,
+                        msg_control: std::ptr::null_mut(),
+                        msg_controllen: 0,
+                        msg_flags: 0,
+                    },
+                    msg_len: 0,
+                });
+            }
+
+            let sent = unsafe { libc::sendmmsg(fd, msgvec.as_mut_ptr(), msgvec.len() as u32, 0) };
+            if sent < 0 {
+                // Full-chunk failure: fall back to per-packet sends and only
+                // count the ones that actually succeeded.
+                for (addr, data) in chunk {
+                    if socket_send_fallback(socket, addr, data.as_ref()).is_ok() {
+                        sent_total += 1;
+                    }
+                }
+                chunk_start += chunk.len();
+                continue;
+            }
+            sent_total += sent as usize;
+
+            if (sent as usize) < chunk.len() {
+                for (addr, data) in chunk.iter().skip(sent as usize) {
+                    if socket_send_fallback(socket, addr, data.as_ref()).is_ok() {
+                        sent_total += 1;
+                    }
+                }
             }
             chunk_start += chunk.len();
-            continue;
         }
-        sent_total += sent as usize;
-
-        if (sent as usize) < chunk.len() {
-            for (addr, data) in chunk.iter().skip(sent as usize) {
-                let _ = socket_send_fallback(socket, addr, data.as_ref());
-                sent_total += 1;
-            }
-        }
-        chunk_start += chunk.len();
-    }
+    });
     sent_total
 }
 

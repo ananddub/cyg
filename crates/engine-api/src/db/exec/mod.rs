@@ -9,7 +9,7 @@ use surrealdb::engine::local::Db;
 use surrealdb::method::QueryStream;
 use surrealdb::opt::Config;
 use surrealdb::opt::auth::Root;
-use surrealdb::opt::capabilities::{Capabilities, ExperimentalFeature};
+use surrealdb::opt::capabilities::Capabilities;
 use surrealdb::types::{Action as LiveQueryAction, Value as SqlValue};
 use surrealdb::{Connection, IndexedResults, Surreal};
 use surrealdb_cnf::{ConfigMap, NOTIFICATIONS_CHANNEL_SIZE};

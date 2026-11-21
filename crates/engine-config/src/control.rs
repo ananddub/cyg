@@ -3,6 +3,13 @@ pub struct ControlConfig {
     pub enabled: bool,
     pub bind_addr: String,
 
+    /// Explicit dev opt-in: allow placeholder secrets to boot even when the
+    /// server is bound to a non-loopback address. Same power as the
+    /// CYG_ALLOW_DEFAULT_SECRETS=1 environment variable, but lives in
+    /// config.toml so `cyg run` works without exporting anything. Never set
+    /// this on a public box — it is the boot guard's off switch.
+    pub dev_mode: bool,
+
     pub api_port: u16,
     pub workers: usize,
     pub seat_ttl_secs: u64,
@@ -46,6 +53,7 @@ impl Default for ControlConfig {
             // putting this on a public host opts in by editing config.toml (or
             // setting the env var), and then also has to supply real secrets.
             bind_addr: "127.0.0.1".into(),
+            dev_mode: false,
             api_port: 8124,
             workers: 2,
             seat_ttl_secs: 300,

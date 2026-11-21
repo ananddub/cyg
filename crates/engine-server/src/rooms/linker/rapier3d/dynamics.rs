@@ -7,6 +7,7 @@ pub(crate) fn register(
     for ns in &[
         engine_wasm::HOST_NAMESPACE_V1,
         engine_wasm::HOST_NAMESPACE_LEGACY,
+        "cyg",
         "ox",
     ] {
         linker

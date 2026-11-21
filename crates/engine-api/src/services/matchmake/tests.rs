@@ -47,7 +47,7 @@ pub(super) fn test_state_with(rps: u32, burst: u32, ice: &str) -> ApiState {
         game: Arc::new(game),
         bus: bus.clone(),
         seats: Arc::new(Mutex::new(SeatRegistry::new(DEV_SEAT_SECRET))),
-        limiter: Arc::new(Mutex::new(IpRateLimiter::new(rps, burst))),
+        limiter: Arc::new(IpRateLimiter::new(rps, burst)),
         signals: SignalHub::new(ice.to_string()),
         statics: Arc::new(StaticServer::new(
             std::path::Path::new("."),
@@ -64,6 +64,7 @@ pub(super) fn test_state_with(rps: u32, burst: u32, ice: &str) -> ApiState {
         sessions: Arc::new(crate::infra::session_cache::SessionCache::new(60, 3600)),
         chain: Default::default(),
         hooks: None,
+        dev_mode: false,
     }
 }
 

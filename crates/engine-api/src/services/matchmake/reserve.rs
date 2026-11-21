@@ -18,13 +18,9 @@ impl MatchmakeService {
         room: &str,
         body: &str,
     ) -> Result<SeatResponse, ApiError> {
-        let charged = state
-            .limiter
-            .lock()
-            .map(|mut l| l.allow(ip))
-            .unwrap_or(true);
+        let charged = state.limiter.allow(ip);
         if !charged {
-            let wait = state.limiter.lock().map(|l| l.retry_after(ip)).unwrap_or(1);
+            let wait = state.limiter.retry_after(ip).max(1);
             return Err(ApiError::rate_limited(wait));
         }
 
@@ -76,16 +72,24 @@ impl MatchmakeService {
                             })
                             .unwrap_or(0)
                     };
-                    chain.pick_generation(&base, cap, occupancy, now)
+                    // Pick and record inside one lock acquisition: recording
+                    // the fresh seat before releasing the tracker is what makes
+                    // the next concurrent join see it, so a split lock window
+                    // would let a burst all land in the same full room.
+                    let generation = chain.pick_generation(&base, cap, occupancy, now);
+                    let key = if generation == 0 {
+                        base.clone()
+                    } else {
+                        format!("{base}__g{generation}")
+                    };
+                    chain.record(&key, now);
+                    generation
                 };
                 let key = if generation == 0 {
                     base.clone()
                 } else {
                     format!("{base}__g{generation}")
                 };
-                if let Ok(mut chain) = state.chain.lock() {
-                    chain.record(&key, now);
-                }
                 (key, Some(variant.clone()))
             }
             None => (room.to_string(), None),

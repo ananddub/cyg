@@ -19,13 +19,21 @@ impl RtcSession {
             delta_fragment_count(body.len()).ok_or(RtcPlaneError::DeltaTooLarge(body.len()))?;
 
         let mut out = Vec::new();
-        let mut frame = Vec::new();
         for idx in 0..total {
             let start = idx as usize * MAX_DELTA_CHUNK;
             let end = (start + MAX_DELTA_CHUNK).min(body.len());
-            write_delta_frame(&mut frame, seq, tick, idx, total, &body[start..end]);
+            // Reused scratch: one MTU frame per fragment, cleared not allocated.
+            self.frame_scratch.clear();
+            write_delta_frame(
+                &mut self.frame_scratch,
+                seq,
+                tick,
+                idx,
+                total,
+                &body[start..end],
+            );
             if let Some(mut ch) = self.rtc.channel(cid) {
-                let _ = ch.write(true, &frame);
+                let _ = ch.write(true, &self.frame_scratch);
             }
 
             out.extend(self.drain());

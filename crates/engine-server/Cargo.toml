@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ahash = "0.8"
 rustc-hash = "2"
 tracing = "0.1"
 bevy_ecs = { version = "0.15", default-features = false }
@@ -12,6 +13,7 @@ engine-bus = { path = "../engine-bus" }
 engine-config = { path = "../engine-config" }
 engine-dashboard = { path = "../engine-dashboard" }
 engine-wasm = { path = "../engine-wasm" }
+engine-manager = { path = "../engine-manager" }
 engine-hooks = { path = "../engine-hooks" }
 engine-net = { path = "../engine-net" }
 engine-schema = { path = "../engine-schema" }
@@ -20,7 +22,7 @@ rapier3d = "0.36"
 rapier2d = "0.36"
 engine-spatial = { path = "../engine-spatial" }
 engine-nav = { path = "../engine-nav" }
-engine-api = { path = "../engine-api" }
+engine-signaling = { path = "../engine-signaling" }
 engine-voice = { path = "../engine-voice" }
 engine-webrtc-protocol = { path = "../engine-webrtc-protocol" }
 bytes = "1.10"
@@ -37,3 +39,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync", "
 crossbeam-channel = "0.5"
 arc-swap = "1.9.2"
 scc = "3.8"
+
+[dev-dependencies]
+# The wasm-module integration test validates a compiled module against the
+# API's upload validator — test-only, so the runtime dep stays broken.
+engine-api = { path = "../engine-api" }

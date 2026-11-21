@@ -30,12 +30,13 @@ fn status_snapshot_wire_keys_are_pinned() {
         "rooms_created",
         "rooms_active",
         "rooms_hibernating",
+        "server_phase",
         "seq",
         "updated_ms",
     ] {
         assert!(map.contains_key(key), "missing wire key {key:?}");
     }
-    assert_eq!(map.len(), 27);
+    assert_eq!(map.len(), 28);
     assert_eq!(
         map["tick_histogram"].as_array().unwrap().len(),
         TICK_HISTOGRAM_BUCKETS
@@ -49,6 +50,28 @@ fn session_telemetry_serializes_camel_case() {
     for key in ["session", "transport", "playerId", "ackedSeq", "idleMs"] {
         assert!(map.contains_key(key), "missing key {key:?}");
     }
+}
+
+#[test]
+fn the_server_phase_is_pinned_and_terminal_at_shutdown() {
+    let default = serde_json::to_value(ServerPhase::default()).unwrap();
+    assert_eq!(default, serde_json::json!("booting"));
+    for phase in [
+        ServerPhase::Booting,
+        ServerPhase::Ready,
+        ServerPhase::Allocated,
+        ServerPhase::Draining,
+    ] {
+        assert!(
+            phase.allows(ServerPhase::Shutdown),
+            "{phase:?} can shut down"
+        );
+        assert_eq!(phase.display(), phase.as_str());
+    }
+    assert!(!ServerPhase::Shutdown.allows(ServerPhase::Ready));
+    assert!(ServerPhase::Ready.is_serving());
+    assert!(ServerPhase::Allocated.is_serving());
+    assert!(!ServerPhase::Booting.is_serving());
 }
 
 #[test]

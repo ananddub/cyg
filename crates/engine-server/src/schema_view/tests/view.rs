@@ -10,6 +10,7 @@ fn field(name: &str, kind: WireKind) -> SchemaField {
         flags: 0,
         source_type: kind.typescript_type().to_string(),
         default: None,
+        encoding: engine_schema::default_encoding(kind),
         line: 0,
         column: 0,
     }

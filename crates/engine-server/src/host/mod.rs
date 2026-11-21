@@ -37,14 +37,12 @@ mod telemetry;
 mod tick_delta;
 mod tick_fanout;
 mod tick_gate;
-mod tick_legacy;
-mod tick_legacy_players;
-mod tick_legacy_udp;
 mod tick_schema_senders;
 mod tick_schema_sessions;
 mod udp_join;
 mod udp_msg;
 mod udp_run;
+mod udp_send;
 mod wire;
 
 #[allow(unused_imports)]
@@ -73,7 +71,7 @@ pub(crate) use crate::schema_view::SchemaAoi;
 #[allow(unused_imports)]
 pub(crate) use crate::telemetry::{PublishReport, Recorder};
 #[allow(unused_imports)]
-pub(crate) use engine_api::infra::signaling::{SignalHub, SignalIn};
+pub(crate) use engine_signaling::{SignalHub, SignalIn};
 #[allow(unused_imports)]
 pub(crate) use engine_bus::Bus;
 #[allow(unused_imports)]

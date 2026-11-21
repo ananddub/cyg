@@ -21,17 +21,13 @@ pub fn build_overview(state: &ApiState) -> Overview {
             ),
             Err(_) => (0, 0, 0, 0, 0),
         };
-    let (limit_allowed, limit_denied, limit_squeezed, limit_swept, limit_tracked) =
-        match state.limiter.lock() {
-            Ok(l) => (
-                l.counts().0,
-                l.counts().1,
-                l.squeezed(),
-                l.swept(),
-                l.tracked(),
-            ),
-            Err(_) => (0, 0, 0, 0, 0),
-        };
+    let (limit_allowed, limit_denied, limit_squeezed, limit_swept, limit_tracked) = (
+        state.limiter.counts().0,
+        state.limiter.counts().1,
+        state.limiter.squeezed(),
+        state.limiter.swept(),
+        state.limiter.tracked(),
+    );
 
     Overview {
         server: engine_dashboard::ServerInfo {
@@ -100,5 +96,9 @@ pub fn build_overview(state: &ApiState) -> Overview {
             .unwrap_or_else(|_| serde_json::json!({})),
         has_sim_sample: has_sample,
         sample_age_ms,
+        server_phase: snap
+            .as_ref()
+            .map(|s| s.server_phase)
+            .unwrap_or_default(),
     }
 }

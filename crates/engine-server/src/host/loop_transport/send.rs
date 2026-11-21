@@ -25,6 +25,7 @@ impl LoopTransport {
         body: std::sync::Arc<[u8]>,
         acked_seq: u16,
         server_tick: u32,
+        client_stamp: u16,
     ) -> bool {
         // EXPERIMENTAL: the shared-body queue leaks under sustained load
         // (RSS regression caught at ~3000 CCU) — keep it off by default and
@@ -33,8 +34,9 @@ impl LoopTransport {
             return false;
         }
         // Wire frame (RoomDataBytes lane, RFC6455): [0x82][len][code] +
-        // payload = [0xA5 "delta"][your_id][schema body][acked u16][tick u32].
-        let payload_len = 1 + 14 + body.len() + 6;
+        // payload = [0xA5 "delta"][your_id][schema body][acked u16][tick
+        // u32][client_stamp u16] — the Phase D RTT echo tail.
+        let payload_len = 1 + 14 + body.len() + 8;
         let mut head: Vec<u8> = if payload_len <= 125 {
             let mut h = Vec::with_capacity(17);
             h.push(0x82);
@@ -53,9 +55,10 @@ impl LoopTransport {
         };
         head.extend_from_slice(&[0xA5, b'd', b'e', b'l', b't', b'a']);
         head.extend_from_slice(&your_id.to_le_bytes());
-        let mut tail = [0u8; 6];
+        let mut tail = [0u8; 8];
         tail[..2].copy_from_slice(&acked_seq.to_le_bytes());
-        tail[2..].copy_from_slice(&server_tick.to_le_bytes());
+        tail[2..6].copy_from_slice(&server_tick.to_le_bytes());
+        tail[6..].copy_from_slice(&client_stamp.to_le_bytes());
         match self.ws.as_mut() {
             Some(ws) => ws.queue_shared_delta(session, &head, body, &tail),
             None => false,

@@ -1,0 +1,11 @@
+[package]
+name = "cyg_room"
+version = "0.1.0"
+edition = "2021"
+description = "CYG Game Server — Guest Room SDK for Rust (WebAssembly)"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+path = "src/lib.rs"
+
+[dependencies]

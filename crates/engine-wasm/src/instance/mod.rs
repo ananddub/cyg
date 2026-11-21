@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use wasmtime::{Engine, Instance, InstancePre, Memory, Store};
 
 use crate::error::WasmError;
@@ -28,8 +30,11 @@ impl<T: 'static> WasmPreInstance<T> {
     pub fn instantiate(&self, host_data: T) -> Result<WasmInstance<T>, WasmError> {
         let mut store = Store::new(&self.engine, host_data);
 
-        if self.epoch_ticks.is_some() {
-            store.set_epoch_deadline(u64::MAX / 2);
+        // Arm the watchdog during instantiation too: a module whose start
+        // function loops forever must be cut off like any other call. The
+        // deadline is re-armed on the spawned instance below.
+        if let Some(ticks) = self.epoch_ticks {
+            store.set_epoch_deadline(ticks);
         }
         let instance = self
             .pre
@@ -52,4 +57,8 @@ pub struct WasmInstance<T: 'static> {
     instance: Instance,
     memory: Option<Memory>,
     epoch_ticks: Option<u64>,
+    /// Export-name → Func cache. The room hot path (rooms/room.rs) already
+    /// caches TypedFuncs, but the generic `call()` re-ran the export lookup
+    /// (hash + string compares) on EVERY host invocation.
+    func_cache: HashMap<Box<str>, wasmtime::Func>,
 }

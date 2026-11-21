@@ -29,7 +29,7 @@ impl UdpLane {
             Ok(room) => room,
             Err(_) => return,
         };
-        room.empty_since = None;
+        room.lifecycle.empty_since = None;
         if let Some(report) = engine_webrtc_protocol::parse_checksum(payload) {
             if let Err(desync) = room
                 .rollback_buffer
@@ -68,7 +68,7 @@ impl UdpLane {
                 return;
             }
         };
-        room.empty_since = None;
+        room.lifecycle.empty_since = None;
 
         let is_spec_handshake = data.len() == 5 && data[0] == 0xFF && &data[1..5] == b"SPEC";
 

@@ -41,7 +41,9 @@ impl Lcg {
 fn valid_descriptor_decodes() {
     let bytes = descriptor();
     let decoded = parse_descriptor(&bytes).expect("valid descriptor decodes");
-    assert_eq!(decoded.version, DESCRIPTOR_VERSION);
+    // This schema asks for no custom encoding, so it stays on v3 (see `descriptor_version`).
+    assert_eq!(decoded.version, 3);
+    assert!(DESCRIPTOR_VERSION >= decoded.version);
     assert_eq!(decoded.schemas.len(), 1);
     assert_eq!(decoded.schemas[0].name, "Player");
     assert_eq!(decoded.schemas[0].fields.len(), 6);

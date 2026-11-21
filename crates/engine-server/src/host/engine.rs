@@ -73,6 +73,28 @@ pub(crate) struct TickRunner {
     /// Catch-up budget computed at the last interval boundary; each phase
     /// runs its rooms this many ticks once per interval.
     pub(crate) interval_pending: u32,
+    /// Ranges of the schema sections inside `delta_buf`, parsed ONCE per
+    /// room-tick by `tick_delta`. Senders re-slice instead of re-parsing —
+    /// the same buffer was being split 5× per room-tick before.
+    pub(crate) schema_full: std::ops::Range<usize>,
+    pub(crate) schema_patch: std::ops::Range<usize>,
+    /// Prebuilt wrapped delta frames (your_id=0, acked_seq=0), built once per
+    /// room-tick in the packed lane. Per-session sends patch the 8-byte
+    /// your_id + 2-byte acked_seq in place instead of re-wrapping the whole
+    /// body per session.
+    pub(crate) wrap_full_packed: Vec<u8>,
+    pub(crate) wrap_patch_packed: Vec<u8>,
+    /// Raw packed sections (before the `0xA5 "delta"` envelope) — the shared
+    /// body used by the WS shared-send path.
+    pub(crate) packed_full_body: Vec<u8>,
+    pub(crate) packed_patch_body: Vec<u8>,
+    /// Per-session AOI view re-encoded for the packed lane.
+    pub(crate) packed_view_buf: Vec<u8>,
+    /// The schema's packed transcoder, compiled once at boot. `None` for relay
+    /// rooms or a descriptor with no collection.
+    pub(crate) packed_lane: Option<netcode::PackedSet>,
+    /// True when the current room tick produced packed frames.
+    pub(crate) packed_ready: bool,
 }
 
 pub(crate) struct TickCtx<'e> {
@@ -110,6 +132,12 @@ pub(crate) struct UdpLane {
     pub(crate) rudp_scratch: Vec<u8>,
     pub(crate) schema_descriptor: Vec<u8>,
     pub(crate) timed_out_udp: Vec<(SocketAddr, i64, String)>,
+    /// Wire bytes this lane has read and written since boot. Phase 0 of the netcode work: you
+    /// cannot prove a bandwidth change without a before number.
+    pub(crate) wire_bytes_in: u64,
+    pub(crate) wire_bytes_out: u64,
+    /// Datagrams this lane had to split to stay inside the MTU.
+    pub(crate) wire_fragments: u64,
 }
 
 pub(crate) struct UdpCtx<'e> {
@@ -137,7 +165,10 @@ pub(crate) struct Engine<'a> {
     pub(crate) udp: UdpLane,
     pub(crate) tick: TickRunner,
     pub(crate) signal_rx: Option<tokio::sync::mpsc::Receiver<SignalIn>>,
-    pub(crate) drain: Drain,
+    /// Authoritative server process lifecycle (boot/ready/draining/shutdown)
+    /// plus the registry of managed process threads. Shared with the control
+    /// plane so one authority owns both the phase and the threads.
+    pub(crate) manager: Arc<engine_manager::ServerManager>,
     pub(crate) scratch: Scratch,
     pub(crate) rates: Rates,
     pub(crate) clock: Clock,

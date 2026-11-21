@@ -1,29 +1,29 @@
 use super::{SourceWalk, flood_to_ceiling};
-use crate::infra::rate_limit::bucket::MAKEROOM_SCAN_BUDGET;
+use crate::infra::rate_limit::bucket::{MAKEROOM_SCAN_BUDGET, MAX_BUCKETS_PER_SHARD, lock};
 use crate::infra::rate_limit::*;
 
 #[test]
 fn bucket_count_and_queue_are_both_bounded() {
-    let mut l = IpRateLimiter::new(1000, 1);
+    let l = IpRateLimiter::new(1000, 1);
     let mut walk = SourceWalk { n: 0 };
     for _ in 0..(MAX_BUCKETS + MAX_BUCKETS / 2) {
         l.allow(walk.next());
     }
     assert!(l.tracked() <= MAX_BUCKETS, "tracked {}", l.tracked());
-    assert_eq!(l.ips.order.len(), l.tracked(), "one queue entry per bucket");
+    assert_eq!(l.order_len(), l.tracked(), "one queue entry per bucket");
     assert!(l.tracked() > 0, "reclaiming does not empty the limiter");
-    let mut slow = IpRateLimiter::with_rates(0.0001, 1.0);
+    let slow = IpRateLimiter::with_rates(0.0001, 1.0);
     let mut walk = SourceWalk { n: 0 };
     for _ in 0..(MAX_BUCKETS + MAX_BUCKETS / 2) {
         slow.allow(walk.next());
     }
     assert_eq!(slow.tracked(), MAX_BUCKETS);
-    assert_eq!(slow.ips.order.len(), slow.tracked());
+    assert_eq!(slow.order_len(), slow.tracked());
 }
 
 #[test]
 fn a_flood_at_the_ceiling_costs_bounded_work_per_request() {
-    let (mut l, mut walk) = flood_to_ceiling();
+    let (l, mut walk) = flood_to_ceiling();
     let before = l.swept();
     for _ in 0..1000 {
         assert!(!l.allow(walk.next()), "no room, so no admission");
@@ -42,13 +42,24 @@ fn a_flood_at_the_ceiling_costs_bounded_work_per_request() {
 
 #[test]
 fn a_reclaimable_slot_is_found_even_at_the_back_of_the_rotation() {
-    let (mut l, mut walk) = flood_to_ceiling();
-    let stale = *l.ips.order.back().unwrap();
-    let burst = l.ips.burst;
-    l.ips.buckets.get_mut(&stale).unwrap().tokens = burst;
+    let (l, mut walk) = flood_to_ceiling();
+    // Every shard is at its own slice of the ceiling after the flood; grab
+    // one of them and put a fully-refilled bucket at the back of its
+    // rotation, then keep knocking until that shard makes room for it.
+    let shard_idx = l
+        .ips
+        .iter()
+        .position(|shard| lock(shard).buckets.len() >= MAX_BUCKETS_PER_SHARD)
+        .expect("the flood left every shard at its ceiling");
+    let stale = {
+        let mut store = lock(&l.ips[shard_idx]);
+        let stale = *store.order.back().expect("the shard is full");
+        store.buckets.get_mut(&stale).unwrap().tokens = store.burst;
+        stale
+    };
     let limit = (MAX_BUCKETS / MAKEROOM_SCAN_BUDGET) as u32 + 2;
     let mut admissions = 0u32;
-    while l.ips.buckets.contains_key(&stale) {
+    while lock(&l.ips[shard_idx]).buckets.contains_key(&stale) {
         admissions += 1;
         assert!(admissions <= limit, "the rotation never reached the slot");
         l.allow(walk.next());
@@ -58,5 +69,8 @@ fn a_reclaimable_slot_is_found_even_at_the_back_of_the_rotation() {
         admissions > 1,
         "the ring had to walk to it, not trip over it"
     );
-    assert_eq!(l.squeezed(), u64::from(admissions - 1));
+    assert!(
+        l.squeezed() >= u64::from(admissions - 1),
+        "the refusals along the way were counted"
+    );
 }

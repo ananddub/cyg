@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 impl GameRoom {
     pub(crate) fn handle_disconnect(&mut self, session: &str) -> Option<u32> {
         let gone = self.detach_session(session);
-        self.pending_leaves.remove(session);
+        self.lifecycle.pending_leaves.remove(session);
         if let Some(id) = self.sessions.remove(session) {
             self.release_player_with(session, id, close_code::LEFT);
         }
@@ -25,7 +25,7 @@ impl GameRoom {
                 .filter(|hold| hold > &Duration::ZERO);
             if let Some(hold) = hold {
                 let deadline = Instant::now() + hold;
-                self.pending_leaves
+                self.lifecycle.pending_leaves
                     .insert(std::rc::Rc::from(session), (id, deadline));
             } else {
                 self.sessions.remove(session);
@@ -37,18 +37,18 @@ impl GameRoom {
     }
 
     pub(crate) fn note_activity(&mut self) {
-        self.empty_since = None;
+        self.lifecycle.empty_since = None;
     }
 
     pub(crate) fn reap_check(&mut self, timeout: Duration) -> bool {
         if !(self.sessions.is_empty() && self.spectators.is_empty()) {
             return false;
         }
-        match self.empty_since {
+        match self.lifecycle.empty_since {
             Some(t) if t.elapsed() > timeout => true,
             Some(_) => false,
             None => {
-                self.empty_since = Some(Instant::now());
+                self.lifecycle.empty_since = Some(Instant::now());
                 false
             }
         }
@@ -64,7 +64,7 @@ impl GameRoom {
             return None;
         }
         if lifecycle
-            .closes_at(self.born)
+            .closes_at(self.lifecycle.born)
             .is_some_and(|deadline| now >= deadline)
         {
             return Some(CloseReason::Duration);

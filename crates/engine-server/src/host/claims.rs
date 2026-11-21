@@ -26,6 +26,11 @@ pub(crate) fn flush_room_outbox(
 
     let tick = room.current_tick;
     let mut frame = Vec::with_capacity(64);
+    // Reverse id→session index, built lazily once per flush (only when
+    // targeted messages or kicks exist) instead of an O(sessions) linear
+    // scan per targeted message.
+    let mut id_to_session: std::collections::HashMap<i64, Option<std::rc::Rc<str>>> =
+        HashMap::new();
     for message in messages {
         if message.event.is_empty() || message.event.len() > 255 {
             continue;
@@ -41,12 +46,18 @@ pub(crate) fn flush_room_outbox(
         frame.extend_from_slice(&message.payload);
 
         if message.target > 0 {
-            if let Some(session) = room
-                .sessions
-                .iter()
-                .find_map(|(session, id)| (*id == message.target).then_some(session.as_ref()))
-            {
-                let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
+            let session = id_to_session
+                .entry(message.target)
+                .or_insert_with(|| {
+                    room.sessions
+                        .iter()
+                        .find_map(|(session, id)| {
+                            (*id == message.target).then(|| std::rc::Rc::clone(session))
+                        })
+                })
+                .clone();
+            if let Some(session) = session {
+                let _ = transport.send_to(&session, OpCode::RoomDataBytes, &frame);
             }
         } else if message.target < 0 {
             // Broadcast-except: the SDK's `broadcast(type, payload, except)`
@@ -73,11 +84,15 @@ pub(crate) fn flush_room_outbox(
     // Client.leave() calls the guest queued during the last invocation —
     // close their connections now that the guest call has returned.
     for id in room.drain_kicks() {
-        let Some(session) = room
-            .sessions
-            .iter()
-            .find_map(|(session, &pid)| (pid == id).then(|| session.clone()))
-        else {
+        let session = id_to_session
+            .entry(id)
+            .or_insert_with(|| {
+                room.sessions
+                    .iter()
+                    .find_map(|(session, &pid)| (pid == id).then(|| std::rc::Rc::clone(session)))
+            })
+            .clone();
+        let Some(session) = session else {
             continue;
         };
         let _ = transport.disconnect_with(&session, close_code::KICKED as u16, "kicked by room");

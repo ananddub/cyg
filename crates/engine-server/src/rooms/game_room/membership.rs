@@ -4,17 +4,17 @@ use std::time::{Duration, Instant};
 impl GameRoom {
     #[allow(dead_code)]
     pub(crate) fn pending_deadline(&self, session: &str) -> Option<Instant> {
-        self.pending_leaves
+        self.lifecycle.pending_leaves
             .get(session)
             .map(|(_, deadline)| *deadline)
     }
 
     pub(crate) fn has_pending_leave(&self, session: &str) -> bool {
-        self.pending_leaves.contains_key(session)
+        self.lifecycle.pending_leaves.contains_key(session)
     }
 
     pub(crate) fn rejoin(&mut self, session: &str) -> Option<i64> {
-        let (id, _deadline) = self.pending_leaves.remove(session)?;
+        let (id, _deadline) = self.lifecycle.pending_leaves.remove(session)?;
         if self.sessions.get(session).copied() != Some(id) {
             return None;
         }
@@ -29,7 +29,7 @@ impl GameRoom {
 
     pub(crate) fn takeover(&mut self, session: &str) -> Option<i64> {
         let id = *self.sessions.get(session)?;
-        self.pending_leaves.remove(session);
+        self.lifecycle.pending_leaves.remove(session);
         self.note_activity();
         if let Some(ref mut wasm) = self.wasm {
             let _ = wasm
@@ -40,22 +40,22 @@ impl GameRoom {
     }
 
     pub(crate) fn expire_pending_leaves(&mut self, now: Instant) -> bool {
-        if self.pending_leaves.is_empty() {
+        if self.lifecycle.pending_leaves.is_empty() {
             return false;
         }
         let expired: Vec<(std::rc::Rc<str>, i64)> = self
-            .pending_leaves
+            .lifecycle.pending_leaves
             .iter()
             .filter(|(_, (_, deadline))| now >= *deadline)
             .map(|(session, (id, _))| (session.clone(), *id))
             .collect();
         for (session, id) in &expired {
-            self.pending_leaves.remove(session);
+            self.lifecycle.pending_leaves.remove(session);
             self.sessions.remove(session);
             self.release_player_with(session, *id, close_code::TIMED_OUT);
         }
         if !expired.is_empty() && self.sessions.is_empty() && self.spectators.is_empty() {
-            self.empty_since = Some(now);
+            self.lifecycle.empty_since = Some(now);
         }
         !expired.is_empty()
     }

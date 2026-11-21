@@ -48,6 +48,10 @@ pub struct WsTransport {
     pub(super) dropped_frames: u64,
     pub(super) last_drop_log: Instant,
 
+    /// Reused scratch for pump_flush so a flush pass allocates nothing.
+    pub(super) bp_scratch: Vec<(Token, bool)>,
+    pub(super) write_failed_scratch: Vec<Token>,
+
     pub(super) bound_addr: SocketAddr,
     pub bound_addrs: Vec<SocketAddr>,
 
@@ -156,6 +160,8 @@ impl WsTransport {
             flush_dirty: false,
             dropped_frames: 0,
             last_drop_log: Instant::now(),
+            bp_scratch: Vec::new(),
+            write_failed_scratch: Vec::new(),
             bound_addr,
             bound_addrs: resolved_addrs,
             advertised_udp_port: 7778,

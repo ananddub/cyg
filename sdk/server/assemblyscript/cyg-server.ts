@@ -5,6 +5,10 @@
 // Zero Low-Level Plumbing: No raw pointers, byte offsets, or endianness math!
 // =============================================================================
 
+// Deterministic transcendentals for the prediction path (Math.* is libm-
+// dependent and would desync a replaying client — see cyg-math.ts).
+import { fround } from "./cyg-math";
+
 // =============================================================================
 // --- 1. INTERNAL HOST C-ABI DECLARATIONS (HIDDEN FROM DEVELOPER) ---
 // =============================================================================
@@ -2556,343 +2560,7 @@ export class InputReader {
 }
 
 
-// =============================================================================
-// --- 7. DETERMINISTIC PRNG (REPRODUCIBLE RANDOM GENERATOR) ---
-// =============================================================================
 
-/**
- * Fast Deterministic 64-bit XorShift PRNG.
- * Ensures identical random sequences across client prediction, server rewinds, and match replays!
- */
-export class Random {
-    private static _state: u64 = 88172645463325252;
-
-    static seed(s: u64): void {
-        this._state = (s == 0) ? 88172645463325252 : s;
-    }
-
-    static nextU32(): u32 {
-        let x = this._state;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        this._state = x;
-        return (x & 0xFFFFFFFF) as u32;
-    }
-
-    static nextFloat(): f64 {
-        return (this.nextU32() as f64) / 4294967296.0;
-    }
-
-    static range(min: i32, max: i32): i32 {
-        if (min >= max) return min;
-        let span = (max - min) as f64;
-        return min + ((this.nextFloat() * span) as i32);
-    }
-
-    static rangeFloat(min: f64, max: f64): f64 {
-        return min + this.nextFloat() * (max - min);
-    }
-
-    /**
-     * Chance check: Returns true if roll <= percentage (0.0 to 100.0).
-     * Example: Random.chance(25.0) -> 25% crit chance.
-     */
-    static chance(percentage: f64): bool {
-        return (this.nextFloat() * 100.0) <= percentage;
-    }
-}
-
-// =============================================================================
-// --- 8. COOLDOWN & TIMER MANAGER ---
-// =============================================================================
-
-/**
- * Cooldown tracker for weapons, abilities, dashes, and respawns.
- * Zero-GC: updates with tick delta time!
- */
-export class CooldownTracker {
-    private _cooldowns: Map<string, f64> = new Map<string, f64>();
-
-    update(dt: f64): void {
-        let keys = this._cooldowns.keys();
-        for (let i = 0; i < keys.length; i++) {
-            let k = keys[i];
-            let rem = this._cooldowns.get(k) - dt;
-            if (rem <= 0.0) {
-                this._cooldowns.delete(k);
-            } else {
-                this._cooldowns.set(k, rem);
-            }
-        }
-    }
-
-    isReady(actionKey: string): bool {
-        return !this._cooldowns.has(actionKey);
-    }
-
-    trigger(actionKey: string, durationSeconds: f64): void {
-        this._cooldowns.set(actionKey, durationSeconds);
-    }
-
-    getRemaining(actionKey: string): f64 {
-        if (!this._cooldowns.has(actionKey)) return 0.0;
-        return this._cooldowns.get(actionKey);
-    }
-
-    reset(): void {
-        this._cooldowns.clear();
-    }
-}
-
-// =============================================================================
-// --- 9. TRIGGER VOLUMES & INTERACTIVE ZONES ---
-// =============================================================================
-
-export enum ZoneType {
-    NONE = 0,
-    DAMAGE = 1,       // Lava, poison gas, storm circle
-    SPEED_BUFF = 2,   // Speed track, booster pads
-    SPEED_SLOW = 3,   // Water, mud, web
-    JUMP_PAD = 4,     // Launches player vertically
-    CAPTURE_ZONE = 5, // King of the Hill / Domination flag
-    TELEPORT = 6      // Instant portal
-}
-
-export class TriggerZone {
-    id: u32;
-    type: ZoneType;
-    minX: f64; minY: f64; minZ: f64;
-    maxX: f64; maxY: f64; maxZ: f64;
-    value: f64; // Damage per second, speed multiplier, or jump impulse force
-
-    constructor(id: u32, type: ZoneType, minX: f64, minY: f64, minZ: f64, maxX: f64, maxY: f64, maxZ: f64, value: f64 = 0.0) {
-        this.id = id;
-        this.type = type;
-        this.minX = minX; this.minY = minY; this.minZ = minZ;
-        this.maxX = maxX; this.maxY = maxY; this.maxZ = maxZ;
-        this.value = value;
-    }
-
-    contains(pos: Vec3): bool {
-        return this.containsRaw(pos.x, pos.y, pos.z);
-    }
-
-    containsRaw(px: f64, py: f64, pz: f64): bool {
-        return px >= this.minX && px <= this.maxX &&
-               py >= this.minY && py <= this.maxY &&
-               pz >= this.minZ && pz <= this.maxZ;
-    }
-}
-
-// =============================================================================
-// --- 10. COMBAT & DAMAGE RESOLUTION ---
-// =============================================================================
-
-export enum HitZone {
-    BODY = 0,
-    HEAD = 1,
-    LIMB = 2
-}
-
-export class DamageResult {
-    damageDealt: f64 = 0.0;
-    shieldAbsorbed: f64 = 0.0;
-    healthRemaining: f64 = 0.0;
-    isKilled: bool = false;
-    isCritical: bool = false;
-}
-
-export class Combat {
-    private static _res: DamageResult = new DamageResult();
-
-    /**
-     * Calculates combat damage with headshot multipliers, armor mitigation, and shield absorption.
-     * Zero-GC pre-allocated return!
-     */
-    static applyDamage(
-        baseDamage: f64,
-        hitZone: HitZone,
-        armor: f64,
-        currentShield: f64,
-        currentHealth: f64
-    ): DamageResult {
-        let res = Combat._res;
-        let mult: f64 = 1.0;
-        let isCrit = false;
-
-        if (hitZone == HitZone.HEAD) {
-            mult = 2.0; // 2x Headshot critical multiplier
-            isCrit = true;
-        } else if (hitZone == HitZone.LIMB) {
-            mult = 0.75;
-        }
-
-        let raw = baseDamage * mult;
-        let effective = raw * (100.0 / (100.0 + Math.max(0.0, armor)));
-        let shieldAbsorb = Math.min(currentShield, effective);
-        let healthDamage = effective - shieldAbsorb;
-        let remHealth = Math.max(0.0, currentHealth - healthDamage);
-
-        res.damageDealt = effective;
-        res.shieldAbsorbed = shieldAbsorb;
-        res.healthRemaining = remHealth;
-        res.isKilled = remHealth <= 0.001;
-        res.isCritical = isCrit;
-        return res;
-    }
-}
-
-// =============================================================================
-// --- 11. MATCH LIFECYCLE & STATE MACHINE ---
-// =============================================================================
-
-export enum MatchPhase {
-    WAITING_FOR_PLAYERS = 0,
-    COUNTDOWN = 1,
-    ROUND_ACTIVE = 2,
-    OVERTIME = 3,
-    ROUND_OVER = 4,
-    RESETTING = 5
-}
-
-export class MatchStateMachine {
-    phase: MatchPhase = MatchPhase.WAITING_FOR_PLAYERS;
-    timer: f64 = 0.0;
-    roundNumber: i32 = 1;
-
-    startCountdown(durationSeconds: f64 = 5.0): void {
-        this.phase = MatchPhase.COUNTDOWN;
-        this.timer = durationSeconds;
-    }
-
-    startRound(roundDurationSeconds: f64 = 300.0): void {
-        this.phase = MatchPhase.ROUND_ACTIVE;
-        this.timer = roundDurationSeconds;
-    }
-
-    endRound(postRoundSeconds: f64 = 10.0): void {
-        this.phase = MatchPhase.ROUND_OVER;
-        this.timer = postRoundSeconds;
-    }
-
-    update(dt: f64): bool {
-        if (this.timer > 0.0) {
-            this.timer -= dt;
-            if (this.timer <= 0.0) {
-                this.timer = 0.0;
-                return true; // Phase timer just expired!
-            }
-        }
-        return false;
-    }
-}
-
-// =============================================================================
-// --- 12. FAST PROXIMITY SPATIAL GRID (AOI) ---
-// =============================================================================
-
-export class SpatialGrid2D {
-    private entityX: Map<i64, f64> = new Map<i64, f64>();
-    private entityZ: Map<i64, f64> = new Map<i64, f64>();
-
-    update(id: i64, pos: Vec3): void {
-        this.updateRaw(id, pos.x, pos.z);
-    }
-
-    updateRaw(id: i64, x: f64, z: f64): void {
-        this.entityX.set(id, x);
-        this.entityZ.set(id, z);
-    }
-
-    remove(id: i64): void {
-        this.entityX.delete(id);
-        this.entityZ.delete(id);
-    }
-
-    queryRadius(center: Vec3, radius: f64): StaticArray<i64> {
-        return this.queryRadiusRaw(center.x, center.z, radius);
-    }
-
-    queryRadiusRaw(cx: f64, cz: f64, radius: f64): StaticArray<i64> {
-        let rSq = radius * radius;
-        let ids = this.entityX.keys();
-        let count = 0;
-
-        for (let i = 0; i < ids.length; i++) {
-            let id = ids[i];
-            let dx = this.entityX.get(id) - cx;
-            let dz = this.entityZ.get(id) - cz;
-            if (dx * dx + dz * dz <= rSq) {
-                count++;
-            }
-        }
-
-        let res = new StaticArray<i64>(count);
-        let idx = 0;
-        for (let i = 0; i < ids.length; i++) {
-            let id = ids[i];
-            let dx = this.entityX.get(id) - cx;
-            let dz = this.entityZ.get(id) - cz;
-            if (dx * dx + dz * dz <= rSq) {
-                res[idx++] = id;
-            }
-        }
-        return res;
-    }
-}
-
-// =============================================================================
-// --- 13. BOT & NPC STEERING BEHAVIORS ---
-// =============================================================================
-
-export class Steering {
-    static seek(from: Vec3, target: Vec3, maxSpeed: f64): Vec3 {
-        return Steering.seekRaw(from.x, from.z, target.x, target.z, maxSpeed);
-    }
-
-    static seekRaw(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64): Vec3 {
-        let dx = targetX - fromX;
-        let dz = targetZ - fromZ;
-        let dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist > 0.001) {
-            return new Vec3((dx / dist) * maxSpeed, 0.0, (dz / dist) * maxSpeed);
-        }
-        return new Vec3(0, 0, 0);
-    }
-
-    static flee(from: Vec3, threat: Vec3, maxSpeed: f64): Vec3 {
-        return Steering.fleeRaw(from.x, from.z, threat.x, threat.z, maxSpeed);
-    }
-
-    static fleeRaw(fromX: f64, fromZ: f64, threatX: f64, threatZ: f64, maxSpeed: f64): Vec3 {
-        let dx = fromX - threatX;
-        let dz = fromZ - threatZ;
-        let dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist > 0.001) {
-            return new Vec3((dx / dist) * maxSpeed, 0.0, (dz / dist) * maxSpeed);
-        }
-        return new Vec3(0, 0, 0);
-    }
-
-    static arrive(from: Vec3, target: Vec3, maxSpeed: f64, slowingDistance: f64): Vec3 {
-        return Steering.arriveRaw(from.x, from.z, target.x, target.z, maxSpeed, slowingDistance);
-    }
-
-    static arriveRaw(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64, slowingDistance: f64): Vec3 {
-        let dx = targetX - fromX;
-        let dz = targetZ - fromZ;
-        let dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist > 0.001) {
-            let speed = maxSpeed;
-            if (dist < slowingDistance) {
-                speed = maxSpeed * (dist / slowingDistance);
-            }
-            return new Vec3((dx / dist) * speed, 0.0, (dz / dist) * speed);
-        }
-        return new Vec3(0, 0, 0);
-    }
-}
 
 
 
@@ -3188,6 +2856,9 @@ export abstract class Room {
     }
 
     private _sendMessage(target: i64, type: string, payload: ArrayBuffer | null): bool {
+        // Client-mode modules have no netcode host imports: delivery is a
+        // no-op (a client runtime renders predicted state locally instead).
+        if (isClientMode()) return false;
         let typeBytes = String.UTF8.encode(type);
         if (typeBytes.byteLength == 0 || typeBytes.byteLength > APP_MESSAGE_MAX_TYPE) {
             return false;
@@ -3310,6 +2981,34 @@ export abstract class Room {
     /// High-level client input packet hook. Zero raw pointers or offsets!
     onInputPacket(id: i64, input: InputReader): void {
         // Override this in your game room
+    }
+
+    // --- CLIENT-MODE PREDICTION HOOKS ---------------------------------------
+    // The same .wasm also runs inside an embedded client runtime (Godot /
+    // Unity / Unreal) as the prediction brain. The room declares the contract
+    // once; the SDK's `cyg_*` C-ABI exports below drive it.
+
+    /// How many flat f64 scalars make up the predicted state mirror.
+    /// Return 0 to opt out of prediction.
+    predictFieldCount(): i32 {
+        return 0;
+    }
+
+    /// Authoritative value of scalar `i` — the truth reconciliation compares
+    /// against. On the server this reads the room's live state; on the client
+    /// it reads the last value adopted from a server snapshot.
+    predictReadField(i: i32): f64 {
+        return 0.0;
+    }
+
+    /// Advance the predicted mirror `state` one fixed step with `input`.
+    /// THE shared step: the authoritative tick must run through the same
+    /// logic (a pure `stepOnce(state, input, dt)`) so server and every
+    /// replaying client produce bit-identical state. Must be a pure function
+    /// of (state, input, dt) — no host imports, no wall-clock, no netcode;
+    /// take transcendentals from cyg-math only.
+    onPredictStep(input: InputReader, dt: f64, state: PredictState): void {
+        // Override this in your game room (prediction opt-in)
     }
 
     /// Fixed simulation tick (20 Hz - 128 Hz).
@@ -4198,4 +3897,292 @@ export class PhysicsBatch3D {
     hasContact(i: i32): bool {
         return this.posOutView.getUint32(i * 32 + 24, true) == 1;
     }
+}
+
+// =============================================================================
+// --- 16. CLIENT-MODE PREDICTION / RECONCILIATION (the shared brain) ----------
+// =============================================================================
+//
+// The authoritative room logic lives in the guest WASM; the SAME .wasm is also
+// loaded client-side (inside Godot/Unity/Unreal via an embedded WASM runtime)
+// to run local prediction + reconciliation, so all engines share one brain.
+//
+// Model (Colyseus reconciler discipline):
+//
+//   predict   : cyg_predict_tick(input, dt)  advances the mirror one fixed step
+//               through the room's `onPredictStep` (the shared step).
+//   ack       : server sends its state snapshot at wire precision (f32).
+//   reconcile : cyg_reconcile(server, pending) rounds BOTH sides through f32
+//               (the Math.fround lattice — a predicted value that only differs
+//               below f32 precision never produces a phantom rollback), adopts
+//               server truth, then replays pending inputs.
+//   telemetry : drift.ema (alpha 0.1) and drift.peak (x0.95 decay per
+//               reconcile) tell the client how far off it was.
+//
+// Determinism: rooms must implement onPredictStep as a pure function of
+// (state, input, dt) using ONLY spec-deterministic ops — take sin/cos/atan2/
+// sqrt/exp from cyg-math, never Math.* (libm-dependent), never Math.random
+// (use rngNext — the host-owned ChaCha8 stream replays identically).
+//
+// Pending inputs are bounded (64 frames) — a client that stops receiving
+// acks drops the oldest frames instead of growing memory forever.
+
+/// Compile-time client switch. The client build compiles with
+/// `asc --use CYG_CLIENT_MODE=1`, which strips the server-only host calls
+/// (netcode delivery below) so the module instantiates with only the predict
+/// imports present. Runtime toggle: `cyg_set_client_mode(1)`.
+export const CYG_CLIENT_MODE: bool = false;
+
+/// Runtime client-mode switch (embedded runtimes that ship one binary for
+/// both roles call this after instantiation instead of recompiling).
+let _clientModeRuntime: bool = false;
+
+export function cyg_set_client_mode(on: i32): void {
+    _clientModeRuntime = on != 0;
+}
+
+/// True when this module is running as a client prediction brain.
+@inline
+export function isClientMode(): bool {
+    return CYG_CLIENT_MODE || _clientModeRuntime;
+}
+
+/// C-ABI probe for the flag (client runtimes / tests assert the build mode).
+export function cyg_is_client_mode(): i32 {
+    return isClientMode() ? 1 : 0;
+}
+
+// --- PREDICTED STATE MIRROR ---------------------------------------------------
+
+/// Bounds for the mirror and the replay ring.
+const PRED_MAX_FIELDS: i32 = 256;
+const PRED_MAX_FRAMES: i32 = 64;
+const PRED_MAX_FRAME_BYTES: i32 = 128;
+
+/**
+ * Flat f64 scalar storage the prediction loop advances in place. The room's
+ * `onPredictStep(state, input, dt)` reads/writes it; `cyg_predicted_state_ptr`
+ * hands the raw window to the engine renderer. Rooms may also construct one
+ * as scratch for their own authoritative path (see the test guest) so the
+ * shared step runs over the exact same representation on both sides.
+ */
+export class PredictState {
+    /// Backed by a raw ArrayBuffer so `address()` is a stable linear-memory
+    /// window the engine can read directly (same convention as DeltaWriter).
+    private buf: ArrayBuffer;
+    private cap: i32;
+    private n: i32;
+
+    constructor(capacity: i32 = PRED_MAX_FIELDS) {
+        const cap = capacity < 1 ? 1 : (capacity > PRED_MAX_FIELDS ? PRED_MAX_FIELDS : capacity);
+        this.buf = new ArrayBuffer(cap * 8);
+        this.cap = cap;
+        this.n = 0;
+    }
+
+    get length(): i32 {
+        return this.n;
+    }
+
+    /// Declare how many of the allocated slots are live.
+    setLength(n: i32): void {
+        this.n = n <= this.cap ? n : this.cap;
+    }
+
+    /// Scalar `i`, or 0 out of range (never traps mid-simulation).
+    get(i: i32): f64 {
+        if (i < 0 || i >= this.n) return 0.0;
+        return load<f64>(changetype<usize>(this.buf) + ((i * 8) as usize));
+    }
+
+    set(i: i32, v: f64): void {
+        if (i < 0 || i >= this.cap) return;
+        store<f64>(changetype<usize>(this.buf) + ((i * 8) as usize), v);
+        if (i >= this.n) this.n = i + 1;
+    }
+
+    /// Data address of the mirror (for cyg_predicted_state_ptr).
+    address(): usize {
+        return changetype<usize>(this.buf);
+    }
+}
+
+// --- REPLAY RING (bounded pending input queue) -------------------------------
+
+const _frameBytes: StaticArray<u8> = new StaticArray<u8>(PRED_MAX_FRAMES * PRED_MAX_FRAME_BYTES);
+const _frameLens: StaticArray<i32> = new StaticArray<i32>(PRED_MAX_FRAMES);
+const _frameDts: StaticArray<f64> = new StaticArray<f64>(PRED_MAX_FRAMES);
+let _frameHead: i32 = 0; // oldest
+let _frameCount: i32 = 0;
+
+/// Queue one input frame (copy of the wire bytes + its dt). When full the
+/// oldest frame is dropped — replay is a best-effort catch-up, never a leak.
+function predQueueFrame(ptr: usize, len: i32, dtMs: f64): void {
+    if (len > PRED_MAX_FRAME_BYTES) len = PRED_MAX_FRAME_BYTES;
+    const tail = (_frameHead + _frameCount) % PRED_MAX_FRAMES;
+    if (_frameCount == PRED_MAX_FRAMES) {
+        _frameHead = (_frameHead + 1) % PRED_MAX_FRAMES;
+        _frameCount--;
+    }
+    const base = tail * PRED_MAX_FRAME_BYTES;
+    for (let i = 0; i < len; i++) {
+        _frameBytes[base + i] = load<u8>(ptr + i);
+    }
+    _frameLens[tail] = len;
+    _frameDts[tail] = dtMs;
+    _frameCount++;
+}
+
+// --- DRIFT TELEMETRY ----------------------------------------------------------
+
+let _driftEma: f64 = 0.0;
+let _driftPeak: f64 = 0.0;
+
+export function cyg_drift_ema(): f64 {
+    return _driftEma;
+}
+
+export function cyg_drift_peak(): f64 {
+    return _driftPeak;
+}
+
+// --- ATTACHMENT --------------------------------------------------------------
+
+let _predRoom: Room | null = null;
+let _predState: PredictState | null = null;
+
+/// Bind the room instance that owns the predict hooks. Call once after the
+/// module-level room is constructed (the generated bridge does this).
+export function cyg_predict_attach(room: Room): void {
+    _predRoom = room;
+    const fields = room.predictFieldCount();
+    const state = new PredictState(fields > 0 && fields <= PRED_MAX_FIELDS ? fields : PRED_MAX_FIELDS);
+    if (fields > 0) state.setLength(fields);
+    _predState = state;
+}
+
+// --- C-ABI EXPORTS (called by the embedded client runtime) --------------------
+
+/**
+ * Advance the predicted state one fixed step with the input frame at
+ * (input_ptr, input_len) over dt_ms milliseconds, then queue the frame for
+ * the next reconcile's replay.
+ */
+/// Reusable reader for the predict path (stub runtime: no per-call garbage).
+const _inputScratchReader: InputReader = new InputReader(0, 0);
+
+export function cyg_predict_tick(input_ptr: i32, input_len: i32, dt_ms: f64): void {
+    const room = _predRoom;
+    if (room == null) return;
+    const dt = dt_ms * 0.001; // seconds — matches onTick's fixed dt convention
+    _inputScratchReader.reset(input_ptr as usize, input_len);
+    room.onPredictStep(_inputScratchReader, dt, _predState!);
+    predQueueFrame(input_ptr as usize, input_len, dt_ms);
+}
+
+/// Linear-memory address of the predicted state mirror (flat f64 scalars).
+export function cyg_predicted_state_ptr(): i32 {
+    if (_predState == null) return 0;
+    return _predState!.address() as i32;
+}
+
+/// Byte length of the predicted state mirror (fieldCount * 8).
+export function cyg_predicted_state_len(): i32 {
+    if (_predState == null) return 0;
+    return _predState!.length * 8;
+}
+
+/**
+ * Drop every internally queued input frame WITHOUT replaying it. The runtime
+ * calls this when an ack already covers the queued frames (a snapshot taken
+ * after the server applied them) — replaying them would double-apply. An ack
+ * that predates the queued frames instead replays them via cyg_reconcile.
+ */
+export function cyg_predict_flush_pending(): void {
+    _frameCount = 0;
+    _frameHead = 0;
+}
+
+/**
+ * Adopt server truth and replay pending inputs. Returns the max |correction|
+ * magnitude applied (f64, measured on the f32 wire lattice).
+ *
+ * - server_state_ptr/len: the wire snapshot as flat f64 scalars. Pass 0 to
+ *   reconcile against the room's own `predictReadField` (self-check mode).
+ * - pending_ptr/len: frames to replay, wire format
+ *   `[u16 len][f64 dt_ms][bytes]` repeated. Pass 0 to replay the frames
+ *   cyg_predict_tick queued internally (the normal client flow).
+ */
+export function cyg_reconcile(
+    server_state_ptr: i32,
+    server_state_len: i32,
+    pending_ptr: i32,
+    pending_len: i32
+): f64 {
+    const room = _predRoom;
+    if (room == null) return 0.0;
+
+    const state = _predState!;
+    // Field count: a wire snapshot wins (min of both lengths); in self-check
+    // mode the room's declared field count drives the loop — the mirror fills
+    // in as the shared step writes fields.
+    const fields = state.length;
+    const serverFields = server_state_len >> 3;
+    let count = fields;
+    if (server_state_ptr != 0) {
+        if (serverFields < count) count = serverFields;
+    } else {
+        const roomFields = room.predictFieldCount();
+        if (roomFields > count) count = roomFields;
+    }
+
+    // Compare and adopt at wire precision: both sides go through fround so a
+    // sub-f32 difference on either side cannot fire a rollback.
+    let maxCorr: f64 = 0.0;
+    for (let i = 0; i < count; i++) {
+        const serverRaw = server_state_ptr != 0
+            ? load<f64>((server_state_ptr + i * 8) as usize)
+            : room.predictReadField(i);
+        const server = fround(serverRaw);
+        const predicted = fround(state.get(i));
+        const corr = server - predicted;
+        const mag = corr < 0.0 ? -corr : corr;
+        if (mag > maxCorr) maxCorr = mag;
+        state.set(i, server); // adopt-on-ack
+    }
+
+    // Replay pending inputs through the shared step so prediction catches up
+    // from the adopted truth, then drain the queue (those frames are acked).
+    if (pending_ptr != 0) {
+        let off: usize = pending_ptr as usize;
+        const end = off + (pending_len as usize);
+        while (off + 10 <= end) {
+            let len: i32 = load<u16>(off) as i32;
+            const dtMs = load<f64>(off + 2);
+            off += 10;
+            if (len > <i32>(end - off)) len = <i32>(end - off);
+            _inputScratchReader.reset(off, len);
+            room.onPredictStep(_inputScratchReader, dtMs * 0.001, state);
+            off += len;
+        }
+    } else {
+        for (let f = 0; f < _frameCount; f++) {
+            const idx = (_frameHead + f) % PRED_MAX_FRAMES;
+            const len = _frameLens[idx];
+            _inputScratchReader.reset(
+                changetype<usize>(_frameBytes) + (idx * PRED_MAX_FRAME_BYTES),
+                len
+            );
+            room.onPredictStep(_inputScratchReader, _frameDts[idx] * 0.001, state);
+        }
+        _frameCount = 0;
+        _frameHead = 0;
+    }
+
+    // Telemetry: EMA of correction magnitude (alpha 0.1) and a decaying peak.
+    _driftEma += (maxCorr - _driftEma) * 0.1;
+    const peak = _driftPeak * 0.95;
+    _driftPeak = maxCorr > peak ? maxCorr : peak;
+
+    return maxCorr;
 }

@@ -40,7 +40,7 @@ impl GameRoom {
     pub(crate) fn join(&mut self, session: &str, x: f64, y: f64, options: &[u8]) -> i64 {
         let id = self.next_player_id;
         self.next_player_id += 1;
-        self.empty_since = None;
+        self.lifecycle.empty_since = None;
         if let Some(ref mut ecs) = self.ecs {
             ecs.add_player(session, id, x, y);
         }
@@ -130,7 +130,7 @@ impl GameRoom {
 
     #[allow(dead_code)]
     pub(crate) fn join_spectator(&mut self, session: &str) {
-        self.empty_since = None;
+        self.lifecycle.empty_since = None;
         self.spectators.insert(std::rc::Rc::from(session));
     }
 
@@ -149,7 +149,7 @@ impl GameRoom {
     pub(crate) fn add_raw_player(&mut self, _x: f64, _y: f64) -> i64 {
         let id = self.next_player_id;
         self.next_player_id += 1;
-        self.empty_since = None;
+        self.lifecycle.empty_since = None;
         if let Some(ref mut wasm) = self.wasm {
             Self::call_on_join(wasm, id, b"", b"");
         }
@@ -169,7 +169,7 @@ impl GameRoom {
     /// `onLeave(id, CloseCode.KICKED)`.
     pub(crate) fn kick_player(&mut self, session: &str, id: i64) {
         self.detach_session(session);
-        self.pending_leaves.remove(session);
+        self.lifecycle.pending_leaves.remove(session);
         self.sessions.remove(session);
         self.release_player_with(session, id, close_code::KICKED);
     }
@@ -190,7 +190,7 @@ impl GameRoom {
 
     pub(crate) fn arm_empty_timer(&mut self) {
         if self.sessions.is_empty() && self.spectators.is_empty() {
-            self.empty_since = Some(Instant::now());
+            self.lifecycle.empty_since = Some(Instant::now());
         }
     }
 

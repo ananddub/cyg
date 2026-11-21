@@ -1,8 +1,8 @@
 # OpenOxide Gaming Server - Justfile
 # Use `just` or `just --list` to view all available commands.
 
-# Default game project
-game := "examples/sky3d"
+# Game project directory (a folder with a config.toml)
+game := "games/my-game"
 
 # Default action: show all available commands
 default:
@@ -12,9 +12,6 @@ default:
 up target=game:
     #!/usr/bin/env bash
     G="{{target}}"
-    if [[ "$G" != examples/* ]] && [ -d "examples/$G" ]; then
-        G="examples/$G"
-    fi
     echo "🚀 Starting OpenOxide stack with game: $G"
     GAME_DIR="$G" docker compose up -d
 
@@ -32,29 +29,16 @@ restart:
 logs service="server":
     docker compose logs -f {{service}}
 
-# Switch to and launch a specific game (e.g. `just game sky3d` or `just game coin-rush`)
+# Switch to and launch a specific game project directory
 game target:
     #!/usr/bin/env bash
     G="{{target}}"
-    if [[ "$G" != examples/* ]] && [ -d "examples/$G" ]; then
-        G="examples/$G"
-    fi
     echo "🎮 Switching game to: $G"
     GAME_DIR="$G" docker compose up -d server
 
 # Check status and health of all containers
 status:
     docker compose ps
-
-# List all playable games in examples/
-list-games:
-    #!/usr/bin/env bash
-    echo "🎮 Available game projects in examples/:"
-    for d in examples/*; do
-        if [ -f "$d/config.toml" ]; then
-            echo "  - $(basename "$d") ($d)"
-        fi
-    done
 
 # Open an interactive shell inside the game server container
 sh:
@@ -99,31 +83,81 @@ fmt-check:
 
 # Lints, as CI runs them
 clippy:
-    cargo clippy --workspace --all-targets -- -D warnings
+    taskset -c 0-7 nice -n 15 cargo clippy --workspace --all-targets -- -D warnings
 
 # Compile everything, tests and examples included
 check:
-    cargo check --workspace --all-targets
+    taskset -c 0-7 nice -n 15 cargo check --workspace --all-targets
 
 # Full test suite (embedded mem:// stores; no SurrealDB needed)
+# RUST_MIN_STACK: SurrealDB 4's query executor recurses deeper than the 2 MiB
+# default test-thread stack — the boot-migration tests overflow without it.
+# taskset pins everything to the first 8 cores and nice keeps the build polite:
+# an unconstrained cargo test on a 32-core box starves the desktop/OS.
 test:
-    cargo test --workspace
+    RUST_MIN_STACK=16777216 taskset -c 0-7 nice -n 15 cargo test --workspace -j 6
+
+# Unconstrained (CI box, or when you actually want the whole machine)
+test-full:
+    RUST_MIN_STACK=16777216 cargo test --workspace
+
+# Tests inside a Docker sandbox with HARD limits (taskset alone does not cap
+# RAM — an out-of-control test loop can still stall the host OS). 8 CPUs,
+# 16 GiB RAM, no swap, 512 processes. Host cargo registry is mounted so crate
+# downloads are reused. Same recipe shape as `test`: extra args pass through.
+#   just test-docker                     # workspace tests
+#   just test-docker -p engine-api       # one crate
+test-docker *args="":
+    docker run --rm --name cygtest --cpuset-cpus=0-7 --memory=16g --memory-swap=16g --pids-limit=512 \
+        -v "$PWD":"$PWD" -w "$PWD" \
+        -v "$PWD"/../../rust/testing_dep:"$PWD"/../../rust/testing_dep \
+        -v ~/.cargo/registry:/usr/local/cargo/registry \
+        -v cyg-test-target:/tmp/target \
+        -e RUST_MIN_STACK=16777216 -e CARGO_TARGET_DIR=/tmp/target -e RUST_TEST_THREADS=8 \
+        cyg-test \
+        sh -c 'mold -run cargo test {{args}} -j 8'
 
 # Everything .github/workflows/ci.yml runs, in order (`just fmt` for the rest)
-ci: clippy check test
+ci: clippy check test core-ts-test
+
+# Typesafe TS client core: build + typecheck + test (sdk/client/core-ts).
+# dist/cyg.cjs is the UMD drop-in; sdk/client/web/cyg.js is built from here.
+core-ts-build:
+    cd sdk/client/core-ts && npm install --no-fund --no-audit && npm run build
+
+core-ts-test: core-ts-build
+    cd sdk/client/core-ts && npm test && node --test ../web/test/*.test.mjs
+
+# Schema -> TS types: emit cyg_schema_generated.d.ts for a game directory.
+codegen-ts target=game:
+    cargo run -p cyg-gaming -- schema-codegen {{target}} --lang ts
+
+# Build the shared Rust client core to wasm for the web SDK.
+core-wasm:
+    cargo build -p cyg-core-rs --target wasm32-unknown-unknown --features wasm
+    cp target/wasm32-unknown-unknown/debug/cyg_core_rs.wasm sdk/client/web/
 
 # Run health check & diagnostics for a game project
 doctor target=game:
     #!/usr/bin/env bash
     G="{{target}}"
-    if [[ "$G" != examples/* ]] && [ -d "examples/$G" ]; then
-        G="examples/$G"
-    fi
     docker compose exec server /bin/bash /app/deploy/entrypoint.sh doctor "$G"
 
-# Run every SDK test this machine can run: web (node), Godot unit + live e2e.
-# The Godot e2e spawns a real coin-rush server on scratch ports, drives the
-# real SDK through join -> schema -> input -> leave, and tears it down.
+# Rebuild the AssemblyScript test guest (fixture for prediction_parity.rs).
+#   just guest-as                       # server-mode module
+#   just guest-as client                # client-mode module (CYG_CLIENT_MODE=1)
+guest-as mode="server":
+    #!/usr/bin/env bash
+    set -e
+    cd tests/guest_as
+    if [ "{{mode}}" = client ]; then
+        asc room.ts -o room.wasm --runtime stub -Ospeed --noAssert --use CYG_CLIENT_MODE=1
+    else
+        asc room.ts -o room.wasm --runtime stub -Ospeed --noAssert
+    fi
+    echo "==> built tests/guest_as/room.wasm ({{mode}} mode)"
+
+# Run every SDK test this machine can run: web (node), Unity, Godot unit suites.
 test-sdks:
     #!/usr/bin/env bash
     set -e
@@ -142,66 +176,11 @@ test-sdks:
         echo "dotnet not installed, skipping"
     fi
     if ! command -v godot >/dev/null; then
-        echo "== Godot: binary not installed, skipping (unit + live e2e)"
+        echo "== Godot: binary not installed, skipping (unit suites)"
     else
         echo "== Godot unit suites"
         (cd sdk/client/godot && godot --headless --path . -s res://test/schema_decoder_test.gd) || fail=1
         (cd sdk/client/godot && godot --headless --path . -s res://test/cyg_relay_client_test.gd) || fail=1
-        echo "== Godot live e2e (real server, coin-rush, WS lane)"
-        work=$(mktemp -d /tmp/cyg-sdk-e2e.XXXX)
-        cp examples/coin-rush/src/room.ts "$work/room.ts"
-        cp examples/coin-rush/out/room_logic.wasm "$work/room.wasm"
-        touch "$work/room.wasm"
-        mkdir -p "$work/out"
-        cp examples/coin-rush/out/cyg.schema.bin "$work/out/cyg.schema.bin"
-        {
-            echo 'name = "coin-rush"'
-            echo 'runtime = "assemblyscript"'
-            echo 'source = "room.ts"'
-            echo 'out = "room.wasm"'
-            echo 'port = 17779'
-            echo 'web_port = 17790'
-            echo 'ws_port = 18779'
-            echo 'tick_rate = 60'
-            echo 'max_clients = 16'
-            echo 'width = 800.0'
-            echo 'height = 500.0'
-            echo 'speed = 240.0'
-        } > "$work/config.toml"
-        BIN="target/release/cyg"
-        if [[ ! -x "$BIN" ]]; then echo "server binary missing: cargo build --release --bin cyg"; exit 1; fi
-        "$BIN" build "$work" >/dev/null
-        OX_ALLOW_DEFAULT_SECRETS=1 "$BIN" run "$work" >/tmp/cyg-sdk-e2e-server.log 2>&1 &
-        srv=$!
-        sleep 4
-        (cd sdk/client/godot && CYG_E2E_ENDPOINT=http://127.0.0.1:18779 godot --headless --path . -s res://test/live_server_e2e.gd) || fail=1
-        kill "$srv" 2>/dev/null || true
-        rm -rf "$work"
-        echo "== Godot live e2e (real server, sky3d — 3D, batched Rapier3D ABI)"
-        work=$(mktemp -d /tmp/cyg-sdk-e2e.XXXX)
-        cp examples/sky3d/src/room.ts "$work/room.ts"
-        cp examples/sky3d/out/room_logic.wasm "$work/room.wasm"
-        touch "$work/room.wasm"
-        mkdir -p "$work/out"
-        cp examples/sky3d/out/cyg.schema.bin "$work/out/cyg.schema.bin"
-        {
-            echo 'name = "sky3d"'
-            echo 'runtime = "assemblyscript"'
-            echo 'source = "room.ts"'
-            echo 'out = "room.wasm"'
-            echo 'port = 17779'
-            echo 'web_port = 17790'
-            echo 'ws_port = 18779'
-            echo 'tick_rate = 60'
-            echo 'max_clients = 16'
-        } > "$work/config.toml"
-        "$BIN" build "$work" >/dev/null
-        OX_ALLOW_DEFAULT_SECRETS=1 "$BIN" run "$work" >/tmp/cyg-sdk-e2e-server.log 2>&1 &
-        srv=$!
-        sleep 4
-        (cd sdk/client/godot && CYG_E2E_ENDPOINT=http://127.0.0.1:18779 CYG_E2E_ROOM=sky3d godot --headless --path . -s res://test/live_server_e2e.gd) || fail=1
-        kill "$srv" 2>/dev/null || true
-        rm -rf "$work"
     fi
     exit $fail
 
@@ -218,7 +197,7 @@ cyg-bench stages="5k 10k":
     docker rm -f cyg-bench >/dev/null 2>&1 || true
     echo "==> starting docker container (1 CPU / 2GB)"
     docker run -d --name cyg-bench --cpus=1.0 --memory=2g --memory-swap=2g \
-        --ulimit nofile=65536:65536 -e OX_ALLOW_DEFAULT_SECRETS=1 \
+        --ulimit nofile=65536:65536 -e CYG_ALLOW_DEFAULT_SECRETS=1 \
         -p 7796:7796 -p 8297:8297 \
         -v "$PWD/bench-game-none:/game" \
         -v "$PWD/target/release/cyg:/cyg:ro" \
@@ -253,8 +232,8 @@ cyg-bench-prof stage="10k" mode="cpu":
     #!/usr/bin/env bash
     set -e
     case "{{mode}}" in
-        cpu)  feat=cpu-prof; envname=OX_CPU_PROF_SECS ;;
-        heap) feat=dhat;     envname=OX_DHAT_SECS ;;
+        cpu)  feat=cpu-prof; envname=CYG_CPU_PROF_SECS ;;
+        heap) feat=dhat;     envname=CYG_DHAT_SECS ;;
         *) echo "mode must be cpu|heap"; exit 1 ;;
     esac
     case "{{stage}}" in
@@ -273,7 +252,7 @@ cyg-bench-prof stage="10k" mode="cpu":
     docker rm -f cyg-bench >/dev/null 2>&1 || true
     echo "==> starting docker container (1 CPU / $mem, {{mode}} profile)"
     docker run -d --name cyg-bench --cpus=1.0 --memory=$mem --memory-swap=$mem \
-        --ulimit nofile=65536:65536 -e OX_ALLOW_DEFAULT_SECRETS=1 -e "$envname=$profsecs" \
+        --ulimit nofile=65536:65536 -e CYG_ALLOW_DEFAULT_SECRETS=1 -e "$envname=$profsecs" \
         -w /game -p 7796:7796 -p 8297:8297 \
         -v "$PWD/bench-game-none:/game" \
         -v "$proftarget/profiling/cyg:/cyg:ro" \

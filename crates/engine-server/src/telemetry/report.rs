@@ -1,4 +1,4 @@
-use engine_bus::{RoomTelemetry, SessionTelemetry};
+use engine_bus::{RoomTelemetry, ServerPhase, SessionTelemetry};
 
 #[derive(Clone, Debug, Default)]
 pub struct PublishReport {
@@ -21,4 +21,6 @@ pub struct PublishReport {
     pub rooms: Vec<RoomTelemetry>,
 
     pub session_cap: usize,
+
+    pub server_phase: ServerPhase,
 }

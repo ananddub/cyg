@@ -10,6 +10,7 @@ impl UdpLane {
         let mut udp_buf = [0u8; 4096];
         while let Ok((amt, peer_addr)) = udp_sock.recv_from(&mut udp_buf) {
             let data = &udp_buf[..amt];
+            self.wire_bytes_in += amt as u64;
 
             if data.len() >= 3 && data[0] == netcode::CYG_WIRE_RELIABLE_ACK {
                 if let Some((cum, ranges)) = netcode::decode_reliable_ack(data) {

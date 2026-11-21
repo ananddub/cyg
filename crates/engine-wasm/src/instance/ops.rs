@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use wasmtime::{Instance, Store, WasmParams, WasmResults};
 
 use super::WasmInstance;
@@ -11,6 +13,7 @@ impl<T: 'static> WasmInstance<T> {
             instance,
             memory,
             epoch_ticks: None,
+            func_cache: HashMap::new(),
         }
     }
 
@@ -67,15 +70,32 @@ impl<T: 'static> WasmInstance<T> {
         Ret: WasmResults,
     {
         self.rearm_epoch_call();
-        let func = self
-            .instance
-            .get_typed_func::<Args, Ret>(&mut self.store, func_name)
-            .map_err(|e| WasmError::FunctionNotFound {
-                name: func_name.to_string(),
-                reason: e.to_string(),
-            })?;
+        // Cache the export lookup: only the name→Func map miss hits the
+        // instance's export table; the per-call `typed::<Args, Ret>()` check
+        // is a cheap signature comparison against static types.
+        let func = match self.func_cache.get(func_name) {
+            Some(f) => *f,
+            None => {
+                let f = self
+                    .instance
+                    .get_func(&mut self.store, func_name)
+                    .ok_or_else(|| WasmError::FunctionNotFound {
+                        name: func_name.to_string(),
+                        reason: "export not found".into(),
+                    })?;
+                self.func_cache.insert(func_name.into(), f);
+                f
+            }
+        };
+        let typed =
+            func.typed::<Args, Ret>(&mut self.store)
+                .map_err(|e| WasmError::FunctionNotFound {
+                    name: func_name.to_string(),
+                    reason: e.to_string(),
+                })?;
 
-        func.call(&mut self.store, args)
+        typed
+            .call(&mut self.store, args)
             .map_err(|e| WasmError::Trap(func_name.to_string(), crate::error::trap_detail(&e)))
     }
 }

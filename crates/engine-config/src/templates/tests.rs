@@ -1,5 +1,6 @@
 use super::*;
 
+
 #[test]
 fn easy_mode_defaults_to_30hz_and_20hz_remains_available() {
     let cfg = crate::parse_config(CONFIG_TEMPLATE);

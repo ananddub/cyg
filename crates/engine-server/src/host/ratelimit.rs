@@ -27,17 +27,22 @@ pub(crate) fn input_budget_allows(
         .allow(now)
 }
 
+/// Raw-UDP input gate: rate budget first, then the same IN PLACE sanitize
+/// the seated lanes get (`sanitize_input_payload` clamps instead of
+/// rejecting, so the guest only ever reads legal lanes).
 pub(crate) fn udp_input_allowed(
     rates: &mut HashMap<SocketAddr, netcode::InputRateLimiter>,
     tick_interval: Duration,
     peer: SocketAddr,
-    sample: &[u8; 20],
+    sample: &mut [u8; 20],
+    domains: &engine_schema::InputDomainMap,
 ) -> bool {
     let budget = rates
         .entry(peer)
         .or_insert_with(|| netcode::InputRateLimiter::for_tick_rate(live_tick_rate(tick_interval)))
         .allow(Instant::now());
-    budget && netcode::validate_input_payload(sample)
+    netcode::sanitize_input_payload(sample, domains);
+    budget
 }
 
 /// Fail-fast: refuse a guest whose ABI imports a backend the operator's

@@ -1,7 +1,9 @@
 use super::ast::ParsedType;
 use super::parser::Parser;
 use super::token::{Token, TokenKind};
-use crate::{SchemaField, is_reserved_field_name};
+use crate::{
+    SchemaField, default_encoding as engine_schema_default_encoding, is_reserved_field_name,
+};
 
 impl Parser {
     pub(super) fn parse_schema_fields(
@@ -56,7 +58,14 @@ impl Parser {
             let parsed = self.parse_type(&field_name);
             let mut default = None;
             let mut flags = 0u8;
-            self.parse_modifiers(&field_name, parsed.as_ref(), &mut default, &mut flags);
+            let mut encoding = None;
+            self.parse_modifiers(
+                &field_name,
+                parsed.as_ref(),
+                &mut default,
+                &mut flags,
+                &mut encoding,
+            );
 
             if let Some(parsed) = parsed {
                 let reserved = is_reserved_field_name(&field_name);
@@ -89,6 +98,8 @@ impl Parser {
                             flags,
                             source_type: primitive.source_type,
                             default,
+                            encoding: encoding
+                                .unwrap_or_else(|| engine_schema_default_encoding(primitive.kind)),
                             line: key_token.line,
                             column: key_token.column,
                         }),

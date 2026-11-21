@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use tokio::sync::oneshot;
 
 use super::types::RtcPlaneError;
@@ -8,15 +9,19 @@ use super::types::RtcPlaneError;
 pub(crate) enum SessionInbound {
     Datagram {
         from: SocketAddr,
-        bytes: Arc<[u8]>,
+        // Bytes, not Arc<[u8]>: one alloc per inbound datagram either way,
+        // but Bytes has no atomic refcount — cloning to fan out to unbound
+        // sessions is a pointer bump, and the demux loop allocates one of
+        // these per packet at 60Hz × N peers.
+        bytes: Bytes,
     },
     Delta {
         seq: u16,
         tick: u32,
-        body: Arc<[u8]>,
+        body: Bytes,
     },
     Reliable {
-        body: Arc<[u8]>,
+        body: Bytes,
     },
     Answer {
         sdp: String,

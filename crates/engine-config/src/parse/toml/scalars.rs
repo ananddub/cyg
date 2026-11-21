@@ -60,6 +60,9 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = string("website") {
         cfg.website = v.into();
     }
+    if let Some(v) = string("unity_build") {
+        cfg.unity_build = v.into();
+    }
     if let Some(v) = string("hooks") {
         cfg.hooks_path = v.into();
     }
@@ -80,6 +83,9 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     }
     if let Some(v) = boolean("input_coalesce") {
         cfg.input_coalesce = v;
+    }
+    if let Some(v) = boolean("idle_input_hold") {
+        cfg.idle_input_hold = v;
     }
     if let Some(v) = boolean("wasm_pooling") {
         cfg.wasm_pooling = v;

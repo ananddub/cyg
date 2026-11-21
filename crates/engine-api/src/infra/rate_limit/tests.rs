@@ -1,4 +1,5 @@
 mod basics;
+mod concurrent;
 mod ceilings;
 mod player;
 mod retry;
@@ -22,7 +23,7 @@ impl SourceWalk {
 }
 
 pub(super) fn flood_to_ceiling() -> (crate::infra::rate_limit::IpRateLimiter, SourceWalk) {
-    let mut l = crate::infra::rate_limit::IpRateLimiter::with_rates(0.0001, 1.0);
+    let l = crate::infra::rate_limit::IpRateLimiter::with_rates(0.0001, 1.0);
     let mut walk = SourceWalk { n: 0 };
     let mut n = 0u32;
     while l.tracked() < crate::infra::rate_limit::MAX_BUCKETS && n < 200_000 {

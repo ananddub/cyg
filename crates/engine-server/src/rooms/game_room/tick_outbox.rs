@@ -1,4 +1,4 @@
-use crate::netcode::deliver_input_now;
+use crate::netcode::{self, deliver_input_now};
 use crate::rooms::*;
 use engine_physics::PhysicsWorld3D;
 use std::time::Duration;
@@ -7,7 +7,7 @@ impl GameRoom {
     /// Stage a frame for tick-time batch delivery (input_coalesce). Newest
     /// frame per player wins; the seq gate in `apply_input` already ensures
     /// only newer frames reach here.
-    pub(crate) fn stage_input(&mut self, id: i64, payload: [u8; 20]) {
+    pub(crate) fn stage_input(&mut self, id: i64, payload: Vec<u8>) {
         for (staged_id, staged) in &mut self.input_inbox {
             if *staged_id == id {
                 *staged = payload;
@@ -30,6 +30,46 @@ impl GameRoom {
             }
             deliver_input_now(self.wasm.as_mut(), id, &payload);
         }
+    }
+
+    /// HOLD-LAST idle policy (Colyseus `defineInput({ idle })` hold-everything
+    /// form, gated on liveness): a seated, CONNECTED session that sent no
+    /// input since the last tick gets its LAST frame re-delivered, so a held
+    /// key keeps moving through a packet gap instead of the entity freezing
+    /// mid-air while gravity keeps integrating. `alive` is the transport
+    /// liveness check — a dropped connection stops the hold immediately, so
+    /// a lost client never walks on for the whole reconnection window.
+    ///
+    /// A synthesized frame is NOT a consumed input: it goes straight through
+    /// the staging area (never through `apply_input`), advancing neither the
+    /// input seq nor the reconcile ack (`room.seqs.input`, the delta-tail
+    /// `acked_seq`). Schema-lane frames get their own seq bumped past the
+    /// guest glue's stale gate for the same reason.
+    pub(crate) fn synthesize_idle_inputs(&mut self, alive: impl Fn(&str) -> bool) {
+        if !self.idle_input_hold {
+            return;
+        }
+        // Candidates collected first — `stage_input` mutates the inbox we
+        // would otherwise be iterating beside.
+        let candidates: Vec<(i64, Vec<u8>)> = self
+            .sessions
+            .iter()
+            .filter(|(session, id)| {
+                !self.inputs_since_tick.contains(id)
+                    && !self.lifecycle.pending_leaves.contains_key(*session)
+                    && alive(session)
+            })
+            .filter_map(|(_session, &id)| {
+                self.last_input.get(&id).map(|frame| (id, frame.clone()))
+            })
+            .collect();
+        for (id, mut frame) in candidates {
+            if netcode::is_input_app_frame(&frame) {
+                netcode::bump_input_app_seq(&mut frame);
+            }
+            self.stage_input(id, frame);
+        }
+        self.inputs_since_tick.clear();
     }
 
     pub(crate) fn tick(
@@ -92,6 +132,32 @@ impl GameRoom {
         };
         let mut new_wasm =
             RoomLogic::from_pre(pre, RoomHostData::new(physics)).map_err(|e| e.to_string())?;
+        // Hot reload must not wipe live room state: carry the RNG stream,
+        // timers, spatial index, outbox, rapier sub-worlds and their handle
+        // maps over from the old instance — the new one starts from a fresh
+        // RoomHostData that would otherwise forget all of it.
+        if let Some(mut old) = self.wasm.take() {
+            let old = old.data_mut();
+            let nd = new_wasm.data_mut();
+            nd.rng = std::mem::replace(&mut old.rng, engine_core::RoomRng::from_u64(0));
+            nd.timers = std::mem::take(&mut old.timers);
+            nd.fired_timers = std::mem::take(&mut old.fired_timers);
+            nd.spatial = std::mem::replace(&mut old.spatial, engine_spatial::SpatialIndex2D::new());
+            nd.outbox = std::mem::take(&mut old.outbox);
+            nd.kick_requests = std::mem::take(&mut old.kick_requests);
+            nd.clock_ticks = old.clock_ticks;
+            nd.physics = std::mem::replace(&mut old.physics, PhysicsWorld3D::default());
+            nd.rapier2d = old.rapier2d.take();
+            nd.rapier2d_next_body_id = old.rapier2d_next_body_id;
+            nd.rapier2d_bodies = std::mem::take(&mut old.rapier2d_bodies);
+            nd.rapier2d_next_col_id = old.rapier2d_next_col_id;
+            nd.rapier2d_colliders = std::mem::take(&mut old.rapier2d_colliders);
+            nd.rapier3d = old.rapier3d.take();
+            nd.rapier3d_next_body_id = old.rapier3d_next_body_id;
+            nd.rapier3d_bodies = std::mem::take(&mut old.rapier3d_bodies);
+            nd.rapier3d_next_col_id = old.rapier3d_next_col_id;
+            nd.rapier3d_colliders = std::mem::take(&mut old.rapier3d_colliders);
+        }
         GameRoom::call_on_create(&mut new_wasm, max_clients, &self.create_options);
         if let Some(map) = &self.arena_2d {
             new_wasm.data_mut().load_arena_2d(map);

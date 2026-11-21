@@ -1,8 +1,5 @@
-use crate::{
-    feed, frame,
-    vectors::{DELTA_FRAG_0, DELTA_FRAG_1},
-};
-use engine_webrtc_protocol::channel::{FragmentAssembler, is_newer, is_superseded};
+use crate::{feed, frame};
+use engine_webrtc_protocol::channel::{MAX_DELTA_CHUNK, FragmentAssembler, is_newer, is_superseded};
 
 #[test]
 fn sequence_wrap_is_one_rule_both_ends_share() {
@@ -32,14 +29,21 @@ fn sequence_wrap_is_one_rule_both_ends_share() {
 
 #[test]
 fn fragments_reassemble_in_any_order() {
-    let mut assembler = FragmentAssembler::default();
-    assert_eq!(feed(&mut assembler, &DELTA_FRAG_1, 0), None);
+    const MAXC: usize = MAX_DELTA_CHUNK;
+    let mut chunk0 = vec![0xde, 0xad, 0xbe, 0xef];
+    chunk0.resize(MAXC, 0x33);
+    let chunk1 = vec![0x00, 0x11, 0x22, 0x33];
+    let mut expected = chunk0.clone();
+    expected.extend_from_slice(&chunk1);
 
-    let body = feed(&mut assembler, &DELTA_FRAG_0, 10);
+    let mut assembler = FragmentAssembler::default();
     assert_eq!(
-        body,
-        Some(vec![0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33])
+        feed(&mut assembler, &frame(65535, 8, 1, 2, &chunk1), 0),
+        None
     );
+
+    let body = feed(&mut assembler, &frame(65535, 8, 0, 2, &chunk0), 10);
+    assert_eq!(body, Some(expected));
     assert_eq!(assembler.assembled(), 1);
     assert_eq!(assembler.newest_seq(), Some(65535));
     assert_eq!(assembler.inflight(), 0);
@@ -48,20 +52,23 @@ fn fragments_reassemble_in_any_order() {
 
 #[test]
 fn a_duplicate_fragment_does_not_double_count() {
+    const MAXC: usize = MAX_DELTA_CHUNK;
+    let chunk0 = vec![0xde; MAXC];
+    let chunk1 = vec![0xad, 0xbe, 0xef, 0x00];
+
     let mut assembler = FragmentAssembler::default();
-    assert_eq!(feed(&mut assembler, &DELTA_FRAG_0, 0), None);
-    assert_eq!(feed(&mut assembler, &DELTA_FRAG_0, 1), None);
+    assert_eq!(feed(&mut assembler, &frame(65535, 8, 0, 2, &chunk0), 0), None);
+    assert_eq!(feed(&mut assembler, &frame(65535, 8, 0, 2, &chunk0), 1), None);
     assert_eq!(assembler.duplicates(), 1);
     assert_eq!(
         assembler.buffered_bytes(),
-        4,
+        MAXC,
         "the duplicate was not stored twice"
     );
-    let body = feed(&mut assembler, &DELTA_FRAG_1, 2);
-    assert_eq!(
-        body,
-        Some(vec![0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33])
-    );
+    let body = feed(&mut assembler, &frame(65535, 8, 1, 2, &chunk1), 2);
+    let mut expected = chunk0.clone();
+    expected.extend_from_slice(&chunk1);
+    assert_eq!(body, Some(expected));
     assert_eq!(assembler.assembled(), 1);
 }
 
@@ -87,10 +94,14 @@ fn a_superseded_delta_is_dropped_unread() {
 
 #[test]
 fn staleness_survives_the_sequence_wrap() {
+    const MAXC: usize = MAX_DELTA_CHUNK;
+    let chunk0 = vec![0xde; MAXC];
+    let chunk1 = vec![0xad, 0xbe, 0xef, 0x00];
+
     let mut assembler = FragmentAssembler::default();
-    for wire in [&DELTA_FRAG_1, &DELTA_FRAG_0] {
-        feed(&mut assembler, wire, 0);
-    }
+    // Seed newest to 65535 with a conformant two-fragment delta.
+    feed(&mut assembler, &frame(65535, 8, 0, 2, &chunk0), 0);
+    feed(&mut assembler, &frame(65535, 8, 1, 2, &chunk1), 0);
     assert_eq!(assembler.newest_seq(), Some(65535));
 
     let next = frame(0, 9, 0, 1, &[0xa5]);
@@ -99,24 +110,31 @@ fn staleness_survives_the_sequence_wrap() {
     let behind = frame(65534, 9, 0, 1, &[0xa5]);
     assert_eq!(feed(&mut assembler, &behind, 0), None);
 
-    let ahead = frame(1, 9, 0, 2, &[0xa5]);
-    let gap = frame(65530, 9, 0, 2, &[0x5a]);
+    let ahead = frame(1, 9, 0, 2, &[0xa5; MAXC]);
+    let gap = frame(65530, 9, 0, 2, &[0x5a; MAXC]);
     assert_eq!(feed(&mut assembler, &gap, 0), None);
     assert_eq!(assembler.stale(), 2);
     assert_eq!(feed(&mut assembler, &ahead, 0), None);
     let close = frame(1, 9, 1, 2, &[0xa6]);
-    assert_eq!(feed(&mut assembler, &close, 0), Some(vec![0xa5, 0xa6]));
+    assert_eq!(feed(&mut assembler, &close, 0), {
+        let mut body = vec![0xa5; MAXC];
+        body.push(0xa6);
+        Some(body)
+    });
 }
 
 #[test]
 fn interleaved_deltas_both_close() {
-    let mut assembler = FragmentAssembler::default();
-    let body_a: Vec<u8> = (0..30u32).map(|i| i as u8).collect();
-    let body_b: Vec<u8> = (0..30u32).map(|i| 100 + i as u8).collect();
-    let parts_a: Vec<Vec<u8>> = body_a.chunks(10).map(|c| c.to_vec()).collect();
-    let parts_b: Vec<Vec<u8>> = body_b.chunks(10).map(|c| c.to_vec()).collect();
+    const MAXC: usize = MAX_DELTA_CHUNK;
+    // Two deltas of three fragments each: the first two fragments are
+    // MAX-sized (wire contract), the final one carries the short tail.
+    let body_a: Vec<u8> = (0..(2 * MAXC + 30) as u64).map(|i| (i % 251) as u8).collect();
+    let body_b: Vec<u8> = (0..(2 * MAXC + 30) as u64).map(|i| (100 + i % 156) as u8).collect();
+    let parts_a: Vec<Vec<u8>> = body_a.chunks(MAXC).map(|c| c.to_vec()).collect();
+    let parts_b: Vec<Vec<u8>> = body_b.chunks(MAXC).map(|c| c.to_vec()).collect();
 
     let order = [(10u16, 0usize), (11, 0), (10, 1), (11, 1), (10, 2), (11, 2)];
+    let mut assembler = FragmentAssembler::default();
     let mut delivered = Vec::new();
     for (arrival, (seq, idx)) in order.iter().enumerate() {
         let chunk = if *seq == 10 {

@@ -49,7 +49,7 @@ impl WsTransport {
         client_id: &str,
         head: &[u8],
         body: std::sync::Arc<[u8]>,
-        tail: &[u8; 6],
+        tail: &[u8; 8],
     ) -> bool {
         let Some(token) = self.clients_meta.get(client_id).map(|m| m.token) else {
             return false;
@@ -86,31 +86,34 @@ impl WsTransport {
         // Without the kick a stalled client sat forever at the cap holding
         // its buffers + the body Arc (the shared-queue RSS leak).
         let mut kick = false;
-        if client.send_queue.len() + client.post_shared.len() + total > MAX_SEND_QUEUE {
-            self.dropped_frames = self.dropped_frames.saturating_add(1);
-            client.overflow_strikes += 1;
-            kick = client.overflow_strikes >= MAX_OVERFLOW_STRIKES;
-            if kick || self.last_drop_log.elapsed().as_secs() >= 1 {
-                tracing::info!(
-                    "[ws] peer {client_id} not draining shared deltas ({} KB queued, {}/{} strikes){}",
-                    client.send_queue.len() / 1024,
-                    client.overflow_strikes,
-                    MAX_OVERFLOW_STRIKES,
-                    if kick { " — disconnecting" } else { "" }
-                );
-                self.last_drop_log = Instant::now();
+        {
+            // Scoped block: ends the clients-map borrow explicitly instead of
+            // a no-op `drop(client)` on a `&mut` reference.
+            if client.send_queue.len() + client.post_shared.len() + total > MAX_SEND_QUEUE {
+                self.dropped_frames = self.dropped_frames.saturating_add(1);
+                client.overflow_strikes += 1;
+                kick = client.overflow_strikes >= MAX_OVERFLOW_STRIKES;
+                if kick || self.last_drop_log.elapsed().as_secs() >= 1 {
+                    tracing::info!(
+                        "[ws] peer {client_id} not draining shared deltas ({} KB queued, {}/{} strikes){}",
+                        client.send_queue.len() / 1024,
+                        client.overflow_strikes,
+                        MAX_OVERFLOW_STRIKES,
+                        if kick { " — disconnecting" } else { "" }
+                    );
+                    self.last_drop_log = Instant::now();
+                }
+                if !kick {
+                    return false;
+                }
+            } else {
+                client.send_queue.extend_from_slice(head);
+                client.send_queue.extend_from_slice(&body);
+                client.send_queue.extend_from_slice(tail);
+                self.flush_dirty = true;
+                return true;
             }
-            if !kick {
-                return false;
-            }
-        } else {
-            client.send_queue.extend_from_slice(head);
-            client.send_queue.extend_from_slice(&body);
-            client.send_queue.extend_from_slice(tail);
-            self.flush_dirty = true;
-            return true;
         }
-        drop(client);
         let _ = self.disconnect_with(
             client_id,
             close_code::SLOW_CONSUMER,

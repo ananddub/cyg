@@ -58,15 +58,16 @@ impl WsTransport {
             return Ok(());
         }
         let mut pending = false;
-        let mut backpressure: Vec<(Token, bool)> = Vec::new();
-        let mut write_failed: Vec<Token> = Vec::new();
+        // Reused scratch vecs: steady-state flush passes allocate nothing.
+        self.bp_scratch.clear();
+        self.write_failed_scratch.clear();
         for (token, client) in self.clients.iter_mut() {
             // One vectored syscall per client: inline queue + shared body +
             // post-shared tail offered together (writev batching).
             if !client.send_queue.is_empty() || client.shared_frame.is_some() {
                 let before = client.send_queue.len();
                 let r = client.write_out();
-                if std::env::var_os("CYG_T").is_some() {
+                if super::trace_enabled() {
                     eprintln!(
                         "[t] WO {:?} sid={} before={} after={} ok={}",
                         token,
@@ -81,7 +82,7 @@ impl WsTransport {
                         client.state_frame_start = None;
                     }
                     Err(_) => {
-                        write_failed.push(*token);
+                        self.write_failed_scratch.push(*token);
                     }
                 }
             }
@@ -95,15 +96,17 @@ impl WsTransport {
 
             let want = !client.send_queue.is_empty() || client.shared_frame.is_some();
             if client.registered_writable != want {
-                backpressure.push((*token, want));
+                self.bp_scratch.push((*token, want));
             }
         }
-        for (token, _want) in backpressure {
+        for i in 0..self.bp_scratch.len() {
+            let (token, _want) = self.bp_scratch[i];
             if let Some(client) = self.clients.get_mut(&token) {
                 crate::transport::ws::client_io::sync_writable_interest(client, &self.poll, token);
             }
         }
-        for token in write_failed {
+        for i in 0..self.write_failed_scratch.len() {
+            let token = self.write_failed_scratch[i];
             // Socket gone or peer unreachable — same cleanup as a server
             // disconnect so the session does not linger holding buffers.
             if let Some(client) = self.clients.get(&token) {

@@ -112,14 +112,20 @@ fn the_udp_lane_gates_budget_and_sample_shape() {
     let peer: SocketAddr = "127.0.0.1:9000".parse().unwrap();
     let mut rates: HashMap<SocketAddr, netcode::InputRateLimiter> = HashMap::new();
 
+    let domains = netcode::standard_input_domains();
     let mut clean = [0u8; 20];
     clean[12..16].copy_from_slice(&0.5f32.to_le_bytes());
-    assert!(udp_input_allowed(&mut rates, tick, peer, &clean));
+    assert!(udp_input_allowed(&mut rates, tick, peer, &mut clean, &domains));
 
     let mut nan = clean;
     nan[4..8].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(
-        !udp_input_allowed(&mut rates, tick, peer, &nan),
+        udp_input_allowed(&mut rates, tick, peer, &mut nan, &domains),
+        "sanitize clamps instead of dropping the budgeted frame"
+    );
+    assert_eq!(
+        f32::from_le_bytes(nan[4..8].try_into().unwrap()),
+        -std::f32::consts::PI,
         "a NaN aim lane reached the guest"
     );
 }

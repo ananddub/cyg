@@ -36,6 +36,7 @@ const SEAT_CAP: usize = 256;
 pub struct Bus {
     pub inputs_tx: Sender<InputMsg>,
     pub inputs_rx: Receiver<InputMsg>,
+    inputs_dropped: AtomicU64,
 
     pub commands_tx: Sender<SimCommand>,
     pub commands_rx: Receiver<SimCommand>,

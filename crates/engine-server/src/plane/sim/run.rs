@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use engine_bus::Bus;
 
@@ -6,7 +7,7 @@ use crate::plane::sim::state::Plane;
 use crate::plane::{self, PlaneConfig, tick_period};
 use crate::telemetry::Recorder;
 
-pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
+pub fn run(bus: Arc<Bus>, cfg: PlaneConfig, stop: Arc<AtomicBool>) {
     let Some((udp, poll, room, _epoch_ticker)) = plane::sim::boot::boot(Arc::clone(&bus), &cfg)
     else {
         return;
@@ -49,6 +50,7 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
         last_pos: Default::default(),
         delta_buf: Vec::with_capacity(8 * 1024),
         filtered_buf: Vec::with_capacity(8 * 1024),
+        visible_buf: Vec::with_capacity(256),
         scratch: Vec::with_capacity(8 * 1024),
         frames: Vec::new(),
         tick_t0: std::time::Instant::now(),
@@ -56,9 +58,10 @@ pub fn run(bus: Arc<Bus>, cfg: PlaneConfig) {
     };
     plane.measured_hz = plane.cfg.tick_hz;
 
-    loop {
+    while !stop.load(Ordering::Relaxed) {
         plane.step();
     }
+    tracing::info!("[sim] stop requested — plane loop exited");
 }
 
 impl Plane {

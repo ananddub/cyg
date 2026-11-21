@@ -15,8 +15,7 @@ impl TickRunner {
         dt: f64,
         run_t0: Instant,
     ) {
-        for tick_idx in 0..ticks_to_run {
-            let is_last_tick = tick_idx + 1 == ticks_to_run;
+        for _tick_idx in 0..ticks_to_run {
             let mut names = std::mem::take(&mut self.room_names);
             for (name, room_phase) in &names {
                 if let Some(p) = phase {
@@ -24,7 +23,7 @@ impl TickRunner {
                         continue;
                     }
                 }
-                self.tick_one_room(ctx, is_last_tick, dt, name);
+                self.tick_one_room(ctx, dt, name);
             }
             self.room_names = names;
             self.tick_after_batch(ctx, run_t0, ticks_to_run, run_t0);
@@ -45,13 +44,7 @@ impl TickRunner {
         self.window_ticks += ticks_to_run as u64;
     }
 
-    pub(crate) fn tick_one_room(
-        &mut self,
-        ctx: &mut TickCtx,
-        is_last_tick: bool,
-        dt: f64,
-        name: &str,
-    ) {
+    pub(crate) fn tick_one_room(&mut self, ctx: &mut TickCtx, dt: f64, name: &str) {
         let history = EventHistory::new(ctx.bus, ctx.game_cfg);
         let room = match ctx.server.rooms.get_mut(name) {
             Some(room) => room,
@@ -59,7 +52,7 @@ impl TickRunner {
         };
         room.note_state();
         let raw_peers_attached = name == ctx.cfg.name && !ctx.udp.udp_peers.is_empty();
-        if room.state != engine_bus::RoomPhase::Active && !raw_peers_attached {
+        if room.lifecycle.phase != engine_bus::RoomPhase::Active && !raw_peers_attached {
             return;
         }
         if room.expire_pending_leaves(Instant::now()) {
@@ -77,6 +70,19 @@ impl TickRunner {
         // stay incremental even when patch_rate < tick_rate.
         let patch_due = room.next_patch_due(Instant::now(), ctx.cfg.patch_rate_ms());
         room.signal_patch_due(patch_due);
+        // Idle synthesis (hold-last, gated on liveness) runs before the tick
+        // so empty-input seats still feed the guest this tick. RTC/UDP lanes
+        // report liveness directly; a pure-WS seat has no lane probe, so it
+        // stays "alive" until the disconnect path (or pending-leave expiry)
+        // removes the seat. The ECS backend keeps per-entity last input
+        // flags in `SessionInputs` — it already holds, so synthesis stays a
+        // wasm-backend concern.
+        let transport = &*ctx.transport;
+        let udp_peers = &ctx.udp.udp_peers;
+        room.synthesize_idle_inputs(|session| {
+            transport.is_rtc_connected(session)
+                || udp_peers.values().any(|(_, sess, _)| sess == session)
+        });
         let guest_t0 = Instant::now();
         let ticked = room.tick(dt, ctx.cfg.rollback.enabled);
         self.stage_guest_us_sum += guest_t0.elapsed().as_micros() as u64;
@@ -109,7 +115,10 @@ impl TickRunner {
             );
             return;
         }
-        if len > 0 && is_last_tick {
+        // Read the delta on EVERY catch-up tick: keeping the `is_last_tick`
+        // gate discarded all but the last tick's changes, so a burst of
+        // catch-up frames shipped only its final state.
+        if len > 0 {
             if let Some(ref mut wasm) = room.wasm {
                 if let Err(e) = wasm.read_memory_into(ptr as u32, len as u32, &mut self.delta_buf) {
                     tracing::error!(

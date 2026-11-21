@@ -1,0 +1,19 @@
+[package]
+name = "cyg-loadtest"
+version = "0.1.0"
+edition = "2024"
+description = "Rust load-test CLI for CYG game servers — replaces bench/loadtest.mjs. Every decode/encode goes through cyg-core-rs, so the load tool exercises the same protocol core the client SDKs ship."
+
+[[bin]]
+name = "cyg-loadtest"
+path = "src/main.rs"
+
+[dependencies]
+cyg-core-rs = { path = "../cyg-core-rs" }
+clap = { version = "4", features = ["derive"] }
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+# http:// only (load tests run against local control planes; no TLS stack pulled)
+ureq = { version = "2", default-features = false, features = ["json"] }
+serde_json = "1"
+
+[dev-dependencies]

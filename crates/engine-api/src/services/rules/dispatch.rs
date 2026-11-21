@@ -217,7 +217,10 @@ async fn apply_one(state: &ApiState, player_id: Uuid, action: &Action) -> Result
         }
         Action::Item { item_id, quantity } => {
             let inventory = crate::services::inventory::InventoryService;
-            inventory
+            // grant_item answers with the updated stock Json; a rule grant
+            // has no reply channel, so the value is intentionally discarded
+            // (`?` above still propagates a failed grant).
+            let _ = inventory
                 .grant_item(
                     state,
                     player_id,

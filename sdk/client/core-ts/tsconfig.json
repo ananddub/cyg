@@ -1,0 +1,20 @@
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "lib": ["ES2020", "DOM", "DOM.Iterable"],
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "skipLibCheck": true,
+        "allowJs": false,
+        "checkJs": false,
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "outDir": "dist",
+        "noEmit": false
+    },
+    "include": ["src/**/*.ts", "src/**/*.d.ts"],
+    "exclude": ["node_modules", "dist"]
+}

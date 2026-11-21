@@ -18,7 +18,12 @@ impl GameServer {
                     &self.features,
                 )?;
                 if let Some(w) = room.wasm.as_mut() {
-                    w.data_mut().seed_rng(name);
+                    // Mix the process-unique room id into the seed: the name
+                    // alone is attacker-chosen and would make same-name rooms
+                    // share one predictable stream.
+                    let room_id = self.next_room_id;
+                    self.next_room_id += 1;
+                    w.data_mut().seed_rng(&format!("{name}\u{0}{room_id}"));
                 }
                 tracing::info!(
                     "[server] room '{name}' created with 2D/3D physics world (ABI v{})",
@@ -33,6 +38,7 @@ impl GameServer {
             };
             room.storage_enabled = self.permissions.storage;
             room.input_coalesce = self.input_coalesce;
+            room.idle_input_hold = self.idle_input_hold;
             room.tick_phase = self.next_room_phase;
             self.next_room_phase = self.next_room_phase.wrapping_add(1);
 

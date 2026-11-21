@@ -5,7 +5,11 @@ use engine_config::GameConfig;
 use engine_config::Runtime;
 
 use crate::compile::asc::compile_asc;
+use crate::compile::c::compile_c;
+use crate::compile::cpp::compile_cpp;
+use crate::compile::csharp::compile_csharp;
 use crate::compile::lua::compile_lua;
+use crate::compile::rust::compile_rust;
 
 fn mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).ok()?.modified().ok()
@@ -14,12 +18,21 @@ fn mtime(path: &Path) -> Option<SystemTime> {
 fn newest_input_mtime(project_dir: &Path, src: &Path) -> Option<SystemTime> {
     [
         src.to_path_buf(),
+        project_dir.join("server").join("schema.ts"),
+        project_dir.join("shared").join("schema.ts"),
         project_dir.join("schema.ts"),
         project_dir.join("src").join("schema.ts"),
+        project_dir.join("server").join("cyg.schema.ts"),
         project_dir.join("cyg.schema.ts"),
         project_dir.join("src").join("cyg.schema.ts"),
         project_dir.join("cyg-server.ts"),
         project_dir.join("src").join("cyg-server.ts"),
+        project_dir.join("server").join("cyg-server.ts"),
+        project_dir.join("pkg").join("cyg-server.ts"),
+        project_dir.join("cyg.h"),
+        project_dir.join("cyg.hpp"),
+        project_dir.join("cyg_room.rs"),
+        project_dir.join("Cargo.toml"),
     ]
     .iter()
     .filter_map(|path| mtime(path))
@@ -51,10 +64,18 @@ pub fn build(project_dir: &Path, cfg: &GameConfig) -> std::io::Result<std::path:
         cfg.out.display()
     );
 
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
     match cfg.runtime {
         Runtime::AssemblyScript => {
             compile_asc(project_dir, &src, &out, cfg.wasm_max_memory_mb.max(1))?
         }
+        Runtime::C => compile_c(project_dir, &src, &out, &cfg.sdk_dir)?,
+        Runtime::Cpp => compile_cpp(project_dir, &src, &out, &cfg.sdk_dir)?,
+        Runtime::Rust => compile_rust(project_dir, &src, &out, &cfg.sdk_dir)?,
+        Runtime::CSharp => compile_csharp(project_dir, &src, &out, &cfg.sdk_dir)?,
         Runtime::Lua => compile_lua(&src, &out)?,
     }
 

@@ -8,16 +8,16 @@ impl GameRoom {
 
     #[inline]
     pub fn phase(&self) -> engine_bus::RoomPhase {
-        self.state
+        self.lifecycle.phase
     }
 
     pub(crate) fn note_state(&mut self) {
-        if self.state == engine_bus::RoomPhase::Closed {
+        if self.lifecycle.phase == engine_bus::RoomPhase::Closed {
             return;
         }
         let next = if !self.is_hibernating() {
             engine_bus::RoomPhase::Active
-        } else if self.state == engine_bus::RoomPhase::Created {
+        } else if self.lifecycle.phase == engine_bus::RoomPhase::Created {
             return;
         } else {
             engine_bus::RoomPhase::Hibernating
@@ -26,14 +26,14 @@ impl GameRoom {
     }
 
     pub(crate) fn set_state(&mut self, next: engine_bus::RoomPhase) -> bool {
-        if self.state == next {
+        if self.lifecycle.phase == next {
             return false;
         }
-        if !self.state.allows(next) {
-            tracing::warn!("[server] room refused {:?} -> {next:?}", self.state);
+        if !self.lifecycle.phase.allows(next) {
+            tracing::warn!("[server] room refused {:?} -> {next:?}", self.lifecycle.phase);
             return false;
         }
-        self.state = next;
+        self.lifecycle.phase = next;
         true
     }
 

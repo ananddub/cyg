@@ -83,3 +83,14 @@ examples/*
 bench-game-*
 dhat*.json
 
+
+# core-ts build artifacts
+sdk/client/core-ts/node_modules/
+sdk/client/core-ts/dist/
+
+# editor/agent configs
+.zcode/
+.vscode/
+
+# verus build output
+verus/target/

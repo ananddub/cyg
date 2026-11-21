@@ -37,11 +37,6 @@ web_port = 8090
 #
 # At least one lane must be on. Leave a lane off unless your clients use it:
 # every open lane is a listener that has to be firewalled and monitored.
-[transports]
-webrtc = true
-websocket = true
-udp = false
-quic = false
 # 30 Hz is the easy-mode default; use 20 for slower/casual rooms or 60/128 for
 # competitive/rollback games.
 tick_rate = 30
@@ -64,18 +59,40 @@ simulate_latency_ms = 0
 # Synthetic packet loss (0.0 to 1.0 or percentage 0 to 100) for network testing. 0 = off.
 simulate_packet_loss = 0.0
 
+# Directory of the Unity WebGL build served at `/unity` (holds `Build/` and
+# `TemplateData/`). Relative to the project directory.
+unity_build = "unity"
+
 # Playfield
 width = 800.0
 height = 500.0
 speed = 240.0
 
-# CYG ABI Contract & Permissions
+# CYG ABI Contract & Permissions — every capability is DENIED unless listed
+# here; a guest only calls what the game config explicitly allows.
 abi_version = 1
 allow_physics = true
 allow_lag_compensation = true
 allow_logging = true
 allow_storage = true
 allow_messaging = true
+
+# Which network lanes to open. This is the only switch: no ports to pick.
+# `port` above is the game port; every other lane takes a free port from the OS
+# and prints it at boot, so two lanes can never collide.
+#
+#   webrtc    browsers, low-latency DataChannel
+#   websocket Godot / Unity / Unreal / cyg.js
+#   udp       native engine plugins
+#   quic      QUIC / WebTransport clients
+#
+# At least one lane must be on. Leave a lane off unless your clients use it:
+# every open lane is a listener that has to be firewalled and monitored.
+[transports]
+webrtc = true
+websocket = true
+udp = false
+quic = false
 
 # Room lifetime. Every value is the window the host shipped as a hardcoded
 # literal, so leaving this block out changes nothing.
@@ -134,6 +151,10 @@ enabled = true
 # this machine, and that is also what lets it boot with placeholder secrets
 # without any env var. Change to "0.0.0.0" (and set real secrets) to expose it.
 bind_addr = "127.0.0.1"
+# Set true to boot with placeholder secrets even on a non-loopback address —
+# the same switch as the CYG_ALLOW_DEFAULT_SECRETS=1 env var, just in-file.
+# NEVER leave this on for a public server; it is the boot guard's off switch.
+# dev_mode = true
 api_port = 8124
 workers = 2
 seat_ttl_secs = 300

@@ -27,7 +27,9 @@ pub async fn matchmake(client: &Client, base: &str, port: u16) -> String {
     let ice: Value = serde_json::from_str(seat["iceServers"].as_str().unwrap())
         .expect("iceServers is JSON text");
     assert!(ice.is_array());
-    assert!(seat["udpPort"].as_u64().is_some_and(|p| p > 0));
+    // The [transports] switch leaves UDP off by default; an off lane
+    // advertises udpPort = 0 (use WebSocket) rather than a dead port.
+    assert_eq!(seat["udpPort"].as_u64(), Some(0));
 
     let other = json_body(
         client

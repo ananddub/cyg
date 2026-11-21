@@ -10,7 +10,11 @@ impl Plane {
         let parsed = aoi::parse_delta(&self.delta_buf);
         if let Some((_, ref entities, _, _)) = parsed {
             for e in entities {
-                self.last_pos.insert(e.id, e.pos);
+                // Skip the map write when unchanged — avoids dirtying the
+                // entry's cache line for static entities every tick.
+                if self.last_pos.get(&e.id) != Some(&e.pos) {
+                    self.last_pos.insert(e.id, e.pos);
+                }
             }
         }
 
@@ -19,11 +23,16 @@ impl Plane {
         let aoi_cfg = &self.aoi_cfg;
         let tick = self.room.current_tick;
         let last_seq = &self.room.seqs;
+        // Shared per-tick AOI grid: built once, queried once per viewer.
+        let mut aoi_index = aoi::AoiViewIndex::new(aoi_cfg.far_radius);
+        if let Some((_, entities, _, _)) = &parsed {
+            aoi_index.rebuild(entities);
+        }
         for (peer_id, &player_id) in sessions {
             let body: &[u8] = match &parsed {
                 Some((_, entities, bullet_count, bullets_range)) => {
                     let viewer_pos = self.last_pos.get(&player_id).copied();
-                    aoi::filter_for_viewer(
+                    aoi::filter_for_viewer_indexed(
                         entities,
                         *bullet_count,
                         (bullets_range.0 + 4, bullets_range.1),
@@ -32,7 +41,9 @@ impl Plane {
                         viewer_pos,
                         tick,
                         aoi_cfg,
+                        &mut aoi_index,
                         &mut self.filtered_buf,
+                        &mut self.visible_buf,
                     );
                     &self.filtered_buf
                 }

@@ -20,7 +20,7 @@ fn test_unified_transport_auto_switch() {
 
     let client_udp = UdpSocket::bind("127.0.0.1:0").unwrap();
     let mut udp_send = Vec::new();
-    encode_frame(OpCode::PlayerInput, b"udp_shoot", &mut udp_send);
+    let _ = encode_frame(OpCode::PlayerInput, b"udp_shoot", &mut udp_send);
     client_udp.send_to(&udp_send, udp_addr).unwrap();
 
     let mut events = Vec::new();

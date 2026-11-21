@@ -36,7 +36,7 @@ impl Queries {
             }
             clause.push_str(&format!(
                 "(collection = $c{index} AND `key` = $k{index} \
-                  AND (user_id = $u{index} OR user_id = $u{index}))"
+                  AND user_id = $u{index})"
             ));
             params.insert(format!("c{index}"), json!(collection));
             params.insert(format!("k{index}"), json!(key));
@@ -44,7 +44,7 @@ impl Queries {
         }
         let surql = format!(
             "SELECT {STORAGE_COLUMNS} FROM storage \
-             WHERE (read = 2 OR (read = 1 AND (user_id = $caller OR user_id = $caller))) \
+             WHERE (read = 2 OR (read = 1 AND user_id = $caller)) \
                AND ({clause})"
         );
         self.all(&surql, params).await
@@ -74,8 +74,8 @@ impl Queries {
         let surql = format!(
             "SELECT {STORAGE_COLUMNS} FROM storage \
              WHERE collection = $collection AND `key` = $key \
-               AND (user_id = $user_id OR user_id = $user_id) \
-               AND (read = 2 OR (read = 1 AND (user_id = $caller OR user_id = $caller))){versioned} \
+               AND user_id = $user_id \
+               AND (read = 2 OR (read = 1 AND user_id = $caller)){versioned} \
              LIMIT 1"
         );
         self.opt(&surql, params).await
@@ -90,7 +90,7 @@ impl Queries {
         self.opt(
             "SELECT read, write, `version`, create_time, update_time FROM storage \
              WHERE collection = $collection AND `key` = $key \
-               AND (user_id = $user_id OR user_id = $user_id) LIMIT 1",
+               AND user_id = $user_id LIMIT 1",
             params!(
                 collection = collection,
                 key = key,
@@ -291,7 +291,7 @@ pub(crate) fn storage_update_statement(
         "UPDATE storage SET `value` = ${v}, `version` = ${ver}, read = ${r}, write = ${w}, \
          update_time = ${ut} \
          WHERE collection = ${c} AND `key` = ${k} \
-           AND (user_id = $owner OR user_id = $owner) RETURN NOTHING"
+           AND user_id = $owner RETURN NOTHING"
     )
 }
 
@@ -323,7 +323,7 @@ fn delete_lookup(owner: Uuid, ids: &[ObjectId]) -> (String, BTreeMap<String, Val
     }
     let surql = format!(
         "SELECT collection, `key`, `version`, write FROM storage \
-         WHERE (user_id = $owner OR user_id = $owner) AND ({wanted})"
+         WHERE user_id = $owner AND ({wanted})"
     );
     (surql, params)
 }
@@ -335,7 +335,7 @@ fn delete_statements(owner: Uuid, ids: &[ObjectId]) -> (String, BTreeMap<String,
     for (index, id) in ids.iter().enumerate() {
         let mut statement = format!(
             "DELETE storage WHERE collection = $c{index} AND `key` = $k{index} \
-             AND (user_id = $owner OR user_id = $owner) AND write > 0"
+             AND user_id = $owner AND write > 0"
         );
         params.insert(format!("c{index}"), json!(id.collection));
         params.insert(format!("k{index}"), json!(id.key));
@@ -372,7 +372,7 @@ fn own(first: bool) -> String {
     format!(
         "SELECT {STORAGE_COLUMNS} FROM storage \
          WHERE collection = $collection \
-           AND (user_id = $user OR user_id = $user) AND read >= 1{cursor} \
+           AND user_id = $user AND read >= 1{cursor} \
          ORDER BY read ASC, `key` ASC LIMIT $limit"
     )
 }
@@ -386,7 +386,7 @@ fn public_user(first: bool) -> String {
     format!(
         "SELECT {STORAGE_COLUMNS} FROM storage \
          WHERE collection = $collection \
-           AND (user_id = $user OR user_id = $user) AND read = 2{cursor} \
+           AND user_id = $user AND read = 2{cursor} \
          ORDER BY `key` ASC LIMIT $limit"
     )
 }
@@ -424,7 +424,7 @@ fn index_query(
     let collection = bind(&def.collection, params);
     let owner = bind(&caller.to_string(), params);
     let mut filters = format!(
-        "collection = {collection} AND (read = 2 OR (read = 1 AND (user_id = <uuid>{owner} OR user_id = {owner})))"
+        "collection = {collection} AND (read = 2 OR (read = 1 AND user_id = <uuid>{owner}))"
     );
     if !def.key.is_empty() {
         let key = bind(&def.key, params);
@@ -485,7 +485,7 @@ fn term_sql(term: &StorageIndexTerm, params: &mut BTreeMap<String, Value>, sql: 
             let access = bind(field, params);
             let value = bind(text, params);
             sql.push_str(&format!("`value`[{access}] = {value}"));
-            if let Some(parsed) = number.as_deref().and_then(|n| n.parse::<f64>().ok()) {
+            if let Some(parsed) = number.as_deref().and_then(parse_number) {
                 let number = bind(&parsed, params);
                 sql.push_str(&format!(
                     " OR (type::is_number(`value`[{access}]) AND `value`[{access}] = {number})"
@@ -509,7 +509,7 @@ fn term_sql(term: &StorageIndexTerm, params: &mut BTreeMap<String, Value>, sql: 
             for (bound, lower_side) in bounds {
                 let value = if numeric {
                     bind(
-                        &bound.number.as_deref().and_then(|n| n.parse::<f64>().ok()),
+                        &bound.number.as_deref().and_then(parse_number),
                         params,
                     )
                 } else {
@@ -519,6 +519,18 @@ fn term_sql(term: &StorageIndexTerm, params: &mut BTreeMap<String, Value>, sql: 
                 sql.push_str(&format!(" AND `value`[{access}]{op}{value}"));
             }
         }
+    }
+}
+
+/// Parses a term's numeric string as i64 when it is integral, else f64.
+/// SurrealDB 4.0's sized-number semantics make float↔decimal/int exact
+/// equality false past 2^53 — binding an integral term as i64 lets the
+/// engine's numeric compare handle int/float mixing exactly.
+fn parse_number(n: &str) -> Option<serde_json::Value> {
+    if let Ok(i) = n.parse::<i64>() {
+        Some(serde_json::json!(i))
+    } else {
+        n.parse::<f64>().ok().map(|f| serde_json::json!(f))
     }
 }
 

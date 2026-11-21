@@ -14,13 +14,26 @@ impl Bus {
     }
 
     pub fn push_input(&self, msg: InputMsg) {
-        let msg = match self.inputs_tx.try_send(msg) {
-            Ok(()) => return,
-            Err(crossbeam_channel::TrySendError::Full(m)) => m,
-            Err(_) => return,
-        };
-        let _ = self.inputs_rx.try_recv();
-        let _ = self.inputs_tx.try_send(msg);
+        let mut msg = msg;
+        if self.inputs_tx.try_send(msg.clone()).is_ok() {
+            return;
+        }
+        // Drop-oldest until the incoming message fits; every evicted input is
+        // counted and the caller's message itself is never dropped (only when
+        // the channel is disconnected, where nothing would be delivered).
+        loop {
+            let _ = self.inputs_rx.try_recv();
+            self.inputs_dropped.fetch_add(1, Ordering::Relaxed);
+            match self.inputs_tx.try_send(msg) {
+                Ok(()) => return,
+                Err(crossbeam_channel::TrySendError::Full(m)) => msg = m,
+                Err(_) => return,
+            }
+        }
+    }
+
+    pub fn inputs_dropped(&self) -> u64 {
+        self.inputs_dropped.load(Ordering::Relaxed)
     }
 
     pub fn push_event(&self, event: SimEvent) {

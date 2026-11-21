@@ -1,5 +1,7 @@
 mod console;
 mod control;
+
+pub mod abi;
 mod game;
 mod gameplay;
 mod iap;

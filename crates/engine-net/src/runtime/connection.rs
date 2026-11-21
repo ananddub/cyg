@@ -45,7 +45,9 @@ impl ClientConn {
     }
 
     pub fn queue_message(&mut self, opcode: OpCode, payload: &[u8]) {
-        encode_frame(opcode, payload, &mut self.write_buf);
+        if let Err(e) = encode_frame(opcode, payload, &mut self.write_buf) {
+            tracing::warn!("[net] dropping oversized {opcode:?} frame: {e}");
+        }
     }
 
     pub fn do_write(&mut self) -> io::Result<bool> {

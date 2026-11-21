@@ -10,7 +10,7 @@ use crate::transport::TransportEvent;
 impl WsTransport {
     pub fn send_state(&mut self, client_id: &str, payload: &[u8]) -> io::Result<()> {
         let Some(token) = self.clients_meta.get(client_id).map(|m| m.token) else {
-            if std::env::var_os("CYG_T").is_some() {
+            if super::trace_enabled() {
                 eprintln!(
                     "[t] NOMETA {client_id} keys={:?}",
                     self.clients_meta
@@ -22,7 +22,7 @@ impl WsTransport {
             return Ok(());
         };
         let Some(client) = self.clients.get_mut(&token) else {
-            if std::env::var_os("CYG_T").is_some() {
+            if super::trace_enabled() {
                 eprintln!(
                     "[t] NOCLIENT {client_id} tok={token:?} clients={:?}",
                     self.clients.keys().collect::<Vec<_>>()
@@ -30,7 +30,7 @@ impl WsTransport {
             }
             return Ok(());
         };
-        if std::env::var_os("CYG_T").is_some() {
+        if super::trace_enabled() {
             let hex: String = payload
                 .iter()
                 .take(48)

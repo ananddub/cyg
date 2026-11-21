@@ -17,6 +17,7 @@ pub fn placeholder_secret(value: &str) -> bool {
     lower.is_empty()
         || lower.starts_with("default")
         || lower.starts_with("ox-dev")
+        || lower.starts_with("cyg-dev")
         || lower.contains("change-me")
         || lower.contains("changeme")
         || lower.contains("placeholder")

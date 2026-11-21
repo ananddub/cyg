@@ -7,18 +7,26 @@ use crate::netcode::{AoiConfig, RollbackConfig};
 use crate::transports::TransportsConfig;
 use crate::watchdog::WatchdogConfig;
 
-pub const DEV_SEAT_SECRET: &str = "ox-dev-seat-secret";
+pub const DEV_SEAT_SECRET: &str = "cyg-dev-seat-secret";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Runtime {
     AssemblyScript,
+    C,
+    Cpp,
+    Rust,
+    CSharp,
     Lua,
 }
 
 impl Runtime {
     pub fn parse(s: &str) -> Option<Runtime> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "assemblyscript" | "as" => Some(Runtime::AssemblyScript),
+            "assemblyscript" | "as" | "ts" => Some(Runtime::AssemblyScript),
+            "c" => Some(Runtime::C),
+            "cpp" | "c++" | "cxx" => Some(Runtime::Cpp),
+            "rust" | "rs" => Some(Runtime::Rust),
+            "csharp" | "cs" | "c#" | "dotnet" => Some(Runtime::CSharp),
             "lua" => Some(Runtime::Lua),
             _ => None,
         }
@@ -28,6 +36,10 @@ impl Runtime {
     pub fn as_str(&self) -> &'static str {
         match self {
             Runtime::AssemblyScript => "assemblyscript",
+            Runtime::C => "c",
+            Runtime::Cpp => "cpp",
+            Runtime::Rust => "rust",
+            Runtime::CSharp => "csharp",
             Runtime::Lua => "lua",
         }
     }
@@ -69,6 +81,9 @@ pub struct GameConfig {
     pub sdk_dir: PathBuf,
 
     pub website: PathBuf,
+    /// Project-relative directory of the WebGL Unity build served at `/unity`
+    /// (contains `Build/` and `TemplateData/`).
+    pub unity_build: PathBuf,
     pub port: u16,
 
     pub web_port: u16,
@@ -99,6 +114,14 @@ pub struct GameConfig {
     /// mid-arrival. Rollback replay delivery is unaffected. False keeps the
     /// historical immediate dispatch.
     pub input_coalesce: bool,
+    /// Idle-input policy (Colyseus `defineInput({ idle })` hold-everything
+    /// form, gated on connection liveness): a seated, connected session that
+    /// sends no input for a tick gets its LAST frame re-delivered, so a held
+    /// key keeps moving through a packet gap instead of the entity freezing
+    /// mid-air. A synthesized frame is not a consumed input — it advances
+    /// neither the input seq nor the reconcile ack. False = SKIP (strict
+    /// fixed-timestep: an empty tick runs no input).
+    pub idle_input_hold: bool,
     pub max_clients: i32,
 
     pub max_rooms: u32,
@@ -123,7 +146,7 @@ pub struct GameConfig {
     pub height: f64,
     pub speed: f64,
     pub abi_version: u32,
-    pub permissions: engine_wasm::AbiPermissions,
+    pub permissions: crate::abi::AbiPermissions,
 
     pub voice_ice_servers: String,
     pub aoi: AoiConfig,
@@ -149,6 +172,7 @@ impl Default for GameConfig {
             out: "room_logic.wasm".into(),
             sdk_dir: "".into(),
             website: PathBuf::new(),
+            unity_build: "unity".into(),
             port: 7777,
             web_port: 8090,
             tick_rate: 30,
@@ -157,6 +181,7 @@ impl Default for GameConfig {
             wasm_max_memory_mb: 64,
             tick_stagger: 1,
             input_coalesce: false,
+            idle_input_hold: true,
             max_clients: 16,
             max_rooms: 1024,
             max_messages_per_second: 0,
@@ -167,8 +192,8 @@ impl Default for GameConfig {
             width: 800.0,
             height: 500.0,
             speed: 240.0,
-            abi_version: engine_wasm::CURRENT_ABI_VERSION,
-            permissions: engine_wasm::AbiPermissions::default(),
+            abi_version: crate::abi::CURRENT_ABI_VERSION,
+            permissions: crate::abi::AbiPermissions::default(),
             voice_ice_servers: "[]".into(),
             aoi: AoiConfig::default(),
             rollback: RollbackConfig::default(),

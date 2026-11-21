@@ -67,7 +67,10 @@ pub struct ApiState {
     pub game: Arc<GameConfig>,
     pub bus: Arc<Bus>,
     pub seats: Arc<std::sync::Mutex<seats::SeatRegistry>>,
-    pub limiter: Arc<std::sync::Mutex<rate_limit::IpRateLimiter>>,
+    /// Sharded per-IP rate limiter: locking happens per shard inside the
+    /// limiter, so concurrent matchmake calls from different addresses do not
+    /// serialize on one mutex.
+    pub limiter: Arc<rate_limit::IpRateLimiter>,
     pub signals: signaling::SignalHub,
     pub statics: Arc<crate::services::static_routes::StaticServer>,
     pub port: u16,
@@ -88,6 +91,12 @@ pub struct ApiState {
     /// `None` when the project ships no hooks module, which is the common case —
     /// every call site treats that as "no hook answered", not as an error.
     pub hooks: Option<Arc<engine_hooks::HookRunner>>,
+    /// Whether this is an explicitly-started local development session
+    /// (`cyg run -d`, see `engine_control::runtime_mode`). Resolved once at
+    /// boot so no request-time code reads the environment; per-request the
+    /// grant still requires a loopback source address (see
+    /// `middleware::dev_admin`).
+    pub dev_mode: bool,
 }
 
 impl ApiState {
@@ -119,11 +128,14 @@ impl ApiState {
         let hooks = engine_hooks::boot_hooks(project_dir, game).map(Arc::new);
         // The per-account bucket stays off with the quotas, so a plane that has
         // not opted in cannot start refusing authenticated traffic.
-        let mut limiter =
-            rate_limit::IpRateLimiter::new(control.rate_limit_rps, control.rate_limit_burst);
+        let limiter = rate_limit::IpRateLimiter::new(control.rate_limit_rps, control.rate_limit_burst);
         if control.quotas.enabled {
             limiter.set_player_rates(control.quotas.player_rps, control.quotas.player_burst);
         }
+        let limiter = Arc::new(limiter);
+        // Read once here: per-request environment lookups would let a change
+        // after boot silently widen the dev admin grant.
+        let dev_mode = std::env::var("CYG_DEV_MODE").as_deref() == Ok("1");
         ApiState {
             control: Arc::new(control.clone()),
             game: Arc::new(game.clone()),
@@ -131,7 +143,7 @@ impl ApiState {
             seats: Arc::new(std::sync::Mutex::new(seats::SeatRegistry::new(
                 &control.seat_secret,
             ))),
-            limiter: Arc::new(std::sync::Mutex::new(limiter)),
+            limiter,
             signals: signaling::SignalHub::new(game.voice_ice_servers.clone()),
             statics: Arc::new(crate::services::static_routes::StaticServer::new(
                 project_dir,
@@ -148,6 +160,7 @@ impl ApiState {
             realtime,
             sessions,
             hooks,
+            dev_mode,
         }
     }
 

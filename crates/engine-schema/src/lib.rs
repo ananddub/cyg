@@ -1,4 +1,5 @@
 mod descriptor;
+mod encoding;
 mod emit;
 mod model;
 mod options;
@@ -14,9 +15,10 @@ mod tests;
 pub use descriptor::{
     DESCRIPTOR_MAGIC, DESCRIPTOR_VERSION, Descriptor, emit_descriptor, parse_descriptor,
 };
+pub use encoding::{FieldEncoding, UNPACKED, default_encoding};
 pub use model::{
-    GeneratedSchema, MAX_COLLECTIONS, RootCollection, RootState, SchemaDef, SchemaDiagnostic,
-    SchemaField, generate_with_root, wire_hash,
+    GeneratedSchema, InputDomainMap, InputFieldDomain, MAX_COLLECTIONS, RootCollection, RootState,
+    SchemaDef, SchemaDiagnostic, SchemaField, generate_with_root, wire_hash,
 };
 pub use options::encode_join_options;
 pub use wire::{

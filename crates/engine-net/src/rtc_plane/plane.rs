@@ -8,8 +8,10 @@ use tokio::sync::mpsc;
 use super::config::PlaneConfig;
 use super::demux::demux_loop;
 use super::handle::PlaneHandle;
+use super::types::UplinkEvent;
 use super::inbox::PlaneCommand;
 use super::registries::Registries;
+use super::stats::DemuxStats;
 
 pub struct Plane {
     thread: Option<JoinHandle<()>>,
@@ -35,14 +37,20 @@ impl Plane {
         };
 
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
-        let (uplink_tx, uplink_rx) = mpsc::unbounded_channel();
+        // Bounded uplink: session tasks get natural backpressure via
+        // `send().await` instead of queueing an unbounded memory spike under
+        // an input burst (books: bound your channels — a full 4096-event
+        // backlog is a stalled consumer, not a loss).
+        let (uplink_tx, uplink_rx) = mpsc::channel::<UplinkEvent>(4096);
         let (notice_tx, notice_rx) = mpsc::unbounded_channel();
         let registries = Registries::new();
+        let stats = DemuxStats::new();
 
         let handle = PlaneHandle {
             cmd_tx: cmd_tx.clone(),
             registries: registries.clone(),
             uplink: Arc::new(tokio::sync::Mutex::new(uplink_rx)),
+            stats: stats.clone(),
         };
 
         let thread = std::thread::Builder::new()
@@ -57,7 +65,7 @@ impl Plane {
                     let socket = Arc::new(UdpSocket::from_std(std_socket).expect("udp from_std"));
                     demux_loop(
                         socket, local_dest, cmd_rx, notice_rx, notice_tx, uplink_tx, registries,
-                        config,
+                        config, stats,
                     )
                     .await;
                 });

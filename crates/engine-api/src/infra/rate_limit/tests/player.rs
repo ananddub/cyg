@@ -4,7 +4,7 @@ use crate::infra::rate_limit::*;
 
 #[test]
 fn an_unconfigured_account_bucket_admits_everything() {
-    let mut l = IpRateLimiter::new(1000, 1000);
+    let l = IpRateLimiter::new(1000, 1000);
     let uid = Uuid::new_v4();
     for _ in 0..100 {
         assert!(l.allow_player(uid), "no rates, no ceiling");
@@ -15,7 +15,7 @@ fn an_unconfigured_account_bucket_admits_everything() {
 
 #[test]
 fn one_account_cannot_borrow_another_s_budget() {
-    let mut l = IpRateLimiter::new(1000, 1000);
+    let l = IpRateLimiter::new(1000, 1000);
     l.set_player_rates(1, 2);
     let (first, second) = (Uuid::new_v4(), Uuid::new_v4());
     assert!(l.allow_player(first));
@@ -31,7 +31,7 @@ fn one_account_cannot_borrow_another_s_budget() {
 
 #[test]
 fn the_account_bucket_answers_with_a_wait() {
-    let mut l = IpRateLimiter::new(1000, 1000);
+    let l = IpRateLimiter::new(1000, 1000);
     let uid = Uuid::new_v4();
     assert_eq!(l.retry_after_player(uid), 0, "off, so proceed");
     l.set_player_rates(2, 1);

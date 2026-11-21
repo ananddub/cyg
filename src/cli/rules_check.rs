@@ -45,6 +45,6 @@ mod tests {
         assert!(engine_api::services::rules::validate(&good).is_ok());
         let bad = json!({"field": "kills", "op": "between", "value": 1});
         let err = engine_api::services::rules::validate(&bad).expect_err("refused");
-        assert_eq!(err.path, "op");
+        assert_eq!(err.path, "value");
     }
 }

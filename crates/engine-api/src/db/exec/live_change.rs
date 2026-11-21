@@ -68,7 +68,9 @@ pub(super) async fn request<C: Connection>(
     query.await.map_err(DbError::from)
 }
 pub(super) fn capabilities() -> Capabilities {
-    Capabilities::new().with_experimental_features_allowed(&[ExperimentalFeature::Files])
+    // 4.0 removed the `files` experimental *flag*; file storage and
+    // DEFINE BUCKET are core now (db/blobs/blob_store.rs uses them).
+    Capabilities::new()
 }
 pub fn is_embedded(endpoint: &str) -> bool {
     [

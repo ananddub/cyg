@@ -122,7 +122,7 @@ fn grant_actor(headers: &HeaderMap, state: &crate::ApiState) -> String {
     if server_key(headers, state).is_ok() {
         return "server".to_owned();
     }
-    match crate::app::middleware::console_claims(headers) {
+    match crate::app::middleware::console_claims(headers, state, crate::current_remote()) {
         Ok(claims) => format!("console:{}", claims.uuid().unwrap_or_else(uuid::Uuid::nil)),
         Err(_) => "server".to_owned(),
     }

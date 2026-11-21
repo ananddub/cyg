@@ -72,7 +72,7 @@ fn close_reason_reports_which_lifecycle_window_expired() {
 
     let mut room = GameRoom::new_relay();
     room.join("sess_carol", 1.0, 1.0, b"");
-    room.born = Instant::now() - Duration::from_secs(61);
+    room.lifecycle.born = Instant::now() - Duration::from_secs(61);
     assert_eq!(
         room.close_reason(&limited, true, Instant::now()),
         Some(CloseReason::Duration)
@@ -80,8 +80,8 @@ fn close_reason_reports_which_lifecycle_window_expired() {
     assert_eq!(room.close_reason(&idle, true, Instant::now()), None);
 
     room.handle_disconnect("sess_carol");
-    room.born = Instant::now();
-    room.empty_since = Some(Instant::now() - Duration::from_secs(31));
+    room.lifecycle.born = Instant::now();
+    room.lifecycle.empty_since = Some(Instant::now() - Duration::from_secs(31));
     assert_eq!(
         room.close_reason(&idle, true, Instant::now()),
         Some(CloseReason::Empty)

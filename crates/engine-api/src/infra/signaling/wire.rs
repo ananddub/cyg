@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::frames::SignalOut;
+use super::SignalOut;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]

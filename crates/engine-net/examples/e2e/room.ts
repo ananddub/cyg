@@ -60,6 +60,12 @@ export function is_full(count: i32): bool {
     return count >= max_players;
 }
 
+// onAuth: the e2e room accepts everyone (matchmake join gate).
+// ABI v2: returns packed (ptr << 32) | len; len == 0 = empty auth blob.
+export function on_auth(id: i64, opt_ptr: i32, opt_len: i32, ctx_ptr: i32, ctx_len: i32): i64 {
+    return 0;
+}
+
 export function on_join(id: i64, opt_ptr: i32, opt_len: i32, auth_ptr: i32, auth_len: i32): void {
     let p = new Player();
     p.id = id;

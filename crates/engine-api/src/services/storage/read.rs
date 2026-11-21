@@ -6,7 +6,7 @@ use crate::app::middleware::Authed;
 use crate::dto::storage::{ObjectIdsRequest, ReadQuery, StorageObject, StorageObjects};
 use crate::error::V2Error;
 use crate::services::deps::q;
-use crate::utils::storage::{INVALID_OBJECT_MESSAGE, INVALID_USER_MESSAGE, check_id, read_owner};
+use crate::utils::storage::{INVALID_OBJECT_MESSAGE, check_id, read_owner, resolve_owner};
 
 impl super::StorageService {
     pub async fn read_objects(
@@ -64,13 +64,7 @@ impl super::StorageService {
             return Err(V2Error::invalid_argument(INVALID_OBJECT_MESSAGE));
         }
         let caller = auth.0.uuid()?;
-        let parsed = Uuid::parse_str(user_id)
-            .map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
-        let owner = if parsed == Uuid::nil() {
-            caller
-        } else {
-            parsed
-        };
+        let owner = resolve_owner(user_id, caller)?;
         let version = req.version.filter(|v| !v.is_empty());
 
         let row = q(state)

@@ -35,7 +35,7 @@ impl ConsoleAuthController {
     /// which the process already announced on its own stdout.
     #[get("/mode")]
     async fn mode(&self) -> Response {
-        let dev = std::env::var("CYG_DEV_MODE").as_deref() == Ok("1");
+        let dev = current_state().dev_mode;
         axum::Json(serde_json::json!({ "dev": dev })).into_response()
     }
 

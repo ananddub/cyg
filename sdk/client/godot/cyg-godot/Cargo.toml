@@ -1,0 +1,15 @@
+[package]
+name = "cyg-godot"
+version = "0.1.0"
+edition = "2021"
+description = "Godot GDExtension client binding over cyg-core-rs."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+godot = { version = "0.5", default-features = false }
+cyg-core-rs = { path = "../../../../crates/cyg-core-rs" }
+
+# Standalone crate, deliberately not a workspace member.
+[workspace]

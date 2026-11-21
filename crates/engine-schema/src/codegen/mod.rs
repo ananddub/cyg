@@ -4,6 +4,7 @@ mod cpp;
 mod csharp;
 mod gdscript;
 mod lua;
+mod typescript;
 
 #[cfg(test)]
 mod tests;
@@ -20,15 +21,18 @@ pub enum Language {
     Lua,
 
     As,
+
+    TypeScript,
 }
 
 impl Language {
-    pub const ALL: [Language; 5] = [
+    pub const ALL: [Language; 6] = [
         Language::CSharp,
         Language::Gdscript,
         Language::Cpp,
         Language::Lua,
         Language::As,
+        Language::TypeScript,
     ];
 
     pub fn parse(text: &str) -> Option<Language> {
@@ -38,6 +42,7 @@ impl Language {
             "cpp" | "c++" | "cxx" => Some(Language::Cpp),
             "lua" | "luajit" => Some(Language::Lua),
             "as" | "assemblyscript" => Some(Language::As),
+            "ts" | "typescript" => Some(Language::TypeScript),
             _ => None,
         }
     }
@@ -49,6 +54,7 @@ impl Language {
             Language::Cpp => "cyg_schema_generated.hpp",
             Language::Lua => "cyg_schema_generated.lua",
             Language::As => "cyg.schema.ts",
+            Language::TypeScript => "cyg_schema_generated.d.ts",
         }
     }
 
@@ -59,6 +65,7 @@ impl Language {
             Language::Cpp => "C++",
             Language::Lua => "Lua",
             Language::As => "AssemblyScript",
+            Language::TypeScript => "TypeScript",
         }
     }
 
@@ -69,6 +76,7 @@ impl Language {
             Language::Cpp => "cpp",
             Language::Lua => "lua",
             Language::As => "as",
+            Language::TypeScript => "ts",
         }
     }
 }
@@ -87,5 +95,6 @@ pub fn emit(
         Language::Gdscript => gdscript::emit_gdscript(schemas, root.as_ref(), &source_name),
         Language::Cpp => cpp::emit_cpp(schemas, root.as_ref(), &source_name),
         Language::Lua => lua::emit_lua(schemas, root.as_ref(), &source_name),
+        Language::TypeScript => typescript::emit_ts(schemas, root.as_ref(), &source_name),
     }
 }

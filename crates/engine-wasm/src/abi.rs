@@ -4,7 +4,11 @@ pub const HOST_NAMESPACE_V1: &str = "game_host_v1";
 
 pub const HOST_NAMESPACE_LEGACY: &str = "env";
 
-pub const CURRENT_ABI_VERSION: u32 = 1;
+/// ABI version + the guest permission set now live in `engine-config::abi`
+/// (the shared root crate) — re-exported here so existing
+/// `engine_wasm::AbiPermissions` users keep compiling while `engine-config`
+/// no longer needs this crate.
+pub use engine_config::abi::{AbiPermissions, CURRENT_ABI_VERSION};
 
 pub const MAX_INBOUND_PAYLOAD_SIZE: usize = 64 * 1024;
 
@@ -31,28 +35,6 @@ pub const ABI_ERR_INVALID_UTF8: i32 = -6;
 pub const ABI_ERR_REENTRANCY_DISALLOWED: i32 = -7;
 
 pub const ABI_ERR_UNSUPPORTED_VERSION: i32 = -8;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AbiPermissions {
-    pub physics: bool,
-    pub lag_compensation: bool,
-    pub logging: bool,
-    pub storage: bool,
-
-    pub messaging: bool,
-}
-
-impl Default for AbiPermissions {
-    fn default() -> Self {
-        Self {
-            physics: true,
-            lag_compensation: true,
-            logging: true,
-            storage: true,
-            messaging: true,
-        }
-    }
-}
 
 pub fn validate_utf8(bytes: &[u8]) -> Result<&str, i32> {
     std::str::from_utf8(bytes).map_err(|_| ABI_ERR_INVALID_UTF8)
@@ -118,11 +100,14 @@ mod tests {
 
     #[test]
     fn test_default_permissions() {
+        // Deny by default: every capability stays closed until config.toml
+        // explicitly allows it.
         let perms = AbiPermissions::default();
-        assert!(perms.physics);
-        assert!(perms.lag_compensation);
-        assert!(perms.logging);
-        assert!(perms.storage);
+        assert!(!perms.physics);
+        assert!(!perms.lag_compensation);
+        assert!(!perms.logging);
+        assert!(!perms.storage);
+        assert!(!perms.messaging);
     }
 
     #[test]

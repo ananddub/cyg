@@ -49,7 +49,10 @@ fn wat_message_room(permissions: engine_wasm::AbiPermissions) -> GameRoom {
 
 #[test]
 fn guest_messages_are_queued_for_the_host_and_gated_by_permission() {
-    let mut room = wat_message_room(engine_wasm::AbiPermissions::default());
+    let mut room = wat_message_room(engine_wasm::AbiPermissions {
+        messaging: true,
+        ..Default::default()
+    });
     assert_eq!(
         room.drain_outbox(),
         vec![OutboundMessage {
@@ -121,7 +124,10 @@ fn storage_permission_gates_the_snapshot_store() {
         None,
         16,
         PhysicsWorld3D::default(),
-        engine_wasm::AbiPermissions::default(),
+        engine_wasm::AbiPermissions {
+            storage: true,
+            ..Default::default()
+        },
     );
     allowed.save_snapshot("zone", vec![1, 2, 3]);
     assert!(allowed.has_snapshot("zone"));

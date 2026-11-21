@@ -16,6 +16,12 @@ fn or_default(value: String, fallback: &str) -> String {
     }
 }
 
+/// Compares two secrets in time independent of their contents.
+///
+/// The length is NOT hidden: the early `len != len` return leaks how long the
+/// expected secret is. That is accepted — the callers compare server-issued
+/// keys whose length is public configuration, not a secret in itself — and
+/// hashing both sides to a fixed width would buy nothing here.
 pub fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;

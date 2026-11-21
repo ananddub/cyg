@@ -28,6 +28,7 @@ impl Recorder {
         snap.webrtc_sessions = report.webrtc_sessions;
         snap.udp_sessions = report.udp_sessions;
         snap.rooms = report.rooms;
+        snap.server_phase = report.server_phase;
 
         for row in &snap.rooms {
             match row.phase {

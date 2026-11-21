@@ -14,8 +14,12 @@ pub struct GameServer {
     pub(crate) arena_2d: Option<engine_physics::MapConfig2D>,
     pub(crate) navmesh: Option<std::sync::Arc<NavMesh2D>>,
     pub(crate) input_coalesce: bool,
+    pub(crate) idle_input_hold: bool,
     /// Round-robin counter handing each new room its tick-stagger phase.
     pub(crate) next_room_phase: u32,
+    /// Process-unique room counter — mixed into each room's RNG seed so two
+    /// rooms with the same name never share a predictable stream.
+    pub(crate) next_room_id: u64,
 }
 
 impl GameServer {
@@ -46,7 +50,9 @@ impl GameServer {
             arena_2d: None,
             navmesh: None,
             input_coalesce: false,
+            idle_input_hold: true,
             next_room_phase: 0,
+            next_room_id: 0,
         }
     }
 

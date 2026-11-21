@@ -11,6 +11,9 @@ pub struct LifecycleConfig {
     pub persistent_rooms: Vec<String>,
 
     pub drain_grace_secs: u64,
+
+    /// How long shutdown waits for managed threads before detaching them.
+    pub thread_join_grace_secs: u64,
 }
 
 const MAX_WINDOW_SECONDS: u64 = 7 * 24 * 60 * 60;
@@ -24,6 +27,7 @@ impl Default for LifecycleConfig {
             seat_hold_secs: 120,
             persistent_rooms: Vec::new(),
             drain_grace_secs: 15,
+            thread_join_grace_secs: 5,
         }
     }
 }
@@ -37,6 +41,7 @@ impl LifecycleConfig {
         self.persistent_rooms.retain(|name| !name.trim().is_empty());
 
         self.drain_grace_secs = self.drain_grace_secs.clamp(1, 300);
+        self.thread_join_grace_secs = self.thread_join_grace_secs.clamp(1, 60);
     }
 
     pub fn peer_idle(&self) -> std::time::Duration {
@@ -57,6 +62,10 @@ impl LifecycleConfig {
             ("CYG_PEER_IDLE_MS", &mut self.peer_idle_ms),
             ("CYG_SEAT_HOLD_SECS", &mut self.seat_hold_secs),
             ("CYG_DRAIN_GRACE_SECS", &mut self.drain_grace_secs),
+            (
+                "CYG_THREAD_JOIN_GRACE_SECS",
+                &mut self.thread_join_grace_secs,
+            ),
         ] {
             if let Ok(value) = std::env::var(name)
                 && let Ok(parsed) = value.parse()
@@ -93,6 +102,7 @@ mod tests {
         assert_eq!(config.peer_idle_ms, 3_000);
         assert_eq!(config.seat_hold_secs, 120);
         assert_eq!(config.drain_grace_secs, 15);
+        assert_eq!(config.thread_join_grace_secs, 5);
     }
 
     #[test]
@@ -104,6 +114,7 @@ mod tests {
             seat_hold_secs: u64::MAX,
             persistent_rooms: vec!["lobby".into(), "  ".into()],
             drain_grace_secs: 0,
+            thread_join_grace_secs: 0,
         };
         config.clamp();
         assert_eq!(config.room_max_seconds, MAX_WINDOW_SECONDS);
@@ -112,6 +123,7 @@ mod tests {
         assert_eq!(config.seat_hold_secs, MAX_WINDOW_SECONDS);
         assert_eq!(config.persistent_rooms, vec!["lobby".to_string()]);
         assert_eq!(config.drain_grace_secs, 1);
+        assert_eq!(config.thread_join_grace_secs, 1);
     }
 
     #[test]

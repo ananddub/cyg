@@ -1,5 +1,14 @@
 use super::*;
 
+/// The guest capabilities these tests need. Storage is deny-by-default, so a persistence
+/// test that keeps the default can never save a snapshot.
+fn storage_perms() -> engine_wasm::AbiPermissions {
+    engine_wasm::AbiPermissions {
+        storage: true,
+        ..Default::default()
+    }
+}
+
 #[test]
 fn test_multi_room_autocreate_and_autoclose() {
     let mut server = GameServer::new(
@@ -24,11 +33,11 @@ fn test_multi_room_autocreate_and_autoclose() {
     assert!(!room_a.is_hibernating());
     room_a.handle_disconnect("p2_a");
     assert!(room_a.is_hibernating());
-    assert!(room_a.empty_since.is_some());
+    assert!(room_a.lifecycle.empty_since.is_some());
 
     assert!(!server.rooms.get("room_b").unwrap().is_hibernating());
 
-    server.rooms.get_mut("room_a").unwrap().empty_since =
+    server.rooms.get_mut("room_a").unwrap().lifecycle.empty_since =
         Some(Instant::now() - Duration::from_secs(31));
 
     let mut dead_rooms = Vec::new();
@@ -53,12 +62,7 @@ fn test_multi_room_autocreate_and_autoclose() {
 
 #[test]
 fn test_room_persistence_autosave_and_autoload() {
-    let mut server = GameServer::new(
-        None,
-        16,
-        PhysicsWorld3D::default(),
-        engine_wasm::AbiPermissions::default(),
-    );
+    let mut server = GameServer::new(None, 16, PhysicsWorld3D::default(), storage_perms());
 
     let room = server
         .get_or_create("world_zone_survival", b"")

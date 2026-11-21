@@ -1,7 +1,49 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import CYG from "../cyg.js";
 
 const { Room, SchemaDef } = CYG;
+
+globalThis.fetch = async (url) => {
+    const path = String(url) === "cyg_core_rs.wasm"
+        ? new URL("../cyg_core_rs.wasm", import.meta.url)
+        : new URL(String(url));
+    return { arrayBuffer: async () => readFileSync(fileURLToPath(path)) };
+};
+
+function u8(v) { return new Uint8Array([v & 0xff]); }
+function u16(v) { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, v, true); return b; }
+function u32(v) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v, true); return b; }
+function str(text) { const b = new TextEncoder().encode(text); return new Uint8Array([...u16(b.length), ...b]); }
+
+/** A v2 OXSD with one `Input` collection, matching the declared fields. */
+function inputDescriptor() {
+    const parts = [
+        new TextEncoder().encode("OXSD"), u8(2), u8(0), u16(1),
+        str("Input"), u32(1), u32(0), u16(4),
+        str("moveX"), u8(5), // f32
+        str("moveZ"), u8(5),
+        str("jump"), u8(7),  // bool
+        str("skill"), u8(1), // u8
+        str("State"), u32(0), u32(0), u16(0), u16(1),
+        str("inputs"), u16(0),
+    ];
+    const length = parts.reduce((n, p) => n + p.length, 0);
+    const out = new Uint8Array(length);
+    let at = 0;
+    for (const p of parts) { out.set(p, at); at += p.length; }
+    return out;
+}
+
+async function coreInputRoom() {
+    const room = new Room("ws://127.0.0.1:1", "input_room");
+    room._attachDescriptor(inputDescriptor());
+    await room._corePromise;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(room._schemaError, null, `descriptor attach failed: ${room._schemaError}`);
+    return room;
+}
 
 function schemaInputRoom() {
     const room = Object.create(Room.prototype);
@@ -24,7 +66,7 @@ function schemaInputRoom() {
 // The packed body mirrors the generated `decodeInput` field-for-field:
 // [seq u16 LE][f32 moveX][f32 moveZ][bool jump][u8 skill].
 {
-    const room = schemaInputRoom();
+    const room = await coreInputRoom();
     const bytes = room._packSchemaInput({ moveX: 1.5, jump: true, skill: 7 });
     assert.equal(bytes.length, 12, "2 seq + 4 + 4 + 1 + 1 field bytes");
     const view = new DataView(bytes.buffer);

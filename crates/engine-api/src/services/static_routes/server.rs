@@ -24,10 +24,7 @@ impl StaticServer {
             schema_mjs: game
                 .sdk_dir
                 .join("node_modules/@colyseus/schema/build/index.mjs"),
-            unity_build: project_dir
-                .parent()
-                .map(|p| p.join("CYGArena/Build/WebGL"))
-                .unwrap_or_else(|| project_dir.join("unity")),
+            unity_build: project_dir.join(&game.unity_build),
             defaults: HashMap::new(),
             cache: Mutex::new(HashMap::new()),
         }

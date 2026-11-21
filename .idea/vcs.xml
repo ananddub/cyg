@@ -3,5 +3,24 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/landingpage" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/netfox" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/photon-unreal" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/purrnet" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/Arch" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/Backroll" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/Box2D.NET" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/DotRecast" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/FixPointCS" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/FixedMathSharp" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/Jitter2" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/LiteNetLib" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/LockstepEngine" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/TrueSync" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/UnityLockstep" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/VelcroPhysics" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/bepuphysics1int" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/meecs" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/reference/quantum/unity-deterministic-physics" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/tmp/open-games" vcs="Git" />
   </component>
 </project>

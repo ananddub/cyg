@@ -49,31 +49,45 @@ impl TickRunner {
             // Staggered: the loop wakes once per slot (see wait_events); every
             // slot boundary fires the next phase's rooms. Each phase runs once
             // per interval, so every room still ticks at the full tick rate —
-            // only the phase within the interval shifts.
-            let slot = tick_interval / groups;
-            let mut slots = self.slot_base.elapsed().as_nanos() / slot.as_nanos().max(1);
-            if slots > groups as u128 {
-                // Stalled past a whole interval (busy frame, debugger):
-                // resync instead of replaying a backlog of empty slots.
-                self.slot_base = Instant::now();
-                slots = 1;
-            }
-            for _ in 0..slots {
-                let phase = self.next_phase;
-                self.next_phase = (self.next_phase + 1) % groups;
-                self.slot_base += slot;
+            // only the phase within the interval shifts. `interval_pending`
+            // stays armed until the next interval boundary overwrites it:
+            // zeroing it after the first slot would leave the remaining
+            // phases nothing to run, dropping each room to 1/groups of the
+            // tick rate.
+            for phase in self.stagger_phases_due(tick_interval, groups) {
                 if self.interval_pending > 0 {
-                    let pending = self.interval_pending;
-                    self.run_phase(ctx, Some(phase), pending, dt, run_t0);
+                    self.run_phase(ctx, Some(phase), self.interval_pending, dt, run_t0);
                 }
             }
-            self.interval_pending = 0;
         }
 
         ctx.udp.cleanup(ctx.server, ctx.cfg);
         self.tick_reap_dead(ctx);
 
-        ctx.transport.flush().expect("flush");
+        // No flush here — Engine::step flushes ONCE at the end. The old
+        // second flush pass per step doubled writev syscalls on quiet frames,
+        // and its `expect` turned one transient socket error into a full
+        // process abort (panic = "abort" release builds).
+    }
+
+    /// Advance the stagger clock by the slots that elapsed since the last
+    /// wake, returning the phase each due slot fires. Stalling past a whole
+    /// interval (busy frame, debugger) resyncs instead of replaying a backlog
+    /// of empty slots.
+    fn stagger_phases_due(&mut self, tick_interval: Duration, groups: u32) -> Vec<u32> {
+        let slot = tick_interval / groups;
+        let mut slots = self.slot_base.elapsed().as_nanos() / slot.as_nanos().max(1);
+        if slots > groups as u128 {
+            self.slot_base = Instant::now();
+            slots = 1;
+        }
+        let mut phases = Vec::with_capacity(slots as usize);
+        for _ in 0..slots {
+            phases.push(self.next_phase);
+            self.next_phase = (self.next_phase + 1) % groups;
+            self.slot_base += slot;
+        }
+        phases
     }
 
     pub(crate) fn tick_stat(&mut self, ctx: &TickCtx, dt: f64) {
@@ -149,5 +163,64 @@ impl TickRunner {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod stagger_tests {
+    use super::*;
+
+    fn runner(slot_base: Instant) -> TickRunner {
+        TickRunner {
+            session_scratch: Vec::new(),
+            room_names: Vec::new(),
+            delta_buf: Vec::new(),
+            view_buf: Vec::new(),
+            delta_body: Vec::new(),
+            filtered_buf: Vec::new(),
+            udp_batch: Vec::new(),
+            schema_aoi: None,
+            dead_rooms: Vec::new(),
+            last_tick: slot_base,
+            tick_counter: 0,
+            tick_stat_start: slot_base,
+            window_ticks: 0,
+            stage_sim_us_sum: 0,
+            stage_guest_us_sum: 0,
+            match_peaks: HashMap::new(),
+            next_phase: 0,
+            slot_base,
+            interval_pending: 0,
+            schema_full: 0..0,
+            schema_patch: 0..0,
+            wrap_full_packed: Vec::new(),
+            wrap_patch_packed: Vec::new(),
+            packed_full_body: Vec::new(),
+            packed_patch_body: Vec::new(),
+            packed_view_buf: Vec::new(),
+            packed_lane: None,
+            packed_ready: false,
+        }
+    }
+
+    #[test]
+    fn every_slot_fires_the_next_phase_across_a_full_interval() {
+        // 3 groups, 30 ms interval → one 10 ms slot per phase per interval.
+        let mut r = runner(Instant::now());
+        r.slot_base -= Duration::from_millis(35); // all 3 slots are due
+        r.interval_pending = 2;
+        assert_eq!(r.stagger_phases_due(Duration::from_millis(30), 3), [0, 1, 2]);
+        assert_eq!(r.next_phase, 0);
+        // The pending budget is consumed by run_phase per slot, not zeroed
+        // here — a room's phase must still see it on its slot.
+        assert_eq!(r.interval_pending, 2);
+    }
+
+    #[test]
+    fn stalled_wake_resyncs_instead_of_replaying_empty_slots() {
+        let mut r = runner(Instant::now());
+        r.slot_base -= Duration::from_millis(500); // far past one interval
+        assert_eq!(r.stagger_phases_due(Duration::from_millis(30), 3), [0]);
+        assert_eq!(r.next_phase, 1);
     }
 }

@@ -39,7 +39,7 @@ async fn a_malformed_frame_errors_without_killing_the_session() {
         other => panic!("expected a candidate, got {other:?}"),
     }
     ws.send_text(r#"{"type":"close"}"#).await;
-    assert_eq!(next_signal(&mut inbound).await, SignalIn::Close { seat });
+    assert_eq!(next_signal(&mut inbound).await, SignalIn::Close { seat, .. });
 }
 
 #[test]

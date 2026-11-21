@@ -2,7 +2,18 @@ use hmac::Mac;
 
 use super::b64::{b64url, b64url_decode};
 use super::registry::{HmacSha256, SeatRegistry};
-use super::token::Seat;
+use super::Seat;
+
+/// FNV-1a over the token bytes: distinguishes two fallback seats that share a
+/// room and expiry, so one cannot route onto the other's signaling lane.
+fn fnv1a(bytes: &[u8]) -> u32 {
+    let mut hash: u32 = 0xcbf2_ce18;
+    for &byte in bytes {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
 
 impl SeatRegistry {
     /// Constant-time MAC check against one secret.
@@ -63,7 +74,7 @@ impl SeatRegistry {
             return None;
         }
         Some(self.by_token.get(token).cloned().unwrap_or(Seat {
-            id: format!("ext-{room}-{exp}"),
+            id: format!("ext-{room}-{exp}-{:08x}", fnv1a(token.as_bytes())),
             room: room.to_string(),
             token: token.to_string(),
             expires_at: exp,

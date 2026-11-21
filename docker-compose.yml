@@ -26,7 +26,8 @@ services:
     environment:
       - CYG_ALLOW_DEFAULT_SECRETS=1
       - RUST_LOG=info
-      - GAME_DIR=examples/orbioo-agario
+      # Point this at a game project directory (a folder with a config.toml)
+      # e.g. GAME_DIR=games/my-game
       - SURREAL_ENDPOINT=ws://surrealdb:8000
       - SURREAL_USER=root
       - SURREAL_PASS=root

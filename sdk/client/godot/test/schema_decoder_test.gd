@@ -1,50 +1,12 @@
-# Schema decoder smoke test for the Godot addon.
+# Schema decode smoke test for the Godot addon — driven through the
+# cyg-core-rs GDExtension (the GDScript OXS2 decoder was removed; ALL schema
+# decode lives in the Rust core, same as the web/Unity/Unreal SDKs).
 #
-#   godot --headless --path sdk/godot --editor --quit
-#   godot --headless --path sdk/godot -s res://test/schema_decoder_test.gd
+#   godot --headless --path sdk/client/godot -s res://test/schema_decoder_test.gd
 extends SceneTree
-
-const PLAYER_HASH := 0x11111111
-const ROOT_HASH := 0x22222222
 
 var checks := 0
 var failures := 0
-
-
-class Player extends CYGSchema.Entity:
-	var x: float = 0.0
-	var hp: int = 0
-	var tags: Array = []
-	var target = null
-
-	func set_field(field: int, value) -> void:
-		match field:
-			0:
-				x = float(value)
-			1:
-				hp = int(value)
-			2:
-				tags = value
-			3:
-				target = null if value == null else int(value)
-
-	func get_field(field: int):
-		match field:
-			0:
-				return x
-			1:
-				return hp
-			2:
-				return tags
-			3:
-				return target
-		return null
-
-	func clear_fields() -> void:
-		x = 0.0
-		hp = 0
-		tags = []
-		target = null
 
 
 class Buf:
@@ -61,170 +23,112 @@ class Buf:
 		u16(v & 0xffff)
 		u16((v >> 16) & 0xffff)
 
+	var _sp := StreamPeerBuffer.new()
+
 	func f64(v: float) -> void:
-		var at := bytes.size()
-		bytes.resize(at + 8)
-		bytes.encode_double(at, v)
-
-	func s16(v: String) -> void:
-		var raw := v.to_utf8_buffer()
-		u16(raw.size())
-		bytes.append_array(raw)
-
-	func magic() -> void:
-		bytes.append_array(PackedByteArray([79, 88, 83, 50]))
+		_sp.clear()
+		_sp.put_double(v)
+		bytes.append_array(_sp.data_array)
 
 
 func check(name: String, ok: bool) -> void:
 	checks += 1
-	if not ok:
+	if ok:
+		print("CHECK " + name)
+	else:
 		failures += 1
-	print(("CHECK " if ok else "FAIL  ") + name)
+		printerr("FAIL " + name)
 
 
-func add_field(b: Buf, name: String, code: int, flags: int, element: int) -> void:
-	b.s16(name)
-	b.u8(code)
-	b.u8(flags)
-	b.u8(element)
-
-
-func descriptor() -> PackedByteArray:
+## [OXS2][kind=5][hash u32][count u32](rows: [id varint][hp u32][x f64])…
+## The wire is bit-packed: `hp` is an exact 32-bit integer in the bit stream,
+## `x` is an f64 without a declared range, so it goes in the variable payload.
+func section_full(hash: int, rows: Array) -> PackedByteArray:
 	var b := Buf.new()
-	b.bytes.append_array(PackedByteArray([79, 88, 83, 68]))
-	b.u8(3)
-	b.u8(0)
-	b.u16(1)
-	b.s16("Player")
-	b.u32(1)
-	b.u32(PLAYER_HASH)
-	b.u16(4)
-	add_field(b, "x", 6, 0, 0)
-	add_field(b, "hp", 1, 0, 0)
-	add_field(b, "tags", 12, 0, 3)
-	add_field(b, "target", 3, 1, 0)
-	b.s16("State")
-	b.u32(1)
-	b.u32(ROOT_HASH)
-	b.u16(1)
-	add_field(b, "round", 2, 0, 0)
-	b.u16(1)
-	b.s16("players")
-	b.u16(0)
+	for m in [0x4F, 0x58, 0x53, 0x32]:  # "OXS2"
+		b.u8(m)
+	b.u8(5)
+	b.u32(hash)
+	b.u32(rows.size())
+	for row in rows:
+		b.u8(row[0])  # LEB128 id (ids below 128 are one byte)
+		b.u32(row[2]) # hp, 32 bits LSB-first == LE bytes
+		b.f64(row[1]) # x, variable payload
 	return b.bytes
 
 
-func row(s: Buf, id: int, x: float, hp: int, tags: Array, target) -> void:
-	s.u32(id)
-	s.f64(x)
-	s.u8(hp)
-	s.u8(tags.size())
-	for tag in tags:
-		s.u32(tag)
-	if target == null:
-		s.u8(0)
-	else:
-		s.u8(1)
-		s.u32(target)
-
-
-func section_full() -> PackedByteArray:
-	var s := Buf.new()
-	s.magic()
-	s.u8(1)
-	s.u32(PLAYER_HASH)
-	s.u32(2)
-	row(s, 1, 1.5, 10, [7, 9], 42)
-	row(s, 2, 3.5, 20, [], null)
-	return s.bytes
-
-
-func world_collection(f: Buf, id: int, hash: int, section: PackedByteArray) -> void:
-	f.u16(id)
-	f.u32(hash)
-	f.u32(section.size())
-	f.bytes.append_array(section)
-
-
-func world_full() -> PackedByteArray:
-	var f := Buf.new()
-	f.magic()
-	f.u8(3)
-	f.u32(ROOT_HASH)
-	f.u16(1)
-	f.u16(7)
-	f.u16(1)
-	world_collection(f, 0, PLAYER_HASH, section_full())
-	return f.bytes
-
-
-func world_patch() -> PackedByteArray:
-	var f := Buf.new()
-	f.magic()
-	f.u8(4)
-	f.u32(ROOT_HASH)
-	f.u16(1)
-	f.u32(1)
-	f.u16(8)
-
-	var p := Buf.new()
-	p.magic()
-	p.u8(2)
-	p.u32(PLAYER_HASH)
-	p.u32(2)
-	p.u8(3)
-	p.u32(1)
-	p.u32((1 << 0) | (1 << 3))
-	p.f64(9.5)
-	p.u8(0)
-	p.u8(2)
-	p.u32(2)
-	f.u16(1)
-	world_collection(f, 0, PLAYER_HASH, p.bytes)
-	return f.bytes
+## [your_id i64]["OXS2"]…[acked u16][tick u32] — the envelope the core unwraps.
+func envelope(your_id: int, section: PackedByteArray) -> PackedByteArray:
+	var out := PackedByteArray()
+	out.append(0xA5)
+	for c in "delta".to_ascii_buffer():
+		out.append(c)
+	for i in range(8):
+		out.append((your_id >> (8 * i)) & 0xFF)
+	out.append_array(section)
+	out.append(0)  # acked u16
+	out.append(0)
+	out.append(60)  # tick u32
+	out.append(0)
+	out.append(0)
+	out.append(0)
+	out.append(0)  # client_stamp u16
+	out.append(0)
+	return out
 
 
 func _initialize() -> void:
-	var registry := CYGSchema.Registry.new()
-	registry.register("Player", func(): return Player.new())
-
-	var state = CYGSchema.State.create_from_descriptor(descriptor(), registry)
-	check("descriptor parses", state != null)
-	if state == null:
+	if not ClassDB.class_exists("CygRoom"):
+		check("cyg-core GDExtension loaded", false)
+		print("checks=%d failures=%d" % [checks, failures])
 		quit(1)
 		return
-	check("bad descriptor rejected", CYGSchema.Descriptor.parse(PackedByteArray([79, 88, 83, 68, 9])) == null)
+	check("cyg-core GDExtension loaded", true)
 
-	var counters := {"adds": 0, "removes": 0, "changes": 0, "updates": 0, "root_changes": 0}
-	state.entity_added.connect(func(_name, _id, _entity): counters["adds"] += 1)
-	state.entity_removed.connect(func(_name, _id, _entity): counters["removes"] += 1)
-	state.field_changed.connect(func(_name, _id, _field, _value, _previous): counters["changes"] += 1)
-	state.entity_updated.connect(func(_name, _id, _entity): counters["updates"] += 1)
-	state.root_field_changed.connect(func(_field, _value, _previous): counters["root_changes"] += 1)
+	var core: Variant = CygRoom.new()
+	var schema := CYGSchemaDef.new("Player", 1).f64("x").u32("hp")
+	var descriptor: PackedByteArray = CYGSchemaDef.build_descriptor_v2("players", null, [{"name": "players", "schema": schema}])
+	check("descriptor built", descriptor.size() > 0)
+	check("descriptor loads in the core", core.load_descriptor(descriptor))
 
-	check("world full applies", state.apply(world_full()))
-	check("ready", state.ready)
-	check("added two", counters["adds"] == 2 and state.collection("players").order.size() == 2)
+	# The core's parsed metadata matches what was built.
+	check("schema count", int(core.schema_count()) == 1)
+	check("schema name", String(core.schema_name(0)) == "Player")
+	check("schema version", int(core.schema_version(0)) == 1)
+	check("schema field count", int(core.schema_field_count(0)) == 2)
+	check("schema field names",
+			String(core.schema_field_name(0, 0)) == "x" and String(core.schema_field_name(0, 1)) == "hp")
+	check("schema field kinds", int(core.schema_field_kind(0, 0)) == 7 and int(core.schema_field_kind(0, 1)) == 4)
+	var player_hash := int(core.schema_hash(0))
+	check("schema hash non-zero", player_hash != 0)
+	check("collection name", String(core.collection_name(0)) == "players")
+	check("not ready before a full snapshot", not core.ready())
 
-	var p1 = state.collection("players").find(1)
-	var p2 = state.collection("players").find(2)
-	check("typed row", p1 is Player and p1.x == 1.5 and p1.hp == 10)
-	check("array field", p1.tags.size() == 2 and p1.tags[1] == 9)
-	check("optional present", p1.target == 42)
-	check("optional absent", p2.target == null and p2.tags.is_empty())
-	check("root scalar", state.root_entity.get_field(0) == 7)
+	# A full snapshot: two entities. Applied with the [0xA5 "delta"] prefix
+	# the wire carries, so the core unwraps the whole envelope.
+	var full := section_full(player_hash, [[7, 100.5, 3], [9, -4.25, 0]])
+	var events := int(core.apply_payload(envelope(42, full)))
+	check("full snapshot applied", events >= 0)
+	check("ready after full snapshot", core.ready())
+	check("entity count", int(core.entity_count()) == 2)
+	check("entity ids ascending",
+			int(core.entity_id_at_in(0, 0)) == 7 and int(core.entity_id_at_in(0, 1)) == 9)
 
-	check("world patch applies", state.apply(world_patch()))
-	check("root patched", state.root_entity.get_field(0) == 8)
-	check("field updated", p1.x == 9.5 and p1.target == null)
-	check("entity removed", state.collection("players").find(2) == null)
-	check("events", counters["removes"] == 1 and counters["changes"] == 2
-		and counters["updates"] == 1 and counters["root_changes"] == 2)
+	var xi := int(core.field_index("x"))
+	var hi := int(core.field_index("hp"))
+	check("field indexes", xi == 0 and hi == 1)
+	check("f64 reads", absf(float(core.get_f64_in(0, 7, xi)) - 100.5) < 1e-9
+			and absf(float(core.get_f64_in(0, 9, xi)) - (-4.25)) < 1e-9)
+	check("u32 read through f64 view", float(core.get_f64_in(0, 7, hi)) == 3.0)
+	check("absent entity reads NaN", is_nan(float(core.get_f64_in(0, 123, xi))))
 
-	var bare = CYGSchema.State.create_from_descriptor(descriptor(), registry)
-	check("patch before full dropped", bare != null and not bare.apply(world_patch()))
-	check("truncated rejected", not state.apply(PackedByteArray([79, 88, 83, 50, 1, 0])))
-	check("foreign rejected", not state.apply(PackedByteArray([1, 2, 3, 4, 5])))
+	# Truncated/garbage frames are rejected without throwing.
+	check("garbage frame rejected", int(core.apply_payload(PackedByteArray([0xA5, 1, 2, 3]))) == -1)
+
+	# Schema-lane input encoding through the core: no Input schema declared,
+	# so encoding fails cleanly (empty bytes).
+	var packed: PackedByteArray = core.encode_schema_input(1, PackedInt64Array([1, 2]))
+	check("no Input schema → empty encode", packed == null or packed.size() == 0)
 
 	print("checks=%d failures=%d" % [checks, failures])
 	quit(1 if failures > 0 else 0)

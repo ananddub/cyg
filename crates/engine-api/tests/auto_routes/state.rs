@@ -22,9 +22,7 @@ pub fn state() -> engine_api::ApiState {
         seats: Arc::new(Mutex::new(engine_api::infra::seats::SeatRegistry::new(
             "test-secret",
         ))),
-        limiter: Arc::new(Mutex::new(
-            engine_api::infra::rate_limit::IpRateLimiter::new(20, 40),
-        )),
+        limiter: Arc::new(engine_api::infra::rate_limit::IpRateLimiter::new(20, 40)),
         port: 8124,
         status_rx: Arc::new(engine_api::OnceReceiver::new(bus.status_rx.clone())),
         latest_status: Arc::new(Mutex::new(None)),
@@ -41,6 +39,7 @@ pub fn state() -> engine_api::ApiState {
             engine_api::services::matchmake::chain::ChainTracker::default(),
         )),
         hooks: None,
+        dev_mode: false,
     }
 }
 #[tokio::test]

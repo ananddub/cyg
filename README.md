@@ -64,10 +64,9 @@ docker pull dubeyanand/cyg-gaming:v0.1.0
 **From source** (the server with embedded SurrealDB, the repo is mounted live):
 
 ```bash
-just up                 # start the stack with examples/sky3d
+just up games/my-game   # start the stack with a game project directory
 just status             # health of all containers
 # console: http://localhost:19224/dashboard/   (admin / change-me in dev)
-just game coin-rush     # run a different example
 just down
 ```
 
@@ -75,7 +74,7 @@ Local, without Docker:
 
 ```bash
 cargo build --release
-CYG_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg run examples/coin-rush
+CYG_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg run games/my-game
 # console  http://localhost:8124/dashboard/
 ```
 
@@ -166,6 +165,26 @@ export const Input = schema({
 ```
 
 Types: `t.number()/f64`, `f32`, `int8…int64`, `uint8…uint32`, `boolean`, `string`. Collections: `t.map(Entity)` (keyed), `t.array(Entity)` (ordered — chat log, bullet feed), `t.ref(Entity)` (entity reference). `.default(v)` works on primitives and strings. Reserved words cannot be field names; `Input` and `JoinOptions` are reserved (the input frame and the typed join options).
+
+#### Wire precision — `.range(min, max[, bits])`
+
+By default a field keeps its type's exact width: an integer travels in its own bits, a float
+travels raw. A float that does not need 32 bits can be quantized instead — you declare the range,
+the encoder picks the resolution:
+
+```ts
+export const Player = schema({
+    x:   t.number().range(-512, 512, 20),  // world position, 20 bits → ~1 mm
+    yaw: t.number().range(0, 360, 8),      // heading, 8 bits → 1.4° 
+    hp:  t.uint8(),                        // integer: already exact, no annotation needed
+}, "Player");
+```
+
+`bits` defaults to 16 and is capped at 32. The range travels in the descriptor, stamps into the
+schema's wire hash (a client that disagrees on precision gets a hash error, not silently wrong
+values), and only bumps the descriptor to v4 when a schema actually uses it — an unannotated
+schema still ships v3. Integer kinds stay exact: their code is `value - min`, so no scale factor
+can round 2147483647 down to 2147483648.
 
 `cyg run` (or `cyg schema`) compiles this into three artifacts:
 
@@ -752,7 +771,7 @@ cargo test --workspace              # engine crates + API suite
 (cd sdk/client/web && node test/schema.test.mjs && node test/signal.test.mjs \
   && node test/extras.test.mjs && node test/input.test.mjs)   # client SDK
 node tests/e2e/input_lane_e2e.mjs   # schema input lane, live server + real SDK
-just doctor sky3d                   # project-level health check
+just doctor games/my-game           # project-level health check
 ```
 
 ## Releases & SDKs
@@ -776,7 +795,7 @@ src/main.rs        the `cyg-game` CLI
 dashboard/         the web console (React, served by the binary at /dashboard/)
 sdk/client/        web (cyg.js) + Unity/Unreal/Godot/native players
 sdk/server/        AssemblyScript server SDK (cyg-server.ts — what pkg/ vendors)
-examples/          sky3d, blaster, coin-rush, orbioo-agario, tank-3d — complete runnable games
+games/             your game projects (one folder per game, each with a config.toml)
 docs/site/         the landing + A-to-Z guide this README condenses
 docs/screenshots/  console captures used by this README
 deploy/            Dockerfile + compose for the game container

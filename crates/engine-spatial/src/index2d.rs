@@ -29,7 +29,14 @@ impl SpatialIndex2D {
     }
 
     pub fn remove(&mut self, entity_id: u32, pos: [f64; 2]) {
-        self.tree.remove(&pos, entity_id);
+        // Prefer the tracked position: a guest-supplied coordinate may drift
+        // from where the entity actually lives, and forgetting to pop
+        // `last_pos` would leave a stale entry behind the next upsert.
+        if let Some(last) = self.last_pos.remove(&entity_id) {
+            self.tree.remove(&last, entity_id);
+        } else {
+            self.tree.remove(&pos, entity_id);
+        }
     }
 
     pub fn upsert(&mut self, entity_id: u32, pos: [f64; 2]) {

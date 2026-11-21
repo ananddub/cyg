@@ -1,5 +1,5 @@
 use crate::host::*;
-use engine_api::infra::signaling::SignalIn;
+use engine_signaling::SignalIn;
 
 impl<'a> Engine<'a> {
     pub(crate) fn pump_signals(&mut self) {
@@ -17,7 +17,7 @@ impl<'a> Engine<'a> {
                         Ok(answer) => {
                             hub.publish(
                                 &seat.id,
-                                engine_api::infra::signaling::SignalOut::Answer { sdp: answer },
+                                engine_signaling::SignalOut::Answer { sdp: answer },
                             );
                             tracing::info!(
                                 "[server] ⚡ WebRTC offer accepted for seat {} (room '{}'), SDP answer returned",
@@ -28,7 +28,7 @@ impl<'a> Engine<'a> {
                         Err(e) => {
                             hub.publish(
                                 &seat.id,
-                                engine_api::infra::signaling::SignalOut::Error { message: e },
+                                engine_signaling::SignalOut::Error { message: e },
                             );
                         }
                     }
@@ -45,9 +45,22 @@ impl<'a> Engine<'a> {
                             "[server] ⚠️ seat {} candidate error: {e} ({candidate})",
                             seat.id
                         );
+                        hub.publish(
+                            &seat.id,
+                            engine_signaling::SignalOut::Error {
+                                message: format!("candidate rejected: {e}"),
+                            },
+                        );
                     }
                 }
-                SignalIn::Close { seat } => {
+                SignalIn::Close { seat, attach_id } => {
+                    if !hub.is_attached(&seat.id, attach_id) {
+                        tracing::debug!(
+                            "[server] ignoring stale close for seat {} (attach {attach_id} no longer current)",
+                            seat.id
+                        );
+                        continue;
+                    }
                     tracing::info!("[server] signaling socket closed for seat {}", seat.id);
                     let _ =
                         self.transport

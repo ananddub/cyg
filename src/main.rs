@@ -471,7 +471,7 @@ USAGE:
   cyg schema [dir] --dump     compile schema.ts and print the descriptor as hex
   cyg schema [dir] --json     compile schema.ts and print a machine-readable report
   cyg schema        [dir]    compile schema.ts to server code + browser descriptor
-  cyg schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|all)
+  cyg schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|ts|all)
   cyg schema-debug [path]    inspect a compiled descriptor (--json)
   cyg doctor       [dir]    validate config, schema, wasm ABI exports and secrets
   cyg doctor --check-schema report pending SurrealDB schema migrations
@@ -564,7 +564,7 @@ fn schema_codegen_command(args: &[String]) {
             "--check" => check = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: cyg schema-codegen [dir] [--lang <cs|gdscript|cpp|lua|all>] [--out DIR] [--check]\n\
+                    "usage: cyg schema-codegen [dir] [--lang <cs|gdscript|cpp|lua|ts|all>] [--out DIR] [--check]\n\
                      \x20 --lang    target language; defaults to all\n\
                      \x20 --out     output directory; defaults to <dir>/generated\n\
                      \x20 --check   fail if generated files are missing or stale (CI)"
@@ -1160,12 +1160,34 @@ fn run(dir: &Path) -> std::io::Result<()> {
 
     // Optional raw-UDP + pinned 128 Hz sim plane. Gated by CYG_PLANES=1 so the
     // WS/WebRTC flow is untouched by default.
+    // One lifecycle/thread authority for the whole process. The host loop is
+    // the main thread (it cannot be joined), so it is registered here and every
+    // auxiliary thread is adopted below.
+    let manager = engine_manager::ServerManager::new(std::time::Duration::from_secs(
+        cfg.lifecycle.drain_grace_secs,
+    ));
+    manager.set_thread_join_grace(std::time::Duration::from_secs(
+        cfg.lifecycle.thread_join_grace_secs,
+    ));
+    manager.register_thread(engine_manager::ThreadRole::Host, "cyg-host");
+
     let mut plane_cfg = engine_server::plane::PlaneConfig::from_env(&project_dir);
     plane_cfg.wasm_path = wasm_path.clone();
     if plane_cfg.enabled {
         let udp_addr = plane_cfg.udp_addr.clone();
-        match engine_server::plane::spawn_sim_plane(bus.clone(), plane_cfg) {
-            Ok(_) => tracing::info!("[main] 🧵 sim plane spawned (CYG_PLANES=1, udp {udp_addr})"),
+        match engine_server::plane::spawn_sim_plane(
+            bus.clone(),
+            plane_cfg,
+            manager.stop_flag(),
+        ) {
+            Ok(handle) => {
+                manager.adopt_thread(
+                    engine_manager::ThreadRole::SimPlane,
+                    "cyg-sim",
+                    handle,
+                );
+                tracing::info!("[main] 🧵 sim plane spawned (CYG_PLANES=1, udp {udp_addr})");
+            }
             Err(e) => tracing::error!("[main] ✖ sim plane spawn failed: {e}"),
         }
     }
@@ -1175,7 +1197,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
     // port clash is reported here rather than swallowing the game loop.
     // Held for the whole run — dropping it closes every HTTP and socket.
     let _control = if cfg.control.enabled {
-        match engine_control::spawn(&project_dir, &cfg, &cfg.control, bus.clone()) {
+        match engine_control::spawn(&project_dir, &cfg, &cfg.control, bus.clone(), manager.clone()) {
             Ok(plane) => {
                 tracing::info!(
                     "[main] 🏛️  control plane on http://{}:{} (matchmake, /ws/signal, /status, statics)",
@@ -1211,7 +1233,14 @@ fn run(dir: &Path) -> std::io::Result<()> {
         signals,
         boot_maps,
         boot_module,
+        manager.clone(),
     );
+    // The host loop has stopped and joined its adopted threads. Retire the
+    // control plane through the same authority so no thread outlives it.
+    if let Some(plane) = _control {
+        plane.shutdown();
+    }
+    manager.join_threads();
     #[cfg(feature = "dhat")]
     {
         // dropping the profiler flushes dhat-heap.json

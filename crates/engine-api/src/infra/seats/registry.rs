@@ -5,7 +5,7 @@ use engine_config::Rotation;
 use hmac::Hmac;
 use sha2::Sha256;
 
-use super::token::{MAX_OUTSTANDING_SEATS, MAX_TTL_DRIFT_SECS, Seat};
+use super::{MAX_OUTSTANDING_SEATS, MAX_TTL_DRIFT_SECS, Seat};
 
 pub(super) type HmacSha256 = Hmac<Sha256>;
 

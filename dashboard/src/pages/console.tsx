@@ -225,7 +225,7 @@ function GameConsole({
   onNavigate: (to: ConsoleRoute) => void
   onLogout: () => void
 }) {
-  // In multi-game OpenOxide, every registered game on this server is hosted!
+  // In multi-game CYG, every registered game on this server is hosted!
   const identity = useIdentityQuery()
   const hosted = true
   const data = useDashboardData(gameId, hosted)
@@ -297,6 +297,7 @@ function GameConsole({
             sectionLabel={area.label}
             gameName={game?.name}
             showFeed={hosted}
+            serverPhase={data.overview?.serverPhase}
           />
           <ThemeToggle />
         </div>

@@ -59,7 +59,10 @@ impl<'a> Engine<'a> {
         }
         let raw_room_str = self.transport.room_of(client_id);
         let raw_room = raw_room_str.as_deref().unwrap_or(&self.cfg.name);
-        let is_spectator = raw_room.contains("spectator");
+        // Explicit spectator opt-in: a room name suffixed `@spectate`. The
+        // substring check it replaces classified any room whose *name*
+        // contained "spectator" — a client-chosen string — as a spectator.
+        let is_spectator = raw_room.ends_with("@spectate");
         let is_ecs = raw_room.contains("ecs");
         let room_name = sanitize_room_name(raw_room);
         let join_options = self.transport.options_of(client_id).unwrap_or_default();
@@ -93,7 +96,7 @@ impl<'a> Engine<'a> {
                 }
             }
         };
-        room.empty_since = None;
+        room.lifecycle.empty_since = None;
 
         self.connected_create(client_id, room_name, is_spectator, &join_options)
     }
@@ -118,7 +121,7 @@ impl<'a> Engine<'a> {
             room.max_clients_override = variant.max_clients;
             room.persistent_override = variant.persistent.unwrap_or(false);
         }
-        room.empty_since = None;
+        room.lifecycle.empty_since = None;
 
         if is_spectator {
             room.spectators.insert(std::rc::Rc::from(client_id));

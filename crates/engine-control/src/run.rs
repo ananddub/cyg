@@ -53,11 +53,17 @@ pub fn spawn(
     game: &GameConfig,
     control: &ControlConfig,
     bus: Arc<Bus>,
+    manager: Arc<engine_manager::ServerManager>,
 ) -> std::io::Result<ControlPlane> {
     refuse_default_secrets(game, control)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(control.workers.max(1))
-        .thread_name("ox-control")
+        .thread_name("cyg-control")
+        // SurrealDB 4's bytecode query executor recurses deeper than 3.x —
+        // the 2 MiB default overflowed during the boot migrations on a
+        // fresh store. 16 MiB keeps the executor and nested serde decoding
+        // comfortably inside the guard page.
+        .thread_stack_size(16 * 1024 * 1024)
         .enable_all()
         .build()?;
 
@@ -84,6 +90,9 @@ pub fn spawn(
     let port = listener.local_addr()?.port();
 
     let state = runtime.block_on(ApiState::new(project_dir, game, control, bus, port));
+    // Let the HTTP surface fail joins fast while the host is booting or
+    // draining, using the same authority the host loop drives.
+    engine_api::install_lifecycle(manager.clone());
 
     runtime.spawn(serve(listener, state.clone(), shutdown_signal()));
 
@@ -116,7 +125,10 @@ pub fn spawn(
     runtime.spawn(pump_events(state.clone()));
     runtime.spawn(sweep_match_history(state.clone()));
 
-    crate::agones::spawn(&state);
+    // The control plane is a managed process thread group: register it with the
+    // lifecycle so the same authority that owns the host loop also owns this.
+    manager.register_thread(engine_manager::ThreadRole::Control, "cyg-control");
+    crate::agones::spawn(&state, &manager);
 
     {
         let state = state.clone();
@@ -142,5 +154,6 @@ pub fn spawn(
         port,
         boot_maps,
         boot_module,
+        manager,
     })
 }

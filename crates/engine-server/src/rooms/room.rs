@@ -7,6 +7,26 @@ use std::collections::VecDeque;
 /// these short keys.
 pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
 pub(crate) type HashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
+
+/// Pre-sizes a per-room map for the room's client cap. These maps grow one
+/// join at a time and are touched on every input frame and tick; starting at
+/// full capacity removes the incremental rehash churn from the join path that
+/// shows up as tail spikes at 4000+ CCU. The hint is a floor, not a limit:
+/// oversized or unbounded variants just keep growing as before.
+pub(crate) fn session_map<V>(max_clients: i32) -> HashMap<std::rc::Rc<str>, V> {
+    HashMap::with_capacity_and_hasher(
+        max_clients.max(0) as usize,
+        rustc_hash::FxBuildHasher::default(),
+    )
+}
+
+/// Same hint for the per-player-id maps (`seqs`, `entries`).
+pub(crate) fn player_map<V>(max_clients: i32) -> HashMap<i64, V> {
+    HashMap::with_capacity_and_hasher(
+        max_clients.max(0) as usize,
+        rustc_hash::FxBuildHasher::default(),
+    )
+}
 use std::time::{Duration, Instant};
 
 use engine_nav::nav2d::NavMesh2D;
@@ -24,8 +44,6 @@ pub struct GameRoom {
     pub(crate) sessions: HashMap<std::rc::Rc<str>, i64>,
     pub(crate) spectators: HashSet<std::rc::Rc<str>>,
     pub(crate) next_player_id: i64,
-    pub(crate) empty_since: Option<Instant>,
-    pub(crate) born: Instant,
     pub(crate) current_tick: u64,
     pub(crate) rollback_buffer: engine_wasm::RollbackRingBuffer,
     /// Config gate (`[features] voice`): false drops voice packets at the door.
@@ -40,7 +58,6 @@ pub struct GameRoom {
     pub(crate) event_seq: u16,
     pub(crate) delta_seq: u16,
     pub(crate) schema_sent: HashSet<std::rc::Rc<str>>,
-    pub(crate) pending_leaves: HashMap<std::rc::Rc<str>, (i64, Instant)>,
     pub(crate) patch_skipped: bool,
     pub(crate) last_patch_at: Option<Instant>,
     /// Set once the guest answers `on_patch_due`: the guest then gates its own
@@ -60,14 +77,31 @@ pub struct GameRoom {
     /// Input-coalesce staging: newest frame per player id, flushed as one
     /// `on_input` call per player at the next tick. Empty unless
     /// `input_coalesce` is on.
-    pub(crate) input_inbox: Vec<(i64, [u8; 20])>,
+    pub(crate) input_inbox: Vec<(i64, Vec<u8>)>,
     /// Config gate (`input_coalesce`): stage inputs for tick-time batch
     /// delivery instead of calling the guest per arriving frame.
     pub(crate) input_coalesce: bool,
+    /// Per-field input domains (Colyseus `sanitize` map form) applied IN
+    /// PLACE to every 20-byte frame before any consumer — guest, journal,
+    /// rollback replay — reads it. Starts at the standard frame's defaults;
+    /// the room's `Input` schema overrides land via `set_input_domains`.
+    pub(crate) input_domains: engine_schema::InputDomainMap,
+    /// Hold-last idle synthesis: per-player id, the LAST guest-ready frame
+    /// the seat sent (20-byte mesh payload or the schema lane's app frame).
+    /// Empty-tick sessions get this frame re-delivered while connected (see
+    /// `synthesize_idle_inputs`).
+    pub(crate) last_input: HashMap<i64, Vec<u8>>,
+    /// Player ids that sent at least one input since the last tick — keeps
+    /// idle synthesis from double-delivering a frame the tick already got.
+    pub(crate) inputs_since_tick: HashSet<i64>,
+    /// Room-configurable idle policy: HOLD-LAST gated on connection liveness
+    /// (default), or plain SKIP (`false`) — the strict fixed-timestep
+    /// behaviour where an empty tick simply runs no input.
+    pub(crate) idle_input_hold: bool,
     /// Tick-stagger phase slot this room simulates in (assigned round-robin
     /// at creation). Ignored when staggering is off.
     pub(crate) tick_phase: u32,
-    pub(crate) state: engine_bus::RoomPhase,
+    pub(crate) lifecycle: engine_manager::RoomLifecycle,
     pub(crate) snapshot_seq: u64,
     pub(crate) result: Option<bytes::Bytes>,
     /// Join options per player id — the JSON the client passed to
@@ -98,6 +132,9 @@ pub(crate) struct PlayerEntry {
 pub(crate) struct SessionSeqs {
     pub(crate) input: u16,
     pub(crate) acked_event: u16,
+    /// Last client RTT stamp echoed back on the delta tail (Phase D RTT
+    /// echo). 0 = never stamped (old clients).
+    pub(crate) stamp: u16,
 }
 
 pub(crate) struct JournalInput {

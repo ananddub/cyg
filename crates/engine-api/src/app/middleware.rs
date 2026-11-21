@@ -1,4 +1,6 @@
-use axum::extract::FromRequestParts;
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use axum::response::IntoResponse;
@@ -38,6 +40,12 @@ impl<S: Send + Sync> FromRequestParts<S> for Authed {
     type Rejection = V2Error;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        // `player_rate_limit` verifies every request that carries a session
+        // token while picking its bucket; reuse that instead of paying for a
+        // second JWT check per handler.
+        if let Some(authed) = parts.extensions.get::<Authed>() {
+            return Ok(authed.clone());
+        }
         Ok(Authed(session_claims(
             &parts.headers,
             &crate::current_state(),
@@ -94,7 +102,7 @@ pub fn server_key_or_console(headers: &HeaderMap, state: &crate::ApiState) -> Re
     if server_key(headers, state).is_ok() {
         return Ok(());
     }
-    console_claims(headers).map(|_| ())
+    console_claims(headers, state, crate::current_remote()).map(|_| ())
 }
 
 fn parse_basic_user(value: &str) -> Option<String> {
@@ -139,16 +147,33 @@ impl<S: Send + Sync> FromRequestParts<S> for ConsoleAuthed {
     type Rejection = V2Error;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(ConsoleAuthed(console_claims(&parts.headers)?))
+        Ok(ConsoleAuthed(console_claims(
+            &parts.headers,
+            &crate::current_state(),
+            remote_addr(parts),
+        )?))
     }
 }
 
-pub fn console_claims(headers: &HeaderMap) -> Result<ConsoleClaims, V2Error> {
+/// The address the request arrived from, when the server tracks it.
+pub fn remote_addr(parts: &Parts) -> Option<SocketAddr> {
+    parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|connect| connect.0)
+}
+
+pub fn console_claims(
+    headers: &HeaderMap,
+    state: &crate::ApiState,
+    remote: Option<SocketAddr>,
+) -> Result<ConsoleClaims, V2Error> {
     // `cyg run -d`: the operator asked for a local session. Making them log in
-    // to their own machine is a loop with no secret in it — the boot guard has
-    // already refused any bind another host could reach, so there is nothing on
-    // the other end of this request but the person who started the process.
-    if dev_console() {
+    // to their own machine is a loop with no secret in it — but the grant is
+    // only safe when the request really comes from this machine: the flag was
+    // resolved once at boot and the source address must be loopback, so a
+    // misconfigured bind cannot hand admin to a remote peer.
+    if dev_admin(state, remote) {
         return Ok(ConsoleClaims {
             id: String::new(),
             username: "dev".into(),
@@ -166,13 +191,11 @@ pub fn console_claims(headers: &HeaderMap) -> Result<ConsoleClaims, V2Error> {
     console_token_claims(token)
 }
 
-/// Whether this process is an explicitly-started local development session.
-///
-/// `cyg run -d` publishes this before the server starts (see
-/// `engine_control::runtime_mode`). It is read from the environment so this
-/// crate does not have to depend on the control plane just to ask a yes/no.
-fn dev_console() -> bool {
-    std::env::var("CYG_DEV_MODE").as_deref() == Ok("1")
+/// Whether this request may ride the dev-session admin grant: the process was
+/// started with `cyg run -d` (resolved once at boot into the API state) and the
+/// request arrived over the loopback interface.
+fn dev_admin(state: &crate::ApiState, remote: Option<SocketAddr>) -> bool {
+    state.dev_mode && remote.is_some_and(|addr| addr.ip().is_loopback())
 }
 
 /// Browsers cannot set an `Authorization` header on a WebSocket handshake, so
@@ -189,7 +212,7 @@ pub fn console_token_claims(token: &str) -> Result<ConsoleClaims, V2Error> {
 /// The account a request speaks for. A token that verifies as neither a player
 /// session nor an unexempted operator is the handler's problem, not the
 /// limiter's: it answers with the refusal its own route already gives.
-fn bucketed(headers: &HeaderMap, state: &crate::ApiState) -> Option<Uuid> {
+fn bucketed(headers: &HeaderMap, state: &crate::ApiState, remote: Option<SocketAddr>) -> Option<Uuid> {
     if auth_headers(headers) != 1 {
         return None;
     }
@@ -199,34 +222,140 @@ fn bucketed(headers: &HeaderMap, state: &crate::ApiState) -> Option<Uuid> {
     if state.control.quotas.exempt_console {
         return None;
     }
-    console_claims(headers).ok()?.uuid()
+    console_claims(headers, state, remote).ok()?.uuid()
+}
+
+/// Paths whose handler runs Argon2 (or an equivalent password check) per call.
+/// Each attempt is expensive for the server and silent for the attacker, so
+/// they draw from a tighter per-address bucket than the rest of the plane.
+fn password_path(path: &str) -> bool {
+    path.starts_with("/v2/account/authenticate") || path.starts_with("/v2/console/authenticate")
+}
+
+/// Matchmake routes charge the same per-address bucket inside
+/// `MatchmakeService::reserve` (direct callers and the seat tests rely on it).
+/// Charging here too would take two tokens per HTTP join, so the outer bucket
+/// leaves these to the service.
+fn matchmake_path(path: &str) -> bool {
+    path.starts_with("/matchmake/") || path.starts_with("/api/matchmake/")
+}
+
+/// Paths that take work from a player. Health, readyz, status, dashboard and
+/// statics stay reachable while the host is still booting or draining, so an
+/// operator can see *why* the server is not taking joins.
+fn work_path(path: &str) -> bool {
+    path.starts_with("/matchmake/")
+        || path.starts_with("/api/matchmake/")
+        || path == "/ws"
+        || path == "/ws/signal"
+}
+
+/// Don't accept work until start-up is complete, and stop accepting it once a
+/// drain begins. This is the application-level version of a readiness gate:
+/// bind early, serve probes, but fail joins fast with a retryable 503 instead
+/// of queueing them behind a booting/draining host.
+pub async fn lifecycle_gate(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if !work_path(request.uri().path()) {
+        return next.run(request).await;
+    }
+    if let Some(manager) = crate::app::state::lifecycle::manager()
+        && !manager.is_serving()
+    {
+        let phase = manager.phase();
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            [(axum::http::header::RETRY_AFTER, "1")],
+            axum::body::Body::from(format!("server is {}; retry shortly", phase.as_str())),
+        )
+            .into_response();
+    }
+    next.run(request).await
+}
+
+/// The outer per-address bucket, applied to every route before any other
+/// check: unauthenticated traffic has no account to bucket, so the source
+/// address is the only thing the limiter can charge. The general plane bucket
+/// is the operator's configured `rate_limit_rps`/`rate_limit_burst`; the
+/// password routes above draw from a much tighter one.
+pub async fn ip_rate_limit(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let state = crate::current_state();
+    let Some(remote) = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|connect| connect.0)
+    else {
+        return next.run(request).await;
+    };
+    let ip = remote.ip();
+    let path = request.uri().path();
+    if matchmake_path(path) {
+        return next.run(request).await;
+    }
+    if password_path(path) {
+        if !state.limiter.allow_auth(ip) {
+            let secs = state.limiter.retry_after_auth(ip).max(1);
+            return V2Error::resource_exhausted(
+                "Too many sign-in attempts from this address; slow down.",
+            )
+            .with_retry_after(secs)
+            .into_response();
+        }
+        return next.run(request).await;
+    }
+    if !state.limiter.allow(ip) {
+        let secs = state.limiter.retry_after(ip).max(1);
+        return V2Error::resource_exhausted("This address is asking too quickly.")
+            .with_retry_after(secs)
+            .into_response();
+    }
+    next.run(request).await
 }
 
 /// The per-account request bucket, applied to the whole plane instead of to the
 /// expensive handlers one by one. Off with the quotas.
 pub async fn player_rate_limit(
-    request: axum::extract::Request,
+    mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let state = crate::current_state();
     if !state.control.quotas.enabled {
         return next.run(request).await;
     }
-    if let Some(refusal) = rate_refusal(&state, request.headers()) {
+    // One verification per request: the claims the bucket decision needed are
+    // stashed here so the `Authed` extractor does not verify the token again.
+    let claims = session_claims(request.headers(), &state).ok();
+    if let Some(claims) = claims.clone() {
+        request.extensions_mut().insert(Authed(claims));
+    }
+    if let Some(refusal) = rate_refusal(&state, request.headers(), claims.as_ref()) {
         return refusal.into_response();
     }
     next.run(request).await
 }
 
 /// `None` means the request goes through — either it has tokens left or it is
-/// not the limiter's to judge.
-fn rate_refusal(state: &crate::ApiState, headers: &HeaderMap) -> Option<V2Error> {
-    let uid = bucketed(headers, state)?;
-    let mut limiter = state.limiter.lock().ok()?;
-    if limiter.allow_player(uid) {
+/// not the limiter's to judge. `verified` carries the session claims already
+/// checked by `player_rate_limit`, if any.
+fn rate_refusal(
+    state: &crate::ApiState,
+    headers: &HeaderMap,
+    verified: Option<&crate::infra::jwt::Claims>,
+) -> Option<V2Error> {
+    let uid = match verified.and_then(|claims| claims.uuid().ok()) {
+        Some(uid) => Some(uid),
+        None => bucketed(headers, state, crate::current_remote()),
+    };
+    let uid = uid?;
+    if state.limiter.allow_player(uid) {
         return None;
     }
-    let secs = limiter.retry_after_player(uid).max(1);
+    let secs = state.limiter.retry_after_player(uid).max(1);
     Some(V2Error::resource_exhausted("This account is asking too quickly.").with_retry_after(secs))
 }
 

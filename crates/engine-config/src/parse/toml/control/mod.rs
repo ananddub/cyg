@@ -19,6 +19,9 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = c.get("bind_addr").and_then(|v| v.as_str()) {
         cfg.control.bind_addr = v.to_string();
     }
+    if let Some(v) = c.get("dev_mode").and_then(|v| v.as_bool()) {
+        cfg.control.dev_mode = v;
+    }
     if let Some(v) = num("api_port") {
         cfg.control.api_port = v as u16;
     }

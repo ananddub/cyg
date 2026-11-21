@@ -29,13 +29,8 @@ impl StatusService {
             .lock()
             .map(|r| (r.refused(), r.seat_bound()))
             .unwrap_or((0, 0));
-        let (limit_allowed, limit_denied) =
-            state.limiter.lock().map(|l| l.counts()).unwrap_or((0, 0));
-        let (limit_squeezed, limit_swept) = state
-            .limiter
-            .lock()
-            .map(|l| (l.squeezed(), l.swept()))
-            .unwrap_or((0, 0));
+        let (limit_allowed, limit_denied) = state.limiter.counts();
+        let (limit_squeezed, limit_swept) = (state.limiter.squeezed(), state.limiter.swept());
         let (signals_delivered, signals_dropped) = state.signals.counts();
 
         Json(json!({
@@ -59,7 +54,7 @@ impl StatusService {
                 "denied": limit_denied,
                 "squeezed": limit_squeezed,
                 "swept": limit_swept,
-                "tracked": state.limiter.lock().map(|l| l.tracked()).unwrap_or(0),
+                "tracked": state.limiter.tracked(),
                 "rps": state.control.rate_limit_rps,
                 "burst": state.control.rate_limit_burst,
             },

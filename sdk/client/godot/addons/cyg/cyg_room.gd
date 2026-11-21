@@ -91,7 +91,7 @@ var tick_origin_ms := -1.0
 var input_seq := 0
 var event_seq := 0
 
-## Recording (`oxr-v1`).
+## Recording (`cyg-replay-1`).
 var recording := false
 var record_start_time := 0.0
 var recorded_frames: Array = []
@@ -121,6 +121,13 @@ var _schema_error := ""
 var _is_triggering := false
 var _entity_callbacks: Dictionary = {}  # entity -> { fields: {}, any: [] }
 var _schema_callbacks: CYGSchemaCallbacks = null
+
+## cyg-core-rs GDExtension instance — ALL schema decode lives there (the
+## GDScript OXS2 decoder was removed; the addon builds its typed mirror from
+## the extension's schema metadata and re-diffs the core state per frame).
+var _core: Variant = null
+var _core_attached := false
+var _pending_schema: Array = []
 
 var _on_add_handlers: Array[Callable] = []
 var _on_remove_handlers: Array[Callable] = []
@@ -467,7 +474,7 @@ func _process_delta_payload(raw: PackedByteArray) -> void:
 		time_sync.add_sample(arrival, float(tick))
 		tick_origin_ms = time_sync.tick_origin_ms
 		clock_offset_ms = time_sync.clock_offset_ms(arrival)
-		_apply_schema(payload.slice(8, tail))
+		_apply_schema_via_core(raw)
 		return
 
 	var legacy_acked := -1
@@ -974,35 +981,95 @@ func use_descriptor(bytes: PackedByteArray) -> CYGRoom:
 	return self
 
 
+## All schema decode happens in cyg-core-rs (the GDExtension): the host's
+## "OXSD" descriptor frame builds the core room (load_descriptor), and every
+## schema delta is applied with apply_payload. This file only re-diffs the
+## core's state into CYGSchemaEntity objects and fires the Colyseus-style
+## signals — the GDScript OXS2 decoder that used to live here was removed.
+
 func _attach_descriptor(bytes: PackedByteArray) -> void:
-	var parsed := CYGSchemaDef.parse_descriptor(bytes)
-	var collections: Array = parsed.get("collections", [])
-	if parsed.is_empty() or collections.is_empty():
+	if _core_attached:
+		return
+	_core_attached = true
+	if not ClassDB.class_exists("CygRoom"):
+		_fail_schema("[CYG] cyg-core GDExtension not loaded — build sdk/client/godot/cyg-godot and ship libcyg_godot.so (see GDExtension-README.md)")
+		return
+	var core: Variant = CygRoom.new()
+	if not core.load_descriptor(bytes):
 		_fail_schema("[CYG] invalid schema descriptor from server")
 		return
+	_core = core
+	_build_schema_mirror()
+	var queued: Array = _pending_schema
+	_pending_schema = []
+	for payload in queued:
+		_apply_schema_via_core(payload)
+
+
+const _CORE_KIND_TO_TYPE: Array = [
+	"u8", "i8", "u16", "i16", "u32", "i32", "f32", "f64", "bool", "i64",
+	"string", "array",
+]
+
+
+## Mirror the core's parsed descriptor into CYGSchemaDef objects (same
+## name/version/fields/hash) so the public `schema` / `state` surface and
+## CYGSchemaCallbacks keep working unchanged.
+func _build_schema_mirror() -> void:
+	var core: Variant = _core
+	var schemas: Array = []
+	for i in range(core.schema_count()):
+		var def := CYGSchemaDef.new(String(core.schema_name(i)), int(core.schema_version(i)))
+		for f in range(core.schema_field_count(i)):
+			var type_name: String = _CORE_KIND_TO_TYPE[int(core.schema_field_kind(i, f))]
+			var element := ""
+			var element_kind := int(core.schema_field_element_kind(i, f))
+			if element_kind > 0:
+				element = _CORE_KIND_TO_TYPE[element_kind]
+			def._add(String(core.schema_field_name(i, f)), type_name,
+				int(core.schema_field_flags(i, f)), element)
+		def.hash = int(core.schema_hash(i))
+		schemas.append(def)
+
+	var collections: Array = []
+	for c in range(core.collection_count()):
+		var hash := int(core.collection_schema_hash(c))
+		var collection_schema: CYGSchemaDef = null
+		for def in schemas:
+			if def.hash == hash:
+				collection_schema = def
+				break
+		if collection_schema == null:
+			_fail_schema("[CYG] collection '%s' has no matching schema" % String(core.collection_name(c)))
+			return
+		collections.append({"name": String(core.collection_name(c)), "schema": collection_schema})
+
 	var first: Dictionary = collections[0]
-	schemas = parsed["schemas"]
-	_root_collection = first["name"]
-	_root_scalars = parsed.get("root_scalars")
-
-	if schema != null and collections.size() == 1 and _root_scalars == null \
-			and schema.hash == (first["schema"] as CYGSchemaDef).hash:
-		schema = first["schema"]
-		state._name = first["name"]
-		state._schema = first["schema"]
-		_collection_maps = {first["name"]: state}
-		_collections = [{"id": 0, "name": first["name"], "map": state, "schema": first["schema"]}]
-		return
-
 	var old_callbacks: Dictionary = _entity_callbacks.get(state, {})
+
+	# Root scalars (kind-3/4 world frames).
+	var root_field_count := int(core.root_field_count())
+	var root_scalars: CYGSchemaDef = null
+	if root_field_count > 0:
+		var root_name := String(core.root_schema_name())
+		root_scalars = CYGSchemaDef.new(root_name if not root_name.is_empty() else "State",
+			int(core.root_schema_version()))
+		for f in range(root_field_count):
+			root_scalars._add(String(core.root_field_name(f)),
+				_CORE_KIND_TO_TYPE[int(core.root_field_kind(f))])
+		root_scalars.hash = 0  # the root hash is checked inside the core
+
 	schema = first["schema"]
+	schemas = schemas
+	_root_collection = first["name"]
+	_root_scalars = root_scalars
 	state = CYGSchemaMap.new(self, first["name"], first["schema"])
 	_entity_callbacks = {}
 	_collection_maps = {}
 	_collections = []
 	_root_values = {}
-	if _root_scalars != null:
-		for field in _root_scalars.fields:
+	if root_scalars != null:
+		for field in root_scalars.fields:
 			_root_values[field["name"]] = _schema_default_value(field)
 		_track_entity(state)
 		if not old_callbacks.is_empty():
@@ -1018,6 +1085,213 @@ func _attach_descriptor(bytes: PackedByteArray) -> void:
 	_schema_ready = false
 	_schema_acked = false
 	_schema_error = ""
+
+
+## Apply one schema delta through the core and re-diff the JS… GDScript state.
+## `raw` still carries the [0xA5 "delta"] prefix (the core unwraps it).
+func _apply_schema_via_core(raw: PackedByteArray) -> void:
+	if _core == null:
+		# Extension still loading/attaching: buffer; the host keeps
+		# re-sending the full snapshot until we ack, so nothing is lost.
+		if _pending_schema.size() < 512:
+			_pending_schema.append(raw)
+		return
+	var core: Variant = _core
+	# Frame layout after the [0xA5 "delta"] prefix: [id i64]["OXS2"][kind][…]
+	var has_prefix := (raw.size() >= 3 and int(raw[0]) == 0xA5 \
+			and int(raw[1]) == 0x64 and int(raw[2]) == 0x65) \
+			or (raw.size() >= 4 and int(raw[0]) == 0x11 and int(raw[1]) == 0xA5 \
+			and int(raw[2]) == 0x64 and int(raw[3]) == 0x65)
+	var payload := raw
+	if not has_prefix:
+		# The fragment-reassembled lane can hand us a body without the tag.
+		payload = PackedByteArray([0xA5, 0x64, 0x65, 0x6C, 0x74, 0x61])
+		payload.append_array(raw)
+	var kind := 0
+	var oxs2 := 15 if int(payload[0]) == 0x11 else 14  # the WS opcode prepends one byte
+	if payload.size() > oxs2 + 5 \
+			and int(payload[oxs2]) == int(CYGCodec.SCHEMA_MAGIC[0]) \
+			and int(payload[oxs2 + 1]) == int(CYGCodec.SCHEMA_MAGIC[1]) \
+			and int(payload[oxs2 + 2]) == int(CYGCodec.SCHEMA_MAGIC[2]) \
+			and int(payload[oxs2 + 3]) == int(CYGCodec.SCHEMA_MAGIC[3]):
+		kind = int(payload[oxs2 + 4])
+	var events := int(core.apply_payload(payload))
+	if events < 0:
+		_fail_schema("[CYG] bad schema frame (rejected by cyg-core)")
+		return
+	if kind == 5 or kind == 7:
+		# Every packed full keyframe is acknowledged: a forced full (patch-rate
+		# recovery, reconnect) needs its own baseline ack.
+		_schema_ready = true
+		_ack_schema()
+	if events > 0 or _schema_ready:
+		# events == 0 before the baseline means "patch ignored until the
+		# full snapshot lands" — the host keeps resending it, so do not emit.
+		_hydrate_from_core()
+		schema_applied.emit(kind)
+		_emit("schema", [{"kind": kind, "state": state}])
+		_emit_state_change()
+
+
+## Direct-apply path (tests and offline clients): one bare OXS2 section,
+## without the [0xA5 "delta"] wire envelope.
+func _apply_schema(section: PackedByteArray) -> void:
+	var payload := PackedByteArray([0xA5, 0x64, 0x65, 0x6C, 0x74, 0x61])
+	for i in range(8):
+		payload.append(0)  # your_id i64
+	payload.append_array(section)
+	payload.append(0)  # acked u16
+	payload.append(0)
+	payload.append(0)  # tick u32
+	payload.append(0)
+	payload.append(0)
+	payload.append(0)
+	_apply_schema_via_core(payload)
+
+
+## Re-diff the core's decoded state into the CYGSchemaMap/entities.
+func _hydrate_from_core() -> void:
+	if _core == null:
+		return
+	var core: Variant = _core
+	for c in range(_collections.size()):
+		if c >= int(core.collection_count()):
+			break
+		var entry: Dictionary = _collections[c]
+		_hydrate_collection(core, c, entry["map"], entry["schema"])
+	var scalars := _root_scalars
+	if scalars != null:
+		for f in range(scalars.fields.size()):
+			var field: Dictionary = scalars.fields[f]
+			var value: Variant = _read_root_scalar(core, f, field)
+			var previous_value: Variant = _root_values.get(field["name"])
+			if _schema_value_equals(previous_value, value):
+				continue
+			_root_values[field["name"]] = value
+			_fire_field_change(state, field["name"], value, previous_value)
+
+
+func _hydrate_collection(core: Variant, ci: int, map: CYGSchemaMap,
+		schema_def: CYGSchemaDef) -> void:
+	var incoming: Dictionary = {}
+	var ids: Array = []
+	for i in range(int(core.entity_count_in(ci))):
+		var id := int(core.entity_id_at_in(ci, i))
+		ids.append(id)
+		var fields := {}
+		for fi in range(schema_def.fields.size()):
+			var field: Dictionary = schema_def.fields[fi]
+			fields[field["name"]] = _read_core_field(core, ci, id, field, fi)
+		incoming[id] = fields
+	for id in map.ids().duplicate():
+		if not incoming.has(id):
+			var removed: CYGSchemaEntity = map.get_entity(id)
+			map.erase_entity(id)
+			_fire_remove(map, removed, id)
+	for id in ids:
+		var fields: Dictionary = incoming[id]
+		var existing: CYGSchemaEntity = map.get_entity(id)
+		if existing == null:
+			var entity := CYGSchemaEntity.new(id, fields, self)
+			map.set_entity(id, entity)
+			_track_entity(entity)
+			_fire_add(map, entity, id)
+			continue
+		var changed := false
+		for fi in range(schema_def.fields.size()):
+			var field: Dictionary = schema_def.fields[fi]
+			var field_name := String(field["name"])
+			var value: Variant = fields[field_name]
+			var previous_value: Variant = existing.get_field(field_name)
+			if _schema_value_equals(previous_value, value):
+				continue
+			existing.set_field(field_name, value)
+			_fire_field_change(existing, field_name, value, previous_value)
+			changed = true
+		if changed:
+			_fire_update(map, existing, id)
+	map._ready = true
+
+
+## One typed field read from the core (schema field order == value order).
+func _read_core_field(core: Variant, ci: int, id: int, field: Dictionary,
+		index: int) -> Variant:
+	match String(field["type"]):
+		"string":
+			return String(core.get_string_in(ci, id, index))
+		"bool":
+			var b := int(core.get_bool_in(ci, id, index))
+			return false if b < 0 else b == 1
+		"i64":
+			return int(core.get_f64_in(ci, id, index))
+		"array":
+			# Arrays decode in the core; the GDExtension surface does not
+			# expose element reads yet, so hydrate as empty.
+			return []
+		_:
+			var v := float(core.get_f64_in(ci, id, index))
+			if is_nan(v):
+				return null if bool(field["optional"]) else 0
+			return v
+
+
+func _read_root_scalar(core: Variant, index: int, field: Dictionary) -> Variant:
+	match String(field["type"]):
+		"string":
+			return String(core.get_root_string(index))
+		"bool":
+			var b := int(core.get_root_bool(index))
+			return false if b < 0 else b == 1
+		"array":
+			return []
+		_:
+			var v := float(core.get_root_f64(index))
+			return 0 if is_nan(v) else v
+
+
+func _schema_default_value(field: Dictionary) -> Variant:
+	if bool(field["optional"]):
+		return null
+	match String(field["type"]):
+		"string":
+			return ""
+		"array":
+			return []
+		"bool":
+			return false
+		_:
+			return 0
+
+
+func _schema_value_equals(a: Variant, b: Variant) -> bool:
+	var type_a := typeof(a)
+	var type_b := typeof(b)
+	var a_numeric := type_a == TYPE_INT or type_a == TYPE_FLOAT
+	var b_numeric := type_b == TYPE_INT or type_b == TYPE_FLOAT
+	if a_numeric and b_numeric:
+		if is_nan(float(a)) and is_nan(float(b)):
+			return true
+		return float(a) == float(b)
+	if type_a != type_b:
+		return false
+	if type_a == TYPE_ARRAY:
+		var left: Array = a
+		var right: Array = b
+		if left.size() != right.size():
+			return false
+		for i in range(left.size()):
+			if not _schema_value_equals(left[i], right[i]):
+				return false
+		return true
+	return a == b
+
+
+func _ack_schema() -> void:
+	_schema_acked = true
+	send("__ox_schema_ready")
+
+
+## ------------------------------------------------------------- reconnect
 
 
 func _callbacks() -> CYGSchemaCallbacks:
@@ -1164,327 +1438,6 @@ func _fail_schema(message: String) -> bool:
 	return false
 
 
-func _read_schema_element(reader: CYGCodec.Reader, type_name: String) -> Variant:
-	match type_name:
-		"u8":
-			return reader.read_u8()
-		"i8":
-			return reader.read_i8()
-		"u16":
-			return reader.read_u16()
-		"i16":
-			return reader.read_s16()
-		"u32":
-			return reader.read_u32()
-		"i32":
-			return reader.read_s32()
-		"f32":
-			return reader.read_f32()
-		"f64":
-			return reader.read_f64()
-		"bool":
-			return 1 if reader.read_u8() != 0 else 0
-		_:
-			reader.skip(1)
-			return 0
-
-
-func _read_schema_field(reader: CYGCodec.Reader, field: Dictionary) -> Variant:
-	if bool(field["optional"]):
-		var present := reader.read_u8() != 0
-		if not present:
-			return null
-	var type_name := String(field["type"])
-	if type_name == "string":
-		var length := reader.read_u8()
-		return reader.read_bytes(length).get_string_from_utf8()
-	if type_name == "array":
-		var count := reader.read_u8()
-		var values: Array = []
-		for i in range(count):
-			values.append(_read_schema_element(reader, String(field["element"])))
-		return values
-	match type_name:
-		"u8":
-			return reader.read_u8()
-		"i8":
-			return reader.read_i8()
-		"u16":
-			return reader.read_u16()
-		"i16":
-			return reader.read_s16()
-		"u32":
-			return reader.read_u32()
-		"i32":
-			return reader.read_s32()
-		"f32":
-			return reader.read_f32()
-		"f64":
-			return reader.read_f64()
-		"bool":
-			return reader.read_u8() != 0
-		"i64":
-			return reader.read_i64()
-		_:
-			reader.skip(int(field["size"]))
-			return 0
-
-
-func _schema_default_value(field: Dictionary) -> Variant:
-	if bool(field["optional"]):
-		return null
-	match String(field["type"]):
-		"string":
-			return ""
-		"array":
-			return []
-		"bool":
-			return false
-		_:
-			return 0
-
-
-func _schema_value_equals(a: Variant, b: Variant) -> bool:
-	var type_a := typeof(a)
-	var type_b := typeof(b)
-	var a_numeric := type_a == TYPE_INT or type_a == TYPE_FLOAT
-	var b_numeric := type_b == TYPE_INT or type_b == TYPE_FLOAT
-	if a_numeric and b_numeric:
-		if is_nan(float(a)) and is_nan(float(b)):
-			return true
-		return float(a) == float(b)
-	if type_a != type_b:
-		return false
-	if type_a == TYPE_ARRAY:
-		var left: Array = a
-		var right: Array = b
-		if left.size() != right.size():
-			return false
-		for i in range(left.size()):
-			if not _schema_value_equals(left[i], right[i]):
-				return false
-		return true
-	return a == b
-
-
-func _decode_entity(reader: CYGCodec.Reader, id: int,
-		schema_def: CYGSchemaDef) -> CYGSchemaEntity:
-	var fields := {}
-	for field in schema_def.fields:
-		fields[field["name"]] = _read_schema_field(reader, field)
-	return CYGSchemaEntity.new(id, fields, self)
-
-
-func _apply_schema(section: PackedByteArray) -> void:
-	if schema == null or _collections.is_empty():
-		return
-	var kind := int(section[4]) if section.size() > 4 else -1
-	var applied := _apply_schema_frame(section)
-	if not applied:
-		return
-	schema_applied.emit(kind)
-	_emit("schema", [{"kind": kind, "state": state}])
-	_emit_state_change()
-
-
-func _apply_schema_frame(section: PackedByteArray) -> bool:
-	if section.size() < 5:
-		return false
-	for i in range(4):
-		if int(section[i]) != int(CYGCodec.SCHEMA_MAGIC[i]):
-			return false
-	var kind := int(section[4])
-	if kind == 1 or kind == 2:
-		if _collections.is_empty():
-			return false
-		var entry: Dictionary = _collections[0]
-		if not _apply_collection_section(entry["map"], entry["schema"], section, kind):
-			return false
-		if kind == 1:
-			entry["map"]._ready = true
-			_schema_ready = true
-			_ack_schema()
-		return true
-	if kind == 3 or kind == 4:
-		return _apply_world_section(section, kind)
-	_fail_schema("[CYG] unknown schema frame kind %d" % kind)
-	return false
-
-
-func _ack_schema() -> void:
-	_schema_acked = true
-	send("__ox_schema_ready")
-
-
-## Apply a kind-1 full or kind-2 patch section to one collection.
-func _apply_collection_section(map: CYGSchemaMap, schema_def: CYGSchemaDef,
-		section: PackedByteArray, kind: int) -> bool:
-	if section.size() < 13:
-		return _fail_schema("[CYG] truncated schema section")
-	for i in range(4):
-		if int(section[i]) != int(CYGCodec.SCHEMA_MAGIC[i]):
-			return _fail_schema("[CYG] schema section magic mismatch")
-	var reader := CYGCodec.Reader.new(section)
-	reader.offset = 5
-	var hash := reader.read_u32()
-	if hash != schema_def.hash:
-		return _fail_schema("[CYG] schema hash mismatch: server %x client %x" % [hash, schema_def.hash])
-	if kind == 2 and not map._ready:
-		return false
-
-	var count := reader.read_u32()
-	reader.offset = 13
-
-	if kind == 1:
-		# Reconcile instead of clear+rebuild: identity, onRemove and field
-		# listeners must survive a reconnect full snapshot.
-		var incoming: Array = []
-		for i in range(count):
-			var id := reader.read_u32()
-			var entity := _decode_entity(reader, id, schema_def)
-			if not reader.ok:
-				return _fail_schema("[CYG] truncated schema section")
-			incoming.append([id, entity])
-		var incoming_ids := {}
-		for pair in incoming:
-			incoming_ids[pair[0]] = true
-		for id in map.ids().duplicate():
-			if not incoming_ids.has(id):
-				var removed: CYGSchemaEntity = map.get_entity(id)
-				map.erase_entity(id)
-				_fire_remove(map, removed, id)
-		for pair in incoming:
-			var id: int = pair[0]
-			var entity: CYGSchemaEntity = pair[1]
-			var existing: CYGSchemaEntity = map.get_entity(id)
-			if existing == null:
-				map.set_entity(id, entity)
-				_track_entity(entity)
-				_fire_add(map, entity, id)
-				continue
-			var changed := false
-			for field in schema_def.fields:
-				var field_name := String(field["name"])
-				var value: Variant = entity.get_field(field_name)
-				var previous_value: Variant = existing.get_field(field_name)
-				if _schema_value_equals(previous_value, value):
-					continue
-				existing.set_field(field_name, value)
-				_fire_field_change(existing, field_name, value, previous_value)
-				changed = true
-			if changed:
-				_fire_update(map, existing, id)
-		map._ready = true
-		return true
-
-	for i in range(count):
-		var op := reader.read_u8()
-		if op == 1:  # ADD
-			var id := reader.read_u32()
-			var entity := _decode_entity(reader, id, schema_def)
-			if not reader.ok:
-				return _fail_schema("[CYG] truncated schema add")
-			map.set_entity(id, entity)
-			_track_entity(entity)
-			_fire_add(map, entity, id)
-		elif op == 2:  # REMOVE
-			var id := reader.read_u32()
-			var entity: CYGSchemaEntity = map.get_entity(id)
-			if entity != null:
-				map.erase_entity(id)
-				_fire_remove(map, entity, id)
-		elif op == 3:  # UPDATE
-			var id := reader.read_u32()
-			var mask := reader.read_u32()
-			var entity: CYGSchemaEntity = map.get_entity(id)
-			var changed := false
-			for f in range(schema_def.fields.size()):
-				if (mask & (1 << f)) == 0:
-					continue
-				var field: Dictionary = schema_def.fields[f]
-				var value: Variant = _read_schema_field(reader, field)
-				if not reader.ok:
-					return _fail_schema("[CYG] truncated schema update")
-				if entity != null:
-					var field_name := String(field["name"])
-					var previous_value: Variant = entity.get_field(field_name)
-					entity.set_field(field_name, value)
-					if not _schema_value_equals(previous_value, value):
-						_fire_field_change(entity, field_name, value, previous_value)
-						changed = true
-			if changed and entity != null:
-				_fire_update(map, entity, id)
-		else:
-			return _fail_schema("[CYG] unknown schema op %d" % op)
-	map._ready = true
-	return true
-
-
-## Apply a kind-3 full or kind-4 patch multi-collection world frame.
-func _apply_world_section(section: PackedByteArray, kind: int) -> bool:
-	if section.size() < 11:
-		return _fail_schema("[CYG] truncated schema world header")
-	if kind == 4 and not _schema_ready:
-		return false
-
-	var reader := CYGCodec.Reader.new(section)
-	reader.offset = 5
-	var root_hash := reader.read_u32()
-	var root_count := reader.read_u16()
-	var scalars := _root_scalars
-	var expected := scalars.fields.size() if scalars != null else 0
-	if root_count != expected:
-		return _fail_schema("[CYG] root field count mismatch: server %d client %d" % [root_count, expected])
-	if scalars != null and root_hash != scalars.hash:
-		return _fail_schema("[CYG] root schema hash mismatch: server %x client %x" % [root_hash, scalars.hash])
-
-	var mask := 0
-	if kind == 4:
-		mask = reader.read_u32()
-	for f in range(root_count):
-		if kind == 4 and (mask & (1 << f)) == 0:
-			continue
-		var field: Dictionary = scalars.fields[f]
-		var value: Variant = _read_schema_field(reader, field)
-		if not reader.ok:
-			return _fail_schema("[CYG] truncated root scalar")
-		var field_name := String(field["name"])
-		var previous_value: Variant = _root_values.get(field_name)
-		_root_values[field_name] = value
-		if not _schema_value_equals(previous_value, value):
-			_fire_field_change(state, field_name, value, previous_value)
-
-	var count := reader.read_u16()
-	for i in range(count):
-		if reader.offset + 10 > section.size():
-			return _fail_schema("[CYG] truncated collection header")
-		var id := reader.read_u16()
-		var hash := reader.read_u32()
-		var length := reader.read_u32()
-		if reader.offset + length > section.size():
-			return _fail_schema("[CYG] truncated collection section")
-		if id >= _collections.size():
-			return _fail_schema("[CYG] unknown collection id %d" % id)
-		var entry: Dictionary = _collections[id]
-		var entry_schema: CYGSchemaDef = entry["schema"]
-		if entry_schema.hash != hash:
-			return _fail_schema("[CYG] collection '%s' schema hash mismatch: server %x client %x"
-				% [entry["name"], hash, entry_schema.hash])
-		var collection_section := reader.read_bytes(length)
-		if not _apply_collection_section(entry["map"], entry_schema, collection_section,
-				1 if kind == 3 else 2):
-			return false
-		if kind == 3:
-			entry["map"]._ready = true
-	if reader.offset != section.size():
-		return _fail_schema("[CYG] trailing bytes in schema world section")
-
-	if kind == 3:
-		_schema_ready = true
-		_ack_schema()
-	return true
-
-
 ## ------------------------------------------------------------- reconnect
 
 func _maybe_auto_reconnect(code: int, reason: String) -> void:
@@ -1595,7 +1548,7 @@ func start_recording() -> void:
 func stop_recording() -> Dictionary:
 	recording = false
 	return {
-		"format": "oxr-v1",
+		"format": "cyg-replay-1",
 		"room": room_name,
 		"recordedAt": Time.get_datetime_string_from_system(true),
 		"durationMs": int(round(_now_ms() - record_start_time)),

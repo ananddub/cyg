@@ -194,19 +194,33 @@ impl Queries {
         let now = Utc::now();
         let game_id = self.account_game_id(user_id).await?;
         const GUARD: &str = "array::all(object::keys($result), |$c| ((wallet[$c] ?? 0) = $base[$c]) AND $result[$c] >= 0)";
-        let rows: Vec<Users> = self
+        // SurrealDB 4.0 defaults transactions to SNAPSHOT isolation, which
+        // does NOT re-validate the wallet guard at commit: two concurrent
+        // changes both read `wallet = base`, both guards pass against their
+        // snapshots, and the loser's ledger row double-counts a balance the
+        // guard was supposed to reject. So the CAS is a single UPDATE whose
+        // WHERE is evaluated against the record being written, the ledger
+        // INSERT only fires when that UPDATE actually matched (LET + IF),
+        // and the transaction keeps the pair atomic. A concurrent writer
+        // still trips the write-write conflict at commit and comes back as
+        // Ok(None) — the caller re-reads the balance and retries.
+        // The transaction's own rows are not needed: the follow-up ledger
+        // SELECT below decides whether the guarded write actually landed.
+        let _rows: Vec<Users> = self
             .db
             .query_transaction(
                 &format!(
                     "BEGIN TRANSACTION; \
-                     INSERT INTO wallet_ledger ( \
-                         SELECT type::record('wallet_ledger', <uuid>$ledger) AS id, \
-                                $user AS user_id, $changeset AS changeset, $metadata AS metadata, \
-                                $now AS create_time, $now AS update_time, $game_id AS game_id \
-                         FROM type::record('users', <uuid>$id) WHERE {GUARD}) RETURN NONE; \
-                     UPDATE type::record('users', <uuid>$id) \
+                     LET $written = UPDATE type::record('users', <uuid>$id) \
                          SET wallet = object::extend(wallet, $result), update_time = $update_time \
                          WHERE {GUARD} RETURN AFTER; \
+                     IF array::len($written) > 0 {{ \
+                         INSERT INTO wallet_ledger ( \
+                             SELECT type::record('wallet_ledger', <uuid>$ledger) AS id, \
+                                    $user AS user_id, $changeset AS changeset, $metadata AS metadata, \
+                                    $now AS create_time, $now AS update_time, $game_id AS game_id \
+                             FROM type::record('users', <uuid>$id)) RETURN NONE; \
+                     }}; \
                      COMMIT TRANSACTION;"
                 ),
                 &params!(

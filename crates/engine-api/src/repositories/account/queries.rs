@@ -81,10 +81,14 @@ impl Queries {
     /// tombstone, as a single transaction: a half-erased GDPR deletion is no
     /// deletion at all. `room_persistent_snapshot` is deliberately untouched —
     /// it is keyed by room, not by user, so it is not this account's data.
+    ///
+    /// SurrealDB 4.0 defaults transactions to SNAPSHOT isolation, so rows
+    /// written for the user concurrently (a login inserting a `user_device`)
+    /// after the snapshot are invisible to the predicate deletes. The erase
+    /// re-runs until a post-commit residual check comes back empty: rows that
+    /// slipped past one pass are caught by the next.
     pub async fn delete_account(&self, id: Uuid) -> Result<(), DbError> {
-        self.datastore()
-            .query_transaction::<serde_json::Value>(
-                "BEGIN TRANSACTION; \
+        const ERASE_TXN: &str = "BEGIN TRANSACTION; \
                  DELETE user_device WHERE user_id = $id; \
                  DELETE message WHERE sender_id = $id OR stream_subject = $id OR stream_descriptor = $id; \
                  DELETE notification WHERE user_id = $id; \
@@ -102,14 +106,43 @@ impl Queries {
                  DELETE leaderboard_record WHERE owner_id = $id; \
                  UPSERT type::record('user_tombstone', <uuid>$id) SET user_id = <uuid>$id, create_time = $now; \
                  DELETE type::record('users', <uuid>$id); \
-                 COMMIT",
-                &params!(
-                    id = id.to_string(),
-                    now = time::encode(chrono::Utc::now()),
-                ),
-            )
-            .await?;
+                 COMMIT";
+        for _ in 0..3 {
+            self.datastore()
+                .query_transaction::<serde_json::Value>(
+                    ERASE_TXN,
+                    &params!(
+                        id = id.to_string(),
+                        now = time::encode(chrono::Utc::now()),
+                    ),
+                )
+                .await?;
+            if self.account_residuals(id).await? == 0 {
+                return Ok(());
+            }
+        }
+        tracing::warn!("[db] account erase for {id} still sees residual rows after 3 passes");
         Ok(())
+    }
+
+    /// Sentinel row count across the tables most likely to receive concurrent
+    /// writes (login device rows, wallet ledger entries, notifications).
+    async fn account_residuals(&self, id: Uuid) -> Result<u64, DbError> {
+        let mut total = 0u64;
+        for table in ["user_device", "wallet_ledger", "notification"] {
+            let rows: Vec<u64> = self
+                .datastore()
+                .query_params(
+                    "SELECT VALUE count() FROM type::table($table) WHERE user_id = $id",
+                    &params!(
+                        table = table.to_string(),
+                        id = id.to_string(),
+                    ),
+                )
+                .await?;
+            total += rows.first().copied().unwrap_or(0);
+        }
+        Ok(total)
     }
 
     pub async fn create_tombstone(&self, user_id: Uuid) -> Result<(), DbError> {

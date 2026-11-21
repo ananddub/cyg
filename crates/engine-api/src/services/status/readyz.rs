@@ -34,13 +34,25 @@ impl StatusService {
             None => (database_ok, "not configured".to_owned()),
         };
         let pump_ok = state.status_rx.is_taken();
-        let ready = database_ok && schema_ok && pump_ok;
+        // A pod is not ready until the host has published a `Ready`/`Allocated`
+        // lifecycle phase. No snapshot yet means the host is still booting.
+        let (phase, lifecycle_ok) = match state
+            .latest_status
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+        {
+            Some(snap) => (snap.server_phase, snap.server_phase.is_serving()),
+            None => (engine_bus::ServerPhase::Booting, false),
+        };
+        let ready = database_ok && schema_ok && pump_ok && lifecycle_ok;
         let body = json!({
             "status": if ready { "ready" } else { "unready" },
             "checks": {
                 "database": database,
                 "schema": schema,
                 "pump": if pump_ok { "running" } else { "not running" },
+                "lifecycle": phase.as_str(),
             },
         });
         let status = if ready {

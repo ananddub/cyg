@@ -49,7 +49,7 @@ pub(super) fn v2_state() -> ApiState {
         game: Arc::new(GameConfig::default()),
         bus: bus.clone(),
         seats: Arc::new(Mutex::new(SeatRegistry::new(DEV_SEAT_SECRET))),
-        limiter: Arc::new(Mutex::new(IpRateLimiter::new(1000, 1000))),
+        limiter: Arc::new(IpRateLimiter::new(1000, 1000)),
         signals: SignalHub::new("[]".to_string()),
         statics: Arc::new(StaticServer::new(
             std::path::Path::new("."),
@@ -66,6 +66,7 @@ pub(super) fn v2_state() -> ApiState {
         sessions: Arc::new(SessionCache::new(60, 3600)),
         chain: Default::default(),
         hooks: None,
+        dev_mode: false,
     }
 }
 

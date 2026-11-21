@@ -36,11 +36,11 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::BAD_REQUEST,
-        "drafting a rule with an unknown operator",
+        "drafting a between rule without a [low, high] pair",
     )
     .await;
     assert!(
-        message.starts_with("Invalid rule body at op:"),
+        message.starts_with("Invalid rule body at value:"),
         "the refusal names the exact field: {message}"
     );
 

@@ -46,7 +46,7 @@ impl<'a> Engine<'a> {
             match msg {
                 Inbound::Input {
                     seq,
-                    payload,
+                    mut payload,
                     resupplied,
                 } => {
                     self.rates.note_input(&client_id);
@@ -70,7 +70,7 @@ impl<'a> Engine<'a> {
                         &client_id,
                         id,
                         seq,
-                        &payload,
+                        &mut payload,
                     )
                     .is_err()
                     {

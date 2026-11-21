@@ -49,7 +49,7 @@ impl<'a> Engine<'a> {
         };
         if let Some(seat) = seat_before {
             if !room.sessions.contains_key(&*client_id)
-                && !room.pending_leaves.contains_key(&*client_id)
+                && !room.lifecycle.pending_leaves.contains_key(&*client_id)
             {
                 history.bridge_seat(&room_name, seat, None);
             }

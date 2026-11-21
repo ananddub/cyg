@@ -53,7 +53,7 @@ impl VoicePacket {
         buf.freeze()
     }
 
-    pub fn decode(bytes: &Bytes) -> Result<Self, VoicePacketError> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, VoicePacketError> {
         if bytes.len() < HEADER_LEN {
             return Err(VoicePacketError::BufferTooShort {
                 expected: HEADER_LEN,
@@ -81,7 +81,7 @@ impl VoicePacket {
             });
         }
 
-        let payload = bytes.slice(HEADER_LEN..HEADER_LEN + payload_len);
+        let payload = Bytes::copy_from_slice(&bytes[HEADER_LEN..HEADER_LEN + payload_len]);
 
         Ok(Self {
             speaker_id,

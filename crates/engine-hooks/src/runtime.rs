@@ -5,10 +5,18 @@
 //! reach the database, the network or the filesystem, and a bug in customer code
 //! cannot corrupt a room's state because it shares none.
 
-use engine_wasm::{WasmError, WasmRuntime};
+use std::time::Duration;
+
+use engine_wasm::{EpochTicker, WasmConfig, WasmError, WasmRuntime};
 use wasmtime::{Caller, Linker, Module};
 
 use crate::event::{HookEvent, HookInput, HookOutput};
+
+/// Hook watchdog: the epoch ticker advances every 100 ms and a hook is cut
+/// off after 10 ticks (1 s) — without it a `loop {}` in customer code would
+/// hang the thread calling the hook forever.
+const HOOK_EPOCH_PERIOD: Duration = Duration::from_millis(100);
+const HOOK_EPOCH_DEADLINE_TICKS: u64 = 10;
 
 #[derive(Debug, thiserror::Error)]
 pub enum HookError {
@@ -46,6 +54,8 @@ pub struct HookRunner {
     max_bytes: usize,
     /// Whether any hook export was found when the module loaded.
     exports: Vec<HookEvent>,
+    /// Drives the epoch clock the hook deadline counts against.
+    _ticker: EpochTicker,
 }
 
 /// Host data handed to the guest: the request bytes and where to put the answer.
@@ -66,7 +76,13 @@ impl HookRunner {
     /// A module that exports nothing is refused: silently accepting it would
     /// leave an operator believing their hooks run when none are wired.
     pub fn load(wasm_bytes: &[u8], max_bytes: usize) -> Result<Self, HookError> {
-        let runtime = WasmRuntime::new().map_err(|e| HookError::Load(e.to_string()))?;
+        let runtime = WasmRuntime::new_with_config(WasmConfig {
+            enable_epoch_interruption: true,
+            epoch_deadline_ticks: Some(HOOK_EPOCH_DEADLINE_TICKS),
+            ..WasmConfig::default()
+        })
+        .map_err(|e| HookError::Load(e.to_string()))?;
+        let ticker = runtime.spawn_epoch_ticker(HOOK_EPOCH_PERIOD);
         let module = runtime
             .compile(wasm_bytes)
             .map_err(|e: WasmError| HookError::Load(e.to_string()))?;
@@ -86,6 +102,7 @@ impl HookRunner {
             module,
             max_bytes,
             exports,
+            _ticker: ticker,
         })
     }
 
@@ -148,6 +165,11 @@ impl HookRunner {
                     if len < 0 {
                         return;
                     }
+                    // Reject an oversized length before allocating: the guest
+                    // reports it, so it must not size a host allocation.
+                    if len as usize > caller.data().output_capacity {
+                        return;
+                    }
                     let mem = match caller.get_export("memory").and_then(|e| e.into_memory()) {
                         Some(m) => m,
                         None => return,
@@ -160,23 +182,29 @@ impl HookRunner {
                 },
             )
             .map_err(|e| HookError::Load(e.to_string()))?;
+        // An epoch deadline cut the guest off — the module has a runaway loop,
+        // which is precisely the Timeout case the watchdog exists to report.
+        let call_err = |hook: &'static str, e: WasmError| {
+            if e.is_interrupt() {
+                HookError::Timeout { hook }
+            } else {
+                HookError::Call {
+                    hook,
+                    message: e.to_string(),
+                }
+            }
+        };
         let mut instance = self
             .runtime
             .instantiate(&linker, &self.module, host)
-            .map_err(|e| HookError::Call {
-                hook,
-                message: e.to_string(),
-            })?;
+            .map_err(|e| call_err(hook, e))?;
 
         // The guest reads its arguments through these exports and writes its
         // answer back through the rest. A guest without them cannot be handed an
         // event, which is a load-time problem reported here as a call failure.
         let len = instance
             .call::<(), i32>("hook_input_len", ())
-            .map_err(|e| HookError::Call {
-                hook,
-                message: format!("hook_input_len: {e}"),
-            })?;
+            .map_err(|e| call_err(hook, e))?;
         if len < 0 || len as usize > encoded.len() {
             return Err(HookError::Call {
                 hook,
@@ -186,17 +214,11 @@ impl HookRunner {
 
         instance
             .call::<(), ()>(hook, ())
-            .map_err(|e| HookError::Call {
-                hook,
-                message: e.to_string(),
-            })?;
+            .map_err(|e| call_err(hook, e))?;
 
         let out_len = instance
             .call::<(), i32>("hook_output_len", ())
-            .map_err(|e| HookError::Call {
-                hook,
-                message: format!("hook_output_len: {e}"),
-            })?;
+            .map_err(|e| call_err(hook, e))?;
         if out_len < 0 || out_len as usize > self.max_bytes {
             return Err(HookError::Call {
                 hook,

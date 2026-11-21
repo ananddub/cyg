@@ -18,6 +18,9 @@ pub struct Overview {
     pub agones: serde_json::Value,
     pub has_sim_sample: bool,
     pub sample_age_ms: u64,
+    /// The process lifecycle phase from `engine-manager`: booting, ready,
+    /// allocated, draining, or shutdown.
+    pub server_phase: engine_bus::ServerPhase,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]

@@ -1,5 +1,6 @@
 use super::{DESCRIPTOR_MAGIC, DESCRIPTOR_VERSION, Reader};
 use crate::model::{RootCollection, RootState, SchemaDef, SchemaField};
+use crate::encoding::{FieldEncoding, default_encoding};
 use crate::wire::WireKind;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +24,16 @@ fn read_descriptor_field(r: &mut Reader<'_>, version: u8) -> Option<SchemaField>
             element = Some(WireKind::from_code(element_code)?);
         }
     }
+    let mut encoding = default_encoding(kind);
+    if version >= 4 {
+        let packed = r.u8()?;
+        let min = f32::from_bits(r.u32()?);
+        let max = f32::from_bits(r.u32()?);
+        encoding = FieldEncoding::range(packed & 0x7F, min, max);
+        if packed & 0x80 != 0 {
+            encoding = encoding.as_integer();
+        }
+    }
     Some(SchemaField {
         name,
         kind,
@@ -31,6 +42,7 @@ fn read_descriptor_field(r: &mut Reader<'_>, version: u8) -> Option<SchemaField>
         flags,
         source_type: kind.typescript_type().to_string(),
         default: None,
+        encoding,
         line: 0,
         column: 0,
     })

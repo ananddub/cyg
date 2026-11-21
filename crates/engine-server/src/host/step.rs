@@ -54,7 +54,8 @@ impl<'a> Engine<'a> {
             self.cfg,
             &mut self.clock.tick_interval,
         );
-        self.transport.flush().expect("flush");
+        // Single flush pass per step, errors propagated instead of aborted on.
+        self.transport.flush()?;
         Ok(false)
     }
 
@@ -63,21 +64,27 @@ impl<'a> Engine<'a> {
             return Ok(false);
         }
         let now = Instant::now();
-        if self.drain.begin(now) {
+        if self.manager.begin_drain(now) {
             tracing::info!(
-                "[server] 🛑 drain requested: {} room(s) get {:?} to finish and leave",
+                "[server] 🛑 drain requested (server {}): {} room(s) get {:?} to finish and leave",
+                self.manager.phase().display(),
                 self.server.rooms.len(),
-                self.drain.grace
+                self.manager.grace()
             );
             announce_closure(&self.server, &mut self.transport);
         }
-        if self.drain.expired(Instant::now()) {
+        if self.manager.drain_expired(Instant::now()) {
             drain_rooms(
                 &mut self.server,
                 &mut self.transport,
                 &self.bus,
                 self.cfg,
                 &self.game_id,
+            );
+            self.manager.finish();
+            tracing::info!(
+                "[server] ✅ lifecycle {}: rooms closed, leaving",
+                self.manager.phase().display()
             );
             return Ok(true);
         }
@@ -110,7 +117,9 @@ impl<'a> Engine<'a> {
         };
         if let Err(e) = self.transport.poll_events(wait, &mut self.scratch.events) {
             if e.kind() != std::io::ErrorKind::Interrupted {
-                panic!("poll: {e}");
+                // A transient poll error must not abort the process
+                // (panic = "abort" release builds): log and continue the loop.
+                tracing::warn!("[server] poll error: {e}");
             }
         }
     }

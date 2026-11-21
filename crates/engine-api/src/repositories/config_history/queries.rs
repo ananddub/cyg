@@ -64,22 +64,40 @@ impl Queries {
     }
 
     /// Marks one version active and retires the rest in one transaction.
+    /// SurrealDB 4.0's SNAPSHOT default can let two concurrent activations of
+    /// DIFFERENT versions both commit when no currently-active rows existed
+    /// to conflict on — so a post-commit single-active check re-runs the
+    /// transaction until it holds.
     pub async fn activate_config_version(
         &self,
         game_id: Uuid,
         version: i64,
     ) -> Result<(), DbError> {
-        self.exec(
-            "BEGIN TRANSACTION; \
-             UPDATE game_config_version SET is_active = false WHERE game_id = $game AND is_active = true; \
-             UPDATE type::record('game_config_version', $id) SET is_active = true; \
-             COMMIT;",
-            params!(
-                game = game_id,
-                id = game_config_version_id(game_id, version)
-            ),
-        )
-        .await
+        for _ in 0..3 {
+            self.exec(
+                "BEGIN TRANSACTION; \
+                 UPDATE game_config_version SET is_active = false WHERE game_id = $game AND is_active = true; \
+                 UPDATE type::record('game_config_version', $id) SET is_active = true; \
+                 COMMIT;",
+                params!(
+                    game = game_id,
+                    id = game_config_version_id(game_id, version)
+                ),
+            )
+            .await?;
+            let actives: Vec<i64> = self
+                .all(
+                    "SELECT VALUE version FROM game_config_version \
+                     WHERE game_id = $game AND is_active = true",
+                    params!(game = game_id),
+                )
+                .await?;
+            if actives.len() <= 1 {
+                return Ok(());
+            }
+        }
+        tracing::warn!("[db] config activation for {game_id} still sees multiple active versions after 3 passes");
+        Ok(())
     }
 
     /// Reads the live `games.config` blob for the game.

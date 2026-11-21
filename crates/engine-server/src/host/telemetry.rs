@@ -32,8 +32,8 @@ impl<'a> Engine<'a> {
                 clients: room.sessions.len() as u32,
                 spectators: room.spectators.len() as u32,
                 tick: room.current_tick,
-                age_sec: room.born.elapsed().as_secs(),
-                closes_in_sec: self.cfg.lifecycle.closes_at(room.born).map(|deadline| {
+                age_sec: room.lifecycle.born.elapsed().as_secs(),
+                closes_in_sec: self.cfg.lifecycle.closes_at(room.lifecycle.born).map(|deadline| {
                     let now = Instant::now();
                     if now >= deadline {
                         0
@@ -90,6 +90,7 @@ impl<'a> Engine<'a> {
             sessions,
             rooms,
             session_cap,
+            server_phase: self.manager.phase(),
         };
         if self.stats.recorder.maybe_publish(&self.bus, report) {
             self.stats.publish_start = Instant::now();

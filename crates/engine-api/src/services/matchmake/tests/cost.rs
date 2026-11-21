@@ -25,12 +25,12 @@ fn a_denied_request_costs_no_hmac_and_no_map_entry() {
     let state = test_state(1, 1);
     assert!(reserve(&state, ip(1), "joinOrCreate", "tank-3d", "{}").is_ok());
     let before = minted(&state);
-    let denied = state.limiter.lock().unwrap().counts().1;
+    let denied = state.limiter.counts().1;
     for _ in 0..200 {
         assert!(reserve(&state, ip(1), "joinOrCreate", "tank-3d", "{}").is_err());
     }
     assert_eq!(minted(&state), before, "nothing was minted while denied");
-    assert_eq!(state.limiter.lock().unwrap().counts().1, denied + 200);
+    assert_eq!(state.limiter.counts().1, denied + 200);
 }
 
 #[test]

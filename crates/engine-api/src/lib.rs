@@ -14,7 +14,10 @@ mod tests;
 
 pub use app::api::router;
 pub use app::serve::serve;
-pub use app::state::{ApiState, OnceReceiver, auto_router, current_state, install_state};
+pub use app::state::{
+    ApiState, OnceReceiver, auto_router, current_remote, current_state, install_lifecycle,
+    install_state,
+};
 pub use auto_route;
 pub use error::ApiError;
 pub use infra::events::{pump_events, sweep_match_history};

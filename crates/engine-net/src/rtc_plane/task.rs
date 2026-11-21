@@ -13,7 +13,7 @@ pub(crate) async fn session_task(
     player_id: Arc<str>,
     mut inbox: mpsc::Receiver<SessionInbound>,
     socket: Arc<UdpSocket>,
-    uplink_tx: mpsc::UnboundedSender<UplinkEvent>,
+    uplink_tx: mpsc::Sender<UplinkEvent>,
     notice_tx: mpsc::UnboundedSender<SessionNotice>,
 ) {
     loop {
@@ -65,7 +65,7 @@ async fn pump_flush(
     rtc: &mut RtcSession,
     outbound: Vec<Outbound>,
     socket: &UdpSocket,
-    uplink_tx: &mpsc::UnboundedSender<UplinkEvent>,
+    uplink_tx: &mpsc::Sender<UplinkEvent>,
     notice_tx: &mpsc::UnboundedSender<SessionNotice>,
     player_id: &Arc<str>,
 ) -> bool {
@@ -82,11 +82,22 @@ async fn pump_flush(
                 channel, payload, ..
             } => match rtc.channel_role(channel) {
                 Some(PlaneChannel::Unreliable) => {
+                    // Unreliable-lane frames carry the mesh header
+                    // `[op][seq u16 LE][body]`; parse the real seq like
+                    // contract/inbound.rs does instead of reporting 0.
+                    let (seq, body) = if payload.len() >= 3 {
+                        (
+                            u16::from_le_bytes([payload[1], payload[2]]),
+                            payload[3..].to_vec(),
+                        )
+                    } else {
+                        (0, payload)
+                    };
                     let _ = uplink_tx.send(UplinkEvent::Input(RtcInput {
                         player_id: player_id.clone(),
-                        seq: 0,
+                        seq,
                         tick_hint: 0,
-                        body: payload,
+                        body,
                     }));
                 }
                 Some(PlaneChannel::Reliable) | None => {

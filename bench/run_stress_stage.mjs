@@ -53,7 +53,12 @@ if (fs.existsSync(reportFile)) fs.unlinkSync(reportFile);
 
 let cmd = '';
 if (ENGINE === 'cyg') {
-    cmd = `ulimit -n 65536 && node --max-old-space-size=4096 bench/loadtest.mjs --url http://127.0.0.1:8124 --room jump_box_3d --rooms ${ROOMS} --clients ${CLIENTS} --seconds ${SECONDS} --hz ${HZ} --descriptor examples/jump-box-3d/out/cyg.schema.bin --json > ${reportFile}`;
+    const descriptor = arg('descriptor');
+    if (!descriptor) {
+        console.error('--descriptor <path to cyg.schema.bin of the game project> is required for the cyg engine');
+        process.exit(1);
+    }
+    cmd = `ulimit -n 65536 && node --max-old-space-size=4096 bench/loadtest.mjs --url http://127.0.0.1:8124 --room ${arg('room', 'my_room')} --rooms ${ROOMS} --clients ${CLIENTS} --seconds ${SECONDS} --hz ${HZ} --descriptor ${descriptor} --json > ${reportFile}`;
 } else {
     cmd = `ulimit -n 65536 && cd /mnt/SSD/Devloper/pannel/colyseus && NODE_OPTIONS="--max-old-space-size=4096" node_modules/.bin/tsx packages/example/bench_client.mjs --clients ${CLIENTS} --seconds ${SECONDS} --hz ${HZ} --room bench --rooms ${ROOMS} > ${reportFile}`;
 }

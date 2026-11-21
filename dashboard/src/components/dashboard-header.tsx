@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 
 import { BrandLogo } from "@/components/brand-logo"
+import type { ServerPhase } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export interface DashboardHeaderProps {
@@ -15,6 +16,8 @@ export interface DashboardHeaderProps {
   gameName?: string | null
   /** `false` at the landing scope, where there is no plane feed to report. */
   showFeed?: boolean
+  /** Process lifecycle phase from `engine-manager`. */
+  serverPhase?: ServerPhase
 }
 
 type PillState = "live" | "reconnecting" | "offline" | "poll"
@@ -28,6 +31,21 @@ function resolvePill(source: string, connected: boolean, ageMs: number | null): 
   if (!connected) return "offline"
   if (ageMs != null && ageMs <= FRAME_FRESH_MS) return "live"
   return "reconnecting"
+}
+
+// The server lifecycle is a smaller, slower signal than the feed: it only
+// changes on boot, allocation, drain and exit. Colour it by consequence so a
+// draining/shutdown server reads differently from a healthy one.
+const phaseStyle: Record<ServerPhase, { label: string; dot: string; text: string }> = {
+  booting: { label: "BOOTING", dot: "bg-muted-foreground", text: "text-muted-foreground" },
+  ready: { label: "READY", dot: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
+  allocated: {
+    label: "ALLOCATED",
+    dot: "bg-emerald-500",
+    text: "text-emerald-600 dark:text-emerald-400",
+  },
+  draining: { label: "DRAINING", dot: "bg-warning", text: "text-warning" },
+  shutdown: { label: "SHUTDOWN", dot: "bg-destructive", text: "text-destructive" },
 }
 
 const pillStyle: Record<PillState, { label: string; dot: string; text: string }> = {
@@ -45,6 +63,7 @@ export function DashboardHeader({
   roomName,
   gameName,
   showFeed = true,
+  serverPhase,
 }: DashboardHeaderProps) {
   const [now, setNow] = useState(() => Date.now())
 
@@ -87,8 +106,17 @@ export function DashboardHeader({
         </div>
       </div>
 
-      {/* Right side: feed status only */}
+      {/* Right side: process lifecycle, then feed status */}
       <div className="flex items-center gap-3">
+        {serverPhase && (
+          <span
+            title="Server lifecycle (engine-manager)"
+            className="hidden shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 text-xs font-medium sm:inline-flex"
+          >
+            <span className={cn("size-1.5 rounded-full", phaseStyle[serverPhase].dot)} />
+            <span className={phaseStyle[serverPhase].text}>{phaseStyle[serverPhase].label}</span>
+          </span>
+        )}
         {showFeed && (
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 text-xs font-medium">
             <span className="relative flex size-1.5 shrink-0 items-center justify-center">

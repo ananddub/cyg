@@ -14,6 +14,7 @@ pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "out" => cfg.out = value.into(),
         "sdk_dir" => cfg.sdk_dir = value.into(),
         "website" => cfg.website = value.into(),
+        "unity_build" => cfg.unity_build = value.into(),
         "hooks" => cfg.hooks_path = value.into(),
         "port" => cfg.port = value.parse().unwrap_or(cfg.port),
         "web_port" => cfg.web_port = value.parse().unwrap_or(cfg.web_port),
@@ -25,6 +26,7 @@ pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         }
         "tick_stagger" => cfg.tick_stagger = value.parse().unwrap_or(cfg.tick_stagger),
         "input_coalesce" => cfg.input_coalesce = value.parse().unwrap_or(cfg.input_coalesce),
+        "idle_input_hold" => cfg.idle_input_hold = value.parse().unwrap_or(cfg.idle_input_hold),
         "max_clients" => cfg.max_clients = value.parse().unwrap_or(cfg.max_clients),
         "max_rooms" => cfg.max_rooms = value.parse().unwrap_or(cfg.max_rooms),
         "max_messages_per_second" => {

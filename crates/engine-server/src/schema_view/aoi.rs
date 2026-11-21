@@ -13,7 +13,8 @@ use crate::schema_view::wire::skip_value;
 impl SchemaAoi {
     pub fn from_descriptor(bytes: &[u8]) -> Option<Self> {
         let descriptor = parse_descriptor(bytes)?;
-        let mut by_hash = std::collections::HashMap::new();
+        // Built once per descriptor at schema load, so exact sizing is free.
+        let mut by_hash = std::collections::HashMap::with_capacity(descriptor.schemas.len());
         let mut positional = false;
         for schema in &descriptor.schemas {
             let fields: Vec<FieldLayout> = schema

@@ -30,7 +30,7 @@ pub(super) fn state() -> ApiState {
         control: Arc::new(control),
         signals: SignalHub::new("[]".into()),
         seats: Arc::new(std::sync::Mutex::new(SeatRegistry::new("test-secret"))),
-        limiter: Arc::new(std::sync::Mutex::new(IpRateLimiter::new(20, 40))),
+        limiter: Arc::new(IpRateLimiter::new(20, 40)),
         port: 8124,
         status_rx: Arc::new(OnceReceiver::new(bus.status_rx.clone())),
         latest_status: Arc::new(std::sync::Mutex::new(None)),
@@ -43,6 +43,7 @@ pub(super) fn state() -> ApiState {
         sessions: Arc::new(SessionCache::new(60, 3600)),
         chain: Default::default(),
         hooks: None,
+        dev_mode: false,
     }
 }
 

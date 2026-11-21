@@ -69,7 +69,7 @@ async fn relays_offer_and_answer_over_a_real_socket() {
     ws.send_text(r#"{"type":"close"}"#).await;
     assert_eq!(
         next_signal(&mut inbound).await,
-        SignalIn::Close { seat: seat.clone() }
+        SignalIn::Close { seat: seat.clone(), .. }
     );
     expect_quiet(&mut inbound).await;
     wait_peers(&state.signals, 0).await;

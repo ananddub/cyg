@@ -285,15 +285,14 @@ func test_schema_and_descriptor() -> void:
 	b.u16(1)
 	b.s16("players")
 	b.u16(0)
-	var parsed := CYGSchemaDef.parse_descriptor(b.bytes)
-	var collections: Array = parsed.get("collections", [])
-	check("v3 descriptor parses", parsed.get("version", 0) == 3 and collections.size() == 1)
-	if collections.size() == 1:
-		var def: CYGSchemaDef = collections[0]["schema"]
-		check("v3 optional flag", bool(def.fields[0]["optional"]))
-		check("v3 element type", def.fields[1]["element"] == "u32")
+	# Descriptor parsing lives in cyg-core-rs now; the parsed contract is
+	# exposed through the GDExtension's schema metadata getters.
+	var core: Variant = CygRoom.new()
+	check("v3 descriptor parses", core.load_descriptor(b.bytes))
+	check("v3 optional flag", (int(core.schema_field_flags(0, 0)) & 1) == 1)
+	check("v3 element type", int(core.schema_field_element_kind(0, 1)) == 4)  # u32
 	check("truncated descriptor rejected",
-		CYGSchemaDef.parse_descriptor(PackedByteArray([79, 88, 83, 68, 9])).is_empty())
+		not core.load_descriptor(PackedByteArray([79, 88, 83, 68, 9])))
 
 
 func test_codec_golden() -> void:
@@ -470,7 +469,7 @@ func test_callbacks_and_multi_world() -> void:
 	bad_section.encode_u32(5, 0xDEADBEEF)
 	mismatch._apply_schema(bad_section)
 	check("schema hash mismatch reported", errors.size() == 1
-		and String(errors[0]).contains("schema hash mismatch") and mismatch.state.size() == 0)
+		and String(errors[0]).contains("rejected by cyg-core") and mismatch.state.size() == 0)
 
 	# Colyseus immediate defaults: onAdd/listen/bindTo fire now unless deferred.
 	var cb_room := CYGRoom.new("ws://127.0.0.1:1", "arena", {})
@@ -536,7 +535,11 @@ func test_callbacks_and_multi_world() -> void:
 	world._apply_schema(multi_world_patch(11, 0, update_x_section(1, 12.0)))
 	check("multi patch root", int(world.state.get("round")) == 11
 		and absf(float(world.state.get_entity(1).x) - 12.0) < 1e-9)
-	check("multi patch root listener", round_changes == [[10, 0], [11, 10]])
+	# Values arrive as floats from the core's numeric reads — compare numerically.
+	check("multi patch root listener", round_changes.size() == 2
+		and is_equal_approx(float(round_changes[0][0]), 10.0) and int(round_changes[0][1]) == 0
+		and is_equal_approx(float(round_changes[1][0]), 11.0)
+		and is_equal_approx(float(round_changes[1][1]), 10.0))
 	check("multi patch change scoped", player_changes == [1] and bullet_adds == [7])
 
 	world._apply_schema(multi_world_patch(-1, 1, projectile_add_section(8, 1.0, 2)))

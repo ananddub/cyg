@@ -34,9 +34,12 @@ impl ChainTracker {
     }
 
     /// Pick the generation for a variant join: the smallest `g` whose total
-    /// (live occupancy + fresh outstanding) is below the cap. Occupancy is
-    /// read from the snapshot by prefix — every generation of the variant
-    /// shares the `base` prefix, generations are numbered from g1 upward.
+    /// (live occupancy + fresh outstanding) is below the cap. The status
+    /// snapshot reports one row per hosted room keyed by the full room key
+    /// (`<variant>__<filters>`, or `...__gN` for chained generations) — the
+    /// same key this picker queries — so occupancy is matched exactly per
+    /// generation key. Prefix matching would double-count: `base__g2` is also
+    /// a prefix of `base__g20`.
     pub fn pick_generation(
         &mut self,
         base_key: &str,

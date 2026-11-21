@@ -38,7 +38,11 @@ pub(crate) fn refuse_default_secrets(
     game: &GameConfig,
     control: &ControlConfig,
 ) -> std::io::Result<()> {
-    let explicit = std::env::var("CYG_ALLOW_DEFAULT_SECRETS").as_deref() == Ok("1");
+    let env_opt_in = std::env::var("CYG_ALLOW_DEFAULT_SECRETS").as_deref() == Ok("1");
+    // The config opt-in has the same power as the env var, but lives in
+    // config.toml so `cyg run` needs nothing exported. Both are equally
+    // explicit — the operator typed one or the other.
+    let explicit = env_opt_in || control.dev_mode;
     // Being bound to loopback is itself the guarantee: no other host can reach
     // the console, the player API or a seat token, so placeholder secrets leak
     // nothing. This has to hold for release binaries too — the one people
@@ -46,8 +50,10 @@ pub(crate) fn refuse_default_secrets(
     // error the user has to go look up.
     let local_dev = loopback_only(&control.bind_addr);
     if explicit || local_dev {
-        let why = if explicit {
+        let why = if env_opt_in {
             "CYG_ALLOW_DEFAULT_SECRETS=1".to_string()
+        } else if control.dev_mode {
+            "control.dev_mode = true".to_string()
         } else {
             format!("control.bind_addr = {} is loopback-only", control.bind_addr)
         };

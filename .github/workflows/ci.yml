@@ -1,0 +1,120 @@
+# CI only — no deploy, no publish.
+#
+# The workspace currently has one focus: the engine core. That is the gate.
+# The Rune UI scaffolding (`vendor/rune`, `engine-visualizer*`) is vendored and
+# under active change, so it is compiled but never blocks a merge; cargo counts
+# some of its crates as workspace members, which is why every workspace command
+# leaves them out by name.
+#
+# Local equivalent:
+#   cargo test $CORE_PACKAGES      # what the `core` job runs
+#   cargo check --workspace --all-targets   # what the `check` job runs
+
+name: CI
+
+on:
+  push:
+    branches: [main, master, dev]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  # SurrealDB 4's query executor recurses deeper than a 2 MiB test thread stack
+  # and its boot-migration tests overflow without this (Justfile, `test`).
+  RUST_MIN_STACK: "16777216"
+
+  # The engine core: simulation, wire protocol, transport, server host.
+  CORE_PACKAGES: >-
+    -p engine-core -p engine-schema -p engine-webrtc-protocol -p engine-net
+    -p engine-spatial -p engine-physics -p engine-nav -p engine-bus
+    -p engine-config -p engine-control -p engine-server -p engine-hooks
+    -p engine-voice -p engine-wasm -p cyg-core-rs
+
+  # cargo counts the vendored Rune crates as workspace members, and one of their
+  # test targets (`rune-kit` → `markdown_link_menu`) does not compile without a
+  # feature this repo never enables.
+  VENDOR_EXCLUDES: >-
+    --exclude rune --exclude procwatch --exclude rune-motion
+    --exclude rune-staging --exclude rune-taffy --exclude tiny-skia-path
+    --exclude rune-mermaid --exclude rune-theme-opencode --exclude rune-kit
+    --exclude rune-highlights --exclude rune-ref
+
+jobs:
+  core:
+    name: core tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # `.cargo/config.toml` links with mold; without it cargo fails at link time.
+      - name: Install mold
+        run: sudo apt-get update && sudo apt-get install -y mold
+
+      # The workspace is developed on beta (edition 2024 + the newer lints), so
+      # CI pins the same channel instead of guessing at a stable version.
+      - uses: dtolnay/rust-toolchain@beta
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: core
+
+      - name: Test the core
+        # --locked: a dependency that moved without Cargo.lock changing fails here
+        # rather than silently building a tree nobody committed.
+        run: cargo test $CORE_PACKAGES --locked --no-fail-fast
+
+  check:
+    name: workspace compiles (all targets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mold
+        run: sudo apt-get update && sudo apt-get install -y mold
+
+      - uses: dtolnay/rust-toolchain@beta
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check
+
+      # Tests, examples and benches compile even where the core job doesn't run them.
+      - name: Check
+        run: cargo check --workspace $VENDOR_EXCLUDES --all-targets --locked
+
+  lint:
+    name: lint (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # The tree is not warning-clean yet, so these report without blocking.
+    # Delete the two `continue-on-error` lines once `just clippy` and
+    # `just fmt-check` pass locally.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mold
+        run: sudo apt-get update && sudo apt-get install -y mold
+
+      - uses: dtolnay/rust-toolchain@beta
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
+
+      - name: clippy
+        run: cargo clippy $CORE_PACKAGES --all-targets --locked
+
+      - name: rustfmt
+        run: cargo fmt --all --check

@@ -50,10 +50,11 @@ pub(super) fn publish_report(
             clients: players,
             spectators: room.spectators.len() as u32,
             tick: room.current_tick,
-            age_sec: room.born.elapsed().as_secs(),
+            age_sec: room.lifecycle.born.elapsed().as_secs(),
             closes_in_sec: None,
         }],
         session_cap: max_players.max(0) as usize,
+        server_phase: engine_bus::ServerPhase::Ready,
     }
 }
 

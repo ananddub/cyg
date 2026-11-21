@@ -9,6 +9,7 @@ fn field(name: &str, kind: WireKind) -> SchemaField {
         ref_target: None,
         flags: 0,
         source_type: "number".into(),
+        encoding: crate::default_encoding(kind),
         line: 0,
         column: 0,
         default: None,

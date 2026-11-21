@@ -111,18 +111,25 @@ impl Queries {
                      metadata = IF $meta{index} IS NULL OR $meta{index} IS NONE \
                                     THEN metadata ELSE $meta{index} END \
                  WHERE leaderboard_id = $board{index} AND owner_id = $owner{index} \
-                   AND expiry_time = $expiry{index} AND $present{index} RETURN NONE;",
+                   AND expiry_time = $expiry{index} RETURN NONE;",
                 held("num_score")
             ));
+            // The $present flag was computed OUTSIDE the transaction from a
+            // snapshot that 4.0's SNAPSHOT isolation never re-validates: a
+            // record deleted before commit made the score vanish, and two
+            // concurrent posts both passing `present=true` aborted the loser
+            // at commit with no retry. The pair is now unconditional and
+            // idempotent — the UPDATE no-ops on a missing row, and
+            // INSERT IGNORE dedupes on the leaderboard_record_pkey unique
+            // index (owner_id, leaderboard_id, expiry_time).
             sql.push_str(&format!(
-                "INSERT INTO leaderboard_record ( \
+                "INSERT IGNORE INTO leaderboard_record ( \
                      SELECT $board{index} AS leaderboard_id, $owner{index} AS owner_id, \
                             $name{index} AS username, $score{index} AS score, \
                             $subscore{index} AS subscore, 1 AS num_score, \
                             $meta{index} AS metadata, $now AS create_time, $now AS update_time, \
                             $expiry{index} AS expiry_time, $max{index} AS max_num_score \
-                     FROM type::record('leaderboard', $board{index}) WHERE $present{index} = false \
-                 ) RETURN NONE;"
+                     FROM type::record('leaderboard', $board{index})) RETURN NONE;"
             ));
             args.insert(format!("board{index}"), json!(write.leaderboard_id.clone()));
             args.insert(format!("owner{index}"), json!(write.owner_id.to_string()));
@@ -144,12 +151,22 @@ impl Queries {
                 write.metadata.clone().unwrap_or(Value::Null),
             );
             args.insert(format!("max{index}"), json!(write.max_num_score));
-            args.insert(format!("present{index}"), json!(write.present));
         }
         sql.push_str("COMMIT TRANSACTION;");
-        self.db
-            .query_transaction::<Value>(&sql, &args)
-            .await
-            .map(|_| ())
+        // A concurrent poster updating the same leaderboard_record aborts
+        // this transaction at commit (write-write conflict under snapshot
+        // isolation). The statements are idempotent, so a retry replays the
+        // same deltas against fresh state.
+        let mut attempt = 0;
+        loop {
+            match self.db.query_transaction::<Value>(&sql, &args).await {
+                Ok(_) => return Ok(()),
+                Err(err) if attempt < 2 => {
+                    attempt += 1;
+                    tracing::warn!("[db] match outcome post conflict (attempt {attempt}), retrying: {err}");
+                }
+                Err(err) => return Err(err),
+            }
+        }
     }
 }

@@ -20,10 +20,11 @@ wasm_module! {
 
 /// Room leave codes the host hands to `on_leave(id, code)` — the guest
 /// mirror lives in the SDK as `CloseCode`.
+pub use engine_manager::{CloseReason, DRAIN_REASON, lifecycle_close_code};
+
 pub mod close_code {
     pub const LEFT: i32 = 1000;
     pub const KICKED: i32 = 1004;
-    pub const SERVER_SHUTDOWN: i32 = 1001;
     pub const TIMED_OUT: i32 = 1005;
     pub const LOST: i32 = 1006;
 }
@@ -35,22 +36,8 @@ pub enum RoomBackend {
     Ecs,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CloseReason {
-    Empty,
-    Duration,
-}
 
-impl CloseReason {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            CloseReason::Empty => "empty",
-            CloseReason::Duration => "duration",
-        }
-    }
-}
 
-pub(crate) const DRAIN_REASON: &str = "drain";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RoomSnapshotData {

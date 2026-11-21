@@ -23,6 +23,7 @@ impl Bus {
         Arc::new(Bus {
             inputs_tx,
             inputs_rx,
+            inputs_dropped: AtomicU64::new(0),
             commands_tx,
             commands_rx,
             deltas_tx,

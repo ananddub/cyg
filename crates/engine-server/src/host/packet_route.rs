@@ -2,6 +2,13 @@ use std::time::Instant;
 
 use crate::host::*;
 
+/// The voice byte and the WebRTC voice opcode are the same number on the same wire.
+const _: () = assert!(
+    engine_voice::VOICE_MAGIC == engine_webrtc_protocol::OP_VOICE,
+    "engine-voice's VOICE_MAGIC and engine-webrtc-protocol's OP_VOICE are one wire byte"
+);
+
+
 impl<'a> Engine<'a> {
     pub(crate) fn run_packet(&mut self, client_id: &str, payload: bytes::Bytes) {
         let history = EventHistory::new(&self.bus, &self.game_cfg);
@@ -53,22 +60,35 @@ impl<'a> Engine<'a> {
             return;
         }
 
+        // `engine-voice` and the WebRTC frame table both claim byte 0x56 — the voice packet's
+        // magic here, `OP_VOICE` there. They are the same wire, so the two must never drift:
+        // the assertion below turns a mismatch into a build error instead of a silent
+        // "voice packets become engine frames" bug at runtime.
         if data.len() >= engine_voice::HEADER_LEN && data[0] == engine_voice::VOICE_MAGIC {
-            let bytes = bytes::Bytes::copy_from_slice(data);
-            if let Ok(mut packet) = engine_voice::VoicePacket::decode(&bytes) {
+            // One owned copy serves both decode and the patched wire frame —
+            // the old path copied the packet twice per voice packet.
+            let mut wire_packet = data.to_vec();
+            if let Ok(mut packet) = engine_voice::VoicePacket::decode(&wire_packet[..]) {
                 packet.speaker_id = id as u32;
                 let routed = room.voice_room.dispatch_packet(&packet, Instant::now());
-                let mut wire_packet = data.to_vec();
                 wire_packet[1..5].copy_from_slice(&(id as u32).to_be_bytes());
-                for frame in routed {
-                    for (cid, &pid) in &room.sessions {
-                        if pid == id {
-                            continue;
+                if !routed.is_empty() {
+                    // Reverse index built once per packet (only when frames
+                    // routed), not a linear scan of all sessions per frame —
+                    // that was O(listeners × sessions) per voice packet.
+                    let pid_to_session: std::collections::HashMap<u32, &std::rc::Rc<str>> =
+                        room.sessions
+                            .iter()
+                            .map(|(cid, &pid)| (pid as u32, cid))
+                            .collect();
+                    for frame in routed {
+                        if frame.listener_id == id as u32 {
+                            continue; // never echo the speaker back
                         }
-                        if pid as u32 == frame.listener_id {
-                            let _ =
-                                self.transport
-                                    .send_to(cid, OpCode::RoomDataBytes, &wire_packet);
+                        if let Some(&cid) = pid_to_session.get(&frame.listener_id) {
+                            let _ = self
+                                .transport
+                                .send_to(cid, OpCode::RoomDataBytes, &wire_packet);
                         }
                     }
                 }
@@ -128,6 +148,16 @@ impl<'a> Engine<'a> {
         }
 
         self.rates.note_input(client_id);
+        // Schema input lane: peel the client's RTT stamp trailer (Phase D
+        // echo — the tail of the next delta carries it back) and remember
+        // the guest-ready frame as the seat's last input, so hold-last idle
+        // synthesis can re-deliver it on an empty tick. Anything else that
+        // reaches here is a plain app message, never held.
+        let (data, _stamp) = netcode::extract_input_stamp(&mut room.seqs, id, data);
+        if netcode::is_input_app_frame(data) {
+            room.last_input.insert(id, data.to_vec());
+            room.inputs_since_tick.insert(id);
+        }
         if room.is_ecs() {
             room.ecs_input(&client_id, data);
             flush_room_outbox(room, &mut self.transport, room_name, &history);

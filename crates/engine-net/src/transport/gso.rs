@@ -81,11 +81,50 @@ pub fn send_gso<F: std::os::unix::io::AsFd>(
         msg_flags: 0,
     };
 
+    let expected: usize = segments.iter().map(|s| s.len()).sum();
     let sent = unsafe { libc::sendmsg(fd, &msghdr, 0) };
     if sent < 0 {
         return Err(io::Error::last_os_error());
     }
+    // A partial sendmsg must not silently corrupt the run: send whatever the
+    // kernel refused via plain datagram sends so every segment still lands
+    // with its own boundary.
+    let mut sent_left = sent as usize;
+    if sent_left == expected {
+        return Ok(());
+    }
+    let mut remain: &[&[u8]] = segments;
+    while sent_left > 0 && !remain.is_empty() {
+        let head = remain[0];
+        if head.len() > sent_left {
+            // The kernel swallowed part of this segment: its remainder goes
+            // out as its own datagram, followed by everything after it.
+            let rest = &head[sent_left..];
+            remain = &remain[1..];
+            unsafe { send_one(fd, rest, std::ptr::addr_of!(msghdr)) };
+            sent_left = 0;
+            break;
+        }
+        sent_left -= head.len();
+        remain = &remain[1..];
+    }
+    for seg in remain {
+        unsafe { send_one(fd, seg, std::ptr::addr_of!(msghdr)) };
+    }
     Ok(())
+}
+
+/// Send one datagram reusing the destination address of `msghdr`.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+unsafe fn send_one(fd: i32, seg: &[u8], msghdr: *const libc::msghdr) -> isize {
+    let iovec = libc::iovec {
+        iov_base: seg.as_ptr() as *mut libc::c_void,
+        iov_len: seg.len(),
+    };
+    let mut hdr = unsafe { std::ptr::read(msghdr) };
+    hdr.msg_iov = &iovec as *const libc::iovec as *mut libc::iovec;
+    hdr.msg_iovlen = 1;
+    unsafe { libc::sendmsg(fd, &hdr, 0) }
 }
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -101,8 +140,12 @@ pub fn gso_run_len(msgs: &[(SocketAddr, impl AsRef<[u8]>)], start: usize) -> usi
         if addr != dest {
             break;
         }
+        // UDP_SEGMENT splits at `seg_size` boundaries: every segment in the
+        // run must match exactly. A shorter (or longer) MID-run segment would
+        // corrupt the boundaries, so it must break the run (this matches the
+        // non-glibc variant above).
         let len = data.as_ref().len();
-        if len != seg && start + n + 1 != msgs.len() && len > seg {
+        if len != seg {
             break;
         }
         n += 1;

@@ -121,11 +121,11 @@ from it on join, and `schema.ts` is the only file you edit.
 | Language | Interface File | Target Runtime | How Bridge is Handled |
 | :--- | :--- | :--- | :--- |
 | 🥇 **Rust** *(Recommended)* | [`rust/cyg_room.rs`](./rust/cyg_room.rs) | `wasm32-unknown-unknown` | `export_room!(MyRoom)` macro |
-| 🥇 **Pure C** *(Recommended)* | [`c/cyg.h`](./c/cyg.h) | `clang` / `wasi-sdk` / `emscripten` | **Direct Normal C Functions** (`CYG_EXPORT`) |
-| 🥇 **C++** *(Recommended)* | [`cpp/cyg.hpp`](./cpp/cyg.hpp) | `clang` / `emscripten` / `wasi-sdk` | `CYG_ROOM(MyRoom)` macro |
-| 🥈 **AssemblyScript** | [`assemblyscript/cyg.ts`](./assemblyscript/cyg.ts) | `asc` | **100% Automatic** by CYG compiler! |
+| 🥇 **Pure C** *(Recommended)* | [`c/cyg.h`](./c/cyg.h) | `clang` / `wasi-sdk` / `zig cc` | **Direct Normal C Functions** (`CYG_EXPORT`) |
+| 🥇 **C++** *(Recommended)* | [`cpp/cyg.hpp`](./cpp/cyg.hpp) | `clang++` / `wasi-sdk` / `zig c++` | `CYG_ROOM(MyRoom)` macro |
+| 🥈 **AssemblyScript** | [`assemblyscript/cyg-server.ts`](./assemblyscript/cyg-server.ts) | `asc` | **100% Automatic** by CYG compiler! |
 | 🥉 **Lua** | [`lua/cyg.lua`](./lua/cyg.lua) | Native LuaJIT (`engine-lua`) / WASM | `CYG.Room:extend()` / Procedural |
-| **C#** | [`csharp/CYG.cs`](./csharp/CYG.cs) | `.NET 8 NativeAOT` / `wasi-wasm` | `[UnmanagedCallersOnly]` static bridge |
+| **C#** | [`csharp/CYG.cs`](./csharp/CYG.cs) | `.NET 8/9 wasi-wasm` / `NativeAOT` | `[UnmanagedCallersOnly]` static bridge |
 | **TypeScript** | [`typescript/cyg.d.ts`](./typescript/cyg.d.ts) | Node / Browser SDK / IntelliSense | Shared typings & contracts |
 
 ---
@@ -141,8 +141,10 @@ public:
     void onCreate(int32_t maxClients) override {
         // Init room
     }
-    void onJoin(int64_t id, double x, double z) override {}
-    void onLeave(int64_t id) override {}
+    void onJoin(int64_t id, const char* options, int32_t opt_len, const char* auth, int32_t auth_len) override {
+        cyg::broadcast("join", 4, nullptr, 0);
+    }
+    void onLeave(int64_t id, int32_t code) override {}
     void onInput(int64_t id, const uint8_t* data, size_t len) override {}
     uint64_t onTick(double dt) override {
         // Return cyg::pack_delta(delta_buf, delta_len);
@@ -155,7 +157,7 @@ CYG_ROOM(MyBattleRoom);
 
 ### 2. Rust
 ```rust
-use cyg_room::{Room, export_room, pack_delta};
+use cyg_room::{Room, export_room, pack_delta, broadcast};
 
 #[derive(Default)]
 pub struct MyBattleRoom {
@@ -166,8 +168,10 @@ impl Room for MyBattleRoom {
     fn on_create(&mut self, max: i32) {
         self.max_clients = max;
     }
-    fn on_join(&mut self, id: i64, spawn_x: f64, spawn_z: f64) {}
-    fn on_leave(&mut self, id: i64) {}
+    fn on_join(&mut self, id: i64, options: &str, auth: &str) {
+        broadcast("join", b"ok");
+    }
+    fn on_leave(&mut self, id: i64, code: i32) {}
     fn on_input(&mut self, id: i64, data: &[u8]) {}
     fn on_tick(&mut self, dt: f64) -> (usize, usize) {
         (0, 0)
@@ -177,16 +181,21 @@ impl Room for MyBattleRoom {
 export_room!(MyBattleRoom);
 ```
 
-### 3. C# (.NET 8 NativeAOT)
+### 3. C# (.NET 8/9 WASI)
 ```csharp
+using System;
 using CYG;
 
 public class MyBattleRoom : Room
 {
-    public override void OnCreate(int maxClients) { ... }
-    public override void OnJoin(long id, double spawnX, double spawnZ) { ... }
-    public override void OnLeave(long id) { ... }
-    public override void OnInput(long id, ReadOnlySpan<byte> data) { ... }
+    public override void OnCreate(int maxClients) {
+        Log("Battle room created!");
+    }
+    public override void OnJoin(long id, string options, string auth) {
+        Broadcast("join", new byte[] { 1 });
+    }
+    public override void OnLeave(long id, int code) {}
+    public override void OnInput(long id, ReadOnlySpan<byte> data) {}
     public override long OnTick(double dt) => 0;
 }
 
@@ -200,8 +209,8 @@ import { Room } from "./cyg-server";
 
 export class MyBattleRoom extends Room {
     onCreate(max: i32): void { ... }
-    onJoin(id: i64, spawnX: f64, spawnZ: f64): void { ... }
-    onLeave(id: i64): void { ... }
+    onJoin(id: i64, options: string, auth: string): void { ... }
+    onLeave(id: i64, code: i32): void { ... }
     onInput(id: i64, ptr: usize, len: i32): void { ... }
     onTick(dt: f64): i64 { ... }
 }
@@ -212,16 +221,18 @@ export class MyBattleRoom extends Room {
 ```c
 #include "cyg.h"
 
-// Provides default on_alloc, on_save, on_load, on_is_full
+// Provides default self-contained heap allocator, on_save, on_load, on_is_full
 CYG_DEFAULT_HOOKS
 
 CYG_EXPORT void on_create(int32_t max_clients) {
     // Initialize room
 }
 
-CYG_EXPORT void on_join(int64_t id, double spawn_x, double spawn_z) {}
+CYG_EXPORT void on_join(int64_t id, int32_t opt_ptr, int32_t opt_len, int32_t auth_ptr, int32_t auth_len) {
+    cyg_broadcast("join", 4, NULL, 0);
+}
 
-CYG_EXPORT void on_leave(int64_t id) {}
+CYG_EXPORT void on_leave(int64_t id, int32_t code) {}
 
 CYG_EXPORT void on_input(int64_t id, int32_t ptr, int32_t len) {
     const uint8_t* data = (const uint8_t*)(uintptr_t)ptr;
@@ -229,7 +240,7 @@ CYG_EXPORT void on_input(int64_t id, int32_t ptr, int32_t len) {
 }
 
 CYG_EXPORT int64_t on_tick(double dt) {
-    // Return ox_pack_delta(delta_buf, delta_len);
+    // Return cyg_pack_delta(delta_buf, delta_len);
     return 0;
 }
 ```

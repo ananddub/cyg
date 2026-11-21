@@ -1,0 +1,9 @@
+[package]
+name = "engine-signaling"
+version = "0.1.0"
+edition = "2024"
+description = "WebRTC signaling frames and hub shared by the API surface and the room host"
+
+[dependencies]
+tokio = { version = "1", default-features = false, features = ["sync"] }
+tracing = "0.1"

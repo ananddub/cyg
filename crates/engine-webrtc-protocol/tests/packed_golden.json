@@ -1,0 +1,28 @@
+{
+  "_comment": "Cross-implementation golden vector. Every SDK (Rust core, browser cyg.js) must reproduce these exact bytes for this schema and these rows. Hex, lowercase, no separators. Regenerate only with `cargo run -p engine-webrtc-protocol --example gold_gen`, and re-derive the bit payload by hand before trusting it.",
+  "schema": {
+    "name": "V",
+    "version": 1,
+    "fingerprint": "0x59bdff97",
+    "fields": [
+      { "name": "hp",    "kind": 1,  "bits": 8,  "min": 0.0,   "max": 255.0, "integer": true },
+      { "name": "yaw",   "kind": 5,  "bits": 8,  "min": 0.0,   "max": 360.0, "integer": false },
+      { "name": "alive", "kind": 7,  "bits": 1,  "min": 0.0,   "max": 1.0,   "integer": true },
+      { "name": "name",  "kind": 11, "bits": 0,  "min": 0.0,   "max": 0.0,   "integer": false },
+      { "name": "score", "kind": 3,  "bits": 32, "min": 0.0,   "max": 4294967296.0, "integer": true }
+    ]
+  },
+  "full_row": { "id": 7, "values": [100, 90.0, true, "ab", 42] },
+  "full_hex": "4f5853320597ffbd59010000000764405500000000026162",
+  "patch": [
+    { "op": "update", "id": 7, "mask": 3, "values": [[0, 55], [1, 180.0]] },
+    { "op": "remove", "id": 7 }
+  ],
+  "patch_hex": "4f5853320697ffbd590200000003070300000037800207",
+  "notes": [
+    "kind byte: 5 = full, 6 = patch; hash is little-endian; id is LEB128 (7 = one byte).",
+    "full bit payload is 8 (hp) + 8 (yaw) + 1 (alive) + 32 (score) = 49 bits = 7 bytes.",
+    "yaw 90.0 -> round(90/360*255) = 64 = 0x40; yaw 180.0 -> round(127.5) = 128 = 0x80.",
+    "string stays byte-aligned after the bit payload: len u8 + utf8."
+  ]
+}

@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["verus"]
 members = [
     ".",
     "crates/engine-agones",
@@ -8,6 +9,7 @@ members = [
     "crates/engine-config",
     "crates/engine-control",
     "crates/engine-core",
+    "crates/engine-manager",
     "crates/engine-dashboard",
     "crates/engine-net",
     "crates/engine-nav",
@@ -18,6 +20,7 @@ members = [
     "crates/engine-wasm",
     "crates/engine-hooks",
     "crates/engine-webrtc-protocol",
+    "crates/cyg-core-rs",
     "crates/engine-voice", "crates/test-datafusion",
     "crates/auto/route",
     "crates/auto/route_macros",
@@ -26,6 +29,16 @@ members = [
     "crates/auto/ws",
     "crates/auto/ws_macros",
 ]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[workspace.lints.rust]
+unsafe_code = "allow"
+
+[workspace.lints.clippy]
+todo = "warn"
 
 [package]
 name = "cyg-gaming"
@@ -45,8 +58,12 @@ opentelemetry-otlp = { version = "0.33", default-features = false, features = ["
 tracing-opentelemetry = { version = "0.34", default-features = false, optional = true }
 engine-bus = { path = "crates/engine-bus" }
 engine-api = { path = "crates/engine-api" }
+# Only for the Verus parity tests: the mirror is Verus-annotated and builds
+# under the Verus toolchain (`./scripts/verify-verus.sh`), not plain rustc.
+ox-verified = { path = "verus/ox-verified", optional = true }
 engine-config = { path = "crates/engine-config" }
 engine-control = { path = "crates/engine-control" }
+engine-manager = { path = "crates/engine-manager" }
 engine-server = { path = "crates/engine-server" }
 engine-physics = { path = "crates/engine-physics" }
 engine-schema = { path = "crates/engine-schema" }
@@ -74,13 +91,34 @@ pprof = { version = "0.14", default-features = false, features = ["flamegraph"],
 [dev-dependencies]
 engine-core = { path = "crates/engine-core" }
 engine-nav = { path = "crates/engine-nav" }
+# The hot-path bench and the parity tests reach into these directly; without the
+# entries `cargo check --all-targets` fails on names the workspace does have.
+engine-api = { path = "crates/engine-api" }
+engine-config = { path = "crates/engine-config" }
+engine-server = { path = "crates/engine-server" }
+engine-spatial = { path = "crates/engine-spatial" }
+engine-webrtc-protocol = { path = "crates/engine-webrtc-protocol" }
+criterion = { version = "0.5", features = ["html_reports"] }
+uuid = { version = "1", features = ["v4"] }
 bevy_ecs = { version = "0.15", default-features = false }
 rapier3d = "0.36"
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 
+[[bench]]
+name = "hotpath"
+harness = false
+
+[[test]]
+name = "verus_parity"
+# Off by default: `ox_verified` is Verus-annotated and only compiles under the
+# Verus toolchain, which a normal `cargo test` does not have.
+required-features = ["verus-parity"]
+
 [features]
 default = []
+# `cargo test --features verus-parity` with the Verus toolchain on PATH.
+verus-parity = ["dep:ox-verified"]
 # `cargo build --features otel` (+ OTEL_EXPORTER_OTLP_ENDPOINT) exports spans
 # over OTLP/HTTP. Without the feature the binary has no OpenTelemetry code.
 otel = [

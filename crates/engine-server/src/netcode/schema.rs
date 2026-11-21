@@ -35,19 +35,37 @@ pub fn split_schema(buf: &[u8]) -> Option<SchemaSections<'_>> {
     Some(SchemaSections { full, patch })
 }
 
+/// Tail: `[acked_seq u16][server_tick u32][client_stamp u16]`. The stamp is
+/// the client's rotating RTT marker from its last schema input (Phase D RTT
+/// echo, 0 when the client never stamps) — the client pairs it with its
+/// send time to measure smoothed RTT/jitter without a dedicated ping lane.
 pub fn wrap_delta_into(
     out: &mut Vec<u8>,
     your_id: i64,
     delta: &[u8],
     acked_seq: u16,
     server_tick: u32,
+    client_stamp: u16,
 ) {
     out.clear();
-    out.reserve(delta.len() + 22);
+    out.reserve(delta.len() + 24);
     out.push(0xA5);
     out.extend_from_slice(b"delta");
     out.extend_from_slice(&your_id.to_le_bytes());
     out.extend_from_slice(delta);
     out.extend_from_slice(&acked_seq.to_le_bytes());
     out.extend_from_slice(&server_tick.to_le_bytes());
+    out.extend_from_slice(&client_stamp.to_le_bytes());
+}
+
+/// Patch the per-session fields of a prebuilt wrapped frame in place: the
+/// 8-byte `your_id` at bytes 6..14 and the 2-byte `acked_seq` just past the
+/// body. The frame must come from `wrap_delta_into` (your_id=0, acked=0,
+/// stamp=0). Patching 12 bytes per session replaces a full body memcpy per
+/// session.
+pub fn patch_wrap_into(out: &mut [u8], your_id: i64, acked_seq: u16, client_stamp: u16) {
+    out[6..14].copy_from_slice(&your_id.to_le_bytes());
+    let n = out.len();
+    out[n - 8..n - 6].copy_from_slice(&acked_seq.to_le_bytes());
+    out[n - 2..].copy_from_slice(&client_stamp.to_le_bytes());
 }

@@ -5,6 +5,9 @@ pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "control_enabled" => cfg.control.enabled = value.parse().unwrap_or(cfg.control.enabled),
         "api_port" => cfg.control.api_port = value.parse().unwrap_or(cfg.control.api_port),
         "control_bind_addr" => cfg.control.bind_addr = value.to_string(),
+        "control_dev_mode" | "dev_mode" => {
+            cfg.control.dev_mode = value.parse().unwrap_or(cfg.control.dev_mode)
+        }
         "control_workers" => cfg.control.workers = value.parse().unwrap_or(cfg.control.workers),
         "seat_ttl_secs" => {
             cfg.control.seat_ttl_secs = value.parse().unwrap_or(cfg.control.seat_ttl_secs)

@@ -18,9 +18,11 @@ pub fn filter_delta_for_viewer(
     viewer_pos: Option<[f64; 3]>,
     tick: u64,
     aoi: &engine_config::AoiConfig,
+    index: &mut engine_spatial::aoi::AoiViewIndex,
     out: &mut Vec<u8>,
+    visible: &mut Vec<bool>,
 ) {
-    engine_spatial::aoi::filter_for_viewer(
+    engine_spatial::aoi::filter_for_viewer_indexed(
         entities,
         bullet_count,
         bullets_range,
@@ -29,7 +31,9 @@ pub fn filter_delta_for_viewer(
         viewer_pos,
         tick,
         aoi,
+        index,
         out,
+        visible,
     );
 }
 
@@ -68,6 +72,7 @@ pub fn record_channel_ack(
     let entry = room.seqs.entry(id).or_insert(SessionSeqs {
         input: 0,
         acked_event: 0,
+        stamp: 0,
     });
     if engine_webrtc_protocol::is_newer(entry.acked_event, ack.seq) {
         entry.acked_event = ack.seq;

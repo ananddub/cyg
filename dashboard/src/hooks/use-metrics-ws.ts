@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { wsUrl } from '@/lib/api'
+import { parseWsFrameDetailed, wsUrl } from '@/lib/api'
 import type { Overview, TickPoint, TickSeries, WsFrame } from '@/lib/types'
 
 export type WsStatus = 'connecting' | 'open' | 'closed' | 'error'
@@ -28,40 +28,11 @@ const MIN_BACKOFF_MS = 500
 const MAX_BACKOFF_MS = 30_000
 // An `open` socket quieter than this is half-open and gets replaced.
 const WATCHDOG_MS = 5_000
-// `engine_dashboard::WS_PROTOCOL`.
-const SUPPORTED_PROTOCOL = 1
 // `engine_dashboard::HISTORY_LEN`.
 const MAX_POINTS = 300
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-// A frame is either something this hook can apply, a protocol it has never
-// seen, or noise. Only the first is applied; the second stops the retry loop.
-type Parsed = { kind: 'frame'; frame: WsFrame } | { kind: 'noise' } | { kind: 'protocol' }
-
-function parseFrame(raw: string): Parsed {
-  if (raw === '') return { kind: 'noise' }
-  let value: unknown
-  try {
-    value = JSON.parse(raw)
-  } catch {
-    return { kind: 'noise' }
-  }
-  if (!isRecord(value)) return { kind: 'noise' }
-  const type = value['type']
-  if (type === 'goodbye') return { kind: 'frame', frame: value as unknown as WsFrame }
-  // A change notification: it carries no telemetry, but it is a frame the page
-  // turns into a cache invalidation.
-  if (type === 'live') return { kind: 'frame', frame: value as unknown as WsFrame }
-  if (type !== 'hello' && type !== 'snapshot') return { kind: 'noise' }
-  if (!isRecord(value['overview']) || !isRecord(value['ticks'])) return { kind: 'noise' }
-  if (type === 'hello' && value['protocol'] !== SUPPORTED_PROTOCOL) {
-    return { kind: 'protocol' }
-  }
-  return { kind: 'frame', frame: value as unknown as WsFrame }
-}
+// The frame check lives in `lib/api.ts` (`parseWsFrameDetailed`) so tests and
+// this hook share one parser: protocol gate + frame-shape check, merged.
 
 function pointKey(p: TickPoint): string {
   return `${p.seq}:${p.atMs}`
@@ -220,7 +191,7 @@ export function useMetricsWs(gameId: string | null, enabled: boolean): MetricsWs
         publish({ status: 'open' })
       }
       ws.onmessage = (event: MessageEvent) => {
-        const parsed = parseFrame(typeof event.data === 'string' ? event.data : '')
+        const parsed = parseWsFrameDetailed(typeof event.data === 'string' ? event.data : '')
         if (parsed.kind === 'noise') {
           dropped += 1
           publish({})

@@ -15,8 +15,9 @@ pub use room::GameRoom;
 pub use server::GameServer;
 pub use types::{MAX_OUTBOX_MESSAGES, OutboundMessage, RoomBackend, RoomLogic, RoomSnapshotData};
 
-pub(crate) use room::{HashMap, HashSet, JournalInput, PlayerEntry, SessionSeqs};
-pub(crate) use types::{CloseReason, DRAIN_REASON, close_code};
+pub(crate) use room::{HashMap, HashSet, JournalInput, PlayerEntry, SessionSeqs, player_map, session_map};
+pub(crate) use engine_manager::{CloseReason, DRAIN_REASON, lifecycle_close_code};
+pub use types::close_code;
 
 #[cfg(test)]
 mod tests;

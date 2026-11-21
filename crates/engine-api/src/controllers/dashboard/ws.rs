@@ -48,8 +48,10 @@ impl DashboardWsController {
         // The dashboard socket carries the same console token as the REST calls.
         // In an explicit dev session (`cyg run -d`) there is no token to carry,
         // and requiring one would leave the dashboard live metrics permanently
-        // disconnected — so the handshake is allowed without it.
-        let dev = std::env::var("CYG_DEV_MODE").as_deref() == Ok("1");
+        // disconnected — so the handshake is allowed without it, but only from
+        // the machine running the process (same bar as the console REST grant).
+        let dev = state.dev_mode
+            && crate::current_remote().is_some_and(|remote| remote.ip().is_loopback());
         if !dev {
             let token = scope.token.as_deref().or_else(|| bearer_token(&headers));
             let Some(token) = token else {

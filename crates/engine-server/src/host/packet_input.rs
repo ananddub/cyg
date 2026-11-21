@@ -29,7 +29,15 @@ impl<'a> Engine<'a> {
             let room = self.server.rooms.get_mut(room_name).unwrap();
             let cfg = self.cfg;
             let tick_secs = self.clock.tick_interval.as_secs_f64();
-            if netcode::apply_input(room, cfg, tick_secs, client_id, id, input.seq, &payload_20)
+            if netcode::apply_input(
+                room,
+                cfg,
+                tick_secs,
+                client_id,
+                id,
+                input.seq,
+                &mut payload_20,
+            )
                 .is_err()
             {
                 self.stats.recorder.inputs_dropped += 1;
@@ -68,7 +76,7 @@ impl<'a> Engine<'a> {
                     client_id,
                     id,
                     seq,
-                    &payload_20,
+                    &mut payload_20,
                 )
                 .is_err()
                 {

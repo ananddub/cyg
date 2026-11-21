@@ -78,14 +78,16 @@ impl<T: 'static> WasmInstance<T> {
     pub fn restore_memory(&mut self, snapshot: &[u8]) -> Result<(), WasmError> {
         let memory = self.memory.ok_or(WasmError::MissingMemory)?;
         let data = memory.data_mut(&mut self.store);
-        if snapshot.len() > data.len() {
+        // A prefix restore would splice a snapshot taken from a different
+        // memory layout onto a shifted heap; require an exact-size match.
+        if snapshot.len() != data.len() {
             return Err(WasmError::OutOfBounds {
                 offset: 0,
                 len: snapshot.len(),
                 size: data.len(),
             });
         }
-        data[..snapshot.len()].copy_from_slice(snapshot);
+        data.copy_from_slice(snapshot);
         Ok(())
     }
 }

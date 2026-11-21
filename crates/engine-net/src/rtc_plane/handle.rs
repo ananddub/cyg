@@ -4,13 +4,15 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::inbox::{PlaneCommand, SessionInbound};
 use super::registries::Registries;
+use super::stats::DemuxStats;
 use super::types::{RtcDownlink, RtcPlaneError, UplinkEvent};
 
 #[derive(Clone)]
 pub struct PlaneHandle {
     pub(crate) cmd_tx: mpsc::UnboundedSender<PlaneCommand>,
     pub(crate) registries: Registries,
-    pub(crate) uplink: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<UplinkEvent>>>,
+    pub(crate) uplink: Arc<tokio::sync::Mutex<mpsc::Receiver<UplinkEvent>>>,
+    pub(crate) stats: DemuxStats,
 }
 
 impl PlaneHandle {
@@ -67,14 +69,14 @@ impl PlaneHandle {
             tx.try_send(SessionInbound::Delta {
                 seq: downlink.seq,
                 tick: downlink.tick,
-                body: Arc::from(downlink.body.as_slice()),
+                body: bytes::Bytes::copy_from_slice(&downlink.body),
             })
             .is_ok()
         })
     }
 
     pub fn send_reliable(&self, player_id: &Arc<str>, body: &[u8]) -> bool {
-        let body: Arc<[u8]> = Arc::from(body);
+        let body = bytes::Bytes::copy_from_slice(body);
         self.route_to_session(player_id, move |tx| {
             tx.try_send(SessionInbound::Reliable { body: body.clone() })
                 .is_ok()
@@ -101,6 +103,12 @@ impl PlaneHandle {
 
     pub fn session_count(&self) -> usize {
         self.registries.session_count()
+    }
+
+    /// Packets the demux dropped because a session inbox was full — the
+    /// bounded-512 backpressure path, now observable.
+    pub fn dropped_inbound(&self) -> u64 {
+        self.stats.dropped_inbound()
     }
 
     pub async fn recv_uplink(&self) -> Option<UplinkEvent> {

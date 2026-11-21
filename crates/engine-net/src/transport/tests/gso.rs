@@ -95,3 +95,32 @@ fn gso_beats_sendto_on_same_dest_runs() {
         gso_time.as_secs_f64() / sendto_time.as_secs_f64() * 100.0
     );
 }
+
+#[test]
+fn a_shorter_mid_run_segment_breaks_the_run() {
+    use crate::transport::gso_run_len;
+    let dest: SocketAddr = "127.0.0.1:9000".parse().unwrap();
+
+    // [1200, 100, 1200]: the 100-byte segment sits MID-run, so with
+    // seg_size = 1200 the kernel would split at fixed offsets and corrupt
+    // the datagram boundaries. The run must break there.
+    let big = vec![7u8; 1200];
+    let small = vec![9u8; 100];
+    let msgs: Vec<(SocketAddr, Vec<u8>)> = vec![
+        (dest, big.clone()),
+        (dest, small.clone()),
+        (dest, big.clone()),
+    ];
+    let refs: Vec<(SocketAddr, &[u8])> = msgs.iter().map(|(a, d)| (*a, d.as_slice())).collect();
+    assert_eq!(gso_run_len(&refs, 0), 1, "shorter mid-run segment breaks the run");
+    assert_eq!(gso_run_len(&refs, 1), 1);
+    assert_eq!(gso_run_len(&refs, 2), 1);
+
+    // Equal-length segments still batch.
+    let equal: Vec<(SocketAddr, Vec<u8>)> = vec![
+        (dest, big.clone()),
+        (dest, big.clone()),
+    ];
+    let eq_refs: Vec<(SocketAddr, &[u8])> = equal.iter().map(|(a, d)| (*a, d.as_slice())).collect();
+    assert_eq!(gso_run_len(&eq_refs, 0), 2);
+}

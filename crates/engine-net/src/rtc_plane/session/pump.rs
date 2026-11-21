@@ -61,7 +61,10 @@ impl RtcSession {
                 Ok(Output::Transmit(t)) => {
                     out.push(Outbound::Datagram {
                         destination: t.destination,
-                        contents: t.contents.to_vec(),
+                        // str0m hands us an owned DatagramSend — move the inner
+                        // Vec out instead of copying it (`to_vec` was a full
+                        // memcpy per outbound datagram).
+                        contents: Vec::from(t.contents),
                     });
                 }
                 Ok(Output::Event(event)) => {

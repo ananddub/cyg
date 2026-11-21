@@ -1,8 +1,11 @@
 // CYG Unity SDK — same surface as the web SDK (cyg.js), over UDP or WebSocket.
 //
 // Flow: matchmake (HTTP) → seat token → join → room binds → deltas in, inputs
-// out. State decode pairs with `cyg schema-codegen --lang cs` output
-// (CYGSchemaGenerated) via CygDeltaDecoder.
+// out. ALL schema decode goes through the cyg-core-rs native lib: the host's
+// descriptor ("OXSD") frame builds a CygRoom (P/Invoke core), and every schema
+// delta is applied with CygRoom.ApplyPayload + typed reads (GetF64/GetString/
+// GetBool by field index). CygDeltaDecoder remains as a thin shim over that
+// core for code that still speaks rows.
 //
 // Two lanes carry the same frames, because a Unity project does not always ship
 // to a platform where raw UDP is available: consoles and desktop have it, a
@@ -15,7 +18,7 @@
 //   PING  [0x22][8B opaque]              → PONG [0x23][same 8B]
 //   INPUT [op][seq u16 LE][20B payload]  (fixed 23B — the movement lane)
 //   BIND  [0x24]…                        → server: you are bound to a room
-// Deltas arrive as TLV rows — decode with CygDeltaDecoder onto generated state.
+// Schema deltas decode in cyg-core-rs; the OnRawDelta event only mirrors bytes.
 
 using System;
 using System.Collections.Concurrent;
@@ -26,6 +29,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Cyg;
 
 namespace CYG
 {
@@ -55,8 +59,16 @@ namespace CYG
         public bool Connected { get; private set; }
         public string SessionId { get; private set; }
 
-        /// Raw delta rows — feed to CygDeltaDecoder or your generated state.
+        /// Raw delta bytes — mirror only; the decoded state lives in
+        /// <see cref="Room"/> (cyg-core-rs). Feed to CygDeltaDecoder (a shim
+        /// over the same core) for the legacy row shape.
         public event Action<byte[]> OnRawDelta;
+        /// Fired once when the host's schema descriptor lands and the core
+        /// room is built. Read state via <see cref="Room"/> after this.
+        public event Action OnRoomReady;
+        /// The decoded room state (cyg-core-rs native lib). Null until the
+        /// host's descriptor frame arrives.
+        public CygRoom Room { get; private set; }
         /// App-level messages (typed). Reserved for the OP_APP lane.
         public event Action<string, byte[]> OnMessage;
         /// Routed voice frame: speaker id + 15-byte header + Opus payload.
@@ -219,10 +231,14 @@ namespace CYG
             seat.SeatToken = Extract(json, "seatToken") ?? Extract(json, "token");
             seat.SessionId = Extract(json, "sessionId") ?? "";
             // The native-UDP game lane is seat.udpPort — NOT gamePort (that is
-            // the WebRTC DataChannel lane, a different socket). Fall back to
-            // the raw `port` for deployments that expose UDP on it.
-            var port = Extract(json, "udpPort") ?? Extract(json, "gamePort") ?? Extract(json, "port") ?? "7777";
-            seat.HasUdp = Extract(json, "udpPort") != null;
+            // the WebRTC DataChannel lane, a different socket). Seat contract:
+            // udpPort is always serialized and 0 means UDP is OFF, so only a
+            // positive udpPort enables the UDP lane; otherwise fall back to the
+            // raw `port` for deployments that expose UDP on it.
+            var udpRaw = Extract(json, "udpPort");
+            seat.HasUdp = int.TryParse(udpRaw, out var udpPort) && udpPort > 0;
+            var port = seat.HasUdp ? udpRaw
+                : Extract(json, "gamePort") ?? Extract(json, "port") ?? "7777";
             if (int.TryParse(Extract(json, "gamePort") ?? "", out var gamePort))
                 seat.GamePort = gamePort;
             // host may be null here — Matchmake defaults it to the matchmake
@@ -238,6 +254,9 @@ namespace CYG
             return seat;
         }
 
+        // TODO: replace this hand-rolled scanner with System.Text.Json
+        // (JsonDocument.Parse) end-to-end — see ParseSeat. Kept for now to
+        // avoid touching the Seat API surface mid-rename.
         private static string Extract(string json, string key)
         {
             int i = json.IndexOf($"\"{key}\"", StringComparison.Ordinal);
@@ -249,10 +268,18 @@ namespace CYG
             if (p >= json.Length) return null;
             if (json[p] == '"')
             {
-                // String value: ends at the next quote (no escape handling —
-                // the seat JSON's string fields never carry escapes).
-                int end = json.IndexOf('"', p + 1);
-                return end < 0 ? null : json.Substring(p + 1, end - p - 1);
+                // String value: scan honoring backslash escapes so an escaped
+                // quote (\") inside the value no longer truncates it.
+                int end = p + 1;
+                while (end < json.Length)
+                {
+                    char c = json[end];
+                    if (c == '\\') { end += 2; continue; }
+                    if (c == '"') break;
+                    end++;
+                }
+                if (end >= json.Length) return null;
+                return UnescapeJsonString(json.Substring(p + 1, end - p - 1));
             }
             // Number / bool / null: ends at the next comma or closing brace.
             // (The old version searched for a quote ANYWHERE after the colon,
@@ -260,6 +287,31 @@ namespace CYG
             int stop = p;
             while (stop < json.Length && json[stop] != ',' && json[stop] != '}') stop++;
             return json.Substring(p, stop - p).Trim();
+        }
+
+        private static string UnescapeJsonString(string raw)
+        {
+            if (raw.IndexOf('\\') < 0) return raw;
+            var sb = new System.Text.StringBuilder(raw.Length);
+            for (int i = 0; i < raw.Length; i++)
+            {
+                char c = raw[i];
+                if (c != '\\' || i + 1 >= raw.Length) { sb.Append(c); continue; }
+                char n = raw[++i];
+                switch (n)
+                {
+                    case '"': sb.Append('"'); break;
+                    case '\\': sb.Append('\\'); break;
+                    case '/': sb.Append('/'); break;
+                    case 'n': sb.Append('\n'); break;
+                    case 'r': sb.Append('\r'); break;
+                    case 't': sb.Append('\t'); break;
+                    case 'b': sb.Append('\b'); break;
+                    case 'f': sb.Append('\f'); break;
+                    default: sb.Append(n); break; // \uXXXX left as-is (seat fields never carry it)
+                }
+            }
+            return sb.ToString();
         }
 
         // -------------------------------------------------------- transports
@@ -500,10 +552,33 @@ namespace CYG
                     if (n >= 9) PlayerId = BitConverter.ToInt64(buf, 1);
                     break;
                 case 0x23: break; // PONG — rtt bookkeeping lives with ping loop
-                case 0x11: case 0xA5: // state delta rows (TLV) — decoder's job
+                case 0x11: case 0xA5: // schema delta / descriptor frame
                     var delta = new byte[n];
                     Buffer.BlockCopy(buf, 0, delta, 0, n);
                     _deltas.Enqueue(delta);
+                    // The host pushes the schema descriptor ("OXSD") right
+                    // after JOIN_ROOM; the core room is built from it and
+                    // every later schema delta decodes through it.
+                    if (CygRoom.IsSchemaDescriptor(delta))
+                    {
+                        if (Room == null)
+                        {
+                            try
+                            {
+                                Room = new CygRoom(delta);
+                                CygDeltaDecoder.Attach(Room);
+                                OnRoomReady?.Invoke();
+                            }
+                            catch (Exception error)
+                            {
+                                OnError?.Invoke("bad schema descriptor: " + error.Message);
+                            }
+                        }
+                    }
+                    else if (Room != null)
+                    {
+                        Room.ApplyPayload(delta);
+                    }
                     OnRawDelta?.Invoke(delta);
                     break;
                 case 0x05: // typed app message / RPC response
@@ -754,6 +829,8 @@ namespace CYG
             _link?.Dispose();
             _link = null;
             Connected = false;
+            Room?.Dispose();
+            Room = null;
             OnLeave?.Invoke();
         }
 

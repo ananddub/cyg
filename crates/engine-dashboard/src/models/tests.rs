@@ -52,6 +52,7 @@ fn an_idle_overview_carries_every_key_the_dashboard_reads() {
         "/agones",
         "/hasSimSample",
         "/sampleAgeMs",
+        "/serverPhase",
     ] {
         assert!(json.pointer(path).is_some(), "missing {path} in {json}");
     }

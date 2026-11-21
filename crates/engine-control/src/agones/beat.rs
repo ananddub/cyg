@@ -6,7 +6,7 @@ use engine_agones::{Lifecycle, LifecycleEvent, SidecarConfig, install};
 use super::loud::Loudness;
 use engine_api::ApiState;
 
-pub fn spawn(state: &ApiState) {
+pub fn spawn(state: &ApiState, manager: &std::sync::Arc<engine_manager::ServerManager>) {
     let cfg = &state.control.agones;
     if !cfg.enabled {
         return;
@@ -47,10 +47,25 @@ pub fn spawn(state: &ApiState) {
             .name("ox-agones".into())
             .spawn(move || run(lifecycle))
     };
-    if let Err(e) = thread {
-        tracing::error!(
-            "[agones] ✖ could not start the health thread: {e}; this pod will never be Ready"
-        );
+    match thread {
+        Ok(handle) => {
+            // The heartbeat loop owns its own stop mechanism; tell the
+            // lifecycle to invoke it, then adopt the handle so shutdown joins.
+            manager.on_stop(|| {
+                engine_agones::stop_health_loop();
+            });
+            manager.adopt_thread(
+                engine_manager::ThreadRole::Agones,
+                "ox-agones",
+                handle,
+            );
+        }
+        Err(e) => {
+            tracing::error!(
+                "[agones] ✖ could not start the health thread: {e}; this pod will never be Ready"
+            );
+            manager.mark_thread("ox-agones", engine_manager::ThreadState::Failed);
+        }
     }
 }
 

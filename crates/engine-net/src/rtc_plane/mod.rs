@@ -6,6 +6,7 @@ mod inbox;
 mod plane;
 mod registries;
 mod session;
+mod stats;
 mod task;
 mod types;
 
@@ -15,4 +16,5 @@ pub use plane::Plane;
 pub use session::{
     LABEL_RELIABLE, LABEL_UNRELIABLE, Outbound, PlaneChannel, RtcSession, SessionEvent,
 };
+pub use stats::DemuxStats;
 pub use types::{RtcDownlink, RtcInput, RtcPlaneError, UplinkEvent};

@@ -323,7 +323,7 @@ mod tests {
                 },
             ],
         };
-        let round_tripped = decode(&encode(&original)).expect("re-decodes");
+        let round_tripped = decode(&super::encode(&original)).expect("re-decodes");
         assert_eq!(round_tripped.leaderboard, original.leaderboard);
         assert_eq!(round_tripped.participants.len(), 2);
         for (left, right) in round_tripped

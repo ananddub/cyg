@@ -30,6 +30,7 @@ impl WebRtcTransport {
                 }
                 WebRtcServerEvent::Disconnected { client_id } => {
                     self.last_seen.remove(client_id.as_str());
+                    self.delta_seqs.remove(client_id.as_str());
                     if !self.pending.iter().any(|e| matches!(e, TransportEvent::Disconnected { client_id: cid } if cid.as_ref() == client_id)) {
                         self.pending.push(TransportEvent::Disconnected { client_id: client_id.into() });
                     }
@@ -75,6 +76,7 @@ impl WebRtcTransport {
         for cid in stale {
             self.server.remove_session(&cid);
             self.last_seen.remove(&cid);
+            self.delta_seqs.remove(&*cid);
             if !self.pending.iter().any(|e| matches!(e, TransportEvent::Disconnected { client_id } if client_id.as_ref() == cid.as_ref())) {
                 self.pending.push(TransportEvent::Disconnected { client_id: cid });
             }

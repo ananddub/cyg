@@ -9,5 +9,5 @@ pub use messages::{
     RoomSnapshot, SeatUpdate, SettingsReload, SimCommand, SimEvent, SnapshotFetch, Via, WasmReload,
 };
 pub use telemetry::{
-    RoomPhase, RoomTelemetry, SessionTelemetry, StatusSnapshot, TICK_HISTOGRAM_BUCKETS,
+    RoomPhase, RoomTelemetry, ServerPhase, SessionTelemetry, StatusSnapshot, TICK_HISTOGRAM_BUCKETS,
 };

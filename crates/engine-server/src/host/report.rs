@@ -18,7 +18,7 @@ pub(crate) fn report_match(
         room: name.to_string(),
         game_id: game_id.to_string(),
         end_reason: end_reason.to_string(),
-        started_at_unix: now - room.born.elapsed().as_secs() as i64,
+        started_at_unix: now - room.lifecycle.born.elapsed().as_secs() as i64,
         ended_at_unix: now,
         ticks: room.current_tick as i64,
         peak_players: peak_players as i64,

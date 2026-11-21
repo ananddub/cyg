@@ -18,7 +18,7 @@ async fn a_reconnect_supersedes_the_old_socket_without_losing_its_route() {
     first.send_text(r#"{"type":"close"}"#).await;
     assert_eq!(
         next_signal(&mut inbound).await,
-        SignalIn::Close { seat: seat.clone() }
+        SignalIn::Close { seat: seat.clone(), .. }
     );
     assert!(
         state.signals.publish(
@@ -37,7 +37,7 @@ async fn a_reconnect_supersedes_the_old_socket_without_losing_its_route() {
     second.send_text(r#"{"type":"close"}"#).await;
     assert_eq!(
         next_signal(&mut inbound).await,
-        SignalIn::Close { seat: seat.clone() }
+        SignalIn::Close { seat: seat.clone(), .. }
     );
     expect_quiet(&mut inbound).await;
     wait_peers(&state.signals, 0).await;
@@ -51,7 +51,7 @@ async fn a_dropped_socket_still_teaches_the_data_plane_once() {
     let mut ws = WsClient::open(addr, &signal_path(&seat)).await;
     assert_eq!(ws.recv_json().await["type"], "ice");
     drop(ws);
-    assert_eq!(next_signal(&mut inbound).await, SignalIn::Close { seat });
+    assert_eq!(next_signal(&mut inbound).await, SignalIn::Close { seat, .. });
     expect_quiet(&mut inbound).await;
     wait_peers(&state.signals, 0).await;
 }

@@ -16,9 +16,10 @@ pub fn run(
     wasm_path: &Path,
     cfg: &GameConfig,
     bus: Arc<Bus>,
-    signals: Option<engine_api::infra::signaling::SignalHub>,
+    signals: Option<engine_signaling::SignalHub>,
     boot_maps: BootMaps,
     boot_module: Option<BootModule>,
+    manager: Arc<engine_manager::ServerManager>,
 ) -> std::io::Result<()> {
     // Refuse a config with no lane before opening anything, and say which lanes
     // this process is about to serve so the log answers "what is listening?"
@@ -51,6 +52,12 @@ pub fn run(
     let physics = boot_map3d(&boot_maps, project_dir, &arena_2d);
     let (schema_descriptor, schema_aoi) =
         boot_schema(&boot_maps, project_dir, cfg, &mut raw_transport);
+    let packed_lane = crate::netcode::PackedSet::from_descriptor(&schema_descriptor);
+    if packed_lane.is_some() {
+        tracing::info!(
+            "[server] 📦 packed state lane active (bit-packed OXS2 kinds 5-8, root + collections)"
+        );
+    }
     let join_options_fields = if schema_descriptor.is_empty() {
         Vec::new()
     } else {
@@ -138,9 +145,12 @@ pub fn run(
             rudp_scratch: Vec::with_capacity(2100),
             schema_descriptor,
             timed_out_udp: Vec::new(),
+            wire_bytes_in: 0,
+            wire_bytes_out: 0,
+            wire_fragments: 0,
         },
         signal_rx,
-        drain: Drain::new(Duration::from_secs(cfg.lifecycle.drain_grace_secs)),
+        manager,
         scratch: Scratch {
             events: Vec::with_capacity(1024),
         },
@@ -176,8 +186,27 @@ pub fn run(
             next_phase: 0,
             slot_base: Instant::now(),
             interval_pending: 0,
+            schema_full: 0..0,
+            schema_patch: 0..0,
+            wrap_full_packed: Vec::with_capacity(8 * 1024),
+            wrap_patch_packed: Vec::with_capacity(8 * 1024),
+            packed_full_body: Vec::with_capacity(8 * 1024),
+            packed_patch_body: Vec::with_capacity(8 * 1024),
+            packed_view_buf: Vec::with_capacity(8 * 1024),
+            packed_lane,
+            packed_ready: false,
         },
     };
+    // The boot sequence is complete: runtime, lanes, rooms, and persistence are
+    // up, so the authoritative server lifecycle leaves `Booting` and starts
+    // accepting players. Every later transition (draining/shutdown) is driven
+    // through the same `engine-manager` state machine.
+    engine.manager.mark_ready();
+    tracing::info!(
+        "[server] ✅ lifecycle {} (boot took {:?})",
+        engine.manager.phase().display(),
+        engine.manager.uptime()
+    );
     // Profiling builds exit cleanly after CYG_DHAT_SECS / CYG_CPU_PROF_SECS so
     // the profiler drops and writes its report (release runs never exit on
     // their own). Runtime env check (not cfg): crate features don't propagate
@@ -208,5 +237,12 @@ pub fn run(
             }
         }
     }
+    // The host thread is leaving: stop and join every managed helper thread
+    // before the process exits, so no thread outlives the lifecycle.
+    engine.manager.mark_thread(
+        "cyg-host",
+        engine_manager::ThreadState::Stopped,
+    );
+    engine.manager.shutdown();
     Ok(())
 }

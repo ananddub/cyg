@@ -7,6 +7,10 @@ description = "WebRTC DataChannel game wire protocol: packed input, state, event
 # Pure byte codec: no allocator, no runtime, no transport. The same bytes are
 # produced by the browser SDK and read by native clients and server-side bots.
 
+[dependencies]
+engine-schema = { path = "../engine-schema" }
+
 [dev-dependencies]
 pretty_assertions = "1"
+serde_json = "1"
 proptest = "1"

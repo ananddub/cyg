@@ -73,9 +73,10 @@ impl PlaneConfig {
 pub fn spawn_sim_plane(
     bus: Arc<Bus>,
     cfg: PlaneConfig,
+    stop: Arc<std::sync::atomic::AtomicBool>,
 ) -> std::io::Result<std::thread::JoinHandle<()>> {
     std::thread::Builder::new()
-        .name("ox-sim".into())
+        .name("cyg-sim".into())
         .spawn(move || {
             if let Err(e) = pin::pin_current_thread(cfg.sim_core) {
                 tracing::error!(
@@ -83,6 +84,6 @@ pub fn spawn_sim_plane(
                     cfg.sim_core
                 );
             }
-            sim::run(bus, cfg);
+            sim::run(bus, cfg, stop);
         })
 }

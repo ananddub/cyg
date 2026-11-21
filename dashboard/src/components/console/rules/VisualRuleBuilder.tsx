@@ -316,7 +316,7 @@ export function VisualRuleBuilder({
       const document = graphToRuleDocument(nodes, edges);
       const generated =
         expression && typeof expression === 'object' && !Array.isArray(expression)
-          ? { ...(expression as Record<string, unknown>), ...document }
+          ? { ...expression, ...document }
           : { ...document, value: true };
       const jsonStr = JSON.stringify(generated, null, 2);
       setCodeJson(jsonStr);
