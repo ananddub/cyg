@@ -290,4 +290,123 @@ mod tests {
         assert_eq!(&assembled[1..], payload.as_slice());
         assert!(datagrams > 20, "snapshot really was chunked");
     }
+    #[test]
+    fn a_large_udp_snapshot_converges_over_150ms_rtt_and_5_percent_loss() {
+        use std::collections::VecDeque;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::thread;
+
+        let mut server = UdpTransport::new("127.0.0.1:0".parse().unwrap()).unwrap();
+        let server_addr = server.local_addr().unwrap();
+        let proxy = UdpSocket::bind("127.0.0.1:0").unwrap();
+        proxy.set_nonblocking(true).unwrap();
+        let proxy_addr = proxy.local_addr().unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_millis(20)))
+            .unwrap();
+
+        // A real two-way proxy: 75 ms each way, every 20th datagram dropped.
+        let stop = Arc::new(AtomicBool::new(false));
+        let proxy_stop = stop.clone();
+        let proxy_thread = thread::spawn(move || {
+            let mut queue: VecDeque<(Instant, Vec<u8>, SocketAddr)> = VecDeque::new();
+            let mut client_addr = None;
+            let mut seen = 0u64;
+            let mut buf = vec![0u8; 4096];
+            while !proxy_stop.load(Ordering::Relaxed) {
+                loop {
+                    let (len, from) = match proxy.recv_from(&mut buf) {
+                        Ok(pair) => pair,
+                        Err(_) => break,
+                    };
+                    let to = if from == server_addr {
+                        match client_addr {
+                            Some(addr) => addr,
+                            None => continue,
+                        }
+                    } else {
+                        client_addr = Some(from);
+                        server_addr
+                    };
+                    seen += 1;
+                    if seen % 20 != 0 {
+                        queue.push_back((
+                            Instant::now() + Duration::from_millis(75),
+                            buf[..len].to_vec(),
+                            to,
+                        ));
+                    }
+                }
+                let now = Instant::now();
+                while queue.front().is_some_and(|(at, _, _)| *at <= now) {
+                    let (_, data, to) = queue.pop_front().unwrap();
+                    let _ = proxy.send_to(&data, to);
+                }
+                thread::sleep(Duration::from_millis(1));
+            }
+        });
+
+        // Join through the proxy; the server sees the proxy's address as the peer.
+        let mut ping = Vec::new();
+        encode_frame(OpCode::Ping, &[], &mut ping).unwrap();
+        client.send_to(&ping, proxy_addr).unwrap();
+        let mut events = Vec::new();
+        let mut client_id = None;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while client_id.is_none() && Instant::now() < deadline {
+            server
+                .poll_events(Duration::from_millis(20), &mut events)
+                .unwrap();
+            client_id = events.iter().find_map(|event| match event {
+                TransportEvent::Connected { client_id, .. } => Some(client_id.clone()),
+                _ => None,
+            });
+        }
+        let client_id = client_id.expect("server saw the proxied client");
+
+        let payload: Vec<u8> = (0..20_000).map(|i| (i % 251) as u8).collect();
+        server
+            .send_to(&client_id, OpCode::StateSnapshot, &payload)
+            .unwrap();
+        server.flush().unwrap();
+
+        let mut receiver = ChunkReceiver::new();
+        let mut assembled = None;
+        let mut datagrams = 0u64;
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let mut buf = vec![0u8; 2048];
+        while assembled.is_none() && Instant::now() < deadline {
+            server
+                .poll_events(Duration::from_millis(20), &mut events)
+                .unwrap();
+            server.flush().unwrap();
+            loop {
+                let (len, _) = match client.recv_from(&mut buf) {
+                    Ok(pair) => pair,
+                    Err(_) => break,
+                };
+                datagrams += 1;
+                for (opcode, body) in iter_frames(&buf[..len]) {
+                    if opcode != OpCode::Custom || parse_slice(body).is_err() {
+                        continue;
+                    }
+                    assembled = receiver.accept(body).unwrap();
+                    let mut ack = Vec::new();
+                    write_ack(&mut ack, &receiver.ack());
+                    let mut frame = Vec::new();
+                    encode_frame(OpCode::Custom, &ack, &mut frame).unwrap();
+                    client.send_to(&frame, proxy_addr).unwrap();
+                }
+            }
+        }
+
+        stop.store(true, Ordering::Relaxed);
+        proxy_thread.join().unwrap();
+        let assembled = assembled.expect("20 KB block reassembled over a lossy 150 ms link");
+        assert_eq!(&assembled[1..], payload.as_slice());
+        assert!(datagrams > 20, "block really was chunked and retransmitted");
+    }
+
 }

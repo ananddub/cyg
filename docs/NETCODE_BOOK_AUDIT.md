@@ -82,6 +82,7 @@ cargo test -p engine-net --lib transport::webrtc::contract
 cargo test -p engine-server --lib netcode::tests::input_flow
 cargo test -p engine-server --lib netcode::tests::loss_soak
 cargo test -p engine-net --lib transport::udp::tests
+cargo test -p engine-net --lib transport::udp::tests::a_large_udp_snapshot_converges_over_150ms_rtt_and_5_percent_loss
 cargo test -p engine-server --lib netcode::packed_lane::tests
 cd sdk/client/web && node test/predict.test.mjs && node test/input.test.mjs
 ```
@@ -96,6 +97,8 @@ cd sdk/client/web && node test/predict.test.mjs && node test/input.test.mjs
    `ChunkReceiver` are wired and tested over a real UDP socket; browser clients
    use WebRTC SCTP and the C++/Godot raw-UDP SDKs still need the same
    `0x27/0x28` reassembler if they speak the raw UDP path directly.
-3. **Connected 150 ms + 5% loss e2e**: the deterministic 10 s soak is now in
-   CI (`netcode::tests::loss_soak`), but a live two-host UDP/WebRTC soak still
-   needs the external transport environment.
+3. **Connected netcode e2e**: the deterministic 10 s input/prediction/rewind
+   soak is in CI (`netcode::tests::loss_soak`), and `engine-net` now has a real
+   UDP proxy test at 150 ms RTT / 5% loss for chunked snapshots. A two-host
+   client-server soak that also drives the guest WASM room still needs the
+   external transport environment.
