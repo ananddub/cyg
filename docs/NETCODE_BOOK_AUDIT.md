@@ -60,8 +60,8 @@ known limitation, **GAP** = not implemented.
 |---|---|---|---|---|
 | Valve, Gaffer | Newest-wins input sequence, stale drop | PASS | bridge `_inputLastSeq`; host `SeqWatermark` | input-flow tests |
 | Valve | Hold last input / idle synthesis | PASS | `netcode/input.rs`, `synthesize_idle_inputs` | input-flow test |
-| Gaffer/Valve | Redundant input frames for lossy lanes | PASS | `Room.inputRedundancy` (default 2) writes the same stamped frame N times on the unreliable lane; duplicate seqs are dropped | `sdk/client/web/test/input.test.mjs` |
-| Gaffer | Input batching | PARTIAL | `0x26` batch lane + `sendInputBatch` | host batch tests; schema lane does not auto-batch |
+| Gaffer/Valve | Redundant input frames for lossy lanes | PASS | `Room.inputRedundancy` (default 2) plus `Room.inputHistory` (default 2) replay of unacked schema frames in `__input_batch`; duplicate seqs are dropped | `input.test.mjs`, `parse_input_batch` tests |
+| Gaffer | Input batching | PASS | `0x26` mesh batch + schema `__input_batch` (8 frames / 512 B cap, whole-batch rate charge) | host batch/limiter tests + web replay test |
 
 ## Clock / scope
 
@@ -85,12 +85,7 @@ cd sdk/client/web && node test/predict.test.mjs && node test/input.test.mjs
 
 ## Remaining work, in priority order
 
-1. **Historical input replay / schema-aware batch**: same-frame redundancy is
-   done; replay of unacked schema input frames is still open.
-2. **Input redundancy**: same-frame loss redundancy is done; historical
-   unacked-frame replay/batching is still open. Reference: Valve usercmd
-   redundancy, Gaffer ack bitfield.
-3. **Shooter timestamp end-to-end**: carry the client input timestamp into the
+1. **Shooter timestamp end-to-end**: carry the client input timestamp into the
    guest so `Rewind.recordAt/atMs` uses the actual shot time, not just the
    server tick.
 4. **Snapshot priority/budget**: per-client row priority when the dirty set is

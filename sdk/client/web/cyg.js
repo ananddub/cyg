@@ -1042,6 +1042,11 @@ var init_engine = __esm({
             4,
             Number.isFinite(options.inputRedundancy) ? options.inputRedundancy : 2
           ));
+          this.inputHistory = Math.max(0, Math.min(
+            7,
+            Number.isFinite(options.inputHistory) ? options.inputHistory : 2
+          ));
+          this._inputHistory = [];
           this.ackedSeq = -1;
           this.serverTick = -1;
           this._stampSeq = 0;
@@ -2056,6 +2061,7 @@ var init_engine = __esm({
               if (tick > this.lastVolatileTick) this.lastVolatileTick = tick;
             } else {
               this.ackedSeq = acked;
+              this._trimInputHistory(acked);
               this.serverTick = tick;
               if (tick <= this.lastAppliedTick) return;
               this.lastAppliedTick = tick;
@@ -2089,6 +2095,7 @@ var init_engine = __esm({
             ackedSeq = t.acked;
             serverTick = t.tick;
             this.ackedSeq = ackedSeq;
+            this._trimInputHistory(ackedSeq);
             this.serverTick = serverTick;
             payload = payload.subarray(0, payload.byteLength - t.len);
           }
@@ -2453,23 +2460,17 @@ var init_engine = __esm({
         /** Send one already-packed `[seq u16][fields…]` input body. */
         _sendPackedInput(packed) {
           if (this.isSpectator) return false;
+          if (!packed || packed.byteLength < 2) return false;
+          this._rememberInput(packed);
           let body = packed;
-          if (!body) return false;
-          const stamp = (this._stampSeq = this._stampSeq + 1 & 65535) >>> 0;
-          const stamped = new Uint8Array(body.byteLength + INPUT_STAMP_LEN);
-          stamped.set(body, 0);
-          stamped[body.byteLength] = INPUT_STAMP_MAGIC[0];
-          stamped[body.byteLength + 1] = INPUT_STAMP_MAGIC[1];
-          stamped[body.byteLength + 2] = stamp & 255;
-          stamped[body.byteLength + 3] = stamp >>> 8 & 255;
-          body = stamped;
-          this._stampTimes.set(stamp, performance.now());
-          this._stampOrder.push(stamp);
-          while (this._stampOrder.length > 256) {
-            const evicted = this._stampOrder.shift();
-            this._stampTimes.delete(evicted);
+          let type = "__input";
+          const batch = this._buildInputBatch();
+          if (batch) {
+            body = batch;
+            type = "__input_batch";
           }
-          const frame = this._encodeAppMessage("__input", body);
+          body = this._appendInputStamp(body);
+          const frame = this._encodeAppMessage(type, body);
           if (this.serverChUnreliable && this.serverChUnreliable.readyState === "open") {
             this.serverRtcActive = true;
             const copies = Math.max(1, Math.min(4, this.inputRedundancy || 1));
@@ -2495,7 +2496,78 @@ var init_engine = __esm({
             } catch (e) {
             }
           }
-          return this.send("__input", body);
+          return this.send(type, body);
+        }
+        /** Add one sent body to the short replay ring. */
+        _rememberInput(packed) {
+          if (!this._inputHistory) this._inputHistory = [];
+          const seq = packed[0] | packed[1] << 8;
+          this._inputHistory.push({
+            seq,
+            frame: packed.subarray(2).slice(),
+            atMs: performance.now()
+          });
+          const keep = Math.max(1, (this.inputHistory | 0) + 1);
+          while (this._inputHistory.length > keep) this._inputHistory.shift();
+          this._trimInputHistory(this.ackedSeq);
+        }
+        /** Drop frames the server has already acknowledged (wrap-safe). */
+        _trimInputHistory(acked) {
+          if (!this._inputHistory || !(acked >= 0)) return;
+          while (this._inputHistory.length > 0) {
+            const seq = this._inputHistory[0].seq;
+            const age = acked - seq & 65535;
+            if (age >= 32768) break;
+            this._inputHistory.shift();
+          }
+        }
+        /**
+         * Build `[count][seq u16][len u16][frame]…` from the replay ring.
+         * Returns null when there is nothing to replay or the batch would
+         * exceed the host's 512-byte cap; the caller then sends one frame.
+         */
+        _buildInputBatch() {
+          if (!this._inputHistory || (this.inputHistory | 0) <= 0) return null;
+          if (this._inputHistory.length < 2) return null;
+          let frames = this._inputHistory;
+          let total = 1;
+          for (const f of frames) total += 4 + f.frame.byteLength;
+          while (frames.length > 1 && total > 512) {
+            total -= 4 + frames[0].frame.byteLength;
+            frames = frames.slice(1);
+          }
+          if (frames.length < 2 || total > 512) return null;
+          const body = new Uint8Array(total);
+          body[0] = frames.length & 255;
+          let off = 1;
+          for (const f of frames) {
+            body[off] = f.seq & 255;
+            body[off + 1] = f.seq >>> 8 & 255;
+            body[off + 2] = f.frame.byteLength & 255;
+            body[off + 3] = f.frame.byteLength >>> 8 & 255;
+            body.set(f.frame, off + 4);
+            off += 4 + f.frame.byteLength;
+          }
+          return body;
+        }
+        /** Append the rotating RTT stamp trailer and remember its send time. */
+        _appendInputStamp(body) {
+          const stamp = (this._stampSeq = this._stampSeq + 1 & 65535) >>> 0;
+          const stamped = new Uint8Array(body.byteLength + INPUT_STAMP_LEN);
+          stamped.set(body, 0);
+          stamped[body.byteLength] = INPUT_STAMP_MAGIC[0];
+          stamped[body.byteLength + 1] = INPUT_STAMP_MAGIC[1];
+          stamped[body.byteLength + 2] = stamp & 255;
+          stamped[body.byteLength + 3] = stamp >>> 8 & 255;
+          if (!this._stampTimes) this._stampTimes = /* @__PURE__ */ new Map();
+          if (!this._stampOrder) this._stampOrder = [];
+          this._stampTimes.set(stamp, performance.now());
+          this._stampOrder.push(stamp);
+          while (this._stampOrder.length > 256) {
+            const evicted = this._stampOrder.shift();
+            this._stampTimes.delete(evicted);
+          }
+          return stamped;
         }
         /**
          * Typed input lane — pass the object matching your schema's `Input`

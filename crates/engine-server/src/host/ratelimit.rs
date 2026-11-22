@@ -17,14 +17,25 @@ pub(crate) fn input_budget_allows(
     tick_interval: Duration,
     session: &str,
 ) -> bool {
+    input_budget_allows_n(rates, tick_interval, session, 1)
+}
+
+/// Charge a whole input batch to the same token bucket. Existing sessions take
+/// the borrow-first path; only the first packet interns a key.
+pub(crate) fn input_budget_allows_n(
+    rates: &mut HashMap<std::rc::Rc<str>, netcode::InputRateLimiter>,
+    tick_interval: Duration,
+    session: &str,
+    samples: usize,
+) -> bool {
     let now = Instant::now();
     if let Some(limiter) = rates.get_mut(session) {
-        return limiter.allow(now);
+        return limiter.allow_n(now, samples);
     }
     rates
         .entry(std::rc::Rc::from(session))
         .or_insert_with(|| netcode::InputRateLimiter::for_tick_rate(live_tick_rate(tick_interval)))
-        .allow(now)
+        .allow_n(now, samples)
 }
 
 /// Raw-UDP input gate: rate budget first, then the same IN PLACE sanitize

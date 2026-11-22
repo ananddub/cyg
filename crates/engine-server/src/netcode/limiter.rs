@@ -28,11 +28,18 @@ impl InputRateLimiter {
     }
 
     pub fn allow(&mut self, now: Instant) -> bool {
+        self.allow_n(now, 1)
+    }
+
+    /// Charge `n` samples at once. A batch either fits the current budget or is
+    /// refused whole; it never half-charges and then drops the rest.
+    pub fn allow_n(&mut self, now: Instant, n: usize) -> bool {
         let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
         self.tokens = (self.tokens + elapsed * self.rate_per_sec).min(self.burst);
         self.last = now;
-        if self.tokens >= 1.0 {
-            self.tokens -= 1.0;
+        let cost = n.max(1) as f64;
+        if self.tokens >= cost {
+            self.tokens -= cost;
             true
         } else {
             false

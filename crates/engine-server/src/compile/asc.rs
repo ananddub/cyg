@@ -134,16 +134,16 @@ pub(crate) fn compile_asc(
     // reclaim them, but at the input rate that garbage kept the collector busy
     // and inflated the room's linear memory between collections.
     let input_frame_expr = if input_reader_style || !gen_has_input_decoder {
-        "__input_reader.reset(ptr + 4 + type_len, len - 4 - type_len)".to_string()
+        "__input_reader.reset(body_ptr, body_len)".to_string()
     } else {
-        "decodeInputInto(__input_frame, __input_reader.reset(ptr + 4 + type_len, len - 4 - type_len))".to_string()
+        "decodeInputInto(__input_frame, __input_reader.reset(body_ptr, body_len))".to_string()
     };
     let on_input_body = if room_has_input_frame {
         // Timeline recording allocates a copy per accepted frame. Only emit it
         // when the room's source actually touches `this.inputs`; rooms that do
         // not use the timeline keep the old zero-allocation input hot path.
         let record_input = if content.contains("this.inputs") {
-            "            // Copy the frame into the SDK timeline before the room hook runs,\n            // so `this.inputs` can replay/consume it after this call returns.\n            __room_instance.recordInput(id, seq, ptr + 4 + type_len, len - 4 - type_len);\n"
+            "    // Copy the frame into the SDK timeline before the room hook runs.\n    __room_instance.recordInput(id, seq, body_ptr, body_len);\n"
         } else {
             ""
         };
@@ -159,35 +159,64 @@ pub(crate) fn compile_asc(
         };
         let dispatch = if input_takes_client {
             format!(
-                "__input_client.id = id;\n            __room_instance.onInputFrame(\n                __input_client,\n                {input_frame_expr}\n            );"
+                "__input_client.id = id;\n    __room_instance.onInputFrame(\n        __input_client,\n        {input_frame_expr}\n    );"
             )
         } else {
             format!(
-                "__room_instance.onInputFrame(\n                id,\n                {input_frame_expr}\n            );"
+                "__room_instance.onInputFrame(\n        id,\n        {input_frame_expr}\n    );"
             )
         };
         format!(
             r#"{client_decl}const __input_last_seq = new Map<i64, u16>();
 {frame_decl}const __input_reader = new InputReader(0, 0);
 
+function __emit_input(id: i64, seq: u16, body_ptr: i32, body_len: i32): void {{
+    const prev = __input_last_seq.has(id) ? __input_last_seq.get(id) : 0;
+    const diff: u16 = prev - seq;
+    if (__input_last_seq.has(id) && diff < 32768) return;   // stale
+    __input_last_seq.set(id, seq);
+{record_input}    {dispatch}
+}}
+
 export function on_input(id: i64, ptr: i32, len: i32): void {{
     __room_instance.pluginOnInput(id);
-    // reserved __input lane: [0x05][type_len]["__input"][seq u16 LE][frame]
     if (len >= 9 && load<u8>(ptr) == 0x05) {{
         const type_len: i32 = load<u8>(ptr + 1) as i32;
-        // Compare the 7 tag bytes in place. `String.UTF8.decodeUnsafe` here
-        // allocated a fresh string per input frame and nothing freed it.
+        // Batch: [0x05][13]["__input_batch"][count][seq u16][len u16][frame]*
+        // The host peels the RTT stamp trailer before this runs.
+        if (type_len == 13 && len >= 3 + type_len
+            && load<u8>(ptr + 2) == 0x5F && load<u8>(ptr + 3) == 0x5F
+            && load<u8>(ptr + 4) == 0x69 && load<u8>(ptr + 5) == 0x6E
+            && load<u8>(ptr + 6) == 0x70 && load<u8>(ptr + 7) == 0x75
+            && load<u8>(ptr + 8) == 0x74 && load<u8>(ptr + 9) == 0x5F
+            && load<u8>(ptr + 10) == 0x62 && load<u8>(ptr + 11) == 0x61
+            && load<u8>(ptr + 12) == 0x74 && load<u8>(ptr + 13) == 0x63
+            && load<u8>(ptr + 14) == 0x68) {{
+            let p: i32 = ptr + 2 + type_len;
+            const end: i32 = ptr + len;
+            if (p + 1 > end) return;
+            const count: i32 = load<u8>(p) as i32;
+            p += 1;
+            if (count < 1 || count > 8) return;
+            for (let i: i32 = 0; i < count; i++) {{
+                if (p + 4 > end) return;
+                const seq: u16 = load<u16>(p);
+                const frame_len: i32 = load<u16>(p + 2) as i32;
+                p += 4;
+                if (frame_len <= 0 || p + frame_len > end) return;
+                __emit_input(id, seq, p, frame_len);
+                p += frame_len;
+            }}
+            return;
+        }}
+        // Reserved __input lane: [0x05][7]["__input"][seq u16 LE][frame]
         if (type_len == 7 && len >= 4 + type_len
             && load<u8>(ptr + 2) == 0x5F && load<u8>(ptr + 3) == 0x5F
             && load<u8>(ptr + 4) == 0x69 && load<u8>(ptr + 5) == 0x6E
             && load<u8>(ptr + 6) == 0x70 && load<u8>(ptr + 7) == 0x75
             && load<u8>(ptr + 8) == 0x74) {{
             const seq: u16 = (load<u8>(ptr + 2 + type_len) as u16) | ((load<u8>(ptr + 3 + type_len) as u16) << 8);
-            const prev = __input_last_seq.has(id) ? __input_last_seq.get(id) : 0;
-            const diff: u16 = prev - seq;
-            if (__input_last_seq.has(id) && diff < 32768) return;   // stale
-            __input_last_seq.set(id, seq);
-{record_input}            {dispatch}
+            __emit_input(id, seq, ptr + 4 + type_len, len - 4 - type_len);
             return;
         }}
     }}

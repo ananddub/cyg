@@ -8,7 +8,6 @@ const _: () = assert!(
     "engine-voice's VOICE_MAGIC and engine-webrtc-protocol's OP_VOICE are one wire byte"
 );
 
-
 impl<'a> Engine<'a> {
     pub(crate) fn run_packet(&mut self, client_id: &str, payload: bytes::Bytes) {
         let history = EventHistory::new(&self.bus, &self.game_cfg);
@@ -76,19 +75,19 @@ impl<'a> Engine<'a> {
                     // Reverse index built once per packet (only when frames
                     // routed), not a linear scan of all sessions per frame —
                     // that was O(listeners × sessions) per voice packet.
-                    let pid_to_session: std::collections::HashMap<u32, &std::rc::Rc<str>> =
-                        room.sessions
-                            .iter()
-                            .map(|(cid, &pid)| (pid as u32, cid))
-                            .collect();
+                    let pid_to_session: std::collections::HashMap<u32, &std::rc::Rc<str>> = room
+                        .sessions
+                        .iter()
+                        .map(|(cid, &pid)| (pid as u32, cid))
+                        .collect();
                     for frame in routed {
                         if frame.listener_id == id as u32 {
                             continue; // never echo the speaker back
                         }
                         if let Some(&cid) = pid_to_session.get(&frame.listener_id) {
-                            let _ = self
-                                .transport
-                                .send_to(cid, OpCode::RoomDataBytes, &wire_packet);
+                            let _ =
+                                self.transport
+                                    .send_to(cid, OpCode::RoomDataBytes, &wire_packet);
                         }
                     }
                 }
@@ -147,30 +146,75 @@ impl<'a> Engine<'a> {
             return;
         }
 
-        self.rates.note_input(client_id);
-        // Schema input lane: peel the client's RTT stamp trailer (Phase D
-        // echo — the tail of the next delta carries it back) and remember
-        // the guest-ready frame as the seat's last input, so hold-last idle
-        // synthesis can re-deliver it on an empty tick. Anything else that
-        // reaches here is a plain app message, never held.
-        let (data, _stamp) = netcode::extract_input_stamp(&mut room.seqs, id, data);
-        if netcode::is_input_app_frame(data) {
-            room.last_input.insert(id, data.to_vec());
-            room.inputs_since_tick.insert(id);
+        // Schema input batch: replay the newest unacked frames in one app
+        // message. Validate the whole packet first, charge every sample to the
+        // rate bucket, then hand the batch to the guest. The seat's held frame
+        // is the newest individual frame, never the batch itself, so idle
+        // synthesis can bump its lane seq normally.
+        let mut guest_data = data;
+        if let Some(batch) = netcode::parse_input_batch(data) {
+            self.rates.note_input(client_id);
+            if !input_budget_allows_n(
+                &mut self.rates.rtc_input_rates,
+                self.clock.tick_interval,
+                client_id,
+                batch.frames.len(),
+            ) {
+                self.stats.recorder.inputs_dropped += 1;
+                return;
+            }
+            if let Some((seq, latest)) = batch.latest_frame() {
+                let entry = room.seqs.entry(id).or_insert(crate::rooms::SessionSeqs {
+                    input: 0,
+                    acked_event: 0,
+                    stamp: 0,
+                });
+                if entry.input == 0 || engine_webrtc_protocol::is_newer(entry.input, seq) {
+                    entry.input = seq;
+                }
+                if let Some(stamp) = batch.stamp {
+                    entry.stamp = stamp;
+                }
+                room.last_input.insert(id, latest);
+                room.inputs_since_tick.insert(id);
+            }
+        } else {
+            self.rates.note_input(client_id);
+            // Schema input lane: peel the client's RTT stamp trailer (Phase D
+            // echo — the tail of the next delta carries it back) and remember
+            // the guest-ready frame as the seat's last input, so hold-last idle
+            // synthesis can re-deliver it on an empty tick. Anything else that
+            // reaches here is a plain app message, never held.
+            let (stripped, _stamp) = netcode::extract_input_stamp(&mut room.seqs, id, data);
+            guest_data = stripped;
+            if let Some(seq) = netcode::input_app_seq(guest_data) {
+                let entry = room.seqs.entry(id).or_insert(crate::rooms::SessionSeqs {
+                    input: 0,
+                    acked_event: 0,
+                    stamp: 0,
+                });
+                if entry.input == 0 || engine_webrtc_protocol::is_newer(entry.input, seq) {
+                    entry.input = seq;
+                }
+            }
+            if netcode::is_input_app_frame(guest_data) {
+                room.last_input.insert(id, guest_data.to_vec());
+                room.inputs_since_tick.insert(id);
+            }
         }
         if room.is_ecs() {
-            room.ecs_input(&client_id, data);
+            room.ecs_input(&client_id, guest_data);
             flush_room_outbox(room, &mut self.transport, room_name, &history);
             return;
         }
 
         if let Some(ref mut wasm) = room.wasm {
-            match wasm.on_alloc(data.len() as i32) {
+            match wasm.on_alloc(guest_data.len() as i32) {
                 Ok(ptr_i32) => {
                     let ptr = ptr_i32 as u32;
-                    if let Err(e) = wasm.write_memory(ptr, data) {
+                    if let Err(e) = wasm.write_memory(ptr, guest_data) {
                         tracing::error!("[server] ⚠️ failed to write memory for player {id}: {e}");
-                    } else if let Err(e) = wasm.on_input(id, ptr_i32, data.len() as i32) {
+                    } else if let Err(e) = wasm.on_input(id, ptr_i32, guest_data.len() as i32) {
                         tracing::warn!("[server] ⚠️ guest trap in on_input for player {id}: {e}");
                     }
                 }

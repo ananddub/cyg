@@ -176,3 +176,38 @@ console.log("input.test: all assertions passed");
     assert.equal(room._sendPackedInput(new Uint8Array([2, 0, 2, 3])), true);
     assert.equal(reliable.sent.length, 1, "reliable lane sends exactly once");
 }
+
+// Historical replay: the newest unacked frames ride one __input_batch body,
+// and an ack trims them so only genuinely-unacked history is resent.
+{
+    const room = schemaInputRoom();
+    room._stampTimes = new Map();
+    room._stampOrder = [];
+    room._stampSeq = 0;
+    room.inputHistory = 2;
+    room.inputRedundancy = 1;
+    const unreliable = { readyState: "open", sent: [], send(f) { this.sent.push(f); } };
+    room.serverChUnreliable = unreliable;
+
+    room._sendPackedInput(new Uint8Array([1, 0, 10, 11]));
+    room._sendPackedInput(new Uint8Array([2, 0, 20, 21]));
+    const frame = unreliable.sent[unreliable.sent.length - 1];
+    const tag = new TextDecoder().decode(frame.subarray(2, 15));
+    assert.equal(tag, "__input_batch");
+    let at = 15;
+    assert.equal(frame[at], 2, "two replay frames");
+    at += 1;
+    assert.equal(frame[at] | (frame[at + 1] << 8), 1);
+    assert.equal(frame[at + 2] | (frame[at + 3] << 8), 2);
+    assert.deepEqual([...frame.subarray(at + 4, at + 6)], [10, 11]);
+    at += 4 + 2;
+    assert.equal(frame[at] | (frame[at + 1] << 8), 2);
+    assert.deepEqual([...frame.subarray(at + 4, at + 6)], [20, 21]);
+
+    room.ackedSeq = 1;
+    room._trimInputHistory(1);
+    assert.deepEqual(room._inputHistory.map((f) => f.seq), [2], "acked frame trimmed");
+    room._sendPackedInput(new Uint8Array([3, 0, 30, 31]));
+    const later = unreliable.sent[unreliable.sent.length - 1];
+    assert.equal(later[15], 2, "only seq 2 + 3 replay, not the acked seq 1");
+}

@@ -199,6 +199,9 @@ export class Room<TState extends object = Record<string, unknown>> {
     /** Same stamped input frame is written this many times on the unreliable
      *  lane (1–4, default 2); reliable/WS always sends one. */
     inputRedundancy: number;
+    /** Previous unacked frames replayed with the current one (0–7, default 2).
+     *  Sent as one `__input_batch` message on the unreliable lane. */
+    inputHistory: number;
     /** Attach the guest WASM instance (web: ECS-template pages only — the
      *  SDK does not instantiate the guest itself; Unity/Godot embeds do). */
     attachPredict(instance: unknown, opts?: {

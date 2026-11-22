@@ -106,6 +106,96 @@ pub fn is_input_app_frame(data: &[u8]) -> bool {
 /// frame whose seq does not advance, so a re-delivered idle frame must —
 /// while the host's reconcile seq (`room.seqs.input`, the delta-tail ack)
 /// stays on the last REAL input, per the hold-last contract.
+/// Reserved schema input batch tag. The client replays the newest unacked
+/// frames in one app message instead of one packet per frame.
+pub const INPUT_BATCH_TAG: &[u8] = b"__input_batch";
+
+/// Hard limits, enforced on both ends. The batch is an unreliable-lane
+/// optimisation, so an oversized one is refused whole rather than fragmented.
+pub const MAX_INPUT_BATCH_FRAMES: usize = 8;
+pub const MAX_INPUT_BATCH_WIRE: usize = 512;
+
+#[derive(Debug)]
+pub struct InputBatch<'a> {
+    pub stamp: Option<u16>,
+    pub frames: Vec<(u16, &'a [u8])>,
+}
+
+impl InputBatch<'_> {
+    /// Newest frame as a canonical `__input` app frame, for idle synthesis.
+    pub fn latest_frame(&self) -> Option<(u16, Vec<u8>)> {
+        let &(seq, frame) = self.frames.last()?;
+        let mut out = Vec::with_capacity(2 + 7 + 2 + frame.len());
+        out.push(0x05);
+        out.push(7);
+        out.extend_from_slice(b"__input");
+        out.extend_from_slice(&seq.to_le_bytes());
+        out.extend_from_slice(frame);
+        Some((seq, out))
+    }
+}
+
+/// True for `[0x05][13]["__input_batch"][count][frames…][stamp?]`.
+pub fn is_input_batch(data: &[u8]) -> bool {
+    data.len() >= 2 + INPUT_BATCH_TAG.len()
+        && data[0] == 0x05
+        && data[1] as usize == INPUT_BATCH_TAG.len()
+        && &data[2..2 + INPUT_BATCH_TAG.len()] == INPUT_BATCH_TAG
+}
+
+/// Parse and validate a schema input batch. Every frame must fit inside the
+/// declared length, the count must match, and the optional RTT stamp trailer
+/// is peeled off. Malformed input returns `None` so the whole packet is
+/// refused (never a partially applied history).
+pub fn parse_input_batch(data: &[u8]) -> Option<InputBatch<'_>> {
+    const STAMP_MAGIC: [u8; 2] = [0xC7, 0x59];
+    if !is_input_batch(data) || data.len() > MAX_INPUT_BATCH_WIRE {
+        return None;
+    }
+    let header = 2 + INPUT_BATCH_TAG.len();
+    let mut p = header;
+    if p >= data.len() {
+        return None;
+    }
+    let count = data[p] as usize;
+    p += 1;
+    if count == 0 || count > MAX_INPUT_BATCH_FRAMES {
+        return None;
+    }
+    let mut frames = Vec::with_capacity(count);
+    for _ in 0..count {
+        if p + 4 > data.len() {
+            return None;
+        }
+        let seq = u16::from_le_bytes([data[p], data[p + 1]]);
+        let len = u16::from_le_bytes([data[p + 2], data[p + 3]]) as usize;
+        p += 4;
+        if len == 0 || p + len > data.len() {
+            return None;
+        }
+        frames.push((seq, &data[p..p + len]));
+        p += len;
+    }
+    // The only allowed tail is the optional RTT stamp.
+    let stamp = if p + 4 == data.len() && data[p..p + 2] == STAMP_MAGIC {
+        Some(u16::from_le_bytes([data[p + 2], data[p + 3]]))
+    } else if p == data.len() {
+        None
+    } else {
+        return None;
+    };
+    Some(InputBatch { stamp, frames })
+}
+
+/// Schema-lane seq for a single `__input` frame, if present.
+pub fn input_app_seq(data: &[u8]) -> Option<u16> {
+    if is_input_app_frame(data) && data.len() >= 11 {
+        Some(u16::from_le_bytes([data[9], data[10]]))
+    } else {
+        None
+    }
+}
+
 pub fn bump_input_app_seq(frame: &mut [u8]) {
     if frame.len() >= 11 {
         let seq = u16::from_le_bytes([frame[9], frame[10]]).wrapping_add(1);
@@ -191,5 +281,58 @@ mod tests {
         let mut p = before;
         sanitize_input_payload(&mut p, &standard_input_domains());
         assert_eq!(p, before, "honest clients must be untouched");
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+
+    fn wire(count: u8, frames: &[(u16, &[u8])], stamp: Option<u16>) -> Vec<u8> {
+        let mut out = vec![0x05, INPUT_BATCH_TAG.len() as u8];
+        out.extend_from_slice(INPUT_BATCH_TAG);
+        out.push(count);
+        for &(seq, frame) in frames {
+            out.extend_from_slice(&seq.to_le_bytes());
+            out.extend_from_slice(&(frame.len() as u16).to_le_bytes());
+            out.extend_from_slice(frame);
+        }
+        if let Some(s) = stamp {
+            out.extend_from_slice(&[0xC7, 0x59]);
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        out
+    }
+
+    #[test]
+    fn batch_roundtrips_and_peels_the_stamp() {
+        let w = wire(2, &[(9, &[1, 2]), (10, &[3, 4, 5])], Some(0xBEEF));
+        assert!(is_input_batch(&w));
+        let b = parse_input_batch(&w).expect("valid");
+        assert_eq!(b.stamp, Some(0xBEEF));
+        assert_eq!(b.frames, vec![(9, &[1u8, 2][..]), (10, &[3u8, 4, 5][..])]);
+        let (seq, latest) = b.latest_frame().unwrap();
+        assert_eq!(seq, 10);
+        assert_eq!(&latest[..9], b"\x05\x07__input");
+        assert_eq!(&latest[9..11], &10u16.to_le_bytes());
+        assert_eq!(&latest[11..], &[3, 4, 5]);
+    }
+
+    #[test]
+    fn malformed_batches_are_refused_whole() {
+        let good = wire(2, &[(1, &[1]), (2, &[2])], None);
+        let mut bad = good.clone();
+        bad[2 + INPUT_BATCH_TAG.len()] = 3;
+        assert!(parse_input_batch(&bad).is_none(), "count lies");
+        let mut bad = good.clone();
+        bad.pop();
+        assert!(parse_input_batch(&bad).is_none(), "truncated frame");
+        let mut bad = good.clone();
+        bad.extend_from_slice(&[9, 9]);
+        assert!(parse_input_batch(&bad).is_none(), "unknown tail");
+        assert!(parse_input_batch(&wire(0, &[], None)).is_none());
+        assert!(parse_input_batch(&wire((MAX_INPUT_BATCH_FRAMES + 1) as u8, &[], None)).is_none());
+        let big = vec![0u8; MAX_INPUT_BATCH_WIRE];
+        assert!(parse_input_batch(&big).is_none(), "oversize wire");
     }
 }
