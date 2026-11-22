@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
+#[derive(Debug)]
 pub struct ApiError {
     pub status: StatusCode,
     pub message: Cow<'static, str>,

@@ -3488,6 +3488,63 @@ export class MatchTimerPlugin extends RoomPlugin {
     }
 }
 
+/**
+ * Lobby / ready-check feature for a persistent lobby room.
+ *
+ * This is deliberately not a matchmaker: it tracks presence and readiness in
+ * one room. The authoritative queue lives behind `/queue/*` in the control
+ * plane, so a client cannot create a match by lying to a guest room.
+ */
+export class LobbyPlugin extends RoomPlugin {
+    readonly name: string = "lobby";
+    /// seat id -> ready flag. Absent means not in the lobby.
+    private _ready: Map<i64, bool> = new Map<i64, bool>();
+
+    onCreate(max: i32, options: string): void {
+        this._ready.clear();
+    }
+
+    onJoin(id: i64, options: string, auth: string): void {
+        this._ready.set(id, false);
+    }
+
+    onLeave(id: i64, code: i32): void {
+        this._ready.delete(id);
+    }
+
+    /// Mark this seat ready/not ready. A player can only change their own flag.
+    setReady(id: i64, ready: bool): void {
+        if (this._ready.has(id)) this._ready.set(id, ready);
+    }
+
+    isReady(id: i64): bool {
+        return this._ready.has(id) && this._ready.get(id);
+    }
+
+    members(): i32 {
+        return this._ready.size;
+    }
+
+    readyCount(): i32 {
+        let count = 0;
+        const ids = this._ready.keys();
+        for (let i = 0; i < ids.length; i++) {
+            if (this._ready.get(ids[i])) count++;
+        }
+        return count;
+    }
+
+    allReady(): bool {
+        const total = this._ready.size;
+        return total > 0 && this.readyCount() == total;
+    }
+
+    reset(): void {
+        const ids = this._ready.keys();
+        for (let i = 0; i < ids.length; i++) this._ready.set(ids[i], false);
+    }
+}
+
 export abstract class Room {
     maxPlayers: i32 = 16;
 

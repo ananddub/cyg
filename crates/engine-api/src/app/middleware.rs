@@ -246,6 +246,8 @@ fn matchmake_path(path: &str) -> bool {
 fn work_path(path: &str) -> bool {
     path.starts_with("/matchmake/")
         || path.starts_with("/api/matchmake/")
+        || path.starts_with("/queue/")
+        || path.starts_with("/api/queue/")
         || path == "/ws"
         || path == "/ws/signal"
 }

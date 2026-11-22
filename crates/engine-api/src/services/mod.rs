@@ -23,6 +23,7 @@ pub mod matchmake;
 pub mod notification;
 pub mod notify;
 pub mod quest;
+pub mod queue;
 pub mod quota;
 pub mod realtime;
 pub mod report;
