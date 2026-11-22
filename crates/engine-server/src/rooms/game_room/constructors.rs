@@ -51,6 +51,7 @@ impl GameRoom {
             next_player_id: 1,
             lifecycle: engine_manager::RoomLifecycle::new(),
             current_tick: 0,
+            clock_ms: 0.0,
             rollback_buffer: engine_wasm::RollbackRingBuffer::default(),
             voice_room: engine_voice::VoiceRoom::new(engine_voice::DistanceModel::Inverse {
                 min_distance: 10.0,
@@ -104,6 +105,7 @@ impl GameRoom {
             next_player_id: 1,
             lifecycle: engine_manager::RoomLifecycle::new(),
             current_tick: 0,
+            clock_ms: 0.0,
             rollback_buffer: engine_wasm::RollbackRingBuffer::default(),
             voice_room: engine_voice::VoiceRoom::new(engine_voice::DistanceModel::Inverse {
                 min_distance: 10.0,

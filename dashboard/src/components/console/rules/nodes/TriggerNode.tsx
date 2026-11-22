@@ -107,10 +107,17 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
                 {/* Dot = type color, click se type cycle */}
                 <button
                   type="button"
-                  onClick={() => cycleType(index)}
+                  onClick={(e) => {
+                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setDotMenu({
+                      index,
+                      left: r.left,
+                      top: r.bottom + 6,
+                    });
+                  }}
                   className="h-4 w-4 shrink-0 rounded-full border border-card shadow-sm transition hover:scale-110 cursor-pointer"
                   style={{ background: PARAM_TYPE_COLORS[param.type] ?? '#c8c8c8' }}
-                  title={`type: ${param.type} — click to cycle`}
+                  title={`type: ${param.type} — click for options`}
                 />
                 {isOpen && (
                   <>
@@ -152,7 +159,7 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
                 )}
                 {!isOpen && (
                   <span
-                    className="min-w-0 flex-1 truncate text-[11px] font-mono font-bold"
+                    className="max-w-[90px] truncate text-[11px] font-mono font-bold"
                     style={{ color: PARAM_TYPE_COLORS[param.type] ?? '#c8c8c8' }}
                   >
                     {param.name}
@@ -160,8 +167,11 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
                 )}
                 <button
                   type="button"
-                  onClick={() => setExpandedIdx(isOpen ? null : index)}
-                  className={`rounded p-1 transition nodrag cursor-pointer ${
+                  onClick={() => {
+                    setExpandedIdx(isOpen ? null : index);
+                    setDotMenu(null);
+                  }}
+                  className={`ml-auto rounded p-1 transition nodrag cursor-pointer ${
                     isOpen
                       ? 'text-primary hover:bg-primary/10'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -184,31 +194,20 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
         </div>
       </div>
 
-      {/* Har param ka named data pin + naam (card ke right side, bottom stacked) */}
+      {/* Har param ka named data pin (card ke right side, bottom stacked) */}
       {params.map((param, index) => (
-        <div key={param.uid || index}>
-          <span
-            className="absolute right-7 text-[9px] font-mono font-bold"
-            style={{
-              bottom: `${12 + (params.length - 1 - index) * 30}px`,
-              color: PARAM_TYPE_COLORS[param.type] ?? '#c8c8c8',
-            }}
-          >
-            {param.name}
-          </span>
-          <Handle
-            key={param.uid || index}
-            type="source"
-            position={Position.Right}
-            id={`param-${param.uid}`}
-            className="!h-3 !w-3 !rounded-full !border-2 !border-card"
-            style={{
-              bottom: `${10 + (params.length - 1 - index) * 30}px`,
-              top: 'auto',
-              background: PARAM_TYPE_COLORS[param.type] ?? '#c8c8c8',
-            }}
-          />
-        </div>
+        <Handle
+          key={param.uid || index}
+          type="source"
+          position={Position.Right}
+          id={`param-${param.uid}`}
+          className="!h-3 !w-3 !rounded-full !border-2 !border-card"
+          style={{
+            bottom: `${10 + (params.length - 1 - index) * 30}px`,
+            top: 'auto',
+            background: PARAM_TYPE_COLORS[param.type] ?? '#c8c8c8',
+          }}
+        />
       ))}
 
       <Handle
@@ -217,6 +216,37 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
         id="out"
         className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-card !bg-slate-400"
       />
+
+      {/* Dot ka dropdown: portal, niche khulta hai, colored naam+dot options */}
+      {dotMenu && (
+        <div
+          className="fixed z-[400] min-w-[140px] rounded-lg border border-border bg-popover/98 p-1 shadow-2xl nodrag nopan"
+          style={{ left: dotMenu.left, top: dotMenu.top }}
+        >
+          {PARAM_TYPES.map((t) => {
+            const selected = params[dotMenu.index]?.type === t.value;
+            return (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => {
+                  updateParam(dotMenu.index, { type: t.value as CardParam['type'] });
+                  setDotMenu(null);
+                }}
+                className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-semibold transition cursor-pointer ${
+                  selected ? 'bg-primary/15 text-primary font-bold' : 'text-foreground hover:bg-muted'
+                }`}
+              >
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: PARAM_TYPE_COLORS[t.value] ?? '#c8c8c8' }}
+                />
+                <span className="truncate">{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

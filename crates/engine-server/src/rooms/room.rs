@@ -45,6 +45,8 @@ pub struct GameRoom {
     pub(crate) spectators: HashSet<std::rc::Rc<str>>,
     pub(crate) next_player_id: i64,
     pub(crate) current_tick: u64,
+    /// Real elapsed room time, used for rewind/lag compensation.
+    pub(crate) clock_ms: f64,
     pub(crate) rollback_buffer: engine_wasm::RollbackRingBuffer,
     /// Config gate (`[features] voice`): false drops voice packets at the door.
     pub(crate) voice_enabled: bool,

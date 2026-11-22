@@ -161,17 +161,26 @@ cooldowns use the same history.
 const sample = new StaticArray<f64>(2);
 sample[0] = player.x;
 sample[1] = player.y;
-this.rewind.recordNow(player.id, sample);
+this.rewind.recordAt(player.id, sample, clockMs());
 
-// Time-based lag compensation: 180ms ago, interpolated between ticks.
+// Time-based lag compensation using the shooter's own input timestamp.
+// Future timestamps clamp to now; old ones clamp to the rewind window.
+const frame = this.inputs.latest(shooterId);
 const seen = new StaticArray<f64>(2);
-this.rewind.atMs(player.id, nowMs - 180.0, seen);
+if (frame) this.rewind.atClientMs(targetId, frame.clientTimeMs as f64, seen);
+
+// Lower-level form: query an explicit room time.
+this.rewind.atMs(targetId, clockMs() - 180.0, seen);
 ```
 
 `recordNow`/`at` are tick-exact. `recordAt`/`atMs` store millisecond
 timestamps and linearly interpolate between the surrounding samples (clamped
 to the oldest/newest), which is what hit validation wants when the shooter's
-timestamp falls between two simulation ticks.
+timestamp falls between two simulation ticks. `clockMs()` is the authoritative
+room timeline; every input frame carries the client's estimate of that same
+timeline as `InputFrame.clientTimeMs` (0 when the client clock is not synced
+yet). `atClientMs` is the safe entry point: it clamps future timestamps to now
+and old timestamps to `maxRewindMs` (default 250 ms, configurable per call).
 
 
 > [!TIP]

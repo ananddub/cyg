@@ -47,6 +47,9 @@ pub struct RoomHostData {
     pub rng: engine_core::RoomRng,
     pub spatial: engine_spatial::SpatialIndex2D,
     pub clock_ticks: i64,
+    /// Authoritative room time in milliseconds since tick zero. The guest reads
+    /// it through `clockMs()` so client input timestamps share one timeline.
+    pub clock_ms: f64,
 }
 impl RoomHostData {
     pub fn new(physics: PhysicsWorld3D) -> Self {
@@ -85,6 +88,7 @@ impl RoomHostData {
             rng: engine_core::RoomRng::from_seed_str("unseeded"),
             spatial: engine_spatial::SpatialIndex2D::new(),
             clock_ticks: 0,
+            clock_ms: 0.0,
         }
     }
 

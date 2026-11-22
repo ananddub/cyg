@@ -172,8 +172,8 @@ impl<'a> Engine<'a> {
                 if entry.input == 0 || engine_webrtc_protocol::is_newer(entry.input, seq) {
                     entry.input = seq;
                 }
-                if let Some(stamp) = batch.stamp {
-                    entry.stamp = stamp;
+                if let Some(meta) = batch.meta {
+                    entry.stamp = meta.stamp;
                 }
                 room.last_input.insert(id, latest);
                 room.inputs_since_tick.insert(id);
@@ -185,9 +185,10 @@ impl<'a> Engine<'a> {
             // the guest-ready frame as the seat's last input, so hold-last idle
             // synthesis can re-deliver it on an empty tick. Anything else that
             // reaches here is a plain app message, never held.
-            let (stripped, _stamp) = netcode::extract_input_stamp(&mut room.seqs, id, data);
-            guest_data = stripped;
-            if let Some(seq) = netcode::input_app_seq(guest_data) {
+            let (stripped, _meta) = netcode::extract_input_stamp(&mut room.seqs, id, data);
+            // The guest receives the original frame so the bridge can read the
+            // client timestamp trailer; `stripped` is only the held idle frame.
+            if let Some(seq) = netcode::input_app_seq(data) {
                 let entry = room.seqs.entry(id).or_insert(crate::rooms::SessionSeqs {
                     input: 0,
                     acked_event: 0,
@@ -197,8 +198,8 @@ impl<'a> Engine<'a> {
                     entry.input = seq;
                 }
             }
-            if netcode::is_input_app_frame(guest_data) {
-                room.last_input.insert(id, guest_data.to_vec());
+            if netcode::is_input_app_frame(stripped) {
+                room.last_input.insert(id, stripped.to_vec());
                 room.inputs_since_tick.insert(id);
             }
         }

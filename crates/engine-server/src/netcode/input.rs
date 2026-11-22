@@ -115,9 +115,17 @@ pub const INPUT_BATCH_TAG: &[u8] = b"__input_batch";
 pub const MAX_INPUT_BATCH_FRAMES: usize = 8;
 pub const MAX_INPUT_BATCH_WIRE: usize = 512;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InputMeta {
+    pub stamp: u16,
+    /// The client's estimate of server time when it built this input. 0 means
+    /// the client had no synchronized clock yet.
+    pub client_ms: u32,
+}
+
 #[derive(Debug)]
 pub struct InputBatch<'a> {
-    pub stamp: Option<u16>,
+    pub meta: Option<InputMeta>,
     pub frames: Vec<(u16, &'a [u8])>,
 }
 
@@ -176,15 +184,23 @@ pub fn parse_input_batch(data: &[u8]) -> Option<InputBatch<'_>> {
         frames.push((seq, &data[p..p + len]));
         p += len;
     }
-    // The only allowed tail is the optional RTT stamp.
-    let stamp = if p + 4 == data.len() && data[p..p + 2] == STAMP_MAGIC {
-        Some(u16::from_le_bytes([data[p + 2], data[p + 3]]))
+    // The only allowed tail is the optional 8-byte input metadata trailer.
+    let meta = if p + 8 == data.len() && data[p..p + 2] == STAMP_MAGIC {
+        Some(InputMeta {
+            stamp: u16::from_le_bytes([data[p + 2], data[p + 3]]),
+            client_ms: u32::from_le_bytes([
+                data[p + 4],
+                data[p + 5],
+                data[p + 6],
+                data[p + 7],
+            ]),
+        })
     } else if p == data.len() {
         None
     } else {
         return None;
     };
-    Some(InputBatch { stamp, frames })
+    Some(InputBatch { meta, frames })
 }
 
 /// Schema-lane seq for a single `__input` frame, if present.
@@ -203,30 +219,33 @@ pub fn bump_input_app_seq(frame: &mut [u8]) {
     }
 }
 
-/// Peel the client's 4-byte RTT stamp trailer `[0xC7 0x59][stamp u16 LE]`
-/// off a schema-lane input frame, recording the stamp on the seat's seq
-/// entry for the delta-tail echo. Returns the guest-ready frame (trailer
-/// stripped) and, when a stamp was present, its value. Old clients that
-/// send no trailer are returned untouched with `stamp = None` — the tail
-/// then echoes 0 and the client simply keeps using its WS ping.
+/// Peel the client's 8-byte metadata trailer
+/// `[0xC7 0x59][stamp u16 LE][client_ms u32 LE]` off a schema-lane input
+/// frame, recording the stamp on the seat's seq entry for the delta-tail
+/// echo. Returns the guest-ready frame (trailer stripped) and, when a trailer
+/// was present, its metadata. A frame with no trailer is returned untouched
+/// with `None` — the tail then echoes 0 and the client keeps using WS ping.
 pub fn extract_input_stamp<'a>(
     seqs: &mut crate::rooms::HashMap<i64, SessionSeqs>,
     id: i64,
     data: &'a [u8],
-) -> (&'a [u8], Option<u16>) {
+) -> (&'a [u8], Option<InputMeta>) {
     const STAMP_MAGIC: [u8; 2] = [0xC7, 0x59];
-    if !is_input_app_frame(data) || data.len() < 6 {
+    if !is_input_app_frame(data) || data.len() < 10 {
         return (data, None);
     }
     let n = data.len();
-    if data[n - 4..n - 2] != STAMP_MAGIC {
+    if data[n - 8..n - 6] != STAMP_MAGIC {
         return (data, None);
     }
-    let stamp = u16::from_le_bytes([data[n - 2], data[n - 1]]);
+    let meta = InputMeta {
+        stamp: u16::from_le_bytes([data[n - 6], data[n - 5]]),
+        client_ms: u32::from_le_bytes([data[n - 4], data[n - 3], data[n - 2], data[n - 1]]),
+    };
     if let Some(entry) = seqs.get_mut(&id) {
-        entry.stamp = stamp;
+        entry.stamp = meta.stamp;
     }
-    (&data[..n - 4], Some(stamp))
+    (&data[..n - 8], Some(meta))
 }
 
 pub fn batch_sample_count(data: &[u8]) -> Option<usize> {
@@ -288,7 +307,7 @@ mod tests {
 mod batch_tests {
     use super::*;
 
-    fn wire(count: u8, frames: &[(u16, &[u8])], stamp: Option<u16>) -> Vec<u8> {
+    fn wire(count: u8, frames: &[(u16, &[u8])], stamp: Option<(u16, u32)>) -> Vec<u8> {
         let mut out = vec![0x05, INPUT_BATCH_TAG.len() as u8];
         out.extend_from_slice(INPUT_BATCH_TAG);
         out.push(count);
@@ -297,19 +316,30 @@ mod batch_tests {
             out.extend_from_slice(&(frame.len() as u16).to_le_bytes());
             out.extend_from_slice(frame);
         }
-        if let Some(s) = stamp {
+        if let Some((s, ms)) = stamp {
             out.extend_from_slice(&[0xC7, 0x59]);
             out.extend_from_slice(&s.to_le_bytes());
+            out.extend_from_slice(&ms.to_le_bytes());
         }
         out
     }
 
     #[test]
     fn batch_roundtrips_and_peels_the_stamp() {
-        let w = wire(2, &[(9, &[1, 2]), (10, &[3, 4, 5])], Some(0xBEEF));
+        let w = wire(
+            2,
+            &[(9, &[1, 2]), (10, &[3, 4, 5])],
+            Some((0xBEEF, 123_456)),
+        );
         assert!(is_input_batch(&w));
         let b = parse_input_batch(&w).expect("valid");
-        assert_eq!(b.stamp, Some(0xBEEF));
+        assert_eq!(
+            b.meta,
+            Some(InputMeta {
+                stamp: 0xBEEF,
+                client_ms: 123_456
+            })
+        );
         assert_eq!(b.frames, vec![(9, &[1u8, 2][..]), (10, &[3u8, 4, 5][..])]);
         let (seq, latest) = b.latest_frame().unwrap();
         assert_eq!(seq, 10);
@@ -334,5 +364,37 @@ mod batch_tests {
         assert!(parse_input_batch(&wire((MAX_INPUT_BATCH_FRAMES + 1) as u8, &[], None)).is_none());
         let big = vec![0u8; MAX_INPUT_BATCH_WIRE];
         assert!(parse_input_batch(&big).is_none(), "oversize wire");
+    }
+}
+
+#[cfg(test)]
+mod stamp_tests {
+    use super::*;
+
+    #[test]
+    fn an_eight_byte_trailer_is_peeled_with_client_time() {
+        let mut seqs = crate::rooms::HashMap::default();
+        seqs.insert(
+            7,
+            crate::rooms::SessionSeqs {
+                input: 0,
+                acked_event: 0,
+                stamp: 0,
+            },
+        );
+        let mut frame = Vec::from(&b"\x05\x07__input\x01\x00\xAA\xBB"[..]);
+        frame.extend_from_slice(&[0xC7, 0x59]);
+        frame.extend_from_slice(&0x1234u16.to_le_bytes());
+        frame.extend_from_slice(&987_654u32.to_le_bytes());
+        let (body, meta) = extract_input_stamp(&mut seqs, 7, &frame);
+        assert_eq!(body, &b"\x05\x07__input\x01\x00\xAA\xBB"[..]);
+        assert_eq!(
+            meta,
+            Some(InputMeta {
+                stamp: 0x1234,
+                client_ms: 987_654
+            })
+        );
+        assert_eq!(seqs[&7].stamp, 0x1234);
     }
 }

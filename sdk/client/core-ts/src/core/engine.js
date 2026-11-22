@@ -377,7 +377,7 @@ const factory = () => {
     // knowing the schema-encoded frame length). Mirrors
     // engine-server's `netcode::extract_input_stamp`.
     const INPUT_STAMP_MAGIC = [0xC7, 0x59];
-    const INPUT_STAMP_LEN = 4;
+    const INPUT_STAMP_LEN = 8;
     // RTT smoothing: EMA alpha 0.125 (the classic RFC 793/3550 choice — one
     // sample per delta, so the estimate settles in ~8 deltas) and jitter as
     // an RFC 3550-style mean deviation of the inter-sample deltas.
@@ -2738,6 +2738,16 @@ const factory = () => {
             stamped[body.byteLength + 1] = INPUT_STAMP_MAGIC[1];
             stamped[body.byteLength + 2] = stamp & 0xFF;
             stamped[body.byteLength + 3] = (stamp >>> 8) & 0xFF;
+            // Server-time estimate from the client's TimeSync. 0 means "not
+            // synchronized yet"; the guest falls back to its current time.
+            const synced = this.timeSync && this.timeSync.synced;
+            const clientMs = synced
+                ? Math.min(0xFFFFFFFF, Math.max(0, Math.round(this.serverNow())))
+                : 0;
+            stamped[body.byteLength + 4] = clientMs & 0xFF;
+            stamped[body.byteLength + 5] = (clientMs >>> 8) & 0xFF;
+            stamped[body.byteLength + 6] = (clientMs >>> 16) & 0xFF;
+            stamped[body.byteLength + 7] = (clientMs >>> 24) & 0xFF;
             if (!this._stampTimes) this._stampTimes = new Map();
             if (!this._stampOrder) this._stampOrder = [];
             this._stampTimes.set(stamp, performance.now());

@@ -69,9 +69,21 @@ export function spatialQueryXY(x: f64, y: f64, radius: f64, outIds: usize): i32 
 @external("env", "sys_clock_ticks")
 declare function _sys_clock_ticks(): i64;
 
+@external("env", "sys_clock_ms")
+declare function _sys_clock_ms(): f64;
+
 /** The authoritative simulation tick counter (never wall-clock). */
 export function clockTicks(): i64 {
     return _sys_clock_ticks();
+}
+
+/**
+ * Authoritative room time in milliseconds since the room's tick zero. This is
+ * the same timeline the client reports in `InputFrame.clientTimeMs`, so
+ * `Rewind.recordAt(..., clockMs())` and `Rewind.atClientMs(...)` agree.
+ */
+export function clockMs(): f64 {
+    return _sys_clock_ms();
 }
 
 // --- INPUT FLAGS (Phase-3-lite: no more raw bitmask decoding) ---------------
@@ -2966,12 +2978,16 @@ export class Views {
 export class InputFrame {
     readonly seq: u16;
     readonly tick: i64;
+    /// Client's estimate of server time when it built this frame (ms).
+    /// 0 = the client had no synchronized clock; use `clockMs()` instead.
+    readonly clientTimeMs: i64;
     private _buf: ArrayBuffer = new ArrayBuffer(1);
     readonly length: i32;
 
-    constructor(seq: u16, tick: i64, ptr: usize, len: i32) {
+    constructor(seq: u16, tick: i64, ptr: usize, len: i32, clientTimeMs: i64 = 0) {
         this.seq = seq;
         this.tick = tick;
+        this.clientTimeMs = clientTimeMs;
         this.length = len > 0 ? len : 0;
         if (this.length > 0) {
             this._buf = new ArrayBuffer(this.length);
@@ -2999,7 +3015,7 @@ export class InputTimeline {
     /// Per-seat history bound. Old frames are dropped before this one.
     maxHistory: i32 = 64;
 
-    push(seat: i64, seq: u16, tick: i64, ptr: usize, len: i32): void {
+    push(seat: i64, seq: u16, tick: i64, ptr: usize, len: i32, clientTimeMs: i64 = 0): void {
         if (seat <= 0 || len <= 0) return;
         let frames = this._seats.has(seat) ? this._seats.get(seat) : new Array<InputFrame>();
         // A duplicate/retransmit with an equal or older sequence is ignored.
@@ -3007,7 +3023,7 @@ export class InputTimeline {
             const last = frames[frames.length - 1];
             if (<u16>(last.seq - seq) < 32768) return;
         }
-        frames.push(new InputFrame(seq, tick, ptr, len));
+        frames.push(new InputFrame(seq, tick, ptr, len, clientTimeMs));
         const bound = this.maxHistory > 0 ? this.maxHistory : 64;
         while (frames.length > bound) frames.shift();
         this._seats.set(seat, frames);
@@ -3124,6 +3140,24 @@ export class Rewind {
             changetype<usize>(out),
             out.length
         );
+    }
+
+    /**
+     * Lag-compensated lookup using the shooter's `InputFrame.clientTimeMs`.
+     * Future timestamps clamp to now; older-than-`maxRewindMs` clamps to the
+     * window edge. 0/unknown timestamps fall back to the current room time.
+     */
+    atClientMs(entityId: i64, clientTimeMs: f64, out: StaticArray<f64>, maxRewindMs: f64 = 250.0): i32 {
+        if (isClientMode()) return -1;
+        if (entityId <= 0 || out.length == 0) return -1;
+        const now = clockMs();
+        let target = clientTimeMs;
+        if (!isFinite(target) || target <= 0.0) target = now;
+        if (target > now) target = now;
+        const windowMs = maxRewindMs > 0.0 ? maxRewindMs : 250.0;
+        const oldest = now - windowMs;
+        if (target < oldest) target = oldest;
+        return this.atMs(entityId, target, out);
     }
 
     /// Drop one entity's history.
@@ -3414,8 +3448,8 @@ export abstract class Room {
 
     /// Called by the generated bridge for every accepted `__input` frame.
     /// `ptr` points at the frame body (after the reserved tag and seq).
-    recordInput(seat: i64, seq: u16, ptr: usize, len: i32): void {
-        this.inputs.push(seat, seq, clockTicks(), ptr, len);
+    recordInput(seat: i64, seq: u16, ptr: usize, len: i32, clientTimeMs: i64 = 0): void {
+        this.inputs.push(seat, seq, clockTicks(), ptr, len, clientTimeMs);
     }
 
     pluginOnCreate(max: i32, options: string): void {

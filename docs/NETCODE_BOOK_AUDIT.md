@@ -36,7 +36,7 @@ known limitation, **GAP** = not implemented.
 | Gambetta IV, Valve | Rewind historical transforms, query at shooter time | PASS | `engine-core/src/rewind/`, `rooms/rewind.rs`, `physics_lag.rs` | rewind interpolation + chaos tests |
 | Valve | Keep ~1 s of history | PASS | `RewindManager::new(max_rewind_ms, tick_rate)`; host 256-frame bound | rewind tests |
 | Valve | Step vs linear interpolation choice | PASS | `Interpolation::{Step, Linear}` | rewind tests |
-| Gambetta IV | Use the shooter's input timestamp | PARTIAL | `Rewind.recordAt/atMs` exists; schema input frame still does not carry a client timestamp | generic API tested; end-to-end shooter timestamp not wired |
+| Gambetta IV | Use the shooter's input timestamp | PASS | input trailer carries `client_ms`; `InputFrame.clientTimeMs`, `clockMs()`, `Rewind.atClientMs` clamp future/old timestamps | stamp trailer test, rewind interpolation tests |
 | Valve | Reject/clamp rewinds older than the window | PARTIAL | core manager clamps to oldest; host generic `RewindTrack` clamps too but has no time-window config | host rewind test |
 
 ## Wire

@@ -143,7 +143,7 @@ pub(crate) fn compile_asc(
         // when the room's source actually touches `this.inputs`; rooms that do
         // not use the timeline keep the old zero-allocation input hot path.
         let record_input = if content.contains("this.inputs") {
-            "    // Copy the frame into the SDK timeline before the room hook runs.\n    __room_instance.recordInput(id, seq, body_ptr, body_len);\n"
+            "    // Copy the frame into the SDK timeline before the room hook runs.\n    __room_instance.recordInput(id, seq, body_ptr, body_len, client_ms);\n"
         } else {
             ""
         };
@@ -170,7 +170,19 @@ pub(crate) fn compile_asc(
             r#"{client_decl}const __input_last_seq = new Map<i64, u16>();
 {frame_decl}const __input_reader = new InputReader(0, 0);
 
-function __emit_input(id: i64, seq: u16, body_ptr: i32, body_len: i32): void {{
+function __input_trailer_len(ptr: i32, len: i32): i32 {{
+    if (len < 8) return 0;
+    const at: i32 = ptr + len - 8;
+    return (load<u8>(at) == 0xC7 && load<u8>(at + 1) == 0x59) ? 8 : 0;
+}}
+
+function __input_client_ms(ptr: i32, len: i32): i64 {{
+    const trail: i32 = __input_trailer_len(ptr, len);
+    if (trail == 0) return 0;
+    return load<u32>(ptr + len - 4) as i64;
+}}
+
+function __emit_input(id: i64, seq: u16, body_ptr: i32, body_len: i32, client_ms: i64): void {{
     const prev = __input_last_seq.has(id) ? __input_last_seq.get(id) : 0;
     const diff: u16 = prev - seq;
     if (__input_last_seq.has(id) && diff < 32768) return;   // stale
@@ -193,7 +205,9 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
             && load<u8>(ptr + 12) == 0x74 && load<u8>(ptr + 13) == 0x63
             && load<u8>(ptr + 14) == 0x68) {{
             let p: i32 = ptr + 2 + type_len;
-            const end: i32 = ptr + len;
+            const trail: i32 = __input_trailer_len(ptr, len);
+            const end: i32 = ptr + len - trail;
+            const client_ms: i64 = __input_client_ms(ptr, len);
             if (p + 1 > end) return;
             const count: i32 = load<u8>(p) as i32;
             p += 1;
@@ -204,7 +218,7 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
                 const frame_len: i32 = load<u16>(p + 2) as i32;
                 p += 4;
                 if (frame_len <= 0 || p + frame_len > end) return;
-                __emit_input(id, seq, p, frame_len);
+                __emit_input(id, seq, p, frame_len, client_ms);
                 p += frame_len;
             }}
             return;
@@ -216,7 +230,10 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
             && load<u8>(ptr + 6) == 0x70 && load<u8>(ptr + 7) == 0x75
             && load<u8>(ptr + 8) == 0x74) {{
             const seq: u16 = (load<u8>(ptr + 2 + type_len) as u16) | ((load<u8>(ptr + 3 + type_len) as u16) << 8);
-            __emit_input(id, seq, ptr + 4 + type_len, len - 4 - type_len);
+            const body_ptr: i32 = ptr + 4 + type_len;
+            const body_len: i32 = len - 4 - type_len;
+            const trail: i32 = __input_trailer_len(body_ptr, body_len);
+            __emit_input(id, seq, body_ptr, body_len - trail, __input_client_ms(body_ptr, body_len));
             return;
         }}
     }}

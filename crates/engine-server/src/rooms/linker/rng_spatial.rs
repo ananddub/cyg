@@ -33,6 +33,16 @@ pub(crate) fn register(
         linker
             .func_wrap(
                 ns,
+                "sys_clock_ms",
+                move |caller: wasmtime::Caller<'_, RoomHostData>| -> f64 {
+                    caller.data().clock_ms
+                },
+            )
+            .expect("link sys_clock_ms");
+
+        linker
+            .func_wrap(
+                ns,
                 "sys_spatial_update",
                 move |mut caller: wasmtime::Caller<'_, RoomHostData>,
                       entity_id: i64,

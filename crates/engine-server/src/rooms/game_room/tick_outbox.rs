@@ -76,6 +76,7 @@ impl GameRoom {
         rollback_enabled: bool,
     ) -> Result<i64, engine_wasm::WasmError> {
         self.current_tick += 1;
+        self.clock_ms += dt.max(0.0) * 1000.0;
         self.flush_input_inbox();
         let rate_ms = self.guest_simulation_rate_ms();
         let mut guest_dt = dt;
@@ -92,6 +93,7 @@ impl GameRoom {
         }
         if let Some(ref mut wasm) = self.wasm {
             wasm.data_mut().clock_ticks = self.current_tick as i64;
+            wasm.data_mut().clock_ms = self.clock_ms;
             let packed = wasm.on_tick(guest_dt)?;
             if rollback_enabled {
                 let packed_state = wasm.on_save()?;
@@ -162,6 +164,7 @@ impl GameRoom {
             nd.kick_requests = std::mem::take(&mut old.kick_requests);
             nd.view_intents = std::mem::take(&mut old.view_intents);
             nd.clock_ticks = old.clock_ticks;
+            nd.clock_ms = old.clock_ms;
             nd.physics = std::mem::replace(&mut old.physics, PhysicsWorld3D::default());
             nd.rapier2d = old.rapier2d.take();
             nd.rapier2d_next_body_id = old.rapier2d_next_body_id;

@@ -211,3 +211,19 @@ console.log("input.test: all assertions passed");
     const later = unreliable.sent[unreliable.sent.length - 1];
     assert.equal(later[15], 2, "only seq 2 + 3 replay, not the acked seq 1");
 }
+
+// Client timestamp trailer: [C7 59][stamp u16][client_ms u32].
+{
+    const room = schemaInputRoom();
+    room._stampTimes = new Map();
+    room._stampOrder = [];
+    room._stampSeq = 0;
+    room.timeSync = { synced: true };
+    room.serverNow = () => 12_345;
+    const stamped = room._appendInputStamp(new Uint8Array([1, 2]));
+    assert.equal(stamped.length, 10);
+    assert.deepEqual([...stamped.subarray(2, 4)], [0xC7, 0x59]);
+    const dv = new DataView(stamped.buffer, stamped.byteOffset, stamped.byteLength);
+    assert.equal(dv.getUint16(4, true), 1, "stamp");
+    assert.equal(dv.getUint32(6, true), 12_345, "client server-time estimate");
+}
