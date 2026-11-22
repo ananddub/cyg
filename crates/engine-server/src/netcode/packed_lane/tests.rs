@@ -118,6 +118,24 @@ fn world_full(tick: u16, collections: &[(u16, u32, Vec<u8>)]) -> Vec<u8> {
     )
     .unwrap()
 }
+
+fn world_patch(tick: Option<u16>, collections: &[(u16, u32, Vec<u8>)]) -> Vec<u8> {
+    let mut root_mask = 0u32;
+    let mut values = Vec::new();
+    if let Some(tick) = tick {
+        root_mask |= 1;
+        values.push((0, WireValue::U16(tick)));
+    }
+    packed::encode_world_patch(
+        &PackedSchema::from_def(&root_schema()),
+        root_mask,
+        &values,
+        collections,
+        &mut 0,
+    )
+    .unwrap()
+}
+
 fn hide(collection: &str, field: &str) -> ViewIntent {
     ViewIntent::HideField {
         seat: 7,
@@ -512,4 +530,55 @@ fn a_new_update_for_the_same_row_supersedes_a_deferred_one() {
         panic!("expected update");
     };
     assert_eq!(values, &vec![(0, WireValue::U8(2))], "fresh value wins");
+}
+
+#[test]
+fn a_world_patch_budget_defers_collection_updates_too() {
+    let descriptor = emit_descriptor(&[schema_def(), marker_def()], Some(&root_state()));
+    let mut lane = PackedSet::from_descriptor(&descriptor).unwrap();
+    let a = PackedOp::Update {
+        id: 1,
+        mask: 1,
+        values: vec![(0, WireValue::U8(10))],
+    };
+    let b = PackedOp::Update {
+        id: 2,
+        mask: 1,
+        values: vec![(0, WireValue::U8(20))],
+    };
+    let one = player_patch(vec![a.clone()]).len();
+    let hash = wire_hash(&schema_def());
+    let patch = world_patch(
+        Some(9),
+        &[(0, hash, player_patch(vec![a, b]))],
+    );
+    let budget = one + 18;
+    let first = lane.patch_for_budget("arena", &patch, 7, budget).unwrap();
+    let decoded = packed::decode_world(&PackedSchema::from_def(&root_schema()), &first).unwrap();
+    let inner = packed::decode(&PackedSchema::from_def(&schema_def()), &decoded.collections[0].2)
+        .unwrap();
+    assert_eq!(inner.ops.len(), 1, "world budget carried one update");
+    assert_eq!(op_id(&inner.ops[0]), 1);
+
+    let empty = world_patch(
+        None,
+        &[(0, hash, player_patch(Vec::new()))],
+    );
+    let second = lane.patch_for_budget("arena", &empty, 7, budget).unwrap();
+    let decoded = packed::decode_world(&PackedSchema::from_def(&root_schema()), &second).unwrap();
+    let inner = packed::decode(&PackedSchema::from_def(&schema_def()), &decoded.collections[0].2)
+        .unwrap();
+    assert_eq!(inner.ops.len(), 1, "deferred world update retried");
+    assert_eq!(op_id(&inner.ops[0]), 2);
+}
+
+#[test]
+fn adaptive_budget_uses_pacing_and_keeps_a_floor_and_ceiling() {
+    let tick = std::time::Duration::from_millis(33);
+    assert_eq!(adaptive_patch_budget(0.0, tick), DEFAULT_PATCH_BUDGET);
+    let slow = adaptive_patch_budget(20_000.0, tick);
+    let fast = adaptive_patch_budget(5_000_000.0, tick);
+    assert_eq!(slow, MIN_PATCH_BUDGET);
+    assert_eq!(fast, MAX_PATCH_BUDGET);
+    assert!(slow < fast);
 }

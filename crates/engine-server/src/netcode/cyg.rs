@@ -3,6 +3,7 @@ pub const CYG_OP_LEAVE_ROOM: u8 = 3;
 pub const CYG_WIRE_JOIN_ROOM: u8 = 10;
 pub const CYG_WIRE_LEAVE_ROOM: u8 = 12;
 pub const CYG_WIRE_PING: u8 = 18;
+pub const CYG_WIRE_SCHEMA: u8 = 0x11;
 
 pub const CYG_WIRE_RELIABLE_MSG: u8 = 30;
 pub const CYG_WIRE_RELIABLE_ACK: u8 = 31;

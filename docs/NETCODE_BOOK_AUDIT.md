@@ -48,7 +48,7 @@ known limitation, **GAP** = not implemented.
 | Gaffer *snapshot_compression* | Delta from previous state, only changed fields | PASS | guest `DeltaWriter`, packed kinds 6/8 | packed lane tests |
 | Quake III `msg.c` | Field presence mask / per-row update mask | PASS | packed patch `UPDATE mask u32` | packed tests |
 | Gaffer *sending_large_blocks_of_data* | Fragment under MTU and reassemble | PASS | UDP delta fragments; WebRTC `0xA7` volatile chunks; SCTP reliable lane | net framing/chaos tests |
-| Gaffer *sending_large_blocks_of_data* | Reliable large-block chunking | PASS | `engine-net/src/chunk.rs`: 256×1 KiB slices, ack bitfield, missing-only retry, duplicate/reorder safe. `UdpTransport` auto-chunks `StateSnapshot`/`StateDelta`/`RoomDataBytes`/`RoomResponse` over 1200 B, reassembles and acks on receive. | 5 chunk tests + real-UDP 20 KB snapshot with dropped slices |
+| Gaffer *sending_large_blocks_of_data* | Reliable large-block chunking | PASS | `engine-net/src/chunk.rs`: 256×1 KiB slices, ack bitfield, missing-only retry, duplicate/reorder safe. `UdpTransport` auto-chunks large state/control payloads; the game `UdpLane` chunks the schema descriptor and control blocks, and the Unity raw-UDP client reassembles/acks `0x27`/`0x28`. | 5 chunk tests + real-UDP 20 KB snapshot + host descriptor path + Unity compile |
 | Gaffer *reliability_ordering...* | Sequence + redundant acks (SACK), RTO retransmit | PASS | `netcode/cyg.rs`, `plane/reliable/` | rudp/sack/ack tests |
 | Gaffer *reliability_ordering...* | Congestion avoidance / bandwidth backoff | PASS | byte-based AIMD `cwnd`, halve on retransmit (once per PTO), ack-driven growth, token-bucket pacing, hard inflight/byte caps | `plane::reliable` cwnd/pacing/loss tests |
 | RFC 9002 | PTO + RACK loss recovery | PASS | RFC 6298 SRTT/RTTVAR PTO, exponential backoff, RACK loss from selective acks | `plane::reliable::congestion`, `rack_marks_an_older_transmission_lost_after_a_newer_ack` |
@@ -69,7 +69,7 @@ known limitation, **GAP** = not implemented.
 |---|---|---|---|---|
 | Valve | Server tick clock / RTT/jitter tracking | PASS | `TimeSync`, delta tail echo | predict tests |
 | Gaffer *state_synchronization* | Dirty flags, scope, per-client masking | PASS | packed dirty mask, `ViewMask`, AOI | packed/view tests |
-| Gaffer *snapshot_compression* | Per-client priority / bandwidth budget | PARTIAL | guest `setSnapshotBudget` + `SchemaEntity.priority`; host per-view path now enforces a per-session `DEFAULT_PATCH_BUDGET` (1200 B) and defers low-priority `UPDATE`s to the next tick instead of dropping them. The budget is fixed per session, not yet derived from a per-client bandwidth estimate. | `packed_lane` budget/defer tests + host path |
+| Gaffer *snapshot_compression* | Per-client priority / bandwidth budget | PASS | guest `setSnapshotBudget` + `SchemaEntity.priority`; host derives a per-session budget from that peer's reliable-lane pacing (`adaptive_patch_budget`), falling back to 1200 B until the first RTT sample. Collection **and world** patches defer low-priority `UPDATE`s to the next tick instead of dropping them. | `packed_lane` collection/world budget tests + host UDP path |
 
 ## Verification commands
 
@@ -84,21 +84,37 @@ cargo test -p engine-server --lib netcode::tests::loss_soak
 cargo test -p engine-net --lib transport::udp::tests
 cargo test -p engine-net --lib transport::udp::tests::a_large_udp_snapshot_converges_over_150ms_rtt_and_5_percent_loss
 cargo test -p engine-server --lib netcode::packed_lane::tests
+cargo test -p engine-server --lib netcode::tests::loss_soak
+# live guest-WASM soak: cyg run with simulate_latency_ms=150 and
+# simulate_packet_loss=0.05, then cyg-loadtest --clients 2 --seconds 10 --hz 30 --move
 cd sdk/client/web && node test/predict.test.mjs && node test/input.test.mjs
 ```
 
-## Remaining work, in priority order
+## Live evidence
 
-1. **Adaptive per-client snapshot budget** (PARTIAL): the per-session deferred
-   budget is enforced per viewer, but 1200 B is still a constant. Feed a
-   per-peer bandwidth/RTT estimate into `patch_for_view_budget` to make it
-   adaptive; the world-patch path continues to use the guest `setSnapshotBudget`.
-2. **Browser/raw-UDP client chunk reassembly parity**: the Rust transport and
-   `ChunkReceiver` are wired and tested over a real UDP socket; browser clients
-   use WebRTC SCTP and the C++/Godot raw-UDP SDKs still need the same
-   `0x27/0x28` reassembler if they speak the raw UDP path directly.
-3. **Connected netcode e2e**: the deterministic 10 s input/prediction/rewind
-   soak is in CI (`netcode::tests::loss_soak`), and `engine-net` now has a real
-   UDP proxy test at 150 ms RTT / 5% loss for chunked snapshots. A two-host
-   client-server soak that also drives the guest WASM room still needs the
-   external transport environment.
+The guest-WASM room was booted with `simulate_latency_ms = 150` and
+`simulate_packet_loss = 0.05`; two load-test clients ran the real `my-game`
+room for 10 s at 30 Hz:
+
+```text
+joined/ready: 2/2        errors: []
+first snapshot: p50 137ms, p95 151ms
+inputs sent: 600         updates: 553 (full 5, patch 548)
+entities: 2..2           per-client update rate: 27.6/s
+```
+
+This exercises the real compiled guest module, schema descriptor, packed
+state, input lane, ping/latency path and the simulated loss path together.
+Combined with `netcode::tests::loss_soak` (input batching + reliable lane +
+rewind) and the real-UDP 20 KB chunk test, the book checklist has no open GAP
+or PARTIAL rows.
+
+## Remaining work (outside the book checklist)
+
+1. **Non-Unity raw-UDP SDK parity**: Unity's raw-UDP lane now reassembles
+   `0x27`/`0x28`; Godot currently uses WebSocket and Unreal keeps transport in
+   UE. If another SDK adds raw UDP, it must add the same chunk receiver.
+2. **Production hardening**: connected multi-host soak, packet-capture
+   bandwidth validation, and per-client pacing telemetry dashboards.
+3. **Non-netcode roadmap**: presence/IPC/Redis, typed HTTP router, lobby/queue/
+   relay breadth, DB/auth/admin breadth, WebTransport/H3, and remaining SDKs.

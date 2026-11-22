@@ -6,6 +6,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use engine_bus::Bus;
 use engine_core::MessageRateLimits;
+use engine_net::chunk::{ChunkReceiver, ChunkSender};
 use engine_wasm::{EpochTicker, WasmRuntime};
 
 use crate::schema_view::SchemaAoi;
@@ -132,6 +133,11 @@ pub(crate) struct HotReload<'a> {
     pub(crate) loaded_src_time: Option<SystemTime>,
 }
 
+pub(crate) struct UdpChunkOut {
+    pub(crate) sender: ChunkSender,
+    pub(crate) opcode: u8,
+}
+
 pub(crate) struct UdpLane {
     pub(crate) udp_sock: Option<Arc<std::net::UdpSocket>>,
     pub(crate) udp_peers: HashMap<SocketAddr, (i64, String, Instant)>,
@@ -141,6 +147,12 @@ pub(crate) struct UdpLane {
     pub(crate) udp_join_rates: HashMap<SocketAddr, netcode::InputRateLimiter>,
     pub(crate) rudp_scratch: Vec<u8>,
     pub(crate) schema_descriptor: Vec<u8>,
+    /// Large server->client blocks (schema descriptor/control payloads) that
+    /// are still waiting for slice acks.
+    pub(crate) udp_chunks: HashMap<SocketAddr, UdpChunkOut>,
+    /// Client->server chunk assemblies, keyed by peer.
+    pub(crate) udp_chunk_in: HashMap<SocketAddr, ChunkReceiver>,
+    pub(crate) udp_chunk_seq: u16,
     pub(crate) timed_out_udp: Vec<(SocketAddr, i64, String)>,
     /// Wire bytes this lane has read and written since boot. Phase 0 of the netcode work: you
     /// cannot prove a bandwidth change without a before number.

@@ -46,6 +46,14 @@ namespace CYG
         private bool _running;
         private volatile bool _leaving;
         private readonly ConcurrentQueue<byte[]> _deltas = new ConcurrentQueue<byte[]>();
+        private readonly Dictionary<ushort, ChunkAssembly> _chunks = new Dictionary<ushort, ChunkAssembly>();
+
+        private sealed class ChunkAssembly
+        {
+            public ushort Total;
+            public byte[][] Parts;
+            public int Received;
+        }
 
         // Reconnect state. A player who loses a bar of wifi should see the game
         // stutter, not a menu — so this is on by default and the game is not
@@ -517,6 +525,68 @@ namespace CYG
             return false;
         }
 
+        /// <summary>
+        /// Reassemble a server snapshot/descriptor that was split into
+        /// `0x27` slices. Every slice is acknowledged with a `0x28` bitfield;
+        /// the host retries only the missing slices.
+        /// </summary>
+        private void HandleChunkSlice(byte[] buf, int n)
+        {
+            if (n < 9) return;
+            ushort id = BitConverter.ToUInt16(buf, 1);
+            ushort index = BitConverter.ToUInt16(buf, 3);
+            ushort total = BitConverter.ToUInt16(buf, 5);
+            ushort len = BitConverter.ToUInt16(buf, 7);
+            if (total == 0 || total > 256 || index >= total || n - 9 != len) return;
+
+            if (!_chunks.TryGetValue(id, out var assembly) || assembly.Total != total)
+            {
+                assembly = new ChunkAssembly
+                {
+                    Total = total,
+                    Parts = new byte[total][],
+                    Received = 0,
+                };
+                _chunks[id] = assembly;
+            }
+            if (assembly.Parts[index] == null)
+            {
+                var part = new byte[len];
+                Buffer.BlockCopy(buf, 9, part, 0, len);
+                assembly.Parts[index] = part;
+                assembly.Received++;
+            }
+
+            // Ack after every slice (including duplicates): a lost ack is
+            // repaired by the next retry pass without restarting the block.
+            int words = (total + 63) / 64;
+            var ack = new byte[5 + words * 8];
+            ack[0] = 0x28;
+            ack[1] = (byte)(id & 0xFF); ack[2] = (byte)(id >> 8);
+            ack[3] = (byte)(total & 0xFF); ack[4] = (byte)(total >> 8);
+            for (int i = 0; i < total; i++)
+            {
+                if (assembly.Parts[i] != null)
+                    ack[5 + (i / 64) * 8 + (i % 64) / 8] |= (byte)(1 << (i % 8));
+            }
+            try { _link?.Send(ack); } catch { /* retry will ask again */ }
+
+            if (assembly.Received != assembly.Total) return;
+            int size = 0;
+            foreach (var part in assembly.Parts) size += part.Length;
+            var block = new byte[size];
+            int at = 0;
+            foreach (var part in assembly.Parts)
+            {
+                Buffer.BlockCopy(part, 0, block, at, part.Length);
+                at += part.Length;
+            }
+            _chunks.Remove(id);
+            // The first byte is the original frame opcode (descriptor/state).
+            if (block.Length > 0 && block[0] != 0x27 && block[0] != 0x28)
+                HandlePacket(block, block.Length);
+        }
+
         private void HandlePacket(byte[] buf, int n)
         {
             switch (buf[0])
@@ -552,6 +622,10 @@ namespace CYG
                     if (n >= 9) PlayerId = BitConverter.ToInt64(buf, 1);
                     break;
                 case 0x23: break; // PONG — rtt bookkeeping lives with ping loop
+                case 0x27: // reliable large-block slice
+                    HandleChunkSlice(buf, n);
+                    break;
+                case 0x28: break; // server ack for a client->server block (unused today)
                 case 0x11: case 0xA5: // schema delta / descriptor frame
                     var delta = new byte[n];
                     Buffer.BlockCopy(buf, 0, delta, 0, n);

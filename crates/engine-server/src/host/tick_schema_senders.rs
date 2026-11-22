@@ -29,6 +29,17 @@ impl TickRunner {
                     .unwrap_or(0);
                 let view = room.view_masks.get(&(*peer_id as i64));
                 let per_view = self.private_state || view.is_some();
+                let budget = ctx
+                    .udp
+                    .udp_reliable
+                    .get(peer_addr)
+                    .map(|lane| {
+                        crate::netcode::packed_lane::adaptive_patch_budget(
+                            lane.pacing_bps(),
+                            ctx.tick_interval,
+                        )
+                    })
+                    .unwrap_or(crate::netcode::packed_lane::DEFAULT_PATCH_BUDGET);
                 // Patch the 10 per-peer bytes in place on the prebuilt frame.
                 let frame = if per_view {
                     let section = if is_full {
@@ -46,7 +57,7 @@ impl TickRunner {
                             section,
                             *peer_id as u32,
                             view,
-                            crate::netcode::packed_lane::DEFAULT_PATCH_BUDGET,
+                            budget,
                         ),
                         (Some(lane), None) if is_full => {
                             lane.clear_deferred(name, *peer_id as u32);

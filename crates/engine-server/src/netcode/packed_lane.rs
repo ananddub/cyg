@@ -20,6 +20,22 @@ use super::view::{VIEW_ROOT_COLLECTION, ViewIntent, ViewMask};
 /// Default per-view patch byte budget. A patch over this keeps its low-priority
 /// updates in a per-session deferred queue instead of losing them.
 pub const DEFAULT_PATCH_BUDGET: usize = 1200;
+/// Bounds for the bandwidth-derived per-session budget.
+pub const MIN_PATCH_BUDGET: usize = 256;
+pub const MAX_PATCH_BUDGET: usize = 8192;
+
+/// Turn the reliable lane's pacing estimate into a per-tick patch budget.
+/// `pacing_bps` is bytes/second. A missing/zero estimate keeps the old fixed
+/// default, so the first packets of a session behave exactly as before.
+pub fn adaptive_patch_budget(pacing_bps: f64, tick: std::time::Duration) -> usize {
+    if !pacing_bps.is_finite() || pacing_bps <= 0.0 {
+        return DEFAULT_PATCH_BUDGET;
+    }
+    // A snapshot is roughly one eighth of a tick's paced budget; the snapshot
+    // itself is only part of what the lane carries.
+    let bytes = pacing_bps * tick.as_secs_f64() / 8.0;
+    (bytes.round() as usize).clamp(MIN_PATCH_BUDGET, MAX_PATCH_BUDGET)
+}
 
 /// Every schema in one descriptor, compiled once. The root is a synthetic
 /// [`SchemaDef`] over `descriptor.root.scalars` — the same definition the guest
@@ -51,9 +67,10 @@ pub struct PackedSet {
     /// Whether the guest emits the single-collection or world form. Set by the
     /// first section, so the volatile stream mirrors the same shape.
     world_mode: bool,
-    /// Updates that did not fit a per-view budget, keyed by room + viewer.
-    /// They are re-merged on the next patch; a newer op for the same id wins.
-    deferred: HashMap<(String, u32), Vec<packed::PackedOp>>,
+    /// Updates that did not fit a per-view budget, keyed by room + viewer +
+    /// collection. They are re-merged on the next patch; a newer op for the
+    /// same id wins.
+    deferred: HashMap<(String, u32, u16), Vec<packed::PackedOp>>,
     pub clamped: u32,
     pub failures: u64,
 }
@@ -516,13 +533,7 @@ impl PackedSet {
         view: &ViewMask,
         budget: usize,
     ) -> Result<Vec<u8>, String> {
-        let outcome = self.process_collection_budget(
-            room,
-            section,
-            Some(viewer_id),
-            Some(view),
-            budget,
-        );
+        let outcome = self.process_budget(room, section, Some(viewer_id), Some(view), budget);
         self.counted(outcome)
     }
 
@@ -534,14 +545,15 @@ impl PackedSet {
         viewer_id: u32,
         budget: usize,
     ) -> Result<Vec<u8>, String> {
-        let outcome = self.process_collection_budget(room, section, Some(viewer_id), None, budget);
+        let outcome = self.process_budget(room, section, Some(viewer_id), None, budget);
         self.counted(outcome)
     }
 
     /// Drop a viewer's deferred updates (called after a full snapshot, which
     /// already contains every row).
     pub fn clear_deferred(&mut self, room: &str, viewer_id: u32) {
-        self.deferred.remove(&(room.to_string(), viewer_id));
+        self.deferred
+            .retain(|(r, v, _), _| !(r == room && *v == viewer_id));
     }
 
     /// Resolves one guest intent against the descriptor and mutates the view.
@@ -587,6 +599,65 @@ impl PackedSet {
         }
     }
 
+    fn process_budget(
+        &mut self,
+        room: &str,
+        section: &[u8],
+        viewer: Option<u32>,
+        view: Option<&ViewMask>,
+        budget: usize,
+    ) -> Result<Vec<u8>, String> {
+        let kind = *section.get(4).ok_or("truncated schema section")?;
+        match kind {
+            packed::KIND_PATCH => {
+                self.process_collection_budget(room, section, viewer, view, budget)
+            }
+            packed::KIND_WORLD_PATCH => {
+                self.process_world_budget(room, section, viewer, view, budget)
+            }
+            // A full snapshot is already the authoritative baseline; budgeting
+            // it would make the client start from a partial world.
+            _ => self.process(section, false, viewer, view),
+        }
+    }
+
+    fn process_world_budget(
+        &mut self,
+        room: &str,
+        section: &[u8],
+        viewer: Option<u32>,
+        view: Option<&ViewMask>,
+        budget: usize,
+    ) -> Result<Vec<u8>, String> {
+        // Mask/view/unreliable first, then budget each collection patch. The
+        // root scalars are tiny and always ship.
+        let masked = self.process(section, false, viewer, view)?;
+        if masked.get(4).copied() != Some(packed::KIND_WORLD_PATCH) {
+            return Ok(masked);
+        }
+        let decoded = packed::decode_world(&self.root, &masked)
+            .map_err(|error| format!("invalid masked world patch: {error}"))?;
+        let mut remaining = budget.saturating_sub(packed::WORLD_HEADER_LEN + 4 + 2);
+        let mut collections = Vec::with_capacity(decoded.collections.len());
+        for (id, hash, bytes) in decoded.collections {
+            let share = remaining;
+            let out = self.process_collection_budget(room, &bytes, viewer, view, share)?;
+            remaining = remaining.saturating_sub(out.len().saturating_add(10));
+            collections.push((id, hash, out));
+        }
+        let mut clamped = 0;
+        let out = packed::encode_world_patch(
+            &self.root,
+            decoded.root_mask,
+            &decoded.root,
+            &collections,
+            &mut clamped,
+        )
+        .map_err(|error| error.to_string());
+        self.clamped += clamped;
+        out
+    }
+
     fn process_collection_budget(
         &mut self,
         room: &str,
@@ -597,8 +668,6 @@ impl PackedSet {
     ) -> Result<Vec<u8>, String> {
         let kind = *section.get(4).ok_or("truncated schema section")?;
         if !matches!(kind, packed::KIND_FULL | packed::KIND_PATCH) {
-            // World patches keep the guest-side budget; this path only exists
-            // for single-collection rooms.
             return self.process(section, false, viewer, view);
         }
         let hash = section
@@ -630,7 +699,11 @@ impl PackedSet {
         if unreliable != 0 {
             strip_unreliable_ops(&mut ops, unreliable);
         }
-        let key = (room.to_string(), viewer.unwrap_or(u32::MAX));
+        let key = (
+            room.to_string(),
+            viewer.unwrap_or(u32::MAX),
+            collection.unwrap_or(0),
+        );
         let deferred = self.deferred.remove(&key).unwrap_or_default();
         // A fresh op for an id supersedes an older deferred op for that id.
         let fresh_ids: HashSet<u32> = ops.iter().map(op_id).collect();

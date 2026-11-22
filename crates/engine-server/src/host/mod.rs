@@ -47,7 +47,8 @@ mod wire;
 
 #[allow(unused_imports)]
 pub(crate) use engine::{
-    Clock, Engine, HotReload, Rates, Scratch, Stats, TickCtx, TickRunner, UdpCtx, UdpLane,
+    Clock, Engine, HotReload, Rates, Scratch, Stats, TickCtx, TickRunner, UdpChunkOut, UdpCtx,
+    UdpLane,
 };
 #[allow(unused_imports)]
 pub(crate) use loop_transport::DelayedOut;

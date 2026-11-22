@@ -73,7 +73,12 @@ impl UdpLane {
         join_reply.push(0x00);
         let _ = udp_sock.send_to(&join_reply, peer_addr);
         if !self.schema_descriptor.is_empty() {
-            let _ = udp_sock.send_to(&self.schema_descriptor, peer_addr);
+            let descriptor = self.schema_descriptor.clone();
+            if descriptor.len() <= 1200
+                || !self.start_chunk(peer_addr, netcode::CYG_WIRE_SCHEMA, &descriptor)
+            {
+                let _ = udp_sock.send_to(&descriptor, peer_addr);
+            }
         }
 
         if data.len() == 20 {
