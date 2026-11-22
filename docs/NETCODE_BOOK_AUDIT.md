@@ -37,7 +37,7 @@ known limitation, **GAP** = not implemented.
 | Valve | Keep ~1 s of history | PASS | `RewindManager::new(max_rewind_ms, tick_rate)`; host 256-frame bound | rewind tests |
 | Valve | Step vs linear interpolation choice | PASS | `Interpolation::{Step, Linear}` | rewind tests |
 | Gambetta IV | Use the shooter's input timestamp | PASS | input trailer carries `client_ms`; `InputFrame.clientTimeMs`, `clockMs()`, `Rewind.atClientMs` clamp future/old timestamps | stamp trailer test, rewind interpolation tests |
-| Valve | Reject/clamp rewinds older than the window | PARTIAL | core manager clamps to oldest; host generic `RewindTrack` clamps too but has no time-window config | host rewind test |
+| Valve | Reject/clamp rewinds older than the window | PASS | `Rewind.atClientMs` clamps future to now and old to `maxRewindMs`; core/host tracks clamp to oldest sample | rewind interpolation tests + `atClientMs` |
 
 ## Wire
 
@@ -85,10 +85,12 @@ cd sdk/client/web && node test/predict.test.mjs && node test/input.test.mjs
 
 ## Remaining work, in priority order
 
-1. **Shooter timestamp end-to-end**: carry the client input timestamp into the
-   guest so `Rewind.recordAt/atMs` uses the actual shot time, not just the
-   server tick.
-4. **Snapshot priority/budget**: per-client row priority when the dirty set is
-   larger than the packet budget. Reference: Gaffer *snapshot_compression*.
-5. **Reliable large-block chunking** for UDP if initial state can exceed one
-   reliable message. Reference: Gaffer *sending_large_blocks_of_data*.
+1. **Per-client dynamic snapshot budget**: the guest budget is room-wide; wire
+   per-client bandwidth estimates into that budget. The current host view/AOI
+   filter still scopes each client after the guest budget.
+2. **Chunking transport integration**: `engine-net::chunk` is complete and
+   tested, but the UDP join/snapshot path still uses the existing delta
+   fragmenter. Wire `ChunkSender`/`ChunkReceiver` into the join state and
+   control-plane large payloads.
+3. **Live 150 ms + 5% loss e2e**: code paths are wired; the connected
+   transport environment for the soak is still external.

@@ -2532,11 +2532,12 @@ var init_engine = __esm({
           let frames = this._inputHistory;
           let total = 1;
           for (const f of frames) total += 4 + f.frame.byteLength;
-          while (frames.length > 1 && total > 512) {
+          const cap = 512 - INPUT_STAMP_LEN;
+          while (frames.length > 1 && total > cap) {
             total -= 4 + frames[0].frame.byteLength;
             frames = frames.slice(1);
           }
-          if (frames.length < 2 || total > 512) return null;
+          if (frames.length < 2 || total > cap) return null;
           const body = new Uint8Array(total);
           body[0] = frames.length & 255;
           let off = 1;
