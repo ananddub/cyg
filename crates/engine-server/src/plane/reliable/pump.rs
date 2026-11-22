@@ -10,6 +10,7 @@ impl ReliableLane {
     pub fn pump(&mut self, now_ms: u64, mut send: impl FnMut(&[u8]) -> bool) {
         self.retire_expired(now_ms);
         let rto = self.rto;
+        let mut lost = false;
         for entry in self.window.iter_mut() {
             if entry.due > now_ms {
                 break;
@@ -21,11 +22,15 @@ impl ReliableLane {
             if entry.sent_once {
                 entry.attempts += 1;
                 self.counts.resent += 1;
+                lost = true;
             } else {
                 entry.sent_once = true;
                 self.counts.sent += 1;
             }
             entry.due = now_ms + Self::backoff(rto, entry.attempts);
+        }
+        if lost {
+            self.congestion_event(now_ms);
         }
     }
 
@@ -67,6 +72,9 @@ impl ReliableLane {
             }
         }
         self.counts.acked += released as u64;
+        if released > 0 {
+            self.on_ack(released);
+        }
         released
     }
 

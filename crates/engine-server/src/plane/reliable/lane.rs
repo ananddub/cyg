@@ -2,9 +2,11 @@ use std::collections::VecDeque;
 
 use engine_webrtc_protocol::is_newer;
 
+use crate::plane::reliable::consts::INITIAL_CWND;
 use crate::plane::reliable::consts::INITIAL_RTO;
 use crate::plane::reliable::consts::MAX_INFLIGHT_EVENTS;
 use crate::plane::reliable::consts::MAX_RELIABLE_BYTES;
+use crate::plane::reliable::consts::MIN_CWND;
 use crate::plane::reliable::error::QueueError;
 
 #[derive(Debug)]
@@ -34,6 +36,11 @@ pub struct ReliableLane {
     pub(super) last_seq: Option<u16>,
     pub(super) srtt_ms: f64,
     pub(super) rto: u64,
+    /// AIMD congestion window in events. Starts at the hard cap, halves on a
+    /// retransmit (one reduction per RTT), and grows on every ack.
+    pub(super) cwnd: f64,
+    pub(super) ssthresh: f64,
+    pub(super) last_loss_ms: Option<u64>,
     pub(super) counts: ReliableCounts,
 }
 
@@ -50,6 +57,9 @@ impl ReliableLane {
             last_seq: None,
             srtt_ms: 0.0,
             rto: INITIAL_RTO,
+            cwnd: INITIAL_CWND,
+            ssthresh: INITIAL_CWND,
+            last_loss_ms: None,
             counts: ReliableCounts::default(),
         }
     }
@@ -70,6 +80,39 @@ impl ReliableLane {
         self.rto
     }
 
+    /// Current congestion window in events (integer view for callers).
+    pub fn cwnd(&self) -> usize {
+        self.cwnd.max(MIN_CWND).floor() as usize
+    }
+
+    /// Shrink the window on a retransmit. At most once per RTO so one loss
+    /// burst cannot collapse it to one event.
+    pub(super) fn congestion_event(&mut self, now_ms: u64) {
+        if let Some(last) = self.last_loss_ms
+            && now_ms.saturating_sub(last) < self.rto
+        {
+            return;
+        }
+        self.ssthresh = (self.cwnd * 0.5).max(MIN_CWND);
+        self.cwnd = self.ssthresh;
+        self.last_loss_ms = Some(now_ms);
+    }
+
+    /// Grow after acknowledged events: slow start below `ssthresh`, then one
+    /// event per window (the classic AIMD increase).
+    pub(super) fn on_ack(&mut self, released: usize) {
+        for _ in 0..released {
+            if self.cwnd < self.ssthresh {
+                self.cwnd += 1.0;
+            } else {
+                self.cwnd += 1.0 / self.cwnd.max(1.0);
+            }
+            if self.cwnd > MAX_INFLIGHT_EVENTS as f64 {
+                self.cwnd = MAX_INFLIGHT_EVENTS as f64;
+            }
+        }
+    }
+
     pub fn next_due(&self) -> Option<u64> {
         self.window.front().map(|entry| entry.due)
     }
@@ -85,7 +128,8 @@ impl ReliableLane {
             self.counts.rejected += 1;
             return Err(QueueError::NotNewer { seq, last });
         }
-        if self.window.len() >= MAX_INFLIGHT_EVENTS {
+        let limit = self.cwnd().min(MAX_INFLIGHT_EVENTS).max(1);
+        if self.window.len() >= limit {
             self.counts.rejected += 1;
             return Err(QueueError::WindowFull {
                 inflight: self.window.len(),
