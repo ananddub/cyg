@@ -442,3 +442,74 @@ fn world_view_masks_root_and_nested_collection_data() {
     let decoded = packed::decode_world(&PackedSchema::from_def(&root_schema()), &output).unwrap();
     assert_ne!(decoded.root[0].1, WireValue::U16(42));
 }
+
+#[test]
+fn a_per_view_budget_defers_low_priority_updates_and_retries_them() {
+    let descriptor = emit_descriptor(&[schema_def(), marker_def()], Some(&root_state()));
+    let mut lane = PackedSet::from_descriptor(&descriptor).unwrap();
+    let a = PackedOp::Update {
+        id: 1,
+        mask: 1,
+        values: vec![(0, WireValue::U8(10))],
+    };
+    let b = PackedOp::Update {
+        id: 2,
+        mask: 1,
+        values: vec![(0, WireValue::U8(20))],
+    };
+    let one = packed::encode_patch(
+        &PackedSchema::from_def(&schema_def()),
+        std::slice::from_ref(&a),
+        &mut 0,
+    )
+    .unwrap()
+    .len();
+    let patch = player_patch(vec![a, b]);
+
+    let first = lane.patch_for_budget("arena", &patch, 7, one).unwrap();
+    let decoded = packed::decode(&PackedSchema::from_def(&schema_def()), &first).unwrap();
+    assert_eq!(decoded.ops.len(), 1, "budget carried only the first update");
+    assert_eq!(op_id(&decoded.ops[0]), 1);
+
+    // The next patch is empty, but the deferred update must still ride it.
+    let empty = player_patch(Vec::new());
+    let second = lane.patch_for_budget("arena", &empty, 7, one).unwrap();
+    let decoded = packed::decode(&PackedSchema::from_def(&schema_def()), &second).unwrap();
+    assert_eq!(decoded.ops.len(), 1);
+    assert_eq!(op_id(&decoded.ops[0]), 2);
+
+    let third = lane.patch_for_budget("arena", &empty, 7, one).unwrap();
+    let decoded = packed::decode(&PackedSchema::from_def(&schema_def()), &third).unwrap();
+    assert!(decoded.ops.is_empty(), "deferred queue drained");
+}
+
+#[test]
+fn a_new_update_for_the_same_row_supersedes_a_deferred_one() {
+    let descriptor = emit_descriptor(&[schema_def(), marker_def()], Some(&root_state()));
+    let mut lane = PackedSet::from_descriptor(&descriptor).unwrap();
+    let old = PackedOp::Update {
+        id: 3,
+        mask: 1,
+        values: vec![(0, WireValue::U8(1))],
+    };
+    let new = PackedOp::Update {
+        id: 3,
+        mask: 1,
+        values: vec![(0, WireValue::U8(2))],
+    };
+    let one = packed::encode_patch(
+        &PackedSchema::from_def(&schema_def()),
+        std::slice::from_ref(&old),
+        &mut 0,
+    )
+    .unwrap()
+    .len();
+    lane.patch_for_budget("arena", &player_patch(vec![old]), 7, 1).unwrap();
+    let out = lane.patch_for_budget("arena", &player_patch(vec![new]), 7, one).unwrap();
+    let decoded = packed::decode(&PackedSchema::from_def(&schema_def()), &out).unwrap();
+    assert_eq!(decoded.ops.len(), 1);
+    let PackedOp::Update { values, .. } = &decoded.ops[0] else {
+        panic!("expected update");
+    };
+    assert_eq!(values, &vec![(0, WireValue::U8(2))], "fresh value wins");
+}

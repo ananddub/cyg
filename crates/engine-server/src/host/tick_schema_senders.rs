@@ -38,13 +38,26 @@ impl TickRunner {
                     };
                     let packed = match (self.packed_lane.as_mut(), view) {
                         (Some(lane), Some(view)) if is_full => {
+                            lane.clear_deferred(name, *peer_id as u32);
                             lane.full_for_view(section, *peer_id as u32, view)
                         }
-                        (Some(lane), Some(view)) => {
-                            lane.patch_for_view(section, *peer_id as u32, view)
+                        (Some(lane), Some(view)) => lane.patch_for_view_budget(
+                            name,
+                            section,
+                            *peer_id as u32,
+                            view,
+                            crate::netcode::packed_lane::DEFAULT_PATCH_BUDGET,
+                        ),
+                        (Some(lane), None) if is_full => {
+                            lane.clear_deferred(name, *peer_id as u32);
+                            lane.full_for(section, *peer_id as u32)
                         }
-                        (Some(lane), None) if is_full => lane.full_for(section, *peer_id as u32),
-                        (Some(lane), None) => lane.patch_for(section, *peer_id as u32),
+                        (Some(lane), None) => lane.patch_for_budget(
+                            name,
+                            section,
+                            *peer_id as u32,
+                            crate::netcode::packed_lane::DEFAULT_PATCH_BUDGET,
+                        ),
                         (None, _) => continue,
                     };
                     let packed = match packed {
@@ -162,8 +175,16 @@ impl TickRunner {
                     &self.delta_buf[self.schema_patch.clone()]
                 };
                 let packed = match self.packed_lane.as_mut() {
-                    Some(lane) if is_full => lane.full_for(section, u32::MAX),
-                    Some(lane) => lane.patch_for(section, u32::MAX),
+                    Some(lane) if is_full => {
+                        lane.clear_deferred(name, u32::MAX);
+                        lane.full_for(section, u32::MAX)
+                    }
+                    Some(lane) => lane.patch_for_budget(
+                        name,
+                        section,
+                        u32::MAX,
+                        crate::netcode::packed_lane::DEFAULT_PATCH_BUDGET,
+                    ),
                     None => continue,
                 };
                 let packed = match packed {

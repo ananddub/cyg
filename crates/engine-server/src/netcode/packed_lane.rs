@@ -17,6 +17,10 @@ use engine_webrtc_protocol::packed::{self, PackedSchema};
 
 use super::view::{VIEW_ROOT_COLLECTION, ViewIntent, ViewMask};
 
+/// Default per-view patch byte budget. A patch over this keeps its low-priority
+/// updates in a per-session deferred queue instead of losing them.
+pub const DEFAULT_PATCH_BUDGET: usize = 1200;
+
 /// Every schema in one descriptor, compiled once. The root is a synthetic
 /// [`SchemaDef`] over `descriptor.root.scalars` — the same definition the guest
 /// and the client use for the world root hash.
@@ -47,6 +51,9 @@ pub struct PackedSet {
     /// Whether the guest emits the single-collection or world form. Set by the
     /// first section, so the volatile stream mirrors the same shape.
     world_mode: bool,
+    /// Updates that did not fit a per-view budget, keyed by room + viewer.
+    /// They are re-merged on the next patch; a newer op for the same id wins.
+    deferred: HashMap<(String, u32), Vec<packed::PackedOp>>,
     pub clamped: u32,
     pub failures: u64,
 }
@@ -158,6 +165,7 @@ impl PackedSet {
             volatile_root: vec![packed::WireValue::Null; root_field_count],
             volatile_collections: HashMap::new(),
             world_mode: false,
+            deferred: HashMap::new(),
             clamped: 0,
             failures: 0,
         })
@@ -497,6 +505,45 @@ impl PackedSet {
         self.counted(outcome)
     }
 
+    /// Patch with a per-view byte budget. Only `UPDATE` ops are deferred; an
+    /// add/remove is structural and always ships. The guest already emits
+    /// updates in priority order, so the suffix is the lowest priority.
+    pub fn patch_for_view_budget(
+        &mut self,
+        room: &str,
+        section: &[u8],
+        viewer_id: u32,
+        view: &ViewMask,
+        budget: usize,
+    ) -> Result<Vec<u8>, String> {
+        let outcome = self.process_collection_budget(
+            room,
+            section,
+            Some(viewer_id),
+            Some(view),
+            budget,
+        );
+        self.counted(outcome)
+    }
+
+    /// Patch with a per-view budget but only `.private()` masking.
+    pub fn patch_for_budget(
+        &mut self,
+        room: &str,
+        section: &[u8],
+        viewer_id: u32,
+        budget: usize,
+    ) -> Result<Vec<u8>, String> {
+        let outcome = self.process_collection_budget(room, section, Some(viewer_id), None, budget);
+        self.counted(outcome)
+    }
+
+    /// Drop a viewer's deferred updates (called after a full snapshot, which
+    /// already contains every row).
+    pub fn clear_deferred(&mut self, room: &str, viewer_id: u32) {
+        self.deferred.remove(&(room.to_string(), viewer_id));
+    }
+
     /// Resolves one guest intent against the descriptor and mutates the view.
     /// Returns whether the effective mask changed; an unchanged intent must not
     /// force another full snapshot.
@@ -538,6 +585,66 @@ impl PackedSet {
             ViewIntent::OnlySelf { enabled, .. } => Ok(view.set_only_self(*enabled)),
             ViewIntent::Reset { .. } => Ok(view.clear()),
         }
+    }
+
+    fn process_collection_budget(
+        &mut self,
+        room: &str,
+        section: &[u8],
+        viewer: Option<u32>,
+        view: Option<&ViewMask>,
+        budget: usize,
+    ) -> Result<Vec<u8>, String> {
+        let kind = *section.get(4).ok_or("truncated schema section")?;
+        if !matches!(kind, packed::KIND_FULL | packed::KIND_PATCH) {
+            // World patches keep the guest-side budget; this path only exists
+            // for single-collection rooms.
+            return self.process(section, false, viewer, view);
+        }
+        let hash = section
+            .get(5..9)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u32::from_le_bytes)
+            .ok_or("truncated schema header")?;
+        let schema = self
+            .schema_by_hash(hash)
+            .cloned()
+            .ok_or_else(|| format!("unknown guest collection schema {hash:08x}"))?;
+        let packed = PackedSchema::from_def(&schema);
+        let collection = self.hash_collection.get(&hash).copied();
+        let shift = collection.and_then(|id| self.nested_ids.contains(&id).then_some(16));
+        let hidden = view.map(|view| view.hidden_for(collection)).unwrap_or(0);
+        let decoded = packed::decode(&packed, section)
+            .map_err(|error| format!("invalid packed guest collection section: {error}"))?;
+        if decoded.kind != packed::KIND_PATCH {
+            return self.process(section, false, viewer, view);
+        }
+        let unreliable = self.unreliable_bits_for(hash);
+        if unreliable != 0 {
+            self.cache_collection(collection.unwrap_or(0), hash, &decoded, false);
+        }
+        let mut ops = decoded.ops;
+        if let Some(viewer) = viewer {
+            mask_ops(&schema, &mut ops, viewer, shift, view, hidden);
+        }
+        if unreliable != 0 {
+            strip_unreliable_ops(&mut ops, unreliable);
+        }
+        let key = (room.to_string(), viewer.unwrap_or(u32::MAX));
+        let deferred = self.deferred.remove(&key).unwrap_or_default();
+        // A fresh op for an id supersedes an older deferred op for that id.
+        let fresh_ids: HashSet<u32> = ops.iter().map(op_id).collect();
+        let mut merged: Vec<packed::PackedOp> = ops;
+        for op in deferred {
+            if !fresh_ids.contains(&op_id(&op)) {
+                merged.push(op);
+            }
+        }
+        let (out, dropped) = encode_with_budget(&packed, merged, budget, &mut self.clamped)?;
+        if !dropped.is_empty() {
+            self.deferred.insert(key, dropped);
+        }
+        Ok(out)
     }
 
     fn process(
@@ -810,6 +917,44 @@ impl PackedSet {
             self.failures += 1;
         }
         outcome
+    }
+}
+
+fn op_id(op: &packed::PackedOp) -> u32 {
+    match op {
+        packed::PackedOp::Add { id, .. }
+        | packed::PackedOp::Remove { id }
+        | packed::PackedOp::Update { id, .. } => *id,
+    }
+}
+
+/// Encode a patch, dropping the lowest-priority trailing `UPDATE` ops until
+/// it fits `budget`. Structural adds/removes are never dropped. Returns the
+/// patch and the deferred ops in their original order.
+fn encode_with_budget(
+    packed: &PackedSchema,
+    mut ops: Vec<packed::PackedOp>,
+    budget: usize,
+    clamped: &mut u32,
+) -> Result<(Vec<u8>, Vec<packed::PackedOp>), String> {
+    let mut dropped: Vec<packed::PackedOp> = Vec::new();
+    loop {
+        let out = packed::encode_patch(packed, &ops, clamped)
+            .map_err(|error| error.to_string())?;
+        if out.len() <= budget {
+            dropped.reverse();
+            return Ok((out, dropped));
+        }
+        let Some(index) = ops
+            .iter()
+            .rposition(|op| matches!(op, packed::PackedOp::Update { .. }))
+        else {
+            // Structural ops alone exceed the budget: send them (correctness
+            // beats the cap) and defer nothing.
+            dropped.reverse();
+            return Ok((out, dropped));
+        };
+        dropped.push(ops.remove(index));
     }
 }
 

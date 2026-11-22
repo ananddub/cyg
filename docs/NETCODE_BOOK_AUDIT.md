@@ -48,7 +48,7 @@ known limitation, **GAP** = not implemented.
 | Gaffer *snapshot_compression* | Delta from previous state, only changed fields | PASS | guest `DeltaWriter`, packed kinds 6/8 | packed lane tests |
 | Quake III `msg.c` | Field presence mask / per-row update mask | PASS | packed patch `UPDATE mask u32` | packed tests |
 | Gaffer *sending_large_blocks_of_data* | Fragment under MTU and reassemble | PASS | UDP delta fragments; WebRTC `0xA7` volatile chunks; SCTP reliable lane | net framing/chaos tests |
-| Gaffer *sending_large_blocks_of_data* | Reliable large-block chunking | PASS | `engine-net/src/chunk.rs`: 256×1 KiB slices, ack bitfield, missing-only retry, duplicate/reorder safe | 5 chunk tests incl. 256 KiB with 15 dropped slices |
+| Gaffer *sending_large_blocks_of_data* | Reliable large-block chunking | PASS | `engine-net/src/chunk.rs`: 256×1 KiB slices, ack bitfield, missing-only retry, duplicate/reorder safe. `UdpTransport` auto-chunks `StateSnapshot`/`StateDelta`/`RoomDataBytes`/`RoomResponse` over 1200 B, reassembles and acks on receive. | 5 chunk tests + real-UDP 20 KB snapshot with dropped slices |
 | Gaffer *reliability_ordering...* | Sequence + redundant acks (SACK), RTO retransmit | PASS | `netcode/cyg.rs`, `plane/reliable/` | rudp/sack/ack tests |
 | Gaffer *reliability_ordering...* | Congestion avoidance / bandwidth backoff | PASS | byte-based AIMD `cwnd`, halve on retransmit (once per PTO), ack-driven growth, token-bucket pacing, hard inflight/byte caps | `plane::reliable` cwnd/pacing/loss tests |
 | RFC 9002 | PTO + RACK loss recovery | PASS | RFC 6298 SRTT/RTTVAR PTO, exponential backoff, RACK loss from selective acks | `plane::reliable::congestion`, `rack_marks_an_older_transmission_lost_after_a_newer_ack` |
@@ -69,7 +69,7 @@ known limitation, **GAP** = not implemented.
 |---|---|---|---|---|
 | Valve | Server tick clock / RTT/jitter tracking | PASS | `TimeSync`, delta tail echo | predict tests |
 | Gaffer *state_synchronization* | Dirty flags, scope, per-client masking | PASS | packed dirty mask, `ViewMask`, AOI | packed/view tests |
-| Gaffer *snapshot_compression* | Per-client priority / bandwidth budget | PARTIAL | guest `setSnapshotBudget` + `SchemaEntity.priority` keeps dropped rows dirty; host per-view/AOI still scopes; exact per-client dynamic budget not independent | compile + budget path; no AS runtime unit test |
+| Gaffer *snapshot_compression* | Per-client priority / bandwidth budget | PARTIAL | guest `setSnapshotBudget` + `SchemaEntity.priority`; host per-view path now enforces a per-session `DEFAULT_PATCH_BUDGET` (1200 B) and defers low-priority `UPDATE`s to the next tick instead of dropping them. The budget is fixed per session, not yet derived from a per-client bandwidth estimate. | `packed_lane` budget/defer tests + host path |
 
 ## Verification commands
 
@@ -80,17 +80,22 @@ cargo test -p engine-core --test proptest_rewind_chaos
 cargo test -p engine-wasm --test prediction_parity
 cargo test -p engine-net --lib transport::webrtc::contract
 cargo test -p engine-server --lib netcode::tests::input_flow
+cargo test -p engine-server --lib netcode::tests::loss_soak
+cargo test -p engine-net --lib transport::udp::tests
+cargo test -p engine-server --lib netcode::packed_lane::tests
 cd sdk/client/web && node test/predict.test.mjs && node test/input.test.mjs
 ```
 
 ## Remaining work, in priority order
 
-1. **Per-client dynamic snapshot budget**: the guest budget is room-wide; wire
-   per-client bandwidth estimates into that budget. The current host view/AOI
-   filter still scopes each client after the guest budget.
-2. **Chunking transport integration**: `engine-net::chunk` is complete and
-   tested, but the UDP join/snapshot path still uses the existing delta
-   fragmenter. Wire `ChunkSender`/`ChunkReceiver` into the join state and
-   control-plane large payloads.
-3. **Live 150 ms + 5% loss e2e**: code paths are wired; the connected
-   transport environment for the soak is still external.
+1. **Adaptive per-client snapshot budget** (PARTIAL): the per-session deferred
+   budget is enforced per viewer, but 1200 B is still a constant. Feed a
+   per-peer bandwidth/RTT estimate into `patch_for_view_budget` to make it
+   adaptive; the world-patch path continues to use the guest `setSnapshotBudget`.
+2. **Browser/raw-UDP client chunk reassembly parity**: the Rust transport and
+   `ChunkReceiver` are wired and tested over a real UDP socket; browser clients
+   use WebRTC SCTP and the C++/Godot raw-UDP SDKs still need the same
+   `0x27/0x28` reassembler if they speak the raw UDP path directly.
+3. **Connected 150 ms + 5% loss e2e**: the deterministic 10 s soak is now in
+   CI (`netcode::tests::loss_soak`), but a live two-host UDP/WebRTC soak still
+   needs the external transport environment.

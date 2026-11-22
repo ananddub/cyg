@@ -97,9 +97,13 @@ impl TickRunner {
                 let packed = if culled {
                     match (self.packed_lane.as_mut(), view) {
                         (Some(lane), Some(view)) => {
+                            lane.clear_deferred(name, *id as u32);
                             lane.full_for_view(&self.view_buf, *id as u32, view)
                         }
-                        (Some(lane), None) => lane.full_for(&self.view_buf, *id as u32),
+                        (Some(lane), None) => {
+                            lane.clear_deferred(name, *id as u32);
+                            lane.full_for(&self.view_buf, *id as u32)
+                        }
                         (None, _) => {
                             tracing::error!(
                                 "[host] room `{name}` has state but no packed schema — `{session}` skipped"
@@ -115,11 +119,26 @@ impl TickRunner {
                     };
                     match (self.packed_lane.as_mut(), view) {
                         (Some(lane), Some(view)) if is_full => {
+                            lane.clear_deferred(name, *id as u32);
                             lane.full_for_view(section, *id as u32, view)
                         }
-                        (Some(lane), Some(view)) => lane.patch_for_view(section, *id as u32, view),
-                        (Some(lane), None) if is_full => lane.full_for(section, *id as u32),
-                        (Some(lane), None) => lane.patch_for(section, *id as u32),
+                        (Some(lane), Some(view)) => lane.patch_for_view_budget(
+                            name,
+                            section,
+                            *id as u32,
+                            view,
+                            crate::netcode::packed_lane::DEFAULT_PATCH_BUDGET,
+                        ),
+                        (Some(lane), None) if is_full => {
+                            lane.clear_deferred(name, *id as u32);
+                            lane.full_for(section, *id as u32)
+                        }
+                        (Some(lane), None) => lane.patch_for_budget(
+                            name,
+                            section,
+                            *id as u32,
+                            crate::netcode::packed_lane::DEFAULT_PATCH_BUDGET,
+                        ),
                         (None, _) => {
                             tracing::error!(
                                 "[host] room `{name}` has state but no packed schema — `{session}` skipped"
