@@ -48,7 +48,7 @@ known limitation, **GAP** = not implemented.
 | Gaffer *snapshot_compression* | Delta from previous state, only changed fields | PASS | guest `DeltaWriter`, packed kinds 6/8 | packed lane tests |
 | Quake III `msg.c` | Field presence mask / per-row update mask | PASS | packed patch `UPDATE mask u32` | packed tests |
 | Gaffer *sending_large_blocks_of_data* | Fragment under MTU and reassemble | PASS | UDP delta fragments; WebRTC `0xA7` volatile chunks; SCTP reliable lane | net framing/chaos tests |
-| Gaffer *sending_large_blocks_of_data* | Reliable large-block chunking | PARTIAL | descriptor/large reliable payloads use WS/DataChannel; no separate UDP chunk/ack system | no dedicated UDP large-block test |
+| Gaffer *sending_large_blocks_of_data* | Reliable large-block chunking | PASS | `engine-net/src/chunk.rs`: 256×1 KiB slices, ack bitfield, missing-only retry, duplicate/reorder safe | 5 chunk tests incl. 256 KiB with 15 dropped slices |
 | Gaffer *reliability_ordering...* | Sequence + redundant acks (SACK), RTO retransmit | PASS | `netcode/cyg.rs`, `plane/reliable/` | rudp/sack/ack tests |
 | Gaffer *reliability_ordering...* | Congestion avoidance / bandwidth backoff | PASS | byte-based AIMD `cwnd`, halve on retransmit (once per PTO), ack-driven growth, token-bucket pacing, hard inflight/byte caps | `plane::reliable` cwnd/pacing/loss tests |
 | RFC 9002 | PTO + RACK loss recovery | PASS | RFC 6298 SRTT/RTTVAR PTO, exponential backoff, RACK loss from selective acks | `plane::reliable::congestion`, `rack_marks_an_older_transmission_lost_after_a_newer_ack` |
@@ -69,7 +69,7 @@ known limitation, **GAP** = not implemented.
 |---|---|---|---|---|
 | Valve | Server tick clock / RTT/jitter tracking | PASS | `TimeSync`, delta tail echo | predict tests |
 | Gaffer *state_synchronization* | Dirty flags, scope, per-client masking | PASS | packed dirty mask, `ViewMask`, AOI | packed/view tests |
-| Gaffer *snapshot_compression* | Per-client priority / bandwidth budget | **GAP** | all dirty rows are sent; AOI only filters scope | no priority/budget test |
+| Gaffer *snapshot_compression* | Per-client priority / bandwidth budget | PARTIAL | guest `setSnapshotBudget` + `SchemaEntity.priority` keeps dropped rows dirty; host per-view/AOI still scopes; exact per-client dynamic budget not independent | compile + budget path; no AS runtime unit test |
 
 ## Verification commands
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Pencil, Plus, Trash2, Zap } from 'lucide-react';
 import type { CardParam, TriggerNodeData } from '../types';
@@ -24,8 +24,27 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
   const isCustom = !events.some((e) => e.value === data.event);
   const params = data.params ?? [];
 
+  const PARAM_TYPES: { value: string; label: string; color: string }[] = [
+    { value: 'number', label: 'number', color: '#2ec1a0' },
+    { value: 'string', label: 'string', color: '#f39bf9' },
+    { value: 'bool', label: 'bool', color: '#e04a4a' },
+  ];
+
   // Local: kaunsa param row edit mode me khula hai (sirf ek waqt me).
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  // Dot click = dropdown niche khulta hai (colored naam+dot options).
+  const [dotMenu, setDotMenu] = useState<{ index: number; left: number; top: number } | null>(null);
+  // Bahar click pe dot menu band — thodi der baad listener, khud ke click se
+  // turant band na ho jaye.
+  useEffect(() => {
+    if (!dotMenu) return;
+    const close = () => setDotMenu(null);
+    const t = setTimeout(() => document.addEventListener('click', close), 0);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('click', close);
+    };
+  }, [dotMenu]);
 
   const setParams = (next: CardParam[]) => data.onDataChange?.({ params: next });
   const addParam = () =>
@@ -41,12 +60,7 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
   const updateParam = (index: number, patch: Partial<CardParam>) =>
     setParams(params.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   const removeParam = (index: number) => setParams(params.filter((_, i) => i !== index));
-  // Dot hi type button: click = number → string → bool → number…
-  const cycleType = (index: number) => {
-    const order: CardParam['type'][] = ['number', 'string', 'bool'];
-    const current = order.indexOf(params[index].type);
-    updateParam(index, { type: order[(current + 1) % order.length] });
-  };
+
 
   return (
     <div className="w-72 rounded-xl border border-border border-l-4 border-l-violet-500 bg-card/95 shadow-sm">

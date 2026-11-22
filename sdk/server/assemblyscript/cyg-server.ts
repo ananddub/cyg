@@ -1905,6 +1905,9 @@ export class SchemaEntity {
     private _stringBytes: Array<ArrayBuffer> = new Array<ArrayBuffer>();
     private _arrays: Array<Array<f64>> = new Array<Array<f64>>();
     private _id: u32 = 0;
+    /// Snapshot priority. Higher values are sent first when a budget is set.
+    /// Ties keep collection order, so the wire is deterministic.
+    priority: i32 = 0;
 
     constructor(schema: SchemaDef) {
         this._schema = schema;
@@ -1924,6 +1927,10 @@ export class SchemaEntity {
     set id(value: u32) { this._id = value; }
 
     clearDirty(): void { this._dirty = 0; }
+
+    /// Clear only the bits that actually went on the wire. A budget that
+    /// dropped this row must leave it dirty for the next tick.
+    clearDirtyBits(mask: u32): void { this._dirty = this._dirty & ~mask; }
 
     /** Mark every field dirty (a replaced entity must resend its whole row). */
     markAllDirty(): void {
@@ -2204,6 +2211,9 @@ function writeSchemaNumber(w: DeltaWriter, type: u8, value: f64): void {
 /** Base for schema states: subclasses override commit() with encoded delta. */
 export class SchemaStateBase {
     commit(): i64 { return 0; }
+    /// Set a per-patch byte budget; 0 means unlimited. States that do not
+    /// support budgets ignore it.
+    setBudget(bytes: i32): void {}
 }
 
 /**
@@ -2225,10 +2235,22 @@ export class SchemaState extends SchemaStateBase {
     private _full: DeltaWriter = new DeltaWriter(512);
     private _patch: DeltaWriter = new DeltaWriter(512);
     private _out: DeltaWriter = new DeltaWriter(1024);
+    private _body: DeltaWriter = new DeltaWriter(512);
+    private _op: DeltaWriter = new DeltaWriter(256);
+    private _budget: i32 = 0;
+    private _flushedIds: Array<u32> = new Array<u32>();
+    private _flushedMasks: Array<u32> = new Array<u32>();
 
     constructor(schema: SchemaDef) {
         super();
         this._schema = schema;
+    }
+
+    /// Cap the next patch's encoded byte size. Updates are ordered by
+    /// `SchemaEntity.priority` (high first); rows that do not fit stay dirty
+    /// and ride the next tick. Adds/removes are structural and always sent.
+    setBudget(bytes: i32): void {
+        this._budget = bytes > 0 ? bytes : 0;
     }
 
     get schemaHash(): u32 { return this._schema.hash; }
@@ -2303,33 +2325,72 @@ export class SchemaState extends SchemaStateBase {
 
     /** Append a single-collection packed patch section (kind 6), even when empty. */
     writePatch(w: DeltaWriter): void {
-        writeSchemaMagic(w);
-        w.writeU8(6);
-        w.writeU32(this._schema.hash);
-        w.writeU32(this.patchOpCount() as u32);
+        const body = this._body;
+        body.reset();
+        let ops = 0;
 
         for (let i = 0; i < this._removed.length; i++) {
-            w.writeU8(2); // REMOVE
-            w.writeVarint(this._removed[i]);
+            body.writeU8(2); // REMOVE
+            body.writeVarint(this._removed[i]);
+            ops++;
         }
         for (let i = 0; i < this._added.length; i++) {
             let id = this._added[i];
             let e = this._entities.get(id);
-            w.writeU8(1); // ADD
-            w.writeVarint(id);
-            e.writePackedPayload(w, 0xffffffff, false);
+            body.writeU8(1); // ADD
+            body.writeVarint(id);
+            e.writePackedPayload(body, 0xffffffff, false);
+            ops++;
         }
+
+        // Priority order: high first, then stable id order. Building the id
+        // list first keeps the encoder deterministic and lets a dropped row
+        // stay dirty for the next tick.
+        let ids = new Array<u32>();
         for (let i = 0; i < this._order.length; i++) {
             let id = this._order[i];
             if (this._added.indexOf(id) >= 0) continue;
             let e = this._entities.get(id);
-            let mask = e.dirtyMask;
-            if (mask == 0) continue;
-            w.writeU8(3); // UPDATE
-            w.writeVarint(id);
-            w.writeU32(mask);
-            e.writePackedPayload(w, mask, true);
+            if (e.dirtyMask == 0) continue;
+            ids.push(id);
         }
+        for (let i = 1; i < ids.length; i++) {
+            let id = ids[i];
+            let pr = this._entities.get(id).priority;
+            let j = i - 1;
+            while (j >= 0) {
+                let other = this._entities.get(ids[j]);
+                if (other.priority > pr || (other.priority == pr && ids[j] < id)) break;
+                ids[j + 1] = ids[j];
+                j--;
+            }
+            ids[j + 1] = id;
+        }
+
+        for (let i = 0; i < ids.length; i++) {
+            let id = ids[i];
+            let e = this._entities.get(id);
+            let mask = e.dirtyMask;
+            this._op.reset();
+            this._op.writeU8(3); // UPDATE
+            this._op.writeVarint(id);
+            this._op.writeU32(mask);
+            e.writePackedPayload(this._op, mask, true);
+            // 13-byte section header + ops already written + this op.
+            if (this._budget > 0 && 13 + body.length + this._op.length > this._budget) {
+                continue;
+            }
+            body.writeWriter(this._op);
+            this._flushedIds.push(id);
+            this._flushedMasks.push(mask);
+            ops++;
+        }
+
+        writeSchemaMagic(w);
+        w.writeU8(6);
+        w.writeU32(this._schema.hash);
+        w.writeU32(ops as u32);
+        w.writeWriter(body);
     }
 
     private encodeFull(): void {
@@ -2342,10 +2403,19 @@ export class SchemaState extends SchemaStateBase {
         this.writePatch(this._patch);
     }
 
-    /** Clear per-tick dirty flags and queued adds/removes. */
+    /** Clear only the dirty bits that were actually encoded this tick. */
     clearChanges(): void {
-        for (let i = 0; i < this._order.length; i++) {
-            this._entities.get(this._order[i]).clearDirty();
+        for (let i = 0; i < this._flushedIds.length; i++) {
+            let e = this._entities.get(this._flushedIds[i]);
+            if (e !== null) e.clearDirtyBits(this._flushedMasks[i]);
+        }
+        this._flushedIds.length = 0;
+        this._flushedMasks.length = 0;
+        // Added rows were sent in full (full snapshot + ADD patch), so their
+        // whole row is acknowledged now.
+        for (let i = 0; i < this._added.length; i++) {
+            let e = this._entities.get(this._added[i]);
+            if (e !== null) e.clearDirty();
         }
         this._added.length = 0;
         this._removed.length = 0;
@@ -2415,6 +2485,13 @@ export class SchemaWorld extends SchemaStateBase {
     }
 
     get collectionCount(): i32 { return this._collections.length; }
+
+    /// Propagate a per-patch byte budget to every collection.
+    override setBudget(bytes: i32): void {
+        for (let i = 0; i < this._collections.length; i++) {
+            this._collections[i].setBudget(bytes);
+        }
+    }
 
     private encodeFull(): void {
         let w = this._full;
@@ -3837,6 +3914,12 @@ export abstract class Room {
 
     setState(state: SchemaStateBase): void {
         this.schemaState = state;
+    }
+
+    /// Cap each patch's encoded size. Higher-priority entities go first and
+    /// rows that do not fit stay dirty for the next tick.
+    setSnapshotBudget(bytes: i32): void {
+        this.schemaState.setBudget(bytes);
     }
 
     /** Call at the end of onTick: `return this.commitState();`

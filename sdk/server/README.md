@@ -151,6 +151,27 @@ handling, so a plugin that traps surfaces at the wasm boundary and the host
 reports it; keep plugin hooks non-throwing and move fallible work into a
 plain method the room calls explicitly.
 
+### Snapshot priority and byte budget
+
+Every generated entity inherits `priority`. Higher priority rows are encoded
+first; when a byte budget is set, rows that do not fit stay dirty and ride the
+next tick. Adds and removes are structural and always sent.
+
+```ts
+onCreate(max: i32): void {
+    this.setState(this.state);
+    this.setSnapshotBudget(1200); // bytes per patch; 0 = unlimited
+}
+
+// In your simulation, mark the row the camera needs most.
+player.priority = 100;
+remoteNoise.priority = 0;
+```
+
+For multi-collection worlds, `setSnapshotBudget` propagates to every
+collection. The host's AOI/view filtering still runs after this, so a per-view
+client can receive less than the global budget.
+
 ### Generic rewind
 
 With `allow_rewind = true`, `this.rewind` stores an opaque `f64` vector per
