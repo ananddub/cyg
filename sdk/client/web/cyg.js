@@ -31,14 +31,14 @@ var __copyProps = (to, from, except, desc) => {
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// src/core/legacy.js
-var legacy_exports = {};
-__export(legacy_exports, {
-  default: () => legacy_default
+// src/core/engine.js
+var engine_exports = {};
+__export(engine_exports, {
+  default: () => engine_default
 });
-var factory, legacy_default;
-var init_legacy = __esm({
-  "src/core/legacy.js"() {
+var factory, engine_default;
+var init_engine = __esm({
+  "src/core/engine.js"() {
     "use strict";
     factory = () => {
       const VOICE_MAGIC = 86;
@@ -103,9 +103,7 @@ var init_legacy = __esm({
             const cap = pages * 65536;
             this._arena = { start: this.mem.buffer.byteLength - cap, cap, used: 0 };
           }
-          // Typed-array views require alignment: an f64/i64 block must start
-          // on an 8-byte boundary or the constructor throws.
-          this._arena.used = (this._arena.used + 7) & ~7;
+          this._arena.used = this._arena.used + 7 & ~7;
           const at = this._arena.start + this._arena.used;
           this._arena.used += n;
           return at;
@@ -173,6 +171,30 @@ var init_legacy = __esm({
         }
         schemaFieldElementKind(handle, i, f) {
           return this._ex().cyg_schema_field_element_kind(handle, i, f);
+        }
+        schemaFieldNested(handle, i, f) {
+          const ex = this._ex();
+          const at = this._alloc(128);
+          const n = ex.cyg_schema_field_nested(handle, i, f, at, 128);
+          return n < 0 ? null : this._readStr(at, Math.min(n, 128));
+        }
+        nestedCount(handle) {
+          return typeof this._ex().cyg_nested_count === "function" ? this._ex().cyg_nested_count(handle) : 0;
+        }
+        _nestedPart(fn, handle, i) {
+          const ex = this._ex();
+          const at = this._alloc(128);
+          const n = fn.call(ex, handle, i, at, 128);
+          return n < 0 ? null : this._readStr(at, Math.min(n, 128));
+        }
+        nestedCollection(handle, i) {
+          return this._nestedPart(this._ex().cyg_nested_collection, handle, i);
+        }
+        nestedParent(handle, i) {
+          return this._nestedPart(this._ex().cyg_nested_parent, handle, i);
+        }
+        nestedField(handle, i) {
+          return this._nestedPart(this._ex().cyg_nested_field, handle, i);
         }
         collectionCount(handle) {
           return this._ex().cyg_collection_count(handle);
@@ -660,7 +682,7 @@ var init_legacy = __esm({
           this._byName = /* @__PURE__ */ new Map();
           this.hash = schemaFnv1a(2166136261, `${name}|${this.version}`);
         }
-        _add(name, type, flags = 0, element = null) {
+        _add(name, type, flags = 0, element = null, nested = null) {
           if (this.fields.length >= SCHEMA_MAX_FIELDS) return this;
           if (this._byName.has(name)) throw new Error(`duplicate schema field '${name}'`);
           const code = SCHEMA_TYPE_CODE[type];
@@ -676,6 +698,7 @@ var init_legacy = __esm({
             fullOnly: (flags & (SCHEMA_FIELD_STATIC | SCHEMA_FIELD_TRANSIENT)) !== 0,
             element: element || null,
             elementCode,
+            nested: nested || null,
             size: SCHEMA_FIELD_SIZE[type],
             offset: this.fields.reduce((n, f) => n + f.size, 0)
           };
@@ -690,6 +713,7 @@ var init_legacy = __esm({
             let text = `|${field.name}:${field.code}`;
             if (field.elementCode) text += `.${field.elementCode}`;
             if (field.flags) text += `:${field.flags}`;
+            if (field.nested) text += `:n${field.nested}`;
             hash = schemaFnv1a(hash, text);
           }
           this.hash = hash;
@@ -769,7 +793,7 @@ var init_legacy = __esm({
         }
       }
       const DESCRIPTOR_MAGIC = [79, 88, 83, 68];
-      const DESCRIPTOR_VERSION = 3;
+      const DESCRIPTOR_VERSION = 6;
       const SCHEMA_TYPE_NAME = Object.freeze([
         null,
         "u8",
@@ -948,22 +972,6 @@ var init_legacy = __esm({
         getStateCallbacks(roomOrDecoder) {
           return Callbacks.get(roomOrDecoder);
         },
-        /** Legacy `$(room.state).players.onAdd(...)` proxy, still supported. */
-        getLegacy(room) {
-          const target = room && room.state ? room.state : room;
-          if (!target || typeof Proxy === "undefined") return target;
-          return new Proxy(target, {
-            get(map, prop, receiver) {
-              if (typeof prop === "string" && room && room._collectionMaps && room._collectionMaps.has(prop)) {
-                return room._collectionMaps.get(prop);
-              }
-              if (typeof prop === "string" && room && (prop === room._rootCollection || !room._rootCollection && prop === "players")) {
-                return map;
-              }
-              return Reflect.get(map, prop, receiver);
-            }
-          });
-        },
         getRawChanges() {
           return () => {
           };
@@ -1063,6 +1071,8 @@ var init_legacy = __esm({
           this.tickOriginMs = -1;
           this.timeSync.setTickRate(this.tickRate);
           this.lastAppliedTick = -1;
+          this.lastVolatileTick = -1;
+          this._volatileFragments = /* @__PURE__ */ new Map();
           this._poseBuffers = /* @__PURE__ */ new Map();
           this._poseScratch = /* @__PURE__ */ new Map();
           this.poseBufferMax = 64;
@@ -1101,10 +1111,10 @@ var init_legacy = __esm({
         }
         /** Hand the guest WASM instance (with cyg_predict_tick et al.) to
          *  the driver. Returns true when the export set is complete. */
-        attachPredict(instance) {
+        attachPredict(instance, opts = {}) {
           this._predictInstance = instance;
           if (!this._predict) this._predict = new CYGPredictDriver(this);
-          return this._predict.attachPredict(instance);
+          return this._predict.attachPredict(instance, opts);
         }
         /** Confirms that an event arrived — reliable channel first, WS as fallback. */
         _ackEvent(seq) {
@@ -1778,6 +1788,59 @@ var init_legacy = __esm({
             this._attachDescriptor(bytes);
             return;
           }
+          if (bytes[0] === 167 && bytes.length >= 7) {
+            const view = new DataView(
+              bytes.buffer,
+              bytes.byteOffset + 1,
+              4
+            );
+            const tick = view.getUint32(0, true);
+            const index = bytes[5];
+            const total = bytes[6];
+            if (total === 0 || index >= total) return true;
+            let set = this._volatileFragments.get(tick);
+            if (!set || set.total !== total) {
+              set = { total, parts: new Array(total), received: 0 };
+              this._volatileFragments.set(tick, set);
+            }
+            if (set.parts[index] === void 0) {
+              set.parts[index] = bytes.slice(7);
+              set.received++;
+            }
+            if (set.received === set.total) {
+              let len = 0;
+              for (const part of set.parts) len += part.length;
+              const assembled = new Uint8Array(len);
+              let off = 0;
+              for (const part of set.parts) {
+                assembled.set(part, off);
+                off += part.length;
+              }
+              this._volatileFragments.delete(tick);
+              if (assembled[0] === 166 && tick > this.lastVolatileTick) {
+                this.lastVolatileTick = tick;
+                this._processDeltaPayload(assembled.subarray(5), true);
+              }
+            }
+            while (this._volatileFragments.size > 8) {
+              this._volatileFragments.delete(
+                this._volatileFragments.keys().next().value
+              );
+            }
+            return true;
+          }
+          if (bytes[0] === 166 && bytes.length >= 5) {
+            const tick = new DataView(
+              bytes.buffer,
+              bytes.byteOffset + 1,
+              4
+            ).getUint32(0, true);
+            if (tick > this.lastVolatileTick) {
+              this.lastVolatileTick = tick;
+              this._processDeltaPayload(bytes.subarray(5), true);
+            }
+            return;
+          }
           if (bytes[0] === 4 && bytes.length >= 9) {
             if (this._handleDeltaFrame(bytes)) return;
           }
@@ -1915,32 +1978,27 @@ var init_legacy = __esm({
          * is dropped here and `your_id` is the first field on every path.
          */
         /**
-         * Parse the Phase D reconciliation tail — `[acked u16][tick u32]`
-         * plus, on servers new enough to carry the RTT echo, `[stamp u16]`.
-         * The echo is only trusted when its stamp is one we recently sent:
-         * an old server's 6-byte tail reinterpreted as 8 would echo a
-         * garbage stamp that never matches, so the reader falls back
-         * cleanly to the legacy 6-byte tail.
+         * Parse the one and only reconciliation tail:
+         * `[acked u16][tick u32][stamp u16]` (8 bytes).
+         *
+         * There is no 6-byte fallback. A pre-Phase-D server is not a supported
+         * peer; guessing at its tail silently misread `acked`/`tick` and made
+         * prediction reconcile against garbage. Short frames now fail loudly.
          */
         _parseDeltaTail(payload) {
-          const pv2 = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-          if (payload.byteLength >= DELTA_TAIL_LEN) {
-            const base2 = payload.byteLength - DELTA_TAIL_LEN;
-            const stamp = pv2.getUint16(base2 + 6, true);
-            if (stamp !== 0 && this._stampTimes.has(stamp)) {
-              this._noteEcho(stamp);
-              return {
-                len: DELTA_TAIL_LEN,
-                acked: pv2.getUint16(base2, true),
-                tick: pv2.getUint32(base2 + 2, true)
-              };
-            }
+          if (payload.byteLength < DELTA_TAIL_LEN) {
+            throw new Error(
+              `[CYG SDK] delta tail too short: ${payload.byteLength} bytes, need ${DELTA_TAIL_LEN}. Rebuild client and server together.`
+            );
           }
-          const base = payload.byteLength - 6;
+          const pv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+          const base = payload.byteLength - DELTA_TAIL_LEN;
+          const stamp = pv.getUint16(base + 6, true);
+          if (stamp !== 0 && this._stampTimes.has(stamp)) this._noteEcho(stamp);
           return {
-            len: 6,
-            acked: pv2.getUint16(base, true),
-            tick: pv2.getUint32(base + 2, true)
+            len: DELTA_TAIL_LEN,
+            acked: pv.getUint16(base, true),
+            tick: pv.getUint32(base + 2, true)
           };
         }
         /**
@@ -1970,18 +2028,43 @@ var init_legacy = __esm({
           this.playerId = value == null ? null : Number(value);
           this.emit("sessionid", value);
         }
-        _processDeltaPayload(raw) {
+        _processDeltaPayload(raw, volatile = false) {
           let payload = raw;
+          if (payload.length >= 5 && payload[0] === 166) {
+            const tick = new DataView(
+              payload.buffer,
+              payload.byteOffset + 1,
+              4
+            ).getUint32(0, true);
+            if (tick > this.lastVolatileTick) {
+              this.lastVolatileTick = tick;
+              this._processDeltaPayload(payload.subarray(5), true);
+            }
+            return;
+          }
           if (payload.length >= 14 && payload[0] === 165 && payload[1] === 100 && payload[2] === 101) {
             payload = payload.subarray(6);
           }
           if (payload.length >= 8 + 9 + 6 && payload[8] === SCHEMA_MAGIC[0] && payload[9] === SCHEMA_MAGIC[1] && payload[10] === SCHEMA_MAGIC[2] && payload[11] === SCHEMA_MAGIC[3]) {
             const t = this._parseDeltaTail(payload);
             const acked = t.acked, tick = t.tick;
-            this.ackedSeq = acked;
-            this.serverTick = tick;
-            if (tick <= this.lastAppliedTick) return;
-            this.lastAppliedTick = tick;
+            if (volatile) {
+              if (tick > this.lastVolatileTick) this.lastVolatileTick = tick;
+            } else {
+              this.ackedSeq = acked;
+              this.serverTick = tick;
+              if (tick <= this.lastAppliedTick) return;
+              this.lastAppliedTick = tick;
+              const kind = payload[12];
+              if (kind === 5 || kind === 7) {
+                this.lastVolatileTick = Math.max(this.lastVolatileTick, tick);
+              }
+            }
+            const pv = new DataView(
+              payload.buffer,
+              payload.byteOffset,
+              payload.byteLength
+            );
             this._setSessionId(pv.getBigInt64(0, true));
             const arrivalMs2 = performance.now();
             this.lastDeltaArrivalMs = arrivalMs2;
@@ -1989,7 +2072,7 @@ var init_legacy = __esm({
             this.timeSync.addSample(arrivalMs2, tick);
             this.tickOriginMs = this.timeSync.tickOriginMs;
             this.clockOffsetMs = this.timeSync.clockOffsetMs(arrivalMs2);
-            if (this._predict && this._predict.available) {
+            if (!volatile && this._predict && this._predict.available) {
               this._predict.onAck(payload.subarray(0, payload.byteLength - t.len));
             }
             this._applySchemaViaCore(raw);
@@ -2005,7 +2088,7 @@ var init_legacy = __esm({
             this.serverTick = serverTick;
             payload = payload.subarray(0, payload.byteLength - t.len);
           }
-          if (serverTick >= 0 && serverTick <= this.lastAppliedTick) return;
+          if (!volatile && serverTick >= 0 && serverTick <= this.lastAppliedTick) return;
           if (payload.length >= 8) {
             const v = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
             this._setSessionId(v.getBigInt64(0, true));
@@ -2022,7 +2105,7 @@ var init_legacy = __esm({
           }
           const arrivalMs = performance.now();
           this.lastDeltaArrivalMs = arrivalMs;
-          if (serverTick >= 0) {
+          if (serverTick >= 0 && !volatile) {
             this.lastAppliedTick = serverTick;
             this.timeSync.setTickRate(this.tickRate);
             this.timeSync.addSample(arrivalMs, serverTick);
@@ -2183,10 +2266,22 @@ var init_legacy = __esm({
             left: false,
             right: false
           };
+          const tickRate = options.tickRate > 0 ? options.tickRate : 0;
           const handle = {
             data,
             mode: options.mode || "unreliable",
-            send() {
+            tickRate,
+            _accMs: 0,
+            _lastTickMs: -1,
+            /** Build the schema-declared input object from handle state. */
+            _build() {
+              if (!self._inputSchema) {
+                if (!self._inputLaneWarned) {
+                  self._inputLaneWarned = true;
+                  console.warn('[CYG SDK] room.input() needs a schema-declared `Input` def \u2014 add `export const Input = schema({\u2026}, "Input")` to src/schema/ and sendInput({ moveX, moveZ, \u2026 }) starts working');
+                }
+                return null;
+              }
               let flags = data.flags || 0;
               if (data.up) flags |= 1;
               if (data.down) flags |= 2;
@@ -2201,13 +2296,6 @@ var init_legacy = __esm({
                 if (data.up) mz -= 1;
                 if (data.down) mz += 1;
               }
-              if (!self._inputSchema) {
-                if (!self._inputLaneWarned) {
-                  self._inputLaneWarned = true;
-                  console.warn('[CYG SDK] room.input() needs a schema-declared `Input` def \u2014 add `export const Input = schema({\u2026}, "Input")` to src/schema/ and sendInput({ moveX, moveZ, \u2026 }) starts working');
-                }
-                return false;
-              }
               const willJump = !!(data.jump || data._jumpLatched);
               data._jumpLatched = false;
               const obj = {};
@@ -2220,7 +2308,40 @@ var init_legacy = __esm({
                 else if (f.name === "aimPitch") obj.aimPitch = data.aimPitch || 0;
                 else obj[f.name] = data[f.name] || 0;
               }
-              return self._sendSchemaInput(obj);
+              return obj;
+            },
+            /** Send one input frame now. When a prediction guest is
+             *  attached the same frame advances `cyg_predict_tick`, so
+             *  network and prediction never diverge. */
+            send(dtMs = 1e3 / Math.max(1, self.timeSync && self.timeSync.tickRate || 30)) {
+              const obj = handle._build();
+              if (!obj) return false;
+              return self._sendInputObject(obj, dtMs);
+            },
+            /** Fixed-step input pump: send/predict on a fixed timeline
+             *  regardless of render frame rate. Returns steps consumed. */
+            tick(nowMs = performance.now()) {
+              if (!self._inputSchema) {
+                handle._build();
+                return 0;
+              }
+              const rate = tickRate > 0 ? tickRate : self.timeSync && self.timeSync.tickRate ? self.timeSync.tickRate : 30;
+              const stepMs = 1e3 / Math.max(1, rate || 30);
+              const elapsed = handle._lastTickMs < 0 ? 0 : nowMs - handle._lastTickMs;
+              handle._lastTickMs = nowMs;
+              handle._accMs += Math.min(250, Math.max(0, elapsed));
+              let steps = 0;
+              while (handle._accMs >= stepMs) {
+                handle._accMs -= stepMs;
+                const obj = handle._build();
+                if (!obj) break;
+                if (self._sendInputObject(obj, stepMs)) steps++;
+              }
+              return steps;
+            },
+            reset() {
+              handle._accMs = 0;
+              handle._lastTickMs = -1;
             },
             bindKeyboard(target = typeof window !== "undefined" ? window : null) {
               if (!target) return () => {
@@ -2267,6 +2388,15 @@ var init_legacy = __esm({
           this._inputHandle = handle;
           return handle;
         }
+        /** Internal: one already-built input object. Routes through the
+         *  predict driver when one is attached so the sent frame and the
+         *  predicted frame carry the same sequence number and bytes. */
+        _sendInputObject(obj, dtMs) {
+          if (this._predict && this._predict.available && typeof this._predict.sendSchema === "function") {
+            return this._predict.sendSchema(obj, dtMs);
+          }
+          return this._sendSchemaInput(obj);
+        }
         /**
          * Schema input lane — the project's `Input` def from the descriptor
          * drives the packing, so the game only ever passes a plain object:
@@ -2312,7 +2442,14 @@ var init_legacy = __esm({
         }
         _sendSchemaInput(obj) {
           if (this.isSpectator) return false;
-          let body = this._packSchemaInput(obj);
+          const body = this._packSchemaInput(obj);
+          if (!body) return false;
+          return this._sendPackedInput(body);
+        }
+        /** Send one already-packed `[seq u16][fields…]` input body. */
+        _sendPackedInput(packed) {
+          if (this.isSpectator) return false;
+          let body = packed;
           if (!body) return false;
           const stamp = (this._stampSeq = this._stampSeq + 1 & 65535) >>> 0;
           const stamped = new Uint8Array(body.byteLength + INPUT_STAMP_LEN);
@@ -2508,6 +2645,11 @@ var init_legacy = __esm({
           if (!isSchemaDescriptor(descriptor)) {
             throw new TypeError("[CYG SDK] useDescriptor() expects an OXSD buffer");
           }
+          if (descriptor[4] !== DESCRIPTOR_VERSION) {
+            throw new TypeError(
+              `[CYG SDK] unsupported schema descriptor v${descriptor[4]}; this client speaks v${DESCRIPTOR_VERSION}. Rebuild client and server together.`
+            );
+          }
           this._attachDescriptor(descriptor);
           return this;
         }
@@ -2517,7 +2659,9 @@ var init_legacy = __esm({
         }
         /** Expose collections and root scalars as properties of `room.state`. */
         _defineStateProperties() {
+          const nestedNames = new Set((this._nested || []).map((n) => n.collection));
           for (const [name, map] of this._collectionMaps) {
+            if (nestedNames.has(name)) continue;
             Object.defineProperty(this.state, name, {
               value: map,
               enumerable: false,
@@ -2541,6 +2685,12 @@ var init_legacy = __esm({
           if (this._descriptorAttached) return;
           this._descriptorAttached = true;
           this._descriptorBytes = bytes;
+          if (bytes.length < 6 || bytes[4] !== DESCRIPTOR_VERSION) {
+            const message = `[CYG SDK] unsupported schema descriptor v${bytes.length > 4 ? bytes[4] : "?"}; this client speaks v${DESCRIPTOR_VERSION}. Rebuild client and server together.`;
+            this._schemaError = message;
+            this.emit("schemaerror", message);
+            return;
+          }
           this._corePromise.then((core) => {
             if (!core) {
               const message = "[CYG SDK] cyg_core_rs.wasm failed to load: " + (this._coreError || "unknown error");
@@ -2589,7 +2739,8 @@ var init_legacy = __esm({
               const elementKind = core.schemaFieldElementKind(handle, i, f);
               const type = CORE_KIND_TO_TYPE[kind];
               const element = elementKind ? CORE_KIND_TO_TYPE[elementKind] : null;
-              if (fieldName && type) def._add(fieldName, type, flags, element);
+              const nested2 = typeof core.schemaFieldNested === "function" ? core.schemaFieldNested(handle, i, f) : null;
+              if (fieldName && type) def._add(fieldName, type, flags, element, nested2);
             }
             def.hash = core.schemaHash(handle, i);
             schemas.push(def);
@@ -2613,6 +2764,15 @@ var init_legacy = __esm({
             }
             collections.push({ name, schema });
           }
+          const nested = [];
+          const nestedCount = core.nestedCount(handle);
+          for (let i = 0; i < nestedCount; i++) {
+            const collection = core.nestedCollection(handle, i);
+            const parent = core.nestedParent(handle, i);
+            const field = core.nestedField(handle, i);
+            if (collection && parent && field) nested.push({ collection, parent, field });
+          }
+          this._nested = nested;
           const first = collections[0];
           this.schemas = schemas;
           this._inputSchema = schemas.find((s) => s.name === "Input") || null;
@@ -2956,8 +3116,7 @@ var init_legacy = __esm({
             if (this._pendingSchema.length < 512) this._pendingSchema.push(payload);
             return;
           }
-          let hasPrefix = (payload[0] === 165 && payload[1] === 100 && payload[2] === 101)
-            || (payload[0] === 17 && payload[1] === 165 && payload[2] === 100 && payload[3] === 101);
+          let hasPrefix = payload[0] === 165 && payload[1] === 100 && payload[2] === 101 || payload[0] === 17 && payload[1] === 165 && payload[2] === 100 && payload[3] === 101;
           if (!hasPrefix) {
             const prefixed = new Uint8Array(payload.length + 6);
             prefixed.set([165, 100, 101, 108, 116, 97]);
@@ -2965,7 +3124,7 @@ var init_legacy = __esm({
             payload = prefixed;
           }
           let kind = 0;
-          const oxs2 = payload[0] === 0x11 ? 15 : 14;
+          const oxs2 = payload[0] === 17 ? 15 : 14;
           if (payload.length > oxs2 + 5 && payload[oxs2] === SCHEMA_MAGIC[0] && payload[oxs2 + 1] === SCHEMA_MAGIC[1] && payload[oxs2 + 2] === SCHEMA_MAGIC[2] && payload[oxs2 + 3] === SCHEMA_MAGIC[3]) {
             kind = payload[oxs2 + 4];
           }
@@ -2976,7 +3135,7 @@ var init_legacy = __esm({
             this.emit("schemaerror", message);
             return;
           }
-          if (kind === 5 || kind === 7) { // packed full: single collection or world
+          if (kind === 5 || kind === 7) {
             this._schemaReady = true;
             this._clearJoinWatchdog();
             this._ackSchema();
@@ -2996,10 +3155,13 @@ var init_legacy = __esm({
         _hydrateFromCore() {
           const core = this._core;
           const handle = this._coreHandle;
-          for (let c = 0; c < this._collections.length && c < core.collectionCount(handle); c++) {
-            const entry = this._collections[c];
-            this._hydrateCollection(core, handle, c, entry.map, entry.schema);
+          const order = this._collections.slice().sort(
+            (a, b) => this._nestedDepth(b.name) - this._nestedDepth(a.name)
+          );
+          for (const entry of order) {
+            this._hydrateCollection(this._core, handle, entry.id, entry.map, entry.schema);
           }
+          this._rebuildNested();
           const scalars = this._rootScalars;
           if (scalars) {
             for (let f = 0; f < scalars.fields.length; f++) {
@@ -3009,6 +3171,55 @@ var init_legacy = __esm({
               if (this._schemaValueEquals(previous, value)) continue;
               this._rootValues[field.name] = value;
               this._fireFieldChange(this.state, field.name, value, previous);
+            }
+          }
+        }
+        _nestedDepth(name) {
+          let depth = 0;
+          let current = name;
+          for (; ; ) {
+            const nested = (this._nested || []).find((n) => n.collection === current);
+            if (!nested) return depth;
+            depth++;
+            current = nested.parent;
+          }
+        }
+        _fillNestedEntity(entity, collectionName) {
+          for (const nested of this._nested || []) {
+            if (nested.parent !== collectionName) continue;
+            const child = this._collections.find((entry) => entry.name === nested.collection);
+            if (!child) continue;
+            let array = entity[nested.field];
+            if (!Array.isArray(array)) entity[nested.field] = array = [];
+            array.length = 0;
+            for (const [id, value] of child.map) {
+              if (id >>> 16 === entity.id) array[id & 65535] = value;
+            }
+            entity[nested.field] = array;
+          }
+        }
+        /** Fold child-collection rows back into `parent.items` arrays. The
+         *  child id packs `(owner << 16) | slot`, so grouping needs no hidden
+         *  wire fields; arrays are mutated in place to keep references stable. */
+        _rebuildNested() {
+          if (!this._nested || this._nested.length === 0) return;
+          const byName = new Map(this._collections.map((entry) => [entry.name, entry]));
+          for (const nested of this._nested) {
+            const parent = byName.get(nested.parent);
+            const child = byName.get(nested.collection);
+            if (!parent || !child) continue;
+            for (const entity of parent.map.values()) {
+              const array = entity[nested.field];
+              if (Array.isArray(array)) array.length = 0;
+              else entity[nested.field] = [];
+            }
+            for (const [id, entity] of child.map) {
+              const owner = entity;
+              const slot = id & 65535;
+              const parentEntity = parent.map.get(id >>> 16);
+              if (!parentEntity) continue;
+              const array = parentEntity[nested.field];
+              array[slot] = owner;
             }
           }
         }
@@ -3029,6 +3240,7 @@ var init_legacy = __esm({
           for (const [id, entity] of incoming) {
             const existing = map.get(id);
             if (existing === void 0) {
+              this._fillNestedEntity(entity, this._collections[ci] ? this._collections[ci].name : "");
               map.set(id, entity);
               this._trackEntity(entity);
               this._fireAdd(map, entity, id);
@@ -3043,6 +3255,7 @@ var init_legacy = __esm({
               this._fireFieldChange(existing, field.name, value, previous);
               changed = true;
             }
+            this._fillNestedEntity(existing, this._collections[ci] ? this._collections[ci].name : "");
             if (changed) this._fireUpdate(map, existing, id);
           }
           map._ready = true;
@@ -3054,7 +3267,39 @@ var init_legacy = __esm({
             const field = schema.fields[i];
             entity[field.name] = this._readCoreField(core, handle, ci, id, field, i);
           }
+          this._defineNestedViews(entity, schema);
           return entity;
+        }
+        /** Group flattened child fields (`stats__kills`) behind `entity.stats`.
+         *  The getters read the live flat fields, so per-tick hydration updates
+         *  the nested view without allocating a second object. */
+        _defineNestedViews(entity, schema) {
+          const paths = /* @__PURE__ */ new Map();
+          for (const field of schema.fields) {
+            if (!field.nested) continue;
+            if (!paths.has(field.nested)) paths.set(field.nested, []);
+            paths.get(field.nested).push(field);
+          }
+          for (const [path, fields] of paths) {
+            if (Object.prototype.hasOwnProperty.call(entity, path)) continue;
+            const view = {};
+            for (const field of fields) {
+              const child = field.name.startsWith(`${path}__`) ? field.name.slice(path.length + 2) : field.name;
+              Object.defineProperty(view, child, {
+                enumerable: true,
+                configurable: true,
+                get: () => entity[field.name],
+                set: (value) => {
+                  entity[field.name] = value;
+                }
+              });
+            }
+            Object.defineProperty(entity, path, {
+              value: view,
+              enumerable: true,
+              configurable: true
+            });
+          }
         }
         _readCoreField(core, handle, ci, id, field, index) {
           if (field.optional) {
@@ -4384,11 +4629,12 @@ var init_legacy = __esm({
           this._latched = /* @__PURE__ */ new Map();
           this._lastPredictedState = null;
           this.packInput = opts.packInput || null;
-          if (instance) this.attachPredict(instance);
+          this.readServerState = opts.readServerState || null;
+          if (instance) this.attachPredict(instance, opts);
         }
         /** Feature-detect the guest's predict exports. Missing exports keep
          *  the driver parked — no half-capable guessing. */
-        attachPredict(instance) {
+        attachPredict(instance, opts = {}) {
           const ex = instance && (instance.exports || instance);
           const missing = ex ? CYGPredictDriver.REQUIRED_EXPORTS.filter((n) => typeof ex[n] !== "function") : CYGPredictDriver.REQUIRED_EXPORTS.slice();
           if (missing.length > 0) {
@@ -4399,7 +4645,41 @@ var init_legacy = __esm({
           this.instance = ex;
           this.available = true;
           this.pending.length = 0;
+          if (typeof opts.readServerState === "function") {
+            this.readServerState = opts.readServerState;
+          }
+          if (opts.packInput) this.packInput = opts.packInput;
+          if (opts.tickRate > 0) this.tickRate = opts.tickRate;
           return true;
+        }
+        /**
+         * Send one schema input object through the normal `__input` lane and
+         * advance the prediction mirror with the exact same field bytes. The
+         * network sequence (`room.inputSeq`) is the prediction sequence, so
+         * `room.ackedSeq` trims the same pending ring.
+         */
+        sendSchema(obj, dtMs = 1e3 / 30) {
+          if (!this.available || !this.room) return false;
+          const pack = this.room._packSchemaInput;
+          const send = this.room._sendPackedInput;
+          if (typeof pack !== "function" || typeof send !== "function") return false;
+          const body = pack.call(this.room, obj);
+          if (!body || body.byteLength < 2) return false;
+          const seq = this.room.inputSeq >>> 0;
+          if (!send.call(this.room, body)) return false;
+          const frame = body.subarray(2);
+          this._predictFrame(frame, dtMs, seq);
+          return true;
+        }
+        _predictFrame(frame, dtMs, seq) {
+          const ptr = this._writeBytes(frame);
+          this.instance.cyg_predict_tick(ptr, frame.byteLength, dtMs);
+          this.pending.push({
+            seq,
+            input: frame.slice(),
+            atMs: performance.now()
+          });
+          while (this.pending.length > this.maxPending) this.pending.shift();
         }
         /** Fixed-step accumulator: run `floor(elapsed / step)` steps, capped
          *  so a hitched frame cannot spiral. Returns the send budget n — the
@@ -4453,16 +4733,23 @@ var init_legacy = __esm({
          *  of everything the server confirmed (ack seq from the delta tail). */
         onAck(serverStateBytes) {
           if (!this.available) return;
+          let stateBytes = serverStateBytes;
+          if (typeof this.readServerState === "function") {
+            const flat2 = this.readServerState(serverStateBytes, this.room);
+            if (flat2 && flat2.byteLength > 0) {
+              stateBytes = flat2 instanceof Uint8Array ? flat2 : new Uint8Array(flat2.buffer, flat2.byteOffset || 0, flat2.byteLength);
+            }
+          }
           const acked = this.room && Number.isFinite(this.room.ackedSeq) ? this.room.ackedSeq : -1;
           const unacked = this.pending.filter(
             (p) => acked < 0 || (p.seq - acked & 65535) < 32768 && p.seq !== acked
           );
-          const server = this._writeBytes(serverStateBytes || new Uint8Array(0));
+          const server = this._writeBytes(stateBytes || new Uint8Array(0));
           const flat = this._flattenPending(unacked);
           const pend = this._writeBytes(flat);
           const correction = this.instance.cyg_reconcile(
             server,
-            serverStateBytes ? serverStateBytes.byteLength : 0,
+            stateBytes ? stateBytes.byteLength : 0,
             pend,
             flat.byteLength
           );
@@ -4473,6 +4760,13 @@ var init_legacy = __esm({
           if (acked >= 0) {
             this.pending = unacked;
           }
+        }
+        /** Reconcile directly against a flat f64 mirror (used when the
+         *  caller's state decoder already produced the authoritative values). */
+        onServerState(flatValues) {
+          if (!this.available || !flatValues) return;
+          const bytes = flatValues instanceof Uint8Array ? flatValues : new Uint8Array(flatValues.buffer, flatValues.byteOffset || 0, flatValues.byteLength);
+          this.onAck(bytes);
         }
         /** Latest predicted state as an object (guest-owned buffer, decoded
          *  through the room's delta decoder when one is attached). */
@@ -5150,7 +5444,7 @@ var init_legacy = __esm({
         version: "1.5.0"
       };
     };
-    legacy_default = factory();
+    engine_default = factory();
   }
 });
 
@@ -5163,10 +5457,10 @@ var TypedRoom;
 var init_room = __esm({
   "src/room.ts"() {
     "use strict";
-    init_legacy();
+    init_engine();
     TypedRoom = class {
       constructor(endpoint, roomName, options) {
-        const room = new legacy_default.Room(endpoint, roomName, options);
+        const room = new engine_default.Room(endpoint, roomName, options);
         this.inner = room;
         this.raw = room;
       }
@@ -5242,7 +5536,7 @@ __export(schema_exports, {
   useSchemaTable: () => useSchemaTable
 });
 function schemaFromTable(table) {
-  const def = new legacy_default.SchemaDef(table.name, table.version);
+  const def = new engine_default.SchemaDef(table.name, table.version);
   for (const field of table.fields) {
     const builder = KIND_TO_BUILDER[field.kind];
     if (builder) {
@@ -5264,7 +5558,7 @@ var KIND_TO_BUILDER;
 var init_schema = __esm({
   "src/schema.ts"() {
     "use strict";
-    init_legacy();
+    init_engine();
     KIND_TO_BUILDER = {
       u8: "u8",
       i8: "i8",
@@ -5276,7 +5570,7 @@ var init_schema = __esm({
       f64: "f64",
       bool: "bool",
       i64: "i64",
-      // string and array fields have no legacy builder; attach via `field()` if
+      // string and array fields have no builder; attach via `field()` if
       // the runtime supports them, otherwise skip (wasm core handles the bytes).
       string: null,
       array: null,
@@ -5286,11 +5580,11 @@ var init_schema = __esm({
 });
 
 // src/umd.js
-var legacy = (init_legacy(), __toCommonJS(legacy_exports)).default;
+var engine = (init_engine(), __toCommonJS(engine_exports)).default;
 var { TypedRoom: TypedRoom2 } = (init_room(), __toCommonJS(room_exports));
 var { schemaFromTable: schemaFromTable2, useSchemaTable: useSchemaTable2 } = (init_schema(), __toCommonJS(schema_exports));
 module.exports = {
-  ...legacy,
+  ...engine,
   TypedRoom: TypedRoom2,
   schemaFromTable: schemaFromTable2,
   useSchemaTable: useSchemaTable2

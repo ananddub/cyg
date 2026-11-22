@@ -7,10 +7,16 @@ impl Parser {
     pub(super) fn parse_type(&mut self, field_name: &str) -> Option<ParsedType> {
         let start = self.current().clone();
         if !self.is_ident("t") {
+            // A bare identifier names another declared schema: `stats: Stats`.
+            // The field is flattened into the parent row by `parse_schema_fields`.
+            if let TokenKind::Ident(target) = start.kind.clone() {
+                self.advance();
+                return Some(ParsedType::Nested(target));
+            }
             self.error(
                 start.line,
                 start.column,
-                format!("field '{field_name}' must use a `t.*` type, e.g. t.number()"),
+                format!("field '{field_name}' must use a `t.*` type or a declared schema name"),
             );
             self.skip_expression();
             return None;

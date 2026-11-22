@@ -5,7 +5,7 @@
 // TypeScript surface on top: transports, room lifecycle, voice, REST and a
 // typed `Room` driven by the generated schema bindings.
 
-import legacy from "./core/legacy.js";
+import engine from "./core/engine.js";
 
 // Typed surface
 import { TypedRoom } from "./room.js";
@@ -17,14 +17,14 @@ export type {
     CygSchemaTableDef,
 } from "./types/generated.js";
 
-// Legacy surface (Room, Client, Voice, prediction, wire codecs) — verbatim
-// behavior, typed by src/types/legacy.d.ts until the class-by-class module
-// split lands. The default export is flat legacy parity (`CYG.Room`, `CYG.Client`,
+// Core surface (Room, Client, Voice, prediction, wire codecs) — verbatim
+// behavior, typed by src/types/engine.d.ts until the class-by-class module
+// split lands. The default export is flat core parity (`CYG.Room`, `CYG.Client`,
 // ...) plus the typed additions, so the UMD bundle is a drop-in replacement
 // for sdk/client/web/cyg.js.
-export const cyg = legacy;
+export const cyg = engine;
 export default {
-    ...legacy,
+    ...engine,
     TypedRoom,
     schemaFromTable,
     useSchemaTable,

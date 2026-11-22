@@ -179,6 +179,79 @@ declare function _host_send(
     data_len: i32
 ): i32;
 
+// Per-player counter increment. The host checks `allow_stats`, the seat, the
+// name and the delta, coalesces per tick, and the control plane writes
+// `player_stat`. No user id, table or server key crosses this boundary.
+@external("env", "host_stat_add")
+declare function _host_stat_add(
+    seat: i64,
+    stat_ptr: usize,
+    stat_len: i32,
+    delta: i64
+): i32;
+
+// Per-session state views. `host_view_hide` hides one named field for one
+// seat; `host_view_only_self` drops every row but the viewer's own. Both only
+// subtract — `.ownerOnly()` fields stay private. On any change the host forces
+// a fresh full snapshot so stale values cannot linger on that client.
+@external("env", "host_view_hide")
+declare function _host_view_hide(
+    seat: i64,
+    collection_ptr: usize,
+    collection_len: i32,
+    field_ptr: usize,
+    field_len: i32
+): i32;
+
+@external("env", "host_view_only_self")
+declare function _host_view_only_self(seat: i64, enabled: i32): i32;
+
+@external("env", "host_view_reset")
+declare function _host_view_reset(seat: i64): i32;
+
+// Generic per-entity rewind history. The guest records arbitrary f64 vectors
+// under the host tick and queries the newest sample at/before a target tick.
+// Physics lag compensation is one consumer; hit validation and cooldowns use
+// the same history.
+@external("env", "host_rewind_record")
+declare function _host_rewind_record(
+    entity_id: i64,
+    tick: i64,
+    values_ptr: usize,
+    count: i32
+): i32;
+
+@external("env", "host_rewind_query")
+declare function _host_rewind_query(
+    entity_id: i64,
+    tick: i64,
+    out_ptr: usize,
+    out_len: i32
+): i32;
+
+@external("env", "host_rewind_clear")
+declare function _host_rewind_clear(entity_id: i64): i32;
+
+// Time-stamped rewind samples and linear interpolation. Tick queries stay
+// step-based for exact historical lookups; time queries are for lag
+// compensation where the shooter's timestamp falls between two ticks.
+@external("env", "host_rewind_record_time")
+declare function _host_rewind_record_time(
+    entity_id: i64,
+    tick: i64,
+    time_ms: f64,
+    values_ptr: usize,
+    count: i32
+): i32;
+
+@external("env", "host_rewind_query_time")
+declare function _host_rewind_query_time(
+    entity_id: i64,
+    time_ms: f64,
+    out_ptr: usize,
+    out_len: i32
+): i32;
+
 // --- RAPIER 2D PHYSICS (HOST-OWNED) ------------------------------------------
 
 @external("env", "sys_rapier2d_init")
@@ -1264,6 +1337,7 @@ export class DeltaWriter {
     private _buf: ArrayBuffer;
     private _view: DataView = new DataView(new ArrayBuffer(0));
     private _offset: i32 = 0;
+    private _bitOffset: u8 = 0;
 
     constructor(initialCapacity: i32 = 1024) {
         let buf = new ArrayBuffer(initialCapacity);
@@ -1282,6 +1356,41 @@ export class DeltaWriter {
 
     reset(): this {
         this._offset = 0;
+        this._bitOffset = 0;
+        return this;
+    }
+
+    /** LSB-first packed bits; call finishBits before writing byte-aligned data. */
+    writeBits(value: u64, bits: u8): this {
+        let written: u8 = 0;
+        while (written < bits) {
+            if (this._bitOffset == 0) this.writeU8(0);
+            let take: u8 = 8 - this._bitOffset;
+            if (take > bits - written) take = bits - written;
+            let mask: u64 = ((1 as u64) << take) - 1;
+            let byte = this._view.getUint8(this._offset - 1);
+            byte = (byte | ((((value >> written) & mask) as u8) << this._bitOffset)) as u8;
+            this._view.setUint8(this._offset - 1, byte);
+            this._bitOffset += take;
+            written += take;
+            if (this._bitOffset == 8) this._bitOffset = 0;
+        }
+        return this;
+    }
+
+    writeBit(value: bool): this { return this.writeBits(value ? 1 : 0, 1); }
+
+    finishBits(): this {
+        this._bitOffset = 0;
+        return this;
+    }
+
+    writeVarint(value: u32): this {
+        while (value >= 128) {
+            this.writeU8(((value & 127) | 128) as u8);
+            value = value >> 7;
+        }
+        this.writeU8(value as u8);
         return this;
     }
 
@@ -1443,15 +1552,17 @@ export class DeltaWriter {
 // and `SchemaState.seal()` emits a full snapshot plus a field-level patch.
 // The host sends the full snapshot to a client once, then patches.
 //
-// Wire (inside the delta body, after the recipient id):
-//   full:  "OXS2" [u8 1] [u32 schema hash] [u32 count] { [u32 id] [values...] }*
-//   patch: "OXS2" [u8 2] [u32 schema hash] [u32 ops]   { op... }*
+// Wire (inside the delta body, after the recipient id) — packed OXS2 only:
+//   full:  "OXS2" [u8 5] [u32 schema hash] [u32 count]
+//          { [LEB128 id] [optional bit][packed field bits][byte-aligned vars] }*
+//   patch: "OXS2" [u8 6] [u32 schema hash] [u32 ops] { op... }*
 //   conjoined onTick payload:
 //          "OXS2" [u32 fullLen] [full] [u32 patchLen] [patch]
 //
-// Values: numeric/bool primitives, fixed-width UTF-8 strings (255 bytes) and
-// flat primitive arrays, <= 32 fields per entity. Nested schemas stay on the
-// typed-message channel.
+// Quantized numeric/bool fields travel LSB-first in one bit stream; strings,
+// arrays, f32/f64 and i64 follow byte-aligned. A field's bit width and
+// min/max range come from `SchemaDef.range(…)` and the descriptor, never
+// from a client guess. <= 32 fields per entity.
 //
 // Field flags: bit 0 = optional (one presence byte on the wire), bit 1 = static
 // and bit 2 = transient (both full-snapshot only, never patched).
@@ -1474,6 +1585,7 @@ export enum FieldType {
 export const SCHEMA_FIELD_OPTIONAL: u8 = 1;
 export const SCHEMA_FIELD_STATIC: u8 = 2;
 export const SCHEMA_FIELD_TRANSIENT: u8 = 4;
+const SCHEMA_FIELD_PRIVATE: u8 = 8;
 
 const SCHEMA_MAGIC_0: u8 = 0x4F; // O
 const SCHEMA_MAGIC_1: u8 = 0x58; // X
@@ -1487,6 +1599,12 @@ function schemaFieldSize(type: u8): i32 {
     if (type == FieldType.U32 || type == FieldType.I32 || type == FieldType.F32) return 4;
     if (type == FieldType.STRING || type == FieldType.ARRAY) return 0;
     return 8; // F64 / I64
+}
+
+function schemaFloatBits(value: f64): u32 {
+    let view = new DataView(new ArrayBuffer(4));
+    view.setFloat32(0, value as f32, true);
+    return view.getUint32(0, true);
 }
 
 function schemaArraysEqual(a: Array<f64>, b: Array<f64>): bool {
@@ -1522,6 +1640,11 @@ export class SchemaDef {
     private _types: Array<u8> = new Array<u8>();
     private _flags: Array<u8> = new Array<u8>();
     private _elements: Array<u8> = new Array<u8>();
+    private _bits: Array<u8> = new Array<u8>();
+    private _min: Array<f64> = new Array<f64>();
+    private _max: Array<f64> = new Array<f64>();
+    private _customEncoding: Array<bool> = new Array<bool>();
+    private _nested: Array<string> = new Array<string>();
     private _offsets: Array<i32> = new Array<i32>();
     private _sizes: Array<i32> = new Array<i32>();
     private _byteSize: i32 = 0;
@@ -1564,6 +1687,19 @@ export class SchemaDef {
                 h = this.mix(h, ":");
                 h = this.mix(h, flags.toString());
             }
+            if (this._customEncoding[i]) {
+                h = this.mix(h, ":e");
+                h = this.mix(h, this._bits[i].toString());
+                h = this.mix(h, ",");
+                h = this.mix(h, schemaFloatBits(this._min[i]).toString());
+                h = this.mix(h, ",");
+                h = this.mix(h, schemaFloatBits(this._max[i]).toString());
+            }
+            let nested = this._nested[i];
+            if (nested.length != 0) {
+                h = this.mix(h, ":n");
+                h = this.mix(h, nested);
+            }
         }
         this._hash = h;
     }
@@ -1575,6 +1711,22 @@ export class SchemaDef {
         this._types.push(type);
         this._flags.push(0);
         this._elements.push(element);
+        let bits: u8 = 0;
+        let min: f64 = 0.0;
+        let max: f64 = 0.0;
+        if (type == FieldType.BOOL) { bits = 1; max = 1.0; }
+        else if (type == FieldType.U8) { bits = 8; max = 255.0; }
+        else if (type == FieldType.I8) { bits = 8; min = -128.0; max = 127.0; }
+        else if (type == FieldType.U16) { bits = 16; max = 65535.0; }
+        else if (type == FieldType.I16) { bits = 16; min = -32768.0; max = 32767.0; }
+        else if (type == FieldType.U32) { bits = 32; max = 4294967295.0; }
+        else if (type == FieldType.I32) { bits = 32; min = -2147483648.0; max = 2147483648.0; }
+        if (type == FieldType.STRING || type == FieldType.ARRAY || type == FieldType.I64) bits = 0;
+        this._bits.push(bits);
+        this._min.push(min);
+        this._max.push(max);
+        this._customEncoding.push(false);
+        this._nested.push("");
         this._offsets.push(this._byteSize);
         this._sizes.push(size);
         this._byteSize += size;
@@ -1583,6 +1735,43 @@ export class SchemaDef {
     }
 
     private _lastIndex(): i32 { return this._names.length - 1; }
+
+    /** Sets a custom quantized range on the most recently added field. */
+    range(bits: u8, min: f64, max: f64): this {
+        let i = this._lastIndex();
+        if (i >= 0 && bits > 0 && bits <= 32 && max > min) {
+            let type = this._types[i];
+            if (type != FieldType.STRING && type != FieldType.ARRAY && type != FieldType.I64) {
+                let packedMin = min as f32 as f64;
+                let packedMax = max as f32 as f64;
+                this._customEncoding[i] = bits != this._bits[i] || packedMin != this._min[i] || packedMax != this._max[i];
+                this._bits[i] = bits;
+                this._min[i] = packedMin;
+                this._max[i] = packedMax;
+                this._rehash();
+            }
+        }
+        return this;
+    }
+
+    fieldBits(index: i32): u8 { return this._bits[index]; }
+    fieldMin(index: i32): f64 { return this._min[index]; }
+    fieldMax(index: i32): f64 { return this._max[index]; }
+    isInteger(index: i32): bool {
+        let t = this._types[index];
+        return t == FieldType.BOOL || t == FieldType.U8 || t == FieldType.I8 ||
+            t == FieldType.U16 || t == FieldType.I16 || t == FieldType.U32 || t == FieldType.I32;
+    }
+
+    /** Groups the most recently added flattened field under a nested view. */
+    nested(path: string): this {
+        let i = this._lastIndex();
+        if (i >= 0) {
+            this._nested[i] = path;
+            this._rehash();
+        }
+        return this;
+    }
 
     /** Marks the most recently added field as optional (presence byte). */
     optional(): this {
@@ -1609,6 +1798,27 @@ export class SchemaDef {
         let i = this._lastIndex();
         if (i >= 0) {
             this._flags[i] = (this._flags[i] | SCHEMA_FIELD_TRANSIENT) as u8;
+            this._rehash();
+        }
+        return this;
+    }
+
+    /** Marks the most recently added field as owner-only on the host wire. */
+    ownerOnly(): this {
+        let i = this._lastIndex();
+        if (i >= 0) {
+            this._flags[i] = (this._flags[i] | SCHEMA_FIELD_PRIVATE) as u8;
+            this._rehash();
+        }
+        return this;
+    }
+
+    /** Marks the most recently added field as volatile: the host sends it on
+     *  the unreliable state stream, while must-deliver fields stay reliable. */
+    unreliable(): this {
+        let i = this._lastIndex();
+        if (i >= 0) {
+            this._flags[i] = this._flags[i] | 16;
             this._rehash();
         }
         return this;
@@ -1702,6 +1912,11 @@ export class SchemaEntity {
     set id(value: u32) { this._id = value; }
 
     clearDirty(): void { this._dirty = 0; }
+
+    /** Mark every field dirty (a replaced entity must resend its whole row). */
+    markAllDirty(): void {
+        for (let i = 0; i < this._schema.fieldCount; i++) this._dirty = this._dirty | this._bit(i);
+    }
 
     private _bit(index: i32): u32 {
         return (1 as u32) << (index as u32);
@@ -1894,6 +2109,71 @@ export class SchemaEntity {
             if ((this._dirty & this._bit(i)) != 0) this.writeValue(w, i);
         }
     }
+
+    /** Writes one packed row payload: LSB-first bits followed by byte-aligned variables. */
+    writePackedPayload(w: DeltaWriter, mask: u32, masked: bool): void {
+        let bits = new DeltaWriter(32);
+        let vars = new DeltaWriter(64);
+        for (let i = 0; i < this._schema.fieldCount; i++) {
+            let bit = this._bit(i);
+            if (masked && (mask & bit) == 0) continue;
+            let present = this.hasField(i);
+            if (this._schema.isOptional(i)) {
+                bits.writeBit(present);
+                if (!present) continue;
+            }
+            let width = this._schema.fieldBits(i);
+            if (width > 0) this.writePackedField(bits, i, width);
+            else this.writeVariableField(vars, i);
+        }
+        bits.finishBits();
+        w.writeWriter(bits);
+        w.writeWriter(vars);
+    }
+
+    private writePackedField(bits: DeltaWriter, index: i32, width: u8): void {
+        let type = this._schema.fieldType(index);
+        let code: u64 = 0;
+        if (this._schema.isInteger(index)) {
+            let min = Math.round(this._schema.fieldMin(index)) as i64;
+            let integer: i64 = 0;
+            if (type == FieldType.BOOL) integer = this.getBool(index) ? 1 : 0;
+            else if (type == FieldType.U8) integer = this.getU8(index) as i64;
+            else if (type == FieldType.I8) integer = this.getI8(index) as i64;
+            else if (type == FieldType.U16) integer = this.getU16(index) as i64;
+            else if (type == FieldType.I16) integer = this.getI16(index) as i64;
+            else if (type == FieldType.U32) integer = this.getU32(index) as i64;
+            else integer = this.getI32(index) as i64;
+            let ceiling = min + ((((1 as u64) << width) - 1) as i64);
+            if (integer < min) integer = min;
+            if (integer > ceiling) integer = ceiling;
+            code = (integer - min) as u64;
+        } else {
+            let value: f32 = type == FieldType.F32 ? this.getF32(index) : this.getF64(index) as f32;
+            let min = this._schema.fieldMin(index) as f32;
+            let max = this._schema.fieldMax(index) as f32;
+            let levels = (((1 as u64) << width) - 1) as f64;
+            let t = ((value as f64 - min as f64) / (max as f64 - min as f64));
+            if (t < 0.0) t = 0.0;
+            if (t > 1.0) t = 1.0;
+            code = Math.round(t * levels) as u64;
+        }
+        bits.writeBits(code, width);
+    }
+
+    private writeVariableField(w: DeltaWriter, index: i32): void {
+        let type = this._schema.fieldType(index);
+        if (type == FieldType.STRING) { this.writeStringValue(w, index); return; }
+        if (type == FieldType.ARRAY) {
+            let element = this._schema.fieldElement(index);
+            let values = this._arrays[index];
+            let count = values.length > 255 ? 255 : values.length;
+            w.writeU8(count as u8);
+            for (let j = 0; j < count; j++) writeSchemaNumber(w, element, values[j]);
+        } else if (type == FieldType.F32) w.writeF32(this.getF32(index));
+        else if (type == FieldType.F64) w.writeF64(this.getF64(index));
+        else if (type == FieldType.I64) w.writeI64(this.getI64(index));
+    }
 }
 
 function writeSchemaNumber(w: DeltaWriter, type: u8, value: f64): void {
@@ -1955,6 +2235,10 @@ export class SchemaState extends SchemaStateBase {
         if (!this._entities.has(id)) {
             this._order.push(id);
             this._added.push(id);
+        } else if (this._entities.get(id) !== entity) {
+            // Same slot, new object: the old row's values are gone, so emit
+            // the replacement's full row instead of a silent no-op patch.
+            entity.markAllDirty();
         }
         entity.id = id;
         this._entities.set(id, entity);
@@ -1980,17 +2264,17 @@ export class SchemaState extends SchemaStateBase {
         this._removed.length = 0;
     }
 
-    /** Append a complete single-collection full section (kind 1). */
+    /** Append a complete packed collection full section (kind 5). */
     writeFull(w: DeltaWriter): void {
         writeSchemaMagic(w);
-        w.writeU8(1);
+        w.writeU8(5);
         w.writeU32(this._schema.hash);
         w.writeU32(this._order.length as u32);
         for (let i = 0; i < this._order.length; i++) {
             let id = this._order[i];
             let e = this._entities.get(id);
-            w.writeU32(id);
-            e.writeAll(w);
+            w.writeVarint(id);
+            e.writePackedPayload(w, 0xffffffff, false);
         }
     }
 
@@ -2005,23 +2289,23 @@ export class SchemaState extends SchemaStateBase {
         return this._removed.length + this._added.length + updates;
     }
 
-    /** Append a single-collection patch section (kind 2), even when empty. */
+    /** Append a single-collection packed patch section (kind 6), even when empty. */
     writePatch(w: DeltaWriter): void {
         writeSchemaMagic(w);
-        w.writeU8(2);
+        w.writeU8(6);
         w.writeU32(this._schema.hash);
         w.writeU32(this.patchOpCount() as u32);
 
         for (let i = 0; i < this._removed.length; i++) {
             w.writeU8(2); // REMOVE
-            w.writeU32(this._removed[i]);
+            w.writeVarint(this._removed[i]);
         }
         for (let i = 0; i < this._added.length; i++) {
             let id = this._added[i];
             let e = this._entities.get(id);
             w.writeU8(1); // ADD
-            w.writeU32(id);
-            e.writeAll(w);
+            w.writeVarint(id);
+            e.writePackedPayload(w, 0xffffffff, false);
         }
         for (let i = 0; i < this._order.length; i++) {
             let id = this._order[i];
@@ -2030,9 +2314,9 @@ export class SchemaState extends SchemaStateBase {
             let mask = e.dirtyMask;
             if (mask == 0) continue;
             w.writeU8(3); // UPDATE
-            w.writeU32(id);
+            w.writeVarint(id);
             w.writeU32(mask);
-            e.writeDirty(w);
+            e.writePackedPayload(w, mask, true);
         }
     }
 
@@ -2092,11 +2376,12 @@ export class SchemaState extends SchemaStateBase {
  * ```
  *
  * Wire (inside the same envelope as `SchemaState`):
- *   multi full:  "OXS2" [u8 3] [u32 root hash] [u16 root fields] [values...]
+ *   multi full:  "OXS2" [u8 7] [u32 root hash] [u16 root fields]
+ *                [packed root payload]
  *                [u16 collection count] { [u16 id] [u32 hash] [u32 len] [section] }*
- *   multi patch: "OXS2" [u8 4] [u32 root hash] [u16 root fields]
- *                [u32 root dirty mask] [dirty values...]
- *                [u16 collection count] { [u16 id] [u32 hash] [u32 len] [section] }*
+ *   multi patch: "OXS2" [u8 8] [u32 root hash] [u16 root fields]
+ *                [u32 root dirty mask] [packed dirty root payload]
+ *                [u16 collection count] { [u16 id] [u32 hash] [u32 len] [patch] }*
  */
 export class SchemaWorld extends SchemaStateBase {
     root: SchemaEntity;
@@ -2123,10 +2408,10 @@ export class SchemaWorld extends SchemaStateBase {
         let w = this._full;
         w.reset();
         writeSchemaMagic(w);
-        w.writeU8(3);
+        w.writeU8(7);
         w.writeU32(this.root.schemaHash);
         w.writeU16(this.root.fieldCount as u16);
-        this.root.writeAll(w);
+        this.root.writePackedPayload(w, 0xffffffff, false);
         w.writeU16(this._collections.length as u16);
         for (let i = 0; i < this._collections.length; i++) {
             let state = this._collections[i];
@@ -2143,11 +2428,11 @@ export class SchemaWorld extends SchemaStateBase {
         let w = this._patch;
         w.reset();
         writeSchemaMagic(w);
-        w.writeU8(4);
+        w.writeU8(8);
         w.writeU32(this.root.schemaHash);
         w.writeU16(this.root.fieldCount as u16);
         w.writeU32(this.root.dirtyMask);
-        this.root.writeDirty(w);
+        this.root.writePackedPayload(w, this.root.dirtyMask, true);
 
         let changed = 0;
         for (let i = 0; i < this._collections.length; i++) {
@@ -2629,6 +2914,245 @@ export class RequestContext {
  * Universal Zero-Overhead Event Emitter for CYG game rooms.
  * Built into the SDK so developers do not need manual event plumbing.
  */
+/**
+ * Per-session state views. A view can only subtract: hide a field or keep only
+ * the viewer's own row. `.ownerOnly()` fields are already owner-only and cannot
+ * be revealed by a view. Changing a view triggers a fresh full snapshot for
+ * that player, so the client never keeps a stale hidden value.
+ */
+export class Views {
+    /// Hide one field of one root collection for `seat`.
+    hide(seat: i64, collection: string, field: string): bool {
+        if (isClientMode()) return false;
+        if (seat <= 0) return false;
+        let c = String.UTF8.encode(collection);
+        let f = String.UTF8.encode(field);
+        if (c.byteLength == 0 || c.byteLength > 64) return false;
+        if (f.byteLength == 0 || f.byteLength > 64) return false;
+        return _host_view_hide(
+            seat,
+            changetype<usize>(c),
+            c.byteLength,
+            changetype<usize>(f),
+            f.byteLength
+        ) == 0;
+    }
+
+    /// Hide one root-state scalar (`state.tick`, `state.phase`, …) for `seat`.
+    hideRoot(seat: i64, field: string): bool {
+        return this.hide(seat, "__root__", field);
+    }
+
+    /// Drop every collection row except the viewer's own for `seat`.
+    onlySelf(seat: i64, enabled: bool = true): bool {
+        if (isClientMode()) return false;
+        if (seat <= 0) return false;
+        return _host_view_only_self(seat, enabled ? 1 : 0) == 0;
+    }
+
+    /// Return `seat` to the default (all non-private fields visible).
+    reset(seat: i64): bool {
+        if (isClientMode()) return false;
+        if (seat <= 0) return false;
+        return _host_view_reset(seat) == 0;
+    }
+}
+
+/**
+ * One accepted input frame, copied out of wasm scratch so it stays valid after
+ * the bridge returns. `reader()` decodes it with the same generated
+ * `decodeInput` helper the hot `onInputFrame` path uses.
+ */
+export class InputFrame {
+    readonly seq: u16;
+    readonly tick: i64;
+    private _buf: ArrayBuffer = new ArrayBuffer(1);
+    readonly length: i32;
+
+    constructor(seq: u16, tick: i64, ptr: usize, len: i32) {
+        this.seq = seq;
+        this.tick = tick;
+        this.length = len > 0 ? len : 0;
+        if (this.length > 0) {
+            this._buf = new ArrayBuffer(this.length);
+            memory.copy(changetype<usize>(this._buf), ptr, this.length);
+        }
+    }
+
+    reader(): InputReader {
+        return new InputReader(changetype<usize>(this._buf), this.length);
+    }
+}
+
+/**
+ * Per-seat input timeline. When the room references `this.inputs`, the bridge
+ * appends every accepted (non-stale) `__input` frame here before
+ * `onInputFrame` runs. Rooms that do not touch it skip the copy entirely, so
+ * the input hot path stays allocation-free.
+ *
+ *   const f = this.inputs.latest(id);      // newest frame or null
+ *   if (f) { const input = decodeInput(f.reader()); ... }
+ *   this.inputs.clear(id);                 // mark all seen
+ */
+export class InputTimeline {
+    private _seats: Map<i64, Array<InputFrame>> = new Map<i64, Array<InputFrame>>();
+    /// Per-seat history bound. Old frames are dropped before this one.
+    maxHistory: i32 = 64;
+
+    push(seat: i64, seq: u16, tick: i64, ptr: usize, len: i32): void {
+        if (seat <= 0 || len <= 0) return;
+        let frames = this._seats.has(seat) ? this._seats.get(seat) : new Array<InputFrame>();
+        // A duplicate/retransmit with an equal or older sequence is ignored.
+        if (frames.length > 0) {
+            const last = frames[frames.length - 1];
+            if (<u16>(last.seq - seq) < 32768) return;
+        }
+        frames.push(new InputFrame(seq, tick, ptr, len));
+        const bound = this.maxHistory > 0 ? this.maxHistory : 64;
+        while (frames.length > bound) frames.shift();
+        this._seats.set(seat, frames);
+    }
+
+    /// Newest frame for the seat, or null.
+    latest(seat: i64): InputFrame | null {
+        if (!this._seats.has(seat)) return null;
+        const frames = this._seats.get(seat);
+        return frames.length > 0 ? frames[frames.length - 1] : null;
+    }
+
+    /// Newest frame with `seq`, or null when it was already consumed/dropped.
+    at(seat: i64, seq: u16): InputFrame | null {
+        if (!this._seats.has(seat)) return null;
+        const frames = this._seats.get(seat);
+        for (let i = frames.length - 1; i >= 0; i--) {
+            if (frames[i].seq == seq) return frames[i];
+        }
+        return null;
+    }
+
+    /// Remove and return the newest frame (latest-only consumers).
+    consume(seat: i64): InputFrame | null {
+        if (!this._seats.has(seat)) return null;
+        const frames = this._seats.get(seat);
+        if (frames.length == 0) return null;
+        return frames.pop();
+    }
+
+    /// Remove and return every pending frame in sequence order.
+    drain(seat: i64): Array<InputFrame> {
+        if (!this._seats.has(seat)) return new Array<InputFrame>();
+        const frames = this._seats.get(seat);
+        this._seats.set(seat, new Array<InputFrame>());
+        return frames;
+    }
+
+    pending(seat: i64): i32 {
+        return this._seats.has(seat) ? this._seats.get(seat).length : 0;
+    }
+
+    clear(seat: i64): void {
+        this._seats.delete(seat);
+    }
+
+    clearAll(): void {
+        this._seats.clear();
+    }
+}
+
+/**
+ * Generic rewind history. Record any flat `f64` vector for an entity, then
+ * query the newest sample at or before a tick. The host bounds history to 256
+ * samples and 32 fields per entity; a width change is refused.
+ */
+export class Rewind {
+    /// Record `values` at `tick` (usually `clockTicks()`).
+    record(entityId: i64, values: StaticArray<f64>, tick: i64): bool {
+        if (isClientMode()) return false;
+        if (entityId <= 0 || tick < 0) return false;
+        if (values.length == 0 || values.length > 32) return false;
+        return _host_rewind_record(
+            entityId,
+            tick,
+            changetype<usize>(values),
+            values.length
+        ) == 0;
+    }
+
+    /// Record at the current authoritative tick.
+    recordNow(entityId: i64, values: StaticArray<f64>): bool {
+        return this.record(entityId, values, clockTicks());
+    }
+
+    /// Record `values` at an explicit authoritative time (milliseconds). Use
+    /// this with `atMs` for lag compensation where the shooter's timestamp
+    /// lies between two simulation ticks.
+    recordAt(entityId: i64, values: StaticArray<f64>, timeMs: f64): bool {
+        if (isClientMode()) return false;
+        if (entityId <= 0 || !isFinite(timeMs)) return false;
+        if (values.length == 0 || values.length > 32) return false;
+        return _host_rewind_record_time(
+            entityId,
+            clockTicks(),
+            timeMs,
+            changetype<usize>(values),
+            values.length
+        ) == 0;
+    }
+
+    /// Fill `out` with the newest sample at or before `tick`; returns the
+    /// number of values written, or a negative ABI code.
+    at(entityId: i64, tick: i64, out: StaticArray<f64>): i32 {
+        if (isClientMode()) return -1;
+        if (entityId <= 0 || tick < 0 || out.length == 0) return -1;
+        return _host_rewind_query(
+            entityId,
+            tick,
+            changetype<usize>(out),
+            out.length
+        );
+    }
+
+    /// Fill `out` with the linearly interpolated sample at `timeMs`; clamps to
+    /// the oldest/newest sample outside history. Returns values written or a
+    /// negative ABI code.
+    atMs(entityId: i64, timeMs: f64, out: StaticArray<f64>): i32 {
+        if (isClientMode()) return -1;
+        if (entityId <= 0 || !isFinite(timeMs) || out.length == 0) return -1;
+        return _host_rewind_query_time(
+            entityId,
+            timeMs,
+            changetype<usize>(out),
+            out.length
+        );
+    }
+
+    /// Drop one entity's history.
+    clear(entityId: i64): bool {
+        if (isClientMode()) return false;
+        return entityId > 0 && _host_rewind_clear(entityId) == 0;
+    }
+}
+
+/// Per-player counters. The room only names a seat and a counter; the engine
+/// owns identity, batching, retries and the database write.
+export class Stats {
+    /// Raises `stat` for the player holding `seat` by `delta` (1..=1_000_000).
+    /// Returns true when the host accepted the intent, not when the row is
+    /// already written — the write is eventual and idempotent.
+    add(seat: i64, stat: string, delta: i64 = 1): bool {
+        if (isClientMode()) return false;
+        if (seat <= 0 || delta <= 0 || delta > 1_000_000) return false;
+        let bytes = String.UTF8.encode(stat);
+        if (bytes.byteLength == 0 || bytes.byteLength > 64) return false;
+        return _host_stat_add(
+            seat,
+            changetype<usize>(bytes),
+            bytes.byteLength,
+            delta
+        ) == 0;
+    }
+}
+
 export class EventEmitter {
     private _handlers: Map<string, Array<RoomEventCallback>> = new Map<string, Array<RoomEventCallback>>();
     private _owner: Room | null;
@@ -2802,14 +3326,143 @@ export class Client {
     }
 }
 
+/**
+ * Composable room feature. Plugins run in install order and are isolated from
+ * each other: one throwing plugin is logged and skipped, the room keeps
+ * ticking and every later plugin still receives the event.
+ */
+export abstract class RoomPlugin {
+    name: string = "";
+
+    /// Called once at `room.use(plugin)`.
+    install(room: Room): void {}
+    onCreate(max: i32, options: string): void {}
+    onJoin(id: i64, options: string, auth: string): void {}
+    onInput(id: i64): void {}
+    onTick(dt: f64): void {}
+    onLeave(id: i64, code: i32): void {}
+    onDispose(): void {}
+}
+
+/** Built-in match clock plugin: counts down in fixed ticks and exposes expiry. */
+export class MatchTimerPlugin extends RoomPlugin {
+    readonly name: string = "match_timer";
+    minutes: f64;
+    remaining: f64;
+    expired: bool = false;
+
+    constructor(minutes: f64 = 5.0) {
+        super();
+        this.minutes = minutes;
+        this.remaining = minutes * 60.0;
+    }
+
+    onCreate(max: i32, options: string): void {
+        this.remaining = this.minutes * 60.0;
+        this.expired = false;
+    }
+
+    onTick(dt: f64): void {
+        if (this.expired) return;
+        this.remaining -= dt;
+        if (this.remaining <= 0) {
+            this.remaining = 0;
+            this.expired = true;
+        }
+    }
+
+    reset(): void {
+        this.remaining = this.minutes * 60.0;
+        this.expired = false;
+    }
+}
+
 export abstract class Room {
     maxPlayers: i32 = 16;
 
     /// Built-in SDK Event Emitter (Zero manual plumbing required by backend)
     events: EventEmitter = new EventEmitter(this);
+    /// Per-player counters; `this.stats.add(seat, "kills", 1)`.
+    stats: Stats = new Stats();
+    /// Per-session visibility; `this.views.onlySelf(seat)`,
+    /// `this.views.hide(seat, "players", "inventory")`.
+    views: Views = new Views();
+    /// Accepted input frames per seat; populated by the bridge before
+    /// `onInputFrame` runs.
+    inputs: InputTimeline = new InputTimeline();
+    /// Generic entity history; `this.rewind.recordNow(id, values)`.
+    rewind: Rewind = new Rewind();
+
+    /// Installed plugins, in deterministic install order.
+    private _plugins: Array<RoomPlugin> = new Array<RoomPlugin>();
+    /// Reserved for host-level plugin failure telemetry. AssemblyScript has no
+    /// exception handling, so a plugin trap bubbles to the wasm boundary and
+    /// the host isolates/reports it; the room keeps its hook order stable.
+    pluginErrors: u64 = 0;
+
+    /// Install a plugin. Its `install` runs immediately, then lifecycle hooks
+    /// fire in the same order every tick.
+    use(plugin: RoomPlugin): this {
+        plugin.install(this);
+        this._plugins.push(plugin);
+        return this;
+    }
+
+    plugins(): Array<RoomPlugin> {
+        return this._plugins;
+    }
+
+    /// Called by the generated bridge for every accepted `__input` frame.
+    /// `ptr` points at the frame body (after the reserved tag and seq).
+    recordInput(seat: i64, seq: u16, ptr: usize, len: i32): void {
+        this.inputs.push(seat, seq, clockTicks(), ptr, len);
+    }
+
+    pluginOnCreate(max: i32, options: string): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onCreate(max, options);
+        }
+    }
+
+    pluginOnJoin(id: i64, options: string, auth: string): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onJoin(id, options, auth);
+        }
+    }
+
+    pluginOnInput(id: i64): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onInput(id);
+        }
+    }
+
+    pluginOnTick(dt: f64): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onTick(dt);
+        }
+    }
+
+    pluginOnLeave(id: i64, code: i32): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onLeave(id, code);
+        }
+    }
+
+    pluginOnDispose(): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onDispose();
+        }
+    }
+
     /// Typed app messages from clients, keyed by UTF-8 message name.
     private _textMessageHandlers: Map<string, MessageHandlerCallback> = new Map<string, MessageHandlerCallback>();
-    /// Legacy numeric-opcode routing for raw binary clients.
+    /// Numeric-opcode routing for raw binary clients.
     private _messageHandlers: Map<u8, MessageHandlerCallback> = new Map<u8, MessageHandlerCallback>();
     /// Client RPC handlers: `room.request(type)` → our `ctx.reply(...)`.
     private _requestHandlers: Map<string, RequestHandlerCallback> = new Map<string, RequestHandlerCallback>();
@@ -2827,7 +3480,7 @@ export abstract class Room {
         this._requestHandlers.set(type, handler);
     }
 
-    /// Legacy numeric-opcode handler for existing raw-binary clients.
+    /// Numeric-opcode handler for existing raw-binary clients.
     onOpcodeMessage(opcode: u8, handler: MessageHandlerCallback): void {
         this._messageHandlers.set(opcode, handler);
     }
@@ -2836,8 +3489,32 @@ export abstract class Room {
     /// `payload` is opaque bytes; use a DeltaWriter/ArrayBuffer or `broadcastText`.
     /// `except` skips one player id (the value passed to `onJoin`) — Colyseus's
     /// `{ except }` option.
-    broadcast(type: string, payload: ArrayBuffer | null = null, except: i64 = 0): bool {
-        return this._sendMessage(except < 0 ? except : -except, type, payload);
+    ///
+    /// Set `afterNextPatch` to deliver after the current state patch: the
+    /// message is queued and flushed at the start of the next tick, so a
+    /// listener never sees state older than the patch the message describes.
+    broadcast(
+        type: string,
+        payload: ArrayBuffer | null = null,
+        except: i64 = 0,
+        afterNextPatch: bool = false
+    ): bool {
+        const target = except < 0 ? except : -except;
+        if (afterNextPatch) {
+            this._deferMessage(target, type, payload);
+            return true;
+        }
+        return this._sendMessage(target, type, payload);
+    }
+
+    /// Colyseus-style `broadcast(type, payload, { afterNextPatch: true })`
+    /// without the object allocation at the call site.
+    broadcastAfterPatch(
+        type: string,
+        payload: ArrayBuffer | null = null,
+        except: i64 = 0
+    ): bool {
+        return this.broadcast(type, payload, except, true);
     }
 
     /// Send a typed message to one player id (the value passed to `onJoin`).
@@ -2846,13 +3523,46 @@ export abstract class Room {
     }
 
     /// Convenience overload for UTF-8 text payloads. `except` skips one player.
-    broadcastText(type: string, text: string, except: i64 = 0): bool {
-        return this._sendMessage(except < 0 ? except : -except, type, String.UTF8.encode(text));
+    broadcastText(
+        type: string,
+        text: string,
+        except: i64 = 0,
+        afterNextPatch: bool = false
+    ): bool {
+        return this.broadcast(type, String.UTF8.encode(text), except, afterNextPatch);
     }
 
     /// Convenience overload for a UTF-8 text payload to one player.
     sendTextTo(playerId: i64, type: string, text: string): bool {
         return this._sendMessage(playerId, type, String.UTF8.encode(text));
+    }
+
+    private _deferredTargets: Array<i64> = new Array<i64>();
+    private _deferredTypes: Array<string> = new Array<string>();
+    private _deferredPayloads: Array<ArrayBuffer | null> = new Array<ArrayBuffer | null>();
+
+    private _deferMessage(target: i64, type: string, payload: ArrayBuffer | null): void {
+        if (this._deferredTypes.length >= 64) return;
+        this._deferredTargets.push(target);
+        this._deferredTypes.push(type);
+        this._deferredPayloads.push(payload == null ? null : payload.slice(0));
+    }
+
+    /// Flush messages queued with `afterNextPatch`; called by the generated
+    /// bridge before the next simulation step (the previous patch has already
+    /// been sent by then). Safe to call more than once per tick.
+    flushDeferredMessages(): void {
+        const count = this._deferredTypes.length;
+        if (count == 0) return;
+        const targets = this._deferredTargets;
+        const types = this._deferredTypes;
+        const payloads = this._deferredPayloads;
+        this._deferredTargets = new Array<i64>();
+        this._deferredTypes = new Array<string>();
+        this._deferredPayloads = new Array<ArrayBuffer | null>();
+        for (let i = 0; i < count; i++) {
+            this._sendMessage(targets[i], types[i], payloads[i]);
+        }
     }
 
     private _sendMessage(target: i64, type: string, payload: ArrayBuffer | null): bool {
@@ -2902,7 +3612,7 @@ export abstract class Room {
 
 
     /// Called when an authoritative client input packet arrives.
-    /// Typed app messages are routed to `onMessage`; legacy opcodes fall through to
+    /// Typed app messages are routed to `onMessage`; raw opcodes fall through to
     /// registered `onOpcodeMessage` handlers or `onInputPacket`.
     onInput(id: i64, ptr: usize, len: i32): void {
         if (len <= 0) return;
@@ -3189,7 +3899,9 @@ export abstract class Room {
 
     /// Runs immediately before `onTick` (simulation + serialization).
     onBeforePatch(dt: f64): void {
-        // Override for pre-serialization bookkeeping
+        // Override for pre-serialization bookkeeping, but call super if you
+        // use `afterNextPatch` messages: the base flushes them here.
+        this.flushDeferredMessages();
     }
 
     /// Runs immediately after `onTick` returned its delta.

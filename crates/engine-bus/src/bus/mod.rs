@@ -5,7 +5,7 @@ use crossbeam_channel::{Receiver, Sender, bounded};
 
 use crate::messages::{
     InputMsg, MapReload, MatchFinished, OutFrame, RoomOwnership, RoomSnapshot, SeatUpdate,
-    SettingsReload, SimCommand, SimEvent, SnapshotFetch, WasmReload,
+    SettingsReload, SimCommand, SimEvent, SnapshotFetch, StatWrite, WasmReload,
 };
 use crate::telemetry::StatusSnapshot;
 
@@ -32,6 +32,8 @@ const FETCH_CAP: usize = 8;
 const OWNERSHIP_CAP: usize = 32;
 
 const SEAT_CAP: usize = 256;
+
+const STAT_CAP: usize = 512;
 
 pub struct Bus {
     pub inputs_tx: Sender<InputMsg>,
@@ -77,6 +79,10 @@ pub struct Bus {
     pub seats_tx: Sender<SeatUpdate>,
     pub seats_rx: Receiver<SeatUpdate>,
     seats_dropped: AtomicU64,
+
+    pub stats_tx: Sender<StatWrite>,
+    pub stats_rx: Receiver<StatWrite>,
+    stats_dropped: AtomicU64,
 
     draining: AtomicBool,
 }

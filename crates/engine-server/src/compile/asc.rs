@@ -63,11 +63,11 @@ pub(crate) fn compile_asc(
     };
     let on_leave_body = if content.contains("onLeave(") {
         format!(
-            "export function on_leave(id: i64, code: i32): void {{\n    __room_instance.onLeave({}, code);\n}}",
+            "export function on_leave(id: i64, code: i32): void {{\n    __room_instance.pluginOnLeave(id, code);\n    __room_instance.onLeave({}, code);\n}}",
             takes_client_for("onLeave", "id")
         )
     } else {
-        "export function on_leave(id: i64, code: i32): void {}".to_string()
+        "export function on_leave(id: i64, code: i32): void {\n    __room_instance.pluginOnLeave(id, code);\n}".to_string()
     };
     let on_drop_body = if content.contains("onDrop(") {
         format!(
@@ -113,17 +113,22 @@ pub(crate) fn compile_asc(
         "id"
     };
     let on_join_body = on_join_body.replace("{join_client}", join_client_expr);
+    let plugin_auth = if room_takes_auth { "auth" } else { "\"\"" };
+    let on_join_body = format!(
+        "    const __plugin_options = len > 0 ? String.UTF8.decodeUnsafe(ptr as usize, len) : \"\";\n{on_join_body}\n    __room_instance.pluginOnJoin(id, __plugin_options, {plugin_auth});"
+    );
 
     // onInputFrame is the hot path: when the room takes a Client, the
     // bridge dispatches through ONE reusable handle — no per-frame alloc.
     // When the room takes the typed frame (any param but InputReader), the
     // bridge calls the generated decodeInput itself — the room never sees a
     // reader. Reader-style rooms keep full control.
+    let room_has_input_frame = content.contains("onInputFrame(");
     let input_takes_client = takes_client("onInputFrame");
     let gen_has_input_decoder = std::fs::read_to_string(&gen_path)
         .map(|generated| generated.contains("export function decodeInput"))
         .unwrap_or(false);
-    let input_reader_style = content.contains("onInputFrame(") && content.contains(": InputReader");
+    let input_reader_style = room_has_input_frame && content.contains(": InputReader");
     // Reuse one `Input` + one `InputReader` for every input frame instead of
     // allocating a pair per call. The guest runtime's GC would eventually
     // reclaim them, but at the input rate that garbage kept the collector busy
@@ -133,14 +138,40 @@ pub(crate) fn compile_asc(
     } else {
         "decodeInputInto(__input_frame, __input_reader.reset(ptr + 4 + type_len, len - 4 - type_len))".to_string()
     };
-    let on_input_body = if input_takes_client {
+    let on_input_body = if room_has_input_frame {
+        // Timeline recording allocates a copy per accepted frame. Only emit it
+        // when the room's source actually touches `this.inputs`; rooms that do
+        // not use the timeline keep the old zero-allocation input hot path.
+        let record_input = if content.contains("this.inputs") {
+            "            // Copy the frame into the SDK timeline before the room hook runs,\n            // so `this.inputs` can replay/consume it after this call returns.\n            __room_instance.recordInput(id, seq, ptr + 4 + type_len, len - 4 - type_len);\n"
+        } else {
+            ""
+        };
+        let client_decl = if input_takes_client {
+            "const __input_client = new Client(0, __room_instance);\n"
+        } else {
+            ""
+        };
+        let frame_decl = if !input_reader_style && gen_has_input_decoder {
+            "const __input_frame = new Input();\n"
+        } else {
+            ""
+        };
+        let dispatch = if input_takes_client {
+            format!(
+                "__input_client.id = id;\n            __room_instance.onInputFrame(\n                __input_client,\n                {input_frame_expr}\n            );"
+            )
+        } else {
+            format!(
+                "__room_instance.onInputFrame(\n                id,\n                {input_frame_expr}\n            );"
+            )
+        };
         format!(
-            r#"const __input_client = new Client(0, __room_instance);
-const __input_last_seq = new Map<i64, u16>();
-const __input_frame = new Input();
-const __input_reader = new InputReader(0, 0);
+            r#"{client_decl}const __input_last_seq = new Map<i64, u16>();
+{frame_decl}const __input_reader = new InputReader(0, 0);
 
 export function on_input(id: i64, ptr: i32, len: i32): void {{
+    __room_instance.pluginOnInput(id);
     // reserved __input lane: [0x05][type_len]["__input"][seq u16 LE][frame]
     if (len >= 9 && load<u8>(ptr) == 0x05) {{
         const type_len: i32 = load<u8>(ptr + 1) as i32;
@@ -156,11 +187,7 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
             const diff: u16 = prev - seq;
             if (__input_last_seq.has(id) && diff < 32768) return;   // stale
             __input_last_seq.set(id, seq);
-            __input_client.id = id;
-            __room_instance.onInputFrame(
-                __input_client,
-                {input_frame_expr}
-            );
+{record_input}            {dispatch}
             return;
         }}
     }}
@@ -168,7 +195,7 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
 }}"#
         )
     } else {
-        "export function on_input(id: i64, ptr: i32, len: i32): void {\n    __room_instance.onInput(id, ptr as usize, len);\n}".to_string()
+        "export function on_input(id: i64, ptr: i32, len: i32): void {\n    __room_instance.pluginOnInput(id);\n    __room_instance.onInput(id, ptr as usize, len);\n}".to_string()
     };
 
     let needs_client = [
@@ -199,7 +226,11 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
             )
         }
     };
-    let join_options_import = if typed_join || (!input_reader_style && gen_has_input_decoder) {
+    // The generated bridge always decodes input through `InputReader` when the
+    // room declares `onInputFrame`, even in the raw-reader style. Importing it
+    // only for typed-join was a compile error in reader-style rooms.
+    let needs_input_reader = typed_join || room_has_input_frame;
+    let join_options_import = if needs_input_reader {
         if needs_client {
             format!("import {{ InputReader, Client }} from \"../pkg/cyg-server\";\n{gen_imports}")
         } else {
@@ -218,9 +249,9 @@ export function on_input(id: i64, ptr: i32, len: i32): void {{
     let on_create_body = if room_takes_create_options {
         "export function on_create(max: i32, ptr: i32, len: i32): void {
     __room_instance.maxPlayers = max;
-    const options = len > 0 ? String.UTF8.decodeUnsafe(ptr as usize, len) : \"\";\n    __room_instance.onCreate(max, options);\n}"
+    const options = len > 0 ? String.UTF8.decodeUnsafe(ptr as usize, len) : \"\";\n    __room_instance.onCreate(max, options);\n    __room_instance.pluginOnCreate(max, options);\n}"
     } else {
-        "export function on_create(max: i32, ptr: i32, len: i32): void {\n    __room_instance.maxPlayers = max;\n    __room_instance.onCreate(max);\n}"
+        "export function on_create(max: i32, ptr: i32, len: i32): void {\n    __room_instance.maxPlayers = max;\n    __room_instance.onCreate(max);\n    __room_instance.pluginOnCreate(max, \"\");\n}"
     };
 
     let has_manual_flat_bridge =
@@ -257,6 +288,8 @@ export function on_join(id: i64, ptr: i32, len: i32, auth_ptr: i32, len2: i32): 
 {on_input_body}
 
 export function on_tick(dt: f64): i64 {{
+    __room_instance.pluginOnTick(dt);
+    __room_instance.flushDeferredMessages();
     __room_instance.onBeforePatch(dt);
     const packed = __room_instance.onTick(dt);
     __room_instance.onAfterPatch(dt);
@@ -288,6 +321,7 @@ export function on_is_full(count: i32): bool {{
 {on_reconnect_body}
 
 export function on_dispose(): void {{
+    __room_instance.pluginOnDispose();
     __room_instance.onDispose();
 }}
 

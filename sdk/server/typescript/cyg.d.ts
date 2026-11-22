@@ -298,6 +298,9 @@ export declare enum FieldType {
 
 export declare class SchemaDef {
     constructor(name: string, version?: number);
+    range(bits: number, min: number, max: number): this;
+    ownerOnly(): this;
+    unreliable(): this;
     readonly name: string;
     readonly version: number;
     readonly hash: number;
@@ -663,9 +666,11 @@ export declare abstract class Room {
     client(id: bigint): Client;
     onMessage(type: string, handler: MessageHandlerCallback): void;
     onOpcodeMessage(opcode: number, handler: MessageHandlerCallback): void;
-    broadcast(type: string, payload?: ArrayBuffer | null, except?: bigint): boolean;
+    broadcast(type: string, payload?: ArrayBuffer | null, except?: bigint, afterNextPatch?: boolean): boolean;
+    broadcastAfterPatch(type: string, payload?: ArrayBuffer | null, except?: bigint): boolean;
+    flushDeferredMessages(): void;
     sendTo(playerId: bigint, type: string, payload?: ArrayBuffer | null): boolean;
-    broadcastText(type: string, text: string, except?: bigint): boolean;
+    broadcastText(type: string, text: string, except?: bigint, afterNextPatch?: boolean): boolean;
     sendTextTo(playerId: bigint, type: string, text: string): boolean;
     on(event: string, callback: RoomEventCallback): void;
     emit(event: string, id?: bigint, val0?: number, val1?: number): void;

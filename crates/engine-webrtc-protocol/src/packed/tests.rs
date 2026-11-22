@@ -13,6 +13,7 @@ fn field(name: &str, kind: WireKind, encoding: FieldEncoding) -> SchemaField {
         source_type: String::new(),
         default: None,
         encoding,
+        nested_path: None,
         line: 0,
         column: 0,
     }
@@ -20,6 +21,7 @@ fn field(name: &str, kind: WireKind, encoding: FieldEncoding) -> SchemaField {
 
 fn schema(fields: Vec<SchemaField>) -> SchemaDef {
     SchemaDef {
+        nested_arrays: Vec::new(),
         name: "Player".into(),
         version: 1,
         fields,
@@ -227,6 +229,46 @@ fn an_absent_optional_field_costs_one_bit() {
         PackedOp::Add { values, .. } => assert_eq!(values[1], WireValue::Null),
         other => panic!("expected an add, got {other:?}"),
     }
+}
+
+#[test]
+fn absent_optional_packed_field_does_not_consume_following_bits_or_variables() {
+    let mut optional = field("optional", WireKind::U8, default_encoding(WireKind::U8));
+    optional.flags = engine_schema::FIELD_OPTIONAL;
+    let def = schema(vec![
+        optional,
+        field("flag", WireKind::Bool, default_encoding(WireKind::Bool)),
+        field("name", WireKind::String, FieldEncoding::NONE),
+        field("tail", WireKind::U8, default_encoding(WireKind::U8)),
+    ]);
+    let packed = PackedSchema::from_def(&def);
+    let bytes = encode_full(
+        &packed,
+        &[(
+            1,
+            vec![
+                WireValue::Null,
+                WireValue::Bool(true),
+                WireValue::Str("x".into()),
+                WireValue::U8(9),
+            ],
+        )],
+        &mut 0,
+    )
+    .unwrap();
+    let decoded = decode(&packed, &bytes).unwrap();
+    let PackedOp::Add { values, .. } = &decoded.ops[0] else {
+        panic!("full section must contain add")
+    };
+    assert_eq!(
+        values,
+        &vec![
+            WireValue::Null,
+            WireValue::Bool(true),
+            WireValue::Str("x".into()),
+            WireValue::U8(9)
+        ]
+    );
 }
 
 #[test]

@@ -17,13 +17,14 @@ pub use descriptor::{
 };
 pub use encoding::{FieldEncoding, UNPACKED, default_encoding};
 pub use model::{
-    GeneratedSchema, InputDomainMap, InputFieldDomain, MAX_COLLECTIONS, RootCollection, RootState,
-    SchemaDef, SchemaDiagnostic, SchemaField, generate_with_root, wire_hash,
+    GeneratedSchema, InputDomainMap, InputFieldDomain, MAX_COLLECTIONS, NestedArray,
+    NestedCollection, RootCollection, RootState, SchemaDef, SchemaDiagnostic, SchemaField,
+    generate_with_root, wire_hash,
 };
 pub use options::encode_join_options;
 pub use wire::{
-    FIELD_OPTIONAL, FIELD_STATIC, FIELD_TRANSIENT, WireKind, array_assemblyscript_type,
-    array_typescript_type,
+    FIELD_OPTIONAL, FIELD_PRIVATE, FIELD_STATIC, FIELD_TRANSIENT, FIELD_UNRELIABLE, WireKind,
+    array_assemblyscript_type, array_typescript_type,
 };
 
 /// A schema def with this name is the per-tick input frame: codegen emits a

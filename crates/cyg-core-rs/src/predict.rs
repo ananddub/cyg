@@ -382,6 +382,7 @@ mod tests {
             source_type: String::new(),
             default: None,
             encoding: engine_schema::default_encoding(kind),
+            nested_path: None,
             line: 0,
             column: 0,
         }
@@ -390,6 +391,7 @@ mod tests {
     /// Player schema: [0] name Str, [1] x F64, [2] y F64, [3] alive Bool.
     fn player_schema() -> SchemaDef {
         SchemaDef {
+            nested_arrays: Vec::new(),
             name: "Player".into(),
             version: 1,
             fields: vec![
@@ -409,6 +411,7 @@ mod tests {
 
     fn player_descriptor() -> Vec<u8> {
         let root = RootState {
+            nested: Vec::new(),
             name: "Arena".into(),
             version: 1,
             scalars: vec![],

@@ -129,7 +129,7 @@ export class MyGame extends Room {
     }
 }</pre>
   <p class="note"><b>How the wire works:</b> <code>commitState()</code> encodes only fields you changed
-  (dirty tracking) into tagged TLV rows — a quiet room costs ~0 bytes. Clients receive a full snapshot
+  (dirty tracking) into packed OXS2 bit-stream rows — a quiet room costs ~0 bytes. Clients receive a full snapshot
   on join and patches afterwards, decoded through the descriptor. The state is also what the console's
   AOI and the descriptors in <code>out/cyg.schema.bin</code> are built from.</p>
 </div></section>

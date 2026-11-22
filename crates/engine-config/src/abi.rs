@@ -16,6 +16,19 @@ pub struct AbiPermissions {
     pub storage: bool,
 
     pub messaging: bool,
+
+    /// Guest may credit per-player counters. The host validates the seat, the
+    /// stat name and the delta, coalesces per tick, and the control plane is
+    /// the only writer that reaches the database.
+    pub stats: bool,
+
+    /// Guest may narrow a player's state view (`host_view_hide`,
+    /// `host_view_only_self`, `host_view_reset`). Views can only subtract
+    /// fields/rows; `.private()` still wins over every view.
+    pub views: bool,
+
+    /// Guest may record and query generic per-entity rewind samples.
+    pub rewind: bool,
 }
 
 /// Deny by default: a guest only gets a host capability once the game's
@@ -29,6 +42,9 @@ impl Default for AbiPermissions {
             logging: false,
             storage: false,
             messaging: false,
+            stats: false,
+            views: false,
+            rewind: false,
         }
     }
 }

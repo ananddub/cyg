@@ -88,11 +88,21 @@ pub(crate) struct TickRunner {
     /// body used by the WS shared-send path.
     pub(crate) packed_full_body: Vec<u8>,
     pub(crate) packed_patch_body: Vec<u8>,
+    /// Volatile-only packed patch (fields marked `.unreliable()`), sent on
+    /// the lossy stream after the reliable state frame.
+    pub(crate) packed_volatile_body: Vec<u8>,
+    pub(crate) volatile_ready: bool,
+    /// True when the volatile patch must be masked per session (owner-only or
+    /// an active view), so the shared body cannot be reused.
+    pub(crate) volatile_per_view: bool,
     /// Per-session AOI view re-encoded for the packed lane.
     pub(crate) packed_view_buf: Vec<u8>,
-    /// The schema's packed transcoder, compiled once at boot. `None` for relay
+    /// The descriptor's packed schemas, compiled once at boot. `None` for relay
     /// rooms or a descriptor with no collection.
     pub(crate) packed_lane: Option<netcode::PackedSet>,
+    /// The descriptor has an owner-only field, so the packed body depends on
+    /// who is viewing it; the shared per-tick frame cannot be reused.
+    pub(crate) private_state: bool,
     /// True when the current room tick produced packed frames.
     pub(crate) packed_ready: bool,
 }

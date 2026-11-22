@@ -88,6 +88,108 @@ impl LoopTransport {
         netcode::send_delta_framed(self.rtc.server_mut(), session, seq, tick, body)
     }
 
+    /// Sends one already-wrapped state frame on the reliable lane. Volatile
+    /// fields opt a room into this path so inventory/score patches are never
+    /// lost together with a dropped position frame.
+    pub fn send_state_reliable(
+        &mut self,
+        session: &str,
+        frame: &[u8],
+        tick: u32,
+    ) -> std::io::Result<()> {
+        if self.ws_knows(session) {
+            return self
+                .ws
+                .as_mut()
+                .unwrap()
+                .send_to(session, OpCode::RoomDataBytes, frame);
+        }
+        if self.rtc.server().is_connected(session) {
+            let seq = self.next_reliable_seq(session);
+            let sent = crate::netcode::send_delta_framed_reliable(
+                self.rtc.server_mut(),
+                session,
+                seq,
+                tick,
+                frame,
+            );
+            self.rtc.flush()?;
+            if sent == 0 {
+                return Err(std::io::Error::other(
+                    "reliable state frame was refused by the transport",
+                ));
+            }
+            return Ok(());
+        }
+        self.rtc.send_to(session, OpCode::RoomDataBytes, frame)
+    }
+
+    /// Sends a volatile-only patch on the lossy lane. On the WebSocket lane
+    /// there is no lossy sub-channel, so it rides the ordered socket; the
+    /// client still applies it as a separate, tick-gated stream.
+    pub fn send_volatile(&mut self, session: &str, frame: &[u8]) -> std::io::Result<()> {
+        if self.ws_knows(session) {
+            return self
+                .ws
+                .as_mut()
+                .unwrap()
+                .send_to(session, OpCode::RoomDataBytes, frame);
+        }
+        if self.rtc.server().is_connected(session) {
+            const HEADER: usize = 7; // 0xA7 + tick u32 + idx u8 + total u8
+            let chunk_len = engine_webrtc_protocol::MAX_FRAME - HEADER;
+            if frame.len() <= engine_webrtc_protocol::MAX_FRAME {
+                let sent = self.rtc.server_mut().send_unreliable(session, frame);
+                if !sent {
+                    tracing::error!(
+                        "[server] ⚠️ volatile frame of {} B for {session} refused by the lossy lane",
+                        frame.len()
+                    );
+                }
+            } else if frame.len() <= engine_webrtc_protocol::MAX_DELTA_BODY {
+                let total = frame.len().div_ceil(chunk_len);
+                let tick = frame
+                    .get(1..5)
+                    .and_then(|bytes| bytes.try_into().ok())
+                    .map(u32::from_le_bytes)
+                    .unwrap_or(0);
+                let mut fragment = Vec::with_capacity(engine_webrtc_protocol::MAX_FRAME);
+                for (index, chunk) in frame.chunks(chunk_len).enumerate() {
+                    fragment.clear();
+                    fragment.push(0xA7);
+                    fragment.extend_from_slice(&tick.to_le_bytes());
+                    fragment.push(index as u8);
+                    fragment.push(total as u8);
+                    fragment.extend_from_slice(chunk);
+                    if !self
+                        .rtc
+                        .server_mut()
+                        .send_unreliable(session, &fragment)
+                    {
+                        tracing::error!(
+                            "[server] ⚠️ volatile fragment {index}/{total} for {session} refused by the lossy lane"
+                        );
+                        break;
+                    }
+                }
+            } else {
+                tracing::error!(
+                    "[server] ⚠️ volatile frame of {} B for {session} exceeds the fragmentation budget",
+                    frame.len()
+                );
+            }
+            return self.rtc.flush();
+        }
+        self.rtc.send_to(session, OpCode::RoomDataBytes, frame)
+    }
+
+    fn next_reliable_seq(&mut self, session: &str) -> u16 {
+        let seq = self.reliable_seqs.entry(session.to_string()).or_insert(0);
+        let value = *seq;
+        *seq = seq.wrapping_add(1);
+        value
+    }
+
     pub fn send_state(&mut self, client_id: &str, payload: &[u8]) -> std::io::Result<()> {
         if self.should_drop_packet() {
             return Ok(());

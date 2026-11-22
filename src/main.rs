@@ -703,6 +703,7 @@ fn schema_debug_command(args: &[String]) {
             name: descriptor.root.name.clone(),
             version: descriptor.root.version,
             fields: descriptor.root.scalars.clone(),
+            nested_arrays: Vec::new(),
             line: 0,
             column: 0,
         };

@@ -34,10 +34,27 @@ pub const TRIGGERS: [&str; 6] = [
     "player_create",
 ];
 
+/// A custom trigger is the name of an event the game itself sends: anything in
+/// the game's `[gameplay] record_events` reaches the pump, which fires rules
+/// bound to it. The shape is constrained, not the vocabulary — a lowercase
+/// snake_case name can be wired up, while "Boss Died!" would never match what
+/// the mirror carries and would silently never run.
+pub fn is_custom_trigger(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    name.len() <= 64
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
 /// Refuse a trigger the dispatcher does not fire.
 ///
 /// Called at draft time, not at fire time: a rule whose trigger is a typo would
-/// otherwise be accepted, published, and silently never run.
+/// otherwise be accepted, published, and silently never run. The six built-ins
+/// are fired by the engine itself; any other lowercase snake_case name is a
+/// user-defined trigger the game mirrors through the bus.
 pub fn check_trigger(body: &serde_json::Value) -> Result<(), String> {
     let Some(trigger) = body.get("trigger").filter(|value| !value.is_null()) else {
         // A rule with no trigger is the tournament gate, which is fired by key
@@ -52,8 +69,11 @@ pub fn check_trigger(body: &serde_json::Value) -> Result<(), String> {
     if TRIGGERS.contains(&named.as_str()) {
         return Ok(());
     }
+    if is_custom_trigger(&named) {
+        return Ok(());
+    }
     Err(format!(
-        "trigger '{named}' is not fired by the engine — use one of {} (or leave it out for a tournament rule)",
+        "trigger '{named}' is not fired by the engine — use one of {}, or a lowercase snake_case event the game sends (record_events), or leave it out for a tournament rule",
         TRIGGERS.join(", ")
     ))
 }
@@ -81,7 +101,7 @@ pub async fn fire(state: &ApiState, trigger: &str, player_id: Uuid) -> usize {
         return 0;
     }
 
-    let context = match queries.player_stat_context(player_id).await {
+    let stats = match queries.player_stat_context(player_id).await {
         Ok(context) => context,
         Err(error) => {
             tracing::error!("[rules] {trigger}: no stat context for {player_id}: {error}");
@@ -91,6 +111,30 @@ pub async fn fire(state: &ApiState, trigger: &str, player_id: Uuid) -> usize {
 
     let mut matched = 0;
     for rule in &rules {
+        // A rule's `variables` are its own named values — the operator's
+        // "$min_kills" lives here, so a comparison can name the variable
+        // instead of hard-coding the number. They shadow stats: the value the
+        // operator typed for this rule is the one this rule compares against.
+        let mut context = stats.clone();
+        if let (Some(map), Some(variables)) =
+            (context.as_object_mut(), rule.body.get("variables"))
+        {
+            if let Some(variables) = variables.as_object() {
+                for (name, value) in variables {
+                    map.insert(name.clone(), value.clone());
+                }
+            }
+        }
+        // Rule ke apne variables context me merge — warna `var` comparisons
+        // runtime pe kabhi resolve nahi honge (dry-run me manually dete hain).
+        let mut context = stats.clone();
+        if let Some(variables) = rule.body.get("variables").and_then(serde_json::Value::as_object) {
+            if let Some(map) = context.as_object_mut() {
+                for (name, value) in variables {
+                    map.insert(name.clone(), value.clone());
+                }
+            }
+        }
         match evaluate_with_actions(&rule.body, &context) {
             Ok((false, _)) => {}
             Ok((true, actions)) => {

@@ -17,7 +17,6 @@ impl RealtimeMatchmakerService {
         }
 
         let mut all_formed: Vec<Vec<Ticket>> = Vec::new();
-        let mut all_used: HashSet<Uuid> = HashSet::new();
 
         for mode in modes {
             let Some(bucket) = self.mode_index.get_sync(&mode) else {
@@ -34,57 +33,18 @@ impl RealtimeMatchmakerService {
             if tickets.len() < 2 {
                 continue;
             }
-
-            tickets.sort_by_key(|t| t.created_at);
-
-            let mut used: HashSet<Uuid> = HashSet::new();
-            for seed in &tickets {
-                if used.contains(&seed.id) {
-                    continue;
-                }
-                let mut group: Vec<Ticket> = vec![seed.clone()];
-                used.insert(seed.id);
-                for candidate in &tickets {
-                    if group.len() as i32 >= seed.max_count {
-                        break;
-                    }
-                    if used.contains(&candidate.id) {
-                        continue;
-                    }
-                    let compatible = group.iter().all(|g| {
-                        self.is_compatible(
-                            &g.compiled_terms,
-                            &candidate.string_props,
-                            &candidate.numeric_props,
-                        ) && self.is_compatible(
-                            &candidate.compiled_terms,
-                            &g.string_props,
-                            &g.numeric_props,
-                        )
-                    }) && (group.len() as i32 + 1) <= candidate.max_count;
-                    if compatible {
-                        group.push(candidate.clone());
-                        used.insert(candidate.id);
-                    }
-                }
-                if group.len() as i32 >= group.iter().map(|t| t.min_count).max().unwrap_or(99) {
-                    all_formed.push(group);
-                } else {
-                    for t in &group {
-                        used.remove(&t.id);
-                    }
-                }
-            }
-            all_used.extend(used);
+            all_formed.extend(self.form_groups(&tickets));
         }
 
         if all_formed.is_empty() {
             return;
         }
 
-        for t_id in &all_used {
-            if let Some((_, t)) = self.tickets.remove_sync(t_id) {
-                self.unindex_ticket(&t);
+        for group in &all_formed {
+            for member in group {
+                if let Some((_, t)) = self.tickets.remove_sync(&member.id) {
+                    self.unindex_ticket(&t);
+                }
             }
         }
 
@@ -133,6 +93,105 @@ impl RealtimeMatchmakerService {
             }
         }
     }
+    /// Packs tickets into groups without ever splitting a party. A party is
+    /// all-or-nothing: every member carries the same `party_id`, and a group
+    /// either admits the whole party or none of it. Solo tickets form a party
+    /// of one keyed by their own ticket id.
+    pub(super) fn form_groups(&self, tickets: &[Ticket]) -> Vec<Vec<Ticket>> {
+        let mut sorted = tickets.to_vec();
+        sorted.sort_by_key(|t| t.created_at);
+        let mut used: HashSet<Uuid> = HashSet::new();
+        let mut groups: Vec<Vec<Ticket>> = Vec::new();
+
+        for seed in &sorted {
+            if used.contains(&seed.id) {
+                continue;
+            }
+            let seed_party = Uuid::from(seed.party_id.unwrap_or(seed.id));
+            let mut group: Vec<Ticket> = sorted
+                .iter()
+                .filter(|t| Uuid::from(t.party_id.unwrap_or(t.id)) == seed_party)
+                .cloned()
+                .collect();
+            // A partially consumed party can never be admitted — the earlier
+            // group would have taken only some members.
+            if group.iter().any(|t| used.contains(&t.id)) {
+                continue;
+            }
+            let mut group_parties: HashSet<Uuid> = HashSet::from([seed_party]);
+
+            let wait_secs = (Utc::now() - seed.created_at).num_seconds().max(0) as f64;
+            // A queue is a negotiation: the longer a ticket waits, the more
+            // rating distance it accepts. 100 points at t=0, +10/s, capped at
+            // 2000 so a pool cannot eventually pair a rookie with a pro.
+            let window = (100.0 + wait_secs * 10.0).min(2000.0);
+
+            for candidate in &sorted {
+                if group.len() as i32 >= seed.max_count {
+                    break;
+                }
+                let party = Uuid::from(candidate.party_id.unwrap_or(candidate.id));
+                if group_parties.contains(&party) {
+                    continue;
+                }
+                let all_members: Vec<Ticket> = sorted
+                    .iter()
+                    .filter(|t| Uuid::from(t.party_id.unwrap_or(t.id)) == party)
+                    .cloned()
+                    .collect();
+                // A party that is partly used (or partly outside this mode
+                // bucket) stays queued as a unit rather than being broken up.
+                if all_members.is_empty() || all_members.iter().any(|t| used.contains(&t.id)) {
+                    continue;
+                }
+                let total = group.len() + all_members.len();
+                if total > seed.max_count as usize {
+                    continue;
+                }
+                if !group
+                    .iter()
+                    .chain(all_members.iter())
+                    .all(|t| total <= t.max_count as usize)
+                {
+                    continue;
+                }
+                let compatible = group.iter().all(|g| {
+                    all_members.iter().all(|member| {
+                        self.is_compatible(
+                            &g.compiled_terms,
+                            &member.string_props,
+                            &member.numeric_props,
+                        ) && self.is_compatible(
+                            &member.compiled_terms,
+                            &g.string_props,
+                            &g.numeric_props,
+                        ) && Self::rank_compatible(g, member, window)
+                    })
+                });
+                if compatible {
+                    group.extend(all_members);
+                    group_parties.insert(party);
+                }
+            }
+
+            let min_needed = group.iter().map(|t| t.min_count).max().unwrap_or(99);
+            if group.len() as i32 >= min_needed {
+                for t in &group {
+                    used.insert(t.id);
+                }
+                groups.push(group);
+            }
+        }
+        groups
+    }
+
+    pub(super) fn rank_compatible(a: &Ticket, b: &Ticket, window: f64) -> bool {
+        match (a.rating(), b.rating()) {
+            (Some(a), Some(b)) => (a - b).abs() <= window,
+            _ => true,
+        }
+    }
+
     pub async fn add(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let add: MatchmakerAdd = msg.payload()?;
         self.add_ticket_internal(

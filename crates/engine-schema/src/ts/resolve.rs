@@ -35,8 +35,10 @@ pub(super) fn resolve_declarations(
 
             let extends = self.declarations[index].extends.clone();
             let own_fields = self.declarations[index].schema.fields.clone();
+            let own_nested = self.declarations[index].schema.nested_arrays.clone();
             let maps = self.declarations[index].maps.clone();
             let mut fields: Vec<SchemaField> = Vec::new();
+            let mut nested_arrays: Vec<crate::NestedArray> = Vec::new();
 
             for base_name in &extends {
                 let Some(&base_index) = self.index.get(base_name.as_str()) else {
@@ -66,6 +68,20 @@ pub(super) fn resolve_declarations(
                     });
                     continue;
                 }
+                for nested in base.schema.nested_arrays {
+                    if nested_arrays.iter().any(|candidate| candidate.field == nested.field) {
+                        self.diagnostics.push(SchemaDiagnostic {
+                            line: self.declarations[index].schema.line,
+                            column: self.declarations[index].schema.column,
+                            message: format!(
+                                "nested array '{}' is already inherited",
+                                nested.field
+                            ),
+                        });
+                    } else {
+                        nested_arrays.push(nested);
+                    }
+                }
                 for field in base.schema.fields {
                     if let Some(existing) =
                         fields.iter().find(|candidate| candidate.name == field.name)
@@ -81,6 +97,21 @@ pub(super) fn resolve_declarations(
                     } else {
                         fields.push(field);
                     }
+                }
+            }
+
+            for nested in own_nested {
+                if nested_arrays.iter().any(|candidate| candidate.field == nested.field) {
+                    self.diagnostics.push(SchemaDiagnostic {
+                        line: self.declarations[index].schema.line,
+                        column: self.declarations[index].schema.column,
+                        message: format!(
+                            "nested array '{}' conflicts with an inherited nested array",
+                            nested.field
+                        ),
+                    });
+                } else {
+                    nested_arrays.push(nested);
                 }
             }
 
@@ -105,6 +136,7 @@ pub(super) fn resolve_declarations(
                 name: self.declarations[index].schema.name.clone(),
                 version: self.declarations[index].schema.version,
                 fields,
+                nested_arrays,
                 line: self.declarations[index].schema.line,
                 column: self.declarations[index].schema.column,
             };

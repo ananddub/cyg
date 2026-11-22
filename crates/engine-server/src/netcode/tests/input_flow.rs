@@ -84,7 +84,15 @@ fn a_seq_beyond_the_window_re_anchors_instead_of_locking_the_seat_out() {
         Ok(())
     );
     assert_eq!(
-        apply_input(&mut room, &cfg, 0.033, "sess_alice", 1, jumped, &mut payload),
+        apply_input(
+            &mut room,
+            &cfg,
+            0.033,
+            "sess_alice",
+            1,
+            jumped,
+            &mut payload
+        ),
         Ok(())
     );
     assert_eq!(room.seqs[&1].input, jumped);
@@ -194,7 +202,10 @@ fn an_empty_tick_holds_the_last_input_while_connected_and_stops_on_drop() {
     // A dropped connection stops the hold — no walking ghost.
     room.input_inbox.clear();
     room.synthesize_idle_inputs(|_| false);
-    assert!(room.input_inbox.is_empty(), "a disconnected seat kept walking");
+    assert!(
+        room.input_inbox.is_empty(),
+        "a disconnected seat kept walking"
+    );
 }
 
 #[test]
@@ -219,7 +230,11 @@ fn a_held_schema_frame_bumps_its_lane_seq_but_never_the_reconcile_ack() {
     let held = &room.input_inbox[0].1;
     assert_eq!(&held[..9], &schema_frame[..9], "header unchanged");
     assert_eq!(&held[11..], &schema_frame[11..], "payload unchanged");
-    assert_eq!(u16::from_le_bytes([held[9], held[10]]), 11, "lane seq bumped");
+    assert_eq!(
+        u16::from_le_bytes([held[9], held[10]]),
+        11,
+        "lane seq bumped"
+    );
     assert_eq!(room.seqs[&1].input, 42, "reconcile ack untouched");
 }
 
@@ -229,7 +244,11 @@ fn the_delta_tail_carries_the_phase_d_rtt_echo() {
     wrap_delta_into(&mut out, 7, b"body", 0x1234, 0x0000_00FF, 0xBEEF);
     let n = out.len();
     assert_eq!(&out[n - 8..n - 6], &0x1234u16.to_le_bytes(), "acked_seq");
-    assert_eq!(&out[n - 6..n - 2], &0x0000_00FFu32.to_le_bytes(), "server_tick");
+    assert_eq!(
+        &out[n - 6..n - 2],
+        &0x0000_00FFu32.to_le_bytes(),
+        "server_tick"
+    );
     assert_eq!(&out[n - 2..], &0xBEEFu16.to_le_bytes(), "client_stamp");
 
     // Per-session patch rewrites id + acked + stamp on the prebuilt frame.

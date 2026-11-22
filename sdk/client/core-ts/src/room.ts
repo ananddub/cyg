@@ -1,5 +1,5 @@
-import type { Room as LegacyRoom, MatchmakeOptions, CYGValue } from "./types/legacy";
-import legacy from "./core/legacy.js";
+import type { Room as EngineRoom, MatchmakeOptions, CYGValue } from "./types/engine";
+import engine from "./core/engine.js";
 
 /**
  * Contract between a game and its generated schema bindings
@@ -15,23 +15,23 @@ export interface RoomContract<
     messages: TMessages;
 }
 
-type LegacyOptions = NonNullable<ConstructorParameters<typeof LegacyRoom>[2]>;
+type EngineOptions = NonNullable<ConstructorParameters<typeof EngineRoom>[2]>;
 
 /**
  * A room whose messages and state are typed by the generated schema contract.
- * Thin compile-time layer over the legacy `Room` — all transport, decode and
+ * Thin compile-time layer over the engine `Room` — all transport, decode and
  * prediction work stays in the shared `cyg-core-rs` wasm core.
  */
 export class TypedRoom<
     TState extends object,
     TMessages extends Record<string, unknown> = Record<string, never>,
 > {
-    readonly inner: LegacyRoom;
-    /** Escape hatch to the untyped legacy room. */
-    readonly raw: LegacyRoom;
+    readonly inner: EngineRoom;
+    /** Escape hatch to the untyped engine room. */
+    readonly raw: EngineRoom;
 
-    constructor(endpoint: string, roomName: string, options?: LegacyOptions) {
-        const room = new legacy.Room(endpoint, roomName, options) as unknown as LegacyRoom;
+    constructor(endpoint: string, roomName: string, options?: EngineOptions) {
+        const room = new engine.Room(endpoint, roomName, options) as unknown as EngineRoom;
         this.inner = room;
         this.raw = room;
     }
@@ -115,7 +115,7 @@ export class TypedRoom<
         return this.inner.reconnectionToken;
     }
 
-    get clock(): LegacyRoom["clock"] {
+    get clock(): EngineRoom["clock"] {
         return this.inner.clock;
     }
 }

@@ -1,4 +1,4 @@
-// Legacy core, extracted verbatim from sdk/client/web/cyg.js (factory body).
+// Client core: transports, room lifecycle, schema decode, prediction and wire codecs.
 // TODO(core-ts): split into transport/room/voice/predict modules (keep behavior 1:1).
 const factory = () => {
     // ['W'][version u8][kind u8][from u32][to u32][opaque JSON body], big-endian.
@@ -122,6 +122,29 @@ const factory = () => {
         schemaFieldFlags(handle, i, f) { return this._ex().cyg_schema_field_flags(handle, i, f); }
         schemaFieldElementKind(handle, i, f) {
             return this._ex().cyg_schema_field_element_kind(handle, i, f);
+        }
+        schemaFieldNested(handle, i, f) {
+            const ex = this._ex(); const at = this._alloc(128);
+            const n = ex.cyg_schema_field_nested(handle, i, f, at, 128);
+            return n < 0 ? null : this._readStr(at, Math.min(n, 128));
+        }
+        nestedCount(handle) {
+            return typeof this._ex().cyg_nested_count === 'function'
+                ? this._ex().cyg_nested_count(handle) : 0;
+        }
+        _nestedPart(fn, handle, i) {
+            const ex = this._ex(); const at = this._alloc(128);
+            const n = fn.call(ex, handle, i, at, 128);
+            return n < 0 ? null : this._readStr(at, Math.min(n, 128));
+        }
+        nestedCollection(handle, i) {
+            return this._nestedPart(this._ex().cyg_nested_collection, handle, i);
+        }
+        nestedParent(handle, i) {
+            return this._nestedPart(this._ex().cyg_nested_parent, handle, i);
+        }
+        nestedField(handle, i) {
+            return this._nestedPart(this._ex().cyg_nested_field, handle, i);
         }
 
         collectionCount(handle) { return this._ex().cyg_collection_count(handle); }
@@ -670,7 +693,7 @@ const factory = () => {
             this.hash = schemaFnv1a(2166136261, `${name}|${this.version}`);
         }
 
-        _add(name, type, flags = 0, element = null) {
+        _add(name, type, flags = 0, element = null, nested = null) {
             if (this.fields.length >= SCHEMA_MAX_FIELDS) return this;
             if (this._byName.has(name)) throw new Error(`duplicate schema field '${name}'`);
             const code = SCHEMA_TYPE_CODE[type];
@@ -686,6 +709,7 @@ const factory = () => {
                 fullOnly: (flags & (SCHEMA_FIELD_STATIC | SCHEMA_FIELD_TRANSIENT)) !== 0,
                 element: element || null,
                 elementCode,
+                nested: nested || null,
                 size: SCHEMA_FIELD_SIZE[type],
                 offset: this.fields.reduce((n, f) => n + f.size, 0)
             };
@@ -701,6 +725,7 @@ const factory = () => {
                 let text = `|${field.name}:${field.code}`;
                 if (field.elementCode) text += `.${field.elementCode}`;
                 if (field.flags) text += `:${field.flags}`;
+                if (field.nested) text += `:n${field.nested}`;
                 hash = schemaFnv1a(hash, text);
             }
             this.hash = hash;
@@ -767,7 +792,7 @@ const factory = () => {
     // project never ships a second schema file.
 
     const DESCRIPTOR_MAGIC = [0x4F, 0x58, 0x53, 0x44]; // "OXSD"
-    const DESCRIPTOR_VERSION = 3;
+    const DESCRIPTOR_VERSION = 6;
     const SCHEMA_TYPE_NAME = Object.freeze([
         null, 'u8', 'u16', 'u32', 'i32', 'f32', 'f64', 'bool', 'i64', 'i8', 'i16',
         'string', 'array'
@@ -961,24 +986,6 @@ const factory = () => {
         getStateCallbacks(roomOrDecoder) {
             return Callbacks.get(roomOrDecoder);
         },
-        /** Legacy `$(room.state).players.onAdd(...)` proxy, still supported. */
-        getLegacy(room) {
-            const target = room && room.state ? room.state : room;
-            if (!target || typeof Proxy === 'undefined') return target;
-            return new Proxy(target, {
-                get(map, prop, receiver) {
-                    if (typeof prop === 'string' && room && room._collectionMaps
-                        && room._collectionMaps.has(prop)) {
-                        return room._collectionMaps.get(prop);
-                    }
-                    if (typeof prop === 'string' && room
-                        && (prop === room._rootCollection || (!room._rootCollection && prop === 'players'))) {
-                        return map;
-                    }
-                    return Reflect.get(map, prop, receiver);
-                }
-            });
-        },
         getRawChanges() { return () => {}; }
     });
 
@@ -1125,6 +1132,13 @@ const factory = () => {
 
             // SeqFilter: newest-wins gate on the authoritative delta tick.
             this.lastAppliedTick = -1;
+            /** Newest volatile-only patch tick already applied. Its stream is
+             *  lossy and unordered, so older patches are discarded instead of
+             *  letting a late position frame overwrite a newer one. */
+            this.lastVolatileTick = -1;
+            /** tick -> partial 0xA7 volatile fragments. Small and bounded:
+             *  only one or two tick sets can be in flight on a lossy lane. */
+            this._volatileFragments = new Map();
 
             // Interpolation timeline engine (game-agnostic pose buffer).
             this._poseBuffers = new Map();
@@ -1179,10 +1193,10 @@ const factory = () => {
 
         /** Hand the guest WASM instance (with cyg_predict_tick et al.) to
          *  the driver. Returns true when the export set is complete. */
-        attachPredict(instance) {
+        attachPredict(instance, opts = {}) {
             this._predictInstance = instance;
             if (!this._predict) this._predict = new CYGPredictDriver(this);
-            return this._predict.attachPredict(instance);
+            return this._predict.attachPredict(instance, opts);
         }
 
         /** Confirms that an event arrived — reliable channel first, WS as fallback. */
@@ -1881,6 +1895,63 @@ const factory = () => {
                 return;
             }
 
+            // A volatile frame larger than one datagram is split locally as
+            // [0xA7][tick u32][idx u8][total u8][chunk]. The assembled bytes
+            // are the original [0xA6][tick] wrapped delta.
+            if (bytes[0] === 0xA7 && bytes.length >= 7) {
+                const view = new DataView(
+                    bytes.buffer, bytes.byteOffset + 1, 4
+                );
+                const tick = view.getUint32(0, true);
+                const index = bytes[5];
+                const total = bytes[6];
+                if (total === 0 || index >= total) return true;
+                let set = this._volatileFragments.get(tick);
+                if (!set || set.total !== total) {
+                    set = { total, parts: new Array(total), received: 0 };
+                    this._volatileFragments.set(tick, set);
+                }
+                if (set.parts[index] === undefined) {
+                    set.parts[index] = bytes.slice(7);
+                    set.received++;
+                }
+                if (set.received === set.total) {
+                    let len = 0;
+                    for (const part of set.parts) len += part.length;
+                    const assembled = new Uint8Array(len);
+                    let off = 0;
+                    for (const part of set.parts) {
+                        assembled.set(part, off);
+                        off += part.length;
+                    }
+                    this._volatileFragments.delete(tick);
+                    if (assembled[0] === 0xA6 && tick > this.lastVolatileTick) {
+                        this.lastVolatileTick = tick;
+                        this._processDeltaPayload(assembled.subarray(5), true);
+                    }
+                }
+                while (this._volatileFragments.size > 8) {
+                    this._volatileFragments.delete(
+                        this._volatileFragments.keys().next().value
+                    );
+                }
+                return true;
+            }
+
+            // Volatile-only state stream: [0xA6][tick u32] + a normal wrapped
+            // delta body. It carries `.unreliable()` fields and never advances
+            // the reliable tick ledger.
+            if (bytes[0] === 0xA6 && bytes.length >= 5) {
+                const tick = new DataView(
+                    bytes.buffer, bytes.byteOffset + 1, 4
+                ).getUint32(0, true);
+                if (tick > this.lastVolatileTick) {
+                    this.lastVolatileTick = tick;
+                    this._processDeltaPayload(bytes.subarray(5), true);
+                }
+                return;
+            }
+
             // Stamped server delta on `game-unreliable`:
             // [0x04][seq u16][tick u32][frag_idx u8][frag_total u8][chunk]
             if (bytes[0] === 0x04 && bytes.length >= 9) {
@@ -2055,30 +2126,29 @@ const factory = () => {
          * is dropped here and `your_id` is the first field on every path.
          */
         /**
-         * Parse the Phase D reconciliation tail — `[acked u16][tick u32]`
-         * plus, on servers new enough to carry the RTT echo, `[stamp u16]`.
-         * The echo is only trusted when its stamp is one we recently sent:
-         * an old server's 6-byte tail reinterpreted as 8 would echo a
-         * garbage stamp that never matches, so the reader falls back
-         * cleanly to the legacy 6-byte tail.
+         * Parse the one and only reconciliation tail:
+         * `[acked u16][tick u32][stamp u16]` (8 bytes).
+         *
+         * There is no 6-byte fallback. A pre-Phase-D server is not a supported
+         * peer; guessing at its tail silently misread `acked`/`tick` and made
+         * prediction reconcile against garbage. Short frames now fail loudly.
          */
         _parseDeltaTail(payload) {
-            const pv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-            if (payload.byteLength >= DELTA_TAIL_LEN) {
-                const base = payload.byteLength - DELTA_TAIL_LEN;
-                const stamp = pv.getUint16(base + 6, true);
-                if (stamp !== 0 && this._stampTimes.has(stamp)) {
-                    this._noteEcho(stamp);
-                    return {
-                        len: DELTA_TAIL_LEN,
-                        acked: pv.getUint16(base, true),
-                        tick: pv.getUint32(base + 2, true),
-                    };
-                }
+            if (payload.byteLength < DELTA_TAIL_LEN) {
+                throw new Error(
+                    `[CYG SDK] delta tail too short: ${payload.byteLength} bytes, `
+                    + `need ${DELTA_TAIL_LEN}. Rebuild client and server together.`
+                );
             }
-            const base = payload.byteLength - 6;
+            const pv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+            const base = payload.byteLength - DELTA_TAIL_LEN;
+            const stamp = pv.getUint16(base + 6, true);
+            // Stamp 0 means "this client has not sent a stamped input yet"
+            // (spectators, first frames). A non-zero stamp we do not remember
+            // is still a valid tail; it just cannot produce an RTT sample.
+            if (stamp !== 0 && this._stampTimes.has(stamp)) this._noteEcho(stamp);
             return {
-                len: 6,
+                len: DELTA_TAIL_LEN,
                 acked: pv.getUint16(base, true),
                 tick: pv.getUint32(base + 2, true),
             };
@@ -2115,8 +2185,22 @@ const factory = () => {
             this.emit('sessionid', value);
         }
 
-        _processDeltaPayload(raw) {
+        _processDeltaPayload(raw, volatile = false) {
             let payload = raw;
+            // A fragmented UDP volatile frame is reassembled by
+            // DeltaSequencer with the 0xA6 header still inside the body.
+            if (payload.length >= 5 && payload[0] === 0xA6) {
+                const tick = new DataView(
+                    payload.buffer,
+                    payload.byteOffset + 1,
+                    4
+                ).getUint32(0, true);
+                if (tick > this.lastVolatileTick) {
+                    this.lastVolatileTick = tick;
+                    this._processDeltaPayload(payload.subarray(5), true);
+                }
+                return;
+            }
             if (payload.length >= 14 && payload[0] === 0xA5 && payload[1] === 0x64 && payload[2] === 0x65) {
                 payload = payload.subarray(6); // 0xA5 'd' 'e' 'l' 't' 'a'
             }
@@ -2126,10 +2210,27 @@ const factory = () => {
                 && payload[10] === SCHEMA_MAGIC[2] && payload[11] === SCHEMA_MAGIC[3]) {
                 const t = this._parseDeltaTail(payload);
                 const acked = t.acked, tick = t.tick;
-                this.ackedSeq = acked;
-                this.serverTick = tick;
-                if (tick <= this.lastAppliedTick) return;
-                this.lastAppliedTick = tick;
+                if (volatile) {
+                    // Volatile patches are absolute for their fields; the
+                    // reliable stream owns the ack/tick ledger.
+                    if (tick > this.lastVolatileTick) this.lastVolatileTick = tick;
+                } else {
+                    this.ackedSeq = acked;
+                    this.serverTick = tick;
+                    if (tick <= this.lastAppliedTick) return;
+                    this.lastAppliedTick = tick;
+                    // A full snapshot already contains the volatile values;
+                    // ignore any older volatile frame that arrives after it.
+                    const kind = payload[12];
+                    if (kind === 5 || kind === 7) {
+                        this.lastVolatileTick = Math.max(this.lastVolatileTick, tick);
+                    }
+                }
+                const pv = new DataView(
+                    payload.buffer,
+                    payload.byteOffset,
+                    payload.byteLength
+                );
                 this._setSessionId(pv.getBigInt64(0, true));
                 const arrivalMs = performance.now();
                 this.lastDeltaArrivalMs = arrivalMs;
@@ -2139,7 +2240,7 @@ const factory = () => {
                 this.clockOffsetMs = this.timeSync.clockOffsetMs(arrivalMs);
                 // Client prediction reconcile: the authoritative body (tail
                 // stripped) replays the unacked pending inputs on the guest.
-                if (this._predict && this._predict.available) {
+                if (!volatile && this._predict && this._predict.available) {
                     this._predict.onAck(payload.subarray(0, payload.byteLength - t.len));
                 }
                 // Schema decode happens in cyg-core-rs (wasm): it unwraps
@@ -2165,7 +2266,8 @@ const factory = () => {
 
             // SeqFilter: a game delta whose tick does not advance the last applied
             // tick is superseded (out-of-order/late) and must never reach the game.
-            if (serverTick >= 0 && serverTick <= this.lastAppliedTick) return;
+            // Volatile frames have their own newest-tick gate above.
+            if (!volatile && serverTick >= 0 && serverTick <= this.lastAppliedTick) return;
 
             if (payload.length >= 8) {
                 const v = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
@@ -2187,7 +2289,7 @@ const factory = () => {
 
             const arrivalMs = performance.now();
             this.lastDeltaArrivalMs = arrivalMs;
-            if (serverTick >= 0) {
+            if (serverTick >= 0 && !volatile) {
                 this.lastAppliedTick = serverTick;
                 this.timeSync.setTickRate(this.tickRate);
                 this.timeSync.addSample(arrivalMs, serverTick);
@@ -2352,10 +2454,24 @@ const factory = () => {
                 left: false,
                 right: false
             };
+            const tickRate = options.tickRate > 0 ? options.tickRate : 0;
             const handle = {
                 data,
                 mode: options.mode || 'unreliable',
-                send() {
+                tickRate,
+                _accMs: 0,
+                _lastTickMs: -1,
+                /** Build the schema-declared input object from handle state. */
+                _build() {
+                    if (!self._inputSchema) {
+                        if (!self._inputLaneWarned) {
+                            self._inputLaneWarned = true;
+                            console.warn('[CYG SDK] room.input() needs a schema-declared '
+                                + '`Input` def — add `export const Input = schema({…}, "Input")` '
+                                + 'to src/schema/ and sendInput({ moveX, moveZ, … }) starts working');
+                        }
+                        return null;
+                    }
                     let flags = data.flags || 0;
                     if (data.up) flags |= 1;
                     if (data.down) flags |= 2;
@@ -2370,17 +2486,6 @@ const factory = () => {
                         if (data.up) mz -= 1;
                         if (data.down) mz += 1;
                     }
-                    if (!self._inputSchema) {
-                        if (!self._inputLaneWarned) {
-                            self._inputLaneWarned = true;
-                            console.warn('[CYG SDK] room.input() needs a schema-declared '
-                                + '`Input` def — add `export const Input = schema({…}, "Input")` '
-                                + 'to src/schema/ and sendInput({ moveX, moveZ, … }) starts working');
-                        }
-                        return false;
-                    }
-                    // Schema input lane: fill the declared fields from the
-                    // handle state; movement/jump/aim map by name.
                     const willJump = !!(data.jump || data._jumpLatched);
                     data._jumpLatched = false;
                     const obj = {};
@@ -2393,7 +2498,38 @@ const factory = () => {
                         else if (f.name === 'aimPitch') obj.aimPitch = data.aimPitch || 0;
                         else obj[f.name] = data[f.name] || 0;
                     }
-                    return self._sendSchemaInput(obj);
+                    return obj;
+                },
+                /** Send one input frame now. When a prediction guest is
+                 *  attached the same frame advances `cyg_predict_tick`, so
+                 *  network and prediction never diverge. */
+                send(dtMs = 1000 / Math.max(1, (self.timeSync && self.timeSync.tickRate) || 30)) {
+                    const obj = handle._build();
+                    if (!obj) return false;
+                    return self._sendInputObject(obj, dtMs);
+                },
+                /** Fixed-step input pump: send/predict on a fixed timeline
+                 *  regardless of render frame rate. Returns steps consumed. */
+                tick(nowMs = performance.now()) {
+                    if (!self._inputSchema) { handle._build(); return 0; }
+                    const rate = tickRate > 0 ? tickRate
+                        : (self.timeSync && self.timeSync.tickRate ? self.timeSync.tickRate : 30);
+                    const stepMs = 1000 / Math.max(1, rate || 30);
+                    const elapsed = handle._lastTickMs < 0 ? 0 : nowMs - handle._lastTickMs;
+                    handle._lastTickMs = nowMs;
+                    handle._accMs += Math.min(250, Math.max(0, elapsed));
+                    let steps = 0;
+                    while (handle._accMs >= stepMs) {
+                        handle._accMs -= stepMs;
+                        const obj = handle._build();
+                        if (!obj) break;
+                        if (self._sendInputObject(obj, stepMs)) steps++;
+                    }
+                    return steps;
+                },
+                reset() {
+                    handle._accMs = 0;
+                    handle._lastTickMs = -1;
                 },
                 bindKeyboard(target = (typeof window !== 'undefined' ? window : null)) {
                     if (!target) return () => {};
@@ -2426,6 +2562,17 @@ const factory = () => {
             };
             this._inputHandle = handle;
             return handle;
+        }
+
+        /** Internal: one already-built input object. Routes through the
+         *  predict driver when one is attached so the sent frame and the
+         *  predicted frame carry the same sequence number and bytes. */
+        _sendInputObject(obj, dtMs) {
+            if (this._predict && this._predict.available
+                && typeof this._predict.sendSchema === 'function') {
+                return this._predict.sendSchema(obj, dtMs);
+            }
+            return this._sendSchemaInput(obj);
         }
 
         /**
@@ -2469,7 +2616,15 @@ const factory = () => {
 
         _sendSchemaInput(obj) {
             if (this.isSpectator) return false;
-            let body = this._packSchemaInput(obj);
+            const body = this._packSchemaInput(obj);
+            if (!body) return false;
+            return this._sendPackedInput(body);
+        }
+
+        /** Send one already-packed `[seq u16][fields…]` input body. */
+        _sendPackedInput(packed) {
+            if (this.isSpectator) return false;
+            let body = packed;
             if (!body) return false;
             // Phase D RTT echo: append the rotating stamp trailer so the
             // server echoes it back on the delta tail. The trailer rides
@@ -2670,6 +2825,12 @@ const factory = () => {
             if (!isSchemaDescriptor(descriptor)) {
                 throw new TypeError('[CYG SDK] useDescriptor() expects an OXSD buffer');
             }
+            if (descriptor[4] !== DESCRIPTOR_VERSION) {
+                throw new TypeError(
+                    `[CYG SDK] unsupported schema descriptor v${descriptor[4]}; `
+                    + `this client speaks v${DESCRIPTOR_VERSION}. Rebuild client and server together.`
+                );
+            }
             this._attachDescriptor(descriptor);
             return this;
         }
@@ -2681,7 +2842,9 @@ const factory = () => {
 
         /** Expose collections and root scalars as properties of `room.state`. */
         _defineStateProperties() {
+            const nestedNames = new Set((this._nested || []).map(n => n.collection));
             for (const [name, map] of this._collectionMaps) {
+                if (nestedNames.has(name)) continue;
                 Object.defineProperty(this.state, name, {
                     value: map,
                     enumerable: false,
@@ -2706,6 +2869,13 @@ const factory = () => {
             if (this._descriptorAttached) return;
             this._descriptorAttached = true;
             this._descriptorBytes = bytes;
+            if (bytes.length < 6 || bytes[4] !== DESCRIPTOR_VERSION) {
+                const message = `[CYG SDK] unsupported schema descriptor v${bytes.length > 4 ? bytes[4] : '?'}; `
+                    + `this client speaks v${DESCRIPTOR_VERSION}. Rebuild client and server together.`;
+                this._schemaError = message;
+                this.emit('schemaerror', message);
+                return;
+            }
             this._corePromise.then((core) => {
                 if (!core) {
                     const message = '[CYG SDK] cyg_core_rs.wasm failed to load: '
@@ -2756,7 +2926,9 @@ const factory = () => {
                     const elementKind = core.schemaFieldElementKind(handle, i, f);
                     const type = CORE_KIND_TO_TYPE[kind];
                     const element = elementKind ? CORE_KIND_TO_TYPE[elementKind] : null;
-                    if (fieldName && type) def._add(fieldName, type, flags, element);
+                    const nested = typeof core.schemaFieldNested === 'function'
+                        ? core.schemaFieldNested(handle, i, f) : null;
+                    if (fieldName && type) def._add(fieldName, type, flags, element, nested);
                 }
                 // The wire hash comes from the core; the JS re-hash must land
                 // on the same value for section hash checks to stay visible.
@@ -2783,6 +2955,16 @@ const factory = () => {
                 }
                 collections.push({ name, schema });
             }
+
+            const nested = [];
+            const nestedCount = core.nestedCount(handle);
+            for (let i = 0; i < nestedCount; i++) {
+                const collection = core.nestedCollection(handle, i);
+                const parent = core.nestedParent(handle, i);
+                const field = core.nestedField(handle, i);
+                if (collection && parent && field) nested.push({ collection, parent, field });
+            }
+            this._nested = nested;
 
             const first = collections[0];
             this.schemas = schemas;
@@ -3169,10 +3351,12 @@ const factory = () => {
         _hydrateFromCore() {
             const core = this._core;
             const handle = this._coreHandle;
-            for (let c = 0; c < this._collections.length && c < core.collectionCount(handle); c++) {
-                const entry = this._collections[c];
-                this._hydrateCollection(core, handle, c, entry.map, entry.schema);
+            const order = this._collections.slice().sort(
+                (a, b) => this._nestedDepth(b.name) - this._nestedDepth(a.name));
+            for (const entry of order) {
+                this._hydrateCollection(this._core, handle, entry.id, entry.map, entry.schema);
             }
+            this._rebuildNested();
             const scalars = this._rootScalars;
             if (scalars) {
                 for (let f = 0; f < scalars.fields.length; f++) {
@@ -3182,6 +3366,58 @@ const factory = () => {
                     if (this._schemaValueEquals(previous, value)) continue;
                     this._rootValues[field.name] = value;
                     this._fireFieldChange(this.state, field.name, value, previous);
+                }
+            }
+        }
+
+        _nestedDepth(name) {
+            let depth = 0;
+            let current = name;
+            for (;;) {
+                const nested = (this._nested || []).find(n => n.collection === current);
+                if (!nested) return depth;
+                depth++;
+                current = nested.parent;
+            }
+        }
+
+        _fillNestedEntity(entity, collectionName) {
+            for (const nested of this._nested || []) {
+                if (nested.parent !== collectionName) continue;
+                const child = this._collections.find(entry => entry.name === nested.collection);
+                if (!child) continue;
+                let array = entity[nested.field];
+                if (!Array.isArray(array)) entity[nested.field] = array = [];
+                array.length = 0;
+                for (const [id, value] of child.map) {
+                    if ((id >>> 16) === entity.id) array[id & 0xffff] = value;
+                }
+                entity[nested.field] = array;
+            }
+        }
+
+        /** Fold child-collection rows back into `parent.items` arrays. The
+         *  child id packs `(owner << 16) | slot`, so grouping needs no hidden
+         *  wire fields; arrays are mutated in place to keep references stable. */
+        _rebuildNested() {
+            if (!this._nested || this._nested.length === 0) return;
+            const byName = new Map(this._collections.map(entry => [entry.name, entry]));
+            for (const nested of this._nested) {
+                const parent = byName.get(nested.parent);
+                const child = byName.get(nested.collection);
+                if (!parent || !child) continue;
+                for (const entity of parent.map.values()) {
+                    const array = entity[nested.field];
+                    if (Array.isArray(array)) array.length = 0;
+                    else entity[nested.field] = [];
+                }
+                for (const [id, entity] of child.map) {
+                    const owner = entity;
+                    const slot = id & 0xffff;
+                    const parentEntity = parent.map.get(id >>> 16);
+                    if (!parentEntity) continue;
+                    const array = parentEntity[nested.field];
+                    array[slot] = owner;
                 }
             }
         }
@@ -3203,6 +3439,7 @@ const factory = () => {
             for (const [id, entity] of incoming) {
                 const existing = map.get(id);
                 if (existing === undefined) {
+                    this._fillNestedEntity(entity, this._collections[ci] ? this._collections[ci].name : '');
                     map.set(id, entity);
                     this._trackEntity(entity);
                     this._fireAdd(map, entity, id);
@@ -3217,6 +3454,7 @@ const factory = () => {
                     this._fireFieldChange(existing, field.name, value, previous);
                     changed = true;
                 }
+                this._fillNestedEntity(existing, this._collections[ci] ? this._collections[ci].name : '');
                 if (changed) this._fireUpdate(map, existing, id);
             }
             map._ready = true;
@@ -3229,7 +3467,40 @@ const factory = () => {
                 const field = schema.fields[i];
                 entity[field.name] = this._readCoreField(core, handle, ci, id, field, i);
             }
+            this._defineNestedViews(entity, schema);
             return entity;
+        }
+
+        /** Group flattened child fields (`stats__kills`) behind `entity.stats`.
+         *  The getters read the live flat fields, so per-tick hydration updates
+         *  the nested view without allocating a second object. */
+        _defineNestedViews(entity, schema) {
+            const paths = new Map();
+            for (const field of schema.fields) {
+                if (!field.nested) continue;
+                if (!paths.has(field.nested)) paths.set(field.nested, []);
+                paths.get(field.nested).push(field);
+            }
+            for (const [path, fields] of paths) {
+                if (Object.prototype.hasOwnProperty.call(entity, path)) continue;
+                const view = {};
+                for (const field of fields) {
+                    const child = field.name.startsWith(`${path}__`)
+                        ? field.name.slice(path.length + 2)
+                        : field.name;
+                    Object.defineProperty(view, child, {
+                        enumerable: true,
+                        configurable: true,
+                        get: () => entity[field.name],
+                        set: (value) => { entity[field.name] = value; }
+                    });
+                }
+                Object.defineProperty(entity, path, {
+                    value: view,
+                    enumerable: true,
+                    configurable: true
+                });
+            }
         }
 
         _readCoreField(core, handle, ci, id, field, index) {
@@ -4773,12 +5044,16 @@ const factory = () => {
             /** Optional caller override: (latchedEdges) => number[] input
              *  values, packed f64 in schema field order. */
             this.packInput = opts.packInput || null;
-            if (instance) this.attachPredict(instance);
+            /** Optional bridge from an authoritative schema delta to the flat
+             *  f64 mirror `cyg_reconcile` expects. Without it, callers pass
+             *  that flat buffer to `onServerState()` themselves. */
+            this.readServerState = opts.readServerState || null;
+            if (instance) this.attachPredict(instance, opts);
         }
 
         /** Feature-detect the guest's predict exports. Missing exports keep
          *  the driver parked — no half-capable guessing. */
-        attachPredict(instance) {
+        attachPredict(instance, opts = {}) {
             const ex = instance && (instance.exports || instance);
             const missing = ex
                 ? CYGPredictDriver.REQUIRED_EXPORTS.filter((n) => typeof ex[n] !== 'function')
@@ -4791,7 +5066,45 @@ const factory = () => {
             this.instance = ex;
             this.available = true;
             this.pending.length = 0;
+            if (typeof opts.readServerState === 'function') {
+                this.readServerState = opts.readServerState;
+            }
+            if (opts.packInput) this.packInput = opts.packInput;
+            if (opts.tickRate > 0) this.tickRate = opts.tickRate;
             return true;
+        }
+
+        /**
+         * Send one schema input object through the normal `__input` lane and
+         * advance the prediction mirror with the exact same field bytes. The
+         * network sequence (`room.inputSeq`) is the prediction sequence, so
+         * `room.ackedSeq` trims the same pending ring.
+         */
+        sendSchema(obj, dtMs = 1000 / 30) {
+            if (!this.available || !this.room) return false;
+            const pack = this.room._packSchemaInput;
+            const send = this.room._sendPackedInput;
+            if (typeof pack !== 'function' || typeof send !== 'function') return false;
+            const body = pack.call(this.room, obj);
+            if (!body || body.byteLength < 2) return false;
+            const seq = this.room.inputSeq >>> 0;
+            if (!send.call(this.room, body)) return false;
+            // Wire body = [seq u16][schema fields]; the guest predict reader
+            // starts at the first field, exactly like the server's on_input.
+            const frame = body.subarray(2);
+            this._predictFrame(frame, dtMs, seq);
+            return true;
+        }
+
+        _predictFrame(frame, dtMs, seq) {
+            const ptr = this._writeBytes(frame);
+            this.instance.cyg_predict_tick(ptr, frame.byteLength, dtMs);
+            this.pending.push({
+                seq,
+                input: frame.slice(),
+                atMs: performance.now(),
+            });
+            while (this.pending.length > this.maxPending) this.pending.shift();
         }
 
         /** Fixed-step accumulator: run `floor(elapsed / step)` steps, capped
@@ -4853,16 +5166,25 @@ const factory = () => {
          *  of everything the server confirmed (ack seq from the delta tail). */
         onAck(serverStateBytes) {
             if (!this.available) return;
+            let stateBytes = serverStateBytes;
+            if (typeof this.readServerState === 'function') {
+                const flat = this.readServerState(serverStateBytes, this.room);
+                if (flat && flat.byteLength > 0) {
+                    stateBytes = flat instanceof Uint8Array
+                        ? flat
+                        : new Uint8Array(flat.buffer, flat.byteOffset || 0, flat.byteLength);
+                }
+            }
             const acked = this.room && Number.isFinite(this.room.ackedSeq)
                 ? this.room.ackedSeq : -1;
             const unacked = this.pending.filter(
                 (p) => acked < 0 || ((p.seq - acked) & 0xFFFF) < 0x8000 && p.seq !== acked
             );
-            const server = this._writeBytes(serverStateBytes || new Uint8Array(0));
+            const server = this._writeBytes(stateBytes || new Uint8Array(0));
             const flat = this._flattenPending(unacked);
             const pend = this._writeBytes(flat);
             const correction = this.instance.cyg_reconcile(
-                server, serverStateBytes ? serverStateBytes.byteLength : 0,
+                server, stateBytes ? stateBytes.byteLength : 0,
                 pend, flat.byteLength,
             );
             if (Number.isFinite(correction)) {
@@ -4872,6 +5194,16 @@ const factory = () => {
             if (acked >= 0) {
                 this.pending = unacked;
             }
+        }
+
+        /** Reconcile directly against a flat f64 mirror (used when the
+         *  caller's state decoder already produced the authoritative values). */
+        onServerState(flatValues) {
+            if (!this.available || !flatValues) return;
+            const bytes = flatValues instanceof Uint8Array
+                ? flatValues
+                : new Uint8Array(flatValues.buffer, flatValues.byteOffset || 0, flatValues.byteLength);
+            this.onAck(bytes);
         }
 
         /** Latest predicted state as an object (guest-owned buffer, decoded

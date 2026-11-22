@@ -125,4 +125,101 @@ mod tests {
         ]);
         assert!(!svc.is_compatible(&terms, &banned_strings, &valid_numerics));
     }
+
+    #[test]
+    fn a_party_is_never_split_across_matches() {
+        fn ticket(party: Option<Uuid>, max_count: i32) -> Ticket {
+            Ticket {
+                id: Uuid::new_v4(),
+                sid: Uuid::new_v4(),
+                uid: Uuid::new_v4(),
+                username: "p".into(),
+                min_count: 2,
+                max_count,
+                query: String::new(),
+                compiled_terms: Vec::new(),
+                string_props: HashMap::new(),
+                numeric_props: HashMap::new(),
+                party_id: party,
+                created_at: Utc::now(),
+            }
+        }
+        let svc = RealtimeMatchmakerService::new();
+        let party = Some(Uuid::new_v4());
+        let a = ticket(party, 2);
+        let b = ticket(party, 2);
+        let solo = ticket(None, 2);
+
+        // The party needs a second member, so the two-member party and the
+        // solo ticket cannot both fit in one size-2 match.
+        let groups = svc.form_groups(&[a.clone(), b.clone(), solo.clone()]);
+        assert_eq!(groups.len(), 1, "one match forms");
+        assert_eq!(groups[0].len(), 2, "party is not split");
+        let party_ids = groups[0].iter().filter(|t| t.party_id == party).count();
+        assert!(party_ids == 0 || party_ids == 2, "party is all-or-nothing");
+        if party_ids == 2 {
+            assert!(!groups[0].iter().any(|t| t.id == solo.id));
+        }
+    }
+
+    #[test]
+    fn a_party_larger_than_the_match_cap_stays_queued() {
+        fn ticket(party: Option<Uuid>, max_count: i32) -> Ticket {
+            Ticket {
+                id: Uuid::new_v4(),
+                sid: Uuid::new_v4(),
+                uid: Uuid::new_v4(),
+                username: "p".into(),
+                min_count: 2,
+                max_count,
+                query: String::new(),
+                compiled_terms: Vec::new(),
+                string_props: HashMap::new(),
+                numeric_props: HashMap::new(),
+                party_id: party,
+                created_at: Utc::now(),
+            }
+        }
+        let svc = RealtimeMatchmakerService::new();
+        let party = Some(Uuid::new_v4());
+        let a = ticket(party, 2);
+        let b = ticket(party, 2);
+        let solo = ticket(None, 2);
+        let groups = svc.form_groups(&[a, b, solo]);
+        assert!(groups.iter().all(|g| g.len() <= 2));
+        assert!(
+            groups
+                .iter()
+                .all(|g| g.iter().filter(|t| t.party_id == party).count() != 1),
+            "a party member never joins alone"
+        );
+    }
+
+    #[test]
+    fn the_rank_window_starts_narrow_and_expands_with_wait() {
+        fn ticket(rank: f64) -> Ticket {
+            Ticket {
+                id: Uuid::new_v4(),
+                sid: Uuid::new_v4(),
+                uid: Uuid::new_v4(),
+                username: "p".into(),
+                min_count: 2,
+                max_count: 2,
+                query: String::new(),
+                compiled_terms: Vec::new(),
+                string_props: HashMap::new(),
+                numeric_props: HashMap::from([("mmr".into(), rank)]),
+                party_id: None,
+                created_at: Utc::now(),
+            }
+        }
+        let a = ticket(1000.0);
+        let close = ticket(1080.0);
+        let far = ticket(1600.0);
+        assert!(RealtimeMatchmakerService::rank_compatible(
+            &a, &close, 100.0
+        ));
+        assert!(!RealtimeMatchmakerService::rank_compatible(&a, &far, 100.0));
+        assert!(RealtimeMatchmakerService::rank_compatible(&a, &far, 700.0));
+    }
 }

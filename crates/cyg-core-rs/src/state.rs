@@ -11,9 +11,9 @@ use engine_schema::{Descriptor, SchemaDef, SchemaField};
 
 pub const SCHEMA_MAGIC: [u8; 4] = [0x4F, 0x58, 0x53, 0x32]; // "OXS2"
 
-/// The only wire kinds this client speaks. The fixed-width kinds 1-4 exist
-/// only between the guest wasm and the host, which transcodes them; a client
-/// that receives one is talking to an old server and must rebuild.
+/// The only wire kinds this client speaks. Fixed-width kinds 1-4 are gone:
+/// the guest emits packed sections directly, and a client that receives a
+/// fixed-width frame is talking to an old server and must rebuild.
 pub const KIND_FULL: u8 = 5;
 pub const KIND_PATCH: u8 = 6;
 pub const KIND_WORLD_FULL: u8 = 7;
@@ -193,6 +193,7 @@ impl ClientState {
             });
         }
         let root_def = engine_schema::SchemaDef {
+            nested_arrays: Vec::new(),
             name: descriptor.root.name.clone(),
             version: descriptor.root.version,
             fields: descriptor.root.scalars.clone(),

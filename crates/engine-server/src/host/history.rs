@@ -2,12 +2,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use engine_bus::{Bus, SeatUpdate, SimEvent};
 
-use crate::rooms::OutboundMessage;
+use crate::rooms::{OutboundMessage, StatIntent};
 
 pub(crate) struct EventHistory<'a> {
     pub(crate) bus: &'a Bus,
     pub(crate) record: &'a engine_config::GameplayConfig,
     pub(crate) seq: AtomicU64,
+    /// Identifies this host process. `seq` restarts at zero every boot, so the
+    /// pair is what makes a stat write idempotent across restarts.
+    boot_id: String,
+    write_seq: AtomicU64,
 }
 
 impl<'a> EventHistory<'a> {
@@ -16,6 +20,8 @@ impl<'a> EventHistory<'a> {
             bus,
             record,
             seq: AtomicU64::new(0),
+            boot_id: uuid::Uuid::new_v4().to_string(),
+            write_seq: AtomicU64::new(0),
         }
     }
 
@@ -70,6 +76,31 @@ impl<'a> EventHistory<'a> {
             std::sync::Arc::from("desync"),
             bytes::Bytes::from(payload),
         );
+    }
+
+    /// Coalesces one guest call's stat intents per (seat, counter) and queues
+    /// them for the control plane. A tick that raised `kills` ten times becomes
+    /// one `+10` write, not ten.
+    pub(crate) fn record_stats(&self, room: &str, tick: u64, intents: Vec<StatIntent>) {
+        let mut merged: std::collections::HashMap<(i64, std::sync::Arc<str>), i64> =
+            std::collections::HashMap::new();
+        for intent in intents {
+            *merged.entry((intent.seat, intent.stat)).or_default() += intent.delta;
+        }
+        for ((seat, stat), delta) in merged {
+            if delta <= 0 {
+                continue;
+            }
+            let seq = self.write_seq.fetch_add(1, Ordering::Relaxed) + 1;
+            self.bus.push_stat(engine_bus::StatWrite {
+                room: room.to_string(),
+                write_id: format!("{}:{seq}", self.boot_id),
+                tick: tick as i64,
+                seat,
+                stat: stat.to_string(),
+                delta,
+            });
+        }
     }
 
     pub(crate) fn bridge_seat(&self, room: &str, seat: i64, user_id: Option<String>) {

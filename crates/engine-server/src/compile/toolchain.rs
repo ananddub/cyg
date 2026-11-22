@@ -68,13 +68,23 @@ pub(crate) fn run(program: &str, args: &[String]) -> std::io::Result<()> {
 }
 
 pub(crate) fn which(program: &str) -> bool {
-    std::env::var("PATH")
-        .unwrap_or_default()
-        .split(std::path::MAIN_SEPARATOR)
-        .any(|dir| {
-            let p = Path::new(dir).join(program);
-            p.is_file()
+    // `split_paths` understands the platform separator (`:` on Unix, `;` on
+    // Windows); splitting on `/` treated the whole PATH as one directory, so
+    // a real `asc` on PATH was never found and every build fell back to npx.
+    let extensions: &[&str] = if cfg!(windows) {
+        &["", ".exe", ".cmd", ".bat"]
+    } else {
+        &[""]
+    };
+    std::env::var_os("PATH")
+        .map(|path| {
+            std::env::split_paths(&path).any(|dir| {
+                extensions
+                    .iter()
+                    .any(|ext| dir.join(format!("{program}{ext}")).is_file())
+            })
         })
+        .unwrap_or(false)
 }
 
 pub(crate) fn detect_room_class(content: &str) -> Option<String> {

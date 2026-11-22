@@ -23,6 +23,9 @@ pub struct LoopTransport {
     pub(crate) loss_rng: u32,
     pub(crate) dropped_packets: u64,
     pub(crate) delayed_out: VecDeque<(Instant, DelayedOut)>,
+    /// Separate sequence space for the must-deliver state stream when a schema
+    /// opts into `.unreliable()` fields.
+    pub(crate) reliable_seqs: HashMap<String, u16>,
     pub(crate) delayed_in: VecDeque<(Instant, Arc<str>, Inbound)>,
     pub(crate) local_addr: Option<SocketAddr>,
 }

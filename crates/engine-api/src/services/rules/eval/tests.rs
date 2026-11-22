@@ -98,3 +98,32 @@ fn a_valid_body_validates_cleanly() {
     ]});
     assert!(validate(&body).is_ok());
 }
+
+#[test]
+fn a_var_comparison_resolves_from_the_context() {
+    let ctx = json!({ "kills": 12, "min_kills": 10 });
+    assert!(evaluate(&json!({"field": "kills", "op": "gte", "var": "min_kills"}), &ctx).unwrap());
+    assert!(!evaluate(&json!({"field": "kills", "op": "gte", "var": "nope"}), &ctx).unwrap());
+}
+
+#[test]
+fn a_var_and_a_value_together_are_refused() {
+    let body = json!({"field": "kills", "op": "gte", "value": 5, "var": "min_kills"});
+    assert!(validate(&body).is_err());
+}
+
+#[test]
+fn a_comparison_with_neither_value_nor_var_is_refused() {
+    let body = json!({"field": "kills", "op": "gte"});
+    assert!(validate(&body).is_err());
+}
+
+#[test]
+fn a_custom_snake_case_trigger_is_a_trigger() {
+    let body = json!({"trigger": "boss_died", "value": true});
+    assert!(super::super::dispatch::check_trigger(&body).is_ok());
+    // Anything the mirror could never carry is refused rather than accepted
+    // into a rule that would silently never run.
+    let bad = json!({"trigger": "Boss Died!", "value": true});
+    assert!(super::super::dispatch::check_trigger(&bad).is_err());
+}

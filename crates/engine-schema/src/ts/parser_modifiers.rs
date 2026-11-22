@@ -2,7 +2,10 @@ use super::ast::ParsedType;
 use super::default::validate_default;
 use super::parser::Parser;
 use super::token::TokenKind;
-use crate::{FIELD_OPTIONAL, FIELD_STATIC, FIELD_TRANSIENT, FieldEncoding, WireKind};
+use crate::{
+    FIELD_OPTIONAL, FIELD_PRIVATE, FIELD_STATIC, FIELD_TRANSIENT, FIELD_UNRELIABLE, FieldEncoding,
+    WireKind,
+};
 
 impl Parser {
     pub(super) fn parse_modifiers(
@@ -80,7 +83,7 @@ impl Parser {
                 "range" => {
                     self.parse_range_modifier(field_name, parsed, encoding);
                 }
-                "optional" | "static" | "transient" => {
+                "optional" | "static" | "transient" | "private" | "unreliable" => {
                     if !self.eat_symbol(')') {
                         self.skip_balanced('(', ')');
                         self.error(
@@ -92,6 +95,8 @@ impl Parser {
                     *flags |= match modifier.as_str() {
                         "optional" => FIELD_OPTIONAL,
                         "static" => FIELD_STATIC,
+                        "private" => FIELD_PRIVATE,
+                        "unreliable" => FIELD_UNRELIABLE,
                         _ => FIELD_TRANSIENT,
                     };
                 }

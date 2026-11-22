@@ -134,8 +134,6 @@ export const Callbacks: {
     get(room: Room | { state: unknown }): SchemaCallbacks;
     /** Alias matching Colyseus v5's `getStateCallbacks(room)`. */
     getStateCallbacks(room: Room | { state: unknown }): SchemaCallbacks;
-    /** Legacy `$(room.state).players.onAdd(...)` proxy. */
-    getLegacy(room: Room): SchemaMap;
     getRawChanges(): () => void;
 };
 
@@ -280,7 +278,7 @@ export class Room<TState extends object = Record<string, unknown>> {
     /** Notify the server that the local player cannot hear anyone. */
     setVoiceDeafened(isDeafened: boolean): void;
 
-    /** Interpolation / prediction controls (legacy delta rooms). */
+    /** Interpolation / prediction controls (delta rooms). */
     enableInterpolation(options?: Record<string, unknown>, decoder?: ((bytes: Uint8Array) => unknown) | null): void;
     enableJitterBuffer?(): void;
     disableJitterBuffer?(): void;

@@ -364,6 +364,20 @@ pub extern "C" fn cyg_schema_field_name(handle: u32, index: u32, field: u32, out
     }).and_then(|r| r).unwrap_or(-1)
 }
 
+/// Flattened nested path of one schema field (`stats` for `stats__kills`),
+/// or -1 when the field is not nested. The value is a display-only grouping
+/// hint: the wire still carries the flattened scalar.
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_schema_field_nested(handle: u32, index: u32, field: u32, out: *mut u8, cap: usize) -> i32 {
+    if out.is_null() { return -1; }
+    with_core(handle, |core| {
+        core.schema_at(index as usize)
+            .and_then(|s| s.fields.get(field as usize))
+            .and_then(|f| f.nested_path.as_deref())
+            .map(|path| write_str(out, cap, path))
+    }).and_then(|r| r).unwrap_or(-1)
+}
+
 /// Field kind (`engine_schema::WireKind` discriminant: 0=u8, 1=i8, 2=u16,
 /// 3=i16, 4=u32, 5=i32, 6=f32, 7=f64, 8=bool, 9=i64, 10=string, 11=array).
 #[unsafe(no_mangle)]
@@ -393,6 +407,48 @@ pub extern "C" fn cyg_schema_field_element_kind(handle: u32, index: u32, field: 
             .and_then(|s| s.fields.get(field as usize))
             .map(|f| f.element.map(|e| e as u32 as i32).unwrap_or(0))
     }).and_then(|r| r).unwrap_or(-1)
+}
+
+/// Number of nested-array collections lowered from `t.array(Item)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_nested_count(handle: u32) -> u32 {
+    with_core(handle, |core| core.descriptor().root.nested.len() as u32).unwrap_or(0)
+}
+
+fn nested_part(handle: u32, index: u32, part: fn(&engine_schema::NestedCollection) -> &str) -> Option<String> {
+    with_core(handle, |core| {
+        core.descriptor().root.nested.get(index as usize).map(|n| part(n).to_string())
+    }).flatten()
+}
+
+/// Child collection name of nested entry `index`.
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_nested_collection(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
+    if out.is_null() { return -1; }
+    match nested_part(handle, index, |n| &n.collection) {
+        Some(value) => write_str(out, cap, &value),
+        None => -1,
+    }
+}
+
+/// Parent collection name of nested entry `index`.
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_nested_parent(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
+    if out.is_null() { return -1; }
+    match nested_part(handle, index, |n| &n.parent) {
+        Some(value) => write_str(out, cap, &value),
+        None => -1,
+    }
+}
+
+/// Field name on the parent entity (`items` for `parent.items`).
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_nested_field(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
+    if out.is_null() { return -1; }
+    match nested_part(handle, index, |n| &n.field) {
+        Some(value) => write_str(out, cap, &value),
+        None => -1,
+    }
 }
 
 /// Collection count in the room state.
@@ -576,6 +632,7 @@ mod tests {
     fn create_apply_read_roundtrip() {
         use engine_schema::{emit_descriptor, SchemaDef, SchemaField, RootState, RootCollection, WireKind};
         let player = SchemaDef {
+            nested_arrays: Vec::new(),
             name: "Player".into(),
             version: 1,
             fields: vec![
@@ -583,19 +640,20 @@ mod tests {
                     name: "x".into(), kind: WireKind::F64, element: None,
                     ref_target: None, flags: 0, source_type: String::new(),
                     default: None, encoding: engine_schema::default_encoding(WireKind::F64),
-                    line: 0, column: 0,
+                    nested_path: None, line: 0, column: 0,
                 },
                 SchemaField {
                     name: "y".into(), kind: WireKind::F64, element: None,
                     ref_target: None, flags: 0, source_type: String::new(),
                     default: None, encoding: engine_schema::default_encoding(WireKind::F64),
-                    line: 0, column: 0,
+                    nested_path: None, line: 0, column: 0,
                 },
             ],
             line: 0,
             column: 0,
         };
         let root = RootState {
+            nested: Vec::new(),
             name: "BenchState".into(),
             version: 1,
             scalars: vec![],
@@ -978,17 +1036,20 @@ mod pred_tests {
             source_type: String::new(),
             default: None,
             encoding: engine_schema::default_encoding(kind),
+            nested_path: None,
             line: 0,
             column: 0,
         };
         let player = player_schema();
         let input = SchemaDef {
+            nested_arrays: Vec::new(),
             name: "Input".into(),
             version: 1,
             fields: vec![f("dir", WireKind::I32), f("speed", WireKind::F64)],
             line: 0, column: 0,
         };
         let root = RootState {
+            nested: Vec::new(),
             name: "Arena".into(),
             version: 1,
             scalars: vec![],
@@ -1007,10 +1068,12 @@ mod pred_tests {
             source_type: String::new(),
             default: None,
             encoding: engine_schema::default_encoding(kind),
+            nested_path: None,
             line: 0,
             column: 0,
         };
         SchemaDef {
+            nested_arrays: Vec::new(),
             name: "Player".into(),
             version: 1,
             fields: vec![f("name", WireKind::String), f("x", WireKind::F64), f("y", WireKind::F64), f("alive", WireKind::Bool)],

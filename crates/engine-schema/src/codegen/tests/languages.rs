@@ -122,6 +122,7 @@ fn root_named_like_an_entity_gets_a_distinct_class() {
         crate::ts::parse(r#"export const Player = schema({ x: t.number() }, "Player");"#).unwrap();
     let schemas = parsed.schemas;
     let root = RootState {
+        nested: Vec::new(),
         name: "Player".into(),
         version: 1,
         scalars: Vec::new(),

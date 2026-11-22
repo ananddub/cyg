@@ -42,12 +42,14 @@ fn schema_of(vector: &serde_json::Value) -> SchemaDef {
                 source_type: String::new(),
                 default: None,
                 encoding,
+                nested_path: None,
                 line: 0,
                 column: 0,
             }
         })
         .collect();
     SchemaDef {
+        nested_arrays: Vec::new(),
         name: schema["name"].as_str().expect("name").into(),
         version: schema["version"].as_u64().expect("version") as u32,
         fields,

@@ -1,6 +1,6 @@
 //! Bit-packed state sections — the v2 encoding of an OXS2 collection frame.
 //!
-//! The legacy section ([`crate::packed::CAM`]) writes every field at its fixed width: an `f32`
+//! A fixed-width section writes every field at its declared size: an `f32`
 //! costs 4 bytes whether it holds a world position or a two-state flag. This module writes the
 //! same information with the widths the schema declares ([`engine_schema::FieldEncoding`]), plus a
 //! presence bit for optional fields, and keeps variable-length fields (strings, arrays) out of the
@@ -35,13 +35,13 @@ use engine_schema::{FieldEncoding, SchemaDef, WireKind, wire_hash};
 
 use crate::bits::{BitReader, BitWriter};
 
-/// `OXS2` section magic — the same four bytes the legacy section uses.
+/// `OXS2` section magic shared by every packed section.
 pub const MAGIC: &[u8; 4] = b"OXS2";
 pub const KIND_FULL: u8 = 5;
 pub const KIND_PATCH: u8 = 6;
 /// A whole world: root scalars plus every collection, each in its own packed
-/// section. Kinds 7/8 are the only world frames this build speaks — the
-/// fixed-width world kinds 3/4 exist only between the guest wasm and the host.
+/// section. The guest emits these directly; fixed-width world kinds 3/4 are
+/// rejected and require a room wasm rebuild.
 pub const KIND_WORLD_FULL: u8 = 7;
 pub const KIND_WORLD_PATCH: u8 = 8;
 pub const HEADER_LEN: usize = 13;
@@ -375,8 +375,11 @@ pub fn decode_world(root: &PackedSchema, bytes: &[u8]) -> Result<DecodedWorld, P
             expected: root.hash,
         });
     }
-    let count = u16::from_le_bytes(bytes[9..11].try_into().map_err(|_| PackedError::Truncated)?)
-        as usize;
+    let count = u16::from_le_bytes(
+        bytes[9..11]
+            .try_into()
+            .map_err(|_| PackedError::Truncated)?,
+    ) as usize;
     if count != root.fields.len() {
         return Err(PackedError::FieldCount {
             row: 0,
@@ -412,10 +415,7 @@ pub fn decode_world(root: &PackedSchema, bytes: &[u8]) -> Result<DecodedWorld, P
     })
 }
 
-fn read_collections(
-    bytes: &[u8],
-    at: &mut usize,
-) -> Result<Vec<(u16, u32, Vec<u8>)>, PackedError> {
+fn read_collections(bytes: &[u8], at: &mut usize) -> Result<Vec<(u16, u32, Vec<u8>)>, PackedError> {
     let count = u16::from_le_bytes(
         bytes
             .get(*at..*at + 2)
@@ -607,7 +607,7 @@ fn write_row<'v>(
     Ok(())
 }
 
-/// Variable payloads keep the legacy bytes exactly: `len u8 + utf8`, `count u8 + elements`,
+/// Variable payloads keep the byte-aligned shape: `len u8 + utf8`, `count u8 + elements`,
 /// little-endian scalars. No reason to invent a second encoding for them.
 fn write_variable(
     out: &mut Vec<u8>,
@@ -771,14 +771,10 @@ fn read_row(
     masked: bool,
     mask: u32,
 ) -> Result<Vec<(usize, WireValue)>, PackedError> {
-    let bit_len = row_bit_count(schema, masked, mask);
-    let byte_len = bit_len.div_ceil(8);
-    let payload = bytes
-        .get(*at..*at + byte_len)
-        .ok_or(PackedError::Truncated)?;
-    *at += byte_len;
+    let payload = bytes.get(*at..).ok_or(PackedError::Truncated)?;
     let mut bits = BitReader::new(payload);
-    let mut vars = *at;
+    let mut bit_values = Vec::with_capacity(schema.fields.len());
+    let mut raw_fields = Vec::new();
     let mut values = Vec::with_capacity(schema.fields.len());
 
     for index in 0..schema.fields.len() {
@@ -792,34 +788,30 @@ fn read_row(
                 continue;
             }
         }
-        let value = match schema.fields[index] {
+        match schema.fields[index] {
             Slot::Bits(enc) => {
                 let code = bits.read_bits(enc.bits).ok_or(PackedError::Truncated)?;
-                decode_bits(enc, schema.kinds[index], code, row)?
+                bit_values.push((index, decode_bits(enc, schema.kinds[index], code, row)?));
             }
-            Slot::Raw(kind) => read_variable(bytes, &mut vars, kind, schema.element[index])?,
-        };
-        values.push((index, value));
+            Slot::Raw(_) => raw_fields.push(index),
+        }
     }
-    let _ = row;
-    // The variable section ends where the next row begins; anything left is a length mismatch,
-    // which the caller detects because it must consume the rest of the frame exactly.
+    let bit_bytes = bits.bits_read().div_ceil(8);
+    let mut vars = at.checked_add(bit_bytes).ok_or(PackedError::Truncated)?;
+    values.extend(bit_values);
+    for index in raw_fields {
+        let Slot::Raw(kind) = schema.fields[index] else {
+            unreachable!()
+        };
+        values.push((
+            index,
+            read_variable(bytes, &mut vars, kind, schema.element[index])?,
+        ));
+    }
+    values.sort_by_key(|(index, _)| *index);
+    // The next row starts immediately after this row's padded bit bytes and variables.
     *at = vars;
     Ok(values)
-}
-
-/// Bits one row occupies: presence bits and packed field widths, for the fields the mask selects.
-fn row_bit_count(schema: &PackedSchema, masked: bool, mask: u32) -> usize {
-    (0..schema.fields.len())
-        .filter(|index| !masked || (mask & (1 << index)) != 0)
-        .map(|index| {
-            usize::from(schema.optional[index])
-                + match schema.fields[index] {
-                    Slot::Bits(enc) => enc.bits as usize,
-                    Slot::Raw(_) => 0,
-                }
-        })
-        .sum()
 }
 
 /// Restores the schema's own variant: the bit stream carries a code, the kind decides how to read

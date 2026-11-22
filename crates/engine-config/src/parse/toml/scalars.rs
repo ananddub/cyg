@@ -142,6 +142,15 @@ pub(super) fn apply(cfg: &mut GameConfig, table: &toml::value::Table) {
     if let Some(v) = boolean("allow_messaging") {
         cfg.permissions.messaging = v;
     }
+    if let Some(v) = boolean("allow_stats") {
+        cfg.permissions.stats = v;
+    }
+    if let Some(v) = boolean("allow_views") {
+        cfg.permissions.views = v;
+    }
+    if let Some(v) = boolean("allow_rewind") {
+        cfg.permissions.rewind = v;
+    }
     if let Some(v) = table.get("voice_ice_servers") {
         cfg.voice_ice_servers = v.to_string();
     }

@@ -55,6 +55,15 @@ pub struct GameRoom {
     /// every caller either already holds the id or resolves it through
     /// `sessions`, so the room stores no per-player key copy at all.
     pub(crate) seqs: HashMap<i64, SessionSeqs>,
+    /// Per-player state view. Absent = every field visible (subject to
+    /// `.private()`). The mask is resolved from guest intents and applied to
+    /// full and patch frames before they reach the wire.
+    pub(crate) view_masks: HashMap<i64, crate::netcode::ViewMask>,
+    /// Players whose view changed and who still need a fresh full snapshot.
+    /// Kept separate from `schema_sent`: a late `schema_ready` ack could
+    /// otherwise re-mark the seat as "full already sent" before the mask took
+    /// effect, leaking the old field value for one patch.
+    pub(crate) view_dirty: HashSet<i64>,
     pub(crate) event_seq: u16,
     pub(crate) delta_seq: u16,
     pub(crate) schema_sent: HashSet<std::rc::Rc<str>>,

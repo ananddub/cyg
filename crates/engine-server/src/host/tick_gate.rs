@@ -197,8 +197,12 @@ mod stagger_tests {
             wrap_patch_packed: Vec::new(),
             packed_full_body: Vec::new(),
             packed_patch_body: Vec::new(),
+            packed_volatile_body: Vec::new(),
+            volatile_ready: false,
+            volatile_per_view: false,
             packed_view_buf: Vec::new(),
             packed_lane: None,
+            private_state: false,
             packed_ready: false,
         }
     }

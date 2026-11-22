@@ -21,7 +21,7 @@ impl Parser {
             return;
         }
 
-        let Some((fields, maps)) = self.parse_schema_fields(&keyword) else {
+        let Some((fields, maps, nested_arrays)) = self.parse_schema_fields(&keyword) else {
             return;
         };
 
@@ -77,7 +77,7 @@ impl Parser {
             }
         };
 
-        if fields.is_empty() && maps.is_empty() && extends.is_empty() {
+        if fields.is_empty() && maps.is_empty() && nested_arrays.is_empty() && extends.is_empty() {
             self.error(
                 keyword.line,
                 keyword.column,
@@ -91,6 +91,7 @@ impl Parser {
                 name,
                 version,
                 fields,
+                nested_arrays,
                 line: keyword.line,
                 column: keyword.column,
             },

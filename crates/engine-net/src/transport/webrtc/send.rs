@@ -49,6 +49,49 @@ impl WebRtcServer {
         ))
     }
 
+    /// Same delta frame format as [`WebRtcServer::send_delta`], but written on
+    /// the reliable channel. Used when a schema splits must-deliver fields
+    /// from `.unreliable()` volatile fields.
+    pub fn send_delta_reliable(
+        &mut self,
+        client_id: &str,
+        seq: u16,
+        tick: u32,
+        body: &[u8],
+    ) -> Result<DeltaSendReport, DeltaTooLarge> {
+        let fragment_count = match delta_fragment_count(body.len()) {
+            Some(count) => count as usize,
+            None => {
+                self.sink.stats.deltas_refused_oversized += 1;
+                return Err(DeltaTooLarge::BodyTooLarge {
+                    body_len: body.len(),
+                    max: MAX_DELTA_BODY,
+                });
+            }
+        };
+        let Some(session) = self.sessions.get_mut(client_id) else {
+            self.sink.stats.frames_dropped_no_channel += fragment_count as u64;
+            return Ok(DeltaSendReport::skipped(fragment_count));
+        };
+        let mut frames = Vec::new();
+        let fragments = match split_delta(seq, tick, body, &mut frames) {
+            Ok(fragments) => fragments,
+            Err(err) => {
+                self.sink.stats.deltas_refused_oversized += 1;
+                return Err(err);
+            }
+        };
+        Ok(Self::send_delta_frames_on_lane(
+            session,
+            seq,
+            tick,
+            frames,
+            fragments,
+            Lane::Reliable,
+            &mut self.sink,
+        ))
+    }
+
     pub fn broadcast_delta(&mut self, seq: u16, tick: u32, body: &[u8]) -> usize {
         if self.sessions.is_empty() {
             if delta_fragment_count(body.len()).is_none() {

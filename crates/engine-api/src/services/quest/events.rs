@@ -38,6 +38,22 @@ pub(crate) async fn credit_counter(
     if name == "level" && total > total - delta {
         crate::services::rules::dispatch::fire(state, "level_up", user_id).await;
     }
+    project_counter(state, queries, user_id, name, total, delta, quests).await
+}
+
+/// Re-projects every visible quest that counts `name` from an already-applied
+/// counter total. Shared by the ingest doors and the room stat pump: the stat
+/// write is the only thing that raises the number, and this is the read-model
+/// update that follows it.
+pub(crate) async fn project_counter(
+    state: &ApiState,
+    queries: &Arc<Queries>,
+    user_id: Uuid,
+    name: &str,
+    total: i64,
+    delta: i64,
+    quests: &[&QuestDefinition],
+) -> Result<Vec<CompletedQuest>, DbError> {
     let mut completed = Vec::new();
     for quest in quests.iter().filter(|quest| quest.goal_kind == name) {
         let crosses = total >= quest.goal_amount && total - delta < quest.goal_amount;

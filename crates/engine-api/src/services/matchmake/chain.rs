@@ -69,3 +69,36 @@ impl ChainTracker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fresh_seats_reserve_capacity_until_their_ttl_lapses() {
+        let mut chain = ChainTracker::default();
+        let now = Instant::now();
+        chain.record("duo__mumbai", now);
+        chain.record("duo__mumbai", now);
+        assert_eq!(chain.pick_generation("duo__mumbai", 2, |_| 0, now), 1);
+        assert_eq!(
+            chain.pick_generation("duo__mumbai", 2, |_| 0, now + OUTSTANDING_TTL),
+            0,
+            "expired reservations no longer hold the slot"
+        );
+    }
+
+    #[test]
+    fn live_occupancy_and_fresh_seats_share_the_cap() {
+        let mut chain = ChainTracker::default();
+        let now = Instant::now();
+        chain.record("duo__mumbai", now);
+        let occupancy = |key: &str| if key == "duo__mumbai" { 1 } else { 0 };
+        assert_eq!(chain.pick_generation("duo__mumbai", 2, occupancy, now), 1);
+        assert_eq!(
+            chain.pick_generation("duo__mumbai", 3, occupancy, now),
+            0,
+            "one live + one fresh leaves a third slot"
+        );
+    }
+}

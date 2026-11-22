@@ -30,6 +30,7 @@ fn descriptor_carries_schema_fields_hash_and_root_collection() {
     .unwrap();
     let schemas = parsed.schemas;
     let root = RootState {
+        nested: Vec::new(),
         name: "State".into(),
         version: 1,
         scalars: Vec::new(),
@@ -40,9 +41,10 @@ fn descriptor_carries_schema_fields_hash_and_root_collection() {
     };
     let bytes = emit_descriptor(&schemas, Some(&root));
     assert_eq!(&bytes[..4], b"OXSD");
-    // No field asked for a custom encoding, so the descriptor stays v3: an older client keeps
-    // loading it. v4 is opt-in per schema, not a flag day.
-    assert_eq!(bytes[4], 3, "a schema without custom encodings stays on v3");
+    assert_eq!(
+        bytes[4], DESCRIPTOR_VERSION,
+        "this build emits exactly one version"
+    );
     assert!(
         bytes.windows(8).any(|window| window == b"\x06\x00Player"),
         "schema name is length-prefixed"
@@ -56,7 +58,7 @@ fn descriptor_carries_schema_fields_hash_and_root_collection() {
 }
 
 #[test]
-fn a_range_modifier_bumps_the_descriptor_to_v4_and_carries_the_encoding() {
+fn a_range_modifier_carries_the_encoding_in_v6() {
     let parsed = ts::parse(
         r#"
         export const Player = schema({
@@ -84,9 +86,13 @@ fn a_range_modifier_bumps_the_descriptor_to_v4_and_carries_the_encoding() {
     );
 
     let bytes = emit_descriptor(&parsed.schemas, None);
-    assert_eq!(bytes[4], DESCRIPTOR_VERSION, "custom encodings need v4");
+    assert_eq!(bytes[4], DESCRIPTOR_VERSION);
+    let generated = generate_with_root(&parsed.schemas, None, "schema.ts");
+    assert!(generated.server_ts.contains(".range(20, -512, 512)"));
+    assert!(generated.server_ts.contains(".range(8, 0, 360)"));
+    assert!(!generated.server_ts.contains(".range(32, 0, 4294967296)"));
 
-    let back = parse_descriptor(&bytes).expect("v4 round trip");
+    let back = parse_descriptor(&bytes).expect("v6 round trip");
     assert_eq!(back.version, DESCRIPTOR_VERSION);
     assert_eq!(back.schemas[0].fields[0].encoding, x.encoding);
     assert_eq!(back.schemas[0].fields[1].encoding, yaw.encoding);
@@ -127,7 +133,7 @@ fn an_encoding_change_changes_the_wire_hash() {
 }
 
 #[test]
-fn a_v3_descriptor_still_loads_with_default_encodings() {
+fn older_descriptor_versions_are_rejected() {
     let parsed = ts::parse(
         r#"
         export const Player = schema({ x: t.number(), n: t.uint16() }, "Player");
@@ -135,14 +141,13 @@ fn a_v3_descriptor_still_loads_with_default_encodings() {
     )
     .unwrap();
     let mut bytes = emit_descriptor(&parsed.schemas, None);
-    assert_eq!(bytes[4], 3, "precondition: this emits v3");
-    // Force the version byte down: a v3 descriptor is exactly this one without the encoding bytes,
-    // which the writer already omitted.
-    bytes[4] = 3;
-    let back = parse_descriptor(&bytes).expect("v3 still parses");
-    assert_eq!(back.version, 3);
-    assert_eq!(back.schemas[0].fields[0].encoding, default_encoding(WireKind::F64));
-    assert_eq!(back.schemas[0].fields[1].encoding, default_encoding(WireKind::U16));
+    for version in [0, 1, 2, 3, 4, 5] {
+        bytes[4] = version;
+        assert!(
+            parse_descriptor(&bytes).is_none(),
+            "version {version} must be rejected; rebuild client/server"
+        );
+    }
 }
 
 #[test]

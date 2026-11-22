@@ -69,6 +69,7 @@ mod tests {
             source_type: String::new(),
             default: None,
             encoding: engine_schema::default_encoding(kind),
+            nested_path: None,
             line: 0,
             column: 0,
         }
@@ -106,6 +107,7 @@ mod tests {
         // Guards against accidental wire-format drift: this hash mirrors the
         // descriptor roundtrip test in engine-schema.
         let def = SchemaDef {
+            nested_arrays: Vec::new(),
             name: "Input".into(),
             version: 1,
             fields: vec![field("dir", WireKind::I32)],

@@ -52,8 +52,6 @@ pub struct TransportStats {
 
     pub frames_off_contract: u64,
 
-    pub legacy_alias_channels: u64,
-
     pub contract_violations: u64,
 }
 

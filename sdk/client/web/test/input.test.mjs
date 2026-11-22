@@ -16,16 +16,20 @@ function u8(v) { return new Uint8Array([v & 0xff]); }
 function u16(v) { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, v, true); return b; }
 function u32(v) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v, true); return b; }
 function str(text) { const b = new TextEncoder().encode(text); return new Uint8Array([...u16(b.length), ...b]); }
+function f32(v) { const b = new Uint8Array(4); new DataView(b.buffer).setFloat32(0, v, true); return b; }
+function enc(bits, integer, min, max) {
+    return new Uint8Array([...u8(bits | (integer ? 0x80 : 0)), ...f32(min), ...f32(max)]);
+}
 
-/** A v2 OXSD with one `Input` collection, matching the declared fields. */
+/** One v6 OXSD with an `Input` collection, matching the declared fields. */
 function inputDescriptor() {
     const parts = [
-        new TextEncoder().encode("OXSD"), u8(2), u8(0), u16(1),
+        new TextEncoder().encode("OXSD"), u8(6), u8(0), u16(1),
         str("Input"), u32(1), u32(0), u16(4),
-        str("moveX"), u8(5), // f32
-        str("moveZ"), u8(5),
-        str("jump"), u8(7),  // bool
-        str("skill"), u8(1), // u8
+        str("moveX"), u8(5), u8(0), u8(0), str(""), enc(0, false, 0, 0),
+        str("moveZ"), u8(5), u8(0), u8(0), str(""), enc(0, false, 0, 0),
+        str("jump"), u8(7), u8(0), u8(0), str(""), enc(1, true, 0, 1),
+        str("skill"), u8(1), u8(0), u8(0), str(""), enc(8, true, 0, 255),
         str("State"), u32(0), u32(0), u16(0), u16(1),
         str("inputs"), u16(0),
     ];
@@ -134,3 +138,17 @@ function schemaInputRoom() {
 }
 
 console.log("input.test: all assertions passed");
+
+// Fixed-step handle: 30Hz means 3 sends for 101ms, and the first tick only
+// primes the accumulator. This is the input side of the predict loop.
+{
+    const room = schemaInputRoom();
+    const input = room.input({ tickRate: 30 });
+    let sends = 0;
+    room._sendInputObject = () => { sends++; return true; };
+    assert.equal(input.tick(0), 0, "first tick primes");
+    assert.equal(input.tick(101), 3, "100ms of 30Hz steps");
+    assert.equal(sends, 3);
+    input.reset();
+    assert.equal(input.tick(500), 0, "reset re-primes");
+}

@@ -94,3 +94,6 @@ sdk/client/core-ts/dist/
 
 # verus build output
 verus/target/
+
+# Dashboard local SurrealKV runtime data
+/dashboard/data/

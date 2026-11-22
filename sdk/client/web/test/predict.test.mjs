@@ -115,7 +115,7 @@ test("room.predict is a no-op stub until a guest instance is attached", () => {
     assert.equal(room.predict.available, true);
 });
 
-test("delta tail echo: RTT pairs by stamp, unknown stamps fall back to the 6-byte tail", () => {
+test("delta tail: strict 8-byte tail, RTT echo only when the stamp is known", () => {
     const room = makeRoom();
 
     // We "sent" a stamped input 100ms ago; the tail echoes its stamp.
@@ -132,7 +132,7 @@ test("delta tail echo: RTT pairs by stamp, unknown stamps fall back to the 6-byt
     pv.setUint16(payload.byteLength - 2, stamp, true);
 
     const t = room._parseDeltaTail(payload);
-    assert.equal(t.len, 8, "known stamp: 8-byte tail");
+    assert.equal(t.len, 8, "always the 8-byte tail");
     assert.equal(t.acked, 42);
     assert.equal(t.tick, 777);
     assert.ok(room._echoRtt >= 90 && room._echoRtt <= 150, "RTT paired from the echo");
@@ -142,14 +142,40 @@ test("delta tail echo: RTT pairs by stamp, unknown stamps fall back to the 6-byt
     assert.equal(clock.jitter(), room._echoJitter);
     assert.ok(Number.isFinite(clock.serverNow()));
 
-    // Old server: 6-byte tail, the "stamp" is tick garbage → legacy parse.
-    const legacy = new Uint8Array(8 + 9 + 6);
-    legacy[8] = 0x4F; legacy[9] = 0x58; legacy[10] = 0x53; legacy[11] = 0x32;
-    const lv = new DataView(legacy.buffer);
-    lv.setUint16(legacy.byteLength - 6, 7, true);
-    lv.setUint32(legacy.byteLength - 4, 999, true);
-    const t2 = room._parseDeltaTail(legacy);
-    assert.equal(t2.len, 6, "unknown stamp: legacy tail");
-    assert.equal(t2.acked, 7);
-    assert.equal(t2.tick, 999);
+    // Spectator / first frame: stamp 0 is valid, it just produces no RTT sample.
+    pv.setUint16(payload.byteLength - 2, 0, true);
+    const zero = room._parseDeltaTail(payload);
+    assert.equal(zero.len, 8);
+    assert.equal(zero.acked, 42);
+    assert.equal(zero.tick, 777);
+
+    // No 6-byte fallback exists. A frame shorter than the one contract tail
+    // fails loudly instead of being guessed.
+    assert.throws(() => room._parseDeltaTail(new Uint8Array(6)), /delta tail too short/);
+});
+
+test("sendSchema couples the network sequence and the predicted frame", () => {
+    const log = { calls: [], reconciles: [] };
+    const room = makeRoom();
+    room.inputSeq = 41;
+    room._packSchemaInput = (obj) => new Uint8Array([41, 0, 7, 8]); // [seq u16][fields]
+    room._sendPackedInput = (body) => { log.sent = body.slice(); return true; };
+    const driver = new PredictDriver(room, mockInstance(log));
+    assert.equal(driver.sendSchema({ moveX: 1 }, 50), true);
+    assert.deepEqual([...log.sent], [41, 0, 7, 8], "wire body keeps the seq");
+    assert.equal(log.calls[0][2], 2, "predict reader starts after the seq");
+    assert.equal(driver.pending.length, 1);
+    assert.equal(driver.pending[0].seq, 41);
+    assert.deepEqual([...driver.pending[0].input], [7, 8]);
+});
+
+test("readServerState converts an authoritative frame to the flat reconcile mirror", () => {
+    const log = { calls: [], reconciles: [] };
+    const room = makeRoom();
+    const driver = new PredictDriver(room, mockInstance(log), {
+        readServerState: (bytes) => new Float64Array([bytes[0], 4, 9]),
+    });
+    driver.onAck(new Uint8Array([3]));
+    assert.equal(log.reconciles.length, 1);
+    assert.equal(log.reconciles[0][1], 24, "three f64 values staged");
 });

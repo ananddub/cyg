@@ -88,3 +88,49 @@ fn a_join_options_claim_bridges_the_seat_to_its_user() {
     );
     assert_eq!(claimed_user_id(r#"{"userId":""}"#), None);
 }
+
+#[test]
+fn stat_intents_are_coalesced_per_seat_and_counter() {
+    let bus = Bus::new(8, 8);
+    let record = engine_config::GameplayConfig::default();
+    let history = EventHistory::new(&bus, &record);
+
+    let stat: std::sync::Arc<str> = std::sync::Arc::from("kills");
+    history.record_stats(
+        "arena",
+        9,
+        vec![
+            crate::rooms::StatIntent {
+                seat: 3,
+                stat: stat.clone(),
+                delta: 1,
+            },
+            crate::rooms::StatIntent {
+                seat: 3,
+                stat: stat.clone(),
+                delta: 2,
+            },
+            crate::rooms::StatIntent {
+                seat: 3,
+                stat: std::sync::Arc::<str>::from("deaths"),
+                delta: 1,
+            },
+        ],
+    );
+
+    let first = bus.stats_rx.try_recv().expect("one coalesced write");
+    let second = bus.stats_rx.try_recv().expect("the other counter");
+    let (kills, deaths) = if first.stat == "kills" {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    assert_eq!(kills.room, "arena");
+    assert_eq!(kills.tick, 9);
+    assert_eq!(kills.seat, 3);
+    assert_eq!(kills.delta, 3);
+    assert_eq!(deaths.stat, "deaths");
+    assert_eq!(deaths.delta, 1);
+    assert_ne!(kills.write_id, deaths.write_id);
+    assert!(bus.stats_rx.try_recv().is_err());
+}

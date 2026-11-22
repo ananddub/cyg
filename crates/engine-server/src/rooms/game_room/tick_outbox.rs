@@ -59,9 +59,7 @@ impl GameRoom {
                     && !self.lifecycle.pending_leaves.contains_key(*session)
                     && alive(session)
             })
-            .filter_map(|(_session, &id)| {
-                self.last_input.get(&id).map(|frame| (id, frame.clone()))
-            })
+            .filter_map(|(_session, &id)| self.last_input.get(&id).map(|frame| (id, frame.clone())))
             .collect();
         for (id, mut frame) in candidates {
             if netcode::is_input_app_frame(&frame) {
@@ -120,6 +118,23 @@ impl GameRoom {
         out
     }
 
+    /// Takes the counters the guest asked to raise during the last call. The
+    /// host coalesces them per tick before they reach the bus.
+    /// Takes the view changes the guest asked for during the last call.
+    pub(crate) fn drain_view_intents(&mut self) -> Vec<crate::netcode::ViewIntent> {
+        match self.wasm.as_mut() {
+            Some(wasm) => std::mem::take(&mut wasm.data_mut().view_intents),
+            None => Vec::new(),
+        }
+    }
+
+    pub fn drain_stat_intents(&mut self) -> Vec<StatIntent> {
+        match self.wasm.as_mut() {
+            Some(wasm) => std::mem::take(&mut wasm.data_mut().stat_intents),
+            None => Vec::new(),
+        }
+    }
+
     pub(crate) fn reload_wasm(
         &mut self,
         pre: &engine_wasm::WasmPreInstance<RoomHostData>,
@@ -145,6 +160,7 @@ impl GameRoom {
             nd.spatial = std::mem::replace(&mut old.spatial, engine_spatial::SpatialIndex2D::new());
             nd.outbox = std::mem::take(&mut old.outbox);
             nd.kick_requests = std::mem::take(&mut old.kick_requests);
+            nd.view_intents = std::mem::take(&mut old.view_intents);
             nd.clock_ticks = old.clock_ticks;
             nd.physics = std::mem::replace(&mut old.physics, PhysicsWorld3D::default());
             nd.rapier2d = old.rapier2d.take();

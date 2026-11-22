@@ -22,6 +22,12 @@ pub struct SchemaField {
     /// an unannotated schema keeps its fixed-width encoding (and its wire hash).
     pub encoding: FieldEncoding,
 
+    /// For a flattened child-schema field, the parent field name (`stats` for
+    /// `stats__kills`). Codegen uses it to expose the nested accessor; the wire
+    /// still carries the flattened scalar field, so every existing packed
+    /// section keeps working unchanged.
+    pub nested_path: Option<String>,
+
     pub line: usize,
     pub column: usize,
 }
@@ -33,6 +39,12 @@ impl SchemaField {
 
     pub fn full_only(&self) -> bool {
         self.flags & (FIELD_STATIC | FIELD_TRANSIENT) != 0
+    }
+
+    /// Owner-only field (`.ownerOnly()`): visible only when the row id is the
+    /// viewer's own id.
+    pub fn private(&self) -> bool {
+        self.flags & crate::wire::FIELD_PRIVATE != 0
     }
 
     /// True when the field travels in its default fixed-width form, i.e. the schema never asked for
@@ -48,12 +60,32 @@ pub struct RootCollection {
     pub schema: String,
 }
 
+/// A nested array (`items: t.array(Item)`) lowered to a child collection.
+/// The child row id packs owner and slot (`(owner << 16) | slot`), so the
+/// child schema itself stays the user's `Item` schema with no hidden fields.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NestedCollection {
+    pub collection: String,
+    pub parent: String,
+    pub field: String,
+    pub schema: String,
+}
+
+/// A schema field declared as `items: t.array(Item)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NestedArray {
+    pub field: String,
+    pub schema: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RootState {
     pub name: String,
     pub version: u32,
     pub scalars: Vec<SchemaField>,
     pub collections: Vec<RootCollection>,
+    /// Nested arrays lowered into child collections, in parent-first order.
+    pub nested: Vec<NestedCollection>,
 }
 
 pub const MAX_COLLECTIONS: usize = 64;
@@ -63,6 +95,9 @@ pub struct SchemaDef {
     pub name: String,
     pub version: u32,
     pub fields: Vec<SchemaField>,
+    /// Nested arrays lowered to child collections when this schema is a root
+    /// collection (`items: t.array(Item)`).
+    pub nested_arrays: Vec<NestedArray>,
     pub line: usize,
     pub column: usize,
 }
@@ -168,6 +203,10 @@ pub fn wire_hash(schema: &SchemaDef) -> u32 {
             h = mix(h, &field.encoding.min().to_bits().to_string());
             h = mix(h, ",");
             h = mix(h, &field.encoding.max().to_bits().to_string());
+        }
+        if let Some(path) = &field.nested_path {
+            h = mix(h, ":n");
+            h = mix(h, path);
         }
     }
     h

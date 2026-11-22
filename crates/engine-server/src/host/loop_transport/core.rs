@@ -28,6 +28,7 @@ impl LoopTransport {
             loss_rng: 0x9e3779b9,
             dropped_packets: 0,
             delayed_out: VecDeque::new(),
+            reliable_seqs: HashMap::new(),
             delayed_in: VecDeque::new(),
             local_addr,
         }
@@ -110,6 +111,7 @@ impl LoopTransport {
     }
 
     pub fn take_room_of(&mut self, client_id: &str) -> Option<Arc<str>> {
+        self.reliable_seqs.remove(client_id);
         self.seats.remove(client_id).map(|s| s.room)
     }
 

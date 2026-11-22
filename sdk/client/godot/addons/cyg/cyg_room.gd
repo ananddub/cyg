@@ -477,16 +477,16 @@ func _process_delta_payload(raw: PackedByteArray) -> void:
 		_apply_schema_via_core(raw)
 		return
 
-	var legacy_acked := -1
-	var legacy_tick := -1
+	var tail_acked := -1
+	var tail_tick := -1
 	if payload.size() >= 23 and (int(payload[0]) == 0xA5 or int(payload[8]) == 1):
-		legacy_acked = payload.decode_u16(payload.size() - CYGCodec.DELTA_TAIL_LEN)
-		legacy_tick = payload.decode_u32(payload.size() - CYGCodec.DELTA_TAIL_LEN + 2)
-		acked_seq = legacy_acked
-		server_tick = legacy_tick
+		tail_acked = payload.decode_u16(payload.size() - CYGCodec.DELTA_TAIL_LEN)
+		tail_tick = payload.decode_u32(payload.size() - CYGCodec.DELTA_TAIL_LEN + 2)
+		acked_seq = tail_acked
+		server_tick = tail_tick
 		payload = payload.slice(0, payload.size() - CYGCodec.DELTA_TAIL_LEN)
 
-	if legacy_tick >= 0 and legacy_tick <= last_applied_tick:
+	if tail_tick >= 0 and tail_tick <= last_applied_tick:
 		return
 
 	if payload.size() >= 8:
@@ -504,28 +504,28 @@ func _process_delta_payload(raw: PackedByteArray) -> void:
 
 	var arrival_ms := _now_ms()
 	last_delta_arrival_ms = arrival_ms
-	if legacy_tick >= 0:
-		last_applied_tick = legacy_tick
+	if tail_tick >= 0:
+		last_applied_tick = tail_tick
 		time_sync.set_tick_rate(tick_rate)
-		time_sync.add_sample(arrival_ms, float(legacy_tick))
+		time_sync.add_sample(arrival_ms, float(tail_tick))
 		tick_origin_ms = time_sync.tick_origin_ms
 		clock_offset_ms = time_sync.clock_offset_ms(arrival_ms)
 
-	if timeline != null and _delta_decoder.is_valid() and legacy_tick >= 0:
+	if timeline != null and _delta_decoder.is_valid() and tail_tick >= 0:
 		var decoded: Variant = _delta_decoder.call(payload)
 		if decoded != null:
-			timeline.push_snapshot(legacy_tick, decoded, arrival_ms)
+			timeline.push_snapshot(tail_tick, decoded, arrival_ms)
 
 	if jitter_buffer_enabled:
 		_jitter_queue.append({
 			"payload": payload,
-			"ackedSeq": legacy_acked,
-			"serverTick": legacy_tick,
+			"ackedSeq": tail_acked,
+			"serverTick": tail_tick,
 			"arrivalMs": arrival_ms,
 			"deliverAt": arrival_ms + jitter_delay_ms,
 		})
 	else:
-		_emit_delta(payload, legacy_acked, legacy_tick)
+		_emit_delta(payload, tail_acked, tail_tick)
 
 
 func _emit_delta(payload: PackedByteArray, acked: int, tick: int) -> void:

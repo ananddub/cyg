@@ -48,7 +48,7 @@ pub mod wasm_ffi;
 
 pub use engine_schema::{
     parse_descriptor, emit_descriptor, Descriptor, SchemaDef, SchemaField, RootState,
-    wire_hash, WireKind, INPUT_SCHEMA_NAME,
+    wire_hash, WireKind, DESCRIPTOR_VERSION, INPUT_SCHEMA_NAME,
 };
 
 use interp::Interp;
@@ -71,6 +71,14 @@ pub struct ClientCore {
 impl ClientCore {
     /// Parse the schema descriptor bytes (`cyg.schema.bin`).
     pub fn new(descriptor_bytes: &[u8]) -> Result<Self, String> {
+        if descriptor_bytes.len() >= 5 && &descriptor_bytes[..4] == b"OXSD"
+            && descriptor_bytes[4] != DESCRIPTOR_VERSION
+        {
+            return Err(format!(
+                "unsupported schema descriptor v{}; this client speaks v{DESCRIPTOR_VERSION} — rebuild client and server together",
+                descriptor_bytes[4]
+            ));
+        }
         let descriptor = engine_schema::parse_descriptor(descriptor_bytes)
             .ok_or_else(|| "bad schema descriptor".to_string())?;
         Ok(Self {

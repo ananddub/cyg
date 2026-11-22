@@ -313,6 +313,20 @@ pub extern "C" fn cyg_schema_field_name(handle: u32, index: u32, field: u32, out
     }).and_then(|r| r).unwrap_or(-1)
 }
 
+/// Flattened nested path of one schema field (`stats` for `stats__kills`),
+/// or -1 when the field is not nested. The value is a display-only grouping
+/// hint: the wire still carries the flattened scalar.
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_schema_field_nested(handle: u32, index: u32, field: u32, out: *mut u8, cap: usize) -> i32 {
+    if out.is_null() { return -1; }
+    with_core(handle, |core| {
+        core.schema_at(index as usize)
+            .and_then(|s| s.fields.get(field as usize))
+            .and_then(|f| f.nested_path.as_deref())
+            .map(|path| write_str(out, cap, path))
+    }).and_then(|r| r).unwrap_or(-1)
+}
+
 /// Field kind (`engine_schema::WireKind` discriminant: 0=u8, 1=i8, 2=u16,
 /// 3=i16, 4=u32, 5=i32, 6=f32, 7=f64, 8=bool, 9=i64, 10=string, 11=array).
 #[unsafe(no_mangle)]
@@ -342,6 +356,48 @@ pub extern "C" fn cyg_schema_field_element_kind(handle: u32, index: u32, field: 
             .and_then(|s| s.fields.get(field as usize))
             .map(|f| f.element.map(|e| e as u32 as i32).unwrap_or(0))
     }).and_then(|r| r).unwrap_or(-1)
+}
+
+/// Number of nested-array collections lowered from `t.array(Item)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_nested_count(handle: u32) -> u32 {
+    with_core(handle, |core| core.descriptor().root.nested.len() as u32).unwrap_or(0)
+}
+
+fn nested_part(handle: u32, index: u32, part: fn(&engine_schema::NestedCollection) -> &str) -> Option<String> {
+    with_core(handle, |core| {
+        core.descriptor().root.nested.get(index as usize).map(|n| part(n).to_string())
+    }).flatten()
+}
+
+/// Child collection name of nested entry `index`.
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_nested_collection(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
+    if out.is_null() { return -1; }
+    match nested_part(handle, index, |n| &n.collection) {
+        Some(value) => write_str(out, cap, &value),
+        None => -1,
+    }
+}
+
+/// Parent collection name of nested entry `index`.
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_nested_parent(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
+    if out.is_null() { return -1; }
+    match nested_part(handle, index, |n| &n.parent) {
+        Some(value) => write_str(out, cap, &value),
+        None => -1,
+    }
+}
+
+/// Field name on the parent entity (`items` for `parent.items`).
+#[unsafe(no_mangle)]
+pub extern "C" fn cyg_nested_field(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
+    if out.is_null() { return -1; }
+    match nested_part(handle, index, |n| &n.field) {
+        Some(value) => write_str(out, cap, &value),
+        None => -1,
+    }
 }
 
 /// Collection count in the room state.

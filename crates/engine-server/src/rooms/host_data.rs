@@ -32,6 +32,15 @@ pub struct RoomHostData {
     pub fired_timers: Vec<i64>,
     pub navmesh: Option<std::sync::Arc<engine_nav::nav2d::NavMesh2D>>,
     pub outbox: Vec<OutboundMessage>,
+    /// Validated stat increments the guest asked for. Drained by the host
+    /// after the call returns, coalesced per tick, then queued on the bus.
+    pub stat_intents: Vec<super::StatIntent>,
+    /// View changes the guest asked for. Drained by the host tick, resolved
+    /// against the descriptor, and stored on the room per player id.
+    pub view_intents: Vec<crate::netcode::ViewIntent>,
+    /// Generic per-entity rewind samples. Guests record arbitrary f64 vectors
+    /// and query them by tick; the host owns bounds and storage.
+    pub rewind: HashMap<i64, super::RewindTrack>,
     /// Player ids the room kicked via Client.leave() — drained by the host
     /// after the guest call that queued them returns.
     pub kick_requests: Vec<i64>,
@@ -69,6 +78,9 @@ impl RoomHostData {
             rapier2d_next_col_id: 1,
             rapier2d_colliders: HashMap::new(),
             outbox: Vec::new(),
+            stat_intents: Vec::new(),
+            view_intents: Vec::new(),
+            rewind: HashMap::new(),
             kick_requests: Vec::new(),
             rng: engine_core::RoomRng::from_seed_str("unseeded"),
             spatial: engine_spatial::SpatialIndex2D::new(),

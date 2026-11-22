@@ -26,26 +26,12 @@ impl WebRtcServer {
                     });
                 }
                 Output::Event(Event::ChannelOpen(cid, label)) => {
-                    let verdict = classify_label(&label);
-                    let legacy = matches!(verdict, LabelVerdict::LegacyAlias(_));
-                    if let LabelVerdict::Contract(lane) | LabelVerdict::LegacyAlias(lane) = verdict
-                    {
+                    if let LabelVerdict::Contract(lane) = classify_label(&label) {
                         match lane {
                             Lane::Unreliable => session.ch_unreliable = Some(cid),
                             Lane::Reliable => session.ch_reliable = Some(cid),
                         }
                         session.lanes.insert(cid, lane);
-                        if legacy {
-                            sink.stats.legacy_alias_channels += 1;
-                            if !session.legacy_alias_warned {
-                                session.legacy_alias_warned = true;
-                                tracing::warn!(
-                                    "[webrtc] ⚠️ client {} opened '{label}': not a contract label, mapped to {} as a legacy alias",
-                                    session.client_id,
-                                    lane.label()
-                                );
-                            }
-                        }
 
                         let mismatch = session
                             .rtc

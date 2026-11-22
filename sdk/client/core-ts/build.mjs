@@ -10,7 +10,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 
 await mkdir(join(root, "dist"), { recursive: true });
 
-// UMD banner/wrapper: mirror the legacy cyg.js shell so drop-in consumers
+// UMD banner/wrapper: mirror the flat cyg.js shell so drop-in consumers
 // (`window.CYG`, AMD, CommonJS) keep working untouched. The factory body is a
 // bundled CJS module executed inside the factory and returning its exports.
 const umdBanner =
@@ -36,7 +36,7 @@ const shared = {
 };
 
 await build({
-    // Flat drop-in entry (module.exports = legacy surface + typed additions),
+    // Flat drop-in entry (module.exports = core surface + typed additions),
     // so both `require()` and ESM `import CYG from` see CYG.Room directly.
     entryPoints: [join(root, "src/umd.js")],
     bundle: true,
@@ -69,10 +69,10 @@ execFileSync("npx", ["tsc", "--emitDeclarationOnly", "--declaration", "true"], {
     stdio: "inherit",
 });
 
-// Keep the legacy hand-written surface types alongside the generated ones.
+// Keep the hand-written core surface types alongside the generated ones.
 await cp(
-    join(root, "src/types/legacy.d.ts"),
-    join(root, "dist/legacy.d.ts"),
+    join(root, "src/types/engine.d.ts"),
+    join(root, "dist/engine.d.ts"),
 );
 
 console.log("==> built dist/cyg.cjs (UMD), dist/cyg-core.mjs (ESM), dist/*.d.ts");

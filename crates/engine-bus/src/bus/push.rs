@@ -1,6 +1,8 @@
 use std::sync::atomic::Ordering;
 
-use crate::messages::{InputMsg, MatchFinished, RoomOwnership, RoomSnapshot, SeatUpdate, SimEvent};
+use crate::messages::{
+    InputMsg, MatchFinished, RoomOwnership, RoomSnapshot, SeatUpdate, SimEvent, StatWrite,
+};
 
 use super::*;
 
@@ -104,5 +106,23 @@ impl Bus {
 
     pub fn seats_dropped(&self) -> u64 {
         self.seats_dropped.load(Ordering::Relaxed)
+    }
+
+    /// Queues one validated stat increment. The queue is bounded; when it is
+    /// full the oldest intent is evicted and counted, never the simulation
+    /// thread that produced it.
+    pub fn push_stat(&self, write: StatWrite) {
+        let write = match self.stats_tx.try_send(write) {
+            Ok(()) => return,
+            Err(crossbeam_channel::TrySendError::Full(w)) => w,
+            Err(_) => return,
+        };
+        let _ = self.stats_rx.try_recv();
+        self.stats_dropped.fetch_add(1, Ordering::Relaxed);
+        let _ = self.stats_tx.try_send(write);
+    }
+
+    pub fn stats_dropped(&self) -> u64 {
+        self.stats_dropped.load(Ordering::Relaxed)
     }
 }

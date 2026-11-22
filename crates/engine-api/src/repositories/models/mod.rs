@@ -23,6 +23,7 @@ mod room_persistent_snapshot;
 mod room_registry;
 mod rules;
 mod schema_version;
+mod stat_write;
 mod users;
 mod webhook;
 
@@ -44,5 +45,6 @@ pub use room_registry::*;
 pub use rule_fire::*;
 pub use rules::*;
 pub use schema_version::*;
+pub use stat_write::*;
 pub use users::*;
 pub use webhook::*;

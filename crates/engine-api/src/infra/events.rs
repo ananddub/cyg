@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::ApiState;
 use crate::repositories::models::{
-    DesyncReport, GameplayEvent, MatchHistory, QuestDefinition, RoomRegistry,
+    DesyncReport, GameplayEvent, MatchHistory, QuestDefinition, RoomRegistry, StatWriteReceipt,
 };
 use crate::services::quest::catalog::{open_seasons, visible};
 
@@ -60,11 +60,15 @@ impl SeatBridges {
         self.0.retain(|(name, _), _| name != room);
     }
 
-    fn resolve(&self, event: &SimEvent) -> Option<Uuid> {
-        if event.target == 0 {
+    fn user(&self, room: &str, seat: i64) -> Option<Uuid> {
+        if seat <= 0 {
             return None;
         }
-        self.0.get(&(event.room.clone(), event.target)).copied()
+        self.0.get(&(room.to_string(), seat)).copied()
+    }
+
+    fn resolve(&self, event: &SimEvent) -> Option<Uuid> {
+        self.user(&event.room, event.target)
     }
 }
 
@@ -205,6 +209,7 @@ pub async fn pump_events(state: ApiState) {
     let fetches_rx = state.bus.fetches_rx.clone();
     let ownership_rx = state.bus.ownership_rx.clone();
     let seats_rx = state.bus.seats_rx.clone();
+    let stats_rx = state.bus.stats_rx.clone();
     let mut seats = SeatBridges::default();
     let mut counters = QuestCounters::new();
     let mut ticker = tokio::time::interval(PUMP_INTERVAL);
@@ -219,6 +224,53 @@ pub async fn pump_events(state: ApiState) {
         // (room, seat) is simply what the map holds, and a release removes it.
         while let Ok(seat) = seats_rx.try_recv() {
             seats.apply(seat);
+        }
+        // Guest stat intents: already validated by the host, already coalesced
+        // per tick. The pump only resolves the seat to a user and applies the
+        // increment exactly once; projections follow from the new total.
+        while let Ok(write) = stats_rx.try_recv() {
+            let Some(user_id) = seats.user(&write.room, write.seat) else {
+                continue;
+            };
+            let receipt = StatWriteReceipt {
+                id: write.write_id,
+                room: write.room.clone(),
+                tick: write.tick,
+                user_id,
+                stat: write.stat.clone(),
+                delta: write.delta,
+                create_time: Utc::now(),
+            };
+            match q.apply_stat_write(&receipt).await {
+                Ok(Some(total)) => {
+                    if let Some(quests) = counters.by_counter.get(&write.stat) {
+                        let visible: Vec<&QuestDefinition> = quests.iter().collect();
+                        if let Err(err) = crate::services::quest::events::project_counter(
+                            &state,
+                            &q,
+                            user_id,
+                            &write.stat,
+                            total,
+                            write.delta,
+                            &visible,
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                "[control] stat '{}' for {user_id} applied but quest projection failed: {err}",
+                                write.stat
+                            );
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => tracing::warn!(
+                    "[control] dropped a stat write '{}' for seat {} in '{}': {err}",
+                    write.stat,
+                    write.seat,
+                    write.room
+                ),
+            }
         }
         while let Ok(event) = rx.try_recv() {
             let desync = if event.event.as_ref() == DESYNC_EVENT {
@@ -383,15 +435,18 @@ pub async fn pump_events(state: ApiState) {
 /// server-key ingest door instead. A seat whose claimed user does not exist as
 /// an account is dropped: counters are keyed by real accounts, and a bogus
 /// claim must not mint rows.
+///
+/// The same event is also a user-defined trigger: any rule bound to the event's
+/// name — `boss_died`, `combo_3x`, whatever the game listed in `record_events`
+/// — fires here for the seated player, exactly the way the built-in triggers
+/// fire from their own services. A name no rule binds to costs one indexed
+/// query that reads nothing.
 async fn credit_mirrored_event(
     state: &ApiState,
     seats: &SeatBridges,
     counters: &QuestCounters,
     event: &SimEvent,
 ) -> Result<(), String> {
-    let Some(quests) = counters.by_counter.get(event.event.as_ref()) else {
-        return Ok(());
-    };
     let Some(user_id) = seats.resolve(event) else {
         return Ok(());
     };
@@ -401,6 +456,10 @@ async fn credit_mirrored_event(
     if queries.get_user_by_id(user_id).await.is_err() {
         return Ok(());
     }
+    crate::services::rules::dispatch::fire(state, event.event.as_ref(), user_id).await;
+    let Some(quests) = counters.by_counter.get(event.event.as_ref()) else {
+        return Ok(());
+    };
     let visible: Vec<&crate::repositories::models::QuestDefinition> = quests.iter().collect();
     crate::services::quest::events::credit_counter(
         state,
@@ -438,6 +497,11 @@ pub async fn sweep_match_history(state: ApiState) {
             .await
         {
             tracing::warn!("[control] match history prune failed: {err}");
+        }
+        // A stat receipt only has to outlive a redelivered frame; keeping them
+        // forever would make the idempotency table outgrow the counters.
+        if let Err(err) = q.prune_stat_writes(cutoff(1)).await {
+            tracing::warn!("[control] stat receipt prune failed: {err}");
         }
     }
 }

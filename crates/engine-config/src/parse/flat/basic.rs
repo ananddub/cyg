@@ -62,6 +62,9 @@ pub(super) fn apply(cfg: &mut GameConfig, key: &str, value: &str) {
         "allow_messaging" => {
             cfg.permissions.messaging = value.parse().unwrap_or(cfg.permissions.messaging)
         }
+        "allow_stats" => cfg.permissions.stats = value.parse().unwrap_or(cfg.permissions.stats),
+        "allow_views" => cfg.permissions.views = value.parse().unwrap_or(cfg.permissions.views),
+        "allow_rewind" => cfg.permissions.rewind = value.parse().unwrap_or(cfg.permissions.rewind),
         "voice_ice_servers" => cfg.voice_ice_servers = value.to_string(),
         _ => {}
     }

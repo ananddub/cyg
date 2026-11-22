@@ -76,6 +76,12 @@ allow_lag_compensation = true
 allow_logging = true
 allow_storage = true
 allow_messaging = true
+# Allow the room to credit per-player counters via cyg.stats.add().
+allow_stats = false
+# Allow the room to narrow a player's state view via cyg.views.* (subtractive only).
+allow_views = false
+# Allow the room to record/query generic per-entity rewind samples.
+allow_rewind = false
 
 # Which network lanes to open. This is the only switch: no ports to pick.
 # `port` above is the game port; every other lane takes a free port from the OS

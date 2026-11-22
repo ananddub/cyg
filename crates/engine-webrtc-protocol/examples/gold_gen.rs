@@ -16,10 +16,12 @@ fn main() {
         source_type: String::new(),
         default: None,
         encoding: enc,
+        nested_path: None,
         line: 0,
         column: 0,
     };
     let def = SchemaDef {
+        nested_arrays: Vec::new(),
         name: "V".into(),
         version: 1,
         line: 0,

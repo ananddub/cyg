@@ -12,7 +12,7 @@ per-language decoders were REMOVED; games do not change their public surface
 `sdk/client/web/cyg.js` is now a BUILD ARTIFACT, not the source of truth.
 The source lives in **`sdk/client/core-ts`** (`@cyg/core-ts`):
 
-- `src/core/legacy.js` — the client engine (transports, reconnect, voice,
+- `src/core/engine.js` — the client engine (transports, reconnect, voice,
   prediction, REST) verbatim, on its way to a module-by-module split.
 - `src/room.ts` — `TypedRoom<TState, TMessages>`: compile-time checked
   `send`/`onMessage`/`state` driven by generated schema types.

@@ -1,24 +1,21 @@
-//! Host-side transcoder: the guest's fixed-width OXS2 sections → the packed
-//! wire the clients receive.
+//! Host-side packed-section validator and per-view masker.
 //!
-//! State is produced inside the guest wasm, so the host cannot encode from
-//! values it never had. What it *can* do is read the bytes the guest already
-//! produced and re-encode them. The guest ABI stays fixed-width on purpose:
-//! every server SDK (AssemblyScript, TypeScript, Rust, C, C++, C#, Lua) keeps
-//! emitting the same simple section, and the host upgrades it once.
+//! The guest emits canonical packed OXS2 sections. Shared state passes through
+//! byte-for-byte; viewer-specific private/AOI masking decodes and re-encodes.
 //!
 //! This is the *only* state wire format now. There is no fixed-width fallback:
 //! a descriptor compiles into one [`PackedSet`] at boot, and every peer, lane,
 //! AOI view and spectator frame goes through it.
 //!
-//! Cost model: one decode plus one encode per room tick for the shared body,
-//! and one extra transcode for a per-session AOI view. Nothing here runs per
-//! peer when the view is shared.
+//! Cost model: shared frames are decoded for validation and then passed through;
+//! per-session views decode, mask, and re-encode only when required.
+
+use std::collections::{HashMap, HashSet};
 
 use engine_schema::{Descriptor, SchemaDef};
 use engine_webrtc_protocol::packed::{self, PackedSchema};
 
-use super::legacy_section;
+use super::view::{VIEW_ROOT_COLLECTION, ViewIntent, ViewMask};
 
 /// Every schema in one descriptor, compiled once. The root is a synthetic
 /// [`SchemaDef`] over `descriptor.root.scalars` — the same definition the guest
@@ -27,12 +24,35 @@ pub struct PackedSet {
     root_schema: SchemaDef,
     root: PackedSchema,
     schemas: Vec<(u32, SchemaDef, PackedSchema)>,
+    /// Collection ids that are nested child collections; their row id packs
+    /// `(owner << 16) | slot`, so `.private()` ownership checks the high bits.
+    nested_ids: HashSet<u16>,
+    /// Name -> root collection id, and root collection id -> schema name.
+    collection_ids: HashMap<String, u16>,
+    collection_schemas: Vec<String>,
+    /// Schema hash -> the first root collection using it. A standalone
+    /// collection section carries only its schema hash; this lets a view hide
+    /// the named collection's fields there too.
+    hash_collection: HashMap<u32, u16>,
+    /// Schema name -> field name -> wire field index.
+    field_indices: HashMap<String, HashMap<String, u32>>,
+    root_field_indices: HashMap<String, u32>,
+    /// Field bits marked `.unreliable()` per schema hash, and for the root.
+    unreliable_by_hash: HashMap<u32, u32>,
+    root_unreliable: u32,
+    /// Latest values of volatile fields, kept host-side so the unreliable
+    /// stream can be rebuilt without asking the guest again.
+    volatile_root: Vec<packed::WireValue>,
+    volatile_collections: HashMap<(u16, u32), HashMap<u32, Vec<packed::WireValue>>>,
+    /// Whether the guest emits the single-collection or world form. Set by the
+    /// first section, so the volatile stream mirrors the same shape.
+    world_mode: bool,
     pub clamped: u32,
     pub failures: u64,
 }
 
 impl PackedSet {
-    /// Builds the transcoder for a descriptor. Returns `None` when the
+    /// Builds packed schemas for a descriptor. Returns `None` when the
     /// descriptor has no schemas at all (a relay room with no state wire).
     pub fn from_descriptor(bytes: &[u8]) -> Option<Self> {
         let descriptor: Descriptor = engine_schema::parse_descriptor(bytes)?;
@@ -40,6 +60,7 @@ impl PackedSet {
             return None;
         }
         let root_schema = SchemaDef {
+            nested_arrays: Vec::new(),
             name: descriptor.root.name.clone(),
             version: descriptor.root.version,
             fields: descriptor.root.scalars.clone(),
@@ -47,6 +68,73 @@ impl PackedSet {
             column: 0,
         };
         let root = PackedSchema::from_def(&root_schema);
+        let nested_ids: HashSet<u16> = descriptor
+            .root
+            .nested
+            .iter()
+            .filter_map(|nested| {
+                descriptor
+                    .root
+                    .collections
+                    .iter()
+                    .position(|collection| collection.name == nested.collection)
+                    .map(|index| index as u16)
+            })
+            .collect();
+        let collection_ids: HashMap<String, u16> = descriptor
+            .root
+            .collections
+            .iter()
+            .enumerate()
+            .map(|(index, collection)| (collection.name.clone(), index as u16))
+            .collect();
+        let collection_schemas = descriptor
+            .root
+            .collections
+            .iter()
+            .map(|collection| collection.schema.clone())
+            .collect();
+        let field_indices: HashMap<String, HashMap<String, u32>> = descriptor
+            .schemas
+            .iter()
+            .map(|schema| {
+                let fields = schema
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(index, field)| (field.name.clone(), index as u32))
+                    .collect();
+                (schema.name.clone(), fields)
+            })
+            .collect();
+        let root_field_indices = descriptor
+            .root
+            .scalars
+            .iter()
+            .enumerate()
+            .map(|(index, field)| (field.name.clone(), index as u32))
+            .collect();
+        let mut hash_collection = HashMap::new();
+        for (index, collection) in descriptor.root.collections.iter().enumerate() {
+            if let Some(schema) = descriptor
+                .schemas
+                .iter()
+                .find(|schema| schema.name == collection.schema)
+            {
+                hash_collection
+                    .entry(engine_schema::wire_hash(schema))
+                    .or_insert(index as u16);
+            }
+        }
+        let mut unreliable_by_hash = HashMap::new();
+        for schema in &descriptor.schemas {
+            let bits = unreliable_bits(schema);
+            if bits != 0 {
+                unreliable_by_hash.insert(engine_schema::wire_hash(schema), bits);
+            }
+        }
+        let root_unreliable = unreliable_bits(&root_schema);
+        let root_field_count = root_schema.fields.len();
         let schemas = descriptor
             .schemas
             .into_iter()
@@ -59,6 +147,17 @@ impl PackedSet {
             root_schema,
             root,
             schemas,
+            nested_ids,
+            collection_ids,
+            collection_schemas,
+            hash_collection,
+            field_indices,
+            root_field_indices,
+            unreliable_by_hash,
+            root_unreliable,
+            volatile_root: vec![packed::WireValue::Null; root_field_count],
+            volatile_collections: HashMap::new(),
+            world_mode: false,
             clamped: 0,
             failures: 0,
         })
@@ -82,32 +181,397 @@ impl PackedSet {
         self.schemas.first().map(|(_, _, packed)| packed)
     }
 
-    /// Re-encodes a guest full section (collection kind 1, or world kind 3).
+    /// True when this schema has an owner-only field. That makes the encoded
+    /// body viewer-dependent, so the shared per-tick frame cannot be reused.
+    pub fn has_private_fields(&self) -> bool {
+        self.root_schema
+            .fields
+            .iter()
+            .any(engine_schema::SchemaField::private)
+            || self.schemas.iter().any(|(_, schema, _)| {
+                schema
+                    .fields
+                    .iter()
+                    .any(engine_schema::SchemaField::private)
+            })
+    }
+
+    /// True when the descriptor marks any field `.unreliable()`.
+    pub fn has_unreliable_fields(&self) -> bool {
+        self.root_unreliable != 0 || !self.unreliable_by_hash.is_empty()
+    }
+
+    fn unreliable_bits_for(&self, hash: u32) -> u32 {
+        self.unreliable_by_hash.get(&hash).copied().unwrap_or(0)
+    }
+
+    fn collection_key(&self, hash: u32, fallback: u16) -> (u16, u32) {
+        (self.hash_collection.get(&hash).copied().unwrap_or(fallback), hash)
+    }
+
+    fn cache_collection(
+        &mut self,
+        collection: u16,
+        hash: u32,
+        decoded: &packed::Decoded,
+        full: bool,
+    ) {
+        let bits = self.unreliable_bits_for(hash);
+        if bits == 0 {
+            return;
+        }
+        let key = self.collection_key(hash, collection);
+        if full {
+            let mut rows = HashMap::new();
+            for op in &decoded.ops {
+                if let packed::PackedOp::Add { id, values } = op {
+                    rows.insert(*id, values.clone());
+                }
+            }
+            self.volatile_collections.insert(key, rows);
+            return;
+        }
+        let row_len = self.schema_by_hash(hash).map_or(0, |s| s.fields.len());
+        let rows = self.volatile_collections.entry(key).or_default();
+        for op in &decoded.ops {
+            match op {
+                packed::PackedOp::Add { id, values } => {
+                    rows.insert(*id, values.clone());
+                }
+                packed::PackedOp::Remove { id } => {
+                    rows.remove(id);
+                }
+                packed::PackedOp::Update { id, values, .. } => {
+                    let row = rows
+                        .entry(*id)
+                        .or_insert_with(|| vec![packed::WireValue::Null; row_len]);
+                    for (index, value) in values {
+                        if *index < row.len() {
+                            row[*index] = value.clone();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn cache_world(&mut self, decoded: &packed::DecodedWorld, full: bool) {
+        if self.root_unreliable != 0 {
+            if full {
+                self.volatile_root = vec![packed::WireValue::Null; self.root_schema.fields.len()];
+                for (index, value) in &decoded.root {
+                    if *index < self.volatile_root.len() {
+                        self.volatile_root[*index] = value.clone();
+                    }
+                }
+            } else {
+                for (index, value) in &decoded.root {
+                    if *index < self.volatile_root.len() {
+                        self.volatile_root[*index] = value.clone();
+                    }
+                }
+            }
+        }
+        for (id, hash, bytes) in &decoded.collections {
+            let bits = self.unreliable_bits_for(*hash);
+            if bits == 0 {
+                continue;
+            }
+            let Some(packed_schema) = self.packed_by_hash(*hash) else {
+                continue;
+            };
+            let Ok(inner) = packed::decode(packed_schema, bytes) else {
+                continue;
+            };
+            self.cache_collection(*id, *hash, &inner, full);
+        }
+    }
+
+    /// Builds the shared volatile-only patch from the host cache. Marked fields
+    /// are sent on the unreliable stream every tick; must-deliver fields never
+    /// appear here. Only safe when no field is owner-only and no view is active.
+    pub fn volatile_patch(&mut self) -> Option<Vec<u8>> {
+        self.volatile_patch_view_impl(None, None)
+    }
+
+    /// Builds a volatile-only patch already masked for one viewer. Used when
+    /// `.private()` or a view can hide a volatile field; an unmasked patch
+    /// would leak it to every peer.
+    pub fn volatile_patch_view(
+        &mut self,
+        viewer: u32,
+        view: Option<&ViewMask>,
+    ) -> Option<Vec<u8>> {
+        self.volatile_patch_view_impl(Some(viewer), view)
+    }
+
+    fn volatile_patch_view_impl(
+        &mut self,
+        viewer: Option<u32>,
+        view: Option<&ViewMask>,
+    ) -> Option<Vec<u8>> {
+        if !self.has_unreliable_fields() {
+            return None;
+        }
+        if self.world_mode {
+            let mut collections = Vec::new();
+            let mut entries: Vec<(u16, u32, HashMap<u32, Vec<packed::WireValue>>)> =
+                self.volatile_collections
+                    .iter()
+                    .map(|((id, hash), rows)| (*id, *hash, rows.clone()))
+                    .collect();
+            entries.sort_by_key(|(id, hash, _)| (*id, *hash));
+            for (id, hash, rows) in entries {
+                let bits = self.unreliable_bits_for(hash);
+                if bits == 0 || rows.is_empty() {
+                    continue;
+                }
+                let Some(packed_schema) = self.packed_by_hash(hash) else {
+                    continue;
+                };
+                let Some(schema) = self.schema_by_hash(hash).cloned() else {
+                    continue;
+                };
+                let mut ops = Vec::with_capacity(rows.len());
+                for (row_id, values) in rows {
+                    let entries: Vec<(usize, packed::WireValue)> = values
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, _)| bits & (1u32 << index) != 0)
+                        .map(|(index, value)| (index, value.clone()))
+                        .collect();
+                    if !entries.is_empty() {
+                        ops.push(packed::PackedOp::Update {
+                            id: row_id,
+                            mask: bits,
+                            values: entries,
+                        });
+                    }
+                }
+                if ops.is_empty() {
+                    continue;
+                }
+                if let Some(viewer) = viewer {
+                    let shift = self.nested_ids.contains(&id).then_some(16);
+                    let hidden = view.map(|view| view.hidden_for(Some(id))).unwrap_or(0);
+                    mask_ops(&schema, &mut ops, viewer, shift, view, hidden);
+                }
+                if ops.is_empty() {
+                    continue;
+                }
+                let mut clamped = 0;
+                if let Ok(bytes) = packed::encode_patch(packed_schema, &ops, &mut clamped) {
+                    self.clamped += clamped;
+                    collections.push((id, hash, bytes));
+                }
+            }
+            let mut root_mask = self.root_unreliable;
+            let mut root_entries: Vec<(usize, packed::WireValue)> = self
+                .volatile_root
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| root_mask & (1u32 << index) != 0)
+                .map(|(index, value)| (index, value.clone()))
+                .collect();
+            if let Some(viewer) = viewer {
+                let hidden = view.map(ViewMask::hidden_root).unwrap_or(0);
+                mask_root_patch(
+                    &self.root_schema,
+                    &mut root_entries,
+                    &mut root_mask,
+                    viewer,
+                    hidden,
+                );
+            }
+            if root_mask == 0 && collections.is_empty() {
+                return None;
+            }
+            let mut clamped = 0;
+            let out = packed::encode_world_patch(
+                &self.root,
+                root_mask,
+                &root_entries,
+                &collections,
+                &mut clamped,
+            )
+            .ok();
+            self.clamped += clamped;
+            return out;
+        }
+        // Single-collection form: the first schema that declares volatile
+        // fields, with every cached row carrying those fields.
+        let schemas: Vec<(u32, u16)> = self
+            .unreliable_by_hash
+            .keys()
+            .filter_map(|hash| {
+                self.hash_collection
+                    .get(hash)
+                    .or(Some(&0))
+                    .map(|id| (*hash, *id))
+            })
+            .collect();
+        let (hash, collection) = schemas.into_iter().next()?;
+        let bits = self.unreliable_bits_for(hash);
+        let packed_schema = self.packed_by_hash(hash)?;
+        let schema = self.schema_by_hash(hash)?.clone();
+        let rows = self.volatile_collections.get(&self.collection_key(hash, collection))?;
+        if rows.is_empty() {
+            return None;
+        }
+        let mut ops = Vec::with_capacity(rows.len());
+        for (id, values) in rows {
+            let entries: Vec<(usize, packed::WireValue)> = values
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| bits & (1u32 << index) != 0)
+                .map(|(index, value)| (index, value.clone()))
+                .collect();
+            if !entries.is_empty() {
+                ops.push(packed::PackedOp::Update {
+                    id: *id,
+                    mask: bits,
+                    values: entries,
+                });
+            }
+        }
+        if ops.is_empty() {
+            return None;
+        }
+        if let Some(viewer) = viewer {
+            let shift = self.nested_ids.contains(&collection).then_some(16);
+            let hidden = view.map(|view| view.hidden_for(Some(collection))).unwrap_or(0);
+            mask_ops(&schema, &mut ops, viewer, shift, view, hidden);
+        }
+        if ops.is_empty() {
+            return None;
+        }
+        let mut clamped = 0;
+        let out = packed::encode_patch(packed_schema, &ops, &mut clamped).ok();
+        self.clamped += clamped;
+        out
+    }
+
+    /// Validates and passes through a guest packed full section (kind 5 or 7).
     pub fn full(&mut self, section: &[u8]) -> Result<Vec<u8>, String> {
-        let outcome = self.transcode(section, true);
+        let outcome = self.process(section, true, None, None);
         self.counted(outcome)
     }
 
-    /// Re-encodes a guest patch section (collection kind 2, or world kind 4).
+    /// Validates and passes through a guest packed patch section (kind 6 or 8).
     pub fn patch(&mut self, section: &[u8]) -> Result<Vec<u8>, String> {
-        let outcome = self.transcode(section, false);
+        let outcome = self.process(section, false, None, None);
         self.counted(outcome)
     }
 
-    fn transcode(&mut self, section: &[u8], full: bool) -> Result<Vec<u8>, String> {
+    /// Full section with `.private()` fields masked for `viewer_id`.
+    pub fn full_for(&mut self, section: &[u8], viewer_id: u32) -> Result<Vec<u8>, String> {
+        let outcome = self.process(section, true, Some(viewer_id), None);
+        self.counted(outcome)
+    }
+
+    /// Patch section with `.private()` changes removed for `viewer_id`.
+    pub fn patch_for(&mut self, section: &[u8], viewer_id: u32) -> Result<Vec<u8>, String> {
+        let outcome = self.process(section, false, Some(viewer_id), None);
+        self.counted(outcome)
+    }
+
+    /// Full section filtered by the viewer's session [`ViewMask`].
+    pub fn full_for_view(
+        &mut self,
+        section: &[u8],
+        viewer_id: u32,
+        view: &ViewMask,
+    ) -> Result<Vec<u8>, String> {
+        let outcome = self.process(section, true, Some(viewer_id), Some(view));
+        self.counted(outcome)
+    }
+
+    /// Patch section filtered by the viewer's session [`ViewMask`].
+    pub fn patch_for_view(
+        &mut self,
+        section: &[u8],
+        viewer_id: u32,
+        view: &ViewMask,
+    ) -> Result<Vec<u8>, String> {
+        let outcome = self.process(section, false, Some(viewer_id), Some(view));
+        self.counted(outcome)
+    }
+
+    /// Resolves one guest intent against the descriptor and mutates the view.
+    /// Returns whether the effective mask changed; an unchanged intent must not
+    /// force another full snapshot.
+    pub fn apply_view_intent(
+        &self,
+        view: &mut ViewMask,
+        intent: &ViewIntent,
+    ) -> Result<bool, String> {
+        match intent {
+            ViewIntent::HideField {
+                collection, field, ..
+            } => {
+                let (collection_id, index) = if collection.as_ref() == VIEW_ROOT_COLLECTION {
+                    let Some(index) = self.root_field_indices.get(field.as_ref()) else {
+                        return Err(format!("unknown root field `{field}`"));
+                    };
+                    (None, *index)
+                } else {
+                    let Some(id) = self.collection_ids.get(collection.as_ref()).copied() else {
+                        return Err(format!("unknown collection `{collection}`"));
+                    };
+                    let schema = self
+                        .collection_schemas
+                        .get(id as usize)
+                        .ok_or_else(|| format!("collection `{collection}` has no schema"))?;
+                    let Some(index) = self
+                        .field_indices
+                        .get(schema)
+                        .and_then(|fields| fields.get(field.as_ref()))
+                    else {
+                        return Err(format!(
+                            "unknown field `{field}` on collection `{collection}`"
+                        ));
+                    };
+                    (Some(id), *index)
+                };
+                Ok(view.hide(collection_id, index))
+            }
+            ViewIntent::OnlySelf { enabled, .. } => Ok(view.set_only_self(*enabled)),
+            ViewIntent::Reset { .. } => Ok(view.clear()),
+        }
+    }
+
+    fn process(
+        &mut self,
+        section: &[u8],
+        full: bool,
+        viewer: Option<u32>,
+        view: Option<&ViewMask>,
+    ) -> Result<Vec<u8>, String> {
         let kind = *section.get(4).ok_or("truncated schema section")?;
+        if matches!(kind, packed::KIND_WORLD_FULL | packed::KIND_WORLD_PATCH) {
+            self.world_mode = true;
+        }
         match kind {
-            legacy_section::KIND_FULL | legacy_section::KIND_PATCH => {
-                self.transcode_collection(section, full)
+            packed::KIND_FULL | packed::KIND_PATCH => {
+                self.process_collection(section, full, viewer, view)
             }
-            legacy_section::KIND_WORLD_FULL | legacy_section::KIND_WORLD_PATCH => {
-                self.transcode_world(section, full)
+            packed::KIND_WORLD_FULL | packed::KIND_WORLD_PATCH => {
+                self.process_world(section, full, viewer, view)
             }
+            1..=4 => Err(format!(
+                "fixed-width guest schema kind {kind} rejected; rebuild the room wasm for packed OXS2 sections"
+            )),
             other => Err(format!("unknown guest schema kind {other}")),
         }
     }
 
-    fn transcode_collection(&mut self, section: &[u8], full: bool) -> Result<Vec<u8>, String> {
+    fn process_collection(
+        &mut self,
+        section: &[u8],
+        full: bool,
+        viewer: Option<u32>,
+        view: Option<&ViewMask>,
+    ) -> Result<Vec<u8>, String> {
         // The section carries its schema hash at bytes 5..9; pick that schema
         // instead of assuming the first collection (a descriptor can hold many).
         let hash = section
@@ -118,66 +582,218 @@ impl PackedSet {
         let schema = self
             .schema_by_hash(hash)
             .cloned()
-            .or_else(|| self.schemas.first().map(|(_, schema, _)| schema.clone()))
-            .ok_or("descriptor has no schema")?;
+            .ok_or_else(|| format!("unknown guest collection schema {hash:08x}"))?;
         let packed = PackedSchema::from_def(&schema);
+        let collection = self.hash_collection.get(&hash).copied();
+        let shift = collection.and_then(|id| self.nested_ids.contains(&id).then_some(16));
+        let hidden = view.map(|view| view.hidden_for(collection)).unwrap_or(0);
+        let decoded = packed::decode(&packed, section)
+            .map_err(|error| format!("invalid packed guest collection section: {error}"))?;
+        let expected = if full {
+            packed::KIND_FULL
+        } else {
+            packed::KIND_PATCH
+        };
+        if decoded.kind != expected {
+            return Err(format!(
+                "expected packed section kind {expected}, got {}",
+                decoded.kind
+            ));
+        }
+        let unreliable = self.unreliable_bits_for(hash);
+        if unreliable != 0 {
+            self.cache_collection(collection.unwrap_or(0), hash, &decoded, full);
+        }
+        let Some(viewer) = viewer else {
+            if unreliable == 0 || full {
+                return Ok(section.to_vec());
+            }
+            let mut ops = decoded.ops;
+            strip_unreliable_ops(&mut ops, unreliable);
+            return packed::encode_patch(&packed, &ops, &mut self.clamped)
+                .map_err(|error| error.to_string());
+        };
         if full {
-            let rows = legacy_section::decode_full(section, &schema)?;
+            let mut rows = Vec::with_capacity(decoded.ops.len());
+            for op in decoded.ops {
+                let packed::PackedOp::Add { id, values } = op else {
+                    return Err("non-add operation in packed full section".into());
+                };
+                rows.push((id, values));
+            }
+            mask_rows(&schema, &mut rows, viewer, shift, view, hidden);
             packed::encode_full(&packed, &rows, &mut self.clamped)
                 .map_err(|error| error.to_string())
         } else {
-            let ops = legacy_section::decode_patch(section, &schema)?;
+            let mut ops = decoded.ops;
+            mask_ops(&schema, &mut ops, viewer, shift, view, hidden);
+            if unreliable != 0 {
+                strip_unreliable_ops(&mut ops, unreliable);
+            }
             packed::encode_patch(&packed, &ops, &mut self.clamped)
                 .map_err(|error| error.to_string())
         }
     }
 
-    fn transcode_world(&mut self, section: &[u8], full: bool) -> Result<Vec<u8>, String> {
-        if full {
-            let world = legacy_section::decode_world_full(section, &self.root_schema)?;
-            let mut collections = Vec::with_capacity(world.collections.len());
-            for collection in world.collections {
-                let schema = self
-                    .schema_by_hash(collection.hash)
-                    .cloned()
-                    .ok_or_else(|| format!("unknown collection schema {:08x}", collection.hash))?;
-                let packed = self
-                    .packed_by_hash(collection.hash)
-                    .cloned()
-                    .ok_or_else(|| format!("unknown collection schema {:08x}", collection.hash))?;
-                let rows = legacy_section::decode_full(collection.section, &schema)?;
-                let bytes = packed::encode_full(&packed, &rows, &mut self.clamped)
-                    .map_err(|error| error.to_string())?;
-                collections.push((collection.id, collection.hash, bytes));
+    fn process_world(
+        &mut self,
+        section: &[u8],
+        full: bool,
+        viewer: Option<u32>,
+        view: Option<&ViewMask>,
+    ) -> Result<Vec<u8>, String> {
+        let decoded = packed::decode_world(&self.root, section)
+            .map_err(|error| format!("invalid packed guest world section: {error}"))?;
+        let expected = if full {
+            packed::KIND_WORLD_FULL
+        } else {
+            packed::KIND_WORLD_PATCH
+        };
+        if decoded.kind != expected {
+            return Err(format!(
+                "expected packed world kind {expected}, got {}",
+                decoded.kind
+            ));
+        }
+        self.cache_world(&decoded, full);
+        let Some(viewer) = viewer else {
+            if !full && (self.root_unreliable != 0 || !self.unreliable_by_hash.is_empty()) {
+                return self.reliable_world_patch(&decoded);
             }
-            packed::encode_world_full(&self.root, &world.root, &collections, &mut self.clamped)
+            for (id, hash, bytes) in &decoded.collections {
+                let schema = self
+                    .packed_by_hash(*hash)
+                    .ok_or_else(|| format!("unknown collection schema {hash:08x}"))?;
+                packed::decode(schema, bytes)
+                    .map_err(|error| format!("invalid packed collection {id}: {error}"))?;
+            }
+            return Ok(section.to_vec());
+        };
+        let root_hidden = view.map(ViewMask::hidden_root).unwrap_or(0);
+        if full {
+            let mut root_values = vec![packed::WireValue::Null; self.root_schema.fields.len()];
+            for (index, value) in decoded.root {
+                root_values[index] = value;
+            }
+            mask_root(&self.root_schema, &mut root_values, viewer, root_hidden);
+            let mut collections = Vec::with_capacity(decoded.collections.len());
+            for (id, hash, bytes) in decoded.collections {
+                let schema = self
+                    .schema_by_hash(hash)
+                    .cloned()
+                    .ok_or_else(|| format!("unknown collection schema {hash:08x}"))?;
+                let packed_schema = self
+                    .packed_by_hash(hash)
+                    .cloned()
+                    .ok_or_else(|| format!("unknown collection schema {hash:08x}"))?;
+                let decoded_collection = packed::decode(&packed_schema, &bytes)
+                    .map_err(|error| format!("invalid packed collection {id}: {error}"))?;
+                if decoded_collection.kind != packed::KIND_FULL {
+                    return Err(format!("expected packed full collection {id}"));
+                }
+                let mut rows = Vec::with_capacity(decoded_collection.ops.len());
+                for op in decoded_collection.ops {
+                    let packed::PackedOp::Add { id, values } = op else {
+                        return Err("non-add operation in packed world full".into());
+                    };
+                    rows.push((id, values));
+                }
+                let shift = self.nested_ids.contains(&id).then_some(16);
+                let hidden = view.map(|view| view.hidden_for(Some(id))).unwrap_or(0);
+                mask_rows(&schema, &mut rows, viewer, shift, view, hidden);
+                let bytes = packed::encode_full(&packed_schema, &rows, &mut self.clamped)
+                    .map_err(|error| error.to_string())?;
+                collections.push((id, hash, bytes));
+            }
+            packed::encode_world_full(&self.root, &root_values, &collections, &mut self.clamped)
                 .map_err(|error| error.to_string())
         } else {
-            let world = legacy_section::decode_world_patch(section, &self.root_schema)?;
-            let mut collections = Vec::with_capacity(world.collections.len());
-            for collection in world.collections {
+            let mut root_mask = decoded.root_mask;
+            let mut root_values = decoded.root;
+            mask_root_patch(
+                &self.root_schema,
+                &mut root_values,
+                &mut root_mask,
+                viewer,
+                root_hidden,
+            );
+            if self.root_unreliable != 0 {
+                root_mask &= !self.root_unreliable;
+                root_values.retain(|(index, _)| self.root_unreliable & (1u32 << index) == 0);
+            }
+            let mut collections = Vec::with_capacity(decoded.collections.len());
+            for (id, hash, bytes) in decoded.collections {
                 let schema = self
-                    .schema_by_hash(collection.hash)
+                    .schema_by_hash(hash)
                     .cloned()
-                    .ok_or_else(|| format!("unknown collection schema {:08x}", collection.hash))?;
-                let packed = self
-                    .packed_by_hash(collection.hash)
+                    .ok_or_else(|| format!("unknown collection schema {hash:08x}"))?;
+                let packed_schema = self
+                    .packed_by_hash(hash)
                     .cloned()
-                    .ok_or_else(|| format!("unknown collection schema {:08x}", collection.hash))?;
-                let ops = legacy_section::decode_patch(collection.section, &schema)?;
-                let bytes = packed::encode_patch(&packed, &ops, &mut self.clamped)
+                    .ok_or_else(|| format!("unknown collection schema {hash:08x}"))?;
+                let decoded_collection = packed::decode(&packed_schema, &bytes)
+                    .map_err(|error| format!("invalid packed collection {id}: {error}"))?;
+                if decoded_collection.kind != packed::KIND_PATCH {
+                    return Err(format!("expected packed patch collection {id}"));
+                }
+                let mut ops = decoded_collection.ops;
+                let shift = self.nested_ids.contains(&id).then_some(16);
+                let hidden = view.map(|view| view.hidden_for(Some(id))).unwrap_or(0);
+                mask_ops(&schema, &mut ops, viewer, shift, view, hidden);
+                let bits = self.unreliable_bits_for(hash);
+                if bits != 0 {
+                    strip_unreliable_ops(&mut ops, bits);
+                }
+                let bytes = packed::encode_patch(&packed_schema, &ops, &mut self.clamped)
                     .map_err(|error| error.to_string())?;
-                collections.push((collection.id, collection.hash, bytes));
+                collections.push((id, hash, bytes));
             }
             packed::encode_world_patch(
                 &self.root,
-                world.root_mask,
-                &world.root,
+                root_mask,
+                &root_values,
                 &collections,
                 &mut self.clamped,
             )
             .map_err(|error| error.to_string())
         }
+    }
+
+    fn reliable_world_patch(&mut self, decoded: &packed::DecodedWorld) -> Result<Vec<u8>, String> {
+        let mut root_mask = decoded.root_mask;
+        let mut root_values = decoded.root.clone();
+        if self.root_unreliable != 0 {
+            root_mask &= !self.root_unreliable;
+            root_values.retain(|(index, _)| self.root_unreliable & (1u32 << index) == 0);
+        }
+        let mut collections = Vec::with_capacity(decoded.collections.len());
+        for (id, hash, bytes) in &decoded.collections {
+            let bits = self.unreliable_bits_for(*hash);
+            let packed_schema = self
+                .packed_by_hash(*hash)
+                .ok_or_else(|| format!("unknown collection schema {hash:08x}"))?;
+            let mut inner = packed::decode(packed_schema, bytes)
+                .map_err(|error| format!("invalid packed collection {id}: {error}"))?;
+            if bits != 0 {
+                strip_unreliable_ops(&mut inner.ops, bits);
+            }
+            let mut clamped = 0;
+            let bytes = packed::encode_patch(packed_schema, &inner.ops, &mut clamped)
+                .map_err(|error| error.to_string())?;
+            self.clamped += clamped;
+            collections.push((*id, *hash, bytes));
+        }
+        let mut clamped = 0;
+        let out = packed::encode_world_patch(
+            &self.root,
+            root_mask,
+            &root_values,
+            &collections,
+            &mut clamped,
+        )
+        .map_err(|error| error.to_string());
+        self.clamped += clamped;
+        out
     }
 
     /// The schema hash of the primary collection, used by the old call sites
@@ -187,7 +803,7 @@ impl PackedSet {
         self.first_packed().map(PackedSchema::hash)
     }
 
-    /// Every failure path bumps the counter — a silent transcode failure would
+    /// Every failure path bumps the counter — a silent packed-section failure would
     /// look like "the room sends no state", the hardest bug to trace back here.
     fn counted(&mut self, outcome: Result<Vec<u8>, String>) -> Result<Vec<u8>, String> {
         if outcome.is_err() {
@@ -195,6 +811,139 @@ impl PackedSet {
         }
         outcome
     }
+}
+
+fn unreliable_bits(schema: &SchemaDef) -> u32 {
+    let mut bits = 0u32;
+    for (index, field) in schema.fields.iter().enumerate().take(32) {
+        if field.flags & engine_schema::FIELD_UNRELIABLE != 0 {
+            bits |= 1u32 << index;
+        }
+    }
+    bits
+}
+
+fn strip_unreliable_ops(ops: &mut Vec<packed::PackedOp>, bits: u32) {
+    for op in ops.iter_mut() {
+        match op {
+            packed::PackedOp::Add { values, .. } => {
+                for index in 0..values.len().min(32) {
+                    if bits & (1u32 << index) != 0 {
+                        values[index] = packed::WireValue::Null;
+                    }
+                }
+            }
+            packed::PackedOp::Update { mask, values, .. } => {
+                *mask &= !bits;
+                values.retain(|(index, _)| bits & (1u32 << *index) == 0);
+            }
+            packed::PackedOp::Remove { .. } => {}
+        }
+    }
+    ops.retain(|op| !matches!(op, packed::PackedOp::Update { mask: 0, .. }));
+}
+
+fn field_hidden(schema: &SchemaDef, index: usize, owner_visible: bool, hidden: u32) -> bool {
+    (schema.fields[index].private() && !owner_visible) || hidden & (1u32 << index) != 0
+}
+
+fn row_owner(id: u32, owner_shift: Option<u32>) -> u32 {
+    owner_shift.map(|shift| id >> shift).unwrap_or(id)
+}
+
+fn mask_rows(
+    schema: &SchemaDef,
+    rows: &mut Vec<(u32, Vec<packed::WireValue>)>,
+    viewer: u32,
+    owner_shift: Option<u32>,
+    view: Option<&ViewMask>,
+    hidden: u32,
+) {
+    let only_self = view.is_some_and(ViewMask::only_self);
+    if only_self {
+        rows.retain(|(id, _)| row_owner(*id, owner_shift) == viewer);
+    }
+    for (id, values) in rows {
+        let owner_visible = row_owner(*id, owner_shift) == viewer;
+        for index in 0..schema.fields.len() {
+            if field_hidden(schema, index, owner_visible, hidden) {
+                values[index] = packed::WireValue::Null;
+            }
+        }
+    }
+}
+
+fn mask_ops(
+    schema: &SchemaDef,
+    ops: &mut Vec<packed::PackedOp>,
+    viewer: u32,
+    owner_shift: Option<u32>,
+    view: Option<&ViewMask>,
+    hidden: u32,
+) {
+    let only_self = view.is_some_and(ViewMask::only_self);
+    if only_self {
+        ops.retain(|op| match op {
+            packed::PackedOp::Add { id, .. }
+            | packed::PackedOp::Update { id, .. }
+            | packed::PackedOp::Remove { id } => row_owner(*id, owner_shift) == viewer,
+        });
+    }
+    for op in ops.iter_mut() {
+        match op {
+            packed::PackedOp::Add { id, values } => {
+                let owner_visible = row_owner(*id, owner_shift) == viewer;
+                for index in 0..schema.fields.len() {
+                    if field_hidden(schema, index, owner_visible, hidden) {
+                        values[index] = packed::WireValue::Null;
+                    }
+                }
+            }
+            packed::PackedOp::Update { id, mask, values } => {
+                let owner_visible = row_owner(*id, owner_shift) == viewer;
+                values.retain(|(index, _)| !field_hidden(schema, *index, owner_visible, hidden));
+                if hidden != 0
+                    || schema
+                        .fields
+                        .iter()
+                        .any(engine_schema::SchemaField::private)
+                {
+                    for index in 0..schema.fields.len() {
+                        if field_hidden(schema, index, owner_visible, hidden) {
+                            *mask &= !(1u32 << index);
+                        }
+                    }
+                }
+            }
+            packed::PackedOp::Remove { .. } => {}
+        }
+    }
+    ops.retain(|op| !matches!(op, packed::PackedOp::Update { mask: 0, .. }));
+}
+
+fn mask_root(schema: &SchemaDef, values: &mut [packed::WireValue], viewer: u32, hidden: u32) {
+    for index in 0..schema.fields.len() {
+        if field_hidden(schema, index, false, hidden) {
+            values[index] = packed::WireValue::Null;
+        }
+    }
+    let _ = viewer;
+}
+
+fn mask_root_patch(
+    schema: &SchemaDef,
+    values: &mut Vec<(usize, packed::WireValue)>,
+    mask: &mut u32,
+    viewer: u32,
+    hidden: u32,
+) {
+    values.retain(|(index, _)| !field_hidden(schema, *index, false, hidden));
+    for index in 0..schema.fields.len() {
+        if field_hidden(schema, index, false, hidden) {
+            *mask &= !(1u32 << index);
+        }
+    }
+    let _ = viewer;
 }
 
 #[cfg(test)]

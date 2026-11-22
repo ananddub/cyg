@@ -19,12 +19,17 @@ pub(crate) fn flush_room_outbox(
     room_name: &str,
     history: &EventHistory,
 ) {
+    let tick = room.current_tick;
+    let intents = room.drain_stat_intents();
+    if !intents.is_empty() {
+        history.record_stats(room_name, tick, intents);
+    }
+
     let messages = room.drain_outbox();
     if messages.is_empty() {
         return;
     }
 
-    let tick = room.current_tick;
     let mut frame = Vec::with_capacity(64);
     // Reverse id→session index, built lazily once per flush (only when
     // targeted messages or kicks exist) instead of an O(sessions) linear
@@ -49,11 +54,9 @@ pub(crate) fn flush_room_outbox(
             let session = id_to_session
                 .entry(message.target)
                 .or_insert_with(|| {
-                    room.sessions
-                        .iter()
-                        .find_map(|(session, id)| {
-                            (*id == message.target).then(|| std::rc::Rc::clone(session))
-                        })
+                    room.sessions.iter().find_map(|(session, id)| {
+                        (*id == message.target).then(|| std::rc::Rc::clone(session))
+                    })
                 })
                 .clone();
             if let Some(session) = session {

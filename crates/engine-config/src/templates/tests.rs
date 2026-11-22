@@ -79,3 +79,12 @@ fn ts_schema_template_declares_typed_join_options() {
         "the scaffold needs no JSON helpers"
     );
 }
+
+#[test]
+fn views_permission_is_deny_by_default_and_configurable() {
+    assert!(!crate::GameConfig::default().permissions.views);
+    let cfg = crate::parse_config("allow_views = true\n");
+    assert!(cfg.permissions.views);
+    assert!(!crate::GameConfig::default().permissions.rewind);
+    assert!(crate::parse_config("allow_rewind = true\n").permissions.rewind);
+}

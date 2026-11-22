@@ -20,6 +20,8 @@ impl GameRoom {
         self.voice_room.leave_participant(id as u32);
         self.seqs.remove(&id);
         self.entries.remove(&id);
+        self.view_masks.remove(&id);
+        self.view_dirty.remove(&id);
         self.input_journal.retain(|j| j.session.as_ref() != session);
     }
 
@@ -141,6 +143,8 @@ impl GameRoom {
             }
             self.seqs.remove(&id);
             self.entries.remove(&id);
+            self.view_masks.remove(&id);
+        self.view_dirty.remove(&id);
         }
         self.schema_sent.remove(session);
         self.spectators.insert(std::rc::Rc::from(session));
@@ -162,6 +166,8 @@ impl GameRoom {
         }
         self.seqs.remove(&id);
         self.entries.remove(&id);
+        self.view_masks.remove(&id);
+        self.view_dirty.remove(&id);
     }
 
     /// Remove a player the room kicked via `client.leave()` — the seat dies

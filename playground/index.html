@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CYG Playground</title>
+<style>
+  :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+  body { margin: 0; background: #0b0d10; color: #e6e8eb; }
+  main { max-width: 980px; margin: 0 auto; padding: 28px 18px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p { color: #9aa4b2; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: 320px 1fr; gap: 18px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  section { background: #12161c; border: 1px solid #232a34; border-radius: 12px; padding: 16px; }
+  label { display: block; font-size: 12px; color: #9aa4b2; margin: 10px 0 4px; }
+  input, select { width: 100%; box-sizing: border-box; background: #0b0d10; color: #e6e8eb; border: 1px solid #2b3440; border-radius: 8px; padding: 8px; }
+  button { background: #6ee7b7; color: #04110b; border: 0; border-radius: 8px; padding: 9px 12px; font-weight: 700; cursor: pointer; margin: 8px 6px 0 0; }
+  button.secondary { background: #202833; color: #d7dde6; }
+  pre { background: #0b0d10; border: 1px solid #232a34; border-radius: 8px; padding: 12px; overflow: auto; max-height: 420px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+</style>
+</head>
+<body>
+<main>
+  <h1>CYG Playground</h1>
+  <p>Deterministic two-player harness. Same <code>TestRoom</code> the CI tests use — no server required.</p>
+  <div class="grid">
+    <section>
+      <label>Tick rate</label>
+      <input id="tickRate" type="number" value="30" min="1" max="240" />
+      <label>Latency (ms)</label>
+      <input id="latency" type="number" value="80" min="0" max="500" />
+      <label>Packet loss</label>
+      <input id="loss" type="number" value="0.05" min="0" max="1" step="0.01" />
+      <label>Seed</label>
+      <input id="seed" type="number" value="42" />
+      <button id="start">Start room</button>
+      <button id="connect" class="secondary">Connect player</button>
+      <button id="tick" class="secondary">Tick ×10</button>
+      <button id="reset" class="secondary">Reset</button>
+      <label>Move X</label>
+      <div class="row">
+        <input id="moveX" type="number" value="1" step="0.1" />
+        <button id="send">Send input</button>
+      </div>
+    </section>
+    <section>
+      <pre id="out">room not started</pre>
+    </section>
+  </div>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

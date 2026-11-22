@@ -26,6 +26,7 @@ fn field(
         source_type: String::new(),
         default: None,
         encoding,
+        nested_path: None,
         line: 0,
         column: 0,
     }
@@ -33,6 +34,7 @@ fn field(
 
 fn player_schema() -> SchemaDef {
     SchemaDef {
+        nested_arrays: Vec::new(),
         name: "Player".into(),
         version: 1,
         fields: vec![
@@ -70,6 +72,7 @@ fn player_schema() -> SchemaDef {
 
 fn descriptor() -> Descriptor {
     let root = engine_schema::RootState {
+        nested: Vec::new(),
         name: "Arena".into(),
         version: 1,
         scalars: vec![],
@@ -186,6 +189,7 @@ fn a_packed_patch_updates_and_removes() {
 #[test]
 fn a_packed_world_applies_root_scalars_and_every_collection() {
     let marker = SchemaDef {
+        nested_arrays: Vec::new(),
         name: "Marker".into(),
         version: 1,
         fields: vec![
@@ -206,6 +210,7 @@ fn a_packed_world_applies_root_scalars_and_every_collection() {
         column: 0,
     };
     let root = engine_schema::RootState {
+        nested: Vec::new(),
         name: "World".into(),
         version: 1,
         scalars: vec![field(
@@ -228,6 +233,7 @@ fn a_packed_world_applies_root_scalars_and_every_collection() {
     let descriptor =
         parse_descriptor(&emit_descriptor(&[player_schema(), marker], Some(&root))).expect("desc");
     let root_def = SchemaDef {
+        nested_arrays: Vec::new(),
         name: "World".into(),
         version: 1,
         fields: root.scalars,
@@ -275,6 +281,7 @@ fn a_packed_world_applies_root_scalars_and_every_collection() {
 #[test]
 fn a_packed_world_patch_touches_only_the_changed_collection() {
     let marker = SchemaDef {
+        nested_arrays: Vec::new(),
         name: "Marker".into(),
         version: 1,
         fields: vec![field(
@@ -287,6 +294,7 @@ fn a_packed_world_patch_touches_only_the_changed_collection() {
         column: 0,
     };
     let root = engine_schema::RootState {
+        nested: Vec::new(),
         name: "World".into(),
         version: 1,
         scalars: vec![field(
@@ -309,6 +317,7 @@ fn a_packed_world_patch_touches_only_the_changed_collection() {
     let descriptor =
         parse_descriptor(&emit_descriptor(&[player_schema(), marker], Some(&root))).expect("desc");
     let root_def = SchemaDef {
+        nested_arrays: Vec::new(),
         name: "World".into(),
         version: 1,
         fields: root.scalars,

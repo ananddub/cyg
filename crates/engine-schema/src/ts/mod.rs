@@ -76,6 +76,20 @@ pub fn parse(source: &str) -> Result<TsSchema, Vec<SchemaDiagnostic>> {
             });
             continue;
         }
+        if !declaration.schema.nested_arrays.is_empty() {
+            diagnostics.push(SchemaDiagnostic {
+                line: declaration.schema.line,
+                column: declaration.schema.column,
+                message: "the root State cannot declare `t.array(Entity)` fields; put nested arrays on a collection schema".into(),
+            });
+        }
+        if declaration.schema.fields.iter().any(|field| field.nested_path.is_some()) {
+            diagnostics.push(SchemaDiagnostic {
+                line: declaration.schema.line,
+                column: declaration.schema.column,
+                message: "the root State cannot declare nested schema fields; put them on a collection schema".into(),
+            });
+        }
         if declaration.maps.len() > MAX_COLLECTIONS {
             diagnostics.push(SchemaDiagnostic {
                 line: declaration.schema.line,
@@ -89,6 +103,7 @@ pub fn parse(source: &str) -> Result<TsSchema, Vec<SchemaDiagnostic>> {
         }
 
         root = Some(RootState {
+            nested: Vec::new(),
             name: declaration.schema.name.clone(),
             version: declaration.schema.version,
             scalars: declaration.schema.fields.clone(),
@@ -103,6 +118,10 @@ pub fn parse(source: &str) -> Result<TsSchema, Vec<SchemaDiagnostic>> {
         });
     }
 
+    if let Some(root) = root.as_mut() {
+        lower_nested_collections(root, &schemas, &mut diagnostics);
+    }
+
     if diagnostics.is_empty() {
         validate(&schemas, root.as_ref(), &mut diagnostics);
     }
@@ -113,6 +132,76 @@ pub fn parse(source: &str) -> Result<TsSchema, Vec<SchemaDiagnostic>> {
         return Err(diagnostics);
     }
     Ok(TsSchema { schemas, root })
+}
+
+/// Lower every `items: t.array(Item)` on a root collection into a real child
+/// collection. The child schema is the user's `Item` schema unchanged; rows
+/// use `(owner_id << 16) | slot` as their id, so no hidden wire fields leak.
+fn lower_nested_collections(
+    root: &mut RootState,
+    schemas: &[SchemaDef],
+    diagnostics: &mut Vec<SchemaDiagnostic>,
+) {
+    let mut queue = root.collections.clone();
+    let mut at = 0;
+    while at < queue.len() {
+        let collection = queue[at].clone();
+        at += 1;
+        let Some(schema) = schemas.iter().find(|schema| schema.name == collection.schema) else {
+            continue;
+        };
+        for nested in &schema.nested_arrays {
+            let child_name = format!("{}_{}", collection.name, nested.field);
+            if root
+                .collections
+                .iter()
+                .any(|candidate| candidate.name == child_name)
+            {
+                diagnostics.push(SchemaDiagnostic {
+                    line: schema.line,
+                    column: schema.column,
+                    message: format!(
+                        "nested array '{}' lowers to collection '{child_name}', which already exists",
+                        nested.field
+                    ),
+                });
+                continue;
+            }
+            if !schemas.iter().any(|candidate| candidate.name == nested.schema) {
+                diagnostics.push(SchemaDiagnostic {
+                    line: schema.line,
+                    column: schema.column,
+                    message: format!(
+                        "nested array '{}' targets unknown schema '{}'",
+                        nested.field, nested.schema
+                    ),
+                });
+                continue;
+            }
+            if root.collections.len() >= MAX_COLLECTIONS {
+                diagnostics.push(SchemaDiagnostic {
+                    line: schema.line,
+                    column: schema.column,
+                    message: format!(
+                        "nested arrays exceed the {MAX_COLLECTIONS}-collection sync limit"
+                    ),
+                });
+                continue;
+            }
+            let child = RootCollection {
+                name: child_name.clone(),
+                schema: nested.schema.clone(),
+            };
+            root.collections.push(child.clone());
+            root.nested.push(crate::NestedCollection {
+                collection: child_name,
+                parent: collection.name.clone(),
+                field: nested.field.clone(),
+                schema: nested.schema.clone(),
+            });
+            queue.push(child);
+        }
+    }
 }
 
 /// The reserved `JoinOptions` def types the join options. Strings are fine

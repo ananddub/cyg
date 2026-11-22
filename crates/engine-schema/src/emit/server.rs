@@ -77,7 +77,16 @@ pub(crate) fn emit_server(
         for field in &schema.fields {
             emit_accessors(&mut out, &format!("_{}", schema.name), field);
         }
+        emit_nested_getters(&mut out, schema);
+        for nested in &schema.nested_arrays {
+            out.push_str(&format!(
+                "\n    {field}: Array<{schema}> = new Array<{schema}>();\n",
+                field = nested.field,
+                schema = nested.schema
+            ));
+        }
         out.push_str("}\n");
+        emit_nested_views(&mut out, schema);
     }
 
     if let Some(root) = root.filter(|root| is_multi_root(Some(root))) {
@@ -90,6 +99,58 @@ pub(crate) fn emit_server(
         emit_join_options_lane(&mut out, join_options);
     }
     out
+}
+
+/// One accessor per flattened nested path on the parent class: `player.stats`.
+fn emit_nested_getters(out: &mut String, schema: &SchemaDef) {
+    let mut paths: Vec<&str> = schema
+        .fields
+        .iter()
+        .filter_map(|field| field.nested_path.as_deref())
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    for path in paths {
+        let view = format!("{}_{}", schema.name, super::common::capitalize(path));
+        out.push_str(&format!(
+            "\n    private _{path}: {view} | null = null;\n    get {path}(): {view} {{\n        if (this._{path} == null) this._{path} = new {view}(this);\n        return this._{path}!;\n    }}\n",
+            path = path,
+            view = view
+        ));
+    }
+}
+
+/// A tiny owner-bound view over flattened child fields. No wire object, no
+/// allocation per field: `player.stats.kills` writes `player.stats__kills`.
+fn emit_nested_views(out: &mut String, schema: &SchemaDef) {
+    let mut paths: Vec<&str> = schema
+        .fields
+        .iter()
+        .filter_map(|field| field.nested_path.as_deref())
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    for path in paths {
+        let view = format!("{}_{}", schema.name, super::common::capitalize(path));
+        out.push_str(&format!("\nexport class {view} {{\n    private _owner: {};\n    constructor(owner: {}) {{ this._owner = owner; }}\n", schema.name, schema.name));
+        for field in schema.fields.iter().filter(|f| f.nested_path.as_deref() == Some(path)) {
+            let child = field
+                .name
+                .strip_prefix(&format!("{path}__"))
+                .unwrap_or(&field.name);
+            let ty = match field.kind {
+                WireKind::Array => crate::wire::array_assemblyscript_type(field.element.unwrap_or(WireKind::F64)),
+                other => other.assemblyscript_type(),
+            };
+            out.push_str(&format!(
+                "    get {child}(): {ty} {{ return this._owner.{name}; }}\n    set {child}(v: {ty}) {{ this._owner.{name} = v; }}\n",
+                child = child,
+                name = field.name,
+                ty = ty
+            ));
+        }
+        out.push_str("}\n");
+    }
 }
 
 fn is_multi_root(root: Option<&RootState>) -> bool {

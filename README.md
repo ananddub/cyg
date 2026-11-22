@@ -164,7 +164,19 @@ export const Input = schema({
 }, "Input");
 ```
 
-Types: `t.number()/f64`, `f32`, `int8…int64`, `uint8…uint32`, `boolean`, `string`. Collections: `t.map(Entity)` (keyed), `t.array(Entity)` (ordered — chat log, bullet feed), `t.ref(Entity)` (entity reference). `.default(v)` works on primitives and strings. Reserved words cannot be field names; `Input` and `JoinOptions` are reserved (the input frame and the typed join options).
+Types: `t.number()/f64`, `f32`, `int8…int64`, `uint8…uint32`, `boolean`, `string`. Collections: `t.map(Entity)` (keyed), `t.array(Entity)` (ordered — chat log, bullet feed), `t.ref(Entity)` (entity reference). `.default(v)` works on primitives and strings. `.private()` marks an owner-only field: the host blanks it for every row except the viewer's own row, on both full snapshots and patches. `.optional()`, `.static()` and `.transient()` control presence and full-snapshot-only fields. Reserved words cannot be field names; `Input` and `JoinOptions` are reserved (the input frame and the typed join options).
+
+`allow_views = true` lets the room narrow a seat's state on top of the schema defaults:
+
+```ts
+onJoin(client: Client) {
+    // only this player's own row, and hide their inventory from the wire
+    this.views.onlySelf(client.id);
+    this.views.hide(client.id, "players", "inventory");
+}
+```
+
+A view only subtracts; `.private()` still wins. Changing a view forces a fresh full snapshot for that seat so a hidden value never lingers on the client. `this.views.reset(client.id)` restores the default view.
 
 #### Wire precision — `.range(min, max[, bits])`
 
@@ -180,11 +192,38 @@ export const Player = schema({
 }, "Player");
 ```
 
-`bits` defaults to 16 and is capped at 32. The range travels in the descriptor, stamps into the
-schema's wire hash (a client that disagrees on precision gets a hash error, not silently wrong
-values), and only bumps the descriptor to v4 when a schema actually uses it — an unannotated
-schema still ships v3. Integer kinds stay exact: their code is `value - min`, so no scale factor
-can round 2147483647 down to 2147483648.
+`bits` defaults to 16 and is capped at 32. The range travels in the v6 descriptor and stamps into
+the schema's wire hash, so a client that disagrees on precision gets a hash error instead of
+silently wrong values. An unannotated schema keeps its type's exact width. Integer kinds stay
+exact: their code is `value - min`, so no scale factor can round 2147483647 down to 2147483648.
+
+#### Volatile fields — `.unreliable()`
+
+A field that is cheap to lose and expensive to stall belongs on the lossy lane:
+
+```ts
+export const Player = schema({
+    x:    t.number().range(-512, 512, 20).unreliable(),
+    z:    t.number().range(-512, 512, 20).unreliable(),
+    hp:   t.uint8(),        // must arrive: inventory/score stays reliable
+    name: t.string(),       // must arrive
+}, "Player");
+```
+
+When a schema has any `.unreliable()` field, the host splits the tick into two frames:
+
+- the normal reliable state patch, with volatile fields stripped (`KIND_PATCH`/`KIND_WORLD_PATCH`);
+- a volatile-only patch (`0xA6`, tick-stamped) carrying just the marked fields.
+
+The client keeps separate tick ledgers: reliable patches still apply exactly once in order, while
+volatile patches are newest-wins and never advance the reliable tick. A dropped position frame is
+therefore replaced by the next one instead of stalling the room, and the next reliable patch cannot
+be rejected because a volatile tick moved the watermark. On the WebSocket lane there is no lossy
+sub-channel, so the volatile frame rides the ordered socket; on WebRTC it uses the unreliable
+DataChannel, and on native UDP it is an ordinary datagram. A volatile frame larger than one
+datagram is fragmented (`0xA7` on WebRTC, the UDP delta fragmenter natively) and reassembled
+per tick before the newest-tick gate applies it. `.private()` and views still win: when a
+volatile field can be hidden, the host builds the volatile patch per viewer instead of sharing it.
 
 `cyg run` (or `cyg schema`) compiles this into three artifacts:
 
@@ -299,7 +338,7 @@ onCreate(max: i32, options: string): void { this.setState(this.s); }
 // s.coinX = 40.0 + rngNext() * 720.0 · s.phase = 2      (root scalars, synced the same way)
 ```
 
-`commitState()` encodes only what changed — tagged TLV rows; a quiet room costs ~0 bytes. Clients receive one full snapshot at join and patches afterwards, decoded from the descriptor.
+`commitState()` encodes only what changed — packed OXS2 bit-stream rows; a quiet room costs ~0 bytes. Clients receive one full snapshot at join and patches afterwards, decoded from the descriptor. The same packed sections are what the guest emits, so the host never re-encodes a shared frame.
 
 ### 4. Deterministic helpers
 
@@ -362,11 +401,40 @@ Stale frames are dropped for you (per-player seq, wrap-safe newest-wins) — a l
 
 **The lane rule:** everything you cannot afford to drop (fires, chats, RPCs, `onMessage` traffic) rides the **reliable ordered** lane via `room.send`. Per-tick movement and aim ride the unreliable input lane — newest-wins, no retransmit; a late movement packet is worthless by definition.
 
+### 5b. Prediction — same input, same sequence, same frame
+
+The fixed-step handle sends **and** predicts the exact same bytes. Attach a guest instance with the `cyg_predict_*` exports; from then on `input.tick(now)` drives both the network sequence and `cyg_predict_tick` on one clock:
+
+```js
+room.attachPredict(guestInstance, {
+    // authoritative delta bytes -> flat f64 mirror for cyg_reconcile
+    readServerState: (delta) => myDecodeToFlatF64(delta)
+});
+const input = room.input({ tickRate: 60 });
+function frame(now) {
+    input.tick(now);          // 0..N fixed steps; each step sends __input + predicts
+    render(room.predict.value(localId, 'x'));
+}
+```
+
+`room.ackedSeq` trims the pending ring; `readServerState` is the only glue you write. Without a guest instance the handle still sends input, and `room.predict` stays a feature-detected no-op.
+
+**Server-side input timeline.** When your room references `this.inputs`, the bridge copies each accepted frame there before `onInputFrame` runs. Rooms that never touch `this.inputs` keep the zero-allocation input hot path. Latest-only rooms can keep their existing hook; rollback/batch rooms can ask for more:
+
+```ts
+onInputFrame(id: i64, f: Input): void {
+    const frame = this.inputs.latest(id);     // the same frame, still valid
+    // or: this.inputs.drain(id), this.inputs.at(id, seq), this.inputs.consume(id)
+}
+```
+
 ### 6. Messaging — broadcast, targeted, RPC
 
 ```ts
 this.broadcast("phase", bytes);                // server → everyone (reliable)
 this.broadcastText("chat", "welcome!");
+this.broadcast("round-over", bytes, 0, true);  // after the next state patch
+this.broadcastAfterPatch("round-over", bytes); // same, named form
 this.sendTo(playerId, "private", bytes);       // server → one player
 this.sendTextTo(playerId, "toast", "level up");
 

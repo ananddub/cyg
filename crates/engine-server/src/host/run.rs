@@ -53,6 +53,13 @@ pub fn run(
     let (schema_descriptor, schema_aoi) =
         boot_schema(&boot_maps, project_dir, cfg, &mut raw_transport);
     let packed_lane = crate::netcode::PackedSet::from_descriptor(&schema_descriptor);
+    let private_state = packed_lane.as_ref().is_some_and(netcode::PackedSet::has_private_fields);
+    if private_state {
+        tracing::info!("[server] 🔒 private state fields active — per-session packed views");
+    }
+    if cfg.permissions.views {
+        tracing::info!("[server] 👁️ per-session state views enabled (`allow_views`)");
+    }
     if packed_lane.is_some() {
         tracing::info!(
             "[server] 📦 packed state lane active (bit-packed OXS2 kinds 5-8, root + collections)"
@@ -192,8 +199,12 @@ pub fn run(
             wrap_patch_packed: Vec::with_capacity(8 * 1024),
             packed_full_body: Vec::with_capacity(8 * 1024),
             packed_patch_body: Vec::with_capacity(8 * 1024),
+            packed_volatile_body: Vec::with_capacity(4 * 1024),
+            volatile_ready: false,
+            volatile_per_view: false,
             packed_view_buf: Vec::with_capacity(8 * 1024),
             packed_lane,
+            private_state,
             packed_ready: false,
         },
     };

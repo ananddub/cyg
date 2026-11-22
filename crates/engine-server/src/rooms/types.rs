@@ -36,9 +36,6 @@ pub enum RoomBackend {
     Ecs,
 }
 
-
-
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RoomSnapshotData {
     Wasm(Vec<u8>),
@@ -52,3 +49,17 @@ pub struct OutboundMessage {
 }
 
 pub const MAX_OUTBOX_MESSAGES: usize = 256;
+
+/// A guest's request to raise one player counter. The host validates it and
+/// the control plane is the only thing that writes `player_stat`; the room
+/// never names a user id or a table.
+#[derive(Debug, Clone)]
+pub struct StatIntent {
+    pub seat: i64,
+    pub stat: std::sync::Arc<str>,
+    pub delta: i64,
+}
+
+/// Per-call cap, mirroring the outbox: a room that floods the queue is
+/// refused instead of growing an unbounded buffer inside the tick.
+pub const MAX_STAT_INTENTS: usize = 256;

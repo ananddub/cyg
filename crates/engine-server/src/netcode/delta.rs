@@ -59,6 +59,28 @@ pub fn send_delta_framed(
     }
 }
 
+pub fn send_delta_framed_reliable(
+    webrtc_server: &mut WebRtcServer,
+    session: &str,
+    seq: u16,
+    tick: u32,
+    body: &[u8],
+) -> usize {
+    match webrtc_server.send_delta_reliable(session, seq, tick, body) {
+        Ok(report) => {
+            if report.delivered() {
+                report.fragments
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            tracing::error!("[server] ⚠️ reliable delta refused for {session}: {e} — dropped");
+            0
+        }
+    }
+}
+
 pub fn record_channel_ack(
     room: &mut crate::rooms::GameRoom,
     client_id: &str,

@@ -94,7 +94,11 @@ enum Expr {
     Cmp {
         field: String,
         op: String,
-        value: Value,
+        value: Option<Value>,
+        /// A named variable from the rule's `variables` (or any context field).
+        /// When set, it — not `value` — is the expected side of the comparison,
+        /// so an operator tunes the threshold without republishing the rule.
+        var: Option<String>,
     },
     Truth(bool),
 }
@@ -106,12 +110,27 @@ impl Expr {
             Expr::Any(children) => children.iter().any(|child| child.matches(context)),
             Expr::Not(child) => !child.matches(context),
             Expr::Truth(value) => *value,
-            Expr::Cmp { field, op, value } => match lookup(context, field) {
-                // A field the context never set is not null — only `ne` can
-                // succeed against it, every other comparison is false.
-                None => op == "ne",
-                Some(actual) => compare(actual, op, value),
-            },
+            Expr::Cmp {
+                field,
+                op,
+                value,
+                var,
+            } => {
+                let expected = match var {
+                    Some(name) => lookup(context, name),
+                    None => value.as_ref().map(|value| value as &Value),
+                };
+                match (lookup(context, field), expected) {
+                    // A field the context never set is not null — only `ne` can
+                    // succeed against it, every other comparison is false.
+                    (None, _) => op == "ne",
+                    // A variable that resolves to nothing behaves like a
+                    // missing field: false for everything but `ne`, rather
+                    // than a rule that silently matches everything.
+                    (Some(_), None) => false,
+                    (Some(actual), Some(expected)) => compare(actual, op, expected),
+                }
+            }
         }
     }
 }
@@ -189,10 +208,35 @@ fn parse_comparison(
             format!("op is one of {}", OPERATORS.join(", ")),
         ));
     }
-    let value = object
-        .get("value")
-        .ok_or_else(|| RuleError::at(&child_path(path, "value"), "a comparison needs a value"))?;
-    if op == "in" && !value.is_array() {
+    // An explicit null is a literal like any other — a rule may compare a
+    // field against null — while an absent key means nothing was written.
+    let value = object.get("value");
+    let var = object
+        .get("var")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+    // A comparison expects exactly one expected side: a literal value or a
+    // variable name. Both is a typo someone must resolve, neither is a rule
+    // that could never match anything.
+    match (value, &var) {
+        (Some(_), Some(_)) => {
+            return Err(RuleError::at(
+                &child_path(path, "var"),
+                "state the expected side once — as value or as var, not both",
+            ));
+        }
+        (None, None) => {
+            return Err(RuleError::at(
+                &child_path(path, "value"),
+                "a comparison needs a value or a var",
+            ));
+        }
+        _ => {}
+    }
+    let value = value.cloned().unwrap_or(Value::Null);
+    if op == "in" && !var.is_some() && !value.is_array() {
         return Err(RuleError::at(
             &child_path(path, "value"),
             "in compares against an array of values",
@@ -207,7 +251,8 @@ fn parse_comparison(
     Ok(Expr::Cmp {
         field: field.trim().to_owned(),
         op: op.to_owned(),
-        value: value.clone(),
+        value: if var.is_some() { None } else { Some(value) },
+        var,
     })
 }
 

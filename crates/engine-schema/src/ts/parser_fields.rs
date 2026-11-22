@@ -9,9 +9,10 @@ impl Parser {
     pub(super) fn parse_schema_fields(
         &mut self,
         keyword: &Token,
-    ) -> Option<(Vec<SchemaField>, Vec<(String, String)>)> {
+    ) -> Option<(Vec<SchemaField>, Vec<(String, String)>, Vec<crate::NestedArray>)> {
         let mut fields = Vec::new();
         let mut maps = Vec::new();
+        let mut nested_arrays = Vec::new();
         loop {
             if self.at_eof() {
                 self.error(keyword.line, keyword.column, "unterminated schema object");
@@ -72,7 +73,10 @@ impl Parser {
                 let duplicate = fields
                     .iter()
                     .any(|field: &SchemaField| field.name == field_name)
-                    || maps.iter().any(|(name, _)| *name == field_name);
+                    || maps.iter().any(|(name, _)| *name == field_name)
+                    || nested_arrays
+                        .iter()
+                        .any(|nested: &crate::NestedArray| nested.field == field_name);
                 if reserved {
                     self.error(
                         key_token.line,
@@ -90,6 +94,49 @@ impl Parser {
                 } else {
                     match parsed {
                         ParsedType::Map(target) => maps.push((field_name, target)),
+                        ParsedType::Nested(target) => {
+                            let definition = self
+                                .declarations
+                                .iter()
+                                .find(|decl| decl.schema.name == target)
+                                .cloned();
+                            let Some(definition) = definition else {
+                                self.error(
+                                    key_token.line,
+                                    key_token.column,
+                                    format!(
+                                        "nested schema '{target}' must be declared before field '{field_name}'"
+                                    ),
+                                );
+                                if self.eat_symbol(',') { continue; }
+                                if self.eat_symbol('}') { break; }
+                                continue;
+                            };
+                            for child in definition.schema.fields {
+                                let name = format!("{field_name}__{}", child.name);
+                                if fields.iter().any(|f: &SchemaField| f.name == name) {
+                                    self.error(
+                                        key_token.line,
+                                        key_token.column,
+                                        format!("nested field '{name}' collides with another field"),
+                                    );
+                                    continue;
+                                }
+                                let mut field = child;
+                                field.name = name;
+                                field.nested_path = Some(field_name.clone());
+                                field.source_type = format!("{target}.{}", field.source_type);
+                                field.line = key_token.line;
+                                field.column = key_token.column;
+                                fields.push(field);
+                            }
+                        }
+                        ParsedType::NestedArray(target) => {
+                            nested_arrays.push(crate::NestedArray {
+                                field: field_name,
+                                schema: target,
+                            });
+                        }
                         ParsedType::Primitive(primitive) => fields.push(SchemaField {
                             name: field_name,
                             kind: primitive.kind,
@@ -100,6 +147,7 @@ impl Parser {
                             default,
                             encoding: encoding
                                 .unwrap_or_else(|| engine_schema_default_encoding(primitive.kind)),
+                            nested_path: None,
                             line: key_token.line,
                             column: key_token.column,
                         }),
@@ -126,6 +174,6 @@ impl Parser {
             self.eat_symbol('}');
             break;
         }
-        Some((fields, maps))
+        Some((fields, maps, nested_arrays))
     }
 }

@@ -103,6 +103,76 @@ room.onStateChange((state) => render(state.players.values()));
 The descriptor is the only schema source: the browser builds its declarations
 from it on join, and `schema.ts` is the only file you edit.
 
+### Per-session visibility
+
+`.ownerOnly()` fields are owner-only by default. With `allow_views = true`, a room
+can narrow a seat further without touching the wire format:
+
+```ts
+onJoin(client: Client) {
+    this.views.onlySelf(client.id);                    // drop other rows
+    this.views.hide(client.id, "players", "inventory"); // hide one field
+    // this.views.hideRoot(client.id, "tick");         // hide a root scalar
+}
+```
+
+Views only subtract. `.ownerOnly()` wins over every view, and a changed view makes
+the host send that player a fresh full snapshot so stale values cannot linger.
+`this.views.reset(client.id)` restores the default view.
+
+### Lossy fields
+
+Mark a field `.unreliable()` when losing an update is cheaper than delaying the
+room. The host strips it from the reliable patch and sends it in a separate
+tick-stamped frame on the lossy lane; the client applies newest-wins without
+advancing the reliable tick.
+
+```ts
+export const Player = schema({
+    x:  t.f32().range(-512, 512, 20).unreliable(),
+    z:  t.f32().range(-512, 512, 20).unreliable(),
+    hp: t.uint8(),   // must arrive
+}, "Player");
+```
+
+### Plugins
+
+```ts
+class Arena extends Room {
+    onCreate() {
+        this.use(new MatchTimerPlugin(5));
+    }
+}
+```
+
+Plugins run in install order and are fed `onCreate`, `onJoin`, `onInput`,
+`onTick`, `onLeave` and `onDispose`. AssemblyScript has no exception
+handling, so a plugin that traps surfaces at the wasm boundary and the host
+reports it; keep plugin hooks non-throwing and move fallible work into a
+plain method the room calls explicitly.
+
+### Generic rewind
+
+With `allow_rewind = true`, `this.rewind` stores an opaque `f64` vector per
+entity, bounded to 256 samples and 32 fields. Physics lag compensation is one consumer; hit validation and
+cooldowns use the same history.
+
+```ts
+const sample = new StaticArray<f64>(2);
+sample[0] = player.x;
+sample[1] = player.y;
+this.rewind.recordNow(player.id, sample);
+
+// Time-based lag compensation: 180ms ago, interpolated between ticks.
+const seen = new StaticArray<f64>(2);
+this.rewind.atMs(player.id, nowMs - 180.0, seen);
+```
+
+`recordNow`/`at` are tick-exact. `recordAt`/`atMs` store millisecond
+timestamps and linearly interpolate between the surrounding samples (clamped
+to the oldest/newest), which is what hit validation wants when the shooter's
+timestamp falls between two simulation ticks.
+
 
 > [!TIP]
 > **🏆 Recommended for Maximum Performance: WebAssembly (Rust / Pure C / C++)**

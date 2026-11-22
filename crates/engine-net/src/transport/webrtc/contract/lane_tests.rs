@@ -22,27 +22,12 @@ fn exact_labels_are_the_contract_and_other_labels_are_ignored() {
     assert_eq!(classify_label("GAME-RELIABLE"), LabelVerdict::Ignored);
     assert_eq!(classify_label("game-reliable-v2"), LabelVerdict::Ignored);
 
-    assert_eq!(
-        classify_label("unreliable"),
-        LabelVerdict::LegacyAlias(Lane::Unreliable)
-    );
-    assert_eq!(
-        classify_label("reliable"),
-        LabelVerdict::LegacyAlias(Lane::Reliable)
-    );
-    assert_eq!(
-        classify_label("client-unreliable"),
-        LabelVerdict::LegacyAlias(Lane::Unreliable)
-    );
-    assert_eq!(
-        classify_label("client_reliable"),
-        LabelVerdict::LegacyAlias(Lane::Reliable)
-    );
-
-    assert_ne!(
-        classify_label("client-unreliable"),
-        LabelVerdict::LegacyAlias(Lane::Reliable)
-    );
+    // No suffix/alias matching: only the exact contract labels are lanes.
+    assert_eq!(classify_label("unreliable"), LabelVerdict::Ignored);
+    assert_eq!(classify_label("reliable"), LabelVerdict::Ignored);
+    assert_eq!(classify_label("client-unreliable"), LabelVerdict::Ignored);
+    assert_eq!(classify_label("client_reliable"), LabelVerdict::Ignored);
+    assert_eq!(classify_label("game-unreliable-"), LabelVerdict::Ignored);
 }
 
 #[test]

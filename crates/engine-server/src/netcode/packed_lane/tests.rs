@@ -1,5 +1,6 @@
-//! Transcoding: the packed frame the host builds must decode to the values the guest sent.
+//! Host pass-through and per-view masking for canonical packed guest sections.
 
+use super::super::{ViewIntent, ViewMask};
 use super::*;
 use engine_schema::{
     FieldEncoding, SchemaField, WireKind, default_encoding, emit_descriptor, wire_hash,
@@ -16,18 +17,18 @@ fn field(name: &str, kind: WireKind, encoding: FieldEncoding) -> SchemaField {
         source_type: String::new(),
         default: None,
         encoding,
+        nested_path: None,
         line: 0,
         column: 0,
     }
 }
-
 fn schema_def() -> engine_schema::SchemaDef {
     engine_schema::SchemaDef {
+        nested_arrays: Vec::new(),
         name: "Player".into(),
         version: 1,
         fields: vec![
             field("hp", WireKind::U8, default_encoding(WireKind::U8)),
-            // 8 bits over a full turn: the kind of field that makes packing worth it.
             field("yaw", WireKind::F32, FieldEncoding::range(8, 0.0, 360.0)),
             field("alive", WireKind::Bool, default_encoding(WireKind::Bool)),
             field("name", WireKind::String, FieldEncoding::NONE),
@@ -36,25 +37,33 @@ fn schema_def() -> engine_schema::SchemaDef {
         column: 0,
     }
 }
-
 fn marker_def() -> engine_schema::SchemaDef {
     engine_schema::SchemaDef {
+        nested_arrays: Vec::new(),
         name: "Marker".into(),
         version: 1,
         fields: vec![
-            field("x", WireKind::F32, FieldEncoding::range(16, -1000.0, 1000.0)),
+            field(
+                "x",
+                WireKind::F32,
+                FieldEncoding::range(16, -1000.0, 1000.0),
+            ),
             field("on", WireKind::Bool, default_encoding(WireKind::Bool)),
         ],
         line: 0,
         column: 0,
     }
 }
-
 fn root_state() -> engine_schema::RootState {
     engine_schema::RootState {
+        nested: Vec::new(),
         name: "Arena".into(),
         version: 1,
-        scalars: vec![field("tick", WireKind::U16, default_encoding(WireKind::U16))],
+        scalars: vec![field(
+            "tick",
+            WireKind::U16,
+            default_encoding(WireKind::U16),
+        )],
         collections: vec![
             engine_schema::RootCollection {
                 name: "players".into(),
@@ -67,9 +76,9 @@ fn root_state() -> engine_schema::RootState {
         ],
     }
 }
-
 fn root_schema() -> engine_schema::SchemaDef {
     engine_schema::SchemaDef {
+        nested_arrays: Vec::new(),
         name: "Arena".into(),
         version: 1,
         fields: root_state().scalars,
@@ -77,240 +86,359 @@ fn root_schema() -> engine_schema::SchemaDef {
         column: 0,
     }
 }
-
 fn descriptor_bytes() -> Vec<u8> {
     emit_descriptor(&[schema_def(), marker_def()], Some(&root_state()))
 }
-
-fn legacy_full(rows: &[(u32, u8, f32, bool, &str)]) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(b"OXS2");
-    out.push(1);
-    out.extend_from_slice(&wire_hash(&schema_def()).to_le_bytes());
-    out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
-    for (id, hp, yaw, alive, name) in rows {
-        out.extend_from_slice(&id.to_le_bytes());
-        out.push(*hp);
-        out.extend_from_slice(&yaw.to_le_bytes());
-        out.push(u8::from(*alive));
-        out.push(name.len() as u8);
-        out.extend_from_slice(name.as_bytes());
+fn player_full(rows: &[(u32, u8, f32, bool, &str)]) -> Vec<u8> {
+    let values = rows
+        .iter()
+        .map(|(id, hp, yaw, alive, name)| {
+            (
+                *id,
+                vec![
+                    WireValue::U8(*hp),
+                    WireValue::F32(*yaw),
+                    WireValue::Bool(*alive),
+                    WireValue::Str((*name).into()),
+                ],
+            )
+        })
+        .collect::<Vec<_>>();
+    packed::encode_full(&PackedSchema::from_def(&schema_def()), &values, &mut 0).unwrap()
+}
+fn player_patch(ops: Vec<PackedOp>) -> Vec<u8> {
+    packed::encode_patch(&PackedSchema::from_def(&schema_def()), &ops, &mut 0).unwrap()
+}
+fn world_full(tick: u16, collections: &[(u16, u32, Vec<u8>)]) -> Vec<u8> {
+    packed::encode_world_full(
+        &PackedSchema::from_def(&root_schema()),
+        &[WireValue::U16(tick)],
+        collections,
+        &mut 0,
+    )
+    .unwrap()
+}
+fn hide(collection: &str, field: &str) -> ViewIntent {
+    ViewIntent::HideField {
+        seat: 7,
+        collection: collection.into(),
+        field: field.into(),
     }
-    out
 }
 
-fn legacy_marker_full(rows: &[(u32, f32, bool)]) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(b"OXS2");
-    out.push(1);
-    out.extend_from_slice(&wire_hash(&marker_def()).to_le_bytes());
-    out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
-    for (id, x, on) in rows {
-        out.extend_from_slice(&id.to_le_bytes());
-        out.extend_from_slice(&x.to_le_bytes());
-        out.push(u8::from(*on));
-    }
-    out
-}
-
-fn legacy_world_full(tick: u16, collections: &[(u16, u32, Vec<u8>)]) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(b"OXS2");
-    out.push(3);
-    out.extend_from_slice(&wire_hash(&root_schema()).to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes()); // one root scalar
-    out.extend_from_slice(&tick.to_le_bytes());
-    out.extend_from_slice(&(collections.len() as u16).to_le_bytes());
-    for (id, hash, section) in collections {
-        out.extend_from_slice(&id.to_le_bytes());
-        out.extend_from_slice(&hash.to_le_bytes());
-        out.extend_from_slice(&(section.len() as u32).to_le_bytes());
-        out.extend_from_slice(section);
-    }
-    out
+fn unreliable_schema_def() -> engine_schema::SchemaDef {
+    let mut schema = schema_def();
+    schema.fields[0].flags |= engine_schema::FIELD_UNRELIABLE;
+    schema
 }
 
 #[test]
-fn a_transcoded_full_frame_carries_the_same_values() {
-    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).expect("schemas");
-    let legacy = legacy_full(&[(7, 100, 90.0, true, "ana"), (9, 1, 359.0, false, "")]);
-    let packed_bytes = lane.full(&legacy).expect("transcodes");
+fn unreliable_fields_leave_the_reliable_patch_and_ride_the_volatile_one() {
+    let descriptor = emit_descriptor(&[unreliable_schema_def()], None);
+    let mut lane = PackedSet::from_descriptor(&descriptor).unwrap();
+    let packed_schema = PackedSchema::from_def(&unreliable_schema_def());
+    let full = packed::encode_full(
+        &packed_schema,
+        &[(
+            7,
+            vec![
+                WireValue::U8(100),
+                WireValue::F32(90.0),
+                WireValue::Bool(true),
+                WireValue::Str("ana".into()),
+            ],
+        )],
+        &mut 0,
+    )
+    .unwrap();
+    lane.full(&full).unwrap();
+    let patch = packed::encode_patch(
+        &packed_schema,
+        &[PackedOp::Update {
+            id: 7,
+            mask: 3,
+            values: vec![(0, WireValue::U8(55)), (1, WireValue::F32(180.0))],
+        }],
+        &mut 0,
+    )
+    .unwrap();
+    let reliable = lane.patch(&patch).unwrap();
+    let decoded = packed::decode(&packed_schema, &reliable).unwrap();
+    let PackedOp::Update { id, mask, values } = &decoded.ops[0] else {
+        panic!("expected update");
+    };
+    assert_eq!(*id, 7);
+    assert_eq!(*mask, 2, "hp is volatile");
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].0, 1);
+    assert!(matches!(values[0].1, WireValue::F32(v) if (v - 180.0).abs() < 1.0));
 
-    let decoded = packed::decode(&PackedSchema::from_def(&schema_def()), &packed_bytes)
-        .expect("the host's own frame decodes");
+    let volatile = lane.volatile_patch().expect("volatile patch");
+    let decoded = packed::decode(&packed_schema, &volatile).unwrap();
+    let PackedOp::Update { mask, values, .. } = &decoded.ops[0] else {
+        panic!("expected volatile update");
+    };
+    assert_eq!(*mask, 1);
+    assert_eq!(values, &vec![(0, WireValue::U8(55))]);
+}
+
+#[test]
+fn a_private_volatile_field_is_masked_per_viewer() {
+    let mut schema = unreliable_schema_def();
+    schema.fields[0].flags |= engine_schema::FIELD_PRIVATE;
+    let descriptor = emit_descriptor(&[schema.clone()], None);
+    let mut lane = PackedSet::from_descriptor(&descriptor).unwrap();
+    let packed_schema = PackedSchema::from_def(&schema);
+    let full = packed::encode_full(
+        &packed_schema,
+        &[
+            (
+                7,
+                vec![
+                    WireValue::U8(100),
+                    WireValue::F32(90.0),
+                    WireValue::Bool(true),
+                    WireValue::Str("ana".into()),
+                ],
+            ),
+            (
+                9,
+                vec![
+                    WireValue::U8(200),
+                    WireValue::F32(180.0),
+                    WireValue::Bool(true),
+                    WireValue::Str("bob".into()),
+                ],
+            ),
+        ],
+        &mut 0,
+    )
+    .unwrap();
+    lane.full(&full).unwrap();
+
+    let mine = lane.volatile_patch_view(7, None).expect("row 7");
+    let decoded = packed::decode(&packed_schema, &mine).unwrap();
+    assert_eq!(decoded.ops.len(), 1);
+    let PackedOp::Update { id, values, .. } = &decoded.ops[0] else {
+        panic!("expected update");
+    };
+    assert_eq!(*id, 7);
+    assert_eq!(values, &vec![(0, WireValue::U8(100))]);
+
+    let theirs = lane.volatile_patch_view(9, None).expect("row 9");
+    let decoded = packed::decode(&packed_schema, &theirs).unwrap();
+    assert_eq!(decoded.ops.len(), 1);
+    assert!(matches!(
+        &decoded.ops[0],
+        PackedOp::Update { id: 9, values, .. } if values == &vec![(0, WireValue::U8(200))]
+    ));
+
+    assert!(lane.volatile_patch_view(8, None).is_none());
+}
+
+#[test]
+fn world_root_unreliable_fields_are_split_too() {
+    let mut root = root_state();
+    root.scalars[0].flags |= engine_schema::FIELD_UNRELIABLE;
+    let root_def = engine_schema::SchemaDef {
+        nested_arrays: Vec::new(),
+        name: root.name.clone(),
+        version: root.version,
+        fields: root.scalars.clone(),
+        line: 0,
+        column: 0,
+    };
+    let descriptor = emit_descriptor(&[schema_def(), marker_def()], Some(&root));
+    let mut lane = PackedSet::from_descriptor(&descriptor).unwrap();
+    let packed_root = PackedSchema::from_def(&root_def);
+    let full = packed::encode_world_full(
+        &packed_root,
+        &[WireValue::U16(42)],
+        &[],
+        &mut 0,
+    )
+    .unwrap();
+    lane.full(&full).unwrap();
+
+    let patch = packed::encode_world_patch(
+        &packed_root,
+        1,
+        &[(0, WireValue::U16(43))],
+        &[],
+        &mut 0,
+    )
+    .unwrap();
+    let reliable = lane.patch(&patch).unwrap();
+    let decoded = packed::decode_world(&packed_root, &reliable).unwrap();
+    assert_eq!(decoded.root_mask, 0);
+    assert!(decoded.root.is_empty());
+
+    let volatile = lane.volatile_patch().expect("volatile world patch");
+    let decoded = packed::decode_world(&packed_root, &volatile).unwrap();
+    assert_eq!(decoded.root_mask, 1);
+    assert_eq!(decoded.root, vec![(0, WireValue::U16(43))]);
+}
+
+#[test]
+fn packed_guest_full_passes_through_byte_for_byte() {
+    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).unwrap();
+    let input = player_full(&[(7, 100, 90.0, true, "ana")]);
+    assert_eq!(lane.full(&input).unwrap(), input);
+    let decoded = packed::decode(&PackedSchema::from_def(&schema_def()), &input).unwrap();
     assert_eq!(decoded.kind, packed::KIND_FULL);
-    assert_eq!(decoded.ops.len(), 2);
-    match &decoded.ops[0] {
-        PackedOp::Add { id, values } => {
-            assert_eq!(*id, 7);
-            assert_eq!(values[0], WireValue::U8(100));
-            assert_eq!(values[2], WireValue::Bool(true));
-            assert_eq!(values[3], WireValue::Str("ana".into()));
-            match values[1] {
-                WireValue::F32(yaw) => assert!((yaw - 90.0).abs() < 0.71, "yaw {yaw}"),
-                ref other => panic!("yaw came back as {other:?}"),
-            }
-        }
-        other => panic!("expected an add, got {other:?}"),
-    }
     assert!(
-        packed_bytes.len() < legacy.len(),
-        "packed {} vs legacy {}",
-        packed_bytes.len(),
-        legacy.len()
+        matches!(&decoded.ops[0], PackedOp::Add { id: 7, values } if values[0] == WireValue::U8(100) && values[2] == WireValue::Bool(true))
     );
-    assert_eq!(lane.clamped, 0);
 }
 
 #[test]
-fn a_transcoded_patch_carries_the_same_ops() {
-    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).expect("schemas");
-    let hash = wire_hash(&schema_def());
-    let mut legacy = Vec::new();
-    legacy.extend_from_slice(b"OXS2");
-    legacy.push(2);
-    legacy.extend_from_slice(&hash.to_le_bytes());
-    legacy.extend_from_slice(&2u32.to_le_bytes());
-    legacy.push(3); // update
-    legacy.extend_from_slice(&7u32.to_le_bytes());
-    legacy.extend_from_slice(&0b0011u32.to_le_bytes());
-    legacy.push(55);
-    legacy.extend_from_slice(&180.0f32.to_le_bytes());
-    legacy.push(2); // remove
-    legacy.extend_from_slice(&9u32.to_le_bytes());
-
-    let packed_bytes = lane.patch(&legacy).expect("transcodes");
-    let decoded =
-        packed::decode(&PackedSchema::from_def(&schema_def()), &packed_bytes).expect("decodes");
-    assert_eq!(decoded.kind, packed::KIND_PATCH);
-    assert_eq!(decoded.ops.len(), 2);
-    match &decoded.ops[0] {
-        PackedOp::Update { id, mask, values } => {
-            assert_eq!((*id, *mask), (7, 0b11));
-            assert_eq!(values[0], (0, WireValue::U8(55)));
-        }
-        other => panic!("expected an update, got {other:?}"),
-    }
-    assert_eq!(decoded.ops[1], PackedOp::Remove { id: 9 });
+fn packed_guest_patch_passes_through_and_decodes() {
+    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).unwrap();
+    let input = player_patch(vec![
+        PackedOp::Update {
+            id: 7,
+            mask: 3,
+            values: vec![(0, WireValue::U8(55)), (1, WireValue::F32(180.0))],
+        },
+        PackedOp::Remove { id: 9 },
+    ]);
+    assert_eq!(lane.patch(&input).unwrap(), input);
 }
 
 #[test]
-fn a_world_frame_packs_root_scalars_and_every_collection() {
-    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).expect("schemas");
-    let players = legacy_full(&[(7, 100, 90.0, true, "ana")]);
-    let markers = legacy_marker_full(&[(3, 12.5, true)]);
-    let legacy = legacy_world_full(
+fn packed_world_frames_pass_through_and_decode() {
+    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).unwrap();
+    let players = player_full(&[(7, 100, 90.0, true, "ana")]);
+    let markers = packed::encode_full(
+        &PackedSchema::from_def(&marker_def()),
+        &[(3, vec![WireValue::F32(12.5), WireValue::Bool(true)])],
+        &mut 0,
+    )
+    .unwrap();
+    let input = world_full(
         42,
         &[
             (0, wire_hash(&schema_def()), players),
             (1, wire_hash(&marker_def()), markers),
         ],
     );
-    let packed_bytes = lane.full(&legacy).expect("transcodes");
-
-    let decoded =
-        packed::decode_world(&PackedSchema::from_def(&root_schema()), &packed_bytes).expect("world");
+    assert_eq!(lane.full(&input).unwrap(), input);
+    let decoded = packed::decode_world(&PackedSchema::from_def(&root_schema()), &input).unwrap();
     assert_eq!(decoded.kind, packed::KIND_WORLD_FULL);
     assert_eq!(decoded.root, vec![(0, WireValue::U16(42))]);
-    assert_eq!(decoded.collections.len(), 2);
-    assert_eq!(decoded.collections[0].0, 0);
-    assert_eq!(decoded.collections[1].0, 1);
-
-    let first = packed::decode(
-        &PackedSchema::from_def(&schema_def()),
-        &decoded.collections[0].2,
-    )
-    .expect("player section");
-    assert_eq!(first.kind, packed::KIND_FULL);
-    assert_eq!(first.ops.len(), 1);
-    let second = packed::decode(
-        &PackedSchema::from_def(&marker_def()),
-        &decoded.collections[1].2,
-    )
-    .expect("marker section");
-    assert_eq!(second.ops.len(), 1);
 }
 
 #[test]
-fn a_world_patch_packs_only_the_dirty_root_fields_and_changed_collections() {
-    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).expect("schemas");
-    let marker_hash = wire_hash(&marker_def());
-
-    // Root patch: tick dirty. One collection: markers patch with an update.
-    let mut marker_patch = Vec::new();
-    marker_patch.extend_from_slice(b"OXS2");
-    marker_patch.push(2);
-    marker_patch.extend_from_slice(&marker_hash.to_le_bytes());
-    marker_patch.extend_from_slice(&1u32.to_le_bytes());
-    marker_patch.push(3); // UPDATE
-    marker_patch.extend_from_slice(&3u32.to_le_bytes());
-    marker_patch.extend_from_slice(&0b01u32.to_le_bytes());
-    marker_patch.extend_from_slice(&55.5f32.to_le_bytes());
-
-    let mut legacy = Vec::new();
-    legacy.extend_from_slice(b"OXS2");
-    legacy.push(4);
-    legacy.extend_from_slice(&wire_hash(&root_schema()).to_le_bytes());
-    legacy.extend_from_slice(&1u16.to_le_bytes());
-    legacy.extend_from_slice(&0b1u32.to_le_bytes()); // tick dirty
-    legacy.extend_from_slice(&43u16.to_le_bytes());
-    legacy.extend_from_slice(&1u16.to_le_bytes()); // one changed collection
-    legacy.extend_from_slice(&1u16.to_le_bytes());
-    legacy.extend_from_slice(&marker_hash.to_le_bytes());
-    legacy.extend_from_slice(&(marker_patch.len() as u32).to_le_bytes());
-    legacy.extend_from_slice(&marker_patch);
-
-    let packed_bytes = lane.patch(&legacy).expect("transcodes");
-    let decoded =
-        packed::decode_world(&PackedSchema::from_def(&root_schema()), &packed_bytes).expect("world");
-    assert_eq!(decoded.kind, packed::KIND_WORLD_PATCH);
-    assert_eq!(decoded.root_mask, 0b1);
-    assert_eq!(decoded.root, vec![(0, WireValue::U16(43))]);
-    assert_eq!(decoded.collections.len(), 1);
-    assert_eq!(decoded.collections[0].0, 1);
-}
-
-#[test]
-fn an_out_of_range_value_is_clamped_and_counted_not_dropped() {
-    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).expect("schemas");
-    // yaw is declared 0..360; the guest sent 7_000.
-    let legacy = legacy_full(&[(1, 1, 7_000.0, true, "")]);
-    let packed_bytes = lane.full(&legacy).expect("transcodes");
-    assert_eq!(
-        lane.clamped, 1,
-        "yaw beyond its declared range must be counted"
-    );
-    let decoded =
-        packed::decode(&PackedSchema::from_def(&schema_def()), &packed_bytes).expect("decodes");
-    match &decoded.ops[0] {
-        PackedOp::Add { values, .. } => match values[1] {
-            WireValue::F32(yaw) => assert_eq!(yaw, 360.0),
-            ref other => panic!("yaw came back as {other:?}"),
-        },
-        other => panic!("expected an add, got {other:?}"),
+fn fixed_width_guest_kinds_are_rejected_with_rebuild_error() {
+    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).unwrap();
+    for kind in 1..=4 {
+        let mut bytes = b"OXS2".to_vec();
+        bytes.push(kind);
+        bytes.extend_from_slice(&[0; 16]);
+        let err = lane.full(&bytes).unwrap_err();
+        assert!(err.contains("rebuild the room wasm"), "{err}");
     }
 }
 
-#[test]
-fn a_descriptor_without_schemas_yields_no_lane() {
-    let bytes = emit_descriptor(&[], Some(&root_state()));
-    assert!(PackedSet::from_descriptor(&bytes).is_none());
-    assert!(PackedSet::from_descriptor(b"not a descriptor").is_none());
+fn private_schema() -> engine_schema::SchemaDef {
+    let mut schema = schema_def();
+    schema.fields[0].flags |= engine_schema::FIELD_PRIVATE;
+    schema
+}
+fn private_full() -> Vec<u8> {
+    let schema = private_schema();
+    packed::encode_full(
+        &PackedSchema::from_def(&schema),
+        &[
+            (
+                7,
+                vec![
+                    WireValue::U8(100),
+                    WireValue::F32(90.0),
+                    WireValue::Bool(true),
+                    WireValue::Str("ana".into()),
+                ],
+            ),
+            (
+                9,
+                vec![
+                    WireValue::U8(1),
+                    WireValue::F32(0.0),
+                    WireValue::Bool(true),
+                    WireValue::Str("bo".into()),
+                ],
+            ),
+        ],
+        &mut 0,
+    )
+    .unwrap()
 }
 
 #[test]
-fn a_frame_from_a_different_schema_fails_loudly_and_counts() {
-    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).expect("schemas");
-    let mut other = schema_def();
-    other.version = 9;
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(b"OXS2");
-    bytes.push(1);
-    bytes.extend_from_slice(&wire_hash(&other).to_le_bytes());
-    bytes.extend_from_slice(&0u32.to_le_bytes());
+fn private_fields_are_masked_only_for_nonowners() {
+    let schema = private_schema();
+    let mut lane = PackedSet::from_descriptor(&emit_descriptor(&[schema.clone()], None)).unwrap();
+    let bytes = private_full();
+    let owner = packed::decode(
+        &PackedSchema::from_def(&schema),
+        &lane.full_for(&bytes, 7).unwrap(),
+    )
+    .unwrap();
     assert!(
-        lane.full(&bytes).is_err(),
-        "a foreign schema must not transcode"
+        matches!(&owner.ops[0], PackedOp::Add { values, .. } if values[0] == WireValue::U8(100))
     );
-    assert_eq!(lane.failures, 1);
+    assert!(matches!(&owner.ops[1], PackedOp::Add { values, .. } if values[0] == WireValue::U8(0)));
+    let other = packed::decode(
+        &PackedSchema::from_def(&schema),
+        &lane.full_for(&bytes, 9).unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(&other.ops[0], PackedOp::Add { values, .. } if values[0] == WireValue::U8(0)));
+    assert!(matches!(&other.ops[1], PackedOp::Add { values, .. } if values[0] == WireValue::U8(1)));
+}
+
+#[test]
+fn view_mask_hides_field_and_only_self_filters_rows() {
+    let schema = schema_def();
+    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).unwrap();
+    let mut view = ViewMask::default();
+    lane.apply_view_intent(&mut view, &hide("players", "hp"))
+        .unwrap();
+    lane.apply_view_intent(
+        &mut view,
+        &ViewIntent::OnlySelf {
+            seat: 7,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    let bytes = player_full(&[(7, 100, 90.0, true, "ana"), (9, 1, 0.0, true, "bo")]);
+    let decoded = packed::decode(
+        &PackedSchema::from_def(&schema),
+        &lane.full_for_view(&bytes, 7, &view).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(decoded.ops.len(), 1);
+    assert!(
+        matches!(&decoded.ops[0], PackedOp::Add { id: 7, values } if values[0] == WireValue::U8(0))
+    );
+}
+
+#[test]
+fn world_view_masks_root_and_nested_collection_data() {
+    let mut lane = PackedSet::from_descriptor(&descriptor_bytes()).unwrap();
+    let mut view = ViewMask::default();
+    lane.apply_view_intent(&mut view, &hide("__root__", "tick"))
+        .unwrap();
+    let input = world_full(
+        42,
+        &[(
+            0,
+            wire_hash(&schema_def()),
+            player_full(&[(7, 100, 90.0, true, "ana")]),
+        )],
+    );
+    let output = lane.full_for_view(&input, 7, &view).unwrap();
+    let decoded = packed::decode_world(&PackedSchema::from_def(&root_schema()), &output).unwrap();
+    assert_ne!(decoded.root[0].1, WireValue::U16(42));
 }

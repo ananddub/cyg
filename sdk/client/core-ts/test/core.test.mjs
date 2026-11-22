@@ -4,14 +4,14 @@ import CYG from "../dist/cyg.cjs";
 
 const { TypedRoom, schemaFromTable, useSchemaTable, Room, SchemaDef, encodeInputFrame } = CYG;
 
-test("flat legacy surface is preserved", () => {
+test("flat core surface is preserved", () => {
     assert.equal(typeof Room, "function");
     assert.equal(typeof SchemaDef, "function");
     assert.equal(typeof encodeInputFrame, "function");
     assert.equal(typeof CYG.version, "string");
 });
 
-test("typed room wraps the legacy room", () => {
+test("typed room wraps the engine room", () => {
     const room = new TypedRoom("http://127.0.0.1:19224", "arena");
     assert.equal(room.isOpen, false);
     assert.equal(room.playerId, null);

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 ahash = "0.8"
 rustc-hash = "2"
+uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 bevy_ecs = { version = "0.15", default-features = false }
 engine-core = { path = "../engine-core" }

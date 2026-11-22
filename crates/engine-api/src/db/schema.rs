@@ -57,6 +57,7 @@ pub fn ddl() -> Vec<String> {
         SchemaVersion,
         Season,
         Setting,
+        StatWriteReceipt,
         Storage,
         StorageIndex,
         Subscription,
@@ -120,7 +121,7 @@ mod tests {
             ddl.iter()
                 .filter(|line| line.starts_with("DEFINE TABLE"))
                 .count(),
-            52
+            53
         );
         assert!(ddl.iter().all(|line| !line.contains("SCHEMAFULL")));
         for line in ddl.iter().filter(|line| line.starts_with("DEFINE INDEX")) {
