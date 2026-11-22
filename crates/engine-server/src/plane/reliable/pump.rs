@@ -9,16 +9,24 @@ use crate::plane::reliable::lane::ReliableLane;
 impl ReliableLane {
     pub fn pump(&mut self, now_ms: u64, mut send: impl FnMut(&[u8]) -> bool) {
         self.retire_expired(now_ms);
-        let rto = self.rto;
+        self.congestion.refill(now_ms);
+        let pto = self.congestion.pto_ms;
         let mut lost = false;
-        for entry in self.window.iter_mut() {
+        // `make_contiguous` gives one slice so we can borrow the window and the
+        // congestion state independently while still keeping strict order.
+        let entries = self.window.make_contiguous();
+        for entry in entries.iter_mut() {
             if entry.due > now_ms {
+                break;
+            }
+            if !self.congestion.can_send(entry.wire.len(), now_ms) {
                 break;
             }
             if !send(&entry.wire) {
                 break;
             }
             entry.last_tx = now_ms;
+            entry.sent_at.get_or_insert(now_ms);
             if entry.sent_once {
                 entry.attempts += 1;
                 self.counts.resent += 1;
@@ -27,10 +35,11 @@ impl ReliableLane {
                 entry.sent_once = true;
                 self.counts.sent += 1;
             }
-            entry.due = now_ms + Self::backoff(rto, entry.attempts);
+            self.congestion.on_send(entry.wire.len(), now_ms);
+            entry.due = now_ms + Self::backoff(pto, entry.attempts);
         }
         if lost {
-            self.congestion_event(now_ms);
+            self.congestion.on_retransmit(now_ms);
         }
     }
 
@@ -48,33 +57,36 @@ impl ReliableLane {
                 .any(|&(s, e)| seq.wrapping_sub(s) <= e.wrapping_sub(s))
         };
         let mut released: usize = 0;
-        let mut rtt_samples: Vec<u64> = Vec::new();
+        let mut acked_bytes: usize = 0;
+        let mut newest_acked_tx: Option<u64> = None;
+        let mut rtt_sample: Option<f64> = None;
         self.window.retain(|pending| {
             if covered(pending.seq) {
                 released += 1;
+                acked_bytes += pending.wire.len();
+                newest_acked_tx =
+                    Some(newest_acked_tx.map_or(pending.last_tx, |t| t.max(pending.last_tx)));
                 if pending.attempts == 0 {
-                    rtt_samples.push(pending.last_tx);
+                    let sample = now_ms.saturating_sub(pending.last_tx) as f64;
+                    if sample > 0.0 {
+                        rtt_sample = Some(sample);
+                    }
                 }
                 false
             } else {
                 true
             }
         });
-        for last_tx in rtt_samples {
-            let sample = now_ms.saturating_sub(last_tx) as f64;
-            if sample > 0.0 {
-                if self.srtt_ms == 0.0 {
-                    self.srtt_ms = sample;
-                } else {
-                    self.srtt_ms = self.srtt_ms * 0.875 + sample * 0.125;
-                }
-                self.rto = Self::rto_from(self.srtt_ms);
-            }
+        if let Some(sample) = rtt_sample {
+            self.congestion.on_ack(sample, now_ms, acked_bytes);
+        } else if acked_bytes > 0 {
+            self.congestion.on_ack(0.0, now_ms, acked_bytes);
+        }
+        if let Some(newest) = newest_acked_tx {
+            let pending = self.window.make_contiguous();
+            self.congestion.detect_rack_loss(newest, now_ms, pending);
         }
         self.counts.acked += released as u64;
-        if released > 0 {
-            self.on_ack(released);
-        }
         released
     }
 

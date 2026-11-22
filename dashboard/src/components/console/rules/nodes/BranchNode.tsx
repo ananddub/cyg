@@ -7,7 +7,9 @@ import { GitBranch, Trash2 } from 'lucide-react';
 //
 // Layout: header 44px | body pt-2: cond row 36 | true row 36 | false row 36
 // Handle tops: in=22, condition=44+8+18=70, true=44+8+36+8+18=114, false=162
-export function BranchNode({ data }: NodeProps & { data: { onDelete?: () => void } }) {
+export function BranchNode({
+  data,
+}: NodeProps & { data: { onDelete?: () => void; conditionWired?: boolean } }) {
   const row = 'h-9 relative flex items-center rounded-lg px-3';
   return (
     <div className="w-72 rounded-xl border border-border border-l-4 border-l-indigo-500 bg-card/95 shadow-sm">
@@ -35,6 +37,11 @@ export function BranchNode({ data }: NodeProps & { data: { onDelete?: () => void
           <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             Condition
           </span>
+          {!data.conditionWired && (
+            <span className="text-[9px] font-medium text-amber-500">
+              ← Compare ka Bool wire karo
+            </span>
+          )}
         </div>
         <div className={`${row} border border-emerald-500/30 bg-emerald-500/10`}>
           <span className="ml-auto text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300">

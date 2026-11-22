@@ -50,8 +50,8 @@ known limitation, **GAP** = not implemented.
 | Gaffer *sending_large_blocks_of_data* | Fragment under MTU and reassemble | PASS | UDP delta fragments; WebRTC `0xA7` volatile chunks; SCTP reliable lane | net framing/chaos tests |
 | Gaffer *sending_large_blocks_of_data* | Reliable large-block chunking | PARTIAL | descriptor/large reliable payloads use WS/DataChannel; no separate UDP chunk/ack system | no dedicated UDP large-block test |
 | Gaffer *reliability_ordering...* | Sequence + redundant acks (SACK), RTO retransmit | PASS | `netcode/cyg.rs`, `plane/reliable/` | rudp/sack/ack tests |
-| Gaffer *reliability_ordering...* | Congestion avoidance / bandwidth backoff | PARTIAL | `ReliableLane` AIMD `cwnd`: halve on retransmit (once per RTO), grow on ack, hard inflight cap | `plane::reliable` cwnd test |
-| RFC 9002 | Pacing / full loss recovery | **GAP** | — | no token-bucket pacing, no PTO/RACK, no bandwidth sample |
+| Gaffer *reliability_ordering...* | Congestion avoidance / bandwidth backoff | PASS | byte-based AIMD `cwnd`, halve on retransmit (once per PTO), ack-driven growth, token-bucket pacing, hard inflight/byte caps | `plane::reliable` cwnd/pacing/loss tests |
+| RFC 9002 | PTO + RACK loss recovery | PASS | RFC 6298 SRTT/RTTVAR PTO, exponential backoff, RACK loss from selective acks | `plane::reliable::congestion`, `rack_marks_an_older_transmission_lost_after_a_newer_ack` |
 | Gaffer *reliability_ordering...* | RTT/RTO estimation | PASS | `plane/reliable/pump.rs` | ack/RTO tests |
 
 ## Input
@@ -85,9 +85,8 @@ cd sdk/client/web && node test/predict.test.mjs && node test/input.test.mjs
 
 ## Remaining work, in priority order
 
-1. **Congestion avoidance**: AIMD cwnd is in; still missing pacing, PTO/RACK,
-   and a bandwidth telemetry counter. Reference: Gaffer
-   *reliability_ordering_and_congestion_avoidance_over_udp*, RFC 9002.
+1. **Historical input replay / schema-aware batch**: same-frame redundancy is
+   done; replay of unacked schema input frames is still open.
 2. **Input redundancy**: same-frame loss redundancy is done; historical
    unacked-frame replay/batching is still open. Reference: Valve usercmd
    redundancy, Gaffer ack bitfield.

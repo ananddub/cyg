@@ -127,3 +127,42 @@ fn sequence_wrap_does_not_fool_the_order_or_the_ack() {
         Err(QueueError::NotNewer { .. })
     ));
 }
+
+#[test]
+fn pacing_holds_a_burst_until_the_token_bucket_refills() {
+    let mut lane = ReliableLane::new();
+    lane.congestion.srtt_ms = 100.0;
+    lane.congestion.pacing_bps = 140.0; // one 14-byte event per 100 ms
+    lane.congestion.tokens = 0.0;
+    lane.congestion.last_refill_ms = Some(0);
+    for seq in 1..=3 {
+        lane.queue(seq, wire(seq), 0).unwrap();
+    }
+    let mut sent = Vec::new();
+    lane.pump(0, |b| {
+        sent.push(b[1]);
+        true
+    });
+    assert!(sent.is_empty(), "no tokens: no datagram");
+    lane.pump(100, |b| {
+        sent.push(b[1]);
+        true
+    });
+    assert_eq!(sent, vec![1], "one event of pacing credit");
+    assert_eq!(lane.counts().bytes_sent, 14);
+}
+
+#[test]
+fn rack_marks_an_older_transmission_lost_after_a_newer_ack() {
+    let mut lane = ReliableLane::new();
+    lane.queue(1, wire(1), 0).unwrap();
+    lane.pump(0, |_| true);
+    lane.queue(2, wire(2), 50).unwrap();
+    lane.pump(50, |_| true);
+
+    let released = lane.ack_selective(0, &[(2, 2)], 60);
+    assert_eq!(released, 1);
+    assert_eq!(lane.inflight(), 1);
+    assert_eq!(lane.counts().rack_losses, 1);
+    assert_eq!(lane.window[0].due, 60, "RACK made the old packet due now");
+}

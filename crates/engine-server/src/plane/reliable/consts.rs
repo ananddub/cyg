@@ -7,9 +7,10 @@ pub const INITIAL_RTO: u64 = 150;
 pub const MAX_BACKOFF_SHIFT: u32 = 3;
 /// Initial congestion window in events. Matches the hard inflight cap so the
 /// first burst behaves exactly as before; loss then shrinks it.
-pub const INITIAL_CWND: f64 = MAX_INFLIGHT_EVENTS as f64;
-/// Never shrink below one event: the lane must still make progress.
-pub const MIN_CWND: f64 = 1.0;
+pub const INITIAL_CWND_BYTES: f64 = (MAX_INFLIGHT_EVENTS * MAX_RELIABLE_BYTES) as f64;
+pub const MAX_CWND_BYTES: usize = MAX_INFLIGHT_EVENTS * MAX_RELIABLE_BYTES;
+/// Never shrink below one full-size event: the lane must still make progress.
+pub const MIN_CWND_BYTES: usize = MAX_RELIABLE_BYTES;
 pub const EVENT_LIFETIME: u64 = 10_000;
 pub const MAX_EVENT_BYTES: usize = EVENT_WIRE_LEN;
 pub const MAX_RELIABLE_BYTES: usize = 2048;

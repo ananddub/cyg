@@ -36,7 +36,7 @@ impl UdpLane {
         let due: Vec<SocketAddr> = self
             .udp_reliable
             .iter()
-            .filter(|(_, lane)| lane.next_due().map_or(false, |d| d <= now))
+            .filter(|(_, lane)| lane.inflight() > 0)
             .map(|(a, _)| *a)
             .collect();
         for addr in due {

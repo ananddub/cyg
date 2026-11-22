@@ -157,53 +157,52 @@ export function VisualRuleBuilder({
       // wired conditions ki binding turant sync: naam + color realtime.
       if ('params' in partial && Array.isArray(partial.params)) {
         const params = partial.params as CardParam[];
+        // Ek pass me sab sync: wire color, Condition binding, Compare A/B
+        // binding — naam/type/value jo bhi badla, sab turant.
         setEdges((eds) => {
-          const compares: { edgeId: string; targetId: string; uid: string }[] = [];
+          const paramEdges: { edge: Edge; uid: string; param: CardParam }[] = [];
           const next = eds.map((edge) => {
             if (edge.source !== nodeId || !edge.sourceHandle?.startsWith('param-')) return edge;
             const uid = edge.sourceHandle.slice('param-'.length);
             const param = params.find((p) => p.uid === uid);
             if (!param) return edge;
             const color = PARAM_TYPE_COLORS[param.type] ?? '#c8c8c8';
-            // Wire ka color bhi realtime type ke saath.
+            paramEdges.push({ edge, uid, param });
             return {
               ...edge,
               style: { ...edge.style, stroke: color, strokeWidth: 1.5 },
               markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
-              ...( (compares.push({ edgeId: edge.id, targetId: edge.target, uid }), {}) ),
             };
           });
-          // Compare nodes ka B color bhi sync.
-          for (const c of compares) {
-            setNodes((nds2) =>
-              nds2.map((n) => {
-                if (n.id !== c.targetId || n.type !== 'compare') return n;
-                const d = n.data as unknown as { bvar?: string; bcolor?: string };
-                if (d.bvar === undefined) return n;
-                const param = params.find((p) => p.uid === c.uid);
-                return {
-                  ...n,
-                  data: { ...d, bcolor: PARAM_TYPE_COLORS[param?.type ?? 'number'] ?? '#c8c8c8' },
-                };
-              }),
-            );
-          }
-          // Conditions ka naam + color bhi sync.
-          for (const edge of next) {
-            if (edge.source !== nodeId || !edge.sourceHandle?.startsWith('param-')) continue;
-            const uid = edge.sourceHandle.slice('param-'.length);
-            const param = params.find((p) => p.uid === uid);
-            if (!param) continue;
+          for (const { edge, uid, param } of paramEdges) {
             const color = PARAM_TYPE_COLORS[param.type] ?? '#c8c8c8';
+            const side = edge.targetHandle === 'b' ? 'b' : 'a';
             setNodes((nds2) =>
               nds2.map((n) => {
-                if (n.id !== edge.target || n.type !== 'condition') return n;
-                const d = n.data as unknown as ConditionNodeData;
-                if (d.valueKind !== 'var' || d.boundUid !== uid) return n;
-                return {
-                  ...n,
-                  data: { ...d, valueVar: param.name, varColor: color, boundUid: uid },
-                };
+                if (n.id !== edge.target) return n;
+                // Compare: A ya B side pe wired param ka naam + color.
+                if (n.type === 'compare' && edge.targetHandle === side) {
+                  const d = n.data as unknown as Record<string, unknown>;
+                  if (side === 'b' ? d.bvar === undefined : (d as { avar?: string }).avar === undefined) return n;
+                  return {
+                    ...n,
+                    data: {
+                      ...d,
+                      [side === 'b' ? 'bvar' : 'avar']: param.name,
+                      [side === 'b' ? 'bcolor' : 'acolor']: color,
+                    },
+                  };
+                }
+                // Condition: var binding ka naam + color.
+                if (n.type === 'condition') {
+                  const d = n.data as unknown as ConditionNodeData;
+                  if (d.valueKind !== 'var' || d.boundUid !== uid) return n;
+                  return {
+                    ...n,
+                    data: { ...d, valueVar: param.name, varColor: color, boundUid: uid },
+                  };
+                }
+                return n;
               }),
             );
           }
@@ -332,6 +331,10 @@ export function VisualRuleBuilder({
             varColor: wireColor,
             boundUid: paramUid,
           });
+        }
+        // Branch condition wire lagi — flag set karo taki card pe hint dikhe.
+        if (target?.type === 'branch' && connection.targetHandle === 'condition') {
+          handleNodeDataChange(connection.target, { conditionWired: true });
         }
         // Compare node ke A aur B dono pe param pass — data wire hi binding.
         if (target?.type === 'compare' && connection.targetHandle === 'b') {

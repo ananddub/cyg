@@ -124,13 +124,14 @@ export function RuleSelect({
         onClick={() => {
           if (!isOpen && containerRef.current) {
             const r = containerRef.current.getBoundingClientRect();
-            // Neeche jagah nahi to upar khulo — card se kabhi overlap nahi hoga.
+            // Menu ki REAL height estimate (options count se) — chhoti menu
+            // neeche khulti hai, sirf tab upar jab viewport me fit na ho.
+            const menuH = Math.min(options.length * 34, 256) + (options.length > 4 ? 40 : 12);
             const below = window.innerHeight - r.bottom;
-            const menuH = 220;
-            const openUp = below < menuH;
+            const openUp = below < menuH + 8;
             setMenuPos({
               left: r.left,
-              top: openUp ? Math.max(8, r.top - menuH) : r.bottom + 4,
+              top: openUp ? Math.max(8, r.top - menuH - 4) : r.bottom + 4,
               width: r.width,
             });
           }

@@ -88,12 +88,27 @@ export function CompareNode({ data }: NodeProps & { data: CompareNodeData }) {
         </div>
       </div>
 
+      {/* Exec flow: Trigger → Compare → Branch ki exec chain bane */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="in"
+        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-card !bg-slate-400"
+        style={{ top: 22 }}
+      />
       <Handle
         type="target"
         position={Position.Left}
         id="a"
         className="!h-3 !w-3 !rounded-full !border-2 !border-card"
         style={{ top: 68, background: data.acolor ?? '#94a3b8' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="out"
+        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-card !bg-slate-400"
+        style={{ top: 22 }}
       />
       <Handle
         type="source"
