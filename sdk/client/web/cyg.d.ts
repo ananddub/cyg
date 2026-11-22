@@ -196,9 +196,15 @@ export class Room<TState extends object = Record<string, unknown>> {
      * until then every call is a no-op.
      */
     readonly predict: PredictDriver;
+    /** Same stamped input frame is written this many times on the unreliable
+     *  lane (1–4, default 2); reliable/WS always sends one. */
+    inputRedundancy: number;
     /** Attach the guest WASM instance (web: ECS-template pages only — the
      *  SDK does not instantiate the guest itself; Unity/Godot embeds do). */
-    attachPredict(instance: unknown): boolean;
+    attachPredict(instance: unknown, opts?: {
+        readServerState?: (delta: Uint8Array, room: Room) => ArrayLike<number> | Uint8Array | null;
+        tickRate?: number;
+    }): boolean;
 
     /** Bytes received on the WebSocket and WebRTC data channels. */
     bytesIn: number;

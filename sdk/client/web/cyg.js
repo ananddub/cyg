@@ -1038,6 +1038,10 @@ var init_engine = __esm({
           this.recordStartTime = 0;
           this.recordedFrames = [];
           this.inputSeq = 0;
+          this.inputRedundancy = Math.max(1, Math.min(
+            4,
+            Number.isFinite(options.inputRedundancy) ? options.inputRedundancy : 2
+          ));
           this.ackedSeq = -1;
           this.serverTick = -1;
           this._stampSeq = 0;
@@ -2466,18 +2470,27 @@ var init_engine = __esm({
             this._stampTimes.delete(evicted);
           }
           const frame = this._encodeAppMessage("__input", body);
-          this.bytesOut += frame.byteLength;
           if (this.serverChUnreliable && this.serverChUnreliable.readyState === "open") {
             this.serverRtcActive = true;
-            try {
-              this.serverChUnreliable.send(frame);
+            const copies = Math.max(1, Math.min(4, this.inputRedundancy || 1));
+            let sent = 0;
+            for (let i = 0; i < copies; i++) {
+              try {
+                this.serverChUnreliable.send(frame);
+                sent++;
+              } catch (e) {
+                break;
+              }
+            }
+            if (sent > 0) {
+              this.bytesOut += frame.byteLength * sent;
               return true;
-            } catch (e) {
             }
           }
           if (this.serverChReliable && this.serverChReliable.readyState === "open") {
             try {
               this.serverChReliable.send(frame);
+              this.bytesOut += frame.byteLength;
               return true;
             } catch (e) {
             }

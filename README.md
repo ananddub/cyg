@@ -401,6 +401,8 @@ Stale frames are dropped for you (per-player seq, wrap-safe newest-wins) — a l
 
 **The lane rule:** everything you cannot afford to drop (fires, chats, RPCs, `onMessage` traffic) rides the **reliable ordered** lane via `room.send`. Per-tick movement and aim ride the unreliable input lane — newest-wins, no retransmit; a late movement packet is worthless by definition.
 
+On the lossy WebRTC/UDP input lane the SDK writes the **same stamped frame twice** by default (`room.inputRedundancy`, 1–4). Duplicate sequences are dropped by the guest's newest-wins gate, so a single lost datagram no longer loses that frame and no old action is replayed. The reliable/WS path always sends one copy.
+
 ### 5b. Prediction — same input, same sequence, same frame
 
 The fixed-step handle sends **and** predicts the exact same bytes. Attach a guest instance with the `cyg_predict_*` exports; from then on `input.tick(now)` drives both the network sequence and `cyg_predict_tick` on one clock:

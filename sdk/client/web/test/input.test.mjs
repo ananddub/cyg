@@ -152,3 +152,27 @@ console.log("input.test: all assertions passed");
     input.reset();
     assert.equal(input.tick(500), 0, "reset re-primes");
 }
+
+// Lossy lane redundancy: same stamped frame is written N times; reliable lane
+// gets exactly one copy. Duplicate seqs are dropped by the guest.
+{
+    const room = schemaInputRoom();
+    room._stampTimes = new Map();
+    room._stampOrder = [];
+    room._stampSeq = 0;
+    room.inputRedundancy = 3;
+    const unreliable = { readyState: "open", sent: [], send(f) { this.sent.push(f); } };
+    room.serverChUnreliable = unreliable;
+    assert.equal(room._sendPackedInput(new Uint8Array([1, 0, 2, 3])), true);
+    assert.equal(unreliable.sent.length, 3, "3 copies on the lossy lane");
+    assert.equal(unreliable.sent[0].byteLength,
+        unreliable.sent[2].byteLength, "copies are identical frames");
+    assert.equal(room.bytesOut, unreliable.sent[0].byteLength * 3,
+        "bytesOut counts every copy");
+
+    const reliable = { readyState: "open", sent: [], send(f) { this.sent.push(f); } };
+    room.serverChUnreliable = null;
+    room.serverChReliable = reliable;
+    assert.equal(room._sendPackedInput(new Uint8Array([2, 0, 2, 3])), true);
+    assert.equal(reliable.sent.length, 1, "reliable lane sends exactly once");
+}

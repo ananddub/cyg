@@ -1081,6 +1081,13 @@ const factory = () => {
 
             // QUIC-style protocol sequence counters
             this.inputSeq = 0;
+            // Lossy-lane input redundancy: the same stamped frame is written
+            // this many times on the unreliable DataChannel. Duplicate seqs
+            // are dropped by the guest's newest-wins gate, so this only costs
+            // a few bytes and never re-applies an old action. Reliable/WS
+            // paths always send exactly one copy.
+            this.inputRedundancy = Math.max(1, Math.min(4,
+                Number.isFinite(options.inputRedundancy) ? options.inputRedundancy : 2));
 
             // Phase D reconciliation: server-confirmed input seq / tick (from delta tail)
             this.ackedSeq = -1;
@@ -2648,13 +2655,25 @@ const factory = () => {
                 this._stampTimes.delete(evicted);
             }
             const frame = this._encodeAppMessage('__input', body);
-            this.bytesOut += frame.byteLength;
             if (this.serverChUnreliable && this.serverChUnreliable.readyState === 'open') {
                 this.serverRtcActive = true;
-                try { this.serverChUnreliable.send(frame); return true; } catch (e) { /* closing */ }
+                const copies = Math.max(1, Math.min(4, this.inputRedundancy || 1));
+                let sent = 0;
+                for (let i = 0; i < copies; i++) {
+                    try { this.serverChUnreliable.send(frame); sent++; }
+                    catch (e) { break; /* closing */ }
+                }
+                if (sent > 0) {
+                    this.bytesOut += frame.byteLength * sent;
+                    return true;
+                }
             }
             if (this.serverChReliable && this.serverChReliable.readyState === 'open') {
-                try { this.serverChReliable.send(frame); return true; } catch (e) { /* closing */ }
+                try {
+                    this.serverChReliable.send(frame);
+                    this.bytesOut += frame.byteLength;
+                    return true;
+                } catch (e) { /* closing */ }
             }
             // WebRTC not negotiated yet — the WS lane reaches the same guest dispatch.
             return this.send('__input', body);

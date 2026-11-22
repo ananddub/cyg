@@ -59,7 +59,7 @@ known limitation, **GAP** = not implemented.
 |---|---|---|---|---|
 | Valve, Gaffer | Newest-wins input sequence, stale drop | PASS | bridge `_inputLastSeq`; host `SeqWatermark` | input-flow tests |
 | Valve | Hold last input / idle synthesis | PASS | `netcode/input.rs`, `synthesize_idle_inputs` | input-flow test |
-| Gaffer/Valve | Redundant input frames for lossy lanes | **GAP** | single `__input` frame per packet; `sendInputBatch` exists but is not automatic redundancy | — |
+| Gaffer/Valve | Redundant input frames for lossy lanes | PASS | `Room.inputRedundancy` (default 2) writes the same stamped frame N times on the unreliable lane; duplicate seqs are dropped | `sdk/client/web/test/input.test.mjs` |
 | Gaffer | Input batching | PARTIAL | `0x26` batch lane + `sendInputBatch` | host batch tests; schema lane does not auto-batch |
 
 ## Clock / scope
@@ -87,9 +87,9 @@ cd sdk/client/web && node test/predict.test.mjs && node test/input.test.mjs
 1. **Congestion avoidance** for the UDP reliable lane: cwnd/pacing, loss-driven
    backoff, and a bandwidth telemetry counter. Reference: Gaffer
    *reliability_ordering_and_congestion_avoidance_over_udp*, RFC 9002.
-2. **Input redundancy**: resend the last N unacked schema input frames, or add a
-   schema-aware batch lane. Reference: Valve usercmd redundancy, Gaffer ack
-   bitfield.
+2. **Input redundancy**: same-frame loss redundancy is done; historical
+   unacked-frame replay/batching is still open. Reference: Valve usercmd
+   redundancy, Gaffer ack bitfield.
 3. **Shooter timestamp end-to-end**: carry the client input timestamp into the
    guest so `Rewind.recordAt/atMs` uses the actual shot time, not just the
    server tick.

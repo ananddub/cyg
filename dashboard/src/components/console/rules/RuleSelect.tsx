@@ -33,6 +33,7 @@ export function RuleSelect({
   const [menuPos, setMenuPos] = useState<{ left: number; top: number; width: number } | null>(null);
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // focus the search box when the menu opens; reset the query on close
@@ -46,7 +47,14 @@ export function RuleSelect({
   // Close when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      // Portal menu document.body me rehta hai — uspe click "outside" nahi
+      // hai, warna option pe click karte hi menu unmount ho jata hai.
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(target) &&
+        !(menuRef.current && menuRef.current.contains(target))
+      ) {
         setIsOpen(false);
       }
     }
@@ -148,6 +156,7 @@ export function RuleSelect({
       {/* Floating Menu Popover — portal se render, card ke layout se alag */}
       {isOpen && menuPos && createPortal(
         <div
+          ref={menuRef}
           className="fixed z-[400] max-h-64 overflow-y-auto rounded-lg border border-border bg-popover/98 p-1 shadow-2xl backdrop-blur-xl nodrag nopan nowheel"
           style={{ left: menuPos.left, top: menuPos.top, width: menuPos.width }}
         >
