@@ -18,7 +18,7 @@ impl ConsoleMapsController {
         Self { service }
     }
 
-    #[post("/upload", response_body = crate::services::maps::MapUploadResponse)]
+    #[post("/upload", request_body = crate::services::maps::MapUploadRequest, request_content = "multipart", response_body = crate::services::maps::MapUploadResponse)]
     async fn upload(
         &self,
         auth: ConsoleAuthed,
@@ -28,7 +28,7 @@ impl ConsoleMapsController {
         self.store_upload(auth, game_id, request).await
     }
 
-    #[post("", response_body = crate::services::maps::MapUploadResponse)]
+    #[post("", request_body = crate::services::maps::MapUploadRequest, request_content = "multipart", response_body = crate::services::maps::MapUploadResponse)]
     async fn upload_at_root(
         &self,
         auth: ConsoleAuthed,

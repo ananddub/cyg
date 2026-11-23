@@ -12,7 +12,7 @@ impl ConsoleWasmController {
         Self { service }
     }
 
-    #[post("/upload", response_body = crate::dto::console::wasm::UploadResponse)]
+    #[post("/upload", request_body = crate::dto::console::wasm::WasmUploadRequest, request_content = "multipart", response_body = crate::dto::console::wasm::UploadResponse)]
     async fn upload(
         &self,
         auth: ConsoleAuthed,
@@ -22,7 +22,7 @@ impl ConsoleWasmController {
         self.store_upload(auth, game_id, request).await
     }
 
-    #[post("", response_body = crate::dto::console::wasm::UploadResponse)]
+    #[post("", request_body = crate::dto::console::wasm::WasmUploadRequest, request_content = "multipart", response_body = crate::dto::console::wasm::UploadResponse)]
     async fn upload_at_root(
         &self,
         auth: ConsoleAuthed,
