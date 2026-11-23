@@ -96,3 +96,25 @@ impl From<&WebhookDelivery> for DeliveryRow {
         }
     }
 }
+
+/// How a webhook delivery is signed, in receiver-facing terms.
+#[derive(poem_openapi::Object, Debug, Serialize)]
+pub struct WebhookSigningSpec {
+    pub algorithm: String,
+    pub signed_string: String,
+    pub signature_header: String,
+    pub signature_format: String,
+    pub timestamp_header: String,
+    pub delivery_header: String,
+    pub replay_window_seconds: i64,
+    pub content_type: String,
+    pub note: String,
+}
+
+/// The events a webhook can subscribe to plus the signing recipe.
+#[derive(poem_openapi::Object, Debug, Serialize)]
+pub struct WebhookSigningSpecResponse {
+    pub success: bool,
+    pub events: Vec<String>,
+    pub signing: WebhookSigningSpec,
+}

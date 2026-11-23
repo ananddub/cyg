@@ -62,14 +62,19 @@ leaderboard handlers are typed.
 `tests/openapi_undocumented.txt`. Every operation now publishes a concrete
 schema: `Result<Json<T>, E>` publishes `T`, and every handler that returns a
 type-erased `Response` carries an explicit `response_body = <DTO>` that names
-the real reply type. The request side infers `Json<T>`, `ValidatedJson<T>` and
-the engine's own `Body<T>`, so a typed request body no longer falls back to a
-free-form object. Regenerate with
+the real reply type. The request side infers `Json<T>`, `ValidatedJson<T>`,
+`Form<T>`, the engine's own `Body<T>`, and a plain `String` body as
+`text/plain`. Multipart handlers name their schema with
+`request_body = <DTO>, request_content = "multipart"`. A POST with no body
+extractor publishes no request body at all instead of a free-form JSON object.
+Regenerate with
 `CYG_DUMP_OPENAPI=1 cargo test -p engine-api --lib openapi::undocumentation`.
-The baseline is empty. `responses_name_a_concrete_dto` is the stricter half of
-the ratchet: a free-form response fails it, so a future `-> Response` handler
-must name its DTO. The free-form descriptor remains only for a genuinely
-dynamic request payload (for example a raw text body), not for responses.
+The baseline is empty. `responses_name_a_concrete_dto` and
+`requests_are_not_free_form` are the stricter half of the ratchet: any
+free-form response, or any contract route whose request is published as the
+free-form JSON object, fails them. The free-form descriptor remains in the
+macro as a fallback for a future body the macro cannot name, but no current
+contract route uses it.
 
 **Bug found and fixed:** `GET /v1/leaderboard` answered 500 because it asked the
 store for `LIMIT i64::MAX`. It now asks for 10 000.

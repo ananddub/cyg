@@ -44,3 +44,14 @@ pub struct MapDto {
 pub struct MapUploadResponse {
     pub map: MapDto,
 }
+
+/// The multipart fields the console's map upload accepts.
+#[derive(poem_openapi::Object)]
+pub struct MapUploadRequest {
+    pub file: crate::dto::common::BinaryField,
+    /// One of `oxcl`, `map2d`, `map3d`, `navmesh`; omitted means infer from the
+    /// filename extension.
+    pub format: Option<String>,
+    /// Display name; omitted means the uploaded filename.
+    pub name: Option<String>,
+}

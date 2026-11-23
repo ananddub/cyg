@@ -1,5 +1,7 @@
 use syn::{Ident, LitStr, Token, Type, parse::Parse, parse::ParseStream};
 
+use crate::model::RequestContent;
+
 #[derive(Clone, Default)]
 pub(crate) struct Docs {
     pub(crate) tag: Option<LitStr>,
@@ -18,6 +20,8 @@ pub(crate) struct ControllerOptions {
 pub(crate) struct RouteOptions {
     pub(crate) path: LitStr,
     pub(crate) sse_body: Option<Type>,
+    pub(crate) request_body: Option<Type>,
+    pub(crate) request_content: Option<RequestContent>,
     pub(crate) response_body: Option<Type>,
     pub(crate) docs: Docs,
 }
@@ -36,6 +40,8 @@ impl RouteOptions {
         Self {
             path: LitStr::new("", proc_macro2::Span::call_site()),
             sse_body: None,
+            request_body: None,
+            request_content: None,
             response_body: None,
             docs: Docs::default(),
         }
@@ -88,6 +94,26 @@ impl Parse for RouteOptions {
                     return Err(syn::Error::new_spanned(key, "duplicate `sse` route option"));
                 }
                 options.sse_body = Some(input.parse()?);
+            } else if key == "request_body" {
+                let ty: Type = input.parse()?;
+                options.request_body = Some(ty);
+            } else if key == "request_content" {
+                let value: LitStr = input.parse()?;
+                let content = match value.value().as_str() {
+                    "json" => RequestContent::Json,
+                    "form" => RequestContent::Form,
+                    "text" => RequestContent::Text,
+                    "multipart" => RequestContent::Multipart,
+                    other => {
+                        return Err(syn::Error::new_spanned(
+                            value,
+                            format!(
+                                "unknown request_content `{other}`; use json, form, text or multipart"
+                            ),
+                        ));
+                    }
+                };
+                options.request_content = Some(content);
             } else if key == "response_body" {
                 let ty: Type = input.parse()?;
                 options.response_body = Some(ty);
@@ -115,7 +141,7 @@ fn parse_docs_option(docs: &mut Docs, key: Ident, input: ParseStream<'_>) -> syn
         }
         _ => Err(syn::Error::new_spanned(
             key,
-            "unsupported route option; expected `sse = Type`, `response_body = Type`, `tag`, `summary`, `description`, `request_description`, or `response_description`",
+            "unsupported route option; expected `sse = Type`, `request_body = Type`, `request_content = \"text\" | \"form\" | \"json\" | \"multipart\"`, `response_body = Type`, `tag`, `summary`, `description`, `request_description`, or `response_description`",
         )),
     }
 }
@@ -131,6 +157,26 @@ fn set_lit(slot: &mut Option<LitStr>, key: Ident, value: LitStr) -> syn::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_a_request_body_and_its_content_type() {
+        let options: RouteOptions =
+            syn::parse_str("\"\", request_body = UploadRequest, request_content = \"multipart\"")
+                .unwrap();
+        assert!(options.request_body.is_some());
+        assert!(matches!(
+            options.request_content,
+            Some(RequestContent::Multipart)
+        ));
+    }
+
+    #[test]
+    fn refuses_an_unknown_request_content_type() {
+        let Err(error) = syn::parse_str::<RouteOptions>("\"\", request_content = \"xml\"") else {
+            panic!("an unknown request content type must be refused");
+        };
+        assert!(error.to_string().contains("unknown request_content"));
+    }
 
     #[test]
     fn parses_a_generic_response_body() {

@@ -24,7 +24,7 @@ impl MatchResultController {
         Self { service }
     }
 
-    #[post("/{id}/result", response_body = crate::dto::match_result::MatchResultResponse)]
+    #[post("/{id}/result", request_body = crate::dto::match_result::MatchResultRequest, response_body = crate::dto::match_result::MatchResultResponse)]
     async fn result(
         &self,
         headers: HeaderMap,

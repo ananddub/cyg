@@ -48,6 +48,8 @@ pub(crate) struct RequestBody {
 pub(crate) enum RequestContent {
     Json,
     Form,
+    Text,
+    Multipart,
 }
 
 #[derive(Clone)]

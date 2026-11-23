@@ -58,3 +58,9 @@ pub struct RuleDryRunResult {
     pub actions: Vec<serde_json::Value>,
     pub error: Option<String>,
 }
+
+/// How many stored versions a rule delete removed.
+#[derive(poem_openapi::Object, Debug, Serialize)]
+pub struct DeletedRuleResponse {
+    pub deleted: u64,
+}

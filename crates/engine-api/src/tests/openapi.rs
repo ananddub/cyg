@@ -57,11 +57,12 @@ fn undocumented() -> BTreeSet<String> {
             missing.push("no response");
         }
         // A bodyless method has no request to describe; a path parameter is
-        // already in the path template.
+        // already in the path template. A custom POST with no extractor is
+        // bodyless too: it names its resource in the path, not in a payload.
         let bodyless = matches!(
             route.method().to_ascii_lowercase().as_str(),
             "get" | "delete" | "head" | "options"
-        );
+        ) || !route.documents_request();
         if !route.documents_request() && !bodyless {
             missing.push("no request");
         }
@@ -94,6 +95,20 @@ fn responses_name_a_concrete_dto() {
     assert!(
         free_form.is_empty(),
         "these routes still publish a free-form response; name the DTO with `response_body = <T>`: {free_form:#?}"
+    );
+}
+
+#[test]
+fn requests_are_not_free_form() {
+    let free_form: BTreeSet<String> = auto_route::documented_routes()
+        .into_iter()
+        .filter(|route| !is_shell(route.path()))
+        .filter(|route| route.request_is_free_form())
+        .map(|route| route.operation())
+        .collect();
+    assert!(
+        free_form.is_empty(),
+        "these routes still publish a free-form request; name the DTO with `request_body = <T>`: {free_form:#?}"
     );
 }
 

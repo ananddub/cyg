@@ -9,7 +9,7 @@ use crate::app::middleware::Authed;
 use crate::app::params::{Body, Params};
 use crate::current_state;
 
-use crate::dto::leaderboard::{HaystackQuery, ListQuery};
+use crate::dto::leaderboard::{HaystackQuery, ListQuery, RecordRequest};
 use crate::services::leaderboard::LeaderboardService;
 use crate::services::leaderboard::define::DefineRequest;
 
@@ -23,7 +23,7 @@ impl LeaderboardController {
         Self { service }
     }
 
-    #[post("/{leaderboard_id}", response_body = crate::dto::leaderboard::RecordResponse)]
+    #[post("/{leaderboard_id}", request_body = crate::dto::leaderboard::RecordRequest, response_body = crate::dto::leaderboard::RecordResponse)]
     async fn write_record(
         &self,
         auth: Authed,

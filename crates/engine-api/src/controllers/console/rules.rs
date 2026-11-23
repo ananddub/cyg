@@ -56,7 +56,7 @@ impl ConsoleRulesController {
             .into_response()
     }
 
-    #[delete("/{key}", response_body = serde_json::Value)]
+    #[delete("/{key}", response_body = crate::dto::console::rules::DeletedRuleResponse)]
     async fn delete(&self, auth: ConsoleAuthed, Path(key): Path<String>) -> Response {
         let state = current_state();
         self.service.delete_rule(&auth, &key).await.into_response()

@@ -1,5 +1,5 @@
-use crate::dto::leaderboard::RecordListResponse;
 use crate::dto::leaderboard::RecordResponse;
+use crate::dto::leaderboard::{RecordListResponse, RecordRequest};
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -47,7 +47,7 @@ impl TournamentController {
             .into_response()
     }
 
-    #[post("/{tournament_id}", response_body = RecordResponse)]
+    #[post("/{tournament_id}", request_body = RecordRequest, response_body = RecordResponse)]
     async fn write_record(
         &self,
         auth: Authed,
@@ -61,7 +61,7 @@ impl TournamentController {
             .into_response()
     }
 
-    #[put("/{tournament_id}", response_body = RecordResponse)]
+    #[put("/{tournament_id}", request_body = RecordRequest, response_body = RecordResponse)]
     async fn write_record_replace(
         &self,
         auth: Authed,

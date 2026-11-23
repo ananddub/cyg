@@ -23,7 +23,7 @@ where
     text.parse::<i64>().map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Serialize, Deserialize)]
 pub struct RecordRequest {
     #[serde(default, deserialize_with = "flex_i64")]
     pub score: i64,

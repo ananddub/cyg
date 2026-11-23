@@ -4,7 +4,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::app::middleware::ConsoleAuthed;
-use crate::dto::console::rules::{RuleDryRun, RuleDryRunResult, RuleRequest, RuleRow};
+use crate::dto::console::rules::*;
 use crate::error::V2Error;
 use crate::repositories::models::RulesDefinition;
 use crate::repositories::rules::rules_definition_id;
@@ -126,7 +126,7 @@ impl super::ConsoleService {
 
         claims: &ConsoleAuthed,
         key: &str,
-    ) -> Result<Json<serde_json::Value>, V2Error> {
+    ) -> Result<Json<DeletedRuleResponse>, V2Error> {
         claims.require_write()?;
         let removed = self
             .plane
@@ -147,7 +147,7 @@ impl super::ConsoleService {
             &format!("Deleted rule {key} and its {removed} version(s)."),
         )
         .await;
-        Ok(Json(serde_json::json!({ "deleted": removed })))
+        Ok(Json(DeletedRuleResponse { deleted: removed }))
     }
 
     /// Dry-runs a rule (stored by key or inline body) against a player's stat

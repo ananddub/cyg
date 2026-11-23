@@ -71,7 +71,7 @@ impl ConsoleIapController {
         Self { service }
     }
 
-    #[post("/{vendor}/validate", response_body = serde_json::Value)]
+    #[post("/{vendor}/validate", response_body = crate::dto::console::iap::ValidatedReplyResponse)]
     async fn validate(
         &self,
         auth: ConsoleAuthed,

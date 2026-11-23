@@ -46,6 +46,11 @@ impl OpenApiRouteDescriptor {
         self.response.is_some_and(|schema| schema.is_free_form())
     }
 
+    /// Whether the published request schema is the free-form JSON object.
+    pub fn request_is_free_form(&self) -> bool {
+        self.request.is_some_and(|schema| schema.is_free_form())
+    }
+
     /// Whether the handler's signature told the spec what it accepts.
     pub fn documents_request(&self) -> bool {
         self.request.is_some()
@@ -118,6 +123,22 @@ impl OpenApiSchemaDescriptor {
             schema_ref: schema_ref::<T>,
             register: register_type::<T>,
             content_type: "application/x-www-form-urlencoded",
+            free_form: false,
+        }
+    }
+    pub const fn text<T: Type>() -> Self {
+        Self {
+            schema_ref: schema_ref::<T>,
+            register: register_type::<T>,
+            content_type: "text/plain",
+            free_form: false,
+        }
+    }
+    pub const fn multipart<T: Type>() -> Self {
+        Self {
+            schema_ref: schema_ref::<T>,
+            register: register_type::<T>,
+            content_type: "multipart/form-data",
             free_form: false,
         }
     }

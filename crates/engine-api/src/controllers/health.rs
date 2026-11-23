@@ -1,11 +1,16 @@
 use auto_route::controller;
 use axum::Json;
 use axum::response::Response;
-use serde_json::json;
 use std::sync::Arc;
 
 use crate::current_state;
 use crate::services::status::StatusService;
+
+#[derive(poem_openapi::Object, serde::Serialize)]
+struct HealthResponse {
+    status: String,
+    routing: String,
+}
 
 struct HealthController;
 
@@ -16,11 +21,11 @@ impl HealthController {
     }
 
     #[get("/health")]
-    async fn health(&self) -> Json<serde_json::Value> {
-        Json(json!({
-            "status": "ok",
-            "routing": "auto",
-        }))
+    async fn health(&self) -> Json<HealthResponse> {
+        Json(HealthResponse {
+            status: "ok".to_owned(),
+            routing: "auto".to_owned(),
+        })
     }
 }
 

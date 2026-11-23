@@ -5,6 +5,7 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::webhook::{
     EndpointCreatedResponse, EndpointListResponse, EndpointRequest, EndpointRow,
+    WebhookSigningSpecResponse,
 };
 use crate::error::V2Error;
 use crate::infra::webhook;
@@ -25,12 +26,12 @@ impl WebhookService {
 
     /// Says how a delivery is signed, so the receiver can be written from what
     /// the console shows rather than from a failure.
-    pub async fn signing_spec(&self) -> Result<Json<serde_json::Value>, V2Error> {
-        Ok(Json(serde_json::json!({
-            "success": true,
-            "events": EVENTS,
-            "signing": webhook::spec(),
-        })))
+    pub async fn signing_spec(&self) -> Result<Json<WebhookSigningSpecResponse>, V2Error> {
+        Ok(Json(WebhookSigningSpecResponse {
+            success: true,
+            events: EVENTS.iter().map(|event| (*event).to_owned()).collect(),
+            signing: webhook::spec(),
+        }))
     }
 
     pub async fn create_endpoint(

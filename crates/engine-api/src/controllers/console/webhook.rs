@@ -38,7 +38,7 @@ impl ConsoleWebhookController {
     }
 
     /// Says how a delivery is signed, in the words the receiver is written from.
-    #[get("/spec", response_body = serde_json::Value)]
+    #[get("/spec", response_body = crate::dto::webhook::WebhookSigningSpecResponse)]
     async fn spec(&self, _auth: ConsoleAuthed) -> Response {
         self.service.signing_spec().await.into_response()
     }

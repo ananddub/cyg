@@ -102,12 +102,19 @@ impl ConsoleValidateRequest {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ValidatedPurchaseReply {
     pub validated_purchases: Vec<PurchaseResponse>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ValidatedSubscriptionReply {
     pub subscription: SubscriptionResponse,
+}
+
+/// The two shapes a vendor validation can answer with.
+#[derive(poem_openapi::Union, Debug)]
+pub enum ValidatedReplyResponse {
+    Purchase(ValidatedPurchaseReply),
+    Subscription(ValidatedSubscriptionReply),
 }

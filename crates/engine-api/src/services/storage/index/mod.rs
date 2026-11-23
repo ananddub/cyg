@@ -6,6 +6,7 @@ use axum::Json;
 
 use crate::app::middleware::Authed;
 use crate::db::DbError;
+use crate::dto::Empty;
 use crate::dto::storage_index::{StorageIndexDef, StorageIndexDefinitions};
 use crate::error::V2Error;
 use crate::repositories::storage::{StorageIndexContent, StorageIndexRow};
@@ -97,12 +98,7 @@ impl super::StorageService {
         }))
     }
 
-    pub async fn delete_index(
-        &self,
-
-        auth: &Authed,
-        name: &str,
-    ) -> Result<Json<serde_json::Value>, V2Error> {
+    pub async fn delete_index(&self, auth: &Authed, name: &str) -> Result<Json<Empty>, V2Error> {
         let row = self.index_by_name(name).await?;
         if row.user_id != auth.uid() {
             return Err(V2Error::permission_denied(
@@ -115,7 +111,7 @@ impl super::StorageService {
             .storage_delete_index(name)
             .await
             .map_err(V2Error::from)?;
-        Ok(Json(serde_json::json!({})))
+        Ok(Json(Empty {}))
     }
 
     pub(super) async fn index_by_name(&self, name: &str) -> Result<StorageIndexRow, V2Error> {

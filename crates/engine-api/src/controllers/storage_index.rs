@@ -39,7 +39,7 @@ impl StorageIndexController {
         self.service.list_indexes(&auth).await.into_response()
     }
 
-    #[delete("/{name}", response_body = serde_json::Value)]
+    #[delete("/{name}", response_body = crate::dto::Empty)]
     async fn delete_index(&self, auth: Authed, Path(name): Path<String>) -> Response {
         let state = current_state();
         self.service

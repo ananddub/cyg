@@ -35,3 +35,11 @@ pub struct ActivateRequest {
     #[serde(default)]
     pub version: i32,
 }
+
+/// The multipart fields the console's wasm upload accepts. `file` is the
+/// `.wasm` binary; `source_code` is optional and stored beside it for review.
+#[derive(poem_openapi::Object)]
+pub struct WasmUploadRequest {
+    pub file: crate::dto::common::BinaryField,
+    pub source_code: Option<String>,
+}

@@ -34,6 +34,12 @@ pub(crate) fn infer_request_body(arguments: &[Type]) -> Option<RequestBody> {
                     content: RequestContent::Form,
                 })
             })
+            .or_else(|| {
+                is_plain(argument, "String").then(|| RequestBody {
+                    ty: argument.clone(),
+                    content: RequestContent::Text,
+                })
+            })
     })
 }
 
@@ -85,6 +91,18 @@ pub(crate) fn is_result_type(ty: &Type) -> bool {
             .is_some_and(|segment| segment.ident == "Result"),
         _ => false,
     }
+}
+
+fn is_plain(ty: &Type, name: &str) -> bool {
+    matches!(
+        ty,
+        Type::Path(path)
+            if path.qself.is_none()
+                && path.path.segments.last().is_some_and(|segment| {
+                    segment.ident == name
+                        && matches!(segment.arguments, PathArguments::None)
+                })
+    )
 }
 
 fn is_sse_response_type(ty: &Type) -> bool {
