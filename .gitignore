@@ -72,6 +72,7 @@ cert.crt
 /test-client/
 /tests/
 /architecture/
+/tmp/
 # Embedded SurrealKV store (`surrealkv://data/cyg`)
 /data/
 /run_website.sh
