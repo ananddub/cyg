@@ -17,19 +17,39 @@ use std::path::Path;
 
 const BASELINE: &str = "tests/openapi_undocumented.txt";
 
+/// Engine probes, the console shell, and the static client assets. These are
+/// not part of the game's DTO contract; the API routes all are.
+fn is_shell(path: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "/metrics",
+        "/readyz",
+        "/status",
+        "/auto",
+        "/ws",
+        "/dashboard",
+        "/api/dashboard",
+        "/health",
+        "/openapi.json",
+        "/Build/",
+        "/TemplateData/",
+        "/arena_map.json",
+        "/cyg.js",
+        "/cyg_core_rs.wasm",
+        "/lobby/rooms",
+        "/node_modules/",
+        "/openoxide-client.js",
+        "/packages/",
+        "/unity",
+    ];
+    path == "/" || PREFIXES.iter().any(|prefix| path.starts_with(prefix))
+}
+
 fn undocumented() -> BTreeSet<String> {
     let mut rows = BTreeSet::new();
     for route in auto_route::documented_routes() {
         // The engine's own probes and the console's shell are not part of the
         // game API contract.
-        if route.path().starts_with("/metrics")
-            || route.path().starts_with("/readyz")
-            || route.path().starts_with("/status")
-            || route.path().starts_with("/auto")
-            || route.path().starts_with("/ws")
-            || route.path().starts_with("/dashboard")
-            || route.path().starts_with("/api/dashboard")
-        {
+        if is_shell(route.path()) {
             continue;
         }
         let mut missing = Vec::new();
@@ -61,6 +81,20 @@ fn baseline() -> BTreeSet<String> {
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(str::to_owned)
         .collect()
+}
+
+#[test]
+fn responses_name_a_concrete_dto() {
+    let free_form: BTreeSet<String> = auto_route::documented_routes()
+        .into_iter()
+        .filter(|route| !is_shell(route.path()))
+        .filter(|route| route.response_is_free_form())
+        .map(|route| route.operation())
+        .collect();
+    assert!(
+        free_form.is_empty(),
+        "these routes still publish a free-form response; name the DTO with `response_body = <T>`: {free_form:#?}"
+    );
 }
 
 #[test]

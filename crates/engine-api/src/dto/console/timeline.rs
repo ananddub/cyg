@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 /// One merged row of the operator's player timeline. Every source table maps
 /// into this shape; `kind` is what the UI renders the row with.
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct TimelineEntry {
     pub id: String,
     pub kind: String,
@@ -15,7 +15,7 @@ pub struct TimelineEntry {
     pub detail: Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct TimelinePage {
     pub account_id: Uuid,
     pub entries: Vec<TimelineEntry>,

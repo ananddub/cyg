@@ -26,16 +26,13 @@ impl AccountController {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::account::AccountResponse)]
     async fn account(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .get_account(&auth)
-            .await
-            .into_response()
+        self.service.get_account(&auth).await.into_response()
     }
 
-    #[put("")]
+    #[put("", response_body = crate::dto::account::AccountResponse)]
     async fn update(
         &self,
         auth: Authed,
@@ -49,25 +46,19 @@ impl AccountController {
             .into_response()
     }
 
-    #[delete]
+    #[delete("", response_body = crate::dto::Empty)]
     async fn delete(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .delete_account(&auth)
-            .await
-            .into_response()
+        self.service.delete_account(&auth).await.into_response()
     }
 
-    #[get("/export")]
+    #[get("/export", response_body = crate::dto::console::account::AccountExport)]
     async fn export(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .export_account(&auth)
-            .await
-            .into_response()
+        self.service.export_account(&auth).await.into_response()
     }
 
-    #[post("/delete")]
+    #[post("/delete", response_body = crate::dto::Empty)]
     async fn delete_by_id(
         &self,
         headers: HeaderMap,
@@ -77,19 +68,16 @@ impl AccountController {
         if let Err(err) = server_key_or_console(&headers, &*state.plane()) {
             return err.into_response();
         }
-        self.service
-            .erase(body.user_id)
-            .await
-            .into_response()
+        self.service.erase(body.user_id).await.into_response()
     }
 
-    #[get("/wallet")]
+    #[get("/wallet", response_body = crate::dto::account::PlayerWalletResponse)]
     async fn wallet(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service.get_wallet(&auth).await.into_response()
     }
 
-    #[post("/wallet")]
+    #[post("/wallet", response_body = crate::dto::account::PlayerWalletResponse)]
     async fn update_wallet(
         &self,
         auth: Authed,
@@ -102,7 +90,7 @@ impl AccountController {
             .into_response()
     }
 
-    #[put("/wallet")]
+    #[put("/wallet", response_body = crate::dto::account::PlayerWalletResponse)]
     async fn put_wallet(
         &self,
         auth: Authed,

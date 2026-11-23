@@ -49,7 +49,7 @@ pub struct QueueJoin {
     pub ttl_ms: Option<u64>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(poem_openapi::Object, Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueTicketView {
     pub ticket_id: String,
@@ -67,7 +67,7 @@ pub struct QueueTicketView {
     pub expires_at_ms: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(poem_openapi::Object, Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueSeatView {
     pub name: String,

@@ -25,7 +25,7 @@ impl MatchmakeController {
         Self { service }
     }
 
-    #[post("/matchmake/{method}/{room}")]
+    #[post("/matchmake/{method}/{room}", response_body = crate::dto::matchmake::SeatResponse)]
     async fn matchmake(
         &self,
         peer: ConnectInfo<SocketAddr>,

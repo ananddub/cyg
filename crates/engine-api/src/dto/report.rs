@@ -12,7 +12,7 @@ pub const REASONS: [&str; 5] = [
 ];
 pub const STATUSES: [&str; 3] = ["open", "actioned", "dismissed"];
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct CreateReportRequest {
     #[serde(default, rename = "reportedId", alias = "reported_id")]
     pub reported_id: String,
@@ -40,7 +40,7 @@ pub struct ListQuery {
     pub status: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct StatusRequest {
     #[serde(default)]
     pub status: String,
@@ -52,7 +52,7 @@ pub struct StatusRequest {
     pub note: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Clone, Serialize, Deserialize)]
 pub struct ReportResponse {
     pub id: String,
     pub reporter_id: String,
@@ -82,7 +82,7 @@ impl From<&ContentReport> for ReportResponse {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(poem_openapi::Object, Debug, Serialize, Deserialize, Default)]
 pub struct ReportListResponse {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reports: Vec<ReportResponse>,

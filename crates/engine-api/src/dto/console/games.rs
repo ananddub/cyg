@@ -35,7 +35,7 @@ impl GameConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct CreateGameRequest {
     #[serde(default)]
     pub name: String,
@@ -122,7 +122,7 @@ impl From<GameRow> for GameDto {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct GameDetailDto {
     pub id: Uuid,
     pub game_key: String,
@@ -139,12 +139,11 @@ pub struct GameDetailDto {
     pub module_count: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct GameListDto {
     pub games: Vec<GameDto>,
     pub total: i64,
 }
-
 
 #[derive(Debug, Deserialize, poem_openapi::Object)]
 pub struct GameIdsRequest {
@@ -176,7 +175,7 @@ pub struct ArchiveGameResponse {
     pub archived: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct UnityConnectionDto {
     #[serde(rename = "gameKey")]
     pub game_key: String,

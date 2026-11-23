@@ -31,7 +31,7 @@ pub struct MatchResultRequest {
 
 /// One player as the control plane recorded them: the score now on the board and
 /// the counters this result left behind.
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct RecordedScore {
     pub user_id: Uuid,
     pub score: i64,
@@ -39,7 +39,7 @@ pub struct RecordedScore {
     pub counters: BTreeMap<String, i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MatchResultResponse {
     pub success: bool,
     pub match_id: Uuid,

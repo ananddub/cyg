@@ -15,19 +15,19 @@ pub struct ListQuery {
     pub forward: Option<bool>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct SendRequest {
     #[serde(default)]
     pub content: Value,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct UpdateRequest {
     #[serde(default)]
     pub content: Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MessageResponse {
     pub channel_id: String,
     pub message_id: String,
@@ -80,7 +80,7 @@ impl MessageResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MessageListResponse {
     pub messages: Vec<MessageResponse>,
     #[serde(

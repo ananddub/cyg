@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 
 use crate::infra::seats::Seat;
 
+#[derive(poem_openapi::Object)]
 pub struct SeatResponse {
     pub name: String,
     pub session_id: String,

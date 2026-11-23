@@ -19,7 +19,7 @@ impl ConsolePasswordController {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::Empty)]
     async fn change(
         &self,
         auth: ConsoleAuthed,

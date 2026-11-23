@@ -11,13 +11,14 @@ pub(super) const EXT_FORMATS: &[(&str, &str)] = &[
 pub(super) struct ConsoleMapsController {
     pub(super) service: Arc<MapService>,
 }
+type MapDtoList = Vec<crate::services::maps::MapDto>;
 #[controller("/v1/console/games/{gameId}/maps")]
 impl ConsoleMapsController {
     fn new(service: Arc<MapService>) -> Self {
         Self { service }
     }
 
-    #[post("/upload")]
+    #[post("/upload", response_body = crate::services::maps::MapUploadResponse)]
     async fn upload(
         &self,
         auth: ConsoleAuthed,
@@ -27,7 +28,7 @@ impl ConsoleMapsController {
         self.store_upload(auth, game_id, request).await
     }
 
-    #[post("")]
+    #[post("", response_body = crate::services::maps::MapUploadResponse)]
     async fn upload_at_root(
         &self,
         auth: ConsoleAuthed,
@@ -37,7 +38,7 @@ impl ConsoleMapsController {
         self.store_upload(auth, game_id, request).await
     }
 
-    #[get("")]
+    #[get("", response_body = MapDtoList)]
     async fn list(&self, _auth: ConsoleAuthed, Path(game_id): Path<String>) -> Response {
         let state = current_state();
         let game_id = match Self::game_id(&game_id) {
@@ -51,7 +52,7 @@ impl ConsoleMapsController {
             .into_response()
     }
 
-    #[get("/{version}/preview")]
+    #[get("/{version}/preview", response_body = crate::services::maps::MapPreview)]
     async fn preview(
         &self,
         _auth: ConsoleAuthed,
@@ -70,7 +71,7 @@ impl ConsoleMapsController {
             .into_response()
     }
 
-    #[post("/{version}/activate")]
+    #[post("/{version}/activate", response_body = crate::services::maps::MapDto)]
     async fn activate(
         &self,
         auth: ConsoleAuthed,
@@ -92,7 +93,7 @@ impl ConsoleMapsController {
             .into_response()
     }
 
-    #[delete("/{version}")]
+    #[delete("/{version}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,

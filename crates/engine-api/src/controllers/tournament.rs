@@ -1,5 +1,5 @@
-use crate::dto::leaderboard::RecordResponse;
 use crate::dto::leaderboard::RecordListResponse;
+use crate::dto::leaderboard::RecordResponse;
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -78,10 +78,7 @@ impl TournamentController {
     #[delete("/{tournament_id}", response_body = crate::dto::common::Empty)]
     async fn delete_record(&self, auth: Authed, Path(id): Path<String>) -> Response {
         let state = current_state();
-        self.service
-            .delete_record(&auth, &id)
-            .await
-            .into_response()
+        self.service.delete_record(&auth, &id).await.into_response()
     }
 
     #[get("/{tournament_id}/owner/{owner_id}", response_body = RecordListResponse)]

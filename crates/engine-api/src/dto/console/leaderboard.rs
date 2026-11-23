@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct TournamentWriteRequest {
     #[serde(default)]
     pub id: String,
@@ -41,12 +41,12 @@ pub struct TournamentWriteRequest {
     pub rule_key: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct LeaderboardRow {
     pub id: String,
     pub title: String,
     pub description: String,
-    pub kind: &'static str,
+    pub kind: String,
     pub category: i16,
     pub operator: i16,
     pub sort_order: i16,
@@ -71,9 +71,9 @@ impl From<Leaderboard> for LeaderboardRow {
             title: l.title,
             description: l.description,
             kind: if l.category == 1 {
-                "tournament"
+                "tournament".to_owned()
             } else {
-                "leaderboard"
+                "leaderboard".to_owned()
             },
             category: l.category,
             operator: l.operator,
@@ -94,7 +94,7 @@ impl From<Leaderboard> for LeaderboardRow {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct LeaderboardRecordRow {
     pub leaderboard_id: String,
     pub owner_id: Uuid,

@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, somnia::SurrealRecord)]
+#[derive(poem_openapi::Object, Debug, Clone, Serialize, Deserialize, somnia::SurrealRecord)]
 #[table("player_inventory_item", schemaless)]
 #[index(name = "idx_player_inventory_item_user", fields = "user_id")]
 pub struct PlayerInventoryItem {

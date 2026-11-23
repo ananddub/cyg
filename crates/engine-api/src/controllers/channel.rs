@@ -21,7 +21,7 @@ impl ChannelController {
         Self { service }
     }
 
-    #[get("/{channel_id}")]
+    #[get("/{channel_id}", response_body = crate::dto::channel::MessageListResponse)]
     async fn list_messages(
         &self,
         auth: Authed,
@@ -35,7 +35,7 @@ impl ChannelController {
             .into_response()
     }
 
-    #[post("/{channel_id}/message")]
+    #[post("/{channel_id}/message", response_body = crate::dto::channel::MessageResponse)]
     async fn send_message(
         &self,
         auth: Authed,
@@ -49,7 +49,7 @@ impl ChannelController {
             .into_response()
     }
 
-    #[put("/{channel_id}/message/{message_id}")]
+    #[put("/{channel_id}/message/{message_id}", response_body = crate::dto::channel::MessageResponse)]
     async fn update_message(
         &self,
         auth: Authed,
@@ -63,7 +63,7 @@ impl ChannelController {
             .into_response()
     }
 
-    #[delete("/{channel_id}/message/{message_id}")]
+    #[delete("/{channel_id}/message/{message_id}", response_body = crate::dto::channel::MessageResponse)]
     async fn delete_message(
         &self,
         auth: Authed,

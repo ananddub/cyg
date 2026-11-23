@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Presence {
     pub user_id: String,
     pub session_id: String,

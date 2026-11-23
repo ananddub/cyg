@@ -59,12 +59,17 @@ documented requests but no responses.
 leaderboard handlers are typed.
 
 **Ratchet:** `src/tests/openapi.rs` compares every registered route against
-`tests/openapi_undocumented.txt`. Every operation now publishes a schema:
-`Result<Json<T>, E>` publishes `T`, and a handler that builds a dynamic reply
-publishes the free-form JSON object schema. Regenerate with
+`tests/openapi_undocumented.txt`. Every operation now publishes a concrete
+schema: `Result<Json<T>, E>` publishes `T`, and every handler that returns a
+type-erased `Response` carries an explicit `response_body = <DTO>` that names
+the real reply type. The request side infers `Json<T>`, `ValidatedJson<T>` and
+the engine's own `Body<T>`, so a typed request body no longer falls back to a
+free-form object. Regenerate with
 `CYG_DUMP_OPENAPI=1 cargo test -p engine-api --lib openapi::undocumentation`.
-The baseline is empty; concrete DTOs are still preferable and should replace a
-free-form entry when that handler is touched.
+The baseline is empty. `responses_name_a_concrete_dto` is the stricter half of
+the ratchet: a free-form response fails it, so a future `-> Response` handler
+must name its DTO. The free-form descriptor remains only for a genuinely
+dynamic request payload (for example a raw text body), not for responses.
 
 **Bug found and fixed:** `GET /v1/leaderboard` answered 500 because it asked the
 store for `LIMIT i64::MAX`. It now asks for 10 000.

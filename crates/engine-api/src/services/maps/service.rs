@@ -29,7 +29,7 @@ impl MapService {
 pub(super) const MAX_MAP_BYTES: usize = 32 * 1024 * 1024;
 pub(super) const MAX_JSON_OBSTACLES: usize = 50_000;
 pub(super) const OXCL_MAGIC: &[u8; 4] = b"OXCL";
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MapDto {
     pub id: Uuid,
     pub version: i32,
@@ -40,7 +40,7 @@ pub struct MapDto {
     pub size_bytes: i64,
     pub created_at: DateTime<Utc>,
 }
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MapUploadResponse {
     pub map: MapDto,
 }

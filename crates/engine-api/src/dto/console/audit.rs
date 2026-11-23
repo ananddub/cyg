@@ -32,7 +32,7 @@ impl AuditLogQuery {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct AclTemplateRequest {
     #[serde(default)]
     pub name: String,
@@ -42,7 +42,7 @@ pub struct AclTemplateRequest {
     pub acl: serde_json::Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct AuditLogRow {
     pub create_time: DateTime<Utc>,
     pub id: Uuid,
@@ -71,7 +71,7 @@ impl From<ConsoleAuditLog> for AuditLogRow {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct AclTemplateRow {
     pub id: Uuid,
     pub name: String,
@@ -97,7 +97,7 @@ impl From<ConsoleAclTemplate> for AclTemplateRow {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct AuditLogUsers {
     pub usernames: Vec<String>,
 }

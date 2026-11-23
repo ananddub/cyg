@@ -353,12 +353,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     )
     .await;
     assert!(cleared.get("notifications").is_none());
-    assert!(
-        !cleared["nextPageToken"]
-            .as_str()
-            .unwrap_or("")
-            .is_empty()
-    );
+    assert!(!cleared["nextPageToken"].as_str().unwrap_or("").is_empty());
 
     api_post_empty(client, add(&bob.username), &alice.token, "invite bob again").await;
     let invite = api_get(

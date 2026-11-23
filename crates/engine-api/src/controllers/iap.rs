@@ -33,14 +33,11 @@ macro_rules! idempotent_purchase {
             return crate::app::middleware::replay_response(saved);
         }
         let result = $call.await;
-        let stored = result
-            .as_ref()
-            .ok()
-            .and_then(|json| {
-                serde_json::to_string(&json.0).ok().map(|raw| {
-                    crate::services::idempotency::Stored { status: 200, raw }
-                })
-            });
+        let stored = result.as_ref().ok().and_then(|json| {
+            serde_json::to_string(&json.0)
+                .ok()
+                .map(|raw| crate::services::idempotency::Stored { status: 200, raw })
+        });
         claim.settle(stored).await;
         return result.into_response();
     }};
@@ -74,7 +71,7 @@ impl IapController {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::iap::PurchaseResponse)]
     async fn validate_apple_legacy(
         &self,
         auth: Authed,
@@ -92,7 +89,7 @@ impl IapController {
         )
     }
 
-    #[post("/purchase/apple")]
+    #[post("/purchase/apple", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_apple(
         &self,
         auth: Authed,
@@ -110,7 +107,7 @@ impl IapController {
         )
     }
 
-    #[post("/purchase/google")]
+    #[post("/purchase/google", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_google(
         &self,
         auth: Authed,
@@ -128,7 +125,7 @@ impl IapController {
         )
     }
 
-    #[post("/purchase/huawei")]
+    #[post("/purchase/huawei", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_huawei(
         &self,
         auth: Authed,
@@ -146,7 +143,7 @@ impl IapController {
         )
     }
 
-    #[post("/purchase/facebookinstant")]
+    #[post("/purchase/facebookinstant", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_facebook_instant(
         &self,
         auth: Authed,
@@ -164,7 +161,7 @@ impl IapController {
         )
     }
 
-    #[post("/purchase/samsung")]
+    #[post("/purchase/samsung", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_samsung(
         &self,
         auth: Authed,
@@ -182,7 +179,7 @@ impl IapController {
         )
     }
 
-    #[get("/purchase")]
+    #[get("/purchase", response_body = crate::dto::iap::PurchaseListResponse)]
     async fn list_purchases(&self, auth: Authed, req: QueryParams<ListQuery>) -> Response {
         let state = current_state();
         self.service
@@ -191,7 +188,7 @@ impl IapController {
             .into_response()
     }
 
-    #[post("/subscription/apple")]
+    #[post("/subscription/apple", response_body = crate::dto::iap::SubscriptionResponse)]
     async fn subscription_apple(
         &self,
         auth: Authed,
@@ -204,7 +201,7 @@ impl IapController {
             .into_response()
     }
 
-    #[post("/subscription/google")]
+    #[post("/subscription/google", response_body = crate::dto::iap::SubscriptionResponse)]
     async fn subscription_google(
         &self,
         auth: Authed,
@@ -217,7 +214,7 @@ impl IapController {
             .into_response()
     }
 
-    #[post("/subscription/huawei")]
+    #[post("/subscription/huawei", response_body = crate::dto::iap::SubscriptionResponse)]
     async fn subscription_huawei(
         &self,
         auth: Authed,
@@ -230,7 +227,7 @@ impl IapController {
             .into_response()
     }
 
-    #[get("/subscription")]
+    #[get("/subscription", response_body = crate::dto::iap::SubscriptionListResponse)]
     async fn list_subscriptions(&self, auth: Authed, req: QueryParams<ListQuery>) -> Response {
         let state = current_state();
         self.service
@@ -239,7 +236,7 @@ impl IapController {
             .into_response()
     }
 
-    #[get("/subscription/active")]
+    #[get("/subscription/active", response_body = crate::dto::iap::ActiveSubscriptionResponse)]
     async fn active_subscriptions(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
@@ -248,7 +245,7 @@ impl IapController {
             .into_response()
     }
 
-    #[get("/subscription/{product_id}")]
+    #[get("/subscription/{product_id}", response_body = crate::dto::iap::SubscriptionResponse)]
     async fn subscription_by_product(
         &self,
         auth: Authed,

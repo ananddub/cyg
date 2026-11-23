@@ -12,7 +12,7 @@ const MAX_PREVIEW_INDICES: u32 = 6_000_000;
 const OXCL_HEADER: &[u8; 4] = b"OXCL";
 const OXCL_HEADER_LEN: usize = 16;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MapPreview {
     pub name: String,
     pub version: i32,
@@ -27,7 +27,7 @@ pub struct MapPreview {
     pub note: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct CookedMeshDto {
     pub vertices: Vec<[f32; 3]>,
     pub indices: Vec<u32>,

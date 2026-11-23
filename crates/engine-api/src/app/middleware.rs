@@ -490,7 +490,9 @@ fn idempotency_actor(parts: &Parts, state: &crate::ApiState) -> String {
 }
 
 /// The stored answer, put back on the wire with the status it was born with.
-pub(crate) fn replay_response(stored: crate::services::idempotency::Stored) -> axum::response::Response {
+pub(crate) fn replay_response(
+    stored: crate::services::idempotency::Stored,
+) -> axum::response::Response {
     use axum::http::StatusCode;
     let status = StatusCode::from_u16(stored.status).unwrap_or(StatusCode::OK);
     let body = if stored.raw.is_empty() {

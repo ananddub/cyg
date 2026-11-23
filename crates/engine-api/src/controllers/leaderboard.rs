@@ -23,7 +23,7 @@ impl LeaderboardController {
         Self { service }
     }
 
-    #[post("/{leaderboard_id}")]
+    #[post("/{leaderboard_id}", response_body = crate::dto::leaderboard::RecordResponse)]
     async fn write_record(
         &self,
         auth: Authed,
@@ -43,7 +43,7 @@ impl LeaderboardController {
     /// optional: `POST /v1/leaderboard` takes the id from the body, and
     /// `POST /v1/leaderboard/{id}` lets a body copied from another board keep its
     /// own name.
-    #[post("/define")]
+    #[post("/define", response_body = crate::dto::leaderboard::BoardDefinition)]
     async fn define_body(&self, auth: Authed, Body(body): Body<DefineRequest>) -> Response {
         let state = current_state();
         match self.service.define_board(&auth, "", body).await {
@@ -52,7 +52,7 @@ impl LeaderboardController {
         }
     }
 
-    #[post("/{leaderboard_id}/define")]
+    #[post("/{leaderboard_id}/define", response_body = crate::dto::leaderboard::BoardDefinition)]
     async fn define(
         &self,
         auth: Authed,
@@ -67,7 +67,7 @@ impl LeaderboardController {
     }
 
     /// Every board the game has defined.
-    #[get("")]
+    #[get("", response_body = crate::dto::leaderboard::BoardListResponse)]
     async fn list_boards(&self, auth: Authed) -> Response {
         let state = current_state();
         match self.service.list_boards(&auth).await {
@@ -77,7 +77,7 @@ impl LeaderboardController {
     }
 
     /// Remove a board and every score on it.
-    #[delete("/{leaderboard_id}/board")]
+    #[delete("/{leaderboard_id}/board", response_body = crate::dto::leaderboard::DeletedBoard)]
     async fn delete_board(&self, auth: Authed, Path(id): Path<String>) -> Response {
         let state = current_state();
         match self.service.delete_board(&auth, &id).await {
@@ -86,7 +86,7 @@ impl LeaderboardController {
         }
     }
 
-    #[get("/{leaderboard_id}")]
+    #[get("/{leaderboard_id}", response_body = crate::dto::leaderboard::RecordListResponse)]
     async fn list_records(
         &self,
         auth: Authed,
@@ -100,16 +100,13 @@ impl LeaderboardController {
             .into_response()
     }
 
-    #[delete("/{leaderboard_id}")]
+    #[delete("/{leaderboard_id}", response_body = crate::dto::Empty)]
     async fn delete_record(&self, auth: Authed, Path(id): Path<String>) -> Response {
         let state = current_state();
-        self.service
-            .delete_record(&auth, &id)
-            .await
-            .into_response()
+        self.service.delete_record(&auth, &id).await.into_response()
     }
 
-    #[get("/{leaderboard_id}/owner/{owner_id}")]
+    #[get("/{leaderboard_id}/owner/{owner_id}", response_body = crate::dto::leaderboard::RecordListResponse)]
     async fn list_records_around_owner(
         &self,
         auth: Authed,

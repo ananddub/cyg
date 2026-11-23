@@ -103,7 +103,7 @@ async fn sign_in(
         token: console::mint(&id, username, email, role),
         username: username.to_owned(),
         email: email.to_owned(),
-        role: role.as_str(),
+        role: role.as_str().to_owned(),
     }
 }
 

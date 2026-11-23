@@ -15,26 +15,24 @@ struct ConsoleNotificationController {
     service: Arc<ConsoleService>,
 }
 
+type NotificationRowList = Vec<crate::dto::console::notification::NotificationRow>;
 #[controller("/v1/console/notification")]
 impl ConsoleNotificationController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = NotificationRowList)]
     async fn list(
         &self,
         _auth: ConsoleAuthed,
         Params(query): Params<NotificationQuery>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .list_notifications(query)
-            .await
-            .into_response()
+        self.service.list_notifications(query).await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::Empty)]
     async fn send(
         &self,
         auth: ConsoleAuthed,
@@ -66,19 +64,16 @@ impl ConsoleNotificationController {
             .service
             .send_notification(&auth, scope.id(), body, id)
             .await;
-        let stored = result
-            .as_ref()
-            .ok()
-            .and_then(|json| {
-                serde_json::to_string(&json.0).ok().map(|raw| {
-                    crate::services::idempotency::Stored { status: 200, raw }
-                })
-            });
+        let stored = result.as_ref().ok().and_then(|json| {
+            serde_json::to_string(&json.0)
+                .ok()
+                .map(|raw| crate::services::idempotency::Stored { status: 200, raw })
+        });
         claim.settle(stored).await;
         result.into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,

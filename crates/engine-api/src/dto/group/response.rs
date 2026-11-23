@@ -7,7 +7,7 @@ use crate::repositories::group::ListGroupUsersPagedRow;
 use crate::repositories::models::Groups;
 use crate::services::social::{meta_str, ts, uid};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct GroupResponse {
     pub id: String,
     pub creator_id: String,
@@ -47,18 +47,18 @@ impl GroupResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct GroupEnvelope {
     pub group: GroupResponse,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct GroupListResponse {
     pub groups: Vec<GroupResponse>,
     pub cursor: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct UserGroupResponse {
     pub group: GroupResponse,
     pub state: i16,
@@ -73,13 +73,13 @@ impl UserGroupResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct UserGroupListResponse {
     pub user_groups: Vec<UserGroupResponse>,
     pub cursor: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct GroupUserResponse {
     pub user: UserResponse,
     pub state: i16,
@@ -107,7 +107,7 @@ impl GroupUserResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct GroupUserListResponse {
     pub group_users: Vec<GroupUserResponse>,
     pub cursor: String,

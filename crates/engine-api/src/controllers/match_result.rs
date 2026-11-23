@@ -24,7 +24,7 @@ impl MatchResultController {
         Self { service }
     }
 
-    #[post("/{id}/result")]
+    #[post("/{id}/result", response_body = crate::dto::match_result::MatchResultResponse)]
     async fn result(
         &self,
         headers: HeaderMap,
@@ -51,14 +51,11 @@ impl MatchResultController {
             return crate::app::middleware::replay_response(saved);
         }
         let result = self.service.record_result(&id, body).await;
-        let stored = result
-            .as_ref()
-            .ok()
-            .and_then(|json| {
-                serde_json::to_string(&json.0).ok().map(|raw| {
-                    crate::services::idempotency::Stored { status: 200, raw }
-                })
-            });
+        let stored = result.as_ref().ok().and_then(|json| {
+            serde_json::to_string(&json.0)
+                .ok()
+                .map(|raw| crate::services::idempotency::Stored { status: 200, raw })
+        });
         claim.settle(stored).await;
         result.into_response()
     }
@@ -76,12 +73,9 @@ impl BadgeController {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::badge::BadgeListResponse)]
     async fn list(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .list_badges(&auth)
-            .await
-            .into_response()
+        self.service.list_badges(&auth).await.into_response()
     }
 }

@@ -15,37 +15,32 @@ struct ConsoleRulesController {
     service: Arc<ConsoleService>,
 }
 
+type RuleRowList = Vec<crate::dto::console::rules::RuleRow>;
 #[controller("/v1/console/rules")]
 impl ConsoleRulesController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = RuleRowList)]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
         self.service.list_rules().await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::console::rules::RuleRow)]
     async fn create(&self, auth: ConsoleAuthed, Body(body): Body<RuleRequest>) -> Response {
         let state = current_state();
-        self.service
-            .create_rule(&auth, body)
-            .await
-            .into_response()
+        self.service.create_rule(&auth, body).await.into_response()
     }
 
-    #[get("/{key}")]
+    #[get("/{key}", response_body = RuleRowList)]
     async fn versions(&self, _auth: ConsoleAuthed, Path(key): Path<String>) -> Response {
         let state = current_state();
-        self.service
-            .rule_versions(&key)
-            .await
-            .into_response()
+        self.service.rule_versions(&key).await.into_response()
     }
 
-    #[post("/{key}/publish/{version}")]
+    #[post("/{key}/publish/{version}", response_body = crate::dto::console::rules::RuleRow)]
     async fn publish(
         &self,
         auth: ConsoleAuthed,
@@ -61,21 +56,15 @@ impl ConsoleRulesController {
             .into_response()
     }
 
-    #[delete("/{key}")]
+    #[delete("/{key}", response_body = serde_json::Value)]
     async fn delete(&self, auth: ConsoleAuthed, Path(key): Path<String>) -> Response {
         let state = current_state();
-        self.service
-            .delete_rule(&auth, &key)
-            .await
-            .into_response()
+        self.service.delete_rule(&auth, &key).await.into_response()
     }
 
-    #[post("/dry-run")]
+    #[post("/dry-run", response_body = crate::dto::console::rules::RuleDryRunResult)]
     async fn dry_run(&self, _auth: ConsoleAuthed, Body(body): Body<RuleDryRun>) -> Response {
         let state = current_state();
-        self.service
-            .dry_run_rule(body)
-            .await
-            .into_response()
+        self.service.dry_run_rule(body).await.into_response()
     }
 }

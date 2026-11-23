@@ -149,8 +149,8 @@ async fn delete_one(
 /// no permission beyond being signed in. Naming another player is a
 /// server-authoritative action and requires an operator session, so a client
 /// cannot push notifications into someone else's inbox.
-#[derive(Debug, Clone, Default, serde::Deserialize)]
-pub struct SendRequest {
+#[derive(poem_openapi::Object, Debug, Clone, Default, serde::Deserialize)]
+pub struct PushRequest {
     #[serde(default)]
     pub user_id: String,
     #[serde(default)]
@@ -162,7 +162,7 @@ pub struct SendRequest {
 }
 
 impl NotificationService {
-    pub async fn send(&self, auth: &Authed, body: SendRequest) -> Result<Json<Empty>, V2Error> {
+    pub async fn send(&self, auth: &Authed, body: PushRequest) -> Result<Json<Empty>, V2Error> {
         let subject = body.subject.trim();
         if subject.is_empty() {
             return Err(V2Error::invalid_argument("A notification needs a subject."));

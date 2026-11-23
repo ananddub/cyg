@@ -39,6 +39,13 @@ impl OpenApiRouteDescriptor {
         self.response.is_some()
     }
 
+    /// Whether the published response schema is the free-form JSON object.
+    /// A concrete DTO has a name and fields in the spec; the free-form
+    /// fallback is only for a genuinely dynamic payload.
+    pub fn response_is_free_form(&self) -> bool {
+        self.response.is_some_and(|schema| schema.is_free_form())
+    }
+
     /// Whether the handler's signature told the spec what it accepts.
     pub fn documents_request(&self) -> bool {
         self.request.is_some()
@@ -82,6 +89,7 @@ pub struct OpenApiSchemaDescriptor {
     pub(crate) schema_ref: fn() -> MetaSchemaRef,
     pub(crate) register: fn(&mut Registry),
     pub(crate) content_type: &'static str,
+    pub(crate) free_form: bool,
 }
 impl OpenApiSchemaDescriptor {
     pub const fn json<T: Type>() -> Self {
@@ -89,13 +97,28 @@ impl OpenApiSchemaDescriptor {
             schema_ref: schema_ref::<T>,
             register: register_type::<T>,
             content_type: "application/json",
+            free_form: false,
         }
+    }
+    /// The book's free-form JSON object: a schema that promises only "a JSON
+    /// value". Used when no concrete DTO can name the payload.
+    pub const fn free_form_json() -> Self {
+        Self {
+            schema_ref: schema_ref::<serde_json::Value>,
+            register: register_type::<serde_json::Value>,
+            content_type: "application/json",
+            free_form: true,
+        }
+    }
+    pub const fn is_free_form(&self) -> bool {
+        self.free_form
     }
     pub const fn form<T: Type>() -> Self {
         Self {
             schema_ref: schema_ref::<T>,
             register: register_type::<T>,
             content_type: "application/x-www-form-urlencoded",
+            free_form: false,
         }
     }
     pub const fn sse() -> Self {
@@ -103,6 +126,7 @@ impl OpenApiSchemaDescriptor {
             schema_ref: sse_schema_ref,
             register: noop_register,
             content_type: "text/event-stream",
+            free_form: false,
         }
     }
     pub const fn sse_json<T: Type>() -> Self {
@@ -110,6 +134,7 @@ impl OpenApiSchemaDescriptor {
             schema_ref: schema_ref::<T>,
             register: register_type::<T>,
             content_type: "text/event-stream",
+            free_form: false,
         }
     }
 }

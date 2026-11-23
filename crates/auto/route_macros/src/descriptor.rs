@@ -23,14 +23,12 @@ pub(crate) fn request_schema_descriptor_tokens(
         None if matches!(method, "GET" | "HEAD" | "DELETE" | "OPTIONS") => {
             quote!(::std::option::Option::None)
         }
-        // A body method read through the engine's own `Body<T>` extractor is
-        // still a JSON body. Publish the free-form JSON schema rather than
-        // claiming the operation accepts nothing.
+        // A body the macro cannot name (a raw text body, for example) is
+        // still a JSON-shaped operation. Keep the free-form fallback, but mark
+        // it so the spec ratchet can tell it apart from a concrete DTO.
         None => quote! {
             ::std::option::Option::Some(
-                ::auto_route::OpenApiSchemaDescriptor::json::<
-                    ::auto_route::__private::serde_json::Value,
-                >(),
+                ::auto_route::OpenApiSchemaDescriptor::free_form_json(),
             )
         },
     }
@@ -54,9 +52,7 @@ pub(crate) fn response_schema_descriptor_tokens(
         // of leaving the operation undocumented.
         None => quote! {
             ::std::option::Option::Some(
-                ::auto_route::OpenApiSchemaDescriptor::json::<
-                    ::auto_route::__private::serde_json::Value,
-                >(),
+                ::auto_route::OpenApiSchemaDescriptor::free_form_json(),
             )
         },
     }

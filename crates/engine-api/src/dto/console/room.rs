@@ -7,7 +7,7 @@ use crate::repositories::room_registry::lease_lapsed;
 /// One room the registry names an owner for. Cross-node by construction: every
 /// other room surface this console has is the in-process host's, so this is the
 /// only place an operator can see a room running on somebody else's pod.
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ConsoleRoomRow {
     pub room_id: String,
     pub node_id: String,
@@ -40,7 +40,7 @@ impl ConsoleRoomRow {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ConsoleRoomList {
     pub rooms: Vec<ConsoleRoomRow>,
 }

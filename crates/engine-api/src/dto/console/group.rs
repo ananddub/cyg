@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::repositories::group::ListGroupUsersRow;
 use crate::repositories::models::Groups;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct GroupRow {
     pub id: Uuid,
     pub creator_id: Uuid,
@@ -40,14 +40,14 @@ impl From<Groups> for GroupRow {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct GroupMemberRow {
     pub id: Uuid,
     pub username: String,
     pub display_name: String,
     pub avatar_url: String,
     pub metadata: serde_json::Value,
-    pub state: &'static str,
+    pub state: String,
     pub create_time: DateTime<Utc>,
     pub edge_update_time: Option<DateTime<Utc>>,
 }
@@ -60,14 +60,14 @@ impl From<ListGroupUsersRow> for GroupMemberRow {
             display_name: m.display_name.unwrap_or_default(),
             avatar_url: m.avatar_url.unwrap_or_default(),
             metadata: m.metadata,
-            state: state_name(m.state.unwrap_or(2)),
+            state: state_name(m.state.unwrap_or(2)).to_owned(),
             create_time: m.create_time,
             edge_update_time: m.edge_update_time,
         }
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct GroupExport {
     pub group: GroupRow,
     pub members: Vec<GroupMemberRow>,

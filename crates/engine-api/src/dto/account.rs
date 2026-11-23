@@ -12,7 +12,7 @@ pub struct EraseRequest {
     pub user_id: Uuid,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct WalletLedgerMetadataItem {
     #[serde(default)]
     pub id: String,
@@ -20,7 +20,7 @@ pub struct WalletLedgerMetadataItem {
     pub metadata: serde_json::Value,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct UpdatePlayerWalletRequest {
     #[serde(default)]
     pub wallet_items: serde_json::Value,
@@ -28,7 +28,7 @@ pub struct UpdatePlayerWalletRequest {
     pub ledger_items: Vec<WalletLedgerMetadataItem>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct PlayerWalletResponse {
     pub wallet: serde_json::Value,
     pub ledger_items: Vec<WalletLedgerRow>,
@@ -66,14 +66,14 @@ pub struct UpdatePasswordRequest {
     pub password: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct DeviceAccountResponse {
     pub id: String,
     pub vars: serde_json::Value,
     pub provider: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct AccountResponse {
     pub user_id: String,
     pub username: String,

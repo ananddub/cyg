@@ -5,13 +5,14 @@ pub(super) const MAX_FILENAME_LEN: usize = 255;
 pub(super) struct ConsoleWasmController {
     pub(super) service: Arc<WasmService>,
 }
+type ModuleDtoList = Vec<crate::dto::console::wasm::ModuleDto>;
 #[controller("/v1/console/games/{gameId}/wasm")]
 impl ConsoleWasmController {
     fn new(service: Arc<WasmService>) -> Self {
         Self { service }
     }
 
-    #[post("/upload")]
+    #[post("/upload", response_body = crate::dto::console::wasm::UploadResponse)]
     async fn upload(
         &self,
         auth: ConsoleAuthed,
@@ -21,7 +22,7 @@ impl ConsoleWasmController {
         self.store_upload(auth, game_id, request).await
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::console::wasm::UploadResponse)]
     async fn upload_at_root(
         &self,
         auth: ConsoleAuthed,
@@ -31,7 +32,7 @@ impl ConsoleWasmController {
         self.store_upload(auth, game_id, request).await
     }
 
-    #[get("")]
+    #[get("", response_body = ModuleDtoList)]
     async fn list(&self, _auth: ConsoleAuthed, Path(game_id): Path<String>) -> Response {
         let state = current_state();
         let game_id = match Self::game_id(&game_id) {
@@ -45,7 +46,7 @@ impl ConsoleWasmController {
             .into_response()
     }
 
-    #[post("/activate")]
+    #[post("/activate", response_body = crate::dto::console::wasm::ModuleDto)]
     async fn activate(
         &self,
         auth: ConsoleAuthed,
@@ -56,7 +57,7 @@ impl ConsoleWasmController {
             .await
     }
 
-    #[post("/rollback")]
+    #[post("/rollback", response_body = crate::dto::console::wasm::ModuleDto)]
     async fn rollback(
         &self,
         auth: ConsoleAuthed,
@@ -67,7 +68,7 @@ impl ConsoleWasmController {
             .await
     }
 
-    #[delete("/{version}")]
+    #[delete("/{version}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,

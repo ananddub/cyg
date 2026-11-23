@@ -7,6 +7,7 @@ pub mod games;
 pub mod group;
 pub mod iap;
 pub mod leaderboard;
+pub mod logs;
 #[path = "match.rs"]
 pub mod matches;
 pub mod notification;

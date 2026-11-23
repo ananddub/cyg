@@ -9,7 +9,7 @@ impl UserGroupController {
         Self { service }
     }
 
-    #[get("/{user_id}/group")]
+    #[get("/{user_id}/group", response_body = crate::dto::group::UserGroupListResponse)]
     async fn list_user_groups(
         &self,
         auth: Authed,

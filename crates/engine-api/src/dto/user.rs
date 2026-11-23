@@ -39,7 +39,7 @@ impl<'a> From<&'a Users> for UserCols<'a> {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct UserResponse {
     pub id: String,
     pub username: String,
@@ -86,12 +86,12 @@ fn non_empty(value: Option<&str>) -> Option<String> {
     value.filter(|s| !s.is_empty()).map(str::to_owned)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct UserListResponse {
     pub users: Vec<UserResponse>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct GetUsersQuery {
     #[serde(default)]
     pub ids: Option<Value>,

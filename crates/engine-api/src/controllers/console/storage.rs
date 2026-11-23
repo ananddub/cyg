@@ -15,22 +15,21 @@ struct ConsoleStorageController {
     service: Arc<ConsoleService>,
 }
 
+type StorageObjectRowList = Vec<crate::dto::console::storage::StorageObjectRow>;
+type StringList = Vec<String>;
 #[controller("/v1/console/storage")]
 impl ConsoleStorageController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = StorageObjectRowList)]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service
-            .list_storage(page)
-            .await
-            .into_response()
+        self.service.list_storage(page).await.into_response()
     }
 
-    #[get("/collections")]
+    #[get("/collections", response_body = StringList)]
     async fn collections(
         &self,
         _auth: ConsoleAuthed,
@@ -43,7 +42,7 @@ impl ConsoleStorageController {
             .into_response()
     }
 
-    #[get("/{collection}")]
+    #[get("/{collection}", response_body = StorageObjectRowList)]
     async fn collection(
         &self,
         _auth: ConsoleAuthed,
@@ -57,7 +56,7 @@ impl ConsoleStorageController {
             .into_response()
     }
 
-    #[delete("/object/{collection}/{key}/{user_id}")]
+    #[delete("/object/{collection}/{key}/{user_id}", response_body = crate::dto::Empty)]
     async fn delete_object(
         &self,
         auth: ConsoleAuthed,
@@ -78,7 +77,7 @@ impl ConsoleStorageController {
             .into_response()
     }
 
-    #[delete("/collection/{collection}")]
+    #[delete("/collection/{collection}", response_body = crate::dto::console::storage::DeletedCount)]
     async fn delete_collection(
         &self,
         auth: ConsoleAuthed,

@@ -14,7 +14,7 @@ use serde_json::Value;
 use super::{LeaderboardService, load_board};
 
 /// What the game may say about a board it creates.
-#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[derive(poem_openapi::Object, Debug, Clone, Default, serde::Deserialize)]
 pub struct DefineRequest {
     /// Board id, e.g. `weekly_kills`. The path segment is authoritative when both
     /// are present, so a body copied from another board cannot rename this one.

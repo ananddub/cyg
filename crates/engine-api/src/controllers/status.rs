@@ -18,7 +18,7 @@ impl StatusController {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::console::status::StatusResponse)]
     async fn status(&self) -> Response {
         let state = current_state();
         self.service.status().await
@@ -33,7 +33,7 @@ impl MetricsController {
         Self
     }
 
-    #[get("")]
+    #[get("", response_body = String)]
     async fn metrics(&self, headers: HeaderMap) -> Response {
         let state = current_state();
         if let Err(err) = crate::app::middleware::server_key_or_console(&headers, &*state.plane()) {

@@ -20,7 +20,7 @@ impl NotificationQuery {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct NotificationRow {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -45,7 +45,7 @@ impl From<Notification> for NotificationRow {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct SendNotificationRequest {
     #[serde(default)]
     pub user_id: String,

@@ -31,8 +31,7 @@ pub mod tournament;
 pub mod user;
 pub mod webhook;
 
-#[derive(Debug, Default, Serialize, poem_openapi::Object)]
-pub struct Empty {}
+pub use common::Empty;
 
 #[cfg(test)]
 mod tests {

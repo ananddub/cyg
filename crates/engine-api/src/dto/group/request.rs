@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct CreateGroupRequest {
     #[serde(default)]
     pub name: String,
@@ -21,7 +21,7 @@ pub struct CreateGroupRequest {
     pub max_count: Option<i32>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct UpdateGroupRequest {
     #[serde(default)]
     pub name: Option<String>,

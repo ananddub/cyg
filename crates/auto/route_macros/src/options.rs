@@ -89,7 +89,8 @@ impl Parse for RouteOptions {
                 }
                 options.sse_body = Some(input.parse()?);
             } else if key == "response_body" {
-                options.response_body = Some(input.parse()?);
+                let ty: Type = input.parse()?;
+                options.response_body = Some(ty);
             } else {
                 parse_docs_option(&mut options.docs, key, input)?;
             }
@@ -125,4 +126,18 @@ fn set_lit(slot: &mut Option<LitStr>, key: Ident, value: LitStr) -> syn::Result<
     }
     *slot = Some(value);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_a_generic_response_body() {
+        let options: RouteOptions =
+            syn::parse_str("\"\", response_body = Vec<AccountRow>").unwrap();
+        assert!(options.response_body.is_some());
+        let tokens = quote::quote!("", response_body = Vec<AccountRow>);
+        let _: RouteOptions = syn::parse2(tokens).unwrap();
+    }
 }

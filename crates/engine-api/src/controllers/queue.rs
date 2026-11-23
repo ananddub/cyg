@@ -43,17 +43,17 @@ impl QueueController {
         Self { service }
     }
 
-    #[post("/join")]
+    #[post("/join", response_body = crate::services::queue::QueueTicketView)]
     async fn join(&self, Json(req): JsonBody<QueueJoin>) -> Result<Response, ApiError> {
         join_inner(&self.service, req).await
     }
 
-    #[get("/status/{ticket}")]
+    #[get("/status/{ticket}", response_body = crate::services::queue::QueueTicketView)]
     async fn status(&self, Path(ticket): Path<String>) -> Result<Response, ApiError> {
         status_inner(&self.service, ticket).await
     }
 
-    #[delete("/leave/{ticket}")]
+    #[delete("/leave/{ticket}", response_body = crate::services::queue::QueueTicketView)]
     async fn leave(&self, Path(ticket): Path<String>) -> Result<Response, ApiError> {
         leave_inner(&self.service, ticket).await
     }

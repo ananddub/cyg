@@ -14,19 +14,20 @@ struct ConsoleSettingController {
     service: Arc<ConsoleService>,
 }
 
+type SettingRowList = Vec<crate::dto::console::setting::SettingRow>;
 #[controller("/v1/console/setting")]
 impl ConsoleSettingController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = SettingRowList)]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
         self.service.list_settings().await.into_response()
     }
 
-    #[put("")]
+    #[put("", response_body = crate::dto::console::setting::SettingRow)]
     async fn update(
         &self,
         auth: ConsoleAuthed,
@@ -39,7 +40,7 @@ impl ConsoleSettingController {
             .into_response()
     }
 
-    #[delete("/{name}")]
+    #[delete("/{name}", response_body = crate::dto::Empty)]
     async fn delete(&self, auth: ConsoleAuthed, Path(name): Path<String>) -> Response {
         let state = current_state();
         self.service

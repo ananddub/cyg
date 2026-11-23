@@ -23,7 +23,7 @@ pub(crate) fn route_argument_types<'a>(
 
 pub(crate) fn infer_request_body(arguments: &[Type]) -> Option<RequestBody> {
     arguments.iter().find_map(|argument| {
-        wrapper_inner_type(argument, &["Json", "ValidatedJson"])
+        wrapper_inner_type(argument, &["Json", "ValidatedJson", "Body"])
             .map(|ty| RequestBody {
                 ty,
                 content: RequestContent::Json,

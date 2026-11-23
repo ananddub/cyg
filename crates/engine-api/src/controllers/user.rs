@@ -21,16 +21,13 @@ impl UserController {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::user::UserListResponse)]
     async fn get_users(&self, auth: Authed, Params(req): Params<GetUsersQuery>) -> Response {
         let state = current_state();
-        self.service
-            .get_users(&auth, req)
-            .await
-            .into_response()
+        self.service.get_users(&auth, req).await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::user::UserListResponse)]
     async fn get_users_body(&self, auth: Authed, Body(body): Body<GetUsersQuery>) -> Response {
         let state = current_state();
         self.service
@@ -39,12 +36,9 @@ impl UserController {
             .into_response()
     }
 
-    #[get("/{user_id}")]
+    #[get("/{user_id}", response_body = crate::dto::user::UserListResponse)]
     async fn get_user(&self, auth: Authed, Path(raw): Path<String>) -> Response {
         let state = current_state();
-        self.service
-            .get_user(&auth, &raw)
-            .await
-            .into_response()
+        self.service.get_user(&auth, &raw).await.into_response()
     }
 }

@@ -9,7 +9,7 @@ use crate::app::params::{Body, Params};
 use crate::current_state;
 use crate::dto::notification::{DeleteRequest, ListQuery};
 
-use crate::services::notification::{NotificationService, SendRequest};
+use crate::services::notification::{NotificationService, PushRequest};
 
 struct NotificationController {
     service: Arc<NotificationService>,
@@ -21,13 +21,13 @@ impl NotificationController {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::notification::NotificationListResponse)]
     async fn list_notifications(&self, auth: Authed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
         self.service.list(&auth, req).await.into_response()
     }
 
-    #[delete("")]
+    #[delete("", response_body = crate::dto::Empty)]
     async fn delete_notifications(
         &self,
         auth: Authed,
@@ -41,10 +41,7 @@ impl NotificationController {
                 .map(|(_, value)| value),
         );
         let state = current_state();
-        self.service
-            .delete_many(&auth, req)
-            .await
-            .into_response()
+        self.service.delete_many(&auth, req).await.into_response()
     }
 
     /// Raise a notification from the game's own code.
@@ -52,18 +49,15 @@ impl NotificationController {
     /// An empty `user_id` addresses the caller, which is the only target a player
     /// session may write to; naming another player is refused here and belongs on
     /// the console route.
-    #[post("")]
-    async fn send(&self, auth: Authed, Body(body): Body<SendRequest>) -> Response {
+    #[post("", response_body = crate::dto::Empty)]
+    async fn send(&self, auth: Authed, Body(body): Body<PushRequest>) -> Response {
         let state = current_state();
         self.service.send(&auth, body).await.into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete_notification(&self, auth: Authed, Path(id): Path<String>) -> Response {
         let state = current_state();
-        self.service
-            .delete_one(&auth, &id)
-            .await
-            .into_response()
+        self.service.delete_one(&auth, &id).await.into_response()
     }
 }

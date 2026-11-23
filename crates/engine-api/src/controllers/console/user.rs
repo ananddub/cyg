@@ -17,22 +17,20 @@ struct ConsoleUserController {
     service: Arc<ConsoleService>,
 }
 
+type ConsoleUserViewList = Vec<crate::dto::console::user::ConsoleUserView>;
 #[controller("/v1/console/user")]
 impl ConsoleUserController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = ConsoleUserViewList)]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service
-            .list_console_users(page)
-            .await
-            .into_response()
+        self.service.list_console_users(page).await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::console::user::ConsoleUserView)]
     async fn create(
         &self,
         auth: ConsoleAuthed,
@@ -45,7 +43,7 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    #[put("/{id}")]
+    #[put("/{id}", response_body = crate::dto::console::user::ConsoleUserView)]
     async fn update(
         &self,
         auth: ConsoleAuthed,
@@ -59,7 +57,7 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
@@ -68,7 +66,7 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    #[post("/{id}/password")]
+    #[post("/{id}/password", response_body = crate::dto::Empty)]
     async fn password(
         &self,
         auth: ConsoleAuthed,
@@ -82,7 +80,7 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    #[post("/{id}/disable")]
+    #[post("/{id}/disable", response_body = crate::dto::Empty)]
     async fn disable(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
@@ -91,7 +89,7 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    #[post("/{id}/enable")]
+    #[post("/{id}/enable", response_body = crate::dto::Empty)]
     async fn enable(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
@@ -100,7 +98,7 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    #[delete("/{id}/mfa")]
+    #[delete("/{id}/mfa", response_body = crate::dto::Empty)]
     async fn clear_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
@@ -109,7 +107,7 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    #[post("/{id}/mfa/require")]
+    #[post("/{id}/mfa/require", response_body = crate::dto::Empty)]
     async fn require_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
@@ -118,7 +116,7 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    #[delete("/{id}/mfa/require")]
+    #[delete("/{id}/mfa/require", response_body = crate::dto::Empty)]
     async fn unrequire_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
@@ -127,7 +125,7 @@ impl ConsoleUserController {
             .into_response()
     }
 
-    #[delete("/{id}/mfa/reset")]
+    #[delete("/{id}/mfa/reset", response_body = crate::dto::Empty)]
     async fn reset_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service

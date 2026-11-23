@@ -21,22 +21,19 @@ impl ReportController {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::report::ReportResponse)]
     async fn create_report(&self, auth: Authed, Body(req): Body<CreateReportRequest>) -> Response {
         let state = current_state();
-        self.service
-            .create(&auth, req)
-            .await
-            .into_response()
+        self.service.create(&auth, req).await.into_response()
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::report::ReportListResponse)]
     async fn list_reports(&self, auth: ConsoleAuthed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
         self.service.list(&auth, req).await.into_response()
     }
 
-    #[put("/{id}/status")]
+    #[put("/{id}/status", response_body = crate::dto::report::ReportResponse)]
     async fn set_status(
         &self,
         auth: ConsoleAuthed,

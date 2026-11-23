@@ -20,7 +20,7 @@ impl ConsoleWebhookController {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::webhook::EndpointListResponse)]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
         self.service.list_endpoints().await.into_response()
@@ -28,7 +28,7 @@ impl ConsoleWebhookController {
 
     /// The secret is answered here and never again, so this is the one response
     /// an operator has to copy from.
-    #[post("")]
+    #[post("", response_body = crate::dto::webhook::EndpointCreatedResponse)]
     async fn create(&self, auth: ConsoleAuthed, Json(body): JsonBody<EndpointRequest>) -> Response {
         let state = current_state();
         self.service
@@ -38,12 +38,12 @@ impl ConsoleWebhookController {
     }
 
     /// Says how a delivery is signed, in the words the receiver is written from.
-    #[get("/spec")]
+    #[get("/spec", response_body = serde_json::Value)]
     async fn spec(&self, _auth: ConsoleAuthed) -> Response {
         self.service.signing_spec().await.into_response()
     }
 
-    #[put("/{endpoint_id}")]
+    #[put("/{endpoint_id}", response_body = crate::dto::webhook::EndpointRow)]
     async fn update(
         &self,
         auth: ConsoleAuthed,
@@ -57,7 +57,7 @@ impl ConsoleWebhookController {
             .into_response()
     }
 
-    #[delete("/{endpoint_id}")]
+    #[delete("/{endpoint_id}", response_body = crate::dto::Empty)]
     async fn delete(&self, auth: ConsoleAuthed, Path(endpoint_id): Path<String>) -> Response {
         let state = current_state();
         self.service
@@ -66,7 +66,7 @@ impl ConsoleWebhookController {
             .into_response()
     }
 
-    #[get("/{endpoint_id}/deliveries")]
+    #[get("/{endpoint_id}/deliveries", response_body = crate::dto::webhook::DeliveryListResponse)]
     async fn deliveries(&self, _auth: ConsoleAuthed, Path(endpoint_id): Path<String>) -> Response {
         let state = current_state();
         self.service
@@ -75,7 +75,7 @@ impl ConsoleWebhookController {
             .into_response()
     }
 
-    #[post("/{endpoint_id}/deliveries/{delivery_id}/retry")]
+    #[post("/{endpoint_id}/deliveries/{delivery_id}/retry", response_body = crate::dto::webhook::DeliveryRow)]
     async fn retry(
         &self,
         auth: ConsoleAuthed,

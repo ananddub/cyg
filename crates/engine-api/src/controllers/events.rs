@@ -23,7 +23,7 @@ impl EventsController {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::quest::IngestEventsResponse)]
     async fn ingest(
         &self,
         headers: HeaderMap,
@@ -33,9 +33,6 @@ impl EventsController {
         if let Err(err) = server_key(&headers, &*state.plane()) {
             return err.into_response();
         }
-        self.service
-            .ingest_events(body)
-            .await
-            .into_response()
+        self.service.ingest_events(body).await.into_response()
     }
 }

@@ -19,16 +19,13 @@ impl ConsoleEconomyController {
         Self { service }
     }
 
-    #[get("/summary")]
+    #[get("/summary", response_body = crate::dto::console::economy::EconomySummary)]
     async fn summary(
         &self,
         _auth: ConsoleAuthed,
         Params(query): Params<EconomySummaryQuery>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .economy_summary(query)
-            .await
-            .into_response()
+        self.service.economy_summary(query).await.into_response()
     }
 }

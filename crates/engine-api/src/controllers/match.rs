@@ -18,7 +18,7 @@ impl MatchController {
         Self { service }
     }
 
-    #[get("/match")]
+    #[get("/match", response_body = crate::dto::console::matches::ConsoleMatchList)]
     async fn list_matches(
         &self,
         _auth: Authed,
@@ -27,7 +27,7 @@ impl MatchController {
         self.service.list_matches(req).into_response()
     }
 
-    #[get("/matchmaker/stats")]
+    #[get("/matchmaker/stats", response_body = crate::dto::matches::MatchmakerStatsResponse)]
     async fn matchmaker_stats(&self, _auth: Authed) -> Response {
         self.service.matchmaker_stats().into_response()
     }

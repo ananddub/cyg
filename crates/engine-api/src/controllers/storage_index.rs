@@ -23,29 +23,23 @@ impl StorageIndexController {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::storage_index::StorageIndexDef)]
     async fn create_index(
         &self,
         auth: Authed,
         Json(body): JsonBody<CreateIndexRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .create_index(&auth, body)
-            .await
-            .into_response()
+        self.service.create_index(&auth, body).await.into_response()
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::storage_index::StorageIndexDefinitions)]
     async fn list_indexes(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .list_indexes(&auth)
-            .await
-            .into_response()
+        self.service.list_indexes(&auth).await.into_response()
     }
 
-    #[delete("/{name}")]
+    #[delete("/{name}", response_body = serde_json::Value)]
     async fn delete_index(&self, auth: Authed, Path(name): Path<String>) -> Response {
         let state = current_state();
         self.service
@@ -54,7 +48,7 @@ impl StorageIndexController {
             .into_response()
     }
 
-    #[post("/{name}/query")]
+    #[post("/{name}/query", response_body = crate::dto::storage_index::StorageIndexList)]
     async fn query_index(
         &self,
         auth: Authed,

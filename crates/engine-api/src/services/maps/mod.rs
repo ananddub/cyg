@@ -17,4 +17,5 @@ mod preview;
 mod service;
 mod tests;
 
+pub use preview::MapPreview;
 pub use service::*;

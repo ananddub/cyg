@@ -10,7 +10,7 @@ use crate::utils::friend::STATE_FRIENDS;
 
 use super::user::{UserCols, UserResponse};
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct FriendResponse {
     pub user: UserResponse,
     pub state: i16,
@@ -58,13 +58,13 @@ impl FriendResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct FriendListResponse {
     pub friends: Vec<FriendResponse>,
     pub cursor: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct FriendsOfFriendsEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub referrer: Option<String>,
@@ -93,7 +93,7 @@ impl FriendsOfFriendsEntry {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct FriendsOfFriendsResponse {
     pub friends_of_friends: Vec<FriendsOfFriendsEntry>,
     pub cursor: String,

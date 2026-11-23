@@ -4,7 +4,7 @@ use crate::dto::matches::MatchResponse;
 use crate::infra::ws::envelope::Presence;
 use crate::services::realtime::matches::MatchSnapshot;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ConsoleMatchRow {
     pub api_match: MatchResponse,
     pub node: String,
@@ -19,12 +19,12 @@ impl From<&MatchSnapshot> for ConsoleMatchRow {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ConsoleMatchList {
     pub matches: Vec<ConsoleMatchRow>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ConsoleMatchState {
     pub presences: Vec<Presence>,
     pub tick: i64,

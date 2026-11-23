@@ -19,27 +19,21 @@ impl ConsoleMfaController {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::console::auth::MfaEnrolmentResponse)]
     async fn enrol(&self, auth: ConsoleAuthed) -> Response {
         let state = current_state();
         self.service.enrol_mfa(&auth).await.into_response()
     }
 
-    #[post("/verify")]
+    #[post("/verify", response_body = crate::dto::Empty)]
     async fn confirm(&self, auth: ConsoleAuthed, Body(body): Body<MfaCodeRequest>) -> Response {
         let state = current_state();
-        self.service
-            .confirm_mfa(&auth, body)
-            .await
-            .into_response()
+        self.service.confirm_mfa(&auth, body).await.into_response()
     }
 
-    #[delete("")]
+    #[delete("", response_body = crate::dto::Empty)]
     async fn disable(&self, auth: ConsoleAuthed, Body(body): Body<MfaCodeRequest>) -> Response {
         let state = current_state();
-        self.service
-            .disable_mfa(&auth, body)
-            .await
-            .into_response()
+        self.service.disable_mfa(&auth, body).await.into_response()
     }
 }

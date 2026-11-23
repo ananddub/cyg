@@ -20,12 +20,9 @@ impl FlagController {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::flag::FlagListResponse)]
     async fn list(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .resolve(auth.uid())
-            .await
-            .into_response()
+        self.service.resolve(auth.uid()).await.into_response()
     }
 }

@@ -22,7 +22,7 @@ impl ConsoleTimelineController {
         Self { service }
     }
 
-    #[get("/{accountId}")]
+    #[get("/{accountId}", response_body = crate::dto::console::timeline::TimelinePage)]
     async fn feed(
         &self,
         _auth: ConsoleAuthed,

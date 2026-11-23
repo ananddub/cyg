@@ -22,7 +22,7 @@ pub struct DesyncParams {
 /// Everything needed to replay one room: the last state the host saved (base64,
 /// absent when the room never persisted one) and the rows that describe what
 /// happened around it.
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ReplayBundle {
     pub room: String,
     /// Which backend produced `snapshot`, so a replayer knows how to read it.

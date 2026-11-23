@@ -17,19 +17,21 @@ struct ConsoleAuditController {
     service: Arc<ConsoleService>,
 }
 
+type AuditLogRowList = Vec<crate::dto::console::audit::AuditLogRow>;
+type AclTemplateRowList = Vec<crate::dto::console::audit::AclTemplateRow>;
 #[controller("/v1/console/audit")]
 impl ConsoleAuditController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("/log")]
+    #[get("/log", response_body = AuditLogRowList)]
     async fn list(&self, _auth: ConsoleAuthed, Params(query): Params<AuditLogQuery>) -> Response {
         let state = current_state();
         self.service.list_audit_logs(query).await.into_response()
     }
 
-    #[get("/log/users")]
+    #[get("/log/users", response_body = crate::dto::console::audit::AuditLogUsers)]
     async fn list_users(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
         self.service.list_audit_log_users().await.into_response()
@@ -46,13 +48,13 @@ impl ConsoleAclController {
         Self { service }
     }
 
-    #[get("/template")]
+    #[get("/template", response_body = AclTemplateRowList)]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
         self.service.list_acl_templates().await.into_response()
     }
 
-    #[post("/template")]
+    #[post("/template", response_body = crate::dto::console::audit::AclTemplateRow)]
     async fn create(&self, auth: ConsoleAuthed, Body(body): Body<AclTemplateRequest>) -> Response {
         let state = current_state();
         self.service
@@ -61,7 +63,7 @@ impl ConsoleAclController {
             .into_response()
     }
 
-    #[put("/template/{id}")]
+    #[put("/template/{id}", response_body = crate::dto::console::audit::AclTemplateRow)]
     async fn update(
         &self,
         auth: ConsoleAuthed,
@@ -91,7 +93,7 @@ impl ConsoleAclController {
         }
     }
 
-    #[delete("/template/{id}")]
+    #[delete("/template/{id}", response_body = crate::dto::Empty)]
     async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service

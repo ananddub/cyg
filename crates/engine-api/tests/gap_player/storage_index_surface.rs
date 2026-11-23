@@ -192,7 +192,10 @@ pub async fn storage_index_surface(env: &Harness) {
         for row in page["objects"].as_array().expect("a page").clone() {
             keys.push(row["key"].as_str().expect("key").to_owned());
         }
-        cursor = page["nextPageToken"].as_str().unwrap_or_default().to_owned();
+        cursor = page["nextPageToken"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         if first_cursor.is_empty() {
             first_cursor = cursor.clone();
         }

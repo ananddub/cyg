@@ -18,13 +18,14 @@ struct ConsoleLogsController {
     service: Arc<ConsoleService>,
 }
 
+type LogLineResponseList = Vec<crate::dto::console::logs::LogLineResponse>;
 #[controller("/v1/console/logs")]
 impl ConsoleLogsController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("/recent")]
+    #[get("/recent", response_body = LogLineResponseList)]
     async fn recent(&self, _auth: ConsoleAuthed, Params(query): Params<LogsQuery>) -> Response {
         self.service.recent_logs(query.limit).await.into_response()
     }

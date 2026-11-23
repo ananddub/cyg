@@ -8,19 +8,20 @@ pub(super) const SERVER_SETTINGS_SCRIPT_GUID: &str = "d4c1b9a37e5f4a86b0c2d3e4f5
 struct ConsoleGamesController {
     service: Arc<GamesService>,
 }
+type ConfigVersionRowList = Vec<crate::dto::console::config_history::ConfigVersionRow>;
 #[controller("/v1/console/games")]
 impl ConsoleGamesController {
     fn new(service: Arc<GamesService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::console::games::GameListDto)]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
         answer(self.service.list_games().await)
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::console::games::GameDto)]
     async fn create(&self, auth: ConsoleAuthed, Body(body): Body<CreateGameRequest>) -> Response {
         let state = current_state();
         if let Err(err) = auth.require_admin() {
@@ -29,7 +30,7 @@ impl ConsoleGamesController {
         answer(self.service.create_game(&body).await)
     }
 
-    #[get("/{gameId}")]
+    #[get("/{gameId}", response_body = crate::dto::console::games::GameDetailDto)]
     pub(super) async fn get(&self, _auth: ConsoleAuthed, Path(game_id): Path<String>) -> Response {
         let state = current_state();
         let id = match parse_id(&game_id) {
@@ -171,7 +172,7 @@ impl ConsoleGamesController {
         Ok(Json(GameArchiveBatchResponse { archived }))
     }
 
-    #[get("/{gameId}/config/history")]
+    #[get("/{gameId}/config/history", response_body = ConfigVersionRowList)]
     async fn config_history(&self, _auth: ConsoleAuthed, Path(game_id): Path<String>) -> Response {
         let state = current_state();
         let id = match parse_id(&game_id) {
@@ -181,7 +182,7 @@ impl ConsoleGamesController {
         answer(self.service.config_history(id).await)
     }
 
-    #[get("/{gameId}/config/{version}")]
+    #[get("/{gameId}/config/{version}", response_body = crate::dto::console::config_history::ConfigVersionRow)]
     async fn config_version(
         &self,
         _auth: ConsoleAuthed,
@@ -198,7 +199,7 @@ impl ConsoleGamesController {
         answer(self.service.config_version(id, version).await)
     }
 
-    #[post("/{gameId}/config/rollback/{version}")]
+    #[post("/{gameId}/config/rollback/{version}", response_body = crate::dto::console::config_history::ConfigVersionRow)]
     async fn rollback_config(
         &self,
         auth: ConsoleAuthed,
@@ -222,7 +223,7 @@ impl ConsoleGamesController {
         answer(self.service.rollback_config(id, version, operator).await)
     }
 
-    #[delete("/{gameId}")]
+    #[delete("/{gameId}", response_body = crate::dto::console::games::ArchiveGameResponse)]
     async fn archive(&self, auth: ConsoleAuthed, Path(game_id): Path<String>) -> Response {
         let state = current_state();
         if let Err(err) = auth.require_admin() {
@@ -240,7 +241,7 @@ impl ConsoleGamesController {
         )
     }
 
-    #[get("/{gameId}/unity-settings")]
+    #[get("/{gameId}/unity-settings", response_body = crate::dto::console::games::UnityConnectionDto)]
     async fn unity_settings(
         &self,
         _auth: ConsoleAuthed,

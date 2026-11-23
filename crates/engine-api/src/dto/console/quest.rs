@@ -23,7 +23,7 @@ pub struct QuestDefinitionRequest {
     pub active_to: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct QuestDefinitionRow {
     pub quest_key: String,
     pub game_id: Option<Uuid>,
@@ -49,7 +49,7 @@ pub struct SeasonRequest {
     pub reward_track: serde_json::Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct SeasonRow {
     pub season_key: String,
     pub game_id: Option<Uuid>,
