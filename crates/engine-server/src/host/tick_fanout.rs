@@ -51,7 +51,7 @@ impl TickRunner {
             None => return,
         };
         room.note_state();
-        let raw_peers_attached = name == ctx.cfg.name && !ctx.udp.udp_peers.is_empty();
+        let raw_peers_attached = ctx.udp.peers_in_room(name) > 0;
         if room.lifecycle.phase != engine_bus::RoomPhase::Active && !raw_peers_attached {
             return;
         }

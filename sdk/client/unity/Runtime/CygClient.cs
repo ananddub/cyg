@@ -591,10 +591,7 @@ namespace CYG
         {
             switch (buf[0])
             {
-                case 0x0a: // CYG_WIRE_JOIN_ROOM — the legacy raw-UDP lane's
-                           // handshake reply: [op][rt_len]["room:session"][6]["schema"][0x00].
-                           // The room is joined at this point; a separate
-                           // datagram carries the schema descriptor.
+                case 0x0a: // WS JOIN_ROOM: [op][rt_len]["room:session"][len]["schema"][0x00]
                     Connected = true;
                     if (n >= 2)
                     {
@@ -602,7 +599,7 @@ namespace CYG
                         if (n >= 2 + rtLen)
                         {
                             SessionId = Encoding.UTF8.GetString(buf, 2, rtLen);
-                            // The token embeds the raw player id:
+                            // The room:session token embeds the raw player id:
                             // "<room>:p<id>_<ip>_<port>".
                             var token = SessionId;
                             int colon = token.IndexOf(':');
@@ -617,7 +614,7 @@ namespace CYG
                         }
                     }
                     break;
-                case 0x24: // BIND (the plane-lane variant)
+                case 0x24: // BIND: player id + tick rate + room, both raw-UDP lanes
                     Connected = true;
                     if (n >= 9) PlayerId = BitConverter.ToInt64(buf, 1);
                     break;
@@ -631,7 +628,7 @@ namespace CYG
                     Buffer.BlockCopy(buf, 0, delta, 0, n);
                     _deltas.Enqueue(delta);
                     // The host pushes the schema descriptor ("OXSD") right
-                    // after JOIN_ROOM; the core room is built from it and
+                    // after BIND; the core room is built from it and
                     // every later schema delta decodes through it.
                     if (CygRoom.IsSchemaDescriptor(delta))
                     {

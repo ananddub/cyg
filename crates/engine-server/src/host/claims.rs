@@ -162,5 +162,9 @@ pub(crate) fn room_is_reapable(
     name: &str,
     udp_peers: usize,
 ) -> bool {
-    !cfg.lifecycle.is_persistent(name) && (name != cfg.name.as_str() || udp_peers == 0)
+    // A raw-UDP peer protects the room it was admitted to, whichever room that
+    // is. The old `name != cfg.name` shortcut assumed one UDP room per process;
+    // seat tokens now name a room (including variants), so the per-room count
+    // is the only honest input.
+    !cfg.lifecycle.is_persistent(name) && udp_peers == 0
 }

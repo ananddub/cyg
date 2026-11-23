@@ -147,6 +147,8 @@ pub fn run(
         udp: UdpLane {
             udp_sock: udp_socket.map(Arc::new),
             udp_peers: HashMap::new(),
+            udp_rooms: HashMap::new(),
+            seats: crate::plane::SeatRegistry::new(&cfg.control.seat_secret),
             udp_reliable: HashMap::new(),
             udp_rxd_seq: HashMap::new(),
             udp_input_rates: HashMap::new(),

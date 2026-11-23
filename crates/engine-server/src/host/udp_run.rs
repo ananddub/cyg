@@ -166,16 +166,18 @@ impl UdpLane {
         let timed_out = &mut self.timed_out_udp;
         self.udp_peers.retain(|&addr, (id, sess, last_seen)| {
             if now.duration_since(*last_seen) > Duration::from_millis(idle_ms) {
-                timed_out.push((addr, *id, sess.clone()));
+                let room = self.udp_rooms.get(&addr).cloned().unwrap_or_default();
+                timed_out.push((addr, *id, sess.clone(), room));
                 false
             } else {
                 true
             }
         });
-        for (addr, id, sess) in self.timed_out_udp.drain(..) {
-            tracing::info!("[server-udp] disconnected (timeout): {addr}");
+        for (addr, id, sess, room_name) in self.timed_out_udp.drain(..) {
+            tracing::info!("[server-udp] disconnected (timeout): {addr} (room '{room_name}')");
             self.udp_input_rates.remove(&addr);
-            if let Some(room) = server.rooms.get_mut(cfg.name.as_str()) {
+            self.udp_rooms.remove(&addr);
+            if let Some(room) = server.rooms.get_mut(room_name.as_str()) {
                 room.sessions.remove(sess.as_str());
                 room.schema_sent.remove(sess.as_str());
                 if id > 0 {

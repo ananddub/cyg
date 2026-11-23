@@ -117,7 +117,7 @@ impl TickRunner {
                     self.match_peaks.insert(name.to_string(), live);
                 }
             }
-            let reapable = room_is_reapable(ctx.cfg, name, ctx.udp.udp_peers.len());
+            let reapable = room_is_reapable(ctx.cfg, name, ctx.udp.peers_in_room(name));
             if let Some(reason) = room.close_reason(&ctx.cfg.lifecycle, reapable, reap_now) {
                 self.dead_rooms.push((name.to_string(), reason));
             }

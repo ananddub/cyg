@@ -141,6 +141,12 @@ pub(crate) struct UdpChunkOut {
 pub(crate) struct UdpLane {
     pub(crate) udp_sock: Option<Arc<std::net::UdpSocket>>,
     pub(crate) udp_peers: HashMap<SocketAddr, (i64, String, Instant)>,
+    /// The room each UDP peer was admitted to. A seat token names its room, so
+    /// one lane can serve every room and variant without guessing `cfg.name`.
+    pub(crate) udp_rooms: HashMap<SocketAddr, String>,
+    /// The same HMAC registry the pinned sim plane uses. One token format, one
+    /// verifier, one admission rule on every raw-UDP path.
+    pub(crate) seats: crate::plane::SeatRegistry,
     pub(crate) udp_reliable: HashMap<SocketAddr, crate::plane::reliable::ReliableLane>,
     pub(crate) udp_rxd_seq: HashMap<SocketAddr, std::collections::HashSet<u16>>,
     pub(crate) udp_input_rates: HashMap<SocketAddr, netcode::InputRateLimiter>,
@@ -153,13 +159,29 @@ pub(crate) struct UdpLane {
     /// Client->server chunk assemblies, keyed by peer.
     pub(crate) udp_chunk_in: HashMap<SocketAddr, ChunkReceiver>,
     pub(crate) udp_chunk_seq: u16,
-    pub(crate) timed_out_udp: Vec<(SocketAddr, i64, String)>,
+    pub(crate) timed_out_udp: Vec<(SocketAddr, i64, String, String)>,
     /// Wire bytes this lane has read and written since boot. Phase 0 of the netcode work: you
     /// cannot prove a bandwidth change without a before number.
     pub(crate) wire_bytes_in: u64,
     pub(crate) wire_bytes_out: u64,
     /// Datagrams this lane had to split to stay inside the MTU.
     pub(crate) wire_fragments: u64,
+}
+
+impl UdpLane {
+    /// The room a peer was admitted to, or `None` before its seat is verified.
+    pub(crate) fn peer_room(&self, addr: SocketAddr) -> Option<&str> {
+        self.udp_rooms.get(&addr).map(String::as_str)
+    }
+
+    /// Raw-UDP peers attached to one room. Used by reap and tick gates so a
+    /// peer in room A cannot keep room B alive.
+    pub(crate) fn peers_in_room(&self, name: &str) -> usize {
+        self.udp_rooms
+            .values()
+            .filter(|room| room.as_str() == name)
+            .count()
+    }
 }
 
 pub(crate) struct UdpCtx<'e> {

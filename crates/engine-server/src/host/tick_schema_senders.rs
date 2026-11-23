@@ -18,6 +18,11 @@ impl TickRunner {
         let mut wire = udp_send::WireCount::default();
         if let Some(ref udp_sock) = ctx.udp.udp_sock {
             for (peer_addr, (peer_id, peer_session, _)) in &ctx.udp.udp_peers {
+                // A lane can carry several rooms now. Never send this room's
+                // schema/delta to a peer that was admitted to a different one.
+                if ctx.udp.peer_room(*peer_addr) != Some(name) {
+                    continue;
+                }
                 let view_changed = room.view_dirty.contains(&(*peer_id as i64));
                 let is_full =
                     force_full || view_changed || !room.schema_sent.contains(peer_session.as_str());

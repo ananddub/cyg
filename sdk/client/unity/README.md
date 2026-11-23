@@ -237,8 +237,8 @@ everywhere. Set `null` (or call `LeaveTeam()`) to leave the squad.
 ## Wire notes
 
 - matchmake: `POST /matchmake/joinOrCreate/{room}` → seat token, `gamePort`, `udpPort`
-- join (UDP): `[0x20][len][seatToken]`; bind confirmation comes back as `[0x0a]`
-  and carries the player id
+- join (UDP): `[0x20][len][seatToken]`; bind confirmation comes back as `[0x24]`
+  with the player id, tick rate, and room
 - join (WebSocket): upgrade to `ws://host:{gamePort}/{room}?sessionId={id}`
 - movement: `[op][seq u16 LE][20B]` — unreliable newest-wins, 20-byte payload
 - state deltas: TLV rows `[tag][len][id u64][fields]` — decode with `CygDeltaDecoder`

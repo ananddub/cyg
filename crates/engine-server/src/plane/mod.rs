@@ -13,7 +13,7 @@ use engine_bus::Bus;
 pub use crate::plane::dispatch::{emit_delta, wrap_body};
 pub use crate::plane::pin::{current_core, pin_current_thread};
 pub use crate::plane::reliable::{QueueError, ReliableCounts, ReliableLane};
-pub use crate::plane::seats::{SeatGrant, SeatRegistry};
+pub use crate::plane::seats::{SeatGrant, SeatRegistry, join_token};
 pub use crate::plane::udp::UdpPlane;
 pub use engine_bus::clock::{mono_ns, tick_period};
 

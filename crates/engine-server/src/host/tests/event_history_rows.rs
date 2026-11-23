@@ -98,7 +98,7 @@ fn a_persistent_or_udp_held_room_is_not_reapable() {
         "with no peers left it is a room like any other"
     );
     assert!(
-        room_is_reapable(&cfg, "side", 3),
-        "peers attached elsewhere do not protect a second room"
+        !room_is_reapable(&cfg, "side", 3),
+        "a second room keeps its own UDP peers just like the default room"
     );
 }

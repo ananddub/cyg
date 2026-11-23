@@ -24,37 +24,58 @@ impl UdpLane {
             tracing::error!("[server-udp] ⛔ join rate-limit hit by {peer_addr}");
             return;
         }
+        // The join envelope is the same one the pinned sim plane accepts:
+        // `[0x20][token_len][seat_token]`. A raw peer without a minted,
+        // unexpired seat is not admitted, even if it sends a valid-looking
+        // 20-byte input frame first.
+        const OP_DENY: u8 = 0x25;
+
+        let admitted = match crate::netcode::admission::admit_join_frame(
+            crate::netcode::admission::Lane::UdpHost,
+            &self.seats,
+            data,
+            None,
+        ) {
+            Ok(a) => a,
+            Err(reason) => {
+                tracing::error!(
+                    "[server-udp] ⛔ {peer_addr} rejected by admission: {reason:?}"
+                );
+                let _ = udp_sock.send_to(&[OP_DENY, reason.code()], peer_addr);
+                return;
+            }
+        };
+        let room_name = admitted.room;
+
         if ctx
             .server
-            .would_exceed_room_limit(&ctx.cfg.name, ctx.cfg.max_rooms)
+            .would_exceed_room_limit(&room_name, ctx.cfg.max_rooms)
         {
             tracing::error!(
                 "[server-udp] ⛔ room limit reached: refusing UDP join from {peer_addr}"
             );
+            let _ = udp_sock.send_to(&[OP_DENY, crate::netcode::admission::DenyReason::RoomFull.code()], peer_addr);
             return;
         }
-        let room = match ctx.server.get_or_create(&ctx.cfg.name, b"") {
+        let room = match ctx.server.get_or_create(&room_name, b"") {
             Ok(room) => room,
             Err(_) => return,
         };
         if room.is_full(ctx.cfg.max_clients) {
             tracing::error!(
-                "[server-udp] ⛔ room '{}' is full ({}/{}): refusing UDP join from {peer_addr}",
-                ctx.cfg.name,
+                "[server-udp] ⛔ room '{room_name}' is full ({}/{}): refusing UDP join from {peer_addr}",
                 room.sessions.len(),
                 ctx.cfg.max_clients
             );
+            let _ = udp_sock.send_to(&[OP_DENY, crate::netcode::admission::DenyReason::RoomFull.code()], peer_addr);
             return;
         }
         // Same onAuth gate the TCP/WS path applies; UDP joins carry no options.
         if !room.authorize(room.next_player_id, "", "{}") {
-            tracing::error!(
-                "[server-udp] ⛔ room '{}' rejected {peer_addr} in onAuth",
-                ctx.cfg.name
-            );
+            tracing::error!("[server-udp] ⛔ room '{room_name}' rejected {peer_addr} in onAuth");
             return;
         }
-        let n = room.sessions.len() + self.udp_peers.len();
+        let n = room.sessions.len() + self.peers_in_room(&room_name);
         let (x, y) = (
             60.0 + ((n as f64) * 97.0) % (ctx.cfg.width - 120.0),
             60.0 + ((n as f64) * 61.0) % (ctx.cfg.height - 120.0),
@@ -63,48 +84,24 @@ impl UdpLane {
         let session_id = format!("p{}_{}_{}", id, peer_addr.ip(), peer_addr.port());
         self.udp_peers
             .insert(peer_addr, (id, session_id.clone(), Instant::now()));
+        self.udp_rooms.insert(peer_addr, room_name.clone());
         self.udp_reliable.entry(peer_addr).or_default();
         tracing::info!(
-            "[server-udp] {peer_addr} joined room via UDP (player id {id}, session {session_id})"
+            "[server-udp] {peer_addr} joined room '{room_name}' via UDP (player id {id}, session {session_id})"
         );
 
-        let rt = format!("{}:{}", ctx.cfg.name, session_id);
-        let mut join_reply = Vec::with_capacity(1 + 1 + rt.len() + 1 + 6 + 1);
-        join_reply.push(netcode::CYG_WIRE_JOIN_ROOM);
-        join_reply.push(rt.len() as u8);
-        join_reply.extend_from_slice(rt.as_bytes());
-        join_reply.push(6);
-        join_reply.extend_from_slice(b"schema");
-        join_reply.push(0x00);
-        let _ = udp_sock.send_to(&join_reply, peer_addr);
+        // The current raw-UDP bind, identical to the pinned plane's: player id,
+        // tick rate, and room name. The legacy room:session string is gone, so
+        // one client decoder serves every raw-UDP lane.
+        let mut bind = Vec::new();
+        netcode::encode_bind(id, ctx.cfg.tick_rate as f64, &room_name, &mut bind);
+        let _ = udp_sock.send_to(&bind, peer_addr);
         if !self.schema_descriptor.is_empty() {
             let descriptor = self.schema_descriptor.clone();
             if descriptor.len() <= 1200
                 || !self.start_chunk(peer_addr, netcode::CYG_WIRE_SCHEMA, &descriptor)
             {
                 let _ = udp_sock.send_to(&descriptor, peer_addr);
-            }
-        }
-
-        if data.len() == 20 {
-            let Ok(mut sample) = <[u8; 20]>::try_from(data) else {
-                return;
-            };
-            if !udp_input_allowed(
-                &mut self.udp_input_rates,
-                ctx.tick_interval,
-                peer_addr,
-                &mut sample,
-                &room.input_domains,
-            ) {
-                ctx.recorder.inputs_dropped += 1;
-                return;
-            }
-            if let Some(ref mut wasm) = room.wasm {
-                if let Ok(ptr) = wasm.on_alloc(sample.len() as i32) {
-                    let _ = wasm.write_memory(ptr as u32, &sample);
-                    let _ = wasm.on_input(id, ptr, sample.len() as i32);
-                }
             }
         }
     }
@@ -117,7 +114,11 @@ impl UdpLane {
         is_spec_handshake: bool,
         ctx: &mut UdpCtx,
     ) {
-        let room = match ctx.server.get_or_create(&ctx.cfg.name, b"") {
+        let Some(room_name) = self.peer_room(peer_addr).map(str::to_owned) else {
+            tracing::error!("[server-udp] ⛔ {peer_addr} has no admitted room; dropping packet");
+            return;
+        };
+        let room = match ctx.server.get_or_create(&room_name, b"") {
             Ok(room) => room,
             Err(_) => return,
         };
