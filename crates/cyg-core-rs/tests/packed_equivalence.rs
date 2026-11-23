@@ -150,7 +150,10 @@ fn a_packed_full_section_hydrates_the_collection() {
     let Value::F32(yaw) = ana.values[1] else {
         panic!("yaw must stay a float");
     };
-    assert!((yaw - 90.0).abs() <= 360.0 / 255.0 / 2.0 + 1e-3, "yaw {yaw}");
+    assert!(
+        (yaw - 90.0).abs() <= 360.0 / 255.0 / 2.0 + 1e-3,
+        "yaw {yaw}"
+    );
 }
 
 #[test]
@@ -182,7 +185,10 @@ fn a_packed_patch_updates_and_removes() {
     let Value::F32(yaw) = player.values[1] else {
         panic!("yaw must stay a float");
     };
-    assert!((yaw - 180.0).abs() <= 360.0 / 255.0 / 2.0 + 1e-3, "yaw {yaw}");
+    assert!(
+        (yaw - 180.0).abs() <= 360.0 / 255.0 / 2.0 + 1e-3,
+        "yaw {yaw}"
+    );
     assert_eq!(player.values[2], Value::Bool(true), "unmasked fields stay");
 }
 
@@ -199,12 +205,7 @@ fn a_packed_world_applies_root_scalars_and_every_collection() {
                 FieldEncoding::range(16, -1000.0, 1000.0),
                 None,
             ),
-            field(
-                "on",
-                WireKind::Bool,
-                default_encoding(WireKind::Bool),
-                None,
-            ),
+            field("on", WireKind::Bool, default_encoding(WireKind::Bool), None),
         ],
         line: 0,
         column: 0,
@@ -268,7 +269,10 @@ fn a_packed_world_applies_root_scalars_and_every_collection() {
     let state = apply(&descriptor, &bytes);
     assert!(state.ready());
     assert_eq!(state.root_value(0), Some(&Value::U16(42)));
-    assert_eq!(state.collection("players").expect("players").entities.len(), 2);
+    assert_eq!(
+        state.collection("players").expect("players").entities.len(),
+        2
+    );
     let markers = state.collection("markers").expect("markers");
     assert_eq!(markers.entities.len(), 1);
     let Value::F32(x) = markers.entities[&5].values[0] else {
@@ -373,8 +377,14 @@ fn a_packed_world_patch_touches_only_the_changed_collection() {
 
     assert_eq!(state.root_value(0), Some(&Value::U16(2)));
     // The untouched collection keeps both rows.
-    assert_eq!(state.collection("players").expect("players").entities.len(), 2);
-    assert_eq!(state.collection("markers").expect("markers").entities[&5].values[0], Value::F32(9.0));
+    assert_eq!(
+        state.collection("players").expect("players").entities.len(),
+        2
+    );
+    assert_eq!(
+        state.collection("markers").expect("markers").entities[&5].values[0],
+        Value::F32(9.0)
+    );
 }
 
 #[test]

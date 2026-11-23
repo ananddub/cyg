@@ -73,11 +73,13 @@ pub(crate) async fn the_listing_hides_the_secret_and_the_detail_reveals_it_with_
     };
 
     let game = db::create(&state, "listing").await;
-    let detail = GamesService::get_game(&state, game.id)
+    let detail = GamesService::new(state.plane())
+        .get_game(game.id)
         .await
         .expect("the detail view reads the game back");
 
-    let list = GamesService::list_games(&state)
+    let list = GamesService::new(state.plane())
+        .list_games()
         .await
         .expect("the listing reads");
     assert!(
@@ -125,7 +127,9 @@ pub(crate) async fn the_listing_hides_the_secret_and_the_detail_reveals_it_with_
         "the detail carries the config the create wrote"
     );
 
-    let missing = GamesService::get_game(&state, Uuid::new_v4()).await;
+    let missing = GamesService::new(state.plane())
+        .get_game(Uuid::new_v4())
+        .await;
     let err = missing.expect_err("an unknown game id is not readable");
     assert_eq!(err.kind, NOT_FOUND, "{err:?}");
 

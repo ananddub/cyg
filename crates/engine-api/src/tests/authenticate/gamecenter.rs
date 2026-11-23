@@ -5,7 +5,7 @@ use crate::error::{INVALID_ARGUMENT, UNAUTHENTICATED};
 fn a_game_center_bundle_is_demanded_field_by_field() {
     let server = V2Server::start(v2_state());
     let key = server_key();
-    let path = "/v2/account/authenticate/gamecenter";
+    let path = "/v1/account/authenticate/gamecenter";
 
     assert_eq!(
         server

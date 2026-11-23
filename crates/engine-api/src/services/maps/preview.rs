@@ -36,11 +36,10 @@ pub struct CookedMeshDto {
 impl super::MapService {
     pub async fn preview_map(
         &self,
-        state: &crate::ApiState,
         game_id: Uuid,
         version: i32,
     ) -> Result<Json<MapPreview>, V2Error> {
-        let row = q(state)
+        let row = q(&self.plane)
             .await?
             .game_map_at_version(game_id, version)
             .await?
@@ -48,9 +47,13 @@ impl super::MapService {
         let blob_key = row.blob_key.clone().ok_or_else(|| {
             V2Error::failed_precondition("That map predates the blob store and has no bytes.")
         })?;
-        let bytes = blobs(state).await?.get(&blob_key).await?.ok_or_else(|| {
-            V2Error::data_loss("The map's bytes are missing from the blob store.")
-        })?;
+        let bytes = blobs(&self.plane)
+            .await?
+            .get(&blob_key)
+            .await?
+            .ok_or_else(|| {
+                V2Error::data_loss("The map's bytes are missing from the blob store.")
+            })?;
 
         let (mesh, note) = match row.format.as_str() {
             "oxcl" => match parse_oxcl(&bytes) {

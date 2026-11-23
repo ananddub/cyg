@@ -101,12 +101,7 @@ impl RoomLifecycle {
     /// Preserves existing behavior: `Created` does not auto-transition here;
     /// other phases become `Active` or `Hibernating` based on whether the room
     /// is fully empty including pending leave holds.
-    pub fn note_state(
-        &mut self,
-        now: Instant,
-        sessions_empty: bool,
-        spectators_empty: bool,
-    ) {
+    pub fn note_state(&mut self, now: Instant, sessions_empty: bool, spectators_empty: bool) {
         if sessions_empty && spectators_empty {
             self.empty_since.get_or_insert(now);
         } else {

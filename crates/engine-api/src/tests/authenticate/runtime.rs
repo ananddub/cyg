@@ -7,14 +7,14 @@ fn the_runtime_provider_route_names_the_provider_it_could_not_find() {
     let key = server_key();
     assert_eq!(
         server
-            .post("/v2/account/authenticate", Some(&key), r#"{"provider":""}"#)
+            .post("/v1/account/authenticate", Some(&key), r#"{"provider":""}"#)
             .refusal(INVALID_ARGUMENT),
         "Provider name is required."
     );
     assert_eq!(
         server
             .post(
-                "/v2/account/authenticate",
+                "/v1/account/authenticate",
                 Some(&key),
                 r#"{"provider":"Discord"}"#
             )

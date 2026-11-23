@@ -1,8 +1,9 @@
+use crate::services::plane::Plane;
 use auto_di::singleton;
 use axum::Json;
+use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::Empty;
@@ -14,26 +15,27 @@ use crate::repositories::notification::{
     ListNotificationsByCodePagedParams, ListNotificationsBySenderPagedParams,
     ListNotificationsPagedParams,
 };
-use crate::services::deps::q;
 use crate::services::social::ts_head;
 
 use crate::utils::notification::{
     LIMIT_RANGE, decode_cursor, encode_cursor, encode_cursor_at, flatten,
 };
 
-pub struct NotificationService;
+pub struct NotificationService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 #[singleton]
 impl NotificationService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 
 impl NotificationService {
     pub async fn list(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         req: ListQuery,
     ) -> Result<Json<NotificationListResponse>, V2Error> {
@@ -44,7 +46,7 @@ impl NotificationService {
         };
         let cursor = decode_cursor(req.cacheable_cursor.as_deref())?;
         let (create_time, id_start) = cursor.unwrap_or((ts_head(), Uuid::nil()));
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let uid = claims.uid();
 
         let mut rows = match (req.sender_id.as_deref(), req.code) {
@@ -105,27 +107,22 @@ impl NotificationService {
 
     pub async fn delete_many(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: DeleteRequest,
     ) -> Result<Json<Empty>, V2Error> {
         let uid = auth.0.uuid()?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         for id in flatten(req.ids) {
             delete_one(&queries, uid, id).await?;
         }
         Ok(Json(Empty {}))
     }
 
-    pub async fn delete_one(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-        id: &str,
-    ) -> Result<Json<Empty>, V2Error> {
+    pub async fn delete_one(&self, auth: &Authed, id: &str) -> Result<Json<Empty>, V2Error> {
         let id = Uuid::parse_str(id)
             .map_err(|_| V2Error::invalid_argument("Invalid notification ID."))?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         delete_one(&queries, auth.0.uuid()?, id).await?;
         Ok(Json(Empty {}))
     }
@@ -165,12 +162,7 @@ pub struct SendRequest {
 }
 
 impl NotificationService {
-    pub async fn send(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-        body: SendRequest,
-    ) -> Result<Json<Empty>, V2Error> {
+    pub async fn send(&self, auth: &Authed, body: SendRequest) -> Result<Json<Empty>, V2Error> {
         let subject = body.subject.trim();
         if subject.is_empty() {
             return Err(V2Error::invalid_argument("A notification needs a subject."));
@@ -190,7 +182,7 @@ impl NotificationService {
             }
             parsed
         };
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         queries.get_user_by_id(target).await?;
         queries
             .create_notification(

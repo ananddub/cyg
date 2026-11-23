@@ -1,7 +1,6 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::user::{
@@ -9,14 +8,13 @@ use crate::dto::console::user::{
 };
 use crate::error::V2Error;
 use crate::repositories::console_mutations::{InsertConsoleUserParams, UpdateConsoleUserParams};
-use crate::services::deps::q;
 
 use super::{check_password, named, operator_conflict, role_from};
 
 impl super::ConsoleService {
     pub async fn create_console_user(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: CreateConsoleUserRequest,
     ) -> Result<Json<ConsoleUserView>, V2Error> {
@@ -25,7 +23,7 @@ impl super::ConsoleService {
         let role = role_from(&body.role)?;
         check_password(&body.password)?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let id = Uuid::new_v4();
         queries
             .insert_console_user(&InsertConsoleUserParams {
@@ -40,7 +38,7 @@ impl super::ConsoleService {
             .map_err(operator_conflict)?;
 
         super::audit(
-            state,
+            &self.plane,
             claims,
             "console_user.create",
             "console_user",
@@ -53,7 +51,7 @@ impl super::ConsoleService {
 
     pub async fn update_console_user(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
         body: UpdateConsoleUserRequest,
@@ -63,7 +61,7 @@ impl super::ConsoleService {
         let (username, email) = named(&body.username, &body.email)?;
         let role = role_from(&body.role)?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let current = self.view(&queries, id).await?;
         queries
             .update_console_user(&UpdateConsoleUserParams {
@@ -78,7 +76,7 @@ impl super::ConsoleService {
             .map_err(operator_conflict)?;
 
         super::audit(
-            state,
+            &self.plane,
             claims,
             "console_user.update",
             "console_user",
@@ -91,7 +89,7 @@ impl super::ConsoleService {
 
     pub async fn delete_console_user(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
@@ -99,11 +97,11 @@ impl super::ConsoleService {
         let id = super::id(id, "console user")?;
         self.must_be_another(claims, id, "delete")?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let view = self.view(&queries, id).await?;
         queries.delete_console_user(id).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "console_user.delete",
             "console_user",

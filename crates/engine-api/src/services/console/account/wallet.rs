@@ -1,17 +1,15 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::account::{AccountRow, UpdateWalletRequest};
 use crate::error::V2Error;
-use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn update_account_wallet(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
         body: UpdateWalletRequest,
@@ -19,7 +17,7 @@ impl super::ConsoleService {
     ) -> Result<Json<AccountRow>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let user = queries.get_user_by_id(id).await?;
 
         let changes = body.changeset.as_object().ok_or_else(|| {
@@ -60,13 +58,13 @@ impl super::ConsoleService {
             .ok_or_else(|| {
                 V2Error::failed_precondition("A currency balance cannot go negative.")
             })?;
-        crate::services::rules::dispatch::fire(state, "wallet_change", id).await;
+        crate::services::rules::dispatch::fire(&self.plane, "wallet_change", id).await;
         // Fired after the write so the hook sees the balance it produced. A hook
         // is not allowed to refuse a console write: an operator asked for this
         // change, and refusing it would make the console report a failure for a
         // change that had already been applied.
         let _ = crate::services::hook_apply::fire(
-            state,
+            &self.plane,
             engine_hooks::HookEvent::WalletChange,
             id,
             serde_json::json!({
@@ -77,7 +75,7 @@ impl super::ConsoleService {
         )
         .await;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "account.wallet.update",
             "account",
@@ -91,7 +89,7 @@ impl super::ConsoleService {
 
     pub async fn delete_wallet_ledger(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
         wallet_id: &str,
@@ -102,7 +100,9 @@ impl super::ConsoleService {
         if wallet_id.is_nil() {
             return Err(V2Error::invalid_argument("Invalid wallet ledger id."));
         }
-        let removed = q(state)
+        let removed = self
+            .plane
+            .q()
             .await?
             .delete_wallet_ledger(wallet_id, id)
             .await
@@ -111,7 +111,7 @@ impl super::ConsoleService {
             return Err(V2Error::not_found("Wallet ledger entry not found."));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "account.wallet.ledger.delete",
             "account",

@@ -5,7 +5,7 @@ use crate::dto::console::account::WalletLedgerRow;
 use crate::repositories::account::ListDevicePushTokensRow;
 use crate::repositories::models::Users;
 
-/// Body for the service-driven `POST /v2/account/delete` erasure route.
+/// Body for the service-driven `POST /v1/account/delete` erasure route.
 #[derive(Debug, Deserialize)]
 pub struct EraseRequest {
     #[serde(alias = "userId")]

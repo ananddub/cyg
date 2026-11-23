@@ -1,5 +1,5 @@
-// Tournaments: the boards an operator writes. `GET/POST /v2/console/tournament`
-// and `PUT/DELETE /v2/console/tournament/{id}` — the same rows as leaderboards,
+// Tournaments: the boards an operator writes. `GET/POST /v1/console/tournament`
+// and `PUT/DELETE /v1/console/tournament/{id}` — the same rows as leaderboards,
 // with category 1 fixed by the server.
 
 import { useEffect, useState } from "react"

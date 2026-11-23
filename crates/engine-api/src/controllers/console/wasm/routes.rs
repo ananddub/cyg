@@ -19,7 +19,6 @@ impl ConsoleWasmController {
         match self
             .service
             .upload_module(
-                &state,
                 game_id,
                 upload.filename,
                 upload.binary.clone(),
@@ -57,7 +56,7 @@ impl ConsoleWasmController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .activate_module(&state, game_id, version, kind)
+            .activate_module(game_id, version, kind)
             .await
             .map(Json)
             .into_response()

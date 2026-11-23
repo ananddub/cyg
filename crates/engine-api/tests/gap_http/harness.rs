@@ -50,7 +50,10 @@ pub async fn static_surface(env: &Harness) {
         sdk.status()
     );
     assert!(
-        sdk.text().await.unwrap_or_default().contains("CYG Gaming SDK"),
+        sdk.text()
+            .await
+            .unwrap_or_default()
+            .contains("CYG Gaming SDK"),
         "GET /cyg.js body is the browser SDK"
     );
     for path in [

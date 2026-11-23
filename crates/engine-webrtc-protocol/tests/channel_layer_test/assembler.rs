@@ -1,5 +1,7 @@
 use crate::{feed, frame};
-use engine_webrtc_protocol::channel::{MAX_DELTA_CHUNK, FragmentAssembler, is_newer, is_superseded};
+use engine_webrtc_protocol::channel::{
+    FragmentAssembler, MAX_DELTA_CHUNK, is_newer, is_superseded,
+};
 
 #[test]
 fn sequence_wrap_is_one_rule_both_ends_share() {
@@ -57,8 +59,14 @@ fn a_duplicate_fragment_does_not_double_count() {
     let chunk1 = vec![0xad, 0xbe, 0xef, 0x00];
 
     let mut assembler = FragmentAssembler::default();
-    assert_eq!(feed(&mut assembler, &frame(65535, 8, 0, 2, &chunk0), 0), None);
-    assert_eq!(feed(&mut assembler, &frame(65535, 8, 0, 2, &chunk0), 1), None);
+    assert_eq!(
+        feed(&mut assembler, &frame(65535, 8, 0, 2, &chunk0), 0),
+        None
+    );
+    assert_eq!(
+        feed(&mut assembler, &frame(65535, 8, 0, 2, &chunk0), 1),
+        None
+    );
     assert_eq!(assembler.duplicates(), 1);
     assert_eq!(
         assembler.buffered_bytes(),
@@ -128,8 +136,12 @@ fn interleaved_deltas_both_close() {
     const MAXC: usize = MAX_DELTA_CHUNK;
     // Two deltas of three fragments each: the first two fragments are
     // MAX-sized (wire contract), the final one carries the short tail.
-    let body_a: Vec<u8> = (0..(2 * MAXC + 30) as u64).map(|i| (i % 251) as u8).collect();
-    let body_b: Vec<u8> = (0..(2 * MAXC + 30) as u64).map(|i| (100 + i % 156) as u8).collect();
+    let body_a: Vec<u8> = (0..(2 * MAXC + 30) as u64)
+        .map(|i| (i % 251) as u8)
+        .collect();
+    let body_b: Vec<u8> = (0..(2 * MAXC + 30) as u64)
+        .map(|i| (100 + i % 156) as u8)
+        .collect();
     let parts_a: Vec<Vec<u8>> = body_a.chunks(MAXC).map(|c| c.to_vec()).collect();
     let parts_b: Vec<Vec<u8>> = body_b.chunks(MAXC).map(|c| c.to_vec()).collect();
 

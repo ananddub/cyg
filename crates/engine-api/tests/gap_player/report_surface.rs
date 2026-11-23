@@ -4,7 +4,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
     eprintln!("gap: reports, moderation gate and mute enforcement");
     let rep = device_player(&env.client, &env.base, "rp").await;
     let tgt = device_player(&env.client, &env.base, "rgt").await;
-    let reports = |suffix: &str| format!("{}/v2/reports{suffix}", env.base);
+    let reports = |suffix: &str| format!("{}/v1/reports{suffix}", env.base);
 
     assert_eq!(
         refusal(
@@ -15,7 +15,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
                 .await
                 .unwrap(),
             StatusCode::UNAUTHORIZED,
-            "POST /v2/reports without a session",
+            "POST /v1/reports without a session",
         )
         .await,
         "Auth token required"
@@ -35,7 +35,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
                 .await
                 .unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/reports with an unknown reason",
+            "POST /v1/reports with an unknown reason",
         )
         .await,
         "Invalid report reason: must be harassment, cheating, exploit, inappropriate_content or other."
@@ -55,7 +55,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
                 .await
                 .unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/reports against yourself",
+            "POST /v1/reports against yourself",
         )
         .await,
         "Cannot report your own account."
@@ -75,7 +75,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/reports (valid)",
+        "POST /v1/reports (valid)",
     )
     .await;
     assert_eq!(filed["status"], "open");
@@ -96,7 +96,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
                 .await
                 .unwrap(),
             StatusCode::UNAUTHORIZED,
-            "GET /v2/reports with a player session",
+            "GET /v1/reports with a player session",
         )
         .await,
         "Console token invalid"
@@ -110,7 +110,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/reports (operator)",
+        "GET /v1/reports (operator)",
     )
     .await;
     assert!(
@@ -132,7 +132,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
                 .await
                 .unwrap(),
             StatusCode::BAD_REQUEST,
-            "PUT /v2/reports/{id}/status with an unknown status",
+            "PUT /v1/reports/{id}/status with an unknown status",
         )
         .await,
         "Invalid report status."
@@ -141,7 +141,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
     let room = format!("2...e2e-gap-room-{}", letters_suffix());
     let send = |text: &str| {
         env.client
-            .post(format!("{}/v2/channel/{room}/message", env.base))
+            .post(format!("{}/v1/channel/{room}/message", env.base))
             .bearer_auth(rep.token.clone())
             .json(&json!({ "content": { "text": text } }))
     };
@@ -165,7 +165,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/reports (second, reporter becomes the reported)",
+        "POST /v1/reports (second, reporter becomes the reported)",
     )
     .await;
     let second_id = second["id"].as_str().expect("second report id").to_owned();
@@ -184,7 +184,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/reports/{id}/status (actioned with a mute)",
+        "PUT /v1/reports/{id}/status (actioned with a mute)",
     )
     .await;
     assert_eq!(actioned["status"], "actioned");
@@ -214,7 +214,7 @@ pub async fn report_surface(env: &Harness, console: &str) {
         let mut request = env
             .client
             .post(format!(
-                "{}/v2/account/authenticate{path}?username=ab&create=true",
+                "{}/v1/account/authenticate{path}?username=ab&create=true",
                 env.base
             ))
             .header(reqwest::header::AUTHORIZATION, server_key_header());

@@ -6,13 +6,13 @@ sequenceDiagram
     participant DB as SurrealDB
     participant GS as Game Server
 
-    O->>API: POST /v2/console/tournament<br/>window, join_required, rule_key
+    O->>API: POST /v1/console/tournament<br/>window, join_required, rule_key
     API->>DB: leaderboard row (category = 1)
 
-    P->>API: GET /v2/tournament
+    P->>API: GET /v1/tournament
     API-->>P: tournaments[] + cursor
 
-    P->>API: POST /v2/tournament/{id}/join
+    P->>API: POST /v1/tournament/{id}/join
     API->>DB: load board + active rule
     API->>DB: load player_stat
     alt rule missing or unmet
@@ -22,11 +22,11 @@ sequenceDiagram
         API-->>P: 200
     end
 
-    P->>API: POST /v2/tournament/{id}<br/>{ score, subscore, operator }
+    P->>API: POST /v1/tournament/{id}<br/>{ score, subscore, operator }
     API->>DB: require rule again + upsert record
     API-->>P: record + rank
 
-    P->>API: GET /v2/tournament/{id}
+    P->>API: GET /v1/tournament/{id}
     API-->>P: records[] sorted
 
     opt authoritative board

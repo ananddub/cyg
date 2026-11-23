@@ -15,7 +15,7 @@ struct ChannelController {
     service: Arc<ChannelService>,
 }
 
-#[controller("/v2/channel")]
+#[controller("/v1/channel")]
 impl ChannelController {
     fn new(service: Arc<ChannelService>) -> Self {
         Self { service }
@@ -30,7 +30,7 @@ impl ChannelController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_messages(&state, &auth, &channel_id, req)
+            .list_messages(&auth, &channel_id, req)
             .await
             .into_response()
     }
@@ -44,7 +44,7 @@ impl ChannelController {
     ) -> Response {
         let state = current_state();
         self.service
-            .send_message(&state, &auth, &channel_id, body)
+            .send_message(&auth, &channel_id, body)
             .await
             .into_response()
     }
@@ -58,7 +58,7 @@ impl ChannelController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_message(&state, &auth, &channel_id, &message_id, body)
+            .update_message(&auth, &channel_id, &message_id, body)
             .await
             .into_response()
     }
@@ -71,7 +71,7 @@ impl ChannelController {
     ) -> Response {
         let state = current_state();
         self.service
-            .delete_message(&state, &auth, &channel_id, &message_id)
+            .delete_message(&auth, &channel_id, &message_id)
             .await
             .into_response()
     }

@@ -17,7 +17,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     refusal(
         client
-            .post(format!("{base}/v2/console/tournament"))
+            .post(format!("{base}/v1/console/tournament"))
             .json(&json!({ "id": "anonymous", "duration": 60 }))
             .send()
             .await
@@ -28,7 +28,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     .await;
     refusal(
         client
-            .get(format!("{base}/v2/tournament"))
+            .get(format!("{base}/v1/tournament"))
             .send()
             .await
             .unwrap(),
@@ -62,7 +62,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     ] {
         let message = refusal(
             client
-                .post(format!("{base}/v2/console/tournament"))
+                .post(format!("{base}/v1/console/tournament"))
                 .bearer_auth(console)
                 .json(&body)
                 .send()
@@ -153,7 +153,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     let duplicate = refusal(
         client
-            .post(format!("{base}/v2/console/tournament"))
+            .post(format!("{base}/v1/console/tournament"))
             .bearer_auth(console)
             .json(&json!({ "id": joined_id.clone(), "duration": 60 }))
             .send()
@@ -167,7 +167,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     let page = json_body(
         client
-            .get(format!("{base}/v2/tournament?limit=10"))
+            .get(format!("{base}/v1/tournament?limit=10"))
             .bearer_auth(&alpha.token)
             .send()
             .await
@@ -192,7 +192,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     let first = json_body(
         client
-            .get(format!("{base}/v2/tournament?limit=1"))
+            .get(format!("{base}/v1/tournament?limit=1"))
             .bearer_auth(&alpha.token)
             .send()
             .await
@@ -209,7 +209,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     assert!(!cursor.is_empty());
     let second = json_body(
         client
-            .get(format!("{base}/v2/tournament?limit=1&cursor={cursor}"))
+            .get(format!("{base}/v1/tournament?limit=1&cursor={cursor}"))
             .bearer_auth(&alpha.token)
             .send()
             .await
@@ -222,7 +222,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     let closed = json_body(
         client
-            .get(format!("{base}/v2/tournament?end_time={}", now.timestamp()))
+            .get(format!("{base}/v1/tournament?end_time={}", now.timestamp()))
             .bearer_auth(&alpha.token)
             .send()
             .await
@@ -235,7 +235,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     let empty = json_body(
         client
-            .get(format!("{base}/v2/tournament?category_start=2"))
+            .get(format!("{base}/v1/tournament?category_start=2"))
             .bearer_auth(&alpha.token)
             .send()
             .await
@@ -259,7 +259,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     ] {
         let message = refusal(
             client
-                .get(format!("{base}/v2/tournament?{query}"))
+                .get(format!("{base}/v1/tournament?{query}"))
                 .bearer_auth(&alpha.token)
                 .send()
                 .await
@@ -274,7 +274,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     for id in ["does-not-exist", plain_id.as_str()] {
         let message = refusal(
             client
-                .get(format!("{base}/v2/tournament/{id}"))
+                .get(format!("{base}/v1/tournament/{id}"))
                 .bearer_auth(&alpha.token)
                 .send()
                 .await
@@ -286,7 +286,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
         assert_eq!(message, "Tournament not found.");
     }
 
-    let joined_url = format!("{base}/v2/tournament/{joined_id}");
+    let joined_url = format!("{base}/v1/tournament/{joined_id}");
     expect(
         client
             .post(format!("{joined_url}/join"))
@@ -577,7 +577,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     let ended_expectations = [
         (
             client
-                .get(format!("{base}/v2/tournament/{ended_id}"))
+                .get(format!("{base}/v1/tournament/{ended_id}"))
                 .bearer_auth(&alpha.token)
                 .send()
                 .await
@@ -588,7 +588,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
         ),
         (
             client
-                .post(format!("{base}/v2/tournament/{ended_id}"))
+                .post(format!("{base}/v1/tournament/{ended_id}"))
                 .bearer_auth(&alpha.token)
                 .json(&json!({ "score": 1 }))
                 .send()
@@ -600,7 +600,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
         ),
         (
             client
-                .post(format!("{base}/v2/tournament/{ended_id}/join"))
+                .post(format!("{base}/v1/tournament/{ended_id}/join"))
                 .bearer_auth(&alpha.token)
                 .send()
                 .await
@@ -617,7 +617,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     let closed_window = json_body(
         client
             .get(format!(
-                "{base}/v2/tournament/{ended_id}/owner/{}",
+                "{base}/v1/tournament/{ended_id}/owner/{}",
                 alpha.uid
             ))
             .bearer_auth(&alpha.token)
@@ -632,7 +632,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     let message = refusal(
         client
-            .post(format!("{base}/v2/tournament/{authoritative_id}"))
+            .post(format!("{base}/v1/tournament/{authoritative_id}"))
             .bearer_auth(&alpha.token)
             .json(&json!({ "score": 1 }))
             .send()
@@ -647,7 +647,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
         "Tournament only allows authoritative score submissions."
     );
 
-    let open_url = format!("{base}/v2/tournament/{open_id}");
+    let open_url = format!("{base}/v1/tournament/{open_id}");
     let open_first = write_record(
         client,
         base,
@@ -748,7 +748,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     let updated = json_body(
         client
-            .put(format!("{base}/v2/console/tournament/{joined_id}"))
+            .put(format!("{base}/v1/console/tournament/{joined_id}"))
             .bearer_auth(console)
             .json(&json!({
                 "title": "E2E Joined Tournament (renamed)",
@@ -766,7 +766,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     assert_eq!(updated["max_num_score"], 5);
     let message = refusal(
         client
-            .put(format!("{base}/v2/console/tournament/{joined_id}"))
+            .put(format!("{base}/v1/console/tournament/{joined_id}"))
             .bearer_auth(console)
             .json(&json!({ "duration": 0 }))
             .send()
@@ -782,7 +782,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     );
     let message = refusal(
         client
-            .put(format!("{base}/v2/console/tournament/{plain_id}"))
+            .put(format!("{base}/v1/console/tournament/{plain_id}"))
             .bearer_auth(console)
             .json(&json!({ "title": "not a tournament" }))
             .send()
@@ -796,7 +796,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     expect(
         client
-            .delete(format!("{base}/v2/console/tournament/{ended_id}"))
+            .delete(format!("{base}/v1/console/tournament/{ended_id}"))
             .bearer_auth(console)
             .send()
             .await
@@ -807,7 +807,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     .await;
     expect(
         client
-            .delete(format!("{base}/v2/console/tournament/{joined_id}"))
+            .delete(format!("{base}/v1/console/tournament/{joined_id}"))
             .bearer_auth(console)
             .send()
             .await
@@ -838,7 +838,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     assert_eq!(message, "Tournament not found.");
     let message = refusal(
         client
-            .delete(format!("{base}/v2/console/tournament/{plain_id}"))
+            .delete(format!("{base}/v1/console/tournament/{plain_id}"))
             .bearer_auth(console)
             .send()
             .await
@@ -852,7 +852,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     for id in [&open_id, &authoritative_id] {
         expect(
             client
-                .delete(format!("{base}/v2/console/tournament/{id}"))
+                .delete(format!("{base}/v1/console/tournament/{id}"))
                 .bearer_auth(console)
                 .send()
                 .await
@@ -864,7 +864,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
     }
     let page = json_body(
         client
-            .get(format!("{base}/v2/tournament"))
+            .get(format!("{base}/v1/tournament"))
             .bearer_auth(&alpha.token)
             .send()
             .await
@@ -877,7 +877,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
 
     expect(
         client
-            .delete(format!("{base}/v2/console/leaderboard/{plain_id}"))
+            .delete(format!("{base}/v1/console/leaderboard/{plain_id}"))
             .bearer_auth(console)
             .send()
             .await

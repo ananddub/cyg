@@ -9,7 +9,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
     let index_name = format!("e2e-idx-{suffix}");
     let index_only_name = format!("e2e-idx-only-{suffix}");
     let window_name = format!("e2e-idx-window-{suffix}");
-    let index_url = format!("{base}/v2/storage/index");
+    let index_url = format!("{base}/v1/storage/index");
 
     let objects = [
         ("k1", json!({ "level": 12, "name": "sword", "score": 30 })),
@@ -28,7 +28,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
         .collect();
     api_put(
         client,
-        format!("{base}/v2/storage"),
+        format!("{base}/v1/storage"),
         &alice.token,
         json!({ "objects": writes }),
         "seed indexed objects",
@@ -126,7 +126,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
         .collect();
     assert!(names.contains(&index_name));
 
-    let query_url = format!("{base}/v2/storage/index/{index_name}/query");
+    let query_url = format!("{base}/v1/storage/index/{index_name}/query");
     for (body, status, what) in [
         (
             json!({ "query": "badterm" }),
@@ -292,7 +292,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
     .await;
     let projected = api_post(
         client,
-        format!("{base}/v2/storage/index/{index_only_name}/query"),
+        format!("{base}/v1/storage/index/{index_only_name}/query"),
         &alice.token,
         json!({ "query": "" }),
         "read an index-only projection",
@@ -319,7 +319,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
     .await;
     let capped = api_post(
         client,
-        format!("{base}/v2/storage/index/{window_name}/query"),
+        format!("{base}/v1/storage/index/{window_name}/query"),
         &alice.token,
         json!({ "query": "" }),
         "read a capped index",
@@ -332,7 +332,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
         .to_owned();
     let exhausted = api_post(
         client,
-        format!("{base}/v2/storage/index/{window_name}/query"),
+        format!("{base}/v1/storage/index/{window_name}/query"),
         &alice.token,
         json!({ "query": "", "cursor": cursor }),
         "read past the capped window",
@@ -342,7 +342,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
 
     refusal(
         client
-            .delete(format!("{base}/v2/storage/index/{index_name}"))
+            .delete(format!("{base}/v1/storage/index/{index_name}"))
             .bearer_auth(&bob.token)
             .send()
             .await
@@ -353,7 +353,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
     .await;
     refusal(
         client
-            .delete(format!("{base}/v2/storage/index/absent-{suffix}"))
+            .delete(format!("{base}/v1/storage/index/absent-{suffix}"))
             .bearer_auth(&alice.token)
             .send()
             .await
@@ -365,7 +365,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
     for name in [&index_name, &index_only_name, &window_name] {
         api_delete(
             client,
-            format!("{base}/v2/storage/index/{name}"),
+            format!("{base}/v1/storage/index/{name}"),
             &alice.token,
             "delete an index",
         )

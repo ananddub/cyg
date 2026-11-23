@@ -9,7 +9,6 @@ use crate::error::V2Error;
 use crate::repositories::report::{
     CreateInfractionParams, ListReportsByStatusPagedParams, ListReportsPagedParams,
 };
-use crate::services::deps::q;
 use crate::services::social::{cursor_decode, limit, ts_head};
 use crate::utils::notification::{LIMIT_RANGE, encode_cursor_at};
 
@@ -18,7 +17,7 @@ const MAX_MUTE_SECONDS: i64 = 30 * 24 * 60 * 60;
 impl ReportService {
     pub async fn list(
         &self,
-        state: &ApiState,
+
         auth: &ConsoleAuthed,
         req: ListQuery,
     ) -> Result<Json<ReportListResponse>, V2Error> {
@@ -31,7 +30,7 @@ impl ReportService {
         }
         let cursor = decode(req.cacheable_cursor.as_deref())?;
         let (create_time, id_start) = cursor.unwrap_or((ts_head(), Uuid::nil()));
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let mut rows = match req.status.as_deref() {
             Some(status) => {
                 queries
@@ -72,7 +71,7 @@ impl ReportService {
 
     pub async fn set_status(
         &self,
-        state: &ApiState,
+
         auth: &ConsoleAuthed,
         id: &str,
         req: StatusRequest,
@@ -83,7 +82,7 @@ impl ReportService {
         if !STATUSES.contains(&req.status.as_str()) {
             return Err(V2Error::invalid_argument("Invalid report status."));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let report = queries
             .update_report_status(id, &req.status)
             .await?

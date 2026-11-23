@@ -5,7 +5,7 @@ use crate::error::{DATA_LOSS, FAILED_PRECONDITION, INVALID_ARGUMENT, UNAUTHENTIC
 fn apple_and_steam_are_refused_by_the_configuration_they_lack() {
     let server = V2Server::start(v2_state());
     let key = server_key();
-    let empty = server.post("/v2/account/authenticate/apple", Some(&key), "{}");
+    let empty = server.post("/v1/account/authenticate/apple", Some(&key), "{}");
     assert_eq!(empty.status, 400);
     assert_eq!(
         empty.refusal(FAILED_PRECONDITION),
@@ -13,7 +13,7 @@ fn apple_and_steam_are_refused_by_the_configuration_they_lack() {
     );
 
     let token = server.post(
-        "/v2/account/authenticate/steam",
+        "/v1/account/authenticate/steam",
         Some(&key),
         r#"{"token":"anything"}"#,
     );
@@ -32,7 +32,7 @@ fn facebook_and_google_stop_at_the_profile_they_cannot_read() {
         ("Google", r#"{"token":""}"#),
     ] {
         let missing = server.post(
-            &format!("/v2/account/authenticate/{}", profile.to_lowercase()),
+            &format!("/v1/account/authenticate/{}", profile.to_lowercase()),
             Some(&key),
             body,
         );
@@ -43,7 +43,7 @@ fn facebook_and_google_stop_at_the_profile_they_cannot_read() {
     }
 
     let with_token = server.post(
-        "/v2/account/authenticate/facebook",
+        "/v1/account/authenticate/facebook",
         Some(&key),
         r#"{"token":"t"}"#,
     );
@@ -53,7 +53,7 @@ fn facebook_and_google_stop_at_the_profile_they_cannot_read() {
     );
 
     let hostile_username = server.post(
-        "/v2/account/authenticate/google?username=bad%5B%5Dname",
+        "/v1/account/authenticate/google?username=bad%5B%5Dname",
         Some(&key),
         r#"{"token":"t"}"#,
     );
@@ -68,7 +68,7 @@ fn an_instant_game_signature_is_data_loss_not_a_rejected_credential() {
     let server = V2Server::start(v2_state());
     let key = server_key();
     let missing = server.post(
-        "/v2/account/authenticate/facebookinstantgame",
+        "/v1/account/authenticate/facebookinstantgame",
         Some(&key),
         "{}",
     );
@@ -79,7 +79,7 @@ fn an_instant_game_signature_is_data_loss_not_a_rejected_credential() {
 
     for field in ["signed_player_info", "signedPlayerInfo"] {
         let signed = server.post(
-            "/v2/account/authenticate/facebookinstantgame",
+            "/v1/account/authenticate/facebookinstantgame",
             Some(&key),
             &format!(r#"{{"{field}":"x"}}"#),
         );

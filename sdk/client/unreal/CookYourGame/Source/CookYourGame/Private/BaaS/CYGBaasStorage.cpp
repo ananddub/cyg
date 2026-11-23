@@ -48,7 +48,7 @@ void FCYGBaasStorage::Read(const FString& Collection, const FString& Key, const 
 {
 	const TArray<TSharedRef<FJsonObject>> Ids{ MakeDocumentId(Collection, Key, OwnerOrSelf(OwnerId)) };
 
-	FCYGBaasHttp::Post(TEXT("/v2/storage"), Wrap(TEXT("object_ids"), Ids),
+	FCYGBaasHttp::Post(TEXT("/v1/storage"), Wrap(TEXT("object_ids"), Ids),
 		[Done](bool bSuccess, int32 StatusCode, const FString& Body)
 		{
 			TArray<FCYGBaasStorageObject> Objects;
@@ -82,7 +82,7 @@ void FCYGBaasStorage::Write(const FString& Collection, const FString& Key, const
 
 	const TArray<TSharedRef<FJsonObject>> Documents{ Document };
 
-	FCYGBaasHttp::Put(TEXT("/v2/storage"), Wrap(TEXT("objects"), Documents),
+	FCYGBaasHttp::Put(TEXT("/v1/storage"), Wrap(TEXT("objects"), Documents),
 		[Done](bool bSuccess, int32 StatusCode, const FString& Body)
 		{
 			if (Done)
@@ -96,7 +96,7 @@ void FCYGBaasStorage::Delete(const FString& Collection, const FString& Key, cons
 {
 	const TArray<TSharedRef<FJsonObject>> Ids{ MakeDocumentId(Collection, Key, OwnerOrSelf(FString())) };
 
-	FCYGBaasHttp::Put(TEXT("/v2/storage/delete"), Wrap(TEXT("object_ids"), Ids),
+	FCYGBaasHttp::Put(TEXT("/v1/storage/delete"), Wrap(TEXT("object_ids"), Ids),
 		[Done](bool bSuccess, int32 StatusCode, const FString& Body)
 		{
 			if (Done)
@@ -108,7 +108,7 @@ void FCYGBaasStorage::Delete(const FString& Collection, const FString& Key, cons
 
 void FCYGBaasStorage::ListCollection(const FString& Collection, const FCYGBaasObjectListResponse& Done, int32 Limit)
 {
-	const FString Path = FString::Printf(TEXT("/v2/storage/%s?limit=%d"), *UCYGSettings::EscapeSegment(Collection), FMath::Max(1, Limit));
+	const FString Path = FString::Printf(TEXT("/v1/storage/%s?limit=%d"), *UCYGSettings::EscapeSegment(Collection), FMath::Max(1, Limit));
 
 	FCYGBaasHttp::Get(Path,
 		[Done](bool bSuccess, int32 StatusCode, const FString& Body)

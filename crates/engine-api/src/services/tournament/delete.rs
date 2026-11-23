@@ -2,28 +2,21 @@ use axum::Json;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
-use crate::services::deps::q;
 use crate::utils::leaderboard::tournament_window;
 use crate::utils::tournament::types::{BAD_ID, DELETE_FAILED};
 
 impl super::TournamentService {
-    pub async fn delete_record(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-        id: &str,
-    ) -> Result<Json<Empty>, V2Error> {
+    pub async fn delete_record(&self, auth: &Authed, id: &str) -> Result<Json<Empty>, V2Error> {
         if id.is_empty() {
             return Err(V2Error::invalid_argument(BAD_ID));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let board = load(&queries, id).await?;
         if board.authoritative {
             return Err(V2Error::internal(DELETE_FAILED));

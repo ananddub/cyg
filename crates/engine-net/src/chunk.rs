@@ -227,7 +227,9 @@ impl ChunkSender {
     }
 
     pub fn missing(&self) -> usize {
-        (0..self.total).filter(|i| !Self::bit(&self.acked, *i)).count()
+        (0..self.total)
+            .filter(|i| !Self::bit(&self.acked, *i))
+            .count()
     }
 
     fn bit(bits: &[u64], index: u16) -> bool {
@@ -288,7 +290,13 @@ impl ChunkSender {
         let index = pick?;
         let begin = index as usize * self.slice_size;
         let end = (begin + self.slice_size).min(self.data.len());
-        write_slice(out, self.chunk_id, index, self.total, &self.data[begin..end]);
+        write_slice(
+            out,
+            self.chunk_id,
+            index,
+            self.total,
+            &self.data[begin..end],
+        );
         Self::set(&mut self.sent, index);
         Some(index)
     }
@@ -346,7 +354,9 @@ impl ChunkReceiver {
     }
 
     pub fn received(&self) -> usize {
-        (0..self.total).filter(|i| ChunkSender::bit(&self.received, *i)).count()
+        (0..self.total)
+            .filter(|i| ChunkSender::bit(&self.received, *i))
+            .count()
     }
 
     pub fn ack(&self) -> ChunkAck {
@@ -502,13 +512,22 @@ mod tests {
             ChunkSender::new(1, vec![0; MAX_BLOCK + 1], DEFAULT_SLICE_SIZE),
             Err(ChunkError::TooLarge { .. })
         ));
-        assert_eq!(parse_slice(&[CHUNK_SLICE_OP]).unwrap_err(), ChunkError::Truncated);
+        assert_eq!(
+            parse_slice(&[CHUNK_SLICE_OP]).unwrap_err(),
+            ChunkError::Truncated
+        );
         let mut wire = Vec::new();
         write_slice(&mut wire, 1, 4, 4, &[1]);
-        assert!(matches!(parse_slice(&wire), Err(ChunkError::BadIndex { .. })));
+        assert!(matches!(
+            parse_slice(&wire),
+            Err(ChunkError::BadIndex { .. })
+        ));
         write_slice(&mut wire, 1, 0, 4, &[1, 2]);
         wire.pop();
-        assert!(matches!(parse_slice(&wire), Err(ChunkError::BadLength { .. })));
+        assert!(matches!(
+            parse_slice(&wire),
+            Err(ChunkError::BadLength { .. })
+        ));
     }
 
     #[test]

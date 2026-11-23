@@ -1,6 +1,9 @@
 pub mod aoi;
 
-pub use aoi::{AoiViewIndex, DeltaEntity, filter_for_viewer, filter_for_viewer_indexed, parse_delta, viewer_pos_of};
+pub use aoi::{
+    AoiViewIndex, DeltaEntity, filter_for_viewer, filter_for_viewer_indexed, parse_delta,
+    viewer_pos_of,
+};
 
 mod aoi2d;
 mod aoi3d;

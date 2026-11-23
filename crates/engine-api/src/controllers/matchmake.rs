@@ -25,17 +25,6 @@ impl MatchmakeController {
         Self { service }
     }
 
-    #[post("/api/matchmake/{method}/{room}")]
-    async fn api_matchmake(
-        &self,
-        peer: ConnectInfo<SocketAddr>,
-        path: UrlPath<(String, String)>,
-        body: String,
-    ) -> Result<Response, ApiError> {
-        let state = current_state();
-        handle(&self.service, &state, peer, path, body).await
-    }
-
     #[post("/matchmake/{method}/{room}")]
     async fn matchmake(
         &self,
@@ -61,8 +50,8 @@ async fn handle(
     // Asked before the seat is minted: a room another node runs must not get a
     // second copy here, and the ticket this reply would carry is what sends the
     // client to the copy that exists.
-    handoff::guard(state, &method, &room).await?;
+    handoff::guard(&*state.plane(), &method, &room).await?;
     Ok(service
-        .reserve(state, peer.ip(), &method, &room, &body)?
+        .reserve(peer.ip(), &method, &room, &body)?
         .into_response())
 }

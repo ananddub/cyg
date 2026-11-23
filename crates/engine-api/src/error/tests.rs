@@ -89,3 +89,32 @@ async fn each_v2_kind_keeps_its_grpc_code() {
         assert_eq!(value["error"]["code"], code, "body: {value}");
     }
 }
+
+/// The two envelopes must not disagree about what a status means.
+///
+/// The legacy mapping is derived from the `/v2` kind table, so this pins the
+/// result of that derivation for every status the legacy routes can produce.
+#[tokio::test]
+async fn the_legacy_envelope_uses_the_canonical_code_for_every_status() {
+    for (status, code, label) in [
+        (StatusCode::BAD_REQUEST, 3, "INVALID_ARGUMENT"),
+        (StatusCode::UNAUTHORIZED, 16, "UNAUTHENTICATED"),
+        (StatusCode::FORBIDDEN, 7, "PERMISSION_DENIED"),
+        (StatusCode::NOT_FOUND, 5, "NOT_FOUND"),
+        (StatusCode::CONFLICT, 6, "ALREADY_EXISTS"),
+        (StatusCode::TOO_MANY_REQUESTS, 8, "RESOURCE_EXHAUSTED"),
+        (StatusCode::NOT_IMPLEMENTED, 12, "UNIMPLEMENTED"),
+        (StatusCode::SERVICE_UNAVAILABLE, 14, "UNAVAILABLE"),
+        (StatusCode::INTERNAL_SERVER_ERROR, 13, "INTERNAL"),
+        // Anything the table does not name is an internal failure.
+        (StatusCode::IM_A_TEAPOT, 13, "INTERNAL"),
+    ] {
+        let (_, body, _) = body_of(ApiError::new(status, "probe")).await;
+        let parsed: serde_json::Value = serde_json::from_str(&body).expect("error body is JSON");
+        assert_eq!(
+            parsed["error"]["code"].as_u64(),
+            Some(code as u64),
+            "{status} should read as {label} in both envelopes"
+        );
+    }
+}

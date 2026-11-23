@@ -9,7 +9,7 @@
 //! Version the ABI: `cyg_abi_version()` lets bindings assert they were built
 //! against the same core.
 
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 
 use crate::ClientCore;
 use crate::state::Value;
@@ -95,7 +95,10 @@ pub unsafe extern "C" fn cyg_get_f64(handle: u32, entity_id: u32, field: *const 
         let state = core.state();
         let coll = state.collections.first()?;
         let entity = coll.entities.get(&entity_id)?;
-        let index = core.descriptor.schemas.iter()
+        let index = core
+            .descriptor
+            .schemas
+            .iter()
             .find(|s| engine_schema::wire_hash(s) == coll.schema_hash)
             .map(|s| s.fields.iter().position(|f| f.name == name))
             .flatten()?;
@@ -108,7 +111,6 @@ pub unsafe extern "C" fn cyg_get_f64(handle: u32, entity_id: u32, field: *const 
     .and_then(|r| r)
     .unwrap_or(f64::NAN)
 }
-
 
 /// f64 view of one entity field by schema-field INDEX (NaN = absent).
 #[unsafe(no_mangle)]
@@ -207,36 +209,48 @@ pub extern "C" fn cyg_encode_schema_input(
     }
     let raw = unsafe { std::slice::from_raw_parts(values, values_len) };
     with_core(handle, |core| {
-        let input_schema = core.descriptor.schemas.iter()
+        let input_schema = core
+            .descriptor
+            .schemas
+            .iter()
             .find(|s| s.name == engine_schema::INPUT_SCHEMA_NAME)
             .cloned();
-        let Some(input_schema) = input_schema else { return -1 };
+        let Some(input_schema) = input_schema else {
+            return -1;
+        };
         if values_len != input_schema.fields.len() {
             return -1;
         }
-        let mapped: Vec<crate::input::InputValue> = input_schema.fields.iter().zip(raw).map(|(field, v)| {
-            use engine_schema::WireKind as K;
-            match field.kind {
-                K::Bool => crate::input::InputValue::Bool(*v != 0),
-                K::U8 => crate::input::InputValue::U8(*v as u8),
-                K::I8 => crate::input::InputValue::I8(*v as i8),
-                K::U16 => crate::input::InputValue::U16(*v as u16),
-                K::I16 => crate::input::InputValue::I16(*v as i16),
-                K::U32 => crate::input::InputValue::U32(*v as u32),
-                K::I32 => crate::input::InputValue::I32(*v as i32),
-                K::I64 => crate::input::InputValue::I64(*v),
-                K::F32 => crate::input::InputValue::F32(f32::from_bits(*v as u32)),
-                K::F64 => crate::input::InputValue::F64(f64::from_bits(*v as u64)),
-                _ => crate::input::InputValue::U8(0),
-            }
-        }).collect();
+        let mapped: Vec<crate::input::InputValue> = input_schema
+            .fields
+            .iter()
+            .zip(raw)
+            .map(|(field, v)| {
+                use engine_schema::WireKind as K;
+                match field.kind {
+                    K::Bool => crate::input::InputValue::Bool(*v != 0),
+                    K::U8 => crate::input::InputValue::U8(*v as u8),
+                    K::I8 => crate::input::InputValue::I8(*v as i8),
+                    K::U16 => crate::input::InputValue::U16(*v as u16),
+                    K::I16 => crate::input::InputValue::I16(*v as i16),
+                    K::U32 => crate::input::InputValue::U32(*v as u32),
+                    K::I32 => crate::input::InputValue::I32(*v as i32),
+                    K::I64 => crate::input::InputValue::I64(*v),
+                    K::F32 => crate::input::InputValue::F32(f32::from_bits(*v as u32)),
+                    K::F64 => crate::input::InputValue::F64(f64::from_bits(*v as u64)),
+                    _ => crate::input::InputValue::U8(0),
+                }
+            })
+            .collect();
         match crate::input::pack_schema_input(seq, &mapped, &input_schema.fields) {
             Ok(wire) => {
                 if wire.len() > out_cap {
                     return -2;
                 }
                 unsafe { std::ptr::copy_nonoverlapping(wire.as_ptr(), out, wire.len()) };
-                unsafe { *out_len = wire.len(); }
+                unsafe {
+                    *out_len = wire.len();
+                }
                 0
             }
             Err(_) => -1,
@@ -244,7 +258,6 @@ pub extern "C" fn cyg_encode_schema_input(
     })
     .unwrap_or(-1)
 }
-
 
 /// Entity id at logical position `pos` (iteration order = ascending id).
 #[unsafe(no_mangle)]
@@ -270,7 +283,9 @@ pub extern "C" fn cyg_field_index(handle: u32, field: *const u8, field_len: usiz
     with_core(handle, |core| {
         let state = core.state();
         let coll = state.collections.first()?;
-        core.descriptor.schemas.iter()
+        core.descriptor
+            .schemas
+            .iter()
             .find(|s| engine_schema::wire_hash(s) == coll.schema_hash)
             .and_then(|s| s.fields.iter().position(|f| f.name.as_bytes() == name))
             .map(|i| i as i32)
@@ -279,12 +294,13 @@ pub extern "C" fn cyg_field_index(handle: u32, field: *const u8, field_len: usiz
     .unwrap_or(-1)
 }
 
-
 /// Entity count in the primary collection.
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_entity_count(handle: u32) -> u32 {
     with_core(handle, |core| {
-        core.state().collections.first()
+        core.state()
+            .collections
+            .first()
             .map(|c| c.entities.len() as u32)
             .unwrap_or(0)
     })
@@ -323,10 +339,15 @@ pub extern "C" fn cyg_schema_count(handle: u32) -> u32 {
 /// Schema name (writes into `out`, returns full length, -1 = bad handle/index).
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_schema_name(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+    if out.is_null() {
+        return -1;
+    }
     with_core(handle, |core| {
-        core.schema_at(index as usize).map(|s| write_str(out, cap, &s.name))
-    }).and_then(|r| r).unwrap_or(-1)
+        core.schema_at(index as usize)
+            .map(|s| write_str(out, cap, &s.name))
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Schema wire hash (same algorithm the sections carry).
@@ -334,7 +355,9 @@ pub extern "C" fn cyg_schema_name(handle: u32, index: u32, out: *mut u8, cap: us
 pub extern "C" fn cyg_schema_hash(handle: u32, index: u32) -> u32 {
     with_core(handle, |core| {
         core.schema_at(index as usize).map(engine_schema::wire_hash)
-    }).and_then(|r| r).unwrap_or(0)
+    })
+    .and_then(|r| r)
+    .unwrap_or(0)
 }
 
 /// Schema version.
@@ -342,40 +365,65 @@ pub extern "C" fn cyg_schema_hash(handle: u32, index: u32) -> u32 {
 pub extern "C" fn cyg_schema_version(handle: u32, index: u32) -> u32 {
     with_core(handle, |core| {
         core.schema_at(index as usize).map(|s| s.version)
-    }).and_then(|r| r).unwrap_or(0)
+    })
+    .and_then(|r| r)
+    .unwrap_or(0)
 }
 
 /// Field count of one schema.
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_schema_field_count(handle: u32, index: u32) -> u32 {
     with_core(handle, |core| {
-        core.schema_at(index as usize).map(|s| s.fields.len() as u32)
-    }).and_then(|r| r).unwrap_or(0)
+        core.schema_at(index as usize)
+            .map(|s| s.fields.len() as u32)
+    })
+    .and_then(|r| r)
+    .unwrap_or(0)
 }
 
 /// Field name of one schema field.
 #[unsafe(no_mangle)]
-pub extern "C" fn cyg_schema_field_name(handle: u32, index: u32, field: u32, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+pub extern "C" fn cyg_schema_field_name(
+    handle: u32,
+    index: u32,
+    field: u32,
+    out: *mut u8,
+    cap: usize,
+) -> i32 {
+    if out.is_null() {
+        return -1;
+    }
     with_core(handle, |core| {
         core.schema_at(index as usize)
             .and_then(|s| s.fields.get(field as usize))
             .map(|f| write_str(out, cap, &f.name))
-    }).and_then(|r| r).unwrap_or(-1)
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Flattened nested path of one schema field (`stats` for `stats__kills`),
 /// or -1 when the field is not nested. The value is a display-only grouping
 /// hint: the wire still carries the flattened scalar.
 #[unsafe(no_mangle)]
-pub extern "C" fn cyg_schema_field_nested(handle: u32, index: u32, field: u32, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+pub extern "C" fn cyg_schema_field_nested(
+    handle: u32,
+    index: u32,
+    field: u32,
+    out: *mut u8,
+    cap: usize,
+) -> i32 {
+    if out.is_null() {
+        return -1;
+    }
     with_core(handle, |core| {
         core.schema_at(index as usize)
             .and_then(|s| s.fields.get(field as usize))
             .and_then(|f| f.nested_path.as_deref())
             .map(|path| write_str(out, cap, path))
-    }).and_then(|r| r).unwrap_or(-1)
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Field kind (`engine_schema::WireKind` discriminant: 0=u8, 1=i8, 2=u16,
@@ -386,7 +434,9 @@ pub extern "C" fn cyg_schema_field_kind(handle: u32, index: u32, field: u32) -> 
         core.schema_at(index as usize)
             .and_then(|s| s.fields.get(field as usize))
             .map(|f| f.kind as u32 as i32)
-    }).and_then(|r| r).unwrap_or(-1)
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Field flags (bit 1 = optional, 2 = static, 4 = transient).
@@ -396,7 +446,9 @@ pub extern "C" fn cyg_schema_field_flags(handle: u32, index: u32, field: u32) ->
         core.schema_at(index as usize)
             .and_then(|s| s.fields.get(field as usize))
             .map(|f| f.flags as i32)
-    }).and_then(|r| r).unwrap_or(-1)
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Array element kind (0 = not an array).
@@ -406,7 +458,9 @@ pub extern "C" fn cyg_schema_field_element_kind(handle: u32, index: u32, field: 
         core.schema_at(index as usize)
             .and_then(|s| s.fields.get(field as usize))
             .map(|f| f.element.map(|e| e as u32 as i32).unwrap_or(0))
-    }).and_then(|r| r).unwrap_or(-1)
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Number of nested-array collections lowered from `t.array(Item)`.
@@ -415,16 +469,27 @@ pub extern "C" fn cyg_nested_count(handle: u32) -> u32 {
     with_core(handle, |core| core.descriptor().root.nested.len() as u32).unwrap_or(0)
 }
 
-fn nested_part(handle: u32, index: u32, part: fn(&engine_schema::NestedCollection) -> &str) -> Option<String> {
+fn nested_part(
+    handle: u32,
+    index: u32,
+    part: fn(&engine_schema::NestedCollection) -> &str,
+) -> Option<String> {
     with_core(handle, |core| {
-        core.descriptor().root.nested.get(index as usize).map(|n| part(n).to_string())
-    }).flatten()
+        core.descriptor()
+            .root
+            .nested
+            .get(index as usize)
+            .map(|n| part(n).to_string())
+    })
+    .flatten()
 }
 
 /// Child collection name of nested entry `index`.
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_nested_collection(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+    if out.is_null() {
+        return -1;
+    }
     match nested_part(handle, index, |n| &n.collection) {
         Some(value) => write_str(out, cap, &value),
         None => -1,
@@ -434,7 +499,9 @@ pub extern "C" fn cyg_nested_collection(handle: u32, index: u32, out: *mut u8, c
 /// Parent collection name of nested entry `index`.
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_nested_parent(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+    if out.is_null() {
+        return -1;
+    }
     match nested_part(handle, index, |n| &n.parent) {
         Some(value) => write_str(out, cap, &value),
         None => -1,
@@ -444,7 +511,9 @@ pub extern "C" fn cyg_nested_parent(handle: u32, index: u32, out: *mut u8, cap: 
 /// Field name on the parent entity (`items` for `parent.items`).
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_nested_field(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+    if out.is_null() {
+        return -1;
+    }
     match nested_part(handle, index, |n| &n.field) {
         Some(value) => write_str(out, cap, &value),
         None => -1,
@@ -462,24 +531,34 @@ pub extern "C" fn cyg_collection_count(handle: u32) -> u32 {
 pub extern "C" fn cyg_collection_schema_hash(handle: u32, index: u32) -> u32 {
     with_core(handle, |core| {
         core.collection_at(index as usize).map(|c| c.schema_hash)
-    }).and_then(|r| r).unwrap_or(0)
+    })
+    .and_then(|r| r)
+    .unwrap_or(0)
 }
 
 /// Collection name by position.
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_collection_name(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+    if out.is_null() {
+        return -1;
+    }
     with_core(handle, |core| {
-        core.collection_at(index as usize).map(|c| write_str(out, cap, &c.name))
-    }).and_then(|r| r).unwrap_or(-1)
+        core.collection_at(index as usize)
+            .map(|c| write_str(out, cap, &c.name))
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Entity count in collection `ci`.
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_entity_count_in(handle: u32, ci: u32) -> u32 {
     with_core(handle, |core| {
-        core.collection_at(ci as usize).map(|c| c.entities.len() as u32)
-    }).and_then(|r| r).unwrap_or(0)
+        core.collection_at(ci as usize)
+            .map(|c| c.entities.len() as u32)
+    })
+    .and_then(|r| r)
+    .unwrap_or(0)
 }
 
 /// Entity id at position `pos` in collection `ci` (u32::MAX = out of range).
@@ -488,7 +567,9 @@ pub extern "C" fn cyg_entity_id_at_in(handle: u32, ci: u32, pos: u32) -> u32 {
     with_core(handle, |core| {
         core.collection_at(ci as usize)
             .and_then(|c| c.entities.keys().nth(pos as usize).copied())
-    }).and_then(|r| r).unwrap_or(u32::MAX)
+    })
+    .and_then(|r| r)
+    .unwrap_or(u32::MAX)
 }
 
 /// i64 field of one entity (0 when absent/not i64).
@@ -509,8 +590,10 @@ pub extern "C" fn cyg_get_i64_by_index(handle: u32, entity_id: u32, index: usize
 pub extern "C" fn cyg_get_f64_in(handle: u32, ci: u32, entity_id: u32, index: usize) -> f64 {
     with_core(handle, |core| {
         core.collection_at(ci as usize)?
-            .entities.get(&entity_id)?
-            .values.get(index)
+            .entities
+            .get(&entity_id)?
+            .values
+            .get(index)
             .and_then(|v| v.get_f64())
     })
     .and_then(|r| r)
@@ -519,12 +602,23 @@ pub extern "C" fn cyg_get_f64_in(handle: u32, ci: u32, entity_id: u32, index: us
 
 /// String read of one entity field, in collection `ci` (-1 = absent).
 #[unsafe(no_mangle)]
-pub extern "C" fn cyg_get_string_in(handle: u32, ci: u32, entity_id: u32, index: usize, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+pub extern "C" fn cyg_get_string_in(
+    handle: u32,
+    ci: u32,
+    entity_id: u32,
+    index: usize,
+    out: *mut u8,
+    cap: usize,
+) -> i32 {
+    if out.is_null() {
+        return -1;
+    }
     with_core(handle, |core| {
         core.collection_at(ci as usize)?
-            .entities.get(&entity_id)?
-            .values.get(index)
+            .entities
+            .get(&entity_id)?
+            .values
+            .get(index)
             .and_then(|v| v.get_str())
             .map(|s| write_str(out, cap, s))
     })
@@ -537,8 +631,10 @@ pub extern "C" fn cyg_get_string_in(handle: u32, ci: u32, entity_id: u32, index:
 pub extern "C" fn cyg_get_bool_in(handle: u32, ci: u32, entity_id: u32, index: usize) -> i32 {
     with_core(handle, |core| {
         core.collection_at(ci as usize)?
-            .entities.get(&entity_id)?
-            .values.get(index)
+            .entities
+            .get(&entity_id)?
+            .values
+            .get(index)
             .and_then(|v| v.get_bool())
             .map(|b| if b { 1 } else { 0 })
     })
@@ -553,41 +649,61 @@ pub extern "C" fn cyg_get_bool_in(handle: u32, ci: u32, entity_id: u32, index: u
 pub extern "C" fn cyg_root_field_count(handle: u32) -> u32 {
     with_core(handle, |core| {
         Some(core.descriptor().root.scalars.len() as u32)
-    }).and_then(|r| r).unwrap_or(0)
+    })
+    .and_then(|r| r)
+    .unwrap_or(0)
 }
 
 /// Root scalar field name.
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_root_field_name(handle: u32, index: u32, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+    if out.is_null() {
+        return -1;
+    }
     with_core(handle, |core| {
-        core.descriptor().root.scalars.get(index as usize)
+        core.descriptor()
+            .root
+            .scalars
+            .get(index as usize)
             .map(|f| write_str(out, cap, &f.name))
-    }).and_then(|r| r).unwrap_or(-1)
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Root scalar field kind (`WireKind` discriminant).
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_root_field_kind(handle: u32, index: u32) -> i32 {
     with_core(handle, |core| {
-        core.descriptor().root.scalars.get(index as usize)
+        core.descriptor()
+            .root
+            .scalars
+            .get(index as usize)
             .map(|f| f.kind as u32 as i32)
-    }).and_then(|r| r).unwrap_or(-1)
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Root scalar schema name.
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_root_schema_name(handle: u32, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
-    with_core(handle, |core| Some(write_str(out, cap, &core.descriptor().root.name)))
-    .and_then(|r| r).unwrap_or(-1)
+    if out.is_null() {
+        return -1;
+    }
+    with_core(handle, |core| {
+        Some(write_str(out, cap, &core.descriptor().root.name))
+    })
+    .and_then(|r| r)
+    .unwrap_or(-1)
 }
 
 /// Root scalar schema version.
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_root_schema_version(handle: u32) -> u32 {
     with_core(handle, |core| Some(core.descriptor().root.version))
-    .and_then(|r| r).unwrap_or(0)
+        .and_then(|r| r)
+        .unwrap_or(0)
 }
 
 /// f64 read of one root scalar (NaN = absent / not numeric).
@@ -603,9 +719,12 @@ pub extern "C" fn cyg_get_root_f64(handle: u32, index: usize) -> f64 {
 /// String read of one root scalar (-1 = absent).
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_get_root_string(handle: u32, index: usize, out: *mut u8, cap: usize) -> i32 {
-    if out.is_null() { return -1; }
+    if out.is_null() {
+        return -1;
+    }
     with_core(handle, |core| {
-        core.state().root_value(index)
+        core.state()
+            .root_value(index)
             .and_then(|v| v.get_str())
             .map(|s| write_str(out, cap, s))
     })
@@ -617,7 +736,9 @@ pub extern "C" fn cyg_get_root_string(handle: u32, index: usize, out: *mut u8, c
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_get_root_bool(handle: u32, index: usize) -> i32 {
     with_core(handle, |core| {
-        core.state().root_value(index).and_then(|v| v.get_bool())
+        core.state()
+            .root_value(index)
+            .and_then(|v| v.get_bool())
             .map(|b| if b { 1 } else { 0 })
     })
     .and_then(|r| r)
@@ -630,23 +751,39 @@ mod tests {
 
     #[test]
     fn create_apply_read_roundtrip() {
-        use engine_schema::{emit_descriptor, SchemaDef, SchemaField, RootState, RootCollection, WireKind};
+        use engine_schema::{
+            RootCollection, RootState, SchemaDef, SchemaField, WireKind, emit_descriptor,
+        };
         let player = SchemaDef {
             nested_arrays: Vec::new(),
             name: "Player".into(),
             version: 1,
             fields: vec![
                 SchemaField {
-                    name: "x".into(), kind: WireKind::F64, element: None,
-                    ref_target: None, flags: 0, source_type: String::new(),
-                    default: None, encoding: engine_schema::default_encoding(WireKind::F64),
-                    nested_path: None, line: 0, column: 0,
+                    name: "x".into(),
+                    kind: WireKind::F64,
+                    element: None,
+                    ref_target: None,
+                    flags: 0,
+                    source_type: String::new(),
+                    default: None,
+                    encoding: engine_schema::default_encoding(WireKind::F64),
+                    nested_path: None,
+                    line: 0,
+                    column: 0,
                 },
                 SchemaField {
-                    name: "y".into(), kind: WireKind::F64, element: None,
-                    ref_target: None, flags: 0, source_type: String::new(),
-                    default: None, encoding: engine_schema::default_encoding(WireKind::F64),
-                    nested_path: None, line: 0, column: 0,
+                    name: "y".into(),
+                    kind: WireKind::F64,
+                    element: None,
+                    ref_target: None,
+                    flags: 0,
+                    source_type: String::new(),
+                    default: None,
+                    encoding: engine_schema::default_encoding(WireKind::F64),
+                    nested_path: None,
+                    line: 0,
+                    column: 0,
                 },
             ],
             line: 0,
@@ -657,7 +794,10 @@ mod tests {
             name: "BenchState".into(),
             version: 1,
             scalars: vec![],
-            collections: vec![RootCollection { name: "players".into(), schema: "Player".into() }],
+            collections: vec![RootCollection {
+                name: "players".into(),
+                schema: "Player".into(),
+            }],
         };
         let packed = engine_webrtc_protocol::packed::PackedSchema::from_def(&player);
         let descriptor = emit_descriptor(&[player], Some(&root));
@@ -712,9 +852,16 @@ impl PredSlots {
     }
 }
 
-fn with_pred<R>(pred_handle: u32, f: impl FnOnce(&mut crate::predict::Predictor) -> R) -> Option<R> {
+fn with_pred<R>(
+    pred_handle: u32,
+    f: impl FnOnce(&mut crate::predict::Predictor) -> R,
+) -> Option<R> {
     let mut slots = PredSlots::get().lock().unwrap();
-    slots.preds.get_mut(pred_handle as usize - 1)?.as_mut().map(f)
+    slots
+        .preds
+        .get_mut(pred_handle as usize - 1)?
+        .as_mut()
+        .map(f)
 }
 
 fn with_pred_and_core<R>(
@@ -733,12 +880,16 @@ fn with_pred_and_core<R>(
 /// Returns a predictor handle (0 = bad core handle / slot).
 #[unsafe(no_mangle)]
 pub extern "C" fn cyg_pred_create(core_handle: u32, collection_slot: u32) -> u32 {
-    let ok = with_core(core_handle, |core| collection_slot < core.collection_count() as u32);
+    let ok = with_core(core_handle, |core| {
+        collection_slot < core.collection_count() as u32
+    });
     if !ok.unwrap_or(false) {
         return 0;
     }
     let mut slots = PredSlots::get().lock().unwrap();
-    slots.preds.push(Some(crate::predict::Predictor::new(collection_slot as usize)));
+    slots.preds.push(Some(crate::predict::Predictor::new(
+        collection_slot as usize,
+    )));
     slots.preds.len() as u32
 }
 
@@ -795,7 +946,12 @@ pub unsafe extern "C" fn cyg_pred_predict(
 /// Record the entity's CURRENT values as the predicted state for `seq`
 /// (after a live predict-apply or a replayed apply). 0 = ok, -1 = error.
 #[unsafe(no_mangle)]
-pub extern "C" fn cyg_pred_record(pred_handle: u32, core_handle: u32, entity_id: u32, seq: u16) -> i32 {
+pub extern "C" fn cyg_pred_record(
+    pred_handle: u32,
+    core_handle: u32,
+    entity_id: u32,
+    seq: u16,
+) -> i32 {
     with_pred_and_core(pred_handle, core_handle, |pred, core| {
         let state = core.state();
         pred.record_history(state, entity_id, seq).is_ok()
@@ -975,8 +1131,10 @@ pub unsafe extern "C" fn cyg_interp_sample(
         return 0;
     }
     let mut values: Vec<f32> = Vec::new();
-    let sampled = with_core(core_handle, |core| core.sample_render(entity_id, &mut values))
-        .unwrap_or(false);
+    let sampled = with_core(core_handle, |core| {
+        core.sample_render(entity_id, &mut values)
+    })
+    .unwrap_or(false);
     if !sampled {
         return 0;
     }
@@ -1022,7 +1180,9 @@ pub unsafe extern "C" fn cyg_interp_stats(core_handle: u32, out: *mut f64) -> us
 #[cfg(test)]
 mod pred_tests {
     use super::*;
-    use engine_schema::{emit_descriptor, RootCollection, RootState, SchemaDef, SchemaField, WireKind};
+    use engine_schema::{
+        RootCollection, RootState, SchemaDef, SchemaField, WireKind, emit_descriptor,
+    };
 
     /// Player schema [name Str, x F64, y F64, alive Bool]; input schema
     /// [dir I32, speed F64] — the loop drives prediction purely over the ABI.
@@ -1046,14 +1206,18 @@ mod pred_tests {
             name: "Input".into(),
             version: 1,
             fields: vec![f("dir", WireKind::I32), f("speed", WireKind::F64)],
-            line: 0, column: 0,
+            line: 0,
+            column: 0,
         };
         let root = RootState {
             nested: Vec::new(),
             name: "Arena".into(),
             version: 1,
             scalars: vec![],
-            collections: vec![RootCollection { name: "players".into(), schema: "Player".into() }],
+            collections: vec![RootCollection {
+                name: "players".into(),
+                schema: "Player".into(),
+            }],
         };
         emit_descriptor(&[player, input], Some(&root))
     }
@@ -1076,8 +1240,14 @@ mod pred_tests {
             nested_arrays: Vec::new(),
             name: "Player".into(),
             version: 1,
-            fields: vec![f("name", WireKind::String), f("x", WireKind::F64), f("y", WireKind::F64), f("alive", WireKind::Bool)],
-            line: 0, column: 0,
+            fields: vec![
+                f("name", WireKind::String),
+                f("x", WireKind::F64),
+                f("y", WireKind::F64),
+                f("alive", WireKind::Bool),
+            ],
+            line: 0,
+            column: 0,
         }
     }
 
@@ -1157,9 +1327,20 @@ mod pred_tests {
         // sanity: the same raw-i64s encode cleanly onto the input wire
         let mut out = [0u8; 64];
         let mut out_len = 0usize;
-        assert_eq!(unsafe {
-            cyg_encode_schema_input(handle, 1, values.as_ptr(), 2, out.as_mut_ptr(), out.len(), &mut out_len)
-        }, 0);
+        assert_eq!(
+            unsafe {
+                cyg_encode_schema_input(
+                    handle,
+                    1,
+                    values.as_ptr(),
+                    2,
+                    out.as_mut_ptr(),
+                    out.len(),
+                    &mut out_len,
+                )
+            },
+            0
+        );
         // the game would now apply dir*speed to its local entity (native
         // code the core can't see) and record the post-apply values; this
         // test records the pre-apply state (x = 100), so the reconcile
@@ -1185,7 +1366,10 @@ mod pred_tests {
         let mut vals = [0i64; 4];
         let mut n = 0usize;
         // pending is empty now → -1
-        assert_eq!(unsafe { cyg_pred_pop_input(pred, 0, vals.as_mut_ptr(), 4, &mut n) }, -1);
+        assert_eq!(
+            unsafe { cyg_pred_pop_input(pred, 0, vals.as_mut_ptr(), 4, &mut n) },
+            -1
+        );
 
         cyg_pred_free(pred);
         assert_eq!(cyg_pred_pending_count(pred), 0);

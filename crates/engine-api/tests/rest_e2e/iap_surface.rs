@@ -4,7 +4,7 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
     eprintln!("e2e: iap");
     let alice = device_player(client, base, "iap-a").await;
     let suffix = letters_suffix();
-    let iap = format!("{base}/v2/iap");
+    let iap = format!("{base}/v1/iap");
 
     refusal(
         client

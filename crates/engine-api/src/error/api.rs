@@ -11,18 +11,32 @@ pub struct ApiError {
     pub retry_after: Option<u32>,
 }
 
+/// The canonical code for a status.
+///
+/// The legacy envelope and the `/v2` envelope must agree on what a status
+/// means, so this asks the `/v2` table instead of keeping a second copy of the
+/// mapping. Only kinds that own a status arm are consulted: kinds that reach 500
+/// merely as the table's fallback would otherwise make a 500 read as
+/// `DEADLINE_EXCEEDED`. Anything the table does not name is `INTERNAL`.
 fn grpc_code(status: StatusCode) -> u8 {
-    match status {
-        StatusCode::BAD_REQUEST => 3,
-        StatusCode::UNAUTHORIZED => 16,
-        StatusCode::FORBIDDEN => 7,
-        StatusCode::NOT_FOUND => 5,
-        StatusCode::CONFLICT => 6,
-        StatusCode::TOO_MANY_REQUESTS => 8,
-        StatusCode::SERVICE_UNAVAILABLE => 14,
-        StatusCode::NOT_IMPLEMENTED => 12,
-        _ => 13,
-    }
+    use super::v2::{
+        ALREADY_EXISTS, INTERNAL, INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED,
+        RESOURCE_EXHAUSTED, UNAUTHENTICATED, UNAVAILABLE, UNIMPLEMENTED,
+    };
+    [
+        INVALID_ARGUMENT,
+        UNAUTHENTICATED,
+        PERMISSION_DENIED,
+        NOT_FOUND,
+        ALREADY_EXISTS,
+        RESOURCE_EXHAUSTED,
+        UNIMPLEMENTED,
+        UNAVAILABLE,
+    ]
+    .into_iter()
+    .find(|kind| kind.status() == status)
+    .map(|kind| kind.code())
+    .unwrap_or(INTERNAL.code())
 }
 
 #[derive(Serialize)]

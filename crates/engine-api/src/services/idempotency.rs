@@ -1,4 +1,7 @@
+use crate::services::plane::Plane;
+
 use std::sync::Arc;
+
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use axum::http::HeaderMap;
@@ -6,18 +9,64 @@ use chrono::{Duration, Utc};
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::error::V2Error;
 use crate::infra::liveops;
 use crate::repositories::db::Queries;
 use crate::repositories::idempotency::ClaimOutcome;
 use crate::repositories::models::IdempotencyKey;
-use crate::services::deps::q;
 
 pub(crate) enum Begin {
     Bypass,
     Ticket(Ticket),
-    Replay(serde_json::Value),
+    Replay(Stored),
+}
+
+/// A reply that was already produced for this key. The status travels with the
+/// reply so a replayed failure is a failure, not a 200 carrying an error object,
+/// and the body is kept as the exact bytes the handler wrote so a replay is
+/// byte-identical instead of a re-serialisation.
+pub(crate) struct Stored {
+    pub status: u16,
+    pub raw: String,
+}
+
+/// Marker that separates the stored envelope from a handler that legitimately
+/// returns an object with `status` and `body` keys.
+const ENVELOPE: &str = "__idempotency";
+
+impl Stored {
+    pub(crate) fn encode(&self) -> serde_json::Value {
+        serde_json::json!({
+            ENVELOPE: 1,
+            "status": self.status,
+            "raw": self.raw,
+        })
+    }
+
+    fn decode(value: serde_json::Value) -> Stored {
+        let marked = value
+            .as_object()
+            .is_some_and(|map| map.get(ENVELOPE).is_some());
+        if !marked {
+            // Rows written before the envelope existed carry a bare body.
+            return Stored {
+                status: 200,
+                raw: value.to_string(),
+            };
+        }
+        Stored {
+            status: value
+                .get("status")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|status| u16::try_from(status).ok())
+                .unwrap_or(200),
+            raw: value
+                .get("raw")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        }
+    }
 }
 
 pub(crate) struct Ticket {
@@ -26,9 +75,12 @@ pub(crate) struct Ticket {
 }
 
 impl Begin {
-    pub(crate) fn replayed(&mut self) -> Option<serde_json::Value> {
+    pub(crate) fn replayed(&mut self) -> Option<Stored> {
         match self {
-            Begin::Replay(value) => Some(std::mem::take(value)),
+            Begin::Replay(stored) => Some(Stored {
+                status: stored.status,
+                raw: std::mem::take(&mut stored.raw),
+            }),
             _ => None,
         }
     }
@@ -43,10 +95,10 @@ impl Begin {
         }
     }
 
-    pub(crate) async fn settle(self, outcome: Option<serde_json::Value>) {
+    pub(crate) async fn settle(self, outcome: Option<Stored>) {
         if let Begin::Ticket(ticket) = self {
             match outcome {
-                Some(value) => ticket.complete(&value).await,
+                Some(stored) => ticket.complete(&stored).await,
                 None => ticket.fail().await,
             }
         }
@@ -60,8 +112,12 @@ impl Ticket {
         Uuid::from_bytes(bytes)
     }
 
-    async fn complete(&self, response: &serde_json::Value) {
-        if let Err(err) = self.queries.complete_idempotency(&self.id, response).await {
+    async fn complete(&self, stored: &Stored) {
+        if let Err(err) = self
+            .queries
+            .complete_idempotency(&self.id, &stored.encode())
+            .await
+        {
             tracing::error!(
                 "[idempotency] cannot store the response for {}: {err}",
                 self.id
@@ -86,7 +142,7 @@ pub(crate) fn request_hash(parts: &[&str]) -> String {
 }
 
 pub(crate) async fn begin(
-    state: &ApiState,
+    plane: &Plane,
     headers: &HeaderMap,
     scope: &str,
     actor: &str,
@@ -95,7 +151,7 @@ pub(crate) async fn begin(
     let Some(key) = supplied_key(headers)? else {
         return Ok(Begin::Bypass);
     };
-    let queries = q(state).await?;
+    let queries = plane.q().await?;
     let id = request_hash(&[actor, scope, &key]);
     let now = Utc::now();
     let row = IdempotencyKey {
@@ -119,7 +175,7 @@ pub(crate) async fn begin(
                     "This Idempotency-Key was already used for a different request.",
                 ));
             }
-            Ok(Begin::Replay(stored.response))
+            Ok(Begin::Replay(Stored::decode(stored.response)))
         }
         ClaimOutcome::Replay(_) => Err(V2Error::already_exists(
             "A request with this Idempotency-Key is still being processed.",

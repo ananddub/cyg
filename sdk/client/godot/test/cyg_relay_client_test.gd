@@ -617,11 +617,11 @@ func test_api_surface() -> void:
 	var api := CYGApi.new("wss://example.com:8443/api/", "secret")
 	check("api http base", api.http_base() == "https://example.com:8443/api")
 	check("api ws base", api.ws_base() == "wss://example.com:8443/api")
-	check("api build url", api.build_url("/v2/storage/save", {
+	check("api build url", api.build_url("/v1/storage/save", {
 		"limit": 10, "ids": ["a", "b"], "skip": null, "live": true,
-	}) == "https://example.com:8443/api/v2/storage/save?ids=a&ids=b&limit=10&live=true")
-	check("api route url", api.build_url("/v2/leaderboard/wins/owner/u1", {"limit": 3})
-		== "https://example.com:8443/api/v2/leaderboard/wins/owner/u1?limit=3")
+	}) == "https://example.com:8443/api/v1/storage/save?ids=a&ids=b&limit=10&live=true")
+	check("api route url", api.build_url("/v1/leaderboard/wins/owner/u1", {"limit": 3})
+		== "https://example.com:8443/api/v1/leaderboard/wins/owner/u1?limit=3")
 	check("api encodes segments", api._segment("a/b c") == "a%2Fb%20c")
 	check("api signal url", api.signal_url("s 1") == "wss://example.com:8443/api/ws/signal?seat=s%201")
 	check("api signal url bare", api.signal_url() == "wss://example.com:8443/api/ws/signal")

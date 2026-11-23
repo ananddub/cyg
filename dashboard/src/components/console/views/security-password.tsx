@@ -1,4 +1,4 @@
-// `POST /v2/console/password_change` — the signed-in operator's own credential.
+// `POST /v1/console/password_change` — the signed-in operator's own credential.
 // The current password is verified first, so a console token that fell into the
 // wrong hands cannot silently lock its owner out. The bootstrap account has no
 // stored credential to check, so the server refuses it — that refusal is shown

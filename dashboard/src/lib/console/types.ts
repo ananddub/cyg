@@ -108,14 +108,14 @@ export interface ConsoleGroupMember {
   edge_update_time: string | null;
 }
 
-/** `GET /v2/console/group/{id}/export` — one group whole: its row and its members.
+/** `GET /v1/console/group/{id}/export` — one group whole: its row and its members.
  * A download document, so the field names match what the server sends. */
 export interface ConsoleGroupExport {
   group: ConsoleGroup;
   members: ConsoleGroupMember[];
 }
 
-/** `GET /v2/console/audit/log/users` — the operators who appear in the trail, most
+/** `GET /v1/console/audit/log/users` — the operators who appear in the trail, most
  * active first. The source that fills the audit view's username filter. */
 export interface ConsoleAuditLogUsers {
   usernames: string[];
@@ -229,7 +229,7 @@ export interface ConsoleAclTemplate {
   update_time: string;
 }
 
-/** `GET /v2/console/status` — the server's own facts, secrets absent. */
+/** `GET /v1/console/status` — the server's own facts, secrets absent. */
 export interface ConsoleStatus {
   name: string;
   version: string;
@@ -256,7 +256,7 @@ export interface ConsoleRoute {
   summary: string;
 }
 
-/** `POST /v2/console/mfa` — `recovery_codes` are shown exactly once. */
+/** `POST /v1/console/mfa` — `recovery_codes` are shown exactly once. */
 export interface MfaEnrolment {
   secret: string;
   uri: string;

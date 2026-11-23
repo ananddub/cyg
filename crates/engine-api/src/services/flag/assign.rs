@@ -39,7 +39,7 @@ pub fn within_window(
     from.is_none_or(|from| from <= now) && to.is_none_or(|to| now < to)
 }
 
-/// The whole decision, so that gating code and `GET /v2/flags` cannot disagree
+/// The whole decision, so that gating code and `GET /v1/flags` cannot disagree
 /// about what one account was told. `arms` are the flag's variants ordered by
 /// name and the first of them is the control; `pinned` is what an override says.
 /// `enabled` is the flag switched on *and* its window open: the two states that

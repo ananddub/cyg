@@ -1,4 +1,3 @@
-use crate::services::deps::q;
 use crate::services::quota;
 
 use super::*;
@@ -6,7 +5,7 @@ use super::*;
 impl super::super::StorageService {
     pub async fn write_objects(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         mut body: WriteRequest,
     ) -> Result<Json<StorageObjectAcks>, V2Error> {
@@ -23,7 +22,7 @@ impl super::super::StorageService {
         // A write of many objects spends many units of the window, so one large
         // batch cannot stand in for a thousand small ones.
         quota::charge(
-            state,
+            &self.plane,
             owner,
             quota::STORAGE_WRITE,
             body.objects.len() as u32,
@@ -36,7 +35,7 @@ impl super::super::StorageService {
                 .cmp(&(b.1.collection.as_str(), b.1.key.as_str()))
         });
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let mut acks: Vec<Option<StorageObjectAck>> = vec![None; ordered.len()];
         let mut statements: Vec<String> = Vec::new();
         let mut params =

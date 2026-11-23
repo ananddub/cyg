@@ -55,17 +55,17 @@ pub async fn auto_registered_health_route_dispatches() {
 
     for path in [
         "/status",
-        "/api/rooms",
+        "/lobby/rooms",
         "/health",
-        "/v2/user",
-        "/v2/inventory",
+        "/v1/user",
+        "/v1/inventory",
     ] {
         let response = app
             .clone()
             .oneshot(Request::get(path).body(Body::empty()).unwrap())
             .await
             .expect("dispatch");
-        let ok = if path == "/v2/user" || path == "/v2/inventory" {
+        let ok = if path == "/v1/user" || path == "/v1/inventory" {
             response.status() == StatusCode::UNAUTHORIZED
         } else {
             response.status() == StatusCode::OK
@@ -85,7 +85,7 @@ pub async fn two_planes_serve_their_own_state() {
 
     for (app, port) in [(a, 1111u64), (b, 2222u64)] {
         let body = app
-            .oneshot(Request::get("/api/rooms").body(Body::empty()).unwrap())
+            .oneshot(Request::get("/lobby/rooms").body(Body::empty()).unwrap())
             .await
             .expect("dispatch")
             .into_body()

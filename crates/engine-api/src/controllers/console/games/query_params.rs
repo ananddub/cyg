@@ -1,20 +1,23 @@
+use std::sync::Arc;
 use super::*;
 
 type QueryParams<T> = axum::extract::Query<T>;
 pub(super) const PROTOCOL_VERSION: u16 = 1;
 pub(super) const MATCHMAKE_METHOD: &str = "joinOrCreate";
 pub(super) const SERVER_SETTINGS_SCRIPT_GUID: &str = "d4c1b9a37e5f4a86b0c2d3e4f5061728";
-struct ConsoleGamesController;
-#[controller("/v2/console/games")]
+struct ConsoleGamesController {
+    service: Arc<GamesService>,
+}
+#[controller("/v1/console/games")]
 impl ConsoleGamesController {
-    fn new() -> Self {
-        Self
+    fn new(service: Arc<GamesService>) -> Self {
+        Self { service }
     }
 
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        answer(GamesService::list_games(&state).await)
+        answer(self.service.list_games().await)
     }
 
     #[post("")]
@@ -23,7 +26,7 @@ impl ConsoleGamesController {
         if let Err(err) = auth.require_admin() {
             return err.into_response();
         }
-        answer(GamesService::create_game(&state, &body).await)
+        answer(self.service.create_game(&body).await)
     }
 
     #[get("/{gameId}")]
@@ -33,7 +36,7 @@ impl ConsoleGamesController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        answer(GamesService::get_game(&state, id).await)
+        answer(self.service.get_game(id).await)
     }
 
     #[put("/{gameId}")]
@@ -51,7 +54,7 @@ impl ConsoleGamesController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        let updated = GamesService::update_game(&state, id, &body, Some(&auth.0.username)).await;
+        let updated = self.service.update_game(id, &body, Some(&auth.0.username)).await;
         if updated.is_ok() {
             config_audit(
                 &state,
@@ -72,7 +75,7 @@ impl ConsoleGamesController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        answer(GamesService::config_history(&state, id).await)
+        answer(self.service.config_history(id).await)
     }
 
     #[get("/{gameId}/config/{version}")]
@@ -89,7 +92,7 @@ impl ConsoleGamesController {
         let Ok(version) = version.parse::<i64>() else {
             return V2Error::invalid_argument("A config version is a number.").into_response();
         };
-        answer(GamesService::config_version(&state, id, version).await)
+        answer(self.service.config_version(id, version).await)
     }
 
     #[post("/{gameId}/config/rollback/{version}")]
@@ -113,7 +116,7 @@ impl ConsoleGamesController {
             .0
             .uuid()
             .map(|id| (id, auth.0.username.clone(), auth.0.email.clone()));
-        answer(GamesService::rollback_config(&state, id, version, operator).await)
+        answer(self.service.rollback_config(id, version, operator).await)
     }
 
     #[delete("/{gameId}")]
@@ -127,7 +130,7 @@ impl ConsoleGamesController {
             Err(err) => return err.into_response(),
         };
         answer(
-            GamesService::archive_game(&state, id)
+            self.service.archive_game(id)
                 .await
                 .map(|archived| ArchiveGameResponse { archived }),
         )
@@ -163,7 +166,7 @@ impl ConsoleGamesController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        let connection = match GamesService::unity_settings(&state, id, reveal, &headers).await {
+        let connection = match self.service.unity_settings(id, reveal, &headers).await {
             Ok(connection) => connection,
             Err(err) => return err.into_response(),
         };
@@ -209,7 +212,7 @@ async fn config_audit(
     let Some(operator) = auth.0.uuid() else {
         return;
     };
-    let Ok(queries) = crate::services::deps::q(state).await else {
+    let Ok(queries) = crate::services::deps::q(&*state.plane()).await else {
         return;
     };
     let _ = queries

@@ -1,14 +1,12 @@
 use axum::Json;
 use chrono::Utc;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::auth::{MfaCodeRequest, MfaEnrolmentResponse};
 use crate::error::V2Error;
 use crate::repositories::console_mutations::{FindConsoleUserMfaRow, SetConsoleUserMfaParams};
 use crate::repositories::db::Queries;
-use crate::services::deps::q;
 use crate::utils::totp;
 
 use super::RECOVERY_CODES;
@@ -46,10 +44,10 @@ impl super::ConsoleService {
 
     pub async fn enrol_mfa(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
     ) -> Result<Json<MfaEnrolmentResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let row = self.console_row(&queries, claims).await?;
 
         let secret = totp::generate_secret();
@@ -69,7 +67,7 @@ impl super::ConsoleService {
             })
             .await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "mfa.enrol",
             "console",
@@ -87,11 +85,11 @@ impl super::ConsoleService {
 
     pub async fn confirm_mfa(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: MfaCodeRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let row = self.console_row(&queries, claims).await?;
         let Some(secret) = row.mfa_secret.as_deref().map(String::from_utf8_lossy) else {
             return Err(V2Error::failed_precondition("MFA has not been enrolled."));
@@ -100,7 +98,7 @@ impl super::ConsoleService {
             return Err(V2Error::unauthenticated("MFA code invalid."));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "mfa.confirm",
             "console",
@@ -113,17 +111,17 @@ impl super::ConsoleService {
 
     pub async fn disable_mfa(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: MfaCodeRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let row = self.console_row(&queries, claims).await?;
         self.verify_second_factor(&queries, &row, &body.code)
             .await?;
         queries.clear_console_user_mfa(row.id).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "mfa.disable",
             "console",

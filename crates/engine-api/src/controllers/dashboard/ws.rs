@@ -85,7 +85,7 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
     let (mut sink, mut stream) = socket.split();
 
     if sink
-        .send(text_frame(&frames::hello_frame(&state)))
+        .send(text_frame(&frames::hello_frame(&*state.plane())))
         .await
         .is_err()
     {
@@ -134,7 +134,7 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
     loop {
         tokio::select! {
             _ = ticker.tick() => {
-                match tokio::time::timeout(SEND_GRACE, tx.send(frames::snapshot_frame(&state))).await {
+                match tokio::time::timeout(SEND_GRACE, tx.send(frames::snapshot_frame(&*state.plane()))).await {
                     Ok(Ok(())) => {}
                     Ok(Err(_)) => break,
                     Err(_) => dropped += 1,

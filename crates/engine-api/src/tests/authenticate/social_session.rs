@@ -17,7 +17,7 @@ async fn a_confirmed_provider_identity_opens_a_session_and_reuses_the_account() 
 
     let vars = HashMap::new();
     let first = social::token(
-        &state,
+        &state.plane(),
         verify::Kind::Google,
         "e2e-google-identity-token",
         "PlayerOne",
@@ -31,7 +31,7 @@ async fn a_confirmed_provider_identity_opens_a_session_and_reuses_the_account() 
     assert!(!first.token.is_empty());
 
     let again = social::token(
-        &state,
+        &state.plane(),
         verify::Kind::Google,
         "e2e-google-identity-token",
         "PlayerOne",
@@ -44,7 +44,7 @@ async fn a_confirmed_provider_identity_opens_a_session_and_reuses_the_account() 
     assert!(!again.created);
 
     let error = social::token(
-        &state,
+        &state.plane(),
         verify::Kind::Steam,
         "e2e-steam-identity-token",
         "PlayerTwo",
@@ -66,7 +66,7 @@ async fn a_moderation_rejected_name_stops_before_the_provider_is_called() {
     state.control = Arc::new(control);
 
     let error = social::token(
-        &state,
+        &state.plane(),
         verify::Kind::Facebook,
         "e2e-facebook-token",
         "bad[]name",

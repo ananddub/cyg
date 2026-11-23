@@ -17,6 +17,11 @@ pub struct ControlConfig {
     pub seat_secret: String,
     pub rate_limit_rps: u32,
     pub rate_limit_burst: u32,
+    /// Burst for the password routes (`/v1/account/authenticate*`,
+    /// `/v1/console/authenticate`). Each attempt runs Argon2, so this window is
+    /// deliberately much tighter than `rate_limit_burst` and does not scale with
+    /// the operator's traffic profile. Tests raise it; production does not.
+    pub auth_rate_limit_burst: u32,
     pub agones: AgonesConfig,
     pub quotas: crate::quota::QuotaConfig,
     pub session: crate::session::SessionConfig,
@@ -60,6 +65,7 @@ impl Default for ControlConfig {
             seat_secret: crate::game::DEV_SEAT_SECRET.into(),
             rate_limit_rps: 20,
             rate_limit_burst: 40,
+            auth_rate_limit_burst: 10,
             agones: AgonesConfig::default(),
             quotas: crate::quota::QuotaConfig::default(),
             session: crate::session::SessionConfig::default(),

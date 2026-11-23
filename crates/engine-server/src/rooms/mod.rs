@@ -11,8 +11,8 @@ mod server_rooms;
 mod types;
 
 pub use host_data::{RoomHostData, TimerState};
-pub use rewind::{MAX_REWIND_FIELDS, MAX_REWIND_FRAMES, RewindFrame, RewindTrack};
 pub use linker::build_host_linker;
+pub use rewind::{MAX_REWIND_FIELDS, MAX_REWIND_FRAMES, RewindFrame, RewindTrack};
 pub use room::GameRoom;
 pub use server::GameServer;
 pub use types::{

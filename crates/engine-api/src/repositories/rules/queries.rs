@@ -108,7 +108,9 @@ impl Queries {
                 return Ok(());
             }
         }
-        tracing::warn!("[db] rule activation for {key} still sees multiple active versions after 3 passes");
+        tracing::warn!(
+            "[db] rule activation for {key} still sees multiple active versions after 3 passes"
+        );
         Ok(())
     }
 

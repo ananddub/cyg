@@ -14,7 +14,7 @@ struct FriendController {
     service: Arc<FriendService>,
 }
 
-#[controller("/v2/friend")]
+#[controller("/v1/friend")]
 impl FriendController {
     fn new(service: Arc<FriendService>) -> Self {
         Self { service }
@@ -24,7 +24,7 @@ impl FriendController {
     async fn list_friends(&self, auth: Authed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
         self.service
-            .list_friends(&state, &auth, req)
+            .list_friends(&auth, req)
             .await
             .into_response()
     }
@@ -33,7 +33,7 @@ impl FriendController {
     async fn add_friends(&self, auth: Authed, Params(req): Params<TargetsQuery>) -> Response {
         let state = current_state();
         self.service
-            .add_friends(&state, &auth, req)
+            .add_friends(&auth, req)
             .await
             .into_response()
     }
@@ -42,7 +42,7 @@ impl FriendController {
     async fn delete_friends(&self, auth: Authed, Params(req): Params<TargetsQuery>) -> Response {
         let state = current_state();
         self.service
-            .delete_friends(&state, &auth, req)
+            .delete_friends(&auth, req)
             .await
             .into_response()
     }
@@ -51,7 +51,7 @@ impl FriendController {
     async fn block_friends(&self, auth: Authed, Params(req): Params<TargetsQuery>) -> Response {
         let state = current_state();
         self.service
-            .block_friends(&state, &auth, req)
+            .block_friends(&auth, req)
             .await
             .into_response()
     }
@@ -64,7 +64,7 @@ impl FriendController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_friends_of_friends(&state, &auth, req)
+            .list_friends_of_friends(&auth, req)
             .await
             .into_response()
     }

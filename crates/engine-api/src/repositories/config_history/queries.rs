@@ -96,7 +96,9 @@ impl Queries {
                 return Ok(());
             }
         }
-        tracing::warn!("[db] config activation for {game_id} still sees multiple active versions after 3 passes");
+        tracing::warn!(
+            "[db] config activation for {game_id} still sees multiple active versions after 3 passes"
+        );
         Ok(())
     }
 

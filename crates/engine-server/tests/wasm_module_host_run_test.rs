@@ -13,7 +13,7 @@ use engine_server::rooms::{RoomHostData, RoomLogic, build_host_linker};
 use engine_wasm::{AbiPermissions, WasmRuntime};
 
 /// The guest `gap_console.rs` uploads through
-/// `POST /v2/console/games/{gameId}/wasm`, whose stored bytes that suite compares
+/// `POST /v1/console/games/{gameId}/wasm`, whose stored bytes that suite compares
 /// against this file byte for byte.
 const ROOM_MODULE: &[u8] = include_bytes!("../../engine-net/examples/e2e/room_logic.wasm");
 

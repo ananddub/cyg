@@ -6,8 +6,8 @@
 //! each component owning an untracked `JoinHandle` that dies with the process.
 
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -172,9 +172,7 @@ impl ThreadRegistry {
         F: FnOnce() + Send + 'static,
     {
         let name = name.into();
-        let handle = std::thread::Builder::new()
-            .name(name.clone())
-            .spawn(f)?;
+        let handle = std::thread::Builder::new().name(name.clone()).spawn(f)?;
         self.adopt(role, name, handle);
         Ok(())
     }

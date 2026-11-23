@@ -13,7 +13,7 @@ void FCYGBaasLeaderboard::SubmitScore(const FString& LeaderboardId, int64 Score,
 	Body->SetNumberField(TEXT("subscore"), static_cast<double>(Subscore));
 	Body->SetStringField(TEXT("metadata"), MetadataJson);
 
-	const FString Path = FString::Printf(TEXT("/v2/leaderboard/%s"), *UCYGSettings::EscapeSegment(LeaderboardId));
+	const FString Path = FString::Printf(TEXT("/v1/leaderboard/%s"), *UCYGSettings::EscapeSegment(LeaderboardId));
 
 	FCYGBaasHttp::Post(Path, CYGBaasJson::Write(Body),
 		[Done, LeaderboardId](bool bSuccess, int32 StatusCode, const FString& Reply)
@@ -32,7 +32,7 @@ void FCYGBaasLeaderboard::SubmitScore(const FString& LeaderboardId, int64 Score,
 
 void FCYGBaasLeaderboard::GetScores(const FString& LeaderboardId, const FCYGBaasLeaderboardResponse& Done, int32 Limit, const FString& Cursor)
 {
-	FString Path = FString::Printf(TEXT("/v2/leaderboard/%s?limit=%d"), *UCYGSettings::EscapeSegment(LeaderboardId), FMath::Max(1, Limit));
+	FString Path = FString::Printf(TEXT("/v1/leaderboard/%s?limit=%d"), *UCYGSettings::EscapeSegment(LeaderboardId), FMath::Max(1, Limit));
 
 	if (!Cursor.IsEmpty())
 	{

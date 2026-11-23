@@ -7,7 +7,7 @@ pub async fn console_leaderboard_record_delete(env: &Harness, console: &str) {
     seed_leaderboard(env.db(), &board, false).await;
     json_body(
         env.client
-            .post(format!("{}/v2/leaderboard/{board}", env.base))
+            .post(format!("{}/v1/leaderboard/{board}", env.base))
             .bearer_auth(&player.token)
             .json(&json!({"score": 42}))
             .send()
@@ -29,7 +29,7 @@ pub async fn console_leaderboard_record_delete(env: &Harness, console: &str) {
     refusal(
         env.client
             .delete(format!(
-                "{}/v2/console/leaderboard/{board}/owner/not-a-uuid",
+                "{}/v1/console/leaderboard/{board}/owner/not-a-uuid",
                 env.base
             ))
             .bearer_auth(console)
@@ -44,7 +44,7 @@ pub async fn console_leaderboard_record_delete(env: &Harness, console: &str) {
     expect(
         env.client
             .delete(format!(
-                "{}/v2/console/leaderboard/{board}/owner/{}",
+                "{}/v1/console/leaderboard/{board}/owner/{}",
                 env.base, player.uid
             ))
             .bearer_auth(console)
@@ -52,7 +52,7 @@ pub async fn console_leaderboard_record_delete(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/leaderboard/{id}/owner/{owner_id}",
+        "DELETE /v1/console/leaderboard/{id}/owner/{owner_id}",
     )
     .await;
     let rows = count(
@@ -70,7 +70,7 @@ pub async fn console_leaderboard_record_delete(env: &Harness, console: &str) {
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/leaderboard/{tournament}/owner/{}",
+                    "{}/v1/console/leaderboard/{tournament}/owner/{}",
                     env.base, player.uid
                 ))
                 .bearer_auth(console)

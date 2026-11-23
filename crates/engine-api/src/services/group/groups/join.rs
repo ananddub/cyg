@@ -1,13 +1,11 @@
 use axum::Json;
 use serde_json::json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::group::JoinGroupEdgeParams;
-use crate::services::deps::q;
 use crate::services::social;
 use crate::utils::group::{ROLE_ADMIN, ROLE_JOIN_REQUEST, ROLE_MEMBER, ROLE_SUPERADMIN, group_id};
 
@@ -15,14 +13,9 @@ use super::super::fetch_group;
 use super::{GROUP_OPEN, GroupService};
 
 impl GroupService {
-    pub async fn join_group(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-        raw_id: String,
-    ) -> Result<Json<Empty>, V2Error> {
+    pub async fn join_group(&self, auth: &Authed, raw_id: String) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let group = fetch_group(&queries, gid).await?;
         let uid = auth.0.uuid()?;
 
@@ -66,7 +59,7 @@ impl GroupService {
                 .unwrap_or_default()
             {
                 social::notify_with(
-                    state,
+                    &self.plane,
                     admin,
                     uid,
                     format!("User {} wants to join your group", auth.0.un),
@@ -79,14 +72,9 @@ impl GroupService {
         Ok(Json(Empty {}))
     }
 
-    pub async fn leave_group(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-        raw_id: String,
-    ) -> Result<Json<Empty>, V2Error> {
+    pub async fn leave_group(&self, auth: &Authed, raw_id: String) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         fetch_group(&queries, gid).await?;
         let uid = auth.0.uuid()?;
         let role = queries

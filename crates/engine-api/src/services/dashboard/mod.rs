@@ -1,3 +1,5 @@
+use crate::services::plane::Plane;
+
 pub mod assets;
 pub mod frames;
 pub mod overview;
@@ -11,10 +13,8 @@ pub use ticks::{build_clients, build_ticks};
 
 use engine_dashboard::StatusSnapshot;
 
-use crate::ApiState;
-
-pub(crate) fn latest_sample(state: &ApiState) -> Option<StatusSnapshot> {
-    state.latest_status.lock().ok().and_then(|g| g.clone())
+pub(crate) fn latest_sample(plane: &Plane) -> Option<StatusSnapshot> {
+    plane.latest_status.lock().ok().and_then(|g| g.clone())
 }
 
 pub(crate) fn sample_age_ms(snap: &StatusSnapshot) -> u64 {

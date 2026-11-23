@@ -9,7 +9,7 @@ pub async fn wasm_lifecycle(
 ) {
     eprintln!("e2e: wasm module lifecycle");
     let wasm = module_bytes();
-    let upload_url = |path: &str| format!("{base}/v2/console/games/{wasm_game}/wasm{path}");
+    let upload_url = |path: &str| format!("{base}/v1/console/games/{wasm_game}/wasm{path}");
 
     let form = Form::new()
         .part(
@@ -144,7 +144,7 @@ pub async fn wasm_lifecycle(
 
     let detail = json_body(
         client
-            .get(format!("{base}/v2/console/games/{wasm_game}"))
+            .get(format!("{base}/v1/console/games/{wasm_game}"))
             .bearer_auth(console)
             .send()
             .await
@@ -216,7 +216,7 @@ pub async fn wasm_lifecycle(
     );
     let promoted = json_body(
         client
-            .post(format!("{base}/v2/console/games/{relay_game}/wasm/upload"))
+            .post(format!("{base}/v1/console/games/{relay_game}/wasm/upload"))
             .bearer_auth(console)
             .multipart(relay_form)
             .send()
@@ -229,7 +229,7 @@ pub async fn wasm_lifecycle(
     assert_eq!(promoted["module"]["is_active"], true);
     let detail = json_body(
         client
-            .get(format!("{base}/v2/console/games/{relay_game}"))
+            .get(format!("{base}/v1/console/games/{relay_game}"))
             .bearer_auth(console)
             .send()
             .await
@@ -242,7 +242,7 @@ pub async fn wasm_lifecycle(
 
     expect(
         client
-            .delete(format!("{base}/v2/console/games/not-a-uuid/wasm/1"))
+            .delete(format!("{base}/v1/console/games/not-a-uuid/wasm/1"))
             .bearer_auth(console)
             .send()
             .await
@@ -253,7 +253,7 @@ pub async fn wasm_lifecycle(
     .await;
     expect(
         client
-            .delete(format!("{base}/v2/console/games/{}/wasm/1", Uuid::new_v4()))
+            .delete(format!("{base}/v1/console/games/{}/wasm/1", Uuid::new_v4()))
             .bearer_auth(console)
             .send()
             .await

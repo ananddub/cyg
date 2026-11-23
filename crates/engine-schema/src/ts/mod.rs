@@ -83,7 +83,12 @@ pub fn parse(source: &str) -> Result<TsSchema, Vec<SchemaDiagnostic>> {
                 message: "the root State cannot declare `t.array(Entity)` fields; put nested arrays on a collection schema".into(),
             });
         }
-        if declaration.schema.fields.iter().any(|field| field.nested_path.is_some()) {
+        if declaration
+            .schema
+            .fields
+            .iter()
+            .any(|field| field.nested_path.is_some())
+        {
             diagnostics.push(SchemaDiagnostic {
                 line: declaration.schema.line,
                 column: declaration.schema.column,
@@ -147,7 +152,10 @@ fn lower_nested_collections(
     while at < queue.len() {
         let collection = queue[at].clone();
         at += 1;
-        let Some(schema) = schemas.iter().find(|schema| schema.name == collection.schema) else {
+        let Some(schema) = schemas
+            .iter()
+            .find(|schema| schema.name == collection.schema)
+        else {
             continue;
         };
         for nested in &schema.nested_arrays {
@@ -167,7 +175,10 @@ fn lower_nested_collections(
                 });
                 continue;
             }
-            if !schemas.iter().any(|candidate| candidate.name == nested.schema) {
+            if !schemas
+                .iter()
+                .any(|candidate| candidate.name == nested.schema)
+            {
                 diagnostics.push(SchemaDiagnostic {
                     line: schema.line,
                     column: schema.column,

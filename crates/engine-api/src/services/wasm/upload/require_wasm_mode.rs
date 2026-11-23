@@ -1,16 +1,12 @@
-use crate::services::deps::{blobs, q};
-
 use super::*;
 
 impl WasmService {
-    pub async fn require_wasm_mode(
-        &self,
-        state: &ApiState,
-        game_id: Uuid,
-    ) -> Result<String, V2Error> {
-        let row = crate::services::games::GamesService::find_game(state, game_id).await?;
+    pub async fn require_wasm_mode(&self, game_id: Uuid) -> Result<String, V2Error> {
+        let row = crate::services::games::GamesService::new(self.plane.clone())
+            .find_game(game_id)
+            .await?;
         if row.backend_mode != WASM_BACKEND_MODE
-            && let Ok(queries) = q(state).await
+            && let Ok(queries) = self.plane.q().await
         {
             let _ = queries
                 .set_game_backend_mode(game_id, WASM_BACKEND_MODE)
@@ -20,11 +16,11 @@ impl WasmService {
     }
     pub async fn insert_module(
         &self,
-        state: &ApiState,
+
         game_id: Uuid,
         params: InsertModuleParams,
     ) -> Result<ModuleDto, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let version = queries
             .latest_room_module_version(game_id)
             .await
@@ -35,7 +31,8 @@ impl WasmService {
         let id = Uuid::new_v4();
         let now = Utc::now();
         let key = module_key(game_id, version);
-        blobs(state)
+        self.plane
+            .blobs()
             .await?
             .put(&key, &params.binary_bytes)
             .await
@@ -52,7 +49,7 @@ impl WasmService {
             "created_at": time::encode(now),
         });
         if let Err(err) = queries.insert_room_module(game_id, id, &data).await {
-            let _ = blobs(state).await?.delete(&key).await;
+            let _ = self.plane.blobs().await?.delete(&key).await;
             return Err(V2Error::from(err));
         }
 
@@ -67,13 +64,11 @@ impl WasmService {
             has_source: params.source_code.is_some(),
         })
     }
-    pub async fn list_modules(
-        &self,
-        state: &ApiState,
-        game_id: Uuid,
-    ) -> Result<Vec<ModuleDto>, V2Error> {
-        self.require_wasm_mode(state, game_id).await?;
-        let rows: Vec<ListRoomModulesRow> = q(state)
+    pub async fn list_modules(&self, game_id: Uuid) -> Result<Vec<ModuleDto>, V2Error> {
+        self.require_wasm_mode(game_id).await?;
+        let rows: Vec<ListRoomModulesRow> = self
+            .plane
+            .q()
             .await?
             .list_room_modules(game_id)
             .await
@@ -82,11 +77,13 @@ impl WasmService {
     }
     pub async fn get_module_bytes(
         &self,
-        state: &ApiState,
+
         game_id: Uuid,
         version: i32,
     ) -> Result<(String, Vec<u8>), V2Error> {
-        let row = q(state)
+        let row = self
+            .plane
+            .q()
             .await?
             .find_room_module_bytes(game_id, version)
             .await
@@ -99,7 +96,9 @@ impl WasmService {
                 "Module version {version} bytes are missing."
             )));
         };
-        let bytes = blobs(state)
+        let bytes = self
+            .plane
+            .blobs()
             .await?
             .get(&key)
             .await

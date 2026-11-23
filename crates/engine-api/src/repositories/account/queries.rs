@@ -111,10 +111,7 @@ impl Queries {
             self.datastore()
                 .query_transaction::<serde_json::Value>(
                     ERASE_TXN,
-                    &params!(
-                        id = id.to_string(),
-                        now = time::encode(chrono::Utc::now()),
-                    ),
+                    &params!(id = id.to_string(), now = time::encode(chrono::Utc::now()),),
                 )
                 .await?;
             if self.account_residuals(id).await? == 0 {
@@ -134,10 +131,7 @@ impl Queries {
                 .datastore()
                 .query_params(
                     "SELECT VALUE count() FROM type::table($table) WHERE user_id = $id",
-                    &params!(
-                        table = table.to_string(),
-                        id = id.to_string(),
-                    ),
+                    &params!(table = table.to_string(), id = id.to_string(),),
                 )
                 .await?;
             total += rows.first().copied().unwrap_or(0);

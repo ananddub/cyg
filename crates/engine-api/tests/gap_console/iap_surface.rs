@@ -6,7 +6,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
 
     let dry = json_body(
         env.client
-            .post(format!("{}/v2/console/iap/apple/validate", env.base))
+            .post(format!("{}/v1/console/iap/apple/validate", env.base))
             .bearer_auth(console)
             .json(&json!({ "receipt": "e2e-apple-receipt", "product_id": "gem.100", "persist": false }))
             .send()
@@ -32,7 +32,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         json_body(
             env.client
-                .get(format!("{}/v2/console/purchase", env.base))
+                .get(format!("{}/v1/console/purchase", env.base))
                 .bearer_auth(console)
                 .send()
                 .await
@@ -50,7 +50,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/iap/apple/validate", env.base))
+                .post(format!("{}/v1/console/iap/apple/validate", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "receipt": "e2e-apple-receipt" }))
                 .send()
@@ -65,7 +65,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/iap/apple/validate", env.base))
+                .post(format!("{}/v1/console/iap/apple/validate", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "receipt": "x", "user_id": "not-a-uuid" }))
                 .send()
@@ -80,7 +80,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/iap/apple/validate", env.base))
+                .post(format!("{}/v1/console/iap/apple/validate", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "user_id": player.uid, "kind": "renewal" }))
                 .send()
@@ -95,7 +95,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/iap/nvidia/validate", env.base))
+                .post(format!("{}/v1/console/iap/nvidia/validate", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "receipt": "x" }))
                 .send()
@@ -110,7 +110,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/iap/samsung/validate", env.base))
+                .post(format!("{}/v1/console/iap/samsung/validate", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "receipt": "x", "kind": "subscription" }))
                 .send()
@@ -125,7 +125,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/iap/google/validate", env.base))
+                .post(format!("{}/v1/console/iap/google/validate", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "user_id": player.uid }))
                 .send()
@@ -139,7 +139,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     );
     refusal(
         env.client
-            .post(format!("{}/v2/console/iap/google/validate", env.base))
+            .post(format!("{}/v1/console/iap/google/validate", env.base))
             .bearer_auth(viewer)
             .json(&json!({ "receipt": "x", "persist": false }))
             .send()
@@ -152,7 +152,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
 
     let stored = json_body(
         env.client
-            .post(format!("{}/v2/console/iap/google/validate", env.base))
+            .post(format!("{}/v1/console/iap/google/validate", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "purchase_token": "e2e-google-token",
@@ -163,14 +163,14 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/iap/{vendor}/validate",
+        "POST /v1/console/iap/{vendor}/validate",
     )
     .await;
     assert_eq!(stored["validated_purchases"][0]["product_id"], "gems.large");
 
     let subscriptions = json_body(
         env.client
-            .post(format!("{}/v2/console/iap/google/validate", env.base))
+            .post(format!("{}/v1/console/iap/google/validate", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "purchase_token": "e2e-google-sub-token",
@@ -189,13 +189,13 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
 
     let purchases = json_body(
         env.client
-            .get(format!("{}/v2/console/purchase?limit=10", env.base))
+            .get(format!("{}/v1/console/purchase?limit=10", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/purchase",
+        "GET /v1/console/purchase",
     )
     .await;
     assert_eq!(
@@ -208,13 +208,13 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     );
     let subs = json_body(
         env.client
-            .get(format!("{}/v2/console/subscription", env.base))
+            .get(format!("{}/v1/console/subscription", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/subscription",
+        "GET /v1/console/subscription",
     )
     .await;
     let rows = subs.as_array().expect("an array of subscriptions").clone();
@@ -225,7 +225,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/console/subscription/%20", env.base))
+                .delete(format!("{}/v1/console/subscription/%20", env.base))
                 .bearer_auth(console)
                 .send()
                 .await
@@ -238,19 +238,19 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     );
     expect(
         env.client
-            .delete(format!("{}/v2/console/subscription/season.pass", env.base))
+            .delete(format!("{}/v1/console/subscription/season.pass", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/subscription/{product_id}",
+        "DELETE /v1/console/subscription/{product_id}",
     )
     .await;
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/console/subscription/season.pass", env.base))
+                .delete(format!("{}/v1/console/subscription/season.pass", env.base))
                 .bearer_auth(console)
                 .send()
                 .await
@@ -265,7 +265,7 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/console/iap/google/reset", env.base))
+                .delete(format!("{}/v1/console/iap/google/reset", env.base))
                 .bearer_auth(console)
                 .send()
                 .await
@@ -292,13 +292,13 @@ pub async fn iap_surface(env: &Harness, console: &str, viewer: &str) {
     .await;
     expect(
         env.client
-            .delete(format!("{}/v2/console/iap/google/reset", env.base))
+            .delete(format!("{}/v1/console/iap/google/reset", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/iap/{vendor}/reset",
+        "DELETE /v1/console/iap/{vendor}/reset",
     )
     .await;
     let left = count(

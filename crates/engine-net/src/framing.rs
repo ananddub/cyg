@@ -120,10 +120,17 @@ pub fn encode_frame(
     out_buffer: &mut impl bytes::BufMut,
 ) -> std::io::Result<()> {
     if payload.len() > u16::MAX as usize {
-        debug_assert!(false, "frame payload of {} bytes exceeds u16::MAX", payload.len());
+        debug_assert!(
+            false,
+            "frame payload of {} bytes exceeds u16::MAX",
+            payload.len()
+        );
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("frame payload of {} bytes exceeds the u16 length prefix", payload.len()),
+            format!(
+                "frame payload of {} bytes exceeds the u16 length prefix",
+                payload.len()
+            ),
         ));
     }
     let len = payload.len() as u16;

@@ -172,7 +172,7 @@ await CygClient.JoinOrCreate(origin, "room");
 What happens underneath, in 0.5–8 s backoff steps:
 
 1. The link dies. The client notices.
-2. `POST /api/matchmake/reconnect` takes the same seat back with
+2. `POST /matchmake/reconnect` takes the same seat back with
    `reconnectionToken` — not a second seat, so the player does not appear twice.
 3. The lane is chosen again from the fresh reply, because a resume can land on
    a different node with a different port.
@@ -236,7 +236,7 @@ everywhere. Set `null` (or call `LeaveTeam()`) to leave the squad.
 
 ## Wire notes
 
-- matchmake: `POST /api/matchmake/joinOrCreate/{room}` → seat token, `gamePort`, `udpPort`
+- matchmake: `POST /matchmake/joinOrCreate/{room}` → seat token, `gamePort`, `udpPort`
 - join (UDP): `[0x20][len][seatToken]`; bind confirmation comes back as `[0x0a]`
   and carries the player id
 - join (WebSocket): upgrade to `ws://host:{gamePort}/{room}?sessionId={id}`

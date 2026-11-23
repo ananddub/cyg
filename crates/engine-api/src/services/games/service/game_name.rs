@@ -1,3 +1,5 @@
+use crate::services::plane::Plane;
+
 use super::*;
 
 pub(super) const NOT_FOUND: &str = "Game not found.";
@@ -90,7 +92,7 @@ pub(super) fn secrets_match(stored: &[u8], presented: &[u8]) -> bool {
     }
     diff == 0
 }
-pub(super) fn advertised_base_url(state: &ApiState, headers: &HeaderMap) -> String {
+pub(super) fn advertised_base_url(plane: &Plane, headers: &HeaderMap) -> String {
     let forwarded = headers
         .get("x-forwarded-proto")
         .and_then(|value| value.to_str().ok())
@@ -103,7 +105,7 @@ pub(super) fn advertised_base_url(state: &ApiState, headers: &HeaderMap) -> Stri
     format!(
         "{scheme}://{}:{}",
         client_host(headers),
-        state.control_port()
+        plane.control_port()
     )
 }
 fn stored_config(raw: Option<&serde_json::Value>) -> Result<serde_json::Value, V2Error> {

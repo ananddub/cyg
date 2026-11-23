@@ -4,8 +4,8 @@ import SectionHead from './SectionHead.jsx'
 const CONTROL = [
   ['matchmake + seat tokens', false],
   ['/ws/signal', true, ' — WebRTC signaling'],
-  ['/v2/*', true, ' player API (BaaS)'],
-  ['/v2/console/*', true, ' + web dashboard'],
+  ['/v1/*', true, ' player API (BaaS)'],
+  ['/v1/console/*', true, ' + web dashboard'],
   ['statics — game website + SDK', false],
 ]
 

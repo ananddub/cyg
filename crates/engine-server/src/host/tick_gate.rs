@@ -213,7 +213,10 @@ mod stagger_tests {
         let mut r = runner(Instant::now());
         r.slot_base -= Duration::from_millis(35); // all 3 slots are due
         r.interval_pending = 2;
-        assert_eq!(r.stagger_phases_due(Duration::from_millis(30), 3), [0, 1, 2]);
+        assert_eq!(
+            r.stagger_phases_due(Duration::from_millis(30), 3),
+            [0, 1, 2]
+        );
         assert_eq!(r.next_phase, 0);
         // The pending budget is consumed by run_phase per slot, not zeroed
         // here — a room's phase must still see it on its slot.

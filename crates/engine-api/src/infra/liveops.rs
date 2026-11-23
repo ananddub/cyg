@@ -5,6 +5,9 @@ use std::sync::OnceLock;
 /// variables with clamped defaults instead of a new config section.
 pub(crate) struct LiveOps {
     pub idempotency_ttl_days: i64,
+    /// Largest body the idempotency middleware will hash and replay. Anything
+    /// bigger passes through, which keeps uploads out of the request buffer.
+    pub idempotency_max_body_bytes: usize,
     pub market_ttl_days: i64,
     pub subscription_grace_days: i64,
     pub subscription_revalidation_days: i64,
@@ -13,6 +16,11 @@ pub(crate) struct LiveOps {
     pub webhook_timeout_ms: u64,
     pub webhook_concurrency: usize,
     pub webhook_poll_ms: u64,
+    /// Outbound HTTP stability knobs, shared by every vendor call.
+    pub http_breaker_trips: i64,
+    pub http_breaker_cooldown_ms: u64,
+    pub http_breaker_max_cooldown_ms: u64,
+    pub http_bulkhead: usize,
     pub webhook_circuit_trips: i64,
     pub webhook_circuit_cooldown_ms: u64,
     pub notify_max_attempts: i64,
@@ -51,6 +59,12 @@ pub(crate) fn config() -> &'static LiveOps {
     static CONFIG: OnceLock<LiveOps> = OnceLock::new();
     CONFIG.get_or_init(|| LiveOps {
         idempotency_ttl_days: env_i64("CYG_IDEMPOTENCY_TTL_DAYS", 30, 1, 3650),
+        idempotency_max_body_bytes: env_usize(
+            "CYG_IDEMPOTENCY_MAX_BODY_BYTES",
+            1_048_576,
+            1_024,
+            67_108_864,
+        ),
         market_ttl_days: env_i64("CYG_MARKET_TTL_DAYS", 7, 1, 90),
         subscription_grace_days: env_i64("CYG_SUBSCRIPTION_GRACE_DAYS", 1, 0, 30),
         subscription_revalidation_days: env_i64("CYG_SUBSCRIPTION_REVALIDATION_DAYS", 7, 1, 365),
@@ -59,6 +73,15 @@ pub(crate) fn config() -> &'static LiveOps {
         webhook_timeout_ms: env_u64("CYG_WEBHOOK_TIMEOUT_MS", 5000, 250, 60_000),
         webhook_concurrency: env_usize("CYG_WEBHOOK_CONCURRENCY", 8, 1, 64),
         webhook_poll_ms: env_u64("CYG_WEBHOOK_POLL_MS", 500, 50, 60_000),
+        http_breaker_trips: env_i64("CYG_HTTP_BREAKER_TRIPS", 5, 1, 100),
+        http_breaker_cooldown_ms: env_u64("CYG_HTTP_BREAKER_COOLDOWN_MS", 30_000, 100, 3_600_000),
+        http_breaker_max_cooldown_ms: env_u64(
+            "CYG_HTTP_BREAKER_MAX_COOLDOWN_MS",
+            300_000,
+            1_000,
+            7_200_000,
+        ),
+        http_bulkhead: env_usize("CYG_HTTP_BULKHEAD", 32, 1, 1_024),
         webhook_circuit_trips: env_i64("CYG_WEBHOOK_CIRCUIT_TRIPS", 3, 1, 24),
         webhook_circuit_cooldown_ms: env_u64(
             "CYG_WEBHOOK_CIRCUIT_COOLDOWN_MS",

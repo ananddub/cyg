@@ -102,7 +102,13 @@ fn a_valid_body_validates_cleanly() {
 #[test]
 fn a_var_comparison_resolves_from_the_context() {
     let ctx = json!({ "kills": 12, "min_kills": 10 });
-    assert!(evaluate(&json!({"field": "kills", "op": "gte", "var": "min_kills"}), &ctx).unwrap());
+    assert!(
+        evaluate(
+            &json!({"field": "kills", "op": "gte", "var": "min_kills"}),
+            &ctx
+        )
+        .unwrap()
+    );
     assert!(!evaluate(&json!({"field": "kills", "op": "gte", "var": "nope"}), &ctx).unwrap());
 }
 

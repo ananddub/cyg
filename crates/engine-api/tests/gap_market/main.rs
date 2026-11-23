@@ -32,7 +32,7 @@ pub async fn marketplace_escrow_end_to_end() {
 pub async fn define_item(env: &Harness, console: &str, item_id: &str) {
     json_body(
         env.client
-            .post(format!("{}/v2/inventory/define", env.base))
+            .post(format!("{}/v1/inventory/define", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "item_id": item_id,
@@ -53,7 +53,7 @@ pub async fn define_item(env: &Harness, console: &str, item_id: &str) {
 pub async fn grant_instance(env: &Harness, uid: &str, item_id: &str) -> String {
     let granted = json_body(
         env.client
-            .post(format!("{}/v2/inventory/grant", env.base))
+            .post(format!("{}/v1/inventory/grant", env.base))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .header("Idempotency-Key", format!("grant-{uid}-{item_id}"))
             .json(&json!({"user_id": uid, "item_id": item_id, "quantity": 1}))
@@ -73,7 +73,7 @@ pub async fn grant_instance(env: &Harness, uid: &str, item_id: &str) -> String {
 pub async fn fund(env: &Harness, console: &str, uid: &str, gold: f64) {
     json_body(
         env.client
-            .post(format!("{}/v2/console/account/{uid}/wallet", env.base))
+            .post(format!("{}/v1/console/account/{uid}/wallet", env.base))
             .bearer_auth(console)
             .header("Idempotency-Key", format!("fund-{uid}-{gold}"))
             .json(&json!({"changeset": {"gold": gold}, "metadata": {"why": "test float"}}))
@@ -89,7 +89,7 @@ pub async fn fund(env: &Harness, console: &str, uid: &str, gold: f64) {
 pub async fn gold_of(env: &Harness, console: &str, uid: &str) -> f64 {
     let account = json_body(
         env.client
-            .get(format!("{}/v2/console/account/{uid}", env.base))
+            .get(format!("{}/v1/console/account/{uid}", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -104,7 +104,7 @@ pub async fn gold_of(env: &Harness, console: &str, uid: &str) -> f64 {
 pub async fn inventory_of(env: &Harness, token: &str) -> Vec<Value> {
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/inventory", env.base))
+            .get(format!("{}/v1/inventory", env.base))
             .bearer_auth(token)
             .send()
             .await
@@ -130,7 +130,7 @@ pub async fn list_item(
     price: f64,
 ) -> reqwest::Response {
     env.client
-        .post(format!("{}/v2/marketplace/listings", env.base))
+        .post(format!("{}/v1/marketplace/listings", env.base))
         .bearer_auth(token)
         .json(&json!({
             "instance_id": instance,
@@ -145,7 +145,7 @@ pub async fn list_item(
 pub async fn buy_listing(env: &Harness, token: &str, listing: &str) -> reqwest::Response {
     env.client
         .post(format!(
-            "{}/v2/marketplace/listings/{listing}/buy",
+            "{}/v1/marketplace/listings/{listing}/buy",
             env.base
         ))
         .bearer_auth(token)
@@ -157,7 +157,7 @@ pub async fn buy_listing(env: &Harness, token: &str, listing: &str) -> reqwest::
 pub async fn cancel_listing(env: &Harness, token: &str, listing: &str) -> reqwest::Response {
     env.client
         .post(format!(
-            "{}/v2/marketplace/listings/{listing}/cancel",
+            "{}/v1/marketplace/listings/{listing}/cancel",
             env.base
         ))
         .bearer_auth(token)
@@ -168,7 +168,7 @@ pub async fn cancel_listing(env: &Harness, token: &str, listing: &str) -> reqwes
 
 pub async fn wager(env: &Harness, body: Value) -> reqwest::Response {
     env.client
-        .post(format!("{}/v2/wager/create", env.base))
+        .post(format!("{}/v1/wager/create", env.base))
         .header(reqwest::header::AUTHORIZATION, server_key_header())
         .json(&body)
         .send()
@@ -178,7 +178,7 @@ pub async fn wager(env: &Harness, body: Value) -> reqwest::Response {
 
 pub async fn settle_wager(env: &Harness, wager_id: &str, body: Value) -> reqwest::Response {
     env.client
-        .post(format!("{}/v2/wager/{wager_id}/settle", env.base))
+        .post(format!("{}/v1/wager/{wager_id}/settle", env.base))
         .header(reqwest::header::AUTHORIZATION, server_key_header())
         .json(&body)
         .send()
@@ -188,7 +188,7 @@ pub async fn settle_wager(env: &Harness, wager_id: &str, body: Value) -> reqwest
 
 pub async fn refund_wager(env: &Harness, wager_id: &str) -> reqwest::Response {
     env.client
-        .post(format!("{}/v2/wager/{wager_id}/refund", env.base))
+        .post(format!("{}/v1/wager/{wager_id}/refund", env.base))
         .header(reqwest::header::AUTHORIZATION, server_key_header())
         .send()
         .await

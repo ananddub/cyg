@@ -16,7 +16,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/leaderboard/{}", env.base, board))
+                .post(format!("{}/v1/leaderboard/{}", env.base, board))
                 .bearer_auth(&lead.token)
                 .json(&Value::Null)
                 .send()
@@ -31,7 +31,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/leaderboard/{}", env.base, board))
+                .post(format!("{}/v1/leaderboard/{}", env.base, board))
                 .bearer_auth(&lead.token)
                 .json(&json!({ "score": "not-a-number" }))
                 .send()
@@ -46,7 +46,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/leaderboard/{}", env.base, board))
+                .post(format!("{}/v1/leaderboard/{}", env.base, board))
                 .bearer_auth(&lead.token)
                 .json(&json!({ "score": 10, "metadata": "not json" }))
                 .send()
@@ -62,7 +62,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/leaderboard/{ghost}", env.base))
+                .post(format!("{}/v1/leaderboard/{ghost}", env.base))
                 .bearer_auth(&lead.token)
                 .json(&json!({ "score": 10 }))
                 .send()
@@ -77,7 +77,7 @@ pub async fn leaderboard_surface(env: &Harness) {
 
     let first = json_body(
         env.client
-            .post(format!("{}/v2/leaderboard/{board}", env.base))
+            .post(format!("{}/v1/leaderboard/{board}", env.base))
             .bearer_auth(&lead.token)
             .json(&json!({
                 "score": 500,
@@ -88,7 +88,7 @@ pub async fn leaderboard_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/leaderboard/{leaderboardId} (first write)",
+        "POST /v1/leaderboard/{leaderboardId} (first write)",
     )
     .await;
     assert_eq!(first["leaderboard_id"], board);
@@ -103,7 +103,7 @@ pub async fn leaderboard_surface(env: &Harness) {
 
     let ignored = json_body(
         env.client
-            .post(format!("{}/v2/leaderboard/{board}", env.base))
+            .post(format!("{}/v1/leaderboard/{board}", env.base))
             .bearer_auth(&lead.token)
             .json(&json!({ "score": 300 }))
             .send()
@@ -121,7 +121,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     ] {
         let written = json_body(
             env.client
-                .post(format!("{}/v2/leaderboard/{board}", env.base))
+                .post(format!("{}/v1/leaderboard/{board}", env.base))
                 .bearer_auth(&lead.token)
                 .json(&body)
                 .send()
@@ -135,7 +135,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     }
     json_body(
         env.client
-            .post(format!("{}/v2/leaderboard/{board}", env.base))
+            .post(format!("{}/v1/leaderboard/{board}", env.base))
             .bearer_auth(&rival.token)
             .json(&json!({ "score": 400 }))
             .send()
@@ -148,13 +148,13 @@ pub async fn leaderboard_surface(env: &Harness) {
 
     let page = json_body(
         env.client
-            .get(format!("{}/v2/leaderboard/{board}?limit=1", env.base))
+            .get(format!("{}/v1/leaderboard/{board}?limit=1", env.base))
             .bearer_auth(&lead.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/leaderboard/{leaderboardId}?limit=1",
+        "GET /v1/leaderboard/{leaderboardId}?limit=1",
     )
     .await;
     let rows = page["records"].as_array().expect("a page").clone();
@@ -167,13 +167,13 @@ pub async fn leaderboard_surface(env: &Harness) {
     );
     let wide = json_body(
         env.client
-            .get(format!("{}/v2/leaderboard/{board}?limit=10", env.base))
+            .get(format!("{}/v1/leaderboard/{board}?limit=10", env.base))
             .bearer_auth(&lead.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/leaderboard/{leaderboardId} (full page)",
+        "GET /v1/leaderboard/{leaderboardId} (full page)",
     )
     .await;
     assert_eq!(wide["records"].as_array().map(Vec::len), Some(2), "{wide}");
@@ -181,7 +181,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     let owners = json_body(
         env.client
             .get(format!(
-                "{}/v2/leaderboard/{board}?owner_ids={}",
+                "{}/v1/leaderboard/{board}?owner_ids={}",
                 env.base,
                 format!("{},{}", rival.uid, lead.uid)
             ))
@@ -190,7 +190,7 @@ pub async fn leaderboard_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/leaderboard/{leaderboardId}?owner_ids= (batch)",
+        "GET /v1/leaderboard/{leaderboardId}?owner_ids= (batch)",
     )
     .await;
     assert_eq!(
@@ -227,7 +227,7 @@ pub async fn leaderboard_surface(env: &Harness) {
         assert_eq!(
             refusal(
                 env.client
-                    .get(format!("{}/v2/leaderboard/{board}?{query}", env.base))
+                    .get(format!("{}/v1/leaderboard/{board}?{query}", env.base))
                     .bearer_auth(&lead.token)
                     .send()
                     .await
@@ -244,7 +244,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     let hay = json_body(
         env.client
             .get(format!(
-                "{}/v2/leaderboard/{board}/owner/{}",
+                "{}/v1/leaderboard/{board}/owner/{}",
                 env.base, rival.uid
             ))
             .bearer_auth(&lead.token)
@@ -252,7 +252,7 @@ pub async fn leaderboard_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/leaderboard/{leaderboardId}/owner/{ownerId}",
+        "GET /v1/leaderboard/{leaderboardId}/owner/{ownerId}",
     )
     .await;
     assert_eq!(
@@ -268,7 +268,7 @@ pub async fn leaderboard_surface(env: &Harness) {
         refusal(
             env.client
                 .get(format!(
-                    "{}/v2/leaderboard/{board}/owner/not-a-uuid",
+                    "{}/v1/leaderboard/{board}/owner/not-a-uuid",
                     env.base
                 ))
                 .bearer_auth(&lead.token)
@@ -285,7 +285,7 @@ pub async fn leaderboard_surface(env: &Harness) {
         json_body(
             env.client
                 .get(format!(
-                    "{}/v2/leaderboard/{board}/owner/{}",
+                    "{}/v1/leaderboard/{board}/owner/{}",
                     env.base,
                     Uuid::new_v4()
                 ))
@@ -303,20 +303,20 @@ pub async fn leaderboard_surface(env: &Harness) {
 
     expect(
         env.client
-            .delete(format!("{}/v2/leaderboard/{board}", env.base))
+            .delete(format!("{}/v1/leaderboard/{board}", env.base))
             .bearer_auth(&lead.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/leaderboard/{leaderboardId}",
+        "DELETE /v1/leaderboard/{leaderboardId}",
     )
     .await;
     assert_eq!(
         json_body(
             env.client
                 .get(format!(
-                    "{}/v2/leaderboard/{board}/owner/{}",
+                    "{}/v1/leaderboard/{board}/owner/{}",
                     env.base, lead.uid
                 ))
                 .bearer_auth(&lead.token)
@@ -332,7 +332,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     );
     let survivors = json_body(
         env.client
-            .get(format!("{}/v2/leaderboard/{board}?limit=10", env.base))
+            .get(format!("{}/v1/leaderboard/{board}?limit=10", env.base))
             .bearer_auth(&rival.token)
             .send()
             .await
@@ -351,7 +351,7 @@ pub async fn leaderboard_surface(env: &Harness) {
         (
             "writing to an authoritative board",
             env.client
-                .post(format!("{}/v2/leaderboard/{auth_board}", env.base))
+                .post(format!("{}/v1/leaderboard/{auth_board}", env.base))
                 .bearer_auth(&lead.token)
                 .json(&json!({ "score": 10 }))
                 .send()
@@ -361,7 +361,7 @@ pub async fn leaderboard_surface(env: &Harness) {
         (
             "deleting from an authoritative board",
             env.client
-                .delete(format!("{}/v2/leaderboard/{auth_board}", env.base))
+                .delete(format!("{}/v1/leaderboard/{auth_board}", env.base))
                 .bearer_auth(&lead.token)
                 .send()
                 .await
@@ -373,7 +373,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/leaderboard/{auth_board}", env.base))
+                .post(format!("{}/v1/leaderboard/{auth_board}", env.base))
                 .bearer_auth(&lead.token)
                 .json(&json!({ "score": 10 }))
                 .send()
@@ -388,7 +388,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/leaderboard/{auth_board}", env.base))
+                .delete(format!("{}/v1/leaderboard/{auth_board}", env.base))
                 .bearer_auth(&lead.token)
                 .send()
                 .await
@@ -402,7 +402,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/leaderboard/{round}", env.base))
+                .delete(format!("{}/v1/leaderboard/{round}", env.base))
                 .bearer_auth(&lead.token)
                 .send()
                 .await
@@ -416,7 +416,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/leaderboard/{ghost}", env.base))
+                .get(format!("{}/v1/leaderboard/{ghost}", env.base))
                 .bearer_auth(&lead.token)
                 .send()
                 .await

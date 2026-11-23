@@ -7,7 +7,7 @@ pub async fn grant_idempotency(env: &Harness, console: &str) {
 
     json_body(
         env.client
-            .post(format!("{}/v2/inventory/define", env.base))
+            .post(format!("{}/v1/inventory/define", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "item_id": item_id,
@@ -31,7 +31,7 @@ pub async fn grant_idempotency(env: &Harness, console: &str) {
         let key = key.to_owned();
         async move {
             client
-                .post(format!("{base}/v2/inventory/grant"))
+                .post(format!("{base}/v1/inventory/grant"))
                 .header(reqwest::header::AUTHORIZATION, server_key_header())
                 .header("Idempotency-Key", key)
                 .json(&json!({"user_id": uid, "item_id": item, "quantity": quantity}))

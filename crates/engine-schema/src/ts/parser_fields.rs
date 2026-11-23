@@ -9,7 +9,11 @@ impl Parser {
     pub(super) fn parse_schema_fields(
         &mut self,
         keyword: &Token,
-    ) -> Option<(Vec<SchemaField>, Vec<(String, String)>, Vec<crate::NestedArray>)> {
+    ) -> Option<(
+        Vec<SchemaField>,
+        Vec<(String, String)>,
+        Vec<crate::NestedArray>,
+    )> {
         let mut fields = Vec::new();
         let mut maps = Vec::new();
         let mut nested_arrays = Vec::new();
@@ -108,8 +112,12 @@ impl Parser {
                                         "nested schema '{target}' must be declared before field '{field_name}'"
                                     ),
                                 );
-                                if self.eat_symbol(',') { continue; }
-                                if self.eat_symbol('}') { break; }
+                                if self.eat_symbol(',') {
+                                    continue;
+                                }
+                                if self.eat_symbol('}') {
+                                    break;
+                                }
                                 continue;
                             };
                             for child in definition.schema.fields {
@@ -118,7 +126,9 @@ impl Parser {
                                     self.error(
                                         key_token.line,
                                         key_token.column,
-                                        format!("nested field '{name}' collides with another field"),
+                                        format!(
+                                            "nested field '{name}' collides with another field"
+                                        ),
                                     );
                                     continue;
                                 }

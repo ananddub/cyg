@@ -21,6 +21,5 @@
     <mapping directory="$PROJECT_DIR$/reference/quantum/bepuphysics1int" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/reference/quantum/meecs" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/reference/quantum/unity-deterministic-physics" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/tmp/open-games" vcs="Git" />
   </component>
 </project>

@@ -1,6 +1,5 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::Empty;
@@ -14,12 +13,12 @@ use crate::repositories::account::UpdateAccountParams;
 impl super::AccountService {
     pub async fn update_account(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         _params: GetAccountQuery,
         req: UpdateAccountRequest,
     ) -> Result<Json<AccountResponse>, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
         let uid = auth.uid();
         let existing = queries.get_user_by_id(uid).await?;
 
@@ -82,11 +81,11 @@ impl super::AccountService {
 
     pub async fn update_password(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: UpdatePasswordRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
         let user = queries.get_user_by_id(auth.uid()).await?;
         let stored = user.password.clone().unwrap_or_default();
         if stored.is_empty() || !jwt::verify_password(&req.current_password, &stored) {

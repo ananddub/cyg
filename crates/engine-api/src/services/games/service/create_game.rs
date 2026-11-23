@@ -1,18 +1,13 @@
-use crate::services::deps::q;
-
 use super::*;
 
 impl GamesService {
-    pub async fn create_game(
-        state: &ApiState,
-        body: &CreateGameRequest,
-    ) -> Result<GameDto, V2Error> {
+    pub async fn create_game(&self, body: &CreateGameRequest) -> Result<GameDto, V2Error> {
         let name = game_name(&body.name)?;
         let engine = engine_type(body.engine_type.as_deref().unwrap_or("unity"))?;
         let backend = backend_mode_for_engine(&engine);
         let config = create_config(body)?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         for _ in 0..KEY_ATTEMPTS {
             match queries
                 .insert_game(&InsertGameParams {
@@ -35,8 +30,8 @@ impl GamesService {
             "This game's name keeps colliding with an existing key; register it again.",
         ))
     }
-    pub async fn list_games(state: &ApiState) -> Result<GameListDto, V2Error> {
-        let queries = q(state).await?;
+    pub async fn list_games(&self) -> Result<GameListDto, V2Error> {
+        let queries = self.plane.q().await?;
         let rows: Vec<ListGamesRow> = queries.list_games().await.map_err(V2Error::from)?;
         let total = queries.count_games().await.map_err(V2Error::from)?;
         Ok(GameListDto {
@@ -47,9 +42,9 @@ impl GamesService {
             total,
         })
     }
-    pub async fn get_game(state: &ApiState, game_id: Uuid) -> Result<GameDetailDto, V2Error> {
-        let row = Self::find_game(state, game_id).await?;
-        let queries = q(state).await?;
+    pub async fn get_game(&self, game_id: Uuid) -> Result<GameDetailDto, V2Error> {
+        let row = Self::find_game(self, game_id).await?;
+        let queries = self.plane.q().await?;
         let api_key = queries
             .find_game_secret_by_id(game_id)
             .await
@@ -69,24 +64,25 @@ impl GamesService {
             created_at: row.created_at,
             updated_at: row.updated_at,
             api_key,
-            active_module_version: Self::active_module_version(state, game_id).await?,
-            module_count: Self::module_count(state, game_id).await?,
+            active_module_version: Self::active_module_version(self, game_id).await?,
+            module_count: Self::module_count(self, game_id).await?,
         })
     }
     pub async fn unity_settings(
-        state: &ApiState,
+        &self,
+
         game_id: Uuid,
         reveal: bool,
         headers: &HeaderMap,
     ) -> Result<UnityConnectionDto, V2Error> {
-        let detail = Self::get_game(state, game_id).await?;
+        let detail = Self::get_game(self, game_id).await?;
         let config =
             serde_json::from_value::<GameConfig>(detail.config.clone()).unwrap_or_default();
         Ok(UnityConnectionDto {
             game_key: detail.game_key,
             client_key: detail.client_key,
             api_key: reveal.then_some(detail.api_key),
-            server_http_url: advertised_base_url(state, headers),
+            server_http_url: advertised_base_url(&self.plane, headers),
             server_ws_path: SERVER_WS_PATH.to_owned(),
             default_room: DEFAULT_ROOM_NAME.to_owned(),
             tick_rate: config.tick_rate,

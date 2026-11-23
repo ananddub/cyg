@@ -7,7 +7,7 @@ fn as_number(text: &str) -> Option<String> {
     text.parse::<f64>().ok().map(|n| n.to_string())
 }
 
-pub(super) fn parse(query: &str) -> Result<Vec<Term>, V2Error> {
+pub(crate) fn parse(query: &str) -> Result<Vec<Term>, V2Error> {
     let mut terms = Vec::new();
     for token in split_terms(query) {
         terms.push(parse_term(token)?);

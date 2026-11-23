@@ -4,13 +4,13 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
     eprintln!("gap: console storage browser");
     let owner = device_player(&env.client, &env.base, "store").await;
     let collection = format!("e2e_console_{}", letters_suffix());
-    put_object(&env, &owner.token, &collection, "alpha", json!({"hp": 100})).await;
-    put_object(&env, &owner.token, &collection, "beta", json!({"hp": 50})).await;
+    put_object(env, &owner.token, &collection, "alpha", json!({"hp": 100})).await;
+    put_object(env, &owner.token, &collection, "beta", json!({"hp": 50})).await;
 
     let one = json_body(
         env.client
             .get(format!(
-                "{}/v2/storage/{}/{}/{}",
+                "{}/v1/storage/{}/{}/{}",
                 env.base, collection, "alpha", owner.uid
             ))
             .bearer_auth(&owner.token)
@@ -18,20 +18,20 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/storage/{collection}/{key}/{userId}",
+        "GET /v1/storage/{collection}/{key}/{userId}",
     )
     .await;
     assert_eq!(json_string(&one["value"]), json!({"hp": 100}));
 
     let rows = json_body(
         env.client
-            .get(format!("{}/v2/console/storage/{collection}", env.base))
+            .get(format!("{}/v1/console/storage/{collection}", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/storage/{collection}",
+        "GET /v1/console/storage/{collection}",
     )
     .await;
     let listed = rows.as_array().expect("an array of objects").clone();
@@ -50,13 +50,13 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
 
     let collections = json_body(
         env.client
-            .get(format!("{}/v2/console/storage/collections", env.base))
+            .get(format!("{}/v1/console/storage/collections", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/storage/collections",
+        "GET /v1/console/storage/collections",
     )
     .await;
     assert!(
@@ -70,7 +70,7 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
     refusal(
         env.client
             .delete(format!(
-                "{}/v2/console/storage/object/{collection}/alpha/not-a-uuid",
+                "{}/v1/console/storage/object/{collection}/alpha/not-a-uuid",
                 env.base
             ))
             .bearer_auth(console)
@@ -85,7 +85,7 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/storage/object/{collection}/gamma/{}",
+                    "{}/v1/console/storage/object/{collection}/gamma/{}",
                     env.base, owner.uid
                 ))
                 .bearer_auth(console)
@@ -101,7 +101,7 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
     refusal(
         env.client
             .delete(format!(
-                "{}/v2/console/storage/object/{collection}/alpha/{}",
+                "{}/v1/console/storage/object/{collection}/alpha/{}",
                 env.base, owner.uid
             ))
             .bearer_auth(viewer)
@@ -115,7 +115,7 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
     expect(
         env.client
             .delete(format!(
-                "{}/v2/console/storage/object/{collection}/alpha/{}",
+                "{}/v1/console/storage/object/{collection}/alpha/{}",
                 env.base, owner.uid
             ))
             .bearer_auth(console)
@@ -123,12 +123,12 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/storage/object/{collection}/{key}/{userId}",
+        "DELETE /v1/console/storage/object/{collection}/{key}/{userId}",
     )
     .await;
     let rows = json_body(
         env.client
-            .get(format!("{}/v2/console/storage/{collection}", env.base))
+            .get(format!("{}/v1/console/storage/{collection}", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -142,7 +142,7 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
     refusal(
         env.client
             .delete(format!(
-                "{}/v2/console/storage/collection/{collection}",
+                "{}/v1/console/storage/collection/{collection}",
                 env.base
             ))
             .bearer_auth(viewer)
@@ -156,7 +156,7 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
     let cleared = json_body(
         env.client
             .delete(format!(
-                "{}/v2/console/storage/collection/{collection}",
+                "{}/v1/console/storage/collection/{collection}",
                 env.base
             ))
             .bearer_auth(console)
@@ -164,7 +164,7 @@ pub async fn storage_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/storage/collection/{collection}",
+        "DELETE /v1/console/storage/collection/{collection}",
     )
     .await;
     assert_eq!(cleared["removed"], 1, "{cleared}");

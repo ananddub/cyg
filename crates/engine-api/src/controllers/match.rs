@@ -12,7 +12,7 @@ struct MatchController {
     service: Arc<MatchQueryService>,
 }
 
-#[controller("/v2")]
+#[controller("/v1")]
 impl MatchController {
     fn new(service: Arc<MatchQueryService>) -> Self {
         Self { service }

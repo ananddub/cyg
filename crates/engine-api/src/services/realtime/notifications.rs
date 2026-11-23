@@ -1,44 +1,41 @@
+use crate::services::plane::Plane;
 use auto_di::singleton;
 use auto_ws::{Conn, Msg};
 use std::sync::Arc;
 
-use crate::ApiState;
 use crate::error::V2Error;
 use crate::infra::ws::envelope::EnvelopeMessage;
 use crate::infra::ws::session;
 
 use crate::controllers::realtime::messages::*;
-use crate::controllers::realtime::{Dispatched, session_of, state_of};
+use crate::controllers::realtime::{Dispatched, session_of};
 
-pub struct RealtimeNotificationService;
+pub struct RealtimeNotificationService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 #[singleton]
 impl RealtimeNotificationService {
-    pub fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 
 impl RealtimeNotificationService {
     pub async fn list(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: NotificationsList = msg.payload()?;
-        self.query(
-            &state_of(conn),
-            &session_of(conn),
-            req.limit,
-            req.cacheable_cursor,
-        )
-        .await
+        self.query(&session_of(conn), req.limit, req.cacheable_cursor)
+            .await
     }
 
     async fn query(
         &self,
-        state: &ApiState,
+
         session: &Arc<session::Session>,
         limit: Option<i64>,
         cacheable_cursor: Option<String>,
     ) -> Dispatched {
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
         let rows = queries
             .list_notifications(
                 &crate::repositories::notification::ListNotificationsParams {

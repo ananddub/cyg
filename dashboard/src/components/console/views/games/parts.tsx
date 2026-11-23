@@ -87,7 +87,7 @@ export function StatusPill({ status }: { status: string }) {
 
 /** The API key dialog: masked until revealed, copyable once shown, and stamped
  * with the fact that the creation key is never repeated. Reopened from a game's
- * detail, it re-reads the stored key through `GET /v2/console/games/{id}`. */
+ * detail, it re-reads the stored key through `GET /v1/console/games/{id}`. */
 export function ApiKeyDialog({
   gameName,
   apiKey,

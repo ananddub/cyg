@@ -2,7 +2,7 @@
 // and the version table with activate and delete. Rendered by the per-game
 // detail tabs as the "Maps" tab.
 //
-// The upload is `POST /v2/console/games/{id}/maps/upload` as multipart form
+// The upload is `POST /v1/console/games/{id}/maps/upload` as multipart form
 // data (`file`, `format`, optional `name`) — like the wasm studio, the one raw
 // request the panel needs, same bearer token, refusals surfaced as toasts.
 

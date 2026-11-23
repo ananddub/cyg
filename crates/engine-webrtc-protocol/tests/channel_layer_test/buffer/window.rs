@@ -24,10 +24,7 @@ fn a_delivery_releases_the_older_partial() {
         .expect("11 closes");
     let mut expected = vec![0xbb; MAXC];
     expected.push(0xbc);
-    assert_eq!(
-        (delta.seq, delta.tick, delta.body),
-        (11, 2, expected)
-    );
+    assert_eq!((delta.seq, delta.tick, delta.body), (11, 2, expected));
     assert_eq!(assembler.inflight(), 0, "10 was superseded by the delivery");
     assert_eq!(assembler.evicted(), 1);
     assert_eq!(assembler.buffered_bytes(), 0);

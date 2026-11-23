@@ -5,7 +5,7 @@ pub(super) const MAX_FILENAME_LEN: usize = 255;
 pub(super) struct ConsoleWasmController {
     pub(super) service: Arc<WasmService>,
 }
-#[controller("/v2/console/games/{gameId}/wasm")]
+#[controller("/v1/console/games/{gameId}/wasm")]
 impl ConsoleWasmController {
     fn new(service: Arc<WasmService>) -> Self {
         Self { service }
@@ -39,7 +39,7 @@ impl ConsoleWasmController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .list_modules(&state, game_id)
+            .list_modules(game_id)
             .await
             .map(Json)
             .into_response()
@@ -83,7 +83,7 @@ impl ConsoleWasmController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .delete_module(&state, game_id, version)
+            .delete_module(game_id, version)
             .await
             .into_response()
     }

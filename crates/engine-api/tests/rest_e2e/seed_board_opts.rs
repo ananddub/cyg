@@ -113,7 +113,7 @@ pub async fn refusal(resp: reqwest::Response, status: StatusCode, what: &str) ->
 pub async fn console_login(client: &Client, base: &str) -> String {
     let body = json_body(
         client
-            .post(format!("{base}/v2/console/authenticate"))
+            .post(format!("{base}/v1/console/authenticate"))
             .json(&json!({ "username": CONSOLE_USER, "password": CONSOLE_PASSWORD }))
             .send()
             .await

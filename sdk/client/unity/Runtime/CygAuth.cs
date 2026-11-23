@@ -1,4 +1,4 @@
-// BaaS auth — /v2/account/authenticate/* wrappers (web SDK client.auth parity).
+// BaaS auth — /v1/account/authenticate/* wrappers (web SDK client.auth parity).
 //
 // Bodies are serialised, never interpolated. The earlier version built its JSON
 // with string interpolation, so an email containing a quote produced invalid
@@ -63,13 +63,13 @@ namespace CYG
         /// sending the wrong name authenticates nobody while still answering 200.
         /// </remark>
         public Task<string> LoginDevice(string deviceId) =>
-            Post("/v2/account/authenticate/device", new { id = deviceId });
+            Post("/v1/account/authenticate/device", new { id = deviceId });
 
         public Task<string> LoginEmail(string email, string password) =>
-            Post("/v2/account/authenticate/email", new { email, password });
+            Post("/v1/account/authenticate/email", new { email, password });
 
         public Task<string> RegisterEmail(string email, string password, string username) =>
-            Post("/v2/account/authenticate/email", new { email, password, username, create = true });
+            Post("/v1/account/authenticate/email", new { email, password, username, create = true });
 
         private static string Extract(string json, string key)
         {

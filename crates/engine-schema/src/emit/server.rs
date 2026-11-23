@@ -133,13 +133,19 @@ fn emit_nested_views(out: &mut String, schema: &SchemaDef) {
     for path in paths {
         let view = format!("{}_{}", schema.name, super::common::capitalize(path));
         out.push_str(&format!("\nexport class {view} {{\n    private _owner: {};\n    constructor(owner: {}) {{ this._owner = owner; }}\n", schema.name, schema.name));
-        for field in schema.fields.iter().filter(|f| f.nested_path.as_deref() == Some(path)) {
+        for field in schema
+            .fields
+            .iter()
+            .filter(|f| f.nested_path.as_deref() == Some(path))
+        {
             let child = field
                 .name
                 .strip_prefix(&format!("{path}__"))
                 .unwrap_or(&field.name);
             let ty = match field.kind {
-                WireKind::Array => crate::wire::array_assemblyscript_type(field.element.unwrap_or(WireKind::F64)),
+                WireKind::Array => {
+                    crate::wire::array_assemblyscript_type(field.element.unwrap_or(WireKind::F64))
+                }
                 other => other.assemblyscript_type(),
             };
             out.push_str(&format!(

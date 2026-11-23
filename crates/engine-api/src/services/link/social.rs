@@ -2,7 +2,6 @@ use axum::Json;
 use axum::http::HeaderMap;
 
 use super::bearer;
-use crate::ApiState;
 use crate::dto::Empty;
 use crate::dto::auth;
 use crate::dto::link::SyncQuery;
@@ -13,21 +12,21 @@ use crate::utils::vendor;
 impl super::LinkService {
     pub async fn apple(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         _account: auth::TokenAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        bearer(headers, state)?;
+        bearer(headers, &self.plane)?;
         Err(vendor::unconfigured("Apple"))
     }
 
     pub async fn steam(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         link: auth::SteamLink,
     ) -> Result<Json<Empty>, V2Error> {
-        bearer(headers, state)?;
+        bearer(headers, &self.plane)?;
         if link
             .account
             .as_ref()
@@ -40,13 +39,13 @@ impl super::LinkService {
 
     pub async fn facebook(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         query: SyncQuery,
         account: auth::TokenAccount,
     ) -> Result<Json<Empty>, V2Error> {
         query.check()?;
-        bearer(headers, state)?;
+        bearer(headers, &self.plane)?;
         if account.token.is_empty() {
             return Err(V2Error::invalid_argument(
                 "Facebook access token is required.",
@@ -57,11 +56,11 @@ impl super::LinkService {
 
     pub async fn google(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::TokenAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        bearer(headers, state)?;
+        bearer(headers, &self.plane)?;
         if account.token.is_empty() {
             return Err(V2Error::invalid_argument(
                 "Google access token is required.",
@@ -72,11 +71,11 @@ impl super::LinkService {
 
     pub async fn facebook_instant_game(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::InstantGameAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        bearer(headers, state)?;
+        bearer(headers, &self.plane)?;
         if account.signed_player_info.is_empty() {
             return Err(V2Error::invalid_argument(
                 "Signed Player Info for a Facebook Instant Game is required.",
@@ -87,22 +86,22 @@ impl super::LinkService {
 
     pub async fn game_center(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::GameCenterAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        bearer(headers, state)?;
+        bearer(headers, &self.plane)?;
         social::game_center_fields(&account)?;
         Err(vendor::profile("GameCenter"))
     }
 
     pub async fn provider(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::ProviderAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        bearer(headers, state)?;
+        bearer(headers, &self.plane)?;
         Err(vendor::no_runtime_provider(&account.provider))
     }
 }

@@ -6,7 +6,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     let bob = device_player(client, base, "no-b").await;
     let charlie = device_player(client, base, "no-c").await;
 
-    let add = |username: &str| with_query(&format!("{base}/v2/friend"), &[("usernames", username)]);
+    let add = |username: &str| with_query(&format!("{base}/v1/friend"), &[("usernames", username)]);
 
     api_post_empty(
         client,
@@ -26,16 +26,23 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     let group_name = format!("e2e-notify-group-{}", letters_suffix());
     let group = api_post(
         client,
-        format!("{base}/v2/group"),
+        format!("{base}/v1/group"),
         &alice.token,
         json!({ "name": group_name, "open": false }),
         "create a closed group for notifications",
     )
     .await;
     let gid = group["group"]["id"].as_str().expect("group id").to_owned();
+    // The stored name, not the submitted one: names pass through the profanity
+    // censor, and a random suffix can trip it. The notification must carry what
+    // was stored, which is the invariant this test is about.
+    let stored_name = group["group"]["name"]
+        .as_str()
+        .expect("group name")
+        .to_owned();
     api_post_empty(
         client,
-        format!("{base}/v2/group/{gid}/join"),
+        format!("{base}/v1/group/{gid}/join"),
         &bob.token,
         "bob requests to join",
     )
@@ -43,7 +50,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     api_post_empty(
         client,
         with_query(
-            &format!("{base}/v2/group/{gid}/add"),
+            &format!("{base}/v1/group/{gid}/add"),
             &[("user_ids", &bob.uid)],
         ),
         &alice.token,
@@ -60,7 +67,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
 
     let bob_page = api_get(
         client,
-        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        with_query(&format!("{base}/v1/notification"), &[("limit", "100")]),
         &bob.token,
         "bob's notifications",
     )
@@ -106,11 +113,11 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     let added = by_code(&bob_page, -4);
     assert_eq!(
         json_string(&added["content"]),
-        json!({ "group_id": gid, "name": group_name })
+        json!({ "group_id": gid, "name": stored_name })
     );
     assert_eq!(
         added["subject"],
-        format!("You've been added to group {group_name}")
+        format!("You've been added to group {stored_name}")
     );
     let removed = by_code(&bob_page, -9);
     assert_eq!(
@@ -124,7 +131,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
 
     let alice_page = api_get(
         client,
-        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        with_query(&format!("{base}/v1/notification"), &[("limit", "100")]),
         &alice.token,
         "alice's notifications",
     )
@@ -155,7 +162,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     let filtered = api_get(
         client,
         with_query(
-            &format!("{base}/v2/notification"),
+            &format!("{base}/v1/notification"),
             &[("limit", "100"), ("code", "-2")],
         ),
         &bob.token,
@@ -173,7 +180,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     let by_sender = api_get(
         client,
         with_query(
-            &format!("{base}/v2/notification"),
+            &format!("{base}/v1/notification"),
             &[("limit", "100"), ("sender_id", &alice.uid)],
         ),
         &bob.token,
@@ -190,7 +197,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     refusal(
         client
             .get(with_query(
-                &format!("{base}/v2/notification"),
+                &format!("{base}/v1/notification"),
                 &[("sender_id", "not-a-uuid")],
             ))
             .bearer_auth(&bob.token)
@@ -205,7 +212,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         refusal(
             client
                 .get(with_query(
-                    &format!("{base}/v2/notification"),
+                    &format!("{base}/v1/notification"),
                     &[("limit", limit)],
                 ))
                 .bearer_auth(&bob.token)
@@ -220,7 +227,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     refusal(
         client
             .get(with_query(
-                &format!("{base}/v2/notification"),
+                &format!("{base}/v1/notification"),
                 &[("cacheableCursor", "garbage")],
             ))
             .bearer_auth(&bob.token)
@@ -234,7 +241,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
 
     let default_page = api_get(
         client,
-        format!("{base}/v2/notification"),
+        format!("{base}/v1/notification"),
         &alice.token,
         "default notification page",
     )
@@ -256,7 +263,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         }
         let page = api_get(
             client,
-            with_query(&format!("{base}/v2/notification"), &pairs),
+            with_query(&format!("{base}/v1/notification"), &pairs),
             &bob.token,
             "page through notifications",
         )
@@ -276,7 +283,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
 
     let charlie_page = api_get(
         client,
-        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        with_query(&format!("{base}/v1/notification"), &[("limit", "100")]),
         &charlie.token,
         "a player with no notifications",
     )
@@ -292,14 +299,14 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     let single = removed["id"].as_str().expect("notification id").to_owned();
     api_delete(
         client,
-        format!("{base}/v2/notification/{single}"),
+        format!("{base}/v1/notification/{single}"),
         &bob.token,
         "delete one notification",
     )
     .await;
     refusal(
         client
-            .delete(format!("{base}/v2/notification/not-a-uuid"))
+            .delete(format!("{base}/v1/notification/not-a-uuid"))
             .bearer_auth(&bob.token)
             .send()
             .await
@@ -310,7 +317,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     .await;
     refusal(
         client
-            .delete(format!("{base}/v2/notification/{}", Uuid::new_v4()))
+            .delete(format!("{base}/v1/notification/{}", Uuid::new_v4()))
             .bearer_auth(&bob.token)
             .send()
             .await
@@ -331,7 +338,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     api_delete(
         client,
         with_query(
-            &format!("{base}/v2/notification"),
+            &format!("{base}/v1/notification"),
             &[("ids", &remaining[0]), ("ids", &remaining[1])],
         ),
         &bob.token,
@@ -340,7 +347,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     .await;
     let cleared = api_get(
         client,
-        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        with_query(&format!("{base}/v1/notification"), &[("limit", "100")]),
         &bob.token,
         "bob has no notifications left",
     )
@@ -356,7 +363,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     api_post_empty(client, add(&bob.username), &alice.token, "invite bob again").await;
     let invite = api_get(
         client,
-        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        with_query(&format!("{base}/v1/notification"), &[("limit", "100")]),
         &bob.token,
         "the second invite",
     )
@@ -367,7 +374,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         .to_owned();
     api_delete_body(
         client,
-        format!("{base}/v2/notification"),
+        format!("{base}/v1/notification"),
         &bob.token,
         json!({ "ids": [invite_id] }),
         "delete notifications by JSON body",
@@ -377,7 +384,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     api_delete(client, add(&bob.username), &alice.token, "remove bob again").await;
     let removed = api_get(
         client,
-        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        with_query(&format!("{base}/v1/notification"), &[("limit", "100")]),
         &bob.token,
         "the second removal",
     )
@@ -389,7 +396,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     let array_value = json!([removed_id]).to_string();
     api_delete(
         client,
-        with_query(&format!("{base}/v2/notification"), &[("ids", &array_value)]),
+        with_query(&format!("{base}/v1/notification"), &[("ids", &array_value)]),
         &bob.token,
         "delete notifications by a JSON-array query value",
     )
@@ -411,7 +418,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     .await;
     let pairs = api_get(
         client,
-        with_query(&format!("{base}/v2/notification"), &[("limit", "100")]),
+        with_query(&format!("{base}/v1/notification"), &[("limit", "100")]),
         &bob.token,
         "the final pair of notifications",
     )
@@ -426,7 +433,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     api_delete(
         client,
         with_query(
-            &format!("{base}/v2/notification"),
+            &format!("{base}/v1/notification"),
             &[("ids", &ids.join(","))],
         ),
         &bob.token,
@@ -436,7 +443,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
 
     api_delete_body(
         client,
-        format!("{base}/v2/notification"),
+        format!("{base}/v1/notification"),
         &bob.token,
         json!({ "ids": [] }),
         "delete an empty notification list",

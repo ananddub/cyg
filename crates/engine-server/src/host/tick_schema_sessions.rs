@@ -184,7 +184,9 @@ impl TickRunner {
             let mut delivered = if self.volatile_ready {
                 // With volatile fields present the must-deliver stream takes
                 // the reliable lane; only the marked fields ride the lossy one.
-                ctx.transport.send_state_reliable(session, frame, server_tick_u32).is_ok()
+                ctx.transport
+                    .send_state_reliable(session, frame, server_tick_u32)
+                    .is_ok()
             } else {
                 let framed =
                     ctx.transport

@@ -10,8 +10,8 @@ No Node cluster, no sidecar orchestra. `cyg run` **is** the production artifact.
 │  Control plane (Tokio/Axum)          Game host loop (pinned sim)  │
 │  ├─ matchmake + seat tokens          ├─ WASM room runtime         │
 │  ├─ /ws/signal  (WebRTC signaling)   ├─ inbuilt ECS backend       │
-│  ├─ /v2/* player API (BaaS)          ├─ Rapier2D/3D physics       │
-│  ├─ /v2/console/* + web dashboard    ├─ AOI / spatial index       │
+│  ├─ /v1/* player API (BaaS)          ├─ Rapier2D/3D physics       │
+│  ├─ /v1/console/* + web dashboard    ├─ AOI / spatial index       │
 │  └─ statics (game website + SDK)     └─ WebRTC · UDP data plane   │
 │                                                                   │
 │            everything talks through one lock-free bus             │
@@ -120,7 +120,7 @@ max_rooms = 1024
 # merged with the creator's joinOrCreate options (client keys win)
 
 [control]
-api_port = 8124                # matchmake, signaling, /v2, console, /cyg.js
+api_port = 8124                # matchmake, signaling, /v1, console, /cyg.js
 
 [control.session]
 database_endpoint = "surrealkv://data/cyg"   # embedded accounts/chat/leaderboards
@@ -627,7 +627,7 @@ cyg gen-interface   [dir]   C++/Rust/C#/AS/TS room interfaces
 cyg cook <in.glb> <out.oxcl>  cook a 3D collision mesh for instant boot
 cyg backup | restore [dir]  export/import a remote SurrealDB (gzip + sha256)
 cyg migrate         [dir]   run DB schema migrations
-cyg openapi                 emit the /v2 OpenAPI document
+cyg openapi                 emit the /v1 OpenAPI document
 cyg secrets audit  [dir]    flag default/weak secrets
 cyg config diff    <a> <b>  diff two console config exports
 cyg rules check    --file … validate a rules/anti-cheat JSON
@@ -641,7 +641,7 @@ One process, one thread for the simulation, lock-free bus between planes:
 | Crate | What it is |
 |---|---|
 | `engine-server` | the host loop: WASM runtime, rooms, inbuilt ECS backend, RUDP, schema deltas, AOI |
-| `engine-api` | `/v2` player API + `/v2/console` + dashboard API (Axum, SurrealDB) |
+| `engine-api` | `/v1` player API + `/v1/console` + dashboard API (Axum, SurrealDB) |
 | `engine-control` | binds the plane: seats, signaling hub, Agones lifecycle |
 | `engine-net` | transports: WebRTC (str0m, sans-IO) + raw UDP, sendmmsg + UDP-GSO fan-out |
 | `engine-webrtc-protocol` | the shared wire: event/ack frames, SACK, lane classification |
@@ -653,6 +653,16 @@ One process, one thread for the simulation, lock-free bus between planes:
 | `engine-bus` | the cross-plane channels (inputs, deltas, reloads, kicks) |
 | `engine-config` | config.toml → typed structs |
 | `engine-agones` | GameServer lifecycle for Kubernetes fleets |
+
+**One version, one base.** Everything a game or a player calls lives under
+`/v1` — the player API and the operator API alike. There is no `/v2`: a request
+to it is a 404. Operational surfaces stay outside the version on purpose:
+`/status`, `/metrics`, `/readyz`, `/ws/*`, `/dashboard/*`, `/lobby`, `/queue`,
+`/matchmake`, `/openapi.json`. The literal lives in one place
+(`app/api.rs::API_BASE`); the controllers are authored at `/v1/...` and the
+`#[controller]` macro strips the segment so the plane mounts one tree from one
+place, and `tests/auto_routes/only_v1_is_versioned.rs` fails the build if a
+documented route appears anywhere else.
 
 **One runtime, inbuilt backends.** Game logic always runs in the WASM sandbox. The *state and simulation* behind it has inbuilt options: the reactive schema state (custom games), the host-side physics family (Rapier2D/3D), or the flat ECS backend (template-scale games — any room with `ecs` in its name runs on it). Same binary, same wire protocol, same console; nothing to install.
 
@@ -672,7 +682,7 @@ views need no polling either.
 
 ## Database
 
-The account plane (`/v2/*`, `/ws`, the console API) runs on **SurrealDB**, and
+The account plane (`/v1/*`, `/ws`, the console API) runs on **SurrealDB**, and
 the binary embeds it: `database_endpoint = "surrealkv://data/cyg"` in
 `config.toml` keeps accounts, chat and leaderboards in a local directory, with
 no separate service to install. Point the same key at `ws://host:8000` (or set
@@ -846,10 +856,13 @@ just doctor games/my-game           # project-level health check
 
 ## Releases & SDKs
 
-- **Binaries** — Linux / Windows / macOS (Intel + Apple Silicon) attach to every
-  GitHub Release. One-line install above.
-- **Docker** — `dubeyanand/cyg-gaming` on Docker Hub (game included, scratch-slim
-  variant available).
+- **Binaries** — Linux x64/arm64, macOS arm64 and Windows x64 attach to every
+  GitHub Release. Pushing a `v*` tag runs `.github/workflows/release.yml`: the API
+  plane's tests first, then the four binary builds, then the container image. A
+  tag that fails its tests publishes nothing.
+- **Docker** — `ghcr.io/ananddub/cyg:latest` (multi-architecture:
+  linux/amd64 + linux/arm64), built from the root `Dockerfile`. The game project
+  is baked in; mount your own over `/app/game` to run a different one.
 - **SDK repos** — [cyg-unity](https://github.com/ananddub/cyg-unity) ·
   [cyg-godot](https://github.com/ananddub/cyg-godot) ·
   [cyg-unreal](https://github.com/ananddub/cyg-unreal) ·

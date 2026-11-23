@@ -3,14 +3,12 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::load_tournament;
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::leaderboard::RecordListResponse;
 use crate::dto::tournament::RecordsQuery;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::Leaderboard;
-use crate::services::deps::q;
 use crate::services::leaderboard::records_list;
 use crate::utils::leaderboard::{number, query_window};
 use crate::utils::tournament::types::limit as bounded;
@@ -30,7 +28,7 @@ fn requested_limit(raw: Option<&str>, cursor: &str, owners: usize) -> Result<Opt
 impl super::TournamentService {
     pub async fn list_records(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         id: &str,
         req: RecordsQuery,
@@ -42,7 +40,7 @@ impl super::TournamentService {
         let limit = requested_limit(req.limit.as_deref(), &req.cursor, owners.len())?;
         let override_expiry = number(req.expiry.as_deref(), BAD_EXPIRY)?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let board = load_tournament(&queries, id).await?;
         let end = board.end_time.timestamp();
         if override_expiry == 0 && end > 0 && end <= Utc::now().timestamp() {

@@ -70,13 +70,13 @@ pub async fn matchmake_plane(env: &Harness) -> String {
 
     json_body(
         env.client
-            .post(format!("{}/api/matchmake/create/{room}", env.base))
+            .post(format!("{}/matchmake/create/{room}", env.base))
             .body("{}")
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /api/matchmake/create/{room}",
+        "POST /matchmake/create/{room}",
     )
     .await;
 

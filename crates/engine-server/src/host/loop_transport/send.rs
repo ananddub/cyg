@@ -161,11 +161,7 @@ impl LoopTransport {
                     fragment.push(index as u8);
                     fragment.push(total as u8);
                     fragment.extend_from_slice(chunk);
-                    if !self
-                        .rtc
-                        .server_mut()
-                        .send_unreliable(session, &fragment)
-                    {
+                    if !self.rtc.server_mut().send_unreliable(session, &fragment) {
                         tracing::error!(
                             "[server] ⚠️ volatile fragment {index}/{total} for {session} refused by the lossy lane"
                         );

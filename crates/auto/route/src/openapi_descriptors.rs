@@ -19,6 +19,31 @@ pub struct OpenApiRouteDescriptor {
     pub(crate) response: Option<OpenApiSchemaDescriptor>,
 }
 impl OpenApiRouteDescriptor {
+    /// The method as the spec spells it, lowercase (`get`, `post`, ...).
+    pub fn method(&self) -> &'static str {
+        self.method
+    }
+
+    /// The path this route answers, e.g. `/v1/leaderboard/{id}`.
+    pub fn path(&self) -> &'static str {
+        self.path
+    }
+
+    /// `METHOD /path`, the label an operator reads in the spec.
+    pub fn operation(&self) -> String {
+        format!("{} {}", self.method.to_ascii_uppercase(), self.path)
+    }
+
+    /// Whether the handler's signature told the spec what a success looks like.
+    pub fn documents_response(&self) -> bool {
+        self.response.is_some()
+    }
+
+    /// Whether the handler's signature told the spec what it accepts.
+    pub fn documents_request(&self) -> bool {
+        self.request.is_some()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub const fn new(
         method: &'static str,
@@ -138,4 +163,9 @@ fn sse_schema_ref() -> MetaSchemaRef {
         "event: message\ndata: {\"type\":\"message\"}\n\n"
     ));
     MetaSchemaRef::Inline(Box::new(schema))
+}
+
+/// Every route the derive macros registered, for tooling that audits the spec.
+pub fn documented_routes() -> impl IntoIterator<Item = &'static OpenApiRouteDescriptor> {
+    inventory::iter::<OpenApiRouteDescriptor>
 }

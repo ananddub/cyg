@@ -15,7 +15,7 @@ struct NotificationController {
     service: Arc<NotificationService>,
 }
 
-#[controller("/v2/notification")]
+#[controller("/v1/notification")]
 impl NotificationController {
     fn new(service: Arc<NotificationService>) -> Self {
         Self { service }
@@ -24,7 +24,7 @@ impl NotificationController {
     #[get("")]
     async fn list_notifications(&self, auth: Authed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
-        self.service.list(&state, &auth, req).await.into_response()
+        self.service.list(&auth, req).await.into_response()
     }
 
     #[delete("")]
@@ -42,7 +42,7 @@ impl NotificationController {
         );
         let state = current_state();
         self.service
-            .delete_many(&state, &auth, req)
+            .delete_many(&auth, req)
             .await
             .into_response()
     }
@@ -55,14 +55,14 @@ impl NotificationController {
     #[post("")]
     async fn send(&self, auth: Authed, Body(body): Body<SendRequest>) -> Response {
         let state = current_state();
-        self.service.send(&state, &auth, body).await.into_response()
+        self.service.send(&auth, body).await.into_response()
     }
 
     #[delete("/{id}")]
     async fn delete_notification(&self, auth: Authed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .delete_one(&state, &auth, &id)
+            .delete_one(&auth, &id)
             .await
             .into_response()
     }

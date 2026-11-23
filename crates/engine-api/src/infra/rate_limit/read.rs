@@ -83,10 +83,7 @@ impl IpRateLimiter {
     }
 
     pub fn tracked(&self) -> usize {
-        self.ips
-            .iter()
-            .map(|shard| lock(shard).buckets.len())
-            .sum()
+        self.ips.iter().map(|shard| lock(shard).buckets.len()).sum()
     }
 
     pub fn player_counts(&self) -> (u64, u64) {

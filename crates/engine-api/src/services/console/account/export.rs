@@ -1,6 +1,5 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::console::account::{
     AccountExport, AccountNoteRow, ExportedAccount, ExportedDevice, ExportedEdge, ExportedStorage,
@@ -9,20 +8,19 @@ use crate::dto::console::account::{
 use crate::error::V2Error;
 use crate::repositories::console::{ListStorageRow, ListWalletLedgerParams};
 use crate::repositories::console_mutations::ListUserEdgesRow;
-use crate::services::deps::q;
 
 const EXPORT_ROWS: i64 = 1000;
 
 impl super::ConsoleService {
     pub async fn export_account(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
     ) -> Result<Json<AccountExport>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let user = queries.get_user_by_id(id).await?;
         let devices = queries.list_user_devices(id).await?;
         let notes = queries.list_user_notes(id).await?;

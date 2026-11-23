@@ -1,13 +1,11 @@
 use axum::Json;
 use chrono::{DateTime, Utc};
 
-use crate::ApiState;
 use crate::dto::console::economy::{
     EconomySummary, EconomySummaryQuery, MarketActivity, PurchaseVolume, QuestActivity, WalletFlow,
 };
 use crate::error::V2Error;
 use crate::repositories::economy::environment_name;
-use crate::services::deps::q;
 
 /// The ledger scan is bounded; the summary says so instead of pretending the
 /// window was fully summed.
@@ -16,7 +14,7 @@ const ECONOMY_LEDGER_ROWS: i64 = 5000;
 impl super::ConsoleService {
     pub async fn economy_summary(
         &self,
-        state: &ApiState,
+
         query: EconomySummaryQuery,
     ) -> Result<Json<EconomySummary>, V2Error> {
         let to = match query.to.as_deref() {
@@ -33,7 +31,7 @@ impl super::ConsoleService {
             ));
         }
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let purchases: Vec<(String, i64)> = queries
             .count_purchases_by_environment(from, to)
             .await?

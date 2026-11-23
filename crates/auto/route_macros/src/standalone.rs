@@ -43,10 +43,11 @@ fn expand_standalone_route(
     let method = format_ident!("{method}");
     let method_name = method.to_string().to_ascii_uppercase();
     let factory = format_ident!("__auto_route_factory_{}", handler);
-    let path = LitStr::new(
-        &join_paths("", &route_options.path.value()),
-        route_options.path.span(),
-    );
+    let joined_path = join_paths("", &route_options.path.value());
+    // A standalone route keeps its full path, so it only joins the versioned
+    // tree when it is authored with a version segment the plane mounts.
+    let versioned = crate::docs::api_version(&joined_path).is_some();
+    let path = LitStr::new(&joined_path, route_options.path.span());
     let argument_types = function
         .sig
         .inputs
@@ -73,8 +74,9 @@ fn expand_standalone_route(
     let request_description = option_lit_tokens(docs.request_description.as_ref());
     let response_description = option_lit_tokens(docs.response_description.as_ref());
     let response_body = route_options
-        .sse_body
-        .map(|ty| ResponseBody::Sse(Some(ty)))
+        .response_body
+        .map(ResponseBody::Json)
+        .or_else(|| route_options.sse_body.map(|ty| ResponseBody::Sse(Some(ty))))
         .or_else(|| infer_response_body(&function.sig.output));
     let response_schema = response_schema_descriptor_tokens(response_body.as_ref());
 
@@ -100,7 +102,7 @@ fn expand_standalone_route(
         }
 
         ::auto_route::__private::inventory::submit! {
-            ::auto_route::RouteDescriptor::new(#factory)
+            ::auto_route::RouteDescriptor::new(#factory, #versioned)
         }
 
         ::auto_route::__private::inventory::submit! {

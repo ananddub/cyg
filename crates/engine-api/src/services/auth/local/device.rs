@@ -1,15 +1,17 @@
+use crate::services::plane::Plane;
+
 use super::*;
 use crate::services::quota;
 use crate::services::webhook::emit;
 
 pub async fn device(
-    state: &ApiState,
+    plane: &Plane,
     id: &str,
     username: &str,
     create: bool,
     vars: HashMap<String, String>,
 ) -> Result<Json<SessionResponse>, V2Error> {
-    let queries = q(state).await?;
+    let queries = plane.q().await?;
     match queries.get_device_by_id(id).await {
         Ok(row) => {
             if !row.provider.is_empty() {
@@ -22,22 +24,22 @@ pub async fn device(
                 .await
                 .map_err(lookup_failed)?;
             let user = existing(user)?;
-            quota::charge(state, user.id, quota::LOGIN, 1).await?;
+            quota::charge(plane, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(DbError::NotFound) if create => {
             let username = super::super::validate::creation_username(username)?;
-            let uid = create_device(state, id, &username).await?;
-            crate::services::games::tenant::stamp_user(state, uid).await;
+            let uid = create_device(plane, id, &username).await?;
+            crate::services::games::tenant::stamp_user(plane, uid).await;
             emit(
-                state,
+                plane,
                 "account.created",
                 &uid.to_string(),
                 serde_json::json!({ "user_id": uid, "username": username, "method": "device" }),
             )
             .await;
-            crate::services::rules::dispatch::fire(state, "player_create", uid).await;
-            quota::charge(state, uid, quota::LOGIN, 1).await?;
+            crate::services::rules::dispatch::fire(plane, "player_create", uid).await;
+            quota::charge(plane, uid, quota::LOGIN, 1).await?;
             Ok(session(uid, &username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),
@@ -45,17 +47,17 @@ pub async fn device(
     }
 }
 pub async fn custom(
-    state: &ApiState,
+    plane: &Plane,
     id: &str,
     username: &str,
     create: bool,
     vars: HashMap<String, String>,
 ) -> Result<Json<SessionResponse>, V2Error> {
-    let queries = q(state).await?;
+    let queries = plane.q().await?;
     match queries.get_user_by_custom_id(id).await {
         Ok(user) => {
             let user = existing(user)?;
-            quota::charge(state, user.id, quota::LOGIN, 1).await?;
+            quota::charge(plane, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(DbError::NotFound) if create => {
@@ -68,16 +70,16 @@ pub async fn custom(
                 })
                 .await
                 .map_err(insert_failed)?;
-            crate::services::games::tenant::stamp_user(state, user.id).await;
+            crate::services::games::tenant::stamp_user(plane, user.id).await;
             emit(
-                state,
+                plane,
                 "account.created",
                 &user.id.to_string(),
                 serde_json::json!({ "user_id": user.id, "username": user.username, "method": "custom_id" }),
             )
             .await;
-            crate::services::rules::dispatch::fire(state, "player_create", user.id).await;
-            quota::charge(state, user.id, quota::LOGIN, 1).await?;
+            crate::services::rules::dispatch::fire(plane, "player_create", user.id).await;
+            quota::charge(plane, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),
@@ -85,12 +87,12 @@ pub async fn custom(
     }
 }
 pub async fn email(
-    state: &ApiState,
+    plane: &Plane,
     login: Login,
     create: bool,
     vars: HashMap<String, String>,
 ) -> Result<Json<SessionResponse>, V2Error> {
-    let queries = q(state).await?;
+    let queries = plane.q().await?;
     match login {
         Login::Email {
             email,
@@ -99,7 +101,7 @@ pub async fn email(
         } => match queries.get_user_by_email(&email).await {
             Ok(user) => {
                 let user = existing(user)?;
-                quota::charge(state, user.id, quota::LOGIN, 1).await?;
+                quota::charge(plane, user.id, quota::LOGIN, 1).await?;
                 check_password(&password, &user.password)?;
                 Ok(session(user.id, &user.username, false, vars))
             }
@@ -114,9 +116,9 @@ pub async fn email(
                     })
                     .await
                     .map_err(insert_failed)?;
-                crate::services::games::tenant::stamp_user(state, user.id).await;
+                crate::services::games::tenant::stamp_user(plane, user.id).await;
                 emit(
-                    state,
+                    plane,
                     "account.created",
                     &user.id.to_string(),
                     serde_json::json!({ "user_id": user.id, "username": user.username, "method": "email" }),
@@ -125,8 +127,8 @@ pub async fn email(
                 // After the account exists and belongs to the game, so a rule
                 // bound to player_create can grant a starter kit to a player it
                 // can actually find.
-                crate::services::rules::dispatch::fire(state, "player_create", user.id).await;
-                quota::charge(state, user.id, quota::LOGIN, 1).await?;
+                crate::services::rules::dispatch::fire(plane, "player_create", user.id).await;
+                quota::charge(plane, user.id, quota::LOGIN, 1).await?;
                 Ok(session(user.id, &user.username, true, vars))
             }
             Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),
@@ -140,7 +142,7 @@ pub async fn email(
                 }
                 Err(e) => return Err(lookup_failed(e)),
             };
-            quota::charge(state, user.id, quota::LOGIN, 1).await?;
+            quota::charge(plane, user.id, quota::LOGIN, 1).await?;
             check_password(&password, &user.password)?;
             Ok(session(user.id, &user.username, false, vars))
         }

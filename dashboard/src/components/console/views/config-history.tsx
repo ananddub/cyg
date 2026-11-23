@@ -12,7 +12,7 @@ import type { ConsoleConfigVersion } from "@/lib/console"
 import { formatTime } from "@/lib/format"
 
 export function ConfigHistoryView({ gameId }: { gameId: string }) {
-  const base = `/v2/console/games/${gameId}/config`
+  const base = `/v1/console/games/${gameId}/config`
   const history = useConsoleQuery<ConsoleConfigVersion[]>("config-history", `${base}/history`)
 
   const [left, setLeft] = useState<number | null>(null)

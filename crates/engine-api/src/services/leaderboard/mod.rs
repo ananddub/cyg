@@ -1,4 +1,5 @@
 use auto_di::singleton;
+use std::sync::Arc;
 
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
@@ -19,12 +20,18 @@ pub(crate) use list::records_list;
 pub(crate) use neighbours::haystack;
 pub(crate) use rank::rank_of;
 
-pub struct LeaderboardService;
+/// The boards surface.
+///
+/// It holds the plane, injected at construction, rather than taking `&ApiState`
+/// from every caller: the dependency is in the service's own shape.
+pub struct LeaderboardService {
+    pub(super) plane: Arc<crate::services::plane::Plane>,
+}
 
 #[singleton]
 impl LeaderboardService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<crate::services::plane::Plane>) -> Self {
+        Self { plane }
     }
 }
 

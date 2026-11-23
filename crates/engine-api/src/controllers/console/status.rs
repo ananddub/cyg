@@ -11,7 +11,7 @@ struct ConsoleStatusController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console")]
+#[controller("/v1/console")]
 impl ConsoleStatusController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -20,7 +20,7 @@ impl ConsoleStatusController {
     #[get("/status")]
     async fn status(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        self.service.status(&state).await.into_response()
+        self.service.status().await.into_response()
     }
 
     #[get("/route")]

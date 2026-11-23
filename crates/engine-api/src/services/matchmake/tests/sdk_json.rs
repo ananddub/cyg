@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn a_reservation_carries_every_field_the_sdk_needs() {
     let state = test_state(1000, 1000);
-    let seat = reserve_ok(&state, "joinOrCreate", "tank-3d", "{}");
+    let seat = reserve_ok(&state.plane(), "joinOrCreate", "tank-3d", "{}");
     let json = seat.to_json();
     let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
     for field in [
@@ -53,11 +53,11 @@ fn a_reservation_carries_every_field_the_sdk_needs() {
 fn every_mint_method_gets_a_seat() {
     let state = test_state(1000, 1000);
     for method in ["joinOrCreate", "join", "joinById", "create"] {
-        let seat = reserve_ok(&state, method, "arena_final", "{}");
+        let seat = reserve_ok(&state.plane(), method, "arena_final", "{}");
         assert_eq!(seat.room_id, "arena_final", "{method}");
         assert!(seat.seat_token.contains('.'), "{method} signed");
     }
-    assert_eq!(minted(&state), 4);
+    assert_eq!(minted(&state.plane()), 4);
 }
 
 #[test]

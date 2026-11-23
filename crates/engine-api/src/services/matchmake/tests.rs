@@ -1,3 +1,5 @@
+use crate::services::plane::Plane;
+
 mod cost;
 mod http;
 mod merged;
@@ -72,25 +74,19 @@ pub(super) fn ip(n: u8) -> IpAddr {
     IpAddr::from([198, 51, 100, n])
 }
 
-pub(super) fn minted(state: &ApiState) -> u64 {
-    state.seats.lock().unwrap().counts().0
+pub(super) fn minted(plane: &Plane) -> u64 {
+    plane.seats.lock().unwrap().counts().0
 }
 
-pub(super) fn ok(
-    state: &ApiState,
-    ip: IpAddr,
-    method: &str,
-    room: &str,
-    body: &str,
-) -> SeatResponse {
-    match reserve(state, ip, method, room, body) {
+pub(super) fn ok(plane: &Plane, ip: IpAddr, method: &str, room: &str, body: &str) -> SeatResponse {
+    match reserve(plane, ip, method, room, body) {
         Ok(seat) => seat,
         Err(e) => panic!("{method}/{room} refused: {} {}", e.status, e.message),
     }
 }
 
-pub(super) fn err(state: &ApiState, ip: IpAddr, method: &str, room: &str, body: &str) -> ApiError {
-    match reserve(state, ip, method, room, body) {
+pub(super) fn err(plane: &Plane, ip: IpAddr, method: &str, room: &str, body: &str) -> ApiError {
+    match reserve(plane, ip, method, room, body) {
         Ok(seat) => panic!(
             "{method}/{room} should have been refused, minted {}",
             seat.session_id
@@ -99,8 +95,8 @@ pub(super) fn err(state: &ApiState, ip: IpAddr, method: &str, room: &str, body: 
     }
 }
 
-pub(super) fn reserve_ok(state: &ApiState, method: &str, room: &str, body: &str) -> SeatResponse {
-    ok(state, ip(1), method, room, body)
+pub(super) fn reserve_ok(plane: &Plane, method: &str, room: &str, body: &str) -> SeatResponse {
+    ok(plane, ip(1), method, room, body)
 }
 
 pub(super) fn now_unix() -> u64 {

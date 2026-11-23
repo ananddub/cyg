@@ -73,7 +73,7 @@ impl Vendor for Sender {
                     "sound": "default",
                 },
             });
-            let response = http()
+            let request = http()
                 .post(format!(
                     "{}/3/device/{}",
                     self.settings.host, message.recipient
@@ -82,8 +82,8 @@ impl Vendor for Sender {
                 .header("apns-topic", self.settings.topic.clone())
                 .header("apns-push-type", "alert")
                 .header("apns-priority", "10")
-                .json(&body)
-                .send()
+                .json(&body);
+            let response = crate::infra::http::send("apns", request)
                 .await
                 .map_err(|err| err.to_string())?;
             let code = response.status().as_u16();

@@ -17,7 +17,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     ] {
         json_body(
             env.client
-                .post(format!("{}/v2/console/tournament", env.base))
+                .post(format!("{}/v1/console/tournament", env.base))
                 .bearer_auth(console)
                 .json(&json!({
                     "id": id,
@@ -42,7 +42,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/tournament/{joined_id}", env.base))
+                .post(format!("{}/v1/tournament/{joined_id}", env.base))
                 .bearer_auth(&entrant.token)
                 .json(&Value::Null)
                 .send()
@@ -58,7 +58,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/tournament/{joined_id}", env.base))
+                .post(format!("{}/v1/tournament/{joined_id}", env.base))
                 .bearer_auth(&entrant.token)
                 .json(&json!({ "score": 120 }))
                 .send()
@@ -74,7 +74,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/tournament/{closed_id}/join", env.base))
+                .post(format!("{}/v1/tournament/{closed_id}/join", env.base))
                 .bearer_auth(&entrant.token)
                 .send()
                 .await
@@ -88,7 +88,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/tournament/{closed_id}", env.base))
+                .post(format!("{}/v1/tournament/{closed_id}", env.base))
                 .bearer_auth(&entrant.token)
                 .json(&json!({ "score": 10 }))
                 .send()
@@ -103,13 +103,13 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
 
     expect(
         env.client
-            .post(format!("{}/v2/tournament/{open_id}/join", env.base))
+            .post(format!("{}/v1/tournament/{open_id}/join", env.base))
             .bearer_auth(&entrant.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/tournament/{tournamentId}/join on a round that does not ask for one",
+        "POST /v1/tournament/{tournamentId}/join on a round that does not ask for one",
     )
     .await;
     let no_op = count(
@@ -124,7 +124,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/tournament/{joined_id}", env.base))
+                .post(format!("{}/v1/tournament/{joined_id}", env.base))
                 .bearer_auth(&entrant.token)
                 .json(&json!({}))
                 .send()
@@ -138,25 +138,25 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     );
     expect(
         env.client
-            .post(format!("{}/v2/tournament/{joined_id}/join", env.base))
+            .post(format!("{}/v1/tournament/{joined_id}/join", env.base))
             .bearer_auth(&entrant.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/tournament/{tournamentId}/join",
+        "POST /v1/tournament/{tournamentId}/join",
     )
     .await;
     let wrote = json_body(
         env.client
-            .post(format!("{}/v2/tournament/{joined_id}", env.base))
+            .post(format!("{}/v1/tournament/{joined_id}", env.base))
             .bearer_auth(&entrant.token)
             .json(&json!({ "score": 120, "metadata": "{\"lane\":\"gap\"}" }))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/tournament/{tournamentId}",
+        "POST /v1/tournament/{tournamentId}",
     )
     .await;
     assert_eq!(wrote["leaderboard_id"], joined_id);
@@ -171,7 +171,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     let ending_id = format!("e2e_gap_tend_{suffix}");
     json_body(
         env.client
-            .post(format!("{}/v2/console/tournament", env.base))
+            .post(format!("{}/v1/console/tournament", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "id": &ending_id,
@@ -189,7 +189,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     .await;
     let bounded = json_body(
         env.client
-            .post(format!("{}/v2/tournament/{ending_id}", env.base))
+            .post(format!("{}/v1/tournament/{ending_id}", env.base))
             .bearer_auth(&entrant.token)
             .json(&json!({ "score": 5 }))
             .send()
@@ -213,21 +213,21 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
 
     let replaced = json_body(
         env.client
-            .put(format!("{}/v2/tournament/{joined_id}", env.base))
+            .put(format!("{}/v1/tournament/{joined_id}", env.base))
             .bearer_auth(&entrant.token)
             .json(&json!({ "score": 90, "operator": 2 }))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/tournament/{tournamentId}",
+        "PUT /v1/tournament/{tournamentId}",
     )
     .await;
     assert_eq!(replaced["score"], "90", "SET replaces the round score");
 
     json_body(
         env.client
-            .post(format!("{}/v2/tournament/{joined_id}/join", env.base))
+            .post(format!("{}/v1/tournament/{joined_id}/join", env.base))
             .bearer_auth(&other.token)
             .send()
             .await
@@ -238,7 +238,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     .await;
     json_body(
         env.client
-            .post(format!("{}/v2/tournament/{joined_id}", env.base))
+            .post(format!("{}/v1/tournament/{joined_id}", env.base))
             .bearer_auth(&other.token)
             .json(&json!({ "score": 130 }))
             .send()
@@ -251,13 +251,13 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
 
     let page = json_body(
         env.client
-            .get(format!("{}/v2/tournament/{joined_id}?limit=5", env.base))
+            .get(format!("{}/v1/tournament/{joined_id}?limit=5", env.base))
             .bearer_auth(&entrant.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/tournament/{tournamentId}",
+        "GET /v1/tournament/{tournamentId}",
     )
     .await;
     let rows = page["records"].as_array().expect("a page").clone();
@@ -266,7 +266,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/tournament/{joined_id}?limit=0", env.base))
+                .get(format!("{}/v1/tournament/{joined_id}?limit=0", env.base))
                 .bearer_auth(&entrant.token)
                 .send()
                 .await
@@ -281,7 +281,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     let standing = json_body(
         env.client
             .get(format!(
-                "{}/v2/tournament/{joined_id}/owner/{}",
+                "{}/v1/tournament/{joined_id}/owner/{}",
                 env.base, other.uid
             ))
             .bearer_auth(&entrant.token)
@@ -289,7 +289,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/tournament/{tournamentId}/owner/{ownerId}",
+        "GET /v1/tournament/{tournamentId}/owner/{ownerId}",
     )
     .await;
     assert_eq!(
@@ -304,7 +304,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
         refusal(
             env.client
                 .get(format!(
-                    "{}/v2/tournament/{joined_id}/owner/not-a-uuid",
+                    "{}/v1/tournament/{joined_id}/owner/not-a-uuid",
                     env.base
                 ))
                 .bearer_auth(&entrant.token)
@@ -320,18 +320,18 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
 
     expect(
         env.client
-            .delete(format!("{}/v2/tournament/{joined_id}", env.base))
+            .delete(format!("{}/v1/tournament/{joined_id}", env.base))
             .bearer_auth(&other.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/tournament/{tournamentId}",
+        "DELETE /v1/tournament/{tournamentId}",
     )
     .await;
     let after = json_body(
         env.client
-            .get(format!("{}/v2/tournament/{joined_id}?limit=5", env.base))
+            .get(format!("{}/v1/tournament/{joined_id}?limit=5", env.base))
             .bearer_auth(&entrant.token)
             .send()
             .await
@@ -364,7 +364,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
         assert_eq!(
             refusal(
                 env.client
-                    .get(format!("{}/v2/tournament/{id}", env.base))
+                    .get(format!("{}/v1/tournament/{id}", env.base))
                     .bearer_auth(&entrant.token)
                     .send()
                     .await
@@ -380,7 +380,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/tournament/{plain_id}", env.base))
+                .post(format!("{}/v1/tournament/{plain_id}", env.base))
                 .bearer_auth(&entrant.token)
                 .json(&json!({ "score": 10 }))
                 .send()
@@ -395,7 +395,7 @@ pub async fn tournament_surface(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/tournament/{plain_id}", env.base))
+                .delete(format!("{}/v1/tournament/{plain_id}", env.base))
                 .bearer_auth(&entrant.token)
                 .send()
                 .await

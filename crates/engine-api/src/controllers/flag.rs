@@ -14,7 +14,7 @@ struct FlagController {
     service: Arc<FlagService>,
 }
 
-#[controller("/v2/flags")]
+#[controller("/v1/flags")]
 impl FlagController {
     fn new(service: Arc<FlagService>) -> Self {
         Self { service }
@@ -24,7 +24,7 @@ impl FlagController {
     async fn list(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
-            .resolve(&state, auth.uid())
+            .resolve(auth.uid())
             .await
             .into_response()
     }

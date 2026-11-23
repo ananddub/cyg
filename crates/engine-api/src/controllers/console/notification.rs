@@ -15,7 +15,7 @@ struct ConsoleNotificationController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/notification")]
+#[controller("/v1/console/notification")]
 impl ConsoleNotificationController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -29,7 +29,7 @@ impl ConsoleNotificationController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_notifications(&state, query)
+            .list_notifications(query)
             .await
             .into_response()
     }
@@ -47,7 +47,7 @@ impl ConsoleNotificationController {
         let content = body.content.to_string();
         let code = body.code.to_string();
         let mut claim = match crate::services::idempotency::begin(
-            &state,
+            &*state.plane(),
             &headers,
             "console.notification.send",
             &actor,
@@ -59,17 +59,21 @@ impl ConsoleNotificationController {
             Err(err) => return err.into_response(),
         };
         if let Some(saved) = claim.replayed() {
-            return axum::Json(saved).into_response();
+            return crate::app::middleware::replay_response(saved);
         }
         let id = claim.operation_uuid().unwrap_or_else(uuid::Uuid::new_v4);
         let result = self
             .service
-            .send_notification(&state, &auth, scope.id(), body, id)
+            .send_notification(&auth, scope.id(), body, id)
             .await;
         let stored = result
             .as_ref()
             .ok()
-            .and_then(|json| serde_json::to_value(&json.0).ok());
+            .and_then(|json| {
+                serde_json::to_string(&json.0).ok().map(|raw| {
+                    crate::services::idempotency::Stored { status: 200, raw }
+                })
+            });
         claim.settle(stored).await;
         result.into_response()
     }
@@ -83,7 +87,7 @@ impl ConsoleNotificationController {
     ) -> Response {
         let state = current_state();
         self.service
-            .delete_notification(&state, &auth, scope.id(), &id)
+            .delete_notification(&auth, scope.id(), &id)
             .await
             .into_response()
     }

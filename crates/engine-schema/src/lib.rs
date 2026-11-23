@@ -1,6 +1,6 @@
 mod descriptor;
-mod encoding;
 mod emit;
+mod encoding;
 mod model;
 mod options;
 mod validate;

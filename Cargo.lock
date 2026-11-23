@@ -3227,6 +3227,7 @@ dependencies = [
  "http-body-util",
  "jsonwebtoken 9.3.1",
  "md-5 0.10.6",
+ "poem-openapi",
  "rand 0.8.8",
  "reqwest",
  "rust-embed",

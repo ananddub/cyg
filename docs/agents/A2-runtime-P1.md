@@ -25,7 +25,7 @@ that talk over an in-process message bus:
 
 | Crate | Role |
 |---|---|
-| `crates/engine-api` | Axum HTTP/WS control plane. PlayFab-shaped `/v2/*` player API plus a `/console` operator API. Owns SurrealDB. |
+| `crates/engine-api` | Axum HTTP/WS control plane. PlayFab-shaped `/v1/*` player API plus a `/console` operator API. Owns SurrealDB. |
 | `crates/engine-server` | The authoritative host loop: rooms, ticks, rollback, snapshots, UDP/WebRTC/QUIC netcode. |
 | `crates/engine-control` | Boots the runtime, binds the HTTP listener, spawns the host, signal handling, Agones integration. |
 | `crates/engine-net` | Transport layer (WS/UDP/QUIC/WebRTC), greeting, origin policy. |
@@ -144,7 +144,7 @@ service, e.g. `V2Error::failed_precondition("A currency balance cannot go negati
 
 ### 0.6 Adding a route (the smallest copyable chain)
 
-`controllers/notification.rs:18-29` (`#[controller("/v2/notification")]` +
+`controllers/notification.rs:18-29` (`#[controller("/v1/notification")]` +
 `#[get("")]` + `Params(req): Params<ListQuery>`) →
 `services/notification.rs:34-60` (`#[singleton]` service, `q(state).await?`) →
 `repositories/notification/queries.rs:110` (`list_notifications_paged`).
@@ -280,7 +280,7 @@ Work:
    (`rooms.rs:2282`) fall back to `load_room_snapshot` on a cold start.
 3. Add `room_registry` table (§0.5): `room_id`, `node_id`, `game_id`, `state`,
    `peers`, `tick`, `snapshot_seq`, `update_time`; writer = host via the same bus
-   path, reader = `/v2/match` and the console. Handoff = "registry row exists for
+   path, reader = `/v1/match` and the console. Handoff = "registry row exists for
    another node" ⇒ refuse local create, redirect/attach via the existing seat
    ticket machinery (`crates/engine-api/src/infra/seats/{registry.rs:9 HmacSha256, verify.rs}`).
 4. Tests: unit round-trip for the wire types; `crates/engine-api/tests/` gap test
@@ -310,7 +310,7 @@ Work:
    (§0.5): `id, room, game_id, event, player_id, payload, tick, create_time`,
    indexed on `(room, create_time)`. Retention: `event_ttl_days` config, sweeper
    in the same housekeeping pass as §3.1.
-4. Expose `GET /v2/match/{id}/events` behind `Authed` (participant-scoped) and
+4. Expose `GET /v1/match/{id}/events` behind `Authed` (participant-scoped) and
    console list behind `ConsoleAuthed`.
 5. Tests: bus round-trip unit test; `crates/engine-server/tests/host_services_test.rs`
    for allowlist filtering + backpressure (bounded queue drops, tick continues);
@@ -424,9 +424,9 @@ Work:
    `export_snapshot` (`host.rs:2311-2320`) through the §3.4 bus path — do not
    open a DB handle in the host.
 3. Replay artifact = last `snapshot_bytes` + the room's `gameplay_event` rows.
-   Serve `GET /v2/match/{id}/history` (`Authed`, participant-scoped) and
+   Serve `GET /v1/match/{id}/history` (`Authed`, participant-scoped) and
    `GET /console/match/{id}/replay` (`ConsoleAuthed`); keep the existing
-   `GET /v2/match` (`controllers/match.rs:21`) semantics unchanged.
+   `GET /v1/match` (`controllers/match.rs:21`) semantics unchanged.
 4. Retention config `match_history_ttl_days`; sweeper in the §3.1 pass.
 5. Tests: `crates/engine-server/tests/host_services_test.rs` for the end-reason
    mapping; API gap test for both read paths and participant scoping.
@@ -467,7 +467,7 @@ numeric code (`INVALID_ARGUMENT`=400, `UNAUTHENTICATED`=401, `FAILED_PRECONDITIO
 Server key / authenticate surface (`tests/gap_player/provider_auth_surface.rs`,
 `src/tests/authenticate/social.rs`):
 
-- `"Server key required"` (401) — every `/v2/account/authenticate*` verb without
+- `"Server key required"` (401) — every `/v1/account/authenticate*` verb without
   a Basic key.
 - `"Server key invalid"` (401) — wrong key.
 - `"Apple authentication is not configured."` (400) and
@@ -526,7 +526,7 @@ Dashboard / console (`tests/gap_edge/dashboard_api.rs`,
 Delete / GDPR (`tests/gap_http/player_surface.rs:196-215`,
 `tests/rest_e2e/account_surface.rs:411-442`):
 
-- `DELETE /v2/account` must leave the account row count at `0` and produce
+- `DELETE /v1/account` must leave the account row count at `0` and produce
   exactly `1` `user_tombstone` row (`assert_eq!(tombstoned, 1)`). §2.3 keeps
   these true while covering more tables.
 

@@ -38,7 +38,7 @@ impl<'a> Engine<'a> {
                 input.seq,
                 &mut payload_20,
             )
-                .is_err()
+            .is_err()
             {
                 self.stats.recorder.inputs_dropped += 1;
             }

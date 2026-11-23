@@ -42,7 +42,7 @@ pub async fn storage_index_surface(env: &Harness) {
         assert_eq!(
             refusal(
                 env.client
-                    .post(format!("{}/v2/storage/index", env.base))
+                    .post(format!("{}/v1/storage/index", env.base))
                     .bearer_auth(&owner.token)
                     .json(&body)
                     .send()
@@ -58,7 +58,7 @@ pub async fn storage_index_surface(env: &Harness) {
     }
     let defined = json_body(
         env.client
-            .post(format!("{}/v2/storage/index", env.base))
+            .post(format!("{}/v1/storage/index", env.base))
             .bearer_auth(&owner.token)
             .json(&json!({
                 "name": index,
@@ -73,7 +73,7 @@ pub async fn storage_index_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/storage/index",
+        "POST /v1/storage/index",
     )
     .await;
     assert_eq!(
@@ -86,7 +86,7 @@ pub async fn storage_index_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/storage/index", env.base))
+                .post(format!("{}/v1/storage/index", env.base))
                 .bearer_auth(&owner.token)
                 .json(&json!({ "name": index, "collection": collection, "fields": ["hp"] }))
                 .send()
@@ -101,13 +101,13 @@ pub async fn storage_index_surface(env: &Harness) {
 
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/storage/index", env.base))
+            .get(format!("{}/v1/storage/index", env.base))
             .bearer_auth(&owner.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/storage/index",
+        "GET /v1/storage/index",
     )
     .await;
     assert!(
@@ -118,7 +118,7 @@ pub async fn storage_index_surface(env: &Harness) {
         "the definition is listed: {listed}"
     );
 
-    let url = |env: &Harness, name: &str| format!("{}/v2/storage/index/{name}/query", env.base);
+    let url = |env: &Harness, name: &str| format!("{}/v1/storage/index/{name}/query", env.base);
     let matched = json_body(
         env.client
             .post(url(env, &index))
@@ -128,7 +128,7 @@ pub async fn storage_index_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/storage/index/{indexId}/query (equality)",
+        "POST /v1/storage/index/{indexId}/query (equality)",
     )
     .await;
     assert_eq!(
@@ -150,7 +150,7 @@ pub async fn storage_index_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/storage/index/{indexId}/query (range, sorted)",
+        "POST /v1/storage/index/{indexId}/query (range, sorted)",
     )
     .await;
     let rows = ranged["objects"].as_array().expect("a page").clone();
@@ -186,7 +186,7 @@ pub async fn storage_index_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::OK,
-            "POST /v2/storage/index/{indexId}/query (cursor paging)",
+            "POST /v1/storage/index/{indexId}/query (cursor paging)",
         )
         .await;
         for row in page["objects"].as_array().expect("a page").clone() {
@@ -268,7 +268,7 @@ pub async fn storage_index_surface(env: &Harness) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/storage/index/e2e_missing_{suffix}/query",
+                    "{}/v1/storage/index/e2e_missing_{suffix}/query",
                     env.base
                 ))
                 .bearer_auth(&owner.token)
@@ -286,7 +286,7 @@ pub async fn storage_index_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/storage/index/{index}", env.base))
+                .delete(format!("{}/v1/storage/index/{index}", env.base))
                 .bearer_auth(&stranger.token)
                 .send()
                 .await
@@ -299,19 +299,19 @@ pub async fn storage_index_surface(env: &Harness) {
     );
     expect(
         env.client
-            .delete(format!("{}/v2/storage/index/{index}", env.base))
+            .delete(format!("{}/v1/storage/index/{index}", env.base))
             .bearer_auth(&owner.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/storage/index/{indexId}",
+        "DELETE /v1/storage/index/{indexId}",
     )
     .await;
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/storage/index/{index}", env.base))
+                .delete(format!("{}/v1/storage/index/{index}", env.base))
                 .bearer_auth(&owner.token)
                 .send()
                 .await

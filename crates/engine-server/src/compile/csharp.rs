@@ -26,7 +26,11 @@ pub(crate) fn compile_csharp(
         let mut found = None;
         if let Ok(entries) = std::fs::read_dir(parent) {
             for entry in entries.flatten() {
-                if entry.path().extension().map_or(false, |ext| ext == "csproj") {
+                if entry
+                    .path()
+                    .extension()
+                    .map_or(false, |ext| ext == "csproj")
+                {
                     found = Some(entry.path());
                     break;
                 }

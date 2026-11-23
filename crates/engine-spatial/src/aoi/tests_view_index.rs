@@ -1,10 +1,10 @@
 use engine_config::AoiConfig;
 
+use super::DeltaEntity;
 use super::filter_for_viewer_indexed;
 use super::parse_delta;
 use super::support::{bullet_record, entity_record, test_aoi};
 use super::view_index::AoiViewIndex;
-use super::DeltaEntity;
 
 fn xorshift(state: &mut u64) -> u64 {
     let mut x = *state;
@@ -161,7 +161,15 @@ fn indexed_filter_matches_brute_force() {
             let visible = brute_force_visible(&entities, viewer_id, viewer_pos, tick, &aoi);
             let mut out_ref = Vec::new();
             super::filter::emit_filtered(
-                &entities, bc, frange, &delta, viewer_id, &visible, &aoi, viewer_pos, &mut out_ref,
+                &entities,
+                bc,
+                frange,
+                &delta,
+                viewer_id,
+                &visible,
+                &aoi,
+                viewer_pos,
+                &mut out_ref,
             );
 
             assert_eq!(

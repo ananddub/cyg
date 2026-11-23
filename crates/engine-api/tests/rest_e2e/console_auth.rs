@@ -4,7 +4,7 @@ pub async fn console_auth(client: &Client, base: &str, pool: &Datastore) -> Stri
     eprintln!("e2e: console auth");
     let wrong = refusal(
         client
-            .post(format!("{base}/v2/console/authenticate"))
+            .post(format!("{base}/v1/console/authenticate"))
             .json(&json!({ "username": CONSOLE_USER, "password": "wrong" }))
             .send()
             .await
@@ -17,7 +17,7 @@ pub async fn console_auth(client: &Client, base: &str, pool: &Datastore) -> Stri
 
     expect(
         client
-            .get(format!("{base}/v2/console/games"))
+            .get(format!("{base}/v1/console/games"))
             .send()
             .await
             .unwrap(),
@@ -29,7 +29,7 @@ pub async fn console_auth(client: &Client, base: &str, pool: &Datastore) -> Stri
     let token = console_login(client, base).await;
     let list = json_body(
         client
-            .get(format!("{base}/v2/console/games"))
+            .get(format!("{base}/v1/console/games"))
             .bearer_auth(&token)
             .send()
             .await
@@ -53,7 +53,7 @@ pub async fn console_auth(client: &Client, base: &str, pool: &Datastore) -> Stri
 
     expect(
         client
-            .post(format!("{base}/v2/console/authenticate/logout"))
+            .post(format!("{base}/v1/console/authenticate/logout"))
             .bearer_auth(&token)
             .json(&json!({}))
             .send()
@@ -65,7 +65,7 @@ pub async fn console_auth(client: &Client, base: &str, pool: &Datastore) -> Stri
     .await;
     expect(
         client
-            .get(format!("{base}/v2/console/games"))
+            .get(format!("{base}/v1/console/games"))
             .bearer_auth(&token)
             .send()
             .await

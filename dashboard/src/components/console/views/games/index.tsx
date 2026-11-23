@@ -3,7 +3,7 @@
 // whole card opens that project's workspace. The gear is the only way into the
 // manage sheet, so opening a game never lands on a configuration form.
 //
-// The surface is `/v2/console/games`: the list answers `{ games, total }` and a
+// The surface is `/v1/console/games`: the list answers `{ games, total }` and a
 // creation response carries `api_key` once — the detail route re-reads it on
 // demand. The write layer is the console's own (`useConsoleQuery` /
 // `useConsoleMutation`), so the bearer token, the 401 drop and the toast come

@@ -6,8 +6,8 @@ use crate::utils::signaling::parse_ice;
 #[tokio::test]
 async fn a_malformed_frame_errors_without_killing_the_session() {
     let (state, mut inbound) = test_state();
-    let addr = spawn_plane(&state).await;
-    let seat = mint_seat(&state);
+    let addr = spawn_plane(&state.plane()).await;
+    let seat = mint_seat(&state.plane());
     let mut ws = WsClient::open(addr, &signal_path(&seat)).await;
     assert_eq!(ws.recv_json().await["type"], "ice");
 

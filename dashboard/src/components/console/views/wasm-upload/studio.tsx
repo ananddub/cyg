@@ -2,7 +2,7 @@
 // upload + live ABI checklist, and the deployment timeline with activate /
 // roll-back / delete.
 //
-// The upload is `POST /v2/console/games/{id}/wasm/upload` as multipart form data
+// The upload is `POST /v1/console/games/{id}/wasm/upload` as multipart form data
 // (`file`, optional `source_code`), which the console's JSON mutation hook cannot
 // carry, so this does the one raw request the modules need — same bearer token,
 // same rule that a refusal shows the server's own message. A 400 comes back with

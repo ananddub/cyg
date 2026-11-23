@@ -1,39 +1,41 @@
+use crate::services::plane::Plane;
 use auto_di::singleton;
 use axum::Json;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::group::{UserGroupListResponse, UserGroupResponse};
 use crate::error::V2Error;
 use crate::repositories::group::{
     ListGroupsForUserByStatePagedParams, ListGroupsForUserPagedParams,
 };
-use crate::services::deps::q;
 use crate::services::social::{self, limit};
 use crate::utils::group::{ROLE_BANNED, ROLE_MEMBER, ROLE_SUPERADMIN, as_groups, group_id};
 
 use crate::dto::group::ListQuery;
 
-pub struct UserGroupService;
+pub struct UserGroupService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 #[singleton]
 impl UserGroupService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 
 impl UserGroupService {
     pub async fn list_user_groups(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         raw_user: String,
         req: ListQuery,
     ) -> Result<Json<UserGroupListResponse>, V2Error> {
         let uid = group_id(&raw_user)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let page = limit(
             req.limit,
             100,

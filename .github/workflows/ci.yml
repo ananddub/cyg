@@ -1,14 +1,17 @@
-# CI only — no deploy, no publish.
+# CI — every gate a merge has to pass.
 #
-# The workspace currently has one focus: the engine core. That is the gate.
-# The Rune UI scaffolding (`vendor/rune`, `engine-visualizer*`) is vendored and
-# under active change, so it is compiled but never blocks a merge; cargo counts
-# some of its crates as workspace members, which is why every workspace command
-# leaves them out by name.
+# Two rule sets, both honest about what they cover:
 #
-# Local equivalent:
-#   cargo test $CORE_PACKAGES      # what the `core` job runs
-#   cargo check --workspace --all-targets   # what the `check` job runs
+#   * The engine core and the API plane are gated. Their tests run, and a
+#     failure blocks.
+#   * The vendored Rune crates (`vendor/rune`, `engine-visualizer*`) are compiled
+#     but never block: cargo counts them as workspace members, so every
+#     workspace-wide command leaves them out by name.
+#
+# Local equivalents:
+#   just ci          # fmt + clippy + the API plane's tests
+#   just test        # the whole workspace test suite
+#   cargo test -p engine-api --lib --tests   # what the `api` job runs
 
 name: CI
 
@@ -29,6 +32,9 @@ env:
   # SurrealDB 4's query executor recurses deeper than a 2 MiB test thread stack
   # and its boot-migration tests overflow without this (Justfile, `test`).
   RUST_MIN_STACK: "16777216"
+  # Distribution builds must not carry this machine's CPU: drop the `native`
+  # and mold flags `.cargo/config.toml` sets for local profiling.
+  RUSTFLAGS: "-C target-cpu=generic"
 
   # The engine core: simulation, wire protocol, transport, server host.
   CORE_PACKAGES: >-
@@ -36,6 +42,9 @@ env:
     -p engine-spatial -p engine-physics -p engine-nav -p engine-bus
     -p engine-config -p engine-control -p engine-server -p engine-hooks
     -p engine-voice -p engine-wasm -p cyg-core-rs
+
+  # The API plane: controllers, services, repositories, migrations.
+  API_PACKAGES: -p engine-api
 
   # cargo counts the vendored Rune crates as workspace members, and one of their
   # test targets (`rune-kit` → `markdown_link_menu`) does not compile without a
@@ -54,12 +63,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # `.cargo/config.toml` links with mold; without it cargo fails at link time.
-      - name: Install mold
-        run: sudo apt-get update && sudo apt-get install -y mold
-
-      # The workspace is developed on beta (edition 2024 + the newer lints), so
-      # CI pins the same channel instead of guessing at a stable version.
       - uses: dtolnay/rust-toolchain@beta
 
       - uses: Swatinem/rust-cache@v2
@@ -71,15 +74,43 @@ jobs:
         # rather than silently building a tree nobody committed.
         run: cargo test $CORE_PACKAGES --locked --no-fail-fast
 
+  api:
+    name: API plane tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@beta
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: api
+
+      # The binary embeds `dashboard/dist` at compile time.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Build the console bundle the API embeds
+        run: cd dashboard && npm ci && npm run build
+
+      - name: Unit tests
+        run: cargo test $API_PACKAGES --lib --locked
+
+      # Integration suites boot their own in-memory SurrealDB; --no-fail-fast
+      # reports every broken suite instead of the first one.
+      - name: Integration suites
+        run: cargo test $API_PACKAGES --tests --locked --no-fail-fast
+
   check:
     name: workspace compiles (all targets)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install mold
-        run: sudo apt-get update && sudo apt-get install -y mold
 
       - uses: dtolnay/rust-toolchain@beta
 
@@ -92,18 +123,11 @@ jobs:
         run: cargo check --workspace $VENDOR_EXCLUDES --all-targets --locked
 
   lint:
-    name: lint (advisory)
+    name: lint
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # The tree is not warning-clean yet, so these report without blocking.
-    # Delete the two `continue-on-error` lines once `just clippy` and
-    # `just fmt-check` pass locally.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install mold
-        run: sudo apt-get update && sudo apt-get install -y mold
 
       - uses: dtolnay/rust-toolchain@beta
         with:
@@ -113,8 +137,110 @@ jobs:
         with:
           shared-key: lint
 
-      - name: clippy
-        run: cargo clippy $CORE_PACKAGES --all-targets --locked
-
+      # Blocking: the tree is rustfmt-clean, and a diff here is a formatting
+      # argument nobody has to have in review.
       - name: rustfmt
         run: cargo fmt --all --check
+
+      # Blocking on errors, advisory on warnings: the tree still carries
+      # warnings, but a clippy *error* (a lint that cannot be right) stops here.
+      - name: clippy
+        run: cargo clippy $CORE_PACKAGES $API_PACKAGES --all-targets --locked
+
+  dashboard:
+    name: console (build + lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - run: npm ci
+      - name: lint
+        run: npm run lint
+      - name: build
+        run: npm run build
+
+  sdk:
+    name: web SDK (core-ts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: sdk/client/core-ts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdk/client/core-ts/package-lock.json
+
+      - run: npm ci
+      - name: typecheck
+        run: npm run typecheck
+      - name: test
+        run: npm test
+      - name: build
+        run: npm run build
+      # The built bundle is what the server embeds at /cyg.js; a build that
+      # cannot produce it is a broken release, not a broken test.
+      - name: the bundle exists
+        run: test -s ../web/cyg.js
+
+  api-surface:
+    name: API surface guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@beta
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: api-surface
+
+      # These three ratchets are the reason the API work stays done: the
+      # OpenAPI backlog cannot grow, service layering cannot regress, and the
+      # service files cannot get longer. They run alone so a failure names
+      # itself.
+      - name: OpenAPI ratchet
+        run: "cargo test $API_PACKAGES --lib openapi:: --locked"
+
+      - name: layering ratchet
+        run: cargo test $API_PACKAGES --test layering --locked
+
+      - name: service file budget
+        run: cargo test $API_PACKAGES --test service_file_sizes --locked
+
+      - name: every versioned route answers at the canonical base
+        run: cargo test $API_PACKAGES --test auto_routes --locked
+
+  image:
+    name: container image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [api]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build only: publishing is release.yml's job, on a tag.
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

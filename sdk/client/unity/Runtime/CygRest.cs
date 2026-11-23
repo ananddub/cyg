@@ -123,7 +123,7 @@ namespace CYG
         /// <summary>The player's currencies, keyed by name.</summary>
         public async Task<Dictionary<string, double>> GetWalletAsync()
         {
-            var root = await Get("/v2/account/wallet").ConfigureAwait(false);
+            var root = await Get("/v1/account/wallet").ConfigureAwait(false);
             var wallet = new Dictionary<string, double>();
             if (root.ValueKind != JsonValueKind.Object) return wallet;
             if (!root.TryGetProperty("wallet", out var entries) ||
@@ -147,7 +147,7 @@ namespace CYG
 
         public async Task<IReadOnlyList<CygItem>> GetInventoryAsync()
         {
-            var root = await Get("/v2/inventory").ConfigureAwait(false);
+            var root = await Get("/v1/inventory").ConfigureAwait(false);
             var items = new List<CygItem>();
             if (root.ValueKind != JsonValueKind.Object) return items;
             if (!root.TryGetProperty("items", out var entries) ||
@@ -174,13 +174,13 @@ namespace CYG
 
         /// <summary>Spend one item. Refused when the player does not hold it.</summary>
         public Task ConsumeItemAsync(string itemId, int quantity = 1) =>
-            Post("/v2/inventory/consume", new { item_id = itemId, quantity });
+            Post("/v1/inventory/consume", new { item_id = itemId, quantity });
 
         // ---------------------------------------------------------- leaderboard
 
         public async Task<IReadOnlyList<CygScore>> ListScoresAsync(string leaderboardId, int limit = 10)
         {
-            var root = await Get($"/v2/leaderboard/{Uri.EscapeDataString(leaderboardId)}?limit={limit}")
+            var root = await Get($"/v1/leaderboard/{Uri.EscapeDataString(leaderboardId)}?limit={limit}")
                 .ConfigureAwait(false);
             var scores = new List<CygScore>();
             if (root.ValueKind != JsonValueKind.Object) return scores;
@@ -204,7 +204,7 @@ namespace CYG
         /// <param name="sortOrder">-1 when a lower score wins (a race time).</param>
         public Task<JsonElement> DefineBoardAsync(
             string leaderboardId, string title = null, short sortOrder = 1, string resetSchedule = null) =>
-            Post($"/v2/leaderboard/{Uri.EscapeDataString(leaderboardId)}/define", new
+            Post($"/v1/leaderboard/{Uri.EscapeDataString(leaderboardId)}/define", new
             {
                 title = title ?? leaderboardId,
                 sort_order = (int)sortOrder,
@@ -213,13 +213,13 @@ namespace CYG
 
         /// <summary>Post a score. A lower-than-best score may be ignored by the board.</summary>
         public Task SubmitScoreAsync(string leaderboardId, long score, long subscore = 0) =>
-            Post($"/v2/leaderboard/{Uri.EscapeDataString(leaderboardId)}",
+            Post($"/v1/leaderboard/{Uri.EscapeDataString(leaderboardId)}",
                 new { score, subscore });
 
         /// <summary>This player's own row, or null when they have never scored.</summary>
         public async Task<CygScore?> GetMyScoreAsync(string leaderboardId)
         {
-            var root = await Get($"/v2/leaderboard/{Uri.EscapeDataString(leaderboardId)}/owner/me")
+            var root = await Get($"/v1/leaderboard/{Uri.EscapeDataString(leaderboardId)}/owner/me")
                 .ConfigureAwait(false);
             if (root.ValueKind != JsonValueKind.Object) return null;
             if (!root.TryGetProperty("records", out var entries) ||
@@ -237,7 +237,7 @@ namespace CYG
 
         public async Task<IReadOnlyList<CygQuest>> GetQuestsAsync()
         {
-            var root = await Get("/v2/quest").ConfigureAwait(false);
+            var root = await Get("/v1/quest").ConfigureAwait(false);
             var quests = new List<CygQuest>();
             if (root.ValueKind != JsonValueKind.Object) return quests;
             if (!root.TryGetProperty("quests", out var entries) ||
@@ -255,20 +255,20 @@ namespace CYG
         }
 
         public Task ClaimQuestAsync(string questId) =>
-            Post("/v2/quest/claim", new { quest_id = questId });
+            Post("/v1/quest/claim", new { quest_id = questId });
 
         /// <summary>
         /// Raise a counter. Server-authoritative games should send these from the
         /// room instead; a client that reports its own progress can inflate it.
         /// </summary>
         public Task TrackEventAsync(string name, int delta = 1) =>
-            Post("/v2/event", new { events = new[] { new { name, value = delta } } });
+            Post("/v1/event", new { events = new[] { new { name, value = delta } } });
 
         // -------------------------------------------------------- notifications
 
         public async Task<IReadOnlyList<CygNotification>> GetNotificationsAsync(int limit = 20)
         {
-            var root = await Get($"/v2/notification?limit={limit}").ConfigureAwait(false);
+            var root = await Get($"/v1/notification?limit={limit}").ConfigureAwait(false);
             var notes = new List<CygNotification>();
             if (root.ValueKind != JsonValueKind.Object) return notes;
             if (!root.TryGetProperty("notifications", out var entries) ||
@@ -285,7 +285,7 @@ namespace CYG
         }
 
         public Task DeleteNotificationAsync(string id) =>
-            Delete($"/v2/notification/{Uri.EscapeDataString(id)}");
+            Delete($"/v1/notification/{Uri.EscapeDataString(id)}");
 
         // -------------------------------------------------------------- storage
 
@@ -300,7 +300,7 @@ namespace CYG
             if (_userId != null) return _userId;
             // The account endpoint answers a flat object with `user_id`, not the
             // nested `{ user: { id } }` a REST-shaped API would use.
-            var root = await Get("/v2/account").ConfigureAwait(false);
+            var root = await Get("/v1/account").ConfigureAwait(false);
             if (root.ValueKind == JsonValueKind.Object &&
                 root.TryGetProperty("user_id", out var id) &&
                 id.ValueKind == JsonValueKind.String)
@@ -317,7 +317,7 @@ namespace CYG
             try
             {
                 var root = await Get(
-                        $"/v2/storage/{Uri.EscapeDataString(collection)}/{Uri.EscapeDataString(key)}/{Uri.EscapeDataString(userId)}")
+                        $"/v1/storage/{Uri.EscapeDataString(collection)}/{Uri.EscapeDataString(key)}/{Uri.EscapeDataString(userId)}")
                     .ConfigureAwait(false);
                 if (root.ValueKind != JsonValueKind.Object) return null;
                 return root.TryGetProperty("value", out var value) ? value.GetRawText() : null;
@@ -331,7 +331,7 @@ namespace CYG
         }
 
         public Task WriteStorageAsync(string key, string json, string collection = "saves") =>
-            Put("/v2/storage", new
+            Put("/v1/storage", new
             {
                 collection,
                 key,
@@ -340,7 +340,7 @@ namespace CYG
             });
 
         public Task DeleteStorageAsync(string key, string collection = "saves") =>
-            Put("/v2/storage/delete", new
+            Put("/v1/storage/delete", new
             {
                 objects = new[] { new { collection, key } },
             });
@@ -353,10 +353,10 @@ namespace CYG
         /// so read the wallet afterwards rather than trusting a local guess.
         /// </summary>
         public Task<JsonElement> VerifyAppleAsync(string receipt, string productId = null) =>
-            Post("/v2/iap/purchase/apple", new { receipt, product_id = productId });
+            Post("/v1/iap/purchase/apple", new { receipt, product_id = productId });
 
         public Task<JsonElement> VerifyGoogleAsync(string receipt, string productId = null) =>
-            Post("/v2/iap/purchase/google", new { receipt, product_id = productId });
+            Post("/v1/iap/purchase/google", new { receipt, product_id = productId });
     }
 
     public readonly struct CygItem

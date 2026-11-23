@@ -4,11 +4,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::{MarketplaceService, transfer};
-use crate::ApiState;
 use crate::dto::marketplace::{WagerCreateRequest, WagerResponse, WagerRow, WagerSettleRequest};
 use crate::error::V2Error;
 use crate::repositories::models::Wager;
-use crate::services::deps::q;
 use crate::services::quest::catalog::counter_name;
 
 /// The largest stake one account may put behind a wager.
@@ -18,7 +16,7 @@ const MAX_BETTORS: usize = 8;
 impl MarketplaceService {
     pub async fn create_wager(
         &self,
-        state: &ApiState,
+
         req: WagerCreateRequest,
     ) -> Result<Json<WagerResponse>, V2Error> {
         let room = req.room.trim();
@@ -48,7 +46,7 @@ impl MarketplaceService {
                 "A wager stake must be above 0 and at most {MAX_STAKE}."
             )));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let id = Uuid::new_v4();
         let mut debited = Vec::new();
         for player in &req.players {
@@ -102,11 +100,11 @@ impl MarketplaceService {
 
     pub async fn settle_wager(
         &self,
-        state: &ApiState,
+
         wager_id: Uuid,
         req: WagerSettleRequest,
     ) -> Result<Json<WagerResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let wager = closed_once(&queries, wager_id).await?;
         if !wager.players.contains(&req.winner) {
             return Err(V2Error::invalid_argument(
@@ -124,7 +122,7 @@ impl MarketplaceService {
             return Err(err);
         }
         crate::services::webhook::emit(
-            state,
+            &self.plane,
             "marketplace.trade.settled",
             &format!("{wager_id}:settled"),
             serde_json::json!({

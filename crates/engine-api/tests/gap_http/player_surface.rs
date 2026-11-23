@@ -6,14 +6,14 @@ pub async fn player_surface(env: &Harness) {
 
     let by_body = json_body(
         env.client
-            .post(format!("{}/v2/user", env.base))
+            .post(format!("{}/v1/user", env.base))
             .bearer_auth(&player.token)
             .json(&json!({"ids": [player.uid], "usernames": [player.username]}))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/user",
+        "POST /v1/user",
     )
     .await;
     let users = by_body["users"].as_array().expect("a user list").clone();
@@ -25,14 +25,14 @@ pub async fn player_surface(env: &Harness) {
 
     let only_ids = json_body(
         env.client
-            .post(format!("{}/v2/user", env.base))
+            .post(format!("{}/v1/user", env.base))
             .bearer_auth(&player.token)
             .json(&json!({"ids": [player.uid]}))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/user by id alone",
+        "POST /v1/user by id alone",
     )
     .await;
     let found = only_ids["users"].as_array().expect("a user list").clone();
@@ -41,14 +41,14 @@ pub async fn player_surface(env: &Harness) {
     assert_eq!(found[0]["username"], player.username);
     let nothing = json_body(
         env.client
-            .post(format!("{}/v2/user", env.base))
+            .post(format!("{}/v1/user", env.base))
             .bearer_auth(&player.token)
             .json(&json!({}))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/user with an empty body",
+        "POST /v1/user with an empty body",
     )
     .await;
     assert_eq!(
@@ -58,20 +58,20 @@ pub async fn player_surface(env: &Harness) {
     );
     refusal(
         env.client
-            .post(format!("{}/v2/user", env.base))
+            .post(format!("{}/v1/user", env.base))
             .bearer_auth(&player.token)
             .json(&json!({"ids": ["not-a-uuid"]}))
             .send()
             .await
             .unwrap(),
         StatusCode::BAD_REQUEST,
-        "POST /v2/user with a malformed id",
+        "POST /v1/user with a malformed id",
     )
     .await;
 
     let updated = json_body(
         env.client
-            .put(format!("{}/v2/account", env.base))
+            .put(format!("{}/v1/account", env.base))
             .bearer_auth(&player.token)
             .json(&json!({
                 "display_name": "Gap Runner",
@@ -85,7 +85,7 @@ pub async fn player_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/account",
+        "PUT /v1/account",
     )
     .await;
     assert_eq!(updated["display_name"], "Gap Runner");
@@ -101,7 +101,7 @@ pub async fn player_surface(env: &Harness) {
     let custom = format!("gap-custom-{}", letters_suffix());
     expect(
         env.client
-            .put(format!("{}/v2/account", env.base))
+            .put(format!("{}/v1/account", env.base))
             .bearer_auth(&player.token)
             .json(&json!({"custom_id": custom}))
             .send()
@@ -115,7 +115,7 @@ pub async fn player_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .put(format!("{}/v2/account", env.base))
+                .put(format!("{}/v1/account", env.base))
                 .bearer_auth(&other.token)
                 .json(&json!({"custom_id": custom}))
                 .send()
@@ -129,7 +129,7 @@ pub async fn player_surface(env: &Harness) {
     );
     refusal(
         env.client
-            .put(format!("{}/v2/account", env.base))
+            .put(format!("{}/v1/account", env.base))
             .bearer_auth(&other.token)
             .json(&json!({"metadata": "{not json"}))
             .send()
@@ -142,13 +142,13 @@ pub async fn player_surface(env: &Harness) {
 
     let matches = json_body(
         env.client
-            .get(format!("{}/v2/match", env.base))
+            .get(format!("{}/v1/match", env.base))
             .bearer_auth(&other.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/match",
+        "GET /v1/match",
     )
     .await;
     assert!(
@@ -157,49 +157,49 @@ pub async fn player_surface(env: &Harness) {
     );
     refusal(
         env.client
-            .get(format!("{}/v2/match?min_size=-1", env.base))
+            .get(format!("{}/v1/match?min_size=-1", env.base))
             .bearer_auth(&other.token)
             .send()
             .await
             .unwrap(),
         StatusCode::BAD_REQUEST,
-        "GET /v2/match rejects a negative size",
+        "GET /v1/match rejects a negative size",
     )
     .await;
     let stats = json_body(
         env.client
-            .get(format!("{}/v2/matchmaker/stats", env.base))
+            .get(format!("{}/v1/matchmaker/stats", env.base))
             .bearer_auth(&other.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/matchmaker/stats",
+        "GET /v1/matchmaker/stats",
     )
     .await;
     assert_eq!(stats["ticket_count"], 0);
 
     let deleted = json_body(
         env.client
-            .get(format!("{}/v2/account", env.base))
+            .get(format!("{}/v1/account", env.base))
             .bearer_auth(&player.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/account before deletion",
+        "GET /v1/account before deletion",
     )
     .await;
     assert_eq!(deleted["display_name"], "Gap Runner");
     expect(
         env.client
-            .delete(format!("{}/v2/account", env.base))
+            .delete(format!("{}/v1/account", env.base))
             .bearer_auth(&player.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/account",
+        "DELETE /v1/account",
     )
     .await;
     let rows = count(

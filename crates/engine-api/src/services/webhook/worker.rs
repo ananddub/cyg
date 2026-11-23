@@ -33,7 +33,7 @@ pub async fn delivery_loop(state: ApiState) {
 
     loop {
         beat.tick().await;
-        let Ok(queries) = q(&state).await else {
+        let Ok(queries) = q(&state.plane()).await else {
             continue;
         };
         // A row still marked `sending` twice the request timeout ago was taken by

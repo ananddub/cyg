@@ -17,7 +17,7 @@ struct NotifyController {
     service: Arc<NotifyService>,
 }
 
-#[controller("/v2/notify")]
+#[controller("/v1/notify")]
 impl NotifyController {
     fn new(service: Arc<NotifyService>) -> Self {
         Self { service }
@@ -26,13 +26,13 @@ impl NotifyController {
     #[get("/preferences")]
     async fn list(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service.list(&state, &auth).await.into_response()
+        self.service.list(&auth).await.into_response()
     }
 
     #[put("/preferences")]
     async fn set(&self, auth: Authed, Body(body): Body<PreferenceRequest>) -> Response {
         let state = current_state();
-        self.service.set(&state, &auth, body).await.into_response()
+        self.service.set(&auth, body).await.into_response()
     }
 
     /// Unauthenticated on purpose: this is the link in a mail, opened in a mail
@@ -41,7 +41,7 @@ impl NotifyController {
     async fn unsubscribe(&self, Params(query): Params<UnsubscribeQuery>) -> Response {
         let state = current_state();
         self.service
-            .unsubscribe(&state, &query.token)
+            .unsubscribe(&query.token)
             .await
             .into_response()
     }
@@ -49,7 +49,7 @@ impl NotifyController {
     #[post("/test")]
     async fn test(&self, auth: ConsoleAuthed, Body(body): Body<TestRequest>) -> Response {
         let state = current_state();
-        self.service.test(&state, &auth, body).await.into_response()
+        self.service.test(&auth, body).await.into_response()
     }
 
     /// What became of one message, so a queued test is not the end of the
@@ -58,7 +58,7 @@ impl NotifyController {
     async fn attempt(&self, auth: ConsoleAuthed, Path(attempt_id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .attempt(&state, &auth, &attempt_id)
+            .attempt(&auth, &attempt_id)
             .await
             .into_response()
     }

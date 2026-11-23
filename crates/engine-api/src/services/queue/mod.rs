@@ -5,6 +5,9 @@
 //! a party is never split. Seats are minted lazily by the controller; a
 //! matched ticket without seats is still safe to read and cannot produce two
 //! handoffs.
+use std::sync::Arc;
+
+use crate::services::plane::Plane;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -15,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::ApiError;
-use crate::ApiState;
 use crate::infra::seats::{Seat, SeatRegistry};
 
 const DEFAULT_MAX_PLAYERS: usize = 2;
@@ -118,13 +120,15 @@ struct Inner {
 }
 
 pub struct QueueService {
+    plane: Arc<Plane>,
     inner: Mutex<Inner>,
 }
 
 #[singleton]
 impl QueueService {
-    fn new() -> Self {
+    pub fn new(plane: Arc<Plane>) -> Self {
         Self {
+            plane,
             inner: Mutex::new(Inner::default()),
         }
     }
@@ -216,7 +220,7 @@ impl QueueService {
 
     /// Mint the handoff seats exactly once. The queue lock is held while the
     /// seat registry is called, so two status readers cannot mint two sets.
-    pub fn seats(&self, state: &ApiState, ticket_id: &str) -> Result<Vec<QueueSeatView>, ApiError> {
+    pub fn seats(&self, ticket_id: &str) -> Result<Vec<QueueSeatView>, ApiError> {
         let mut inner = self.inner.lock().map_err(lock_error)?;
         let ticket = inner.tickets.get_mut(ticket_id).ok_or_else(not_found)?;
         let Status::Matched { room, .. } = &ticket.status else {
@@ -227,7 +231,7 @@ impl QueueService {
         };
         if ticket.seats.is_none() {
             let mut registry: std::sync::MutexGuard<'_, SeatRegistry> =
-                state.seats.lock().map_err(|_| {
+                self.plane.seats.lock().map_err(|_| {
                     ApiError::new(
                         axum::http::StatusCode::SERVICE_UNAVAILABLE,
                         "seat registry unavailable",
@@ -236,7 +240,7 @@ impl QueueService {
             let mut seats = Vec::with_capacity(ticket.party_size);
             for _ in 0..ticket.party_size {
                 let seat = registry
-                    .mint_with_options(room, state.control.seat_ttl_secs, "")
+                    .mint_with_options(room, self.plane.control.seat_ttl_secs, "")
                     .ok_or_else(|| {
                         ApiError::new(
                             axum::http::StatusCode::SERVICE_UNAVAILABLE,

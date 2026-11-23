@@ -100,6 +100,37 @@ pub struct ApiState {
 }
 
 impl ApiState {
+    /// The service-facing context: the handles a service may inject, without
+    /// the request-side plumbing (`OnceReceiver`, request extensions, the
+    /// thread-local install) that `ApiState` exists to carry.
+    pub fn plane(&self) -> Arc<crate::services::plane::Plane> {
+        Arc::new(crate::services::plane::Plane {
+            store: crate::services::store::Store::new(
+                self.q.clone(),
+                self.blobs.clone(),
+                self.hooks.clone(),
+            ),
+            game: self.game.clone(),
+            control: self.control.clone(),
+            bus: self.bus.clone(),
+            seats: self.seats.clone(),
+            limiter: self.limiter.clone(),
+            signals: self.signals.clone(),
+            statics: self.statics.clone(),
+            realtime: self.realtime.clone(),
+            sessions: self.sessions.clone(),
+            chain: self.chain.clone(),
+            db: self.db.clone(),
+            port: self.port,
+            status_rx: self.status_rx.clone(),
+            latest_status: self.latest_status.clone(),
+            started: self.started,
+            dev_mode: self.dev_mode,
+        })
+    }
+}
+
+impl ApiState {
     pub async fn new(
         project_dir: &Path,
         game: &GameConfig,
@@ -128,7 +159,11 @@ impl ApiState {
         let hooks = engine_hooks::boot_hooks(project_dir, game).map(Arc::new);
         // The per-account bucket stays off with the quotas, so a plane that has
         // not opted in cannot start refusing authenticated traffic.
-        let limiter = rate_limit::IpRateLimiter::new(control.rate_limit_rps, control.rate_limit_burst);
+        let limiter = rate_limit::IpRateLimiter::with_limits(
+            f64::from(control.rate_limit_rps),
+            f64::from(control.rate_limit_burst),
+            f64::from(control.auth_rate_limit_burst),
+        );
         if control.quotas.enabled {
             limiter.set_player_rates(control.quotas.player_rps, control.quotas.player_burst);
         }

@@ -5559,7 +5559,7 @@ const factory = () => {
             return this;
         }
 
-        /** Backend auth: engine-api ke /v2/account/authenticate/* endpoints.
+        /** Backend auth: engine-api ke /v1/account/authenticate/* endpoints.
          *  Token andar store hota hai — future joins automatically use karte hain. */
         auth = {
             /** Device auth: naya/returning device account. Token save hota hai. */
@@ -5581,9 +5581,9 @@ const factory = () => {
         async _authenticate(kind, body) {
             const base = this._httpBase();
             // kind '' targets the bare provider/email route — no trailing slash,
-            // the server's route is exactly `/v2/account/authenticate`.
+            // the server's route is exactly `/v1/account/authenticate`.
             const path = kind ? `/${kind}` : '';
-            const res = await fetch(`${base}/v2/account/authenticate${path}`, {
+            const res = await fetch(`${base}/v1/account/authenticate${path}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body ?? {}),

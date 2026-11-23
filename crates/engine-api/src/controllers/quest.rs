@@ -14,7 +14,7 @@ struct QuestController {
     service: Arc<QuestService>,
 }
 
-#[controller("/v2/quest")]
+#[controller("/v1/quest")]
 impl QuestController {
     fn new(service: Arc<QuestService>) -> Self {
         Self { service }
@@ -24,7 +24,7 @@ impl QuestController {
     async fn list(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
-            .list_quests(&state, &auth)
+            .list_quests(&auth)
             .await
             .into_response()
     }
@@ -33,7 +33,7 @@ impl QuestController {
     async fn claim(&self, auth: Authed, Json(body): JsonBody<ClaimQuestRequest>) -> Response {
         let state = current_state();
         self.service
-            .claim_quest(&state, &auth, body)
+            .claim_quest(&auth, body)
             .await
             .into_response()
     }
@@ -43,7 +43,7 @@ struct DailyController {
     service: Arc<QuestService>,
 }
 
-#[controller("/v2/account/daily")]
+#[controller("/v1/account/daily")]
 impl DailyController {
     fn new(service: Arc<QuestService>) -> Self {
         Self { service }
@@ -53,7 +53,7 @@ impl DailyController {
     async fn claim(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
-            .claim_daily(&state, &auth)
+            .claim_daily(&auth)
             .await
             .into_response()
     }

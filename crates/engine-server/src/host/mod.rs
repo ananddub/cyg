@@ -72,8 +72,6 @@ pub(crate) use crate::schema_view::SchemaAoi;
 #[allow(unused_imports)]
 pub(crate) use crate::telemetry::{PublishReport, Recorder};
 #[allow(unused_imports)]
-pub(crate) use engine_signaling::{SignalHub, SignalIn};
-#[allow(unused_imports)]
 pub(crate) use engine_bus::Bus;
 #[allow(unused_imports)]
 pub(crate) use engine_config::{BootMaps, BootModule, GameConfig, GameplayConfig, MapFormat};
@@ -87,6 +85,8 @@ pub(crate) use engine_net::transport::webrtc::contract::Inbound;
 pub(crate) use engine_net::transport::{
     GameTransport, TransportEvent, WebRtcServer, WebRtcTransport,
 };
+#[allow(unused_imports)]
+pub(crate) use engine_signaling::{SignalHub, SignalIn};
 #[allow(unused_imports)]
 pub(crate) use engine_wasm::{EpochTicker, WasmRuntime};
 #[allow(unused_imports)]

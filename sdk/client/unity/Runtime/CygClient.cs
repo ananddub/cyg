@@ -220,7 +220,7 @@ namespace CYG
                 body = System.Text.Json.JsonSerializer.Serialize(new { reconnectionToken });
             else
                 body = playerName == null ? "{}" : System.Text.Json.JsonSerializer.Serialize(new { playerName });
-            var res = await http.PostAsync($"{origin}/api/matchmake/{method}/{Uri.EscapeDataString(room)}",
+            var res = await http.PostAsync($"{origin}/matchmake/{method}/{Uri.EscapeDataString(room)}",
                 new System.Net.Http.StringContent(body, Encoding.UTF8, "application/json"));
             var json = await res.Content.ReadAsStringAsync();
             if (!res.IsSuccessStatusCode)

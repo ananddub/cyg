@@ -1,21 +1,18 @@
+use crate::services::plane::Plane;
+
 use axum::Json;
 use chrono::{DateTime, Utc};
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::badge::{BadgeDefinitionRequest, BadgeDefinitionRow};
 use crate::error::V2Error;
 use crate::repositories::models::BadgeDefinition;
-use crate::services::deps::q;
 use crate::services::quest::catalog::{counter_name, definition_key};
 
 impl super::ConsoleService {
-    pub async fn list_badges(
-        &self,
-        state: &ApiState,
-    ) -> Result<Json<Vec<BadgeDefinitionRow>>, V2Error> {
-        let rows = q(state).await?.list_badge_definitions().await?;
+    pub async fn list_badges(&self) -> Result<Json<Vec<BadgeDefinitionRow>>, V2Error> {
+        let rows = self.plane.q().await?.list_badge_definitions().await?;
         Ok(Json(
             rows.into_iter().map(BadgeDefinitionRow::from).collect(),
         ))
@@ -23,21 +20,21 @@ impl super::ConsoleService {
 
     pub async fn create_badge(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: BadgeDefinitionRequest,
     ) -> Result<Json<BadgeDefinitionRow>, V2Error> {
         claims.require_write()?;
         let key = definition_key(&body.badge_key, "badge")?;
-        let queries = q(state).await?;
-        let draft = draft(state, key.clone(), body, Utc::now()).await?;
+        let queries = self.plane.q().await?;
+        let draft = draft(&self.plane, key.clone(), body, Utc::now()).await?;
         if !queries.create_badge_definition(&draft).await? {
             return Err(V2Error::already_exists(
                 "A badge with this key already exists.",
             ));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "badge.create",
             "badge",
@@ -50,17 +47,17 @@ impl super::ConsoleService {
 
     pub async fn update_badge(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         name: &str,
         body: BadgeDefinitionRequest,
     ) -> Result<Json<BadgeDefinitionRow>, V2Error> {
         claims.require_write()?;
         let key = definition_key(name, "badge")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let existing = queries.get_badge_definition(&key).await?;
         let draft = draft(
-            state,
+            &self.plane,
             key.clone(),
             body,
             existing.map_or_else(Utc::now, |row| row.create_time),
@@ -68,7 +65,7 @@ impl super::ConsoleService {
         .await?;
         queries.update_badge_definition(&draft).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "badge.update",
             "badge",
@@ -81,18 +78,18 @@ impl super::ConsoleService {
 
     pub async fn delete_badge(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         name: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let key = definition_key(name, "badge")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         if queries.delete_badge_definition(&key).await?.rows_affected() == 0 {
             return Err(V2Error::not_found("Badge not found."));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "badge.delete",
             "badge",
@@ -108,7 +105,7 @@ impl super::ConsoleService {
 /// that names no counter is allowed — it simply has nothing to read yet — but
 /// the name has to be one an event could raise.
 async fn draft(
-    state: &ApiState,
+    plane: &Plane,
     id: String,
     body: BadgeDefinitionRequest,
     create_time: DateTime<Utc>,
@@ -133,7 +130,7 @@ async fn draft(
     }
     Ok(BadgeDefinition {
         id,
-        game_id: crate::services::games::tenant::game_id(state).await?,
+        game_id: crate::services::games::tenant::game_id(plane).await?,
         title: title.to_string(),
         detail: detail.to_string(),
         stat,

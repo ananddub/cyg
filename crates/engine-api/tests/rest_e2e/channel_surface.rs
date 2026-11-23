@@ -17,7 +17,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     ] {
         refusal(
             client
-                .get(format!("{base}/v2/channel/{bad}"))
+                .get(format!("{base}/v1/channel/{bad}"))
                 .bearer_auth(&alice.token)
                 .send()
                 .await
@@ -30,7 +30,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let empty = api_get(
         client,
-        with_query(&format!("{base}/v2/channel/{room}"), &[("limit", "10")]),
+        with_query(&format!("{base}/v1/channel/{room}"), &[("limit", "10")]),
         &alice.token,
         "empty room listing",
     )
@@ -42,7 +42,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     for bad in [json!({ "content": "plain" }), json!({ "content": 7 })] {
         refusal(
             client
-                .post(format!("{base}/v2/channel/{room}/message"))
+                .post(format!("{base}/v1/channel/{room}/message"))
                 .bearer_auth(&alice.token)
                 .json(&bad)
                 .send()
@@ -56,7 +56,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let first = api_post(
         client,
-        format!("{base}/v2/channel/{room}/message"),
+        format!("{base}/v1/channel/{room}/message"),
         &alice.token,
         json!({ "content": { "text": "hello" } }),
         "send the first room message",
@@ -76,7 +76,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let second = api_post(
         client,
-        format!("{base}/v2/channel/{room}/message"),
+        format!("{base}/v1/channel/{room}/message"),
         &bob.token,
         json!({ "content": [{ "text": "second" }] }),
         "send the second room message",
@@ -90,7 +90,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let third = api_post(
         client,
-        format!("{base}/v2/channel/{room}/message"),
+        format!("{base}/v1/channel/{room}/message"),
         &alice.token,
         json!({ "content": { "text": "third" } }),
         "send the third room message",
@@ -103,7 +103,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let page = api_get(
         client,
-        with_query(&format!("{base}/v2/channel/{room}"), &[("limit", "2")]),
+        with_query(&format!("{base}/v1/channel/{room}"), &[("limit", "2")]),
         &alice.token,
         "first forward page",
     )
@@ -121,7 +121,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     let page = api_get(
         client,
         with_query(
-            &format!("{base}/v2/channel/{room}"),
+            &format!("{base}/v1/channel/{room}"),
             &[("limit", "2"), ("cursor", &next)],
         ),
         &alice.token,
@@ -137,7 +137,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     let page = api_get(
         client,
         with_query(
-            &format!("{base}/v2/channel/{room}"),
+            &format!("{base}/v1/channel/{room}"),
             &[("limit", "2"), ("forward", "false")],
         ),
         &alice.token,
@@ -152,7 +152,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     refusal(
         client
             .get(with_query(
-                &format!("{base}/v2/channel/{room}"),
+                &format!("{base}/v1/channel/{room}"),
                 &[("limit", "2"), ("cursor", &next), ("forward", "false")],
             ))
             .bearer_auth(&alice.token)
@@ -166,7 +166,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     refusal(
         client
             .get(with_query(
-                &format!("{base}/v2/channel/{room}"),
+                &format!("{base}/v1/channel/{room}"),
                 &[("cursor", "garbage")],
             ))
             .bearer_auth(&alice.token)
@@ -181,7 +181,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .get(with_query(
-                    &format!("{base}/v2/channel/{room}"),
+                    &format!("{base}/v1/channel/{room}"),
                     &[("limit", limit)],
                 ))
                 .bearer_auth(&alice.token)
@@ -196,7 +196,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
 
     refusal(
         client
-            .put(format!("{base}/v2/channel/{room}/message/{first_id}"))
+            .put(format!("{base}/v1/channel/{room}/message/{first_id}"))
             .bearer_auth(&bob.token)
             .json(&json!({ "content": { "text": "hijack" } }))
             .send()
@@ -208,7 +208,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     .await;
     let edited = api_put(
         client,
-        format!("{base}/v2/channel/{room}/message/{first_id}"),
+        format!("{base}/v1/channel/{room}/message/{first_id}"),
         &alice.token,
         json!({ "content": { "text": "edited" } }),
         "edit an own message",
@@ -219,7 +219,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
 
     refusal(
         client
-            .put(format!("{base}/v2/channel/{room}/message/not-a-uuid"))
+            .put(format!("{base}/v1/channel/{room}/message/not-a-uuid"))
             .bearer_auth(&alice.token)
             .json(&json!({ "content": {} }))
             .send()
@@ -231,7 +231,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     .await;
     refusal(
         client
-            .delete(format!("{base}/v2/channel/{room}/message/not-a-uuid"))
+            .delete(format!("{base}/v1/channel/{room}/message/not-a-uuid"))
             .bearer_auth(&alice.token)
             .send()
             .await
@@ -243,7 +243,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let tombstone = api_delete(
         client,
-        format!("{base}/v2/channel/{room}/message/{first_id}"),
+        format!("{base}/v1/channel/{room}/message/{first_id}"),
         &alice.token,
         "delete an own message",
     )
@@ -259,7 +259,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     let dm = format!("4.{subject}.{descriptor}.");
     let dm_message = api_post(
         client,
-        format!("{base}/v2/channel/{dm}/message"),
+        format!("{base}/v1/channel/{dm}/message"),
         &alice.token,
         json!({ "content": { "text": "psst" } }),
         "send a DM",
@@ -272,7 +272,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let dm_page = api_get(
         client,
-        format!("{base}/v2/channel/{dm}"),
+        format!("{base}/v1/channel/{dm}"),
         &bob.token,
         "read a DM as its other participant",
     )
@@ -280,7 +280,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(dm_page["messages"].as_array().expect("messages").len(), 1);
     refusal(
         client
-            .get(format!("{base}/v2/channel/{dm}"))
+            .get(format!("{base}/v1/channel/{dm}"))
             .bearer_auth(&charlie.token)
             .send()
             .await
@@ -292,7 +292,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     let reversed = format!("4.{descriptor}.{subject}.");
     refusal(
         client
-            .get(format!("{base}/v2/channel/{reversed}"))
+            .get(format!("{base}/v1/channel/{reversed}"))
             .bearer_auth(&alice.token)
             .send()
             .await
@@ -304,7 +304,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     let self_dm = format!("4.{}.{}.", alice.uid, alice.uid);
     refusal(
         client
-            .get(format!("{base}/v2/channel/{self_dm}"))
+            .get(format!("{base}/v1/channel/{self_dm}"))
             .bearer_auth(&alice.token)
             .send()
             .await
@@ -317,7 +317,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     let group_name = format!("e2e-channel-group-{}", letters_suffix());
     let group = api_post(
         client,
-        format!("{base}/v2/group"),
+        format!("{base}/v1/group"),
         &alice.token,
         json!({ "name": group_name, "open": true }),
         "create a group for its channel",
@@ -327,7 +327,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     let gchannel = format!("3.{gid}..");
     api_post(
         client,
-        format!("{base}/v2/channel/{gchannel}/message"),
+        format!("{base}/v1/channel/{gchannel}/message"),
         &alice.token,
         json!({ "content": { "text": "members only" } }),
         "send to a group channel",
@@ -335,7 +335,7 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     .await;
     refusal(
         client
-            .get(format!("{base}/v2/channel/{gchannel}"))
+            .get(format!("{base}/v1/channel/{gchannel}"))
             .bearer_auth(&bob.token)
             .send()
             .await
@@ -346,14 +346,14 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     .await;
     api_post_empty(
         client,
-        format!("{base}/v2/group/{gid}/join"),
+        format!("{base}/v1/group/{gid}/join"),
         &bob.token,
         "join the group to read its channel",
     )
     .await;
     let member_page = api_get(
         client,
-        format!("{base}/v2/channel/{gchannel}"),
+        format!("{base}/v1/channel/{gchannel}"),
         &bob.token,
         "read a group channel as a member",
     )
@@ -366,14 +366,14 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     assert!(member_page["messages"][0].get("user_id_one").is_none());
     api_post_empty(
         client,
-        format!("{base}/v2/group/{gid}/leave"),
+        format!("{base}/v1/group/{gid}/leave"),
         &bob.token,
         "leave the group channel",
     )
     .await;
     refusal(
         client
-            .get(format!("{base}/v2/channel/{gchannel}"))
+            .get(format!("{base}/v1/channel/{gchannel}"))
             .bearer_auth(&bob.token)
             .send()
             .await

@@ -3,7 +3,7 @@ use super::*;
 /// The console half of the feature: what an operator may write, what comes back,
 /// and what never comes back again.
 pub async fn endpoint_surface(env: &Harness, console: &str, hook: &str) {
-    let list = format!("{}/v2/console/webhooks", env.base);
+    let list = format!("{}/v1/console/webhooks", env.base);
 
     let anonymous = env.client.get(&list).send().await.unwrap();
     refusal(anonymous, StatusCode::UNAUTHORIZED, "the endpoint list").await;
@@ -204,7 +204,7 @@ pub async fn endpoint_surface(env: &Harness, console: &str, hook: &str) {
 pub async fn create_endpoint(env: &Harness, console: &str, body: Value) -> Value {
     json_body(
         env.client
-            .post(format!("{}/v2/console/webhooks", env.base))
+            .post(format!("{}/v1/console/webhooks", env.base))
             .bearer_auth(console)
             .json(&body)
             .send()
@@ -219,7 +219,7 @@ pub async fn create_endpoint(env: &Harness, console: &str, body: Value) -> Value
 pub async fn endpoint_rows(env: &Harness, console: &str) -> Vec<Value> {
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/console/webhooks", env.base))
+            .get(format!("{}/v1/console/webhooks", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -238,7 +238,7 @@ pub async fn deliveries_of(env: &Harness, console: &str, endpoint_id: &str) -> V
     let listed = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/webhooks/{endpoint_id}/deliveries",
+                "{}/v1/console/webhooks/{endpoint_id}/deliveries",
                 env.base
             ))
             .bearer_auth(console)

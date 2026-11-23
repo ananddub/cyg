@@ -1,7 +1,5 @@
 use engine_config::AoiConfig;
-use engine_schema::{
-    RootCollection, RootState, SchemaDef, SchemaField, WireKind, emit_descriptor,
-};
+use engine_schema::{RootCollection, RootState, SchemaDef, SchemaField, WireKind, emit_descriptor};
 use engine_webrtc_protocol::packed::{self, PackedSchema, WireValue};
 
 use crate::schema_view::SchemaAoi;

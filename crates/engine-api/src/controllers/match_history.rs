@@ -14,7 +14,7 @@ struct MatchHistoryController {
     service: Arc<MatchHistoryService>,
 }
 
-#[controller("/v2")]
+#[controller("/v1")]
 impl MatchHistoryController {
     fn new(service: Arc<MatchHistoryService>) -> Self {
         Self { service }
@@ -29,7 +29,7 @@ impl MatchHistoryController {
     ) -> Response {
         let state = current_state();
         self.service
-            .events(&state, &id, req.limit)
+            .events(&id, req.limit)
             .await
             .into_response()
     }
@@ -43,7 +43,7 @@ impl MatchHistoryController {
     ) -> Response {
         let state = current_state();
         self.service
-            .history(&state, &id, req.limit)
+            .history(&id, req.limit)
             .await
             .into_response()
     }
@@ -53,7 +53,7 @@ struct DesyncController {
     service: Arc<MatchHistoryService>,
 }
 
-#[controller("/v2/console")]
+#[controller("/v1/console")]
 impl DesyncController {
     fn new(service: Arc<MatchHistoryService>) -> Self {
         Self { service }
@@ -63,7 +63,7 @@ impl DesyncController {
     async fn desyncs(&self, _auth: ConsoleAuthed, Params(req): Params<DesyncParams>) -> Response {
         let state = current_state();
         self.service
-            .desyncs(&state, req.room.as_deref(), req.limit)
+            .desyncs(req.room.as_deref(), req.limit)
             .await
             .into_response()
     }
@@ -71,6 +71,6 @@ impl DesyncController {
     #[get("/match/{id}/replay")]
     async fn replay(&self, _auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
-        self.service.replay(&state, &id).await.into_response()
+        self.service.replay(&id).await.into_response()
     }
 }

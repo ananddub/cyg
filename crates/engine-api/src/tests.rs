@@ -7,6 +7,7 @@ mod gateway;
 mod iap;
 mod links;
 mod notify;
+mod openapi;
 mod server;
 mod storage;
 mod storage_index;

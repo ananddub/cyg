@@ -1,17 +1,15 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::dto::storage::ObjectIdsRequest;
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::utils::storage::{DELETE_REJECTED_MESSAGE, check_id};
 
 impl super::StorageService {
     pub async fn delete_objects(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         body: ObjectIdsRequest,
     ) -> Result<Json<Empty>, V2Error> {
@@ -27,7 +25,7 @@ impl super::StorageService {
         });
 
         let owner = auth.0.uuid()?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let rows = queries
             .storage_deletable(owner, &ids)
             .await

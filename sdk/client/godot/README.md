@@ -1,7 +1,7 @@
 # CookYourGame SDK for Godot 4 (`CYGGodot`)
 
 Network client for the CYG Gaming room relay: view-based state sync, RPCs,
-Netfox-style rollback, lag compensation, the `/v2/` BaaS surface and an editor
+Netfox-style rollback, lag compensation, the `/v1/` BaaS surface and an editor
 dock — in GDScript, with no native plugin and no engine fork.
 
 Everything lives under `addons/cookyourgame/`. Design derives from Netfox's
@@ -33,7 +33,7 @@ your scene
 
 The relay is the room server on `:7777` (the same port answers the matchmake
 `/api/v1/games/.../matchmake` POST and the room WebSocket). BaaS calls go to the
-engine's `/v2/` control plane on `web_port` (8090 by default).
+engine's `/v1/` control plane on `web_port` (8090 by default).
 
 ## Layers
 
@@ -47,7 +47,7 @@ engine's `/v2/` control plane on `web_port` (8090 by default).
 | `profiler/` | `CYGNetworkProfiler`, `CYGProfilingTransport`, `CYGProfilerHUD` | per-second ring of bytes, packets, ticks, RTT, mispredicts |
 | `events/` | `CYGNetworkAudio2D/3D`, `CYGNetworkParticles2D/3D` | one-shot effects that dedup and pool instead of spawning |
 | `cyg_voice.gd` | `CYGVoice` | relay-only voice (native WebRTC is unavailable on most exports): peer roster, mute verdicts, team/squad routing |
-| `baas/` | `CYGHttp`, `CYGAuth`, `CYGStorage`, `CYGInventory`, `CYGLeaderboard`, `CYGChat` | the `/v2/` REST surface |
+| `baas/` | `CYGHttp`, `CYGAuth`, `CYGStorage`, `CYGInventory`, `CYGLeaderboard`, `CYGChat` | the `/v1/` REST surface |
 | `editor/` | `cyg_editor_dock.gd`, `CYGSceneScanner` | live stats and a scene audit |
 
 ## Quick start
@@ -214,7 +214,7 @@ the edited scene and lists findings per node: `NO_ROOT`, `ORPHAN_VIEW`,
   annotations with its own compiler at export time; a runtime SDK cannot register
   into that table. The hash of the method name on the wire is the same idea, and
   `CYGRpcRouter` is the dispatch table.
-* **BaaS speaks `/v2/` REST over `HTTPRequest`.** There is no engine-side
+* **BaaS speaks `/v1/` REST over `HTTPRequest`.** There is no engine-side
   client to bind against, so `CYGHttp` is pure GDScript and every class in
   `baas/` goes through it.
 

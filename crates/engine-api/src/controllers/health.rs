@@ -37,6 +37,6 @@ impl ReadyzController {
     #[get("")]
     async fn readyz(&self) -> Response {
         let state = current_state();
-        self.service.readyz(&state).await
+        self.service.readyz().await
     }
 }

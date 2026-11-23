@@ -3,28 +3,22 @@ use chrono::Utc;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::console::rules::{RuleDryRun, RuleDryRunResult, RuleRequest, RuleRow};
 use crate::error::V2Error;
 use crate::repositories::models::RulesDefinition;
 use crate::repositories::rules::rules_definition_id;
-use crate::services::deps::q;
 use crate::services::quest::catalog::definition_key;
 use crate::services::rules::{Action, evaluate_with_actions, validate};
 
 impl super::ConsoleService {
-    pub async fn list_rules(&self, state: &ApiState) -> Result<Json<Vec<RuleRow>>, V2Error> {
-        let rows = q(state).await?.list_rules().await?;
+    pub async fn list_rules(&self) -> Result<Json<Vec<RuleRow>>, V2Error> {
+        let rows = self.plane.q().await?.list_rules().await?;
         Ok(Json(rows.into_iter().map(RuleRow::from).collect()))
     }
 
-    pub async fn rule_versions(
-        &self,
-        state: &ApiState,
-        key: &str,
-    ) -> Result<Json<Vec<RuleRow>>, V2Error> {
-        let rows = q(state).await?.list_rule_versions(key).await?;
+    pub async fn rule_versions(&self, key: &str) -> Result<Json<Vec<RuleRow>>, V2Error> {
+        let rows = self.plane.q().await?.list_rule_versions(key).await?;
         if rows.is_empty() {
             return Err(V2Error::not_found(format!("No rule named '{key}' exists.")));
         }
@@ -35,13 +29,13 @@ impl super::ConsoleService {
     /// newest stored body, so a bump is one keystroke in the editor.
     pub async fn create_rule(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: RuleRequest,
     ) -> Result<Json<RuleRow>, V2Error> {
         claims.require_write()?;
         let key = definition_key(&body.key, "rule")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
 
         let body_value = match body.body {
             Some(body) => body,
@@ -71,7 +65,7 @@ impl super::ConsoleService {
         let version = queries.latest_rule_version(&key).await? + 1;
         let draft = RulesDefinition {
             id: rules_definition_id(&key, version),
-            game_id: crate::services::games::tenant::game_id(state).await?,
+            game_id: crate::services::games::tenant::game_id(&self.plane).await?,
             key: key.clone(),
             version,
             sha256: hex::encode(Sha256::digest(body_value.to_string().as_bytes())),
@@ -83,7 +77,7 @@ impl super::ConsoleService {
             return Err(V2Error::already_exists("That rule version already exists."));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "rule.create",
             "rule",
@@ -98,13 +92,13 @@ impl super::ConsoleService {
     /// publish is always reversible.
     pub async fn publish_rule(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         key: &str,
         version: i64,
     ) -> Result<Json<RuleRow>, V2Error> {
         claims.require_write()?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         if queries.get_rule(key, version).await?.is_none() {
             return Err(V2Error::not_found(format!(
                 "Rule {key} version {version} not found."
@@ -116,7 +110,7 @@ impl super::ConsoleService {
             .await?
             .expect("the version existed a moment ago");
         super::audit(
-            state,
+            &self.plane,
             claims,
             "rule.publish",
             "rule",
@@ -129,12 +123,14 @@ impl super::ConsoleService {
 
     pub async fn delete_rule(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         key: &str,
     ) -> Result<Json<serde_json::Value>, V2Error> {
         claims.require_write()?;
-        let removed = q(state)
+        let removed = self
+            .plane
+            .q()
             .await?
             .delete_rule_versions(key)
             .await?
@@ -143,7 +139,7 @@ impl super::ConsoleService {
             return Err(V2Error::not_found(format!("No rule named '{key}' exists.")));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "rule.delete",
             "rule",
@@ -156,16 +152,14 @@ impl super::ConsoleService {
 
     /// Dry-runs a rule (stored by key or inline body) against a player's stat
     /// map, or against a context supplied inline.
-    pub async fn dry_run_rule(
-        &self,
-        state: &ApiState,
-        body: RuleDryRun,
-    ) -> Result<Json<RuleDryRunResult>, V2Error> {
+    pub async fn dry_run_rule(&self, body: RuleDryRun) -> Result<Json<RuleDryRunResult>, V2Error> {
         let rule_body = if let Some(inline) = body.body {
             Some(inline)
         } else {
             match body.key.as_deref() {
-                Some(key) if !key.trim().is_empty() => q(state)
+                Some(key) if !key.trim().is_empty() => self
+                    .plane
+                    .q()
                     .await?
                     .active_rule(key.trim())
                     .await?
@@ -182,7 +176,7 @@ impl super::ConsoleService {
         let context = match body.context {
             Some(context) => context,
             None => match body.user_id {
-                Some(user_id) => q(state).await?.player_stat_context(user_id).await?,
+                Some(user_id) => self.plane.q().await?.player_stat_context(user_id).await?,
                 None => Value::Object(Default::default()),
             },
         };

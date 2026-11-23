@@ -7,7 +7,6 @@ use crate::dto::report::{CreateReportRequest, REASONS, ReportResponse};
 use crate::error::V2Error;
 use crate::moderation;
 use crate::repositories::report::CreateReportParams;
-use crate::services::deps::q;
 
 const MAX_DETAILS: usize = 1000;
 const MAX_PATH: usize = 512;
@@ -15,7 +14,7 @@ const MAX_PATH: usize = 512;
 impl ReportService {
     pub async fn create(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: CreateReportRequest,
     ) -> Result<Json<ReportResponse>, V2Error> {
@@ -35,7 +34,7 @@ impl ReportService {
             .path
             .as_deref()
             .map(|raw| clip(moderation::clean_text(raw), MAX_PATH));
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         queries
             .get_user_by_id(reported_id)
             .await

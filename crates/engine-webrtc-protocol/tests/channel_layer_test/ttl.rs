@@ -1,5 +1,5 @@
 use crate::{feed, frame};
-use engine_webrtc_protocol::channel::{FRAGMENT_TTL_MS, MAX_DELTA_CHUNK, FragmentAssembler};
+use engine_webrtc_protocol::channel::{FRAGMENT_TTL_MS, FragmentAssembler, MAX_DELTA_CHUNK};
 
 #[test]
 fn a_stale_half_delta_is_cleaned_up_after_the_ttl() {

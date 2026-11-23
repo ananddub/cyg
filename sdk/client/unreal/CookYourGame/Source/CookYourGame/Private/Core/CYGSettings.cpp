@@ -152,7 +152,7 @@ FString UCYGSettings::BuildMatchmakeUrl(const FString& Method, const FString& Ro
 	}
 
 	FString Url = Base;
-	Url += TEXT("/api/matchmake/");
+	Url += TEXT("/matchmake/");
 	Url += EscapeSegment(Resolved);
 	Url += TEXT("/");
 	Url += EscapeSegment(NormalizeRoomName(Room));

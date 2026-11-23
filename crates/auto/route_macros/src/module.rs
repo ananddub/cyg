@@ -92,7 +92,7 @@ pub(crate) fn expand_controller_module(
     })?;
     let submission: Item = syn::parse2(quote! {
         ::auto_route::__private::inventory::submit! {
-            ::auto_route::RouteDescriptor::new(__auto_route_factory_module)
+            ::auto_route::RouteDescriptor::new(__auto_route_factory_module, false)
         }
     })?;
     let openapi_submissions = crate::controller::openapi::module_openapi_submissions(

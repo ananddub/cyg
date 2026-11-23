@@ -3,13 +3,11 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::MarketplaceService;
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::marketplace::{ListItemsRequest, ListingResponse, ListingRow};
 use crate::error::V2Error;
 use crate::infra::liveops;
 use crate::repositories::models::MarketListing;
-use crate::services::deps::q;
 use crate::services::quest::catalog::counter_name;
 use crate::services::quest::reward::payout_uuid;
 
@@ -33,7 +31,7 @@ pub(crate) fn is_expired(listing: &MarketListing) -> bool {
 impl MarketplaceService {
     pub async fn list_item(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: ListItemsRequest,
     ) -> Result<Json<ListingResponse>, V2Error> {
@@ -43,7 +41,7 @@ impl MarketplaceService {
                 "A listing price must be a positive amount.",
             ));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let instance = queries
             .get_inventory_item(req.instance_id)
             .await?
@@ -87,11 +85,11 @@ impl MarketplaceService {
 
     pub async fn cancel(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         listing_id: Uuid,
     ) -> Result<Json<ListingResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let listing = queries
             .load_listing(listing_id)
             .await?

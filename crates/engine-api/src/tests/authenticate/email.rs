@@ -9,7 +9,7 @@ fn email_authentication_branches_on_whether_an_address_arrived() {
     let key = server_key();
     let email = |body: &str, query: &str| {
         server.post(
-            &format!("/v2/account/authenticate/email{query}"),
+            &format!("/v1/account/authenticate/email{query}"),
             Some(&key),
             body,
         )

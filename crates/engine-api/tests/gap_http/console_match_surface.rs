@@ -5,13 +5,13 @@ pub async fn console_match_surface(env: &Harness, console: &str) {
     let match_id = RealtimeMatchService::create_match_with_tokens(15, vec!["e2e-token".into()]);
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/console/match", env.base))
+            .get(format!("{}/v1/console/match", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/match",
+        "GET /v1/console/match",
     )
     .await;
     let rows = listed["matches"]
@@ -28,13 +28,13 @@ pub async fn console_match_surface(env: &Harness, console: &str) {
 
     let state = json_body(
         env.client
-            .get(format!("{}/v2/console/match/{match_id}/state", env.base))
+            .get(format!("{}/v1/console/match/{match_id}/state", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/match/{id}/state",
+        "GET /v1/console/match/{id}/state",
     )
     .await;
     assert!(state["presences"].is_array(), "the state names presences");
@@ -42,7 +42,7 @@ pub async fn console_match_surface(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .get(format!("{}/v2/console/match/not-a-uuid/state", env.base))
+            .get(format!("{}/v1/console/match/not-a-uuid/state", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -53,7 +53,7 @@ pub async fn console_match_surface(env: &Harness, console: &str) {
     .await;
     refusal(
         env.client
-            .delete(format!("{}/v2/console/match/{}", env.base, Uuid::new_v4()))
+            .delete(format!("{}/v1/console/match/{}", env.base, Uuid::new_v4()))
             .bearer_auth(console)
             .send()
             .await
@@ -65,13 +65,13 @@ pub async fn console_match_surface(env: &Harness, console: &str) {
 
     expect(
         env.client
-            .delete(format!("{}/v2/console/match/{match_id}", env.base))
+            .delete(format!("{}/v1/console/match/{match_id}", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/match/{id}",
+        "DELETE /v1/console/match/{id}",
     )
     .await;
     assert!(
@@ -81,7 +81,7 @@ pub async fn console_match_surface(env: &Harness, console: &str) {
     let trail = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/audit/log?action=match.terminate&limit=20",
+                "{}/v1/console/audit/log?action=match.terminate&limit=20",
                 env.base
             ))
             .bearer_auth(console)

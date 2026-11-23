@@ -177,9 +177,15 @@ impl Predictor {
     /// Buffer one predicted input. Errors on a seq at-or-before the newest
     /// pending one (out-of-order predict) — the replay order would break.
     pub fn predict(&mut self, seq: u16, values: Vec<i64>) -> Result<(), String> {
-        if self.pending.back().is_some_and(|newest| Self::seq_le(seq, newest.seq)) {
+        if self
+            .pending
+            .back()
+            .is_some_and(|newest| Self::seq_le(seq, newest.seq))
+        {
             let newest = self.pending.back().unwrap().seq;
-            return Err(format!("predict seq {seq} not after newest pending seq {newest}"));
+            return Err(format!(
+                "predict seq {seq} not after newest pending seq {newest}"
+            ));
         }
         self.pending.push_back(PendingInput { seq, values });
         self.stats.predicted += 1;
@@ -232,10 +238,19 @@ impl Predictor {
     /// Record the CURRENT predicted values of `entity_id` as the prediction
     /// for `seq` (call after a live predict-apply and after each replayed
     /// apply). Errors if the entity is absent.
-    pub fn record_history(&mut self, state: &ClientState, entity_id: u32, seq: u16) -> Result<(), String> {
-        let coll = state.collections.get(self.collection_slot)
+    pub fn record_history(
+        &mut self,
+        state: &ClientState,
+        entity_id: u32,
+        seq: u16,
+    ) -> Result<(), String> {
+        let coll = state
+            .collections
+            .get(self.collection_slot)
             .ok_or_else(|| format!("no collection slot {}", self.collection_slot))?;
-        let entity = coll.entities.get(&entity_id)
+        let entity = coll
+            .entities
+            .get(&entity_id)
             .ok_or_else(|| format!("no entity {entity_id}"))?;
         let slot = seq as usize % HISTORY_CAP;
         self.history[slot] = Some((seq, entity.values.clone()));
@@ -282,7 +297,9 @@ impl Predictor {
         acked_seq: u16,
     ) -> ReconcileOutcome {
         let slot = self.collection_slot;
-        let truth: Vec<Value> = state.collections.get(slot)
+        let truth: Vec<Value> = state
+            .collections
+            .get(slot)
             .and_then(|c| c.entities.get(&entity_id))
             .map(|e| e.values.clone())
             .unwrap_or_default();
@@ -309,7 +326,9 @@ impl Predictor {
         let acked_dropped = self.note_acked(acked_seq);
 
         // 3. adopt server truth (rewind); game replays pending on top
-        if let Some(entity) = state.collections.get_mut(slot)
+        if let Some(entity) = state
+            .collections
+            .get_mut(slot)
             .and_then(|c| c.entities.get_mut(&entity_id))
             .filter(|_| !truth.is_empty())
         {
@@ -340,15 +359,21 @@ pub fn compare_values(predicted: &[Value], authoritative: &[Value]) -> (f64, boo
     for (a, b) in predicted.iter().zip(authoritative.iter()) {
         match (a, b) {
             (Value::Bool(x), Value::Bool(y)) => {
-                if x != y { mismatch = true; }
+                if x != y {
+                    mismatch = true;
+                }
             }
             (Value::Str(x), Value::Str(y)) => {
-                if x != y { mismatch = true; }
+                if x != y {
+                    mismatch = true;
+                }
             }
             (Value::Arr(x), Value::Arr(y)) => {
                 let (d, m) = compare_values(x, y);
                 max = max.max(d);
-                if m { mismatch = true; }
+                if m {
+                    mismatch = true;
+                }
             }
             (Value::Null, Value::Null) => {}
             _ => {
@@ -370,7 +395,9 @@ pub fn compare_values(predicted: &[Value], authoritative: &[Value]) -> (f64, boo
 mod tests {
     use super::*;
     use crate::state::StateEvent;
-    use engine_schema::{emit_descriptor, RootCollection, RootState, SchemaDef, SchemaField, WireKind};
+    use engine_schema::{
+        RootCollection, RootState, SchemaDef, SchemaField, WireKind, emit_descriptor,
+    };
 
     fn field(name: &str, kind: WireKind) -> SchemaField {
         SchemaField {
@@ -415,7 +442,10 @@ mod tests {
             name: "Arena".into(),
             version: 1,
             scalars: vec![],
-            collections: vec![RootCollection { name: "players".into(), schema: "Player".into() }],
+            collections: vec![RootCollection {
+                name: "players".into(),
+                schema: "Player".into(),
+            }],
         };
         emit_descriptor(&[player_schema()], Some(&root))
     }
@@ -510,10 +540,18 @@ mod tests {
             self.x += dir * speed + self.wind;
         }
         fn payload(&self, acked: u16, tick: u32) -> Vec<u8> {
-            envelope(&update_section(&self.packed, 7, self.x, self.y, self.alive), acked, tick)
+            envelope(
+                &update_section(&self.packed, 7, self.x, self.y, self.alive),
+                acked,
+                tick,
+            )
         }
         fn full_payload(&self, acked: u16) -> Vec<u8> {
-            envelope(&full_section(&self.packed, &[(7, "me", self.x, self.y, self.alive)]), acked, 1)
+            envelope(
+                &full_section(&self.packed, &[(7, "me", self.x, self.y, self.alive)]),
+                acked,
+                1,
+            )
         }
     }
 
@@ -533,7 +571,13 @@ mod tests {
             let mut rig = Rig {
                 core,
                 pred: Predictor::new(0),
-                server: Server { packed: player_packed(), x: 0.0, y: 0.0, alive: true, wind: server_wind },
+                server: Server {
+                    packed: player_packed(),
+                    x: 0.0,
+                    y: 0.0,
+                    alive: true,
+                    wind: server_wind,
+                },
                 client_wind: 0.0,
             };
             // baseline full snapshot + rollback capture
@@ -555,8 +599,13 @@ mod tests {
             {
                 let wind = self.client_wind;
                 let state = self.core.state_mut();
-                let entity = state.collections.get_mut(0).unwrap()
-                    .entities.get_mut(&7).unwrap();
+                let entity = state
+                    .collections
+                    .get_mut(0)
+                    .unwrap()
+                    .entities
+                    .get_mut(&7)
+                    .unwrap();
                 MoveApplier { wind }.apply(entity, input);
             }
             let state = self.core.state();
@@ -589,8 +638,7 @@ mod tests {
         }
 
         fn client_x(&self) -> f64 {
-            self.core.state().collection("players").unwrap()
-                .entities[&7].values[1].as_f64()
+            self.core.state().collection("players").unwrap().entities[&7].values[1].as_f64()
         }
     }
 
@@ -762,8 +810,18 @@ mod tests {
     fn compare_values_handles_arrays_and_kind_changes() {
         // numeric |Δ|
         let (d, m) = compare_values(
-            &[Value::F64(1.0), Value::F32(2.0), Value::Bool(true), Value::Str("a".into())],
-            &[Value::F64(1.25), Value::F32(2.0), Value::Bool(true), Value::Str("a".into())],
+            &[
+                Value::F64(1.0),
+                Value::F32(2.0),
+                Value::Bool(true),
+                Value::Str("a".into()),
+            ],
+            &[
+                Value::F64(1.25),
+                Value::F32(2.0),
+                Value::Bool(true),
+                Value::Str("a".into()),
+            ],
         );
         assert_eq!(d, 0.25);
         assert!(!m);

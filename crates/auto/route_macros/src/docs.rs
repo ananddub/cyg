@@ -80,6 +80,33 @@ pub(crate) fn type_ident(ty: &Type) -> syn::Result<&Ident> {
         .ok_or_else(|| syn::Error::new_spanned(ty, "controller type must be a named type"))
 }
 
+/// The API version a path was authored under: `/v1/leaderboard` -> `Some("v1")`.
+///
+/// Only the leading segment counts, and only when it is exactly `v1`: a path
+/// such as `/v2fa` or `/status` is left alone, and a controller that still says
+/// `/v2/...` is *not* silently rewritten — it registers at `/v2`, where
+/// `tests/auto_routes/only_v1_is_versioned.rs` fails on it.
+pub(crate) fn api_version(path: &str) -> Option<&str> {
+    match path.trim_start_matches('/').split('/').next() {
+        Some("v1") => Some("v1"),
+        _ => None,
+    }
+}
+
+/// The path without its leading API version segment, ready for an axum router:
+/// `/v1/leaderboard/{id}` -> `/leaderboard/{id}`. A path with no version is
+/// returned unchanged.
+pub(crate) fn without_version_prefix(path: &str) -> String {
+    match api_version(path) {
+        Some(version) => {
+            let stripped = path.trim_start_matches('/');
+            let rest = stripped[version.len()..].trim_start_matches('/');
+            format!("/{rest}")
+        }
+        None => path.to_owned(),
+    }
+}
+
 pub(crate) fn join_paths(base: &str, route: &str) -> String {
     let base = base.trim_matches('/');
     let route = route.trim_matches('/');

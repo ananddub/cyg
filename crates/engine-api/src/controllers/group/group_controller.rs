@@ -4,7 +4,7 @@ struct GroupController {
     groups: Arc<GroupService>,
     members: Arc<GroupMemberService>,
 }
-#[controller("/v2/group")]
+#[controller("/v1/group")]
 impl GroupController {
     fn new(groups: Arc<GroupService>, members: Arc<GroupMemberService>) -> Self {
         Self { groups, members }
@@ -14,7 +14,7 @@ impl GroupController {
     async fn list_groups(&self, auth: Authed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
         self.groups
-            .list_groups(&state, &auth, req)
+            .list_groups(&auth, req)
             .await
             .into_response()
     }
@@ -23,7 +23,7 @@ impl GroupController {
     async fn create_group(&self, auth: Authed, Body(body): Body<CreateGroupRequest>) -> Response {
         let state = current_state();
         self.groups
-            .create_group(&state, &auth, body)
+            .create_group(&auth, body)
             .await
             .into_response()
     }
@@ -32,7 +32,7 @@ impl GroupController {
     async fn get_group(&self, auth: Authed, Path(raw_id): Path<String>) -> Response {
         let state = current_state();
         self.groups
-            .get_group(&state, &auth, raw_id)
+            .get_group(&auth, raw_id)
             .await
             .into_response()
     }
@@ -46,7 +46,7 @@ impl GroupController {
     ) -> Response {
         let state = current_state();
         self.groups
-            .update_group(&state, &auth, raw_id, body)
+            .update_group(&auth, raw_id, body)
             .await
             .into_response()
     }
@@ -55,7 +55,7 @@ impl GroupController {
     async fn delete_group(&self, auth: Authed, Path(raw_id): Path<String>) -> Response {
         let state = current_state();
         self.groups
-            .delete_group(&state, &auth, raw_id)
+            .delete_group(&auth, raw_id)
             .await
             .into_response()
     }
@@ -64,7 +64,7 @@ impl GroupController {
     async fn join_group(&self, auth: Authed, Path(raw_id): Path<String>) -> Response {
         let state = current_state();
         self.groups
-            .join_group(&state, &auth, raw_id)
+            .join_group(&auth, raw_id)
             .await
             .into_response()
     }
@@ -73,7 +73,7 @@ impl GroupController {
     async fn leave_group(&self, auth: Authed, Path(raw_id): Path<String>) -> Response {
         let state = current_state();
         self.groups
-            .leave_group(&state, &auth, raw_id)
+            .leave_group(&auth, raw_id)
             .await
             .into_response()
     }
@@ -87,7 +87,7 @@ impl GroupController {
     ) -> Response {
         let state = current_state();
         self.members
-            .list_group_users(&state, &auth, raw_id, req)
+            .list_group_users(&auth, raw_id, req)
             .await
             .into_response()
     }
@@ -101,7 +101,7 @@ impl GroupController {
     ) -> Response {
         let state = current_state();
         self.members
-            .add_group_users(&state, &auth, raw_id, req)
+            .add_group_users(&auth, raw_id, req)
             .await
             .into_response()
     }
@@ -115,7 +115,7 @@ impl GroupController {
     ) -> Response {
         let state = current_state();
         self.members
-            .kick_group_users(&state, &auth, raw_id, req)
+            .kick_group_users(&auth, raw_id, req)
             .await
             .into_response()
     }
@@ -129,7 +129,7 @@ impl GroupController {
     ) -> Response {
         let state = current_state();
         self.members
-            .ban_group_users(&state, &auth, raw_id, req)
+            .ban_group_users(&auth, raw_id, req)
             .await
             .into_response()
     }
@@ -143,7 +143,7 @@ impl GroupController {
     ) -> Response {
         let state = current_state();
         self.members
-            .promote_group_users(&state, &auth, raw_id, req)
+            .promote_group_users(&auth, raw_id, req)
             .await
             .into_response()
     }
@@ -157,7 +157,7 @@ impl GroupController {
     ) -> Response {
         let state = current_state();
         self.members
-            .demote_group_users(&state, &auth, raw_id, req)
+            .demote_group_users(&auth, raw_id, req)
             .await
             .into_response()
     }

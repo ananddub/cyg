@@ -1,10 +1,11 @@
+use crate::services::plane::Plane;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::{PlayerQuest, QuestDefinition, Season};
@@ -13,9 +14,9 @@ use crate::repositories::models::{PlayerQuest, QuestDefinition, Season};
 /// game install, or a definition written before tenancy — stays visible.
 pub(crate) async fn owned_definitions(
     queries: &Arc<Queries>,
-    state: &ApiState,
+    plane: &Plane,
 ) -> Result<Vec<QuestDefinition>, V2Error> {
-    let game_id = crate::services::games::tenant::game_id(state).await?;
+    let game_id = crate::services::games::tenant::game_id(plane).await?;
     Ok(queries
         .list_quest_definitions()
         .await?
@@ -28,7 +29,7 @@ pub(crate) async fn owned_definitions(
 
 pub(crate) async fn definition_of(
     queries: &Arc<Queries>,
-    state: &ApiState,
+    plane: &Plane,
     quest_key: &str,
 ) -> Result<QuestDefinition, V2Error> {
     let missing = || V2Error::not_found(format!("Quest '{quest_key}' does not exist."));
@@ -36,7 +37,7 @@ pub(crate) async fn definition_of(
         .get_quest_definition(quest_key)
         .await?
         .ok_or_else(missing)?;
-    let game_id = crate::services::games::tenant::game_id(state).await?;
+    let game_id = crate::services::games::tenant::game_id(plane).await?;
     let owned = definition.game_id.is_none() || game_id.is_none() || definition.game_id == game_id;
     owned.then_some(definition).ok_or_else(missing)
 }

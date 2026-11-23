@@ -24,23 +24,6 @@ impl LobbyController {
     #[get("/rooms")]
     async fn rooms(&self, headers: HeaderMap) -> Response {
         let state = current_state();
-        self.service.rooms(&state, headers).await
-    }
-}
-
-struct ApiLobbyController {
-    service: Arc<StatusService>,
-}
-
-#[controller("/api/lobby")]
-impl ApiLobbyController {
-    fn new(service: Arc<StatusService>) -> Self {
-        Self { service }
-    }
-
-    #[get("/rooms")]
-    async fn rooms(&self, headers: HeaderMap) -> Response {
-        let state = current_state();
-        self.service.rooms(&state, headers).await
+        self.service.rooms(headers).await
     }
 }

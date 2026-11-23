@@ -1,6 +1,5 @@
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::dto::console::games::GameRow;
 use crate::error::V2Error;
 use crate::repositories::console::ListStorageRow;

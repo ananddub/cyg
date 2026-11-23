@@ -1,3 +1,7 @@
+/*! CYG Gaming SDK - browser bundle (UMD, served at /cyg.js).
+ *  Exposes window.CYG for the web client plus AMD and CommonJS loaders.
+ *  Built from sdk/client/core-ts with `just core-ts-build`; do not edit by hand.
+ */
 (function (root, factory) {
     if (typeof define === 'function' && define.amd) {
         define([], factory);
@@ -5079,7 +5083,7 @@ var init_engine = __esm({
           this._authCallback = callback;
           return this;
         }
-        /** Backend auth: engine-api ke /v2/account/authenticate/* endpoints.
+        /** Backend auth: engine-api ke /v1/account/authenticate/* endpoints.
          *  Token andar store hota hai — future joins automatically use karte hain. */
         auth = {
           /** Device auth: naya/returning device account. Token save hota hai. */
@@ -5103,7 +5107,7 @@ var init_engine = __esm({
         async _authenticate(kind, body) {
           const base = this._httpBase();
           const path = kind ? `/${kind}` : "";
-          const res = await fetch(`${base}/v2/account/authenticate${path}`, {
+          const res = await fetch(`${base}/v1/account/authenticate${path}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body ?? {})

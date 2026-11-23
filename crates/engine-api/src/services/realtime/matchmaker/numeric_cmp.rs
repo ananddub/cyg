@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 
 pub(super) static TICKER_STARTED: OnceLock<()> = OnceLock::new();

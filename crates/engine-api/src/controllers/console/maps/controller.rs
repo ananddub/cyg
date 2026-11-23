@@ -11,7 +11,7 @@ pub(super) const EXT_FORMATS: &[(&str, &str)] = &[
 pub(super) struct ConsoleMapsController {
     pub(super) service: Arc<MapService>,
 }
-#[controller("/v2/console/games/{gameId}/maps")]
+#[controller("/v1/console/games/{gameId}/maps")]
 impl ConsoleMapsController {
     fn new(service: Arc<MapService>) -> Self {
         Self { service }
@@ -45,7 +45,7 @@ impl ConsoleMapsController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .list_maps(&state, game_id)
+            .list_maps(game_id)
             .await
             .map(Json)
             .into_response()
@@ -65,7 +65,7 @@ impl ConsoleMapsController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .preview_map(&state, game_id, version)
+            .preview_map(game_id, version)
             .await
             .into_response()
     }
@@ -86,7 +86,7 @@ impl ConsoleMapsController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .activate_map(&state, game_id, version)
+            .activate_map(game_id, version)
             .await
             .map(Json)
             .into_response()
@@ -108,7 +108,7 @@ impl ConsoleMapsController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .delete_map(&state, game_id, version)
+            .delete_map(game_id, version)
             .await
             .into_response()
     }

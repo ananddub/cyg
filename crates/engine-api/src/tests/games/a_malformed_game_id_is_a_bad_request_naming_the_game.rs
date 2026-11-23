@@ -5,19 +5,19 @@ pub(crate) fn a_malformed_game_id_is_a_bad_request_naming_the_game() {
     let server = V2Server::start(v2_state());
     let auth = admin_token();
     for (method, path) in [
-        ("GET", "/v2/console/games/not-a-uuid".to_owned()),
-        ("PUT", "/v2/console/games/not-a-uuid".to_owned()),
-        ("DELETE", "/v2/console/games/not-a-uuid".to_owned()),
+        ("GET", "/v1/console/games/not-a-uuid".to_owned()),
+        ("PUT", "/v1/console/games/not-a-uuid".to_owned()),
+        ("DELETE", "/v1/console/games/not-a-uuid".to_owned()),
         (
             "GET",
-            "/v2/console/games/not-a-uuid/unity-settings".to_owned(),
+            "/v1/console/games/not-a-uuid/unity-settings".to_owned(),
         ),
         (
             "GET",
-            "/v2/console/games/not-a-uuid/unity-settings?format=json".to_owned(),
+            "/v1/console/games/not-a-uuid/unity-settings?format=json".to_owned(),
         ),
     ] {
-        let reply = server.send(&method, &path, Some(&auth), "{}");
+        let reply = server.send(method, &path, Some(&auth), "{}");
         assert_eq!(
             reply.refusal(INVALID_ARGUMENT),
             "Invalid game id.",
@@ -29,7 +29,7 @@ pub(crate) fn a_malformed_game_id_is_a_bad_request_naming_the_game() {
 pub(crate) fn an_empty_patch_is_refused_before_the_database() {
     let server = V2Server::start(v2_state());
     let reply = server.put(
-        &format!("/v2/console/games/{}", Uuid::new_v4()),
+        &format!("/v1/console/games/{}", Uuid::new_v4()),
         Some(&admin_token()),
         "{}",
     );
@@ -42,7 +42,7 @@ pub(crate) fn an_empty_patch_is_refused_before_the_database() {
 pub(crate) fn an_unknown_game_status_is_refused_before_the_database() {
     let server = V2Server::start(v2_state());
     let reply = server.put(
-        &format!("/v2/console/games/{}", Uuid::new_v4()),
+        &format!("/v1/console/games/{}", Uuid::new_v4()),
         Some(&admin_token()),
         r#"{"status":"deleted"}"#,
     );
@@ -60,7 +60,7 @@ pub(crate) fn an_overlong_game_name_is_refused() {
     let server = V2Server::start(v2_state());
     let name = "n".repeat(129);
     let reply = server.post(
-        "/v2/console/games",
+        "/v1/console/games",
         Some(&admin_token()),
         &format!(r#"{{"name":"{name}"}}"#),
     );

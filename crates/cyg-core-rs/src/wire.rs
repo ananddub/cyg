@@ -35,7 +35,9 @@ pub struct DeltaReassembler {
 
 impl DeltaReassembler {
     pub fn new() -> Self {
-        Self { buf: Vec::with_capacity(4096) }
+        Self {
+            buf: Vec::with_capacity(4096),
+        }
     }
 
     /// Feed one (possibly fragmented) payload. Returns `Some(assembled)` when
@@ -89,7 +91,11 @@ pub fn unwrap_payload(payload: &[u8]) -> Result<RawFrame<'_>, String> {
     let tail = &payload[payload.len() - 8..];
     let acked_seq = u16::from_le_bytes([tail[0], tail[1]]);
     let server_tick = u32::from_le_bytes([tail[2], tail[3], tail[4], tail[5]]);
-    Ok(RawFrame { section: body, acked_seq, server_tick })
+    Ok(RawFrame {
+        section: body,
+        acked_seq,
+        server_tick,
+    })
 }
 
 #[cfg(test)]

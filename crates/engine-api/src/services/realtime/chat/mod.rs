@@ -3,11 +3,9 @@ use auto_ws::{Conn, Msg};
 use chrono::Utc;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use super::{FastMap, new_fast_map};
-use crate::ApiState;
 use crate::controllers::realtime::messages::*;
 use crate::controllers::realtime::{Dispatched, session_of, state_of};
 use crate::db::DbError;

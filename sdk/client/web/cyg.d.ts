@@ -19,7 +19,7 @@ export interface ClientOptions {
 /** How the SDK's auth methods hit the backend. The endpoint is coerced:
  * `ws://`/`wss://` (and scheme-less) hosts are rewritten to `http(s)://` and a
  * trailing slash is stripped, so `new Client("wss://api.example.com")` and
- * `new Client("api.example.com")` both reach `https://api.example.com/v2/...`. */
+ * `new Client("api.example.com")` both reach `https://api.example.com/v1/...`. */
 export interface CygAuth {
     /** Device auth: new/returning device account. */
     device(deviceId: string): Promise<AuthResponse>;
@@ -315,7 +315,7 @@ export class Client {
     constructor(endpoint: string, options?: ClientOptions);
     readonly endpoint: string;
     lastSeat: SeatReservation | null;
-    /** Backend auth (`/v2/account/authenticate/*`); stores the token on success. */
+    /** Backend auth (`/v1/account/authenticate/*`); stores the token on success. */
     auth: CygAuth;
 
     /** Return a token string (or `{ token }`) before each matchmake call. */

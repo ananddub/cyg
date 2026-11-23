@@ -17,7 +17,7 @@ struct EventsController {
     service: Arc<QuestService>,
 }
 
-#[controller("/v2/events")]
+#[controller("/v1/events")]
 impl EventsController {
     fn new(service: Arc<QuestService>) -> Self {
         Self { service }
@@ -30,11 +30,11 @@ impl EventsController {
         Json(body): JsonBody<IngestEventsRequest>,
     ) -> Response {
         let state = current_state();
-        if let Err(err) = server_key(&headers, &state) {
+        if let Err(err) = server_key(&headers, &*state.plane()) {
             return err.into_response();
         }
         self.service
-            .ingest_events(&state, body)
+            .ingest_events(body)
             .await
             .into_response()
     }

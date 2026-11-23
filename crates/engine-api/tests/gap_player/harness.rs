@@ -3,7 +3,7 @@ use super::*;
 pub async fn put_object(env: &Harness, token: &str, collection: &str, key: &str, value: Value) {
     json_body(
         env.client
-            .put(format!("{}/v2/storage", env.base))
+            .put(format!("{}/v1/storage", env.base))
             .bearer_auth(token)
             .json(&json!({
                 "objects": [{
@@ -16,7 +16,7 @@ pub async fn put_object(env: &Harness, token: &str, collection: &str, key: &str,
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/storage",
+        "PUT /v1/storage",
     )
     .await;
 }
@@ -64,13 +64,13 @@ pub async fn seed_board(
 pub async fn member_state(env: &Harness, token: &str, group_id: &str, uid: &str) -> Option<i16> {
     let page = json_body(
         env.client
-            .get(format!("{}/v2/group/{group_id}/user?limit=100", env.base))
+            .get(format!("{}/v1/group/{group_id}/user?limit=100", env.base))
             .bearer_auth(token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/group/{groupId}/user (state lookup)",
+        "GET /v1/group/{groupId}/user (state lookup)",
     )
     .await;
     page["group_users"]
@@ -90,7 +90,7 @@ pub async fn member_in_state(
     let page = json_body(
         env.client
             .get(format!(
-                "{}/v2/group/{group_id}/user?state={state}&limit=100",
+                "{}/v1/group/{group_id}/user?state={state}&limit=100",
                 env.base
             ))
             .bearer_auth(token)
@@ -98,7 +98,7 @@ pub async fn member_in_state(
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/group/{groupId}/user?state= (bucket lookup)",
+        "GET /v1/group/{groupId}/user?state= (bucket lookup)",
     )
     .await;
     page["group_users"]

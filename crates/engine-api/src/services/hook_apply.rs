@@ -11,15 +11,16 @@
 //! is reported and ignored: the event it accompanied has already happened in the
 //! outside world (apple charged the card), so refusing it would leave the player
 //! paid-up and unrewarded.
+use std::sync::Arc;
+
+use crate::services::plane::Plane;
 
 use std::collections::BTreeMap;
 
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::error::V2Error;
 use crate::repositories::console_mutations::InsertNotificationParams;
-use crate::services::deps::q;
 use engine_hooks::{HookEvent, HookInput, HookOutput};
 
 /// Run a hook for an event and apply whatever it proposes.
@@ -29,12 +30,12 @@ use engine_hooks::{HookEvent, HookInput, HookOutput};
 /// treated as "no hook answered", because a broken hook must not become a
 /// broken purchase.
 pub async fn fire(
-    state: &ApiState,
+    plane: &Plane,
     event: HookEvent,
     player_id: Uuid,
     payload: serde_json::Value,
 ) -> Result<(), V2Error> {
-    let Some(runner) = state.hooks.as_ref() else {
+    let Some(runner) = plane.hooks() else {
         return Ok(());
     };
     let input = HookInput {
@@ -60,19 +61,19 @@ pub async fn fire(
             "Refused by game logic: {reason}"
         )));
     }
-    apply(state, player_id, &output).await;
+    apply(plane, player_id, &output).await;
     Ok(())
 }
 
 /// Apply proposals. Failures are logged per proposal so one bad grant does not
 /// discard the rest.
-async fn apply(state: &ApiState, player_id: Uuid, output: &HookOutput) {
-    grant_currency(state, player_id, output).await;
-    grant_items(state, player_id, output).await;
-    notify(state, player_id, output).await;
+async fn apply(plane: &Plane, player_id: Uuid, output: &HookOutput) {
+    grant_currency(plane, player_id, output).await;
+    grant_items(plane, player_id, output).await;
+    notify(plane, player_id, output).await;
 }
 
-async fn grant_currency(state: &ApiState, player_id: Uuid, output: &HookOutput) {
+async fn grant_currency(plane: &Plane, player_id: Uuid, output: &HookOutput) {
     if output.grant_currency.is_empty() {
         return;
     }
@@ -85,7 +86,7 @@ async fn grant_currency(state: &ApiState, player_id: Uuid, output: &HookOutput) 
     }
     let deltas = deltas.into_iter().filter(|(_, amount)| *amount != 0);
 
-    let queries = match q(state).await {
+    let queries = match plane.q().await {
         Ok(q) => q,
         Err(e) => {
             tracing::error!("[hooks] currency grant skipped for {player_id}: {e:?}");
@@ -148,11 +149,11 @@ async fn grant_currency(state: &ApiState, player_id: Uuid, output: &HookOutput) 
     }
 }
 
-async fn grant_items(state: &ApiState, player_id: Uuid, output: &HookOutput) {
+async fn grant_items(plane: &Plane, player_id: Uuid, output: &HookOutput) {
     if output.grant_items.is_empty() {
         return;
     }
-    let inventory = crate::services::inventory::InventoryService;
+    let inventory = crate::services::inventory::InventoryService::new(Arc::new(plane.clone()));
     for grant in &output.grant_items {
         let req = crate::dto::inventory::GrantItemRequest {
             user_id: Some(player_id),
@@ -161,10 +162,7 @@ async fn grant_items(state: &ApiState, player_id: Uuid, output: &HookOutput) {
             slot_index: None,
             metadata: None,
         };
-        if let Err(e) = inventory
-            .grant_item(state, player_id, req, Uuid::new_v4())
-            .await
-        {
+        if let Err(e) = inventory.grant_item(player_id, req, Uuid::new_v4()).await {
             tracing::warn!(
                 "[hooks] item grant {}x{} for {player_id} failed: {e:?}",
                 grant.item_id,
@@ -174,11 +172,11 @@ async fn grant_items(state: &ApiState, player_id: Uuid, output: &HookOutput) {
     }
 }
 
-async fn notify(state: &ApiState, player_id: Uuid, output: &HookOutput) {
+async fn notify(plane: &Plane, player_id: Uuid, output: &HookOutput) {
     if output.notify.is_empty() {
         return;
     }
-    let queries = match q(state).await {
+    let queries = match plane.q().await {
         Ok(q) => q,
         Err(e) => {
             tracing::error!("[hooks] notifications skipped for {player_id}: {e:?}");

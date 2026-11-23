@@ -32,7 +32,7 @@ Arrows ka matlab:
 
 | Arrow | Matlab |
 |---|---|
-| `1 login` | player token leta hai (`/v2/account/authenticate/*`) |
+| `1 login` | player token leta hai (`/v1/account/authenticate/*`) |
 | `2 matchmake / list / claim / score` | player HTTP calls |
 | `3 seat ticket` | control plane seat JSON deta hai |
 | `4 state / input / messages` | client room se realtime baat karta hai |
@@ -52,7 +52,7 @@ Yaad rakho: **matchmaking sirf seat deta hai**. Asli khel room ke andar chalta h
 **Step 1 — login**
 
 ```http
-POST /v2/account/authenticate/device
+POST /v1/account/authenticate/device
 { "device_id": "device-abc-123" }
 ```
 
@@ -130,8 +130,8 @@ connect
 
 **Step 6 — match khatam**
 
-- Quest ke liye: room/host `POST /v2/events` bhejta hai (server key).
-- Authoritative result ke liye: `POST /v2/match/{id}/result` (server key).
+- Quest ke liye: room/host `POST /v1/events` bhejta hai (server key).
+- Authoritative result ke liye: `POST /v1/match/{id}/result` (server key).
 
 Server key header player token nahi hota:
 
@@ -148,16 +148,16 @@ Authorization: Basic base64("<server-key>:")
 ### Flow
 
 ```text
-operator → POST /v2/console/quests        (definition)
-server   → POST /v2/events                (counter badhao)
-client   → GET /v2/quest                  (list + progress)
-client   → POST /v2/quest/claim           (reward lo)
+operator → POST /v1/console/quests        (definition)
+server   → POST /v1/events                (counter badhao)
+client   → GET /v1/quest                  (list + progress)
+client   → POST /v1/quest/claim           (reward lo)
 ```
 
 ### Quest definition (console)
 
 ```http
-POST /v2/console/quests
+POST /v1/console/quests
 Authorization: Bearer <console-token>
 
 {
@@ -177,7 +177,7 @@ Authorization: Bearer <console-token>
 ### Progress (game server)
 
 ```http
-POST /v2/events
+POST /v1/events
 Authorization: Basic base64("<server-key>:")
 
 {
@@ -203,7 +203,7 @@ record_events = ["kill", "win", "match_end"]
 ### List (client)
 
 ```http
-GET /v2/quest
+GET /v1/quest
 Authorization: Bearer <player-token>
 ```
 
@@ -241,7 +241,7 @@ State machine:
 ### Claim
 
 ```http
-POST /v2/quest/claim
+POST /v1/quest/claim
 Authorization: Bearer <player-token>
 
 { "quest_key": "win-3" }
@@ -252,7 +252,7 @@ Server pehle quest row flip karta hai, phir reward deta hai. Isliye double claim
 Daily reward:
 
 ```http
-POST /v2/account/daily/claim
+POST /v1/account/daily/claim
 ```
 
 ### Quest caveats
@@ -273,7 +273,7 @@ Tournament = time-window wala leaderboard. Bracket/knockout nahi.
 ### Operator create
 
 ```http
-POST /v2/console/tournament
+POST /v1/console/tournament
 Authorization: Bearer <console-token>
 
 {
@@ -302,7 +302,7 @@ Authorization: Bearer <console-token>
 ### List
 
 ```http
-GET /v2/tournament?limit=20
+GET /v1/tournament?limit=20
 Authorization: Bearer <player-token>
 ```
 
@@ -326,7 +326,7 @@ Authorization: Bearer <player-token>
 ### Join
 
 ```http
-POST /v2/tournament/weekend-cup/join
+POST /v1/tournament/weekend-cup/join
 Authorization: Bearer <player-token>
 ```
 
@@ -347,7 +347,7 @@ Rule unpublished ho to bhi fail — fail closed.
 ### Score write
 
 ```http
-POST /v2/tournament/weekend-cup
+POST /v1/tournament/weekend-cup
 Authorization: Bearer <player-token>
 
 {
@@ -380,7 +380,7 @@ Response me score string hota hai:
 ### Leaderboard read
 
 ```http
-GET /v2/tournament/weekend-cup?limit=10
+GET /v1/tournament/weekend-cup?limit=10
 ```
 
 ```json
@@ -396,13 +396,13 @@ GET /v2/tournament/weekend-cup?limit=10
 Aas-paas ka standing:
 
 ```http
-GET /v2/tournament/weekend-cup/owner/<owner-uuid>
+GET /v1/tournament/weekend-cup/owner/<owner-uuid>
 ```
 
 Apna record delete:
 
 ```http
-DELETE /v2/tournament/weekend-cup
+DELETE /v1/tournament/weekend-cup
 ```
 
 State machine:
@@ -427,14 +427,14 @@ State machine:
 | Kya list karna | Endpoint |
 |---|---|
 | Live rooms | `GET /api/rooms` |
-| Realtime match sessions | `GET /v2/match` |
-| Quests + progress | `GET /v2/quest` |
-| Tournaments | `GET /v2/tournament` |
-| Tournament leaderboard | `GET /v2/tournament/{id}` |
-| Apne aas-paas standing | `GET /v2/tournament/{id}/owner/{uid}` |
-| Match history | `GET /v2/match/{id}/history` |
-| Match events | `GET /v2/match/{id}/events` |
-| Replay (console) | `GET /v2/console/match/{id}/replay` |
+| Realtime match sessions | `GET /v1/match` |
+| Quests + progress | `GET /v1/quest` |
+| Tournaments | `GET /v1/tournament` |
+| Tournament leaderboard | `GET /v1/tournament/{id}` |
+| Apne aas-paas standing | `GET /v1/tournament/{id}/owner/{uid}` |
+| Match history | `GET /v1/match/{id}/history` |
+| Match events | `GET /v1/match/{id}/events` |
+| Replay (console) | `GET /v1/console/match/{id}/replay` |
 
 ---
 
@@ -443,7 +443,7 @@ State machine:
 | Kaun | Auth | Kya kar sakta hai |
 |---|---|---|
 | Player client | `Bearer <player-token>` | matchmake, quest list/claim, tournament list/join/score (non-authoritative), apna record delete |
-| Game server | `Basic base64("<server-key>:")` | `POST /v2/events`, authoritative results, authoritative board writes |
+| Game server | `Basic base64("<server-key>:")` | `POST /v1/events`, authoritative results, authoritative board writes |
 | Console operator | `Bearer <console-token>` | quest/season/rules/tournament definitions, audit, rooms |
 
 Client **kabhi** quest progress ya authoritative score khud nahi badha sakta.

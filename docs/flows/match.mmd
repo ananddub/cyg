@@ -6,7 +6,7 @@ sequenceDiagram
     participant ROOM as Game Room<br/>engine-net + WASM
     participant DB as SurrealDB
 
-    P->>API: POST /v2/account/authenticate/device
+    P->>API: POST /v1/account/authenticate/device
     API-->>P: token + user
 
     P->>API: POST /matchmake/joinOrCreate/tank-3d<br/>{ name, skin }
@@ -38,6 +38,6 @@ sequenceDiagram
     end
 
     opt match end / authoritative result
-        ROOM->>API: POST /v2/match/{id}/result (server key)
+        ROOM->>API: POST /v1/match/{id}/result (server key)
         API->>DB: scores + counters
     end

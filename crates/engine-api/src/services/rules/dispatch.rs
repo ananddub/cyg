@@ -9,13 +9,14 @@
 //! Every rule is isolated: one that fails to evaluate, or whose action cannot be
 //! applied, is logged and skipped. Refusing the event because one of several
 //! rules was mistyped would turn an operator's typo into an outage.
+use crate::services::plane::Plane;
+
+use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::error::V2Error;
 use crate::repositories::console_mutations::InsertNotificationParams;
-use crate::services::deps::q;
 
 use super::action::{Action, parse_limits};
 use super::eval::evaluate_with_actions;
@@ -45,8 +46,7 @@ pub fn is_custom_trigger(name: &str) -> bool {
         Some(first) if first.is_ascii_lowercase() => {}
         _ => return false,
     }
-    name.len() <= 64
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    name.len() <= 64 && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// Refuse a trigger the dispatcher does not fire.
@@ -82,8 +82,8 @@ pub fn check_trigger(body: &serde_json::Value) -> Result<(), String> {
 ///
 /// Returns the number of rules that matched, which the caller may log but must
 /// not depend on: a game with no rules returns zero and that is not an error.
-pub async fn fire(state: &ApiState, trigger: &str, player_id: Uuid) -> usize {
-    let queries = match q(state).await {
+pub async fn fire(plane: &Plane, trigger: &str, player_id: Uuid) -> usize {
+    let queries = match plane.q().await {
         Ok(queries) => queries,
         Err(error) => {
             tracing::debug!("[rules] {trigger}: no datastore, no rules ({error:?})");
@@ -115,24 +115,17 @@ pub async fn fire(state: &ApiState, trigger: &str, player_id: Uuid) -> usize {
         // "$min_kills" lives here, so a comparison can name the variable
         // instead of hard-coding the number. They shadow stats: the value the
         // operator typed for this rule is the one this rule compares against.
+        // Merged once: the same merge used to appear twice here, which is only
+        // visible as wasted work — the second pass overwrote the same values.
         let mut context = stats.clone();
-        if let (Some(map), Some(variables)) =
-            (context.as_object_mut(), rule.body.get("variables"))
+        if let Some(variables) = rule
+            .body
+            .get("variables")
+            .and_then(serde_json::Value::as_object)
+            && let Some(map) = context.as_object_mut()
         {
-            if let Some(variables) = variables.as_object() {
-                for (name, value) in variables {
-                    map.insert(name.clone(), value.clone());
-                }
-            }
-        }
-        // Rule ke apne variables context me merge — warna `var` comparisons
-        // runtime pe kabhi resolve nahi honge (dry-run me manually dete hain).
-        let mut context = stats.clone();
-        if let Some(variables) = rule.body.get("variables").and_then(serde_json::Value::as_object) {
-            if let Some(map) = context.as_object_mut() {
-                for (name, value) in variables {
-                    map.insert(name.clone(), value.clone());
-                }
+            for (name, value) in variables {
+                map.insert(name.clone(), value.clone());
             }
         }
         match evaluate_with_actions(&rule.body, &context) {
@@ -150,7 +143,7 @@ pub async fn fire(state: &ApiState, trigger: &str, player_id: Uuid) -> usize {
                     }
                 }
                 matched += 1;
-                apply(state, player_id, &rule.key, &actions).await;
+                apply(plane, player_id, &rule.key, &actions).await;
                 // Recorded after the actions, so a rule whose apply is aborted
                 // mid-way has not spent the player's one allowance on a reward
                 // that never arrived.
@@ -209,9 +202,9 @@ async fn budget(
 /// Each action is applied on its own. A rule that grants a currency and an item
 /// whose definition has since been deleted still delivers the currency, because
 /// the alternative is a reward that silently does nothing at all.
-async fn apply(state: &ApiState, player_id: Uuid, rule: &str, actions: &[Action]) {
+async fn apply(plane: &Plane, player_id: Uuid, rule: &str, actions: &[Action]) {
     for action in actions {
-        if let Err(error) = apply_one(state, player_id, action).await {
+        if let Err(error) = apply_one(plane, player_id, action).await {
             tracing::warn!(
                 "[rules] '{}' action {} failed for {player_id}: {error:?}",
                 rule,
@@ -221,8 +214,8 @@ async fn apply(state: &ApiState, player_id: Uuid, rule: &str, actions: &[Action]
     }
 }
 
-async fn apply_one(state: &ApiState, player_id: Uuid, action: &Action) -> Result<(), V2Error> {
-    let queries = q(state).await?;
+async fn apply_one(plane: &Plane, player_id: Uuid, action: &Action) -> Result<(), V2Error> {
+    let queries = plane.q().await?;
     match action {
         Action::Currency { currency, amount } => {
             let user = queries
@@ -260,13 +253,13 @@ async fn apply_one(state: &ApiState, player_id: Uuid, action: &Action) -> Result
             Ok(())
         }
         Action::Item { item_id, quantity } => {
-            let inventory = crate::services::inventory::InventoryService;
+            let inventory =
+                crate::services::inventory::InventoryService::new(Arc::new(plane.clone()));
             // grant_item answers with the updated stock Json; a rule grant
             // has no reply channel, so the value is intentionally discarded
             // (`?` above still propagates a failed grant).
             let _ = inventory
                 .grant_item(
-                    state,
                     player_id,
                     crate::dto::inventory::GrantItemRequest {
                         user_id: Some(player_id),

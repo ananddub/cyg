@@ -17,7 +17,7 @@ struct StorageIndexController {
     service: Arc<StorageService>,
 }
 
-#[controller("/v2/storage/index")]
+#[controller("/v1/storage/index")]
 impl StorageIndexController {
     fn new(service: Arc<StorageService>) -> Self {
         Self { service }
@@ -31,7 +31,7 @@ impl StorageIndexController {
     ) -> Response {
         let state = current_state();
         self.service
-            .create_index(&state, &auth, body)
+            .create_index(&auth, body)
             .await
             .into_response()
     }
@@ -40,7 +40,7 @@ impl StorageIndexController {
     async fn list_indexes(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
-            .list_indexes(&state, &auth)
+            .list_indexes(&auth)
             .await
             .into_response()
     }
@@ -49,7 +49,7 @@ impl StorageIndexController {
     async fn delete_index(&self, auth: Authed, Path(name): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .delete_index(&state, &auth, &name)
+            .delete_index(&auth, &name)
             .await
             .into_response()
     }
@@ -63,7 +63,7 @@ impl StorageIndexController {
     ) -> Response {
         let state = current_state();
         self.service
-            .query_index(&state, &auth, &name, body)
+            .query_index(&auth, &name, body)
             .await
             .into_response()
     }

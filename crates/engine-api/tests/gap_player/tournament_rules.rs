@@ -13,7 +13,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
 
     let draft = json_body(
         env.client
-            .post(format!("{}/v2/console/rules", env.base))
+            .post(format!("{}/v1/console/rules", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "key": rule_key,
@@ -30,7 +30,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
     json_body(
         env.client
             .post(format!(
-                "{}/v2/console/rules/{rule_key}/publish/1",
+                "{}/v1/console/rules/{rule_key}/publish/1",
                 env.base
             ))
             .bearer_auth(console)
@@ -44,7 +44,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
 
     let created = json_body(
         env.client
-            .post(format!("{}/v2/console/tournament", env.base))
+            .post(format!("{}/v1/console/tournament", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "id": gate_id,
@@ -65,7 +65,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
 
     let kept = json_body(
         env.client
-            .put(format!("{}/v2/console/tournament/{gate_id}", env.base))
+            .put(format!("{}/v1/console/tournament/{gate_id}", env.base))
             .bearer_auth(console)
             .json(&json!({ "title": "Rule Gated Round v2" }))
             .send()
@@ -83,7 +83,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
 
     let cleared = json_body(
         env.client
-            .put(format!("{}/v2/console/tournament/{gate_id}", env.base))
+            .put(format!("{}/v1/console/tournament/{gate_id}", env.base))
             .bearer_auth(console)
             .json(&json!({ "rule_key": "" }))
             .send()
@@ -101,7 +101,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
     // Put the rule back for the enforcement assertions.
     json_body(
         env.client
-            .put(format!("{}/v2/console/tournament/{gate_id}", env.base))
+            .put(format!("{}/v1/console/tournament/{gate_id}", env.base))
             .bearer_auth(console)
             .json(&json!({ "rule_key": rule_key }))
             .send()
@@ -116,7 +116,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/tournament/{gate_id}/join", env.base))
+                .post(format!("{}/v1/tournament/{gate_id}/join", env.base))
                 .bearer_auth(&player.token)
                 .send()
                 .await
@@ -131,7 +131,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/tournament/{gate_id}", env.base))
+                .post(format!("{}/v1/tournament/{gate_id}", env.base))
                 .bearer_auth(&player.token)
                 .json(&json!({ "score": 50 }))
                 .send()
@@ -146,7 +146,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
 
     json_body(
         env.client
-            .post(format!("{}/v2/events", env.base))
+            .post(format!("{}/v1/events", env.base))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "events": [{ "user_id": player.uid, "name": "kills", "value": 10 }] }))
             .send()
@@ -159,7 +159,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
 
     json_body(
         env.client
-            .post(format!("{}/v2/tournament/{gate_id}/join", env.base))
+            .post(format!("{}/v1/tournament/{gate_id}/join", env.base))
             .bearer_auth(&player.token)
             .send()
             .await
@@ -170,7 +170,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
     .await;
     let scored = json_body(
         env.client
-            .post(format!("{}/v2/tournament/{gate_id}", env.base))
+            .post(format!("{}/v1/tournament/{gate_id}", env.base))
             .bearer_auth(&player.token)
             .json(&json!({ "score": 50 }))
             .send()
@@ -184,7 +184,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
 
     json_body(
         env.client
-            .post(format!("{}/v2/console/tournament", env.base))
+            .post(format!("{}/v1/console/tournament", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "id": unpublished_id,
@@ -204,7 +204,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/tournament/{unpublished_id}/join", env.base))
+                .post(format!("{}/v1/tournament/{unpublished_id}/join", env.base))
                 .bearer_auth(&player.token)
                 .send()
                 .await
@@ -218,7 +218,7 @@ pub async fn tournament_rules(env: &Harness, console: &str) {
 
     json_body(
         env.client
-            .delete(format!("{}/v2/console/rules/{rule_key}", env.base))
+            .delete(format!("{}/v1/console/rules/{rule_key}", env.base))
             .bearer_auth(console)
             .send()
             .await

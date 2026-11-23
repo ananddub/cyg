@@ -16,7 +16,7 @@ namespace
 
 	FString ChannelPath(const FString& ChannelId)
 	{
-		return FString::Printf(TEXT("/v2/channel/%s"), *UCYGSettings::EscapeSegment(ChannelId));
+		return FString::Printf(TEXT("/v1/channel/%s"), *UCYGSettings::EscapeSegment(ChannelId));
 	}
 
 	FString MessagePath(const FString& ChannelId, const FString& MessageId)

@@ -25,7 +25,8 @@ impl GameRoom {
                 .filter(|hold| hold > &Duration::ZERO);
             if let Some(hold) = hold {
                 let deadline = Instant::now() + hold;
-                self.lifecycle.pending_leaves
+                self.lifecycle
+                    .pending_leaves
                     .insert(std::rc::Rc::from(session), (id, deadline));
             } else {
                 self.sessions.remove(session);

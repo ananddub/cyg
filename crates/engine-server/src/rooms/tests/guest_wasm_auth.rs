@@ -39,7 +39,8 @@ fn allow_reconnection_holds_the_seat_then_reconnect_resumes_it() {
         room.handle_unexpected_disconnect("alice", Duration::from_secs(120)),
         None
     );
-    room.lifecycle.pending_leaves
+    room.lifecycle
+        .pending_leaves
         .insert("alice".into(), (id, Instant::now()));
     assert!(room.expire_pending_leaves(Instant::now()));
     assert!(room.sessions.is_empty());

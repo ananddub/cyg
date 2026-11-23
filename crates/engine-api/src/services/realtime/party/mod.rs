@@ -1,7 +1,6 @@
 use auto_di::singleton;
 use auto_ws::{Conn, Msg};
 use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use super::{FastMap, new_fast_map};

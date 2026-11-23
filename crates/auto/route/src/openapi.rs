@@ -6,6 +6,7 @@ use poem_openapi::{
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::OnceLock;
 
 pub struct AutoRouteOpenApi;
 impl OpenApi for AutoRouteOpenApi {
@@ -13,7 +14,7 @@ impl OpenApi for AutoRouteOpenApi {
         let mut paths = BTreeMap::<String, Vec<MetaOperation>>::new();
         for descriptor in inventory::iter::<OpenApiRouteDescriptor> {
             paths
-                .entry(descriptor.path.to_owned())
+                .entry(documented_path(descriptor.path))
                 .or_default()
                 .push(operation(descriptor));
         }
@@ -48,6 +49,9 @@ impl OpenApi for AutoRouteOpenApi {
 pub fn openapi_json() -> Value {
     serde_json::from_str(&openapi_spec()).expect("poem-openapi spec must be valid JSON")
 }
+
+/// The spec as documented, with the base its controller paths were authored
+/// under (`/v1` unless the plane mounted another one).
 pub fn openapi_spec() -> String {
     OpenApiService::new(
         AutoRouteOpenApi,
@@ -55,6 +59,46 @@ pub fn openapi_spec() -> String {
         env!("CARGO_PKG_VERSION"),
     )
     .spec()
+}
+
+/// The spec with every versioned path published under `base`. The plane calls
+/// this with its canonical base before serving, so `/v1` is what a client sees
+/// even if the controller attributes still spell an older version.
+pub fn openapi_spec_at(base: &str) -> String {
+    set_api_base(base);
+    openapi_spec()
+}
+
+static API_BASE: OnceLock<String> = OnceLock::new();
+
+/// Publish every versioned route under `base`. The first call wins: a process
+/// serves one base, and a second one would make the spec disagree with itself.
+pub fn set_api_base(base: &str) {
+    let _ = API_BASE.set(base.trim_end_matches('/').to_owned());
+}
+
+fn api_base() -> &'static str {
+    API_BASE.get().map(String::as_str).unwrap_or("/v1")
+}
+
+/// Rewrite the leading version segment of a documented path to the served base:
+/// `/v1/leaderboard/{id}` published at `/api/v1` becomes
+/// `/api/v1/leaderboard/{id}`. Paths outside the versioned tree are untouched.
+fn documented_path(path: &str) -> String {
+    let mut segments = path.trim_start_matches('/').split('/');
+    let Some(version) = segments.next() else {
+        return path.to_owned();
+    };
+    if version != "v1" {
+        return path.to_owned();
+    }
+    let rest: Vec<&str> = segments.collect();
+    let mut out = api_base().to_owned();
+    for segment in rest {
+        out.push('/');
+        out.push_str(segment);
+    }
+    out
 }
 
 fn operation(item: &OpenApiRouteDescriptor) -> MetaOperation {

@@ -11,7 +11,7 @@ pub(crate) async fn the_unity_asset_route_answers_with_the_attached_scriptable_o
     let (status, headers, body) = fetch_raw(
         &pool,
         "GET",
-        &format!("/v2/console/games/{}/unity-settings", game.id),
+        &format!("/v1/console/games/{}/unity-settings", game.id),
         &auth,
     )
     .await;
@@ -100,7 +100,7 @@ pub(crate) async fn the_unity_settings_json_carries_the_secret_only_when_reveale
     };
     let auth = admin_token();
     let game = db::create_engine(&state, "unity-json", Some("unity")).await;
-    let path = format!("/v2/console/games/{}/unity-settings?format=json", game.id);
+    let path = format!("/v1/console/games/{}/unity-settings?format=json", game.id);
 
     let (status, _headers, body) = fetch_raw(&pool, "GET", &path, &auth).await;
     assert_eq!(status, 200, "{body}");
@@ -123,7 +123,8 @@ pub(crate) async fn the_unity_settings_json_carries_the_secret_only_when_reveale
         fetch_raw(&pool, "GET", &format!("{path}&reveal=true"), &auth).await;
     assert_eq!(status, 200, "{revealed}");
     let value: Value = serde_json::from_str(&revealed).expect("the revealed answer is json");
-    let detail = GamesService::get_game(&state, game.id)
+    let detail = GamesService::new(state.plane())
+        .get_game(game.id)
         .await
         .expect("the detail view reads");
     assert_eq!(value["apiKey"], json!(detail.api_key));
@@ -141,10 +142,10 @@ pub(crate) async fn the_unity_settings_json_carries_the_secret_only_when_reveale
                           "auto_close_seconds": 7}}),
     )
     .await;
-    let connection =
-        GamesService::unity_settings(&state, roomy.id, false, &axum::http::HeaderMap::new())
-            .await
-            .expect("an authoritative game has a connection document too");
+    let connection = GamesService::new(state.plane())
+        .unity_settings(roomy.id, false, &axum::http::HeaderMap::new())
+        .await
+        .expect("an authoritative game has a connection document too");
     let wire = serde_json::to_value(&connection).expect("the connection serializes");
     assert_eq!(wire["maxPlayers"], json!(255), "{wire}");
     assert_eq!(wire["tickRate"], json!(20));

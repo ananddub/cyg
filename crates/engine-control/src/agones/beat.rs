@@ -54,11 +54,7 @@ pub fn spawn(state: &ApiState, manager: &std::sync::Arc<engine_manager::ServerMa
             manager.on_stop(|| {
                 engine_agones::stop_health_loop();
             });
-            manager.adopt_thread(
-                engine_manager::ThreadRole::Agones,
-                "ox-agones",
-                handle,
-            );
+            manager.adopt_thread(engine_manager::ThreadRole::Agones, "ox-agones", handle);
         }
         Err(e) => {
             tracing::error!(

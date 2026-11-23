@@ -34,14 +34,26 @@ fn a_nested_array_lowers_to_a_child_collection() {
 fn nested_array_codegen_syncs_child_rows_before_commit() {
     let parsed = parse(NESTED_ARRAY).unwrap();
     let generated = crate::emit_server(&parsed.schemas, parsed.root.as_ref(), "nested.ts");
-    assert!(generated.contains("items: Array<Item> = new Array<Item>();"), "{generated}");
-    assert!(generated.contains("players_items: SchemaState;"), "{generated}");
+    assert!(
+        generated.contains("items: Array<Item> = new Array<Item>();"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("players_items: SchemaState;"),
+        "{generated}"
+    );
     assert!(generated.contains("_sync_players_items"), "{generated}");
     assert!(generated.contains("override commit(): i64"), "{generated}");
-    assert!(generated.contains("(ownerId << 16) | (slot as u32)"), "{generated}");
+    assert!(
+        generated.contains("(ownerId << 16) | (slot as u32)"),
+        "{generated}"
+    );
     let dts = crate::emit_client_dts(&parsed.schemas, parsed.root.as_ref(), "nested.ts");
     assert!(dts.contains("items: ItemState[];"), "{dts}");
-    assert!(!dts.contains("players_items: SchemaMap"), "child collection stays hidden: {dts}");
+    assert!(
+        !dts.contains("players_items: SchemaMap"),
+        "child collection stays hidden: {dts}"
+    );
 }
 
 #[test]
@@ -67,7 +79,14 @@ fn nested_arrays_can_nest_one_more_level() {
     let parsed = parse(source).unwrap();
     let root = parsed.root.as_ref().unwrap();
     let names: Vec<&str> = root.collections.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(names, vec!["players", "players_items", "players_items_parts"]);
+    assert_eq!(
+        names,
+        vec!["players", "players_items", "players_items_parts"]
+    );
     assert_eq!(root.nested.len(), 2);
-    assert!(root.nested.iter().any(|n| n.parent == "players_items" && n.field == "parts"));
+    assert!(
+        root.nested
+            .iter()
+            .any(|n| n.parent == "players_items" && n.field == "parts")
+    );
 }

@@ -15,7 +15,7 @@ struct LinkController {
     service: Arc<LinkService>,
 }
 
-#[controller("/v2/account/link")]
+#[controller("/v1/account/link")]
 impl LinkController {
     fn new(service: Arc<LinkService>) -> Self {
         Self { service }
@@ -29,7 +29,7 @@ impl LinkController {
     ) -> Response {
         let state = current_state();
         self.service
-            .provider(&state, &headers, account)
+            .provider(&headers, account)
             .await
             .into_response()
     }
@@ -38,7 +38,7 @@ impl LinkController {
     async fn apple(&self, headers: HeaderMap, Body(account): Body<auth::TokenAccount>) -> Response {
         let state = current_state();
         self.service
-            .apple(&state, &headers, account)
+            .apple(&headers, account)
             .await
             .into_response()
     }
@@ -47,7 +47,7 @@ impl LinkController {
     async fn custom(&self, headers: HeaderMap, Body(account): Body<auth::IdAccount>) -> Response {
         let state = current_state();
         self.service
-            .custom(&state, &headers, account)
+            .custom(&headers, account)
             .await
             .into_response()
     }
@@ -56,7 +56,7 @@ impl LinkController {
     async fn device(&self, headers: HeaderMap, Body(account): Body<auth::IdAccount>) -> Response {
         let state = current_state();
         self.service
-            .device(&state, &headers, account)
+            .device(&headers, account)
             .await
             .into_response()
     }
@@ -65,7 +65,7 @@ impl LinkController {
     async fn email(&self, headers: HeaderMap, Body(account): Body<auth::EmailAccount>) -> Response {
         let state = current_state();
         self.service
-            .email(&state, &headers, account)
+            .email(&headers, account)
             .await
             .into_response()
     }
@@ -79,7 +79,7 @@ impl LinkController {
     ) -> Response {
         let state = current_state();
         self.service
-            .facebook(&state, &headers, query, account)
+            .facebook(&headers, query, account)
             .await
             .into_response()
     }
@@ -92,7 +92,7 @@ impl LinkController {
     ) -> Response {
         let state = current_state();
         self.service
-            .facebook_instant_game(&state, &headers, account)
+            .facebook_instant_game(&headers, account)
             .await
             .into_response()
     }
@@ -105,7 +105,7 @@ impl LinkController {
     ) -> Response {
         let state = current_state();
         self.service
-            .game_center(&state, &headers, account)
+            .game_center(&headers, account)
             .await
             .into_response()
     }
@@ -118,7 +118,7 @@ impl LinkController {
     ) -> Response {
         let state = current_state();
         self.service
-            .google(&state, &headers, account)
+            .google(&headers, account)
             .await
             .into_response()
     }
@@ -127,7 +127,7 @@ impl LinkController {
     async fn steam(&self, headers: HeaderMap, Body(account): Body<auth::SteamLink>) -> Response {
         let state = current_state();
         self.service
-            .steam(&state, &headers, account)
+            .steam(&headers, account)
             .await
             .into_response()
     }

@@ -55,8 +55,10 @@ CYG_EXPORT int64_t on_tick(double dt) {
     cfg.out = "room.wasm".into();
 
     let root_workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap();
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
     cfg.sdk_dir = root_workspace.join("sdk/server");
 
     let out_wasm = build(&tmp, &cfg).expect("C compilation succeeds");
@@ -72,7 +74,8 @@ CYG_EXPORT int64_t on_tick(double dt) {
         &linker,
         &module,
         RoomHostData::new(engine_physics::PhysicsWorld3D::default()),
-    ).expect("RoomLogic instantiated");
+    )
+    .expect("RoomLogic instantiated");
 
     let packed = logic.on_tick(0.016).expect("on_tick call succeeds");
     assert_eq!(packed, 0);
@@ -109,8 +112,10 @@ CYG_ROOM(TestBattleRoom);
     cfg.out = "room.wasm".into();
 
     let root_workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap();
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
     cfg.sdk_dir = root_workspace.join("sdk/server");
 
     let out_wasm = build(&tmp, &cfg).expect("C++ compilation succeeds");
@@ -125,7 +130,8 @@ CYG_ROOM(TestBattleRoom);
         &linker,
         &module,
         RoomHostData::new(engine_physics::PhysicsWorld3D::default()),
-    ).expect("RoomLogic instantiated");
+    )
+    .expect("RoomLogic instantiated");
 
     let packed = logic.on_tick(0.016).expect("on_tick call succeeds");
     assert_eq!(packed, 0);
@@ -201,8 +207,10 @@ pub extern "C" fn on_is_full(count: i32) -> bool {
     cfg.out = "room.wasm".into();
 
     let root_workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap();
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
     cfg.sdk_dir = root_workspace.join("sdk/server");
 
     let out_wasm = build(&tmp, &cfg).expect("Rust compilation succeeds");
@@ -217,7 +225,8 @@ pub extern "C" fn on_is_full(count: i32) -> bool {
         &linker,
         &module,
         RoomHostData::new(engine_physics::PhysicsWorld3D::default()),
-    ).expect("RoomLogic instantiated");
+    )
+    .expect("RoomLogic instantiated");
 
     let packed = logic.on_tick(0.016).expect("on_tick call succeeds");
     assert_eq!(packed, 0);
@@ -234,7 +243,8 @@ fn test_assemblyscript_room_run() {
         &linker,
         &module,
         RoomHostData::new(engine_physics::PhysicsWorld3D::default()),
-    ).expect("RoomLogic instantiated");
+    )
+    .expect("RoomLogic instantiated");
 
     let packed = logic.on_tick(0.016).expect("on_tick call succeeds");
     assert!(packed != 0 || packed == 0);
@@ -242,8 +252,13 @@ fn test_assemblyscript_room_run() {
 
 #[test]
 fn test_csharp_room_run() {
-    let wasm_bytes = include_bytes!("../../../crates/engine-wasm/tests/csharp/game_room_csharp.wasm");
+    let wasm_bytes =
+        include_bytes!("../../../crates/engine-wasm/tests/csharp/game_room_csharp.wasm");
     let runtime = WasmRuntime::new().expect("WasmRuntime init");
     let module = runtime.compile(wasm_bytes).expect("Module compile");
-    assert!(module.exports().any(|e| e.name() == "memory" || e.name() == "_start"));
+    assert!(
+        module
+            .exports()
+            .any(|e| e.name() == "memory" || e.name() == "_start")
+    );
 }

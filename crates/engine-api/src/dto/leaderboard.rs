@@ -35,7 +35,7 @@ pub struct RecordRequest {
     pub operator: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct RecordResponse {
     pub leaderboard_id: String,
     pub owner_id: String,
@@ -78,7 +78,7 @@ impl RecordResponse {
     }
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, poem_openapi::Object)]
 pub struct RecordListResponse {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub records: Vec<RecordResponse>,
@@ -112,4 +112,48 @@ pub struct HaystackQuery {
     pub cursor: String,
     #[serde(default)]
     pub expiry: Option<String>,
+}
+
+/// A board as the game declared it. The wire shape is spelled out here instead
+/// of being assembled in the service, so the spec can describe it.
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct BoardDefinition {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub sort_order: i16,
+    pub operator: i16,
+    pub reset_schedule: Option<String>,
+    pub metadata: Value,
+    pub authoritative: bool,
+    pub category: i16,
+    pub max_num_score: i32,
+}
+
+impl From<&crate::repositories::models::Leaderboard> for BoardDefinition {
+    fn from(row: &crate::repositories::models::Leaderboard) -> Self {
+        BoardDefinition {
+            id: row.id.clone(),
+            title: row.title.clone(),
+            description: row.description.clone(),
+            reset_schedule: row.reset_schedule.clone(),
+            sort_order: row.sort_order,
+            operator: row.operator,
+            metadata: row.metadata.clone(),
+            authoritative: row.authoritative,
+            category: row.category,
+            max_num_score: row.max_num_score,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct BoardListResponse {
+    pub leaderboards: Vec<BoardDefinition>,
+    pub total: usize,
+}
+
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct DeletedBoard {
+    pub deleted: String,
 }

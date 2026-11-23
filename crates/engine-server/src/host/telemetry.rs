@@ -33,14 +33,18 @@ impl<'a> Engine<'a> {
                 spectators: room.spectators.len() as u32,
                 tick: room.current_tick,
                 age_sec: room.lifecycle.born.elapsed().as_secs(),
-                closes_in_sec: self.cfg.lifecycle.closes_at(room.lifecycle.born).map(|deadline| {
-                    let now = Instant::now();
-                    if now >= deadline {
-                        0
-                    } else {
-                        (deadline - now).as_secs()
-                    }
-                }),
+                closes_in_sec: self
+                    .cfg
+                    .lifecycle
+                    .closes_at(room.lifecycle.born)
+                    .map(|deadline| {
+                        let now = Instant::now();
+                        if now >= deadline {
+                            0
+                        } else {
+                            (deadline - now).as_secs()
+                        }
+                    }),
             });
             let members = room.sessions.iter().map(|(s, &id)| (s, Some(id)));
             let watching = room.spectators.iter().map(|s| (s, None));

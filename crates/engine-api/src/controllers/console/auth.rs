@@ -13,7 +13,7 @@ struct ConsoleAuthController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/authenticate")]
+#[controller("/v1/console/authenticate")]
 impl ConsoleAuthController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -23,12 +23,12 @@ impl ConsoleAuthController {
     async fn authenticate(&self, Body(body): Body<AuthenticateRequest>) -> Response {
         let state = current_state();
         self.service
-            .authenticate(&state, body)
+            .authenticate(body)
             .await
             .into_response()
     }
 
-    /// `GET /v2/console/mode` — is this a local development session?
+    /// `GET /v1/console/mode` — is this a local development session?
     ///
     /// The dashboard asks before it decides whether to render a login form.
     /// Deliberately unauthenticated: it reveals only whether `-d` was passed,
@@ -43,7 +43,7 @@ impl ConsoleAuthController {
     async fn logout(&self, headers: HeaderMap, Body(body): Body<LogoutRequest>) -> Response {
         let state = current_state();
         self.service
-            .logout(&state, &headers, body)
+            .logout(&headers, body)
             .await
             .into_response()
     }

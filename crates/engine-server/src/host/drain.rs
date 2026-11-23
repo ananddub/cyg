@@ -92,5 +92,3 @@ pub(crate) fn drain_rooms(
         tracing::info!("[server] room '{name}' drained and state saved (shutdown)");
     }
 }
-
-

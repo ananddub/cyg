@@ -1,13 +1,11 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::group::{DemoteGroupEdgeParams, PromoteGroupEdgeParams};
-use crate::services::deps::q;
 use crate::utils::group::{ROLE_ADMIN, group_id};
 use crate::utils::guards::require_role;
 
@@ -20,12 +18,12 @@ use super::users::resolve_users;
 impl GroupMemberService {
     pub async fn promote_group_users(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         raw_id: String,
         req: UsersQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let gid = group_id(&raw_id)?;
         fetch_group(&queries, gid).await?;
         shift_group_roles(&queries, auth.0.uuid()?, gid, &req, true).await
@@ -33,12 +31,12 @@ impl GroupMemberService {
 
     pub async fn demote_group_users(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         raw_id: String,
         req: UsersQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let gid = group_id(&raw_id)?;
         fetch_group(&queries, gid).await?;
         shift_group_roles(&queries, auth.0.uuid()?, gid, &req, false).await

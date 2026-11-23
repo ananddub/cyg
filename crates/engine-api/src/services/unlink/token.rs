@@ -1,15 +1,15 @@
+use crate::services::plane::Plane;
+
 use axum::Json;
 use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use super::bearer;
-use crate::ApiState;
 use crate::db::DbError;
 use crate::dto::Empty;
 use crate::dto::auth;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
-use crate::services::deps::q;
 use crate::utils::unlink::{failed, refused};
 use crate::utils::vendor;
 
@@ -42,16 +42,16 @@ impl TokenColumn {
 }
 
 async fn by_token(
-    state: &ApiState,
+    plane: &Plane,
     headers: &HeaderMap,
     column: TokenColumn,
     token: &str,
 ) -> Result<Json<Empty>, V2Error> {
-    let uid = bearer(headers, state)?;
+    let uid = bearer(headers, plane)?;
     if !token.is_empty() {
         return Err(vendor::profile(column.provider()));
     }
-    let queries = q(state).await?;
+    let queries = plane.q().await?;
     let failed = failed(column.provider());
     column
         .clear(&queries, uid)
@@ -63,51 +63,51 @@ async fn by_token(
 impl super::UnlinkService {
     pub async fn apple(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::TokenAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        by_token(state, headers, TokenColumn::Apple, &account.token).await
+        by_token(&self.plane, headers, TokenColumn::Apple, &account.token).await
     }
 
     pub async fn facebook(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::TokenAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        by_token(state, headers, TokenColumn::Facebook, &account.token).await
+        by_token(&self.plane, headers, TokenColumn::Facebook, &account.token).await
     }
 
     pub async fn google(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::TokenAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        by_token(state, headers, TokenColumn::Google, &account.token).await
+        by_token(&self.plane, headers, TokenColumn::Google, &account.token).await
     }
 
     pub async fn steam(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::TokenAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        by_token(state, headers, TokenColumn::Steam, &account.token).await
+        by_token(&self.plane, headers, TokenColumn::Steam, &account.token).await
     }
 
     pub async fn facebook_instant_game(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::InstantGameAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        let uid = bearer(headers, state)?;
+        let uid = bearer(headers, &self.plane)?;
         if !account.signed_player_info.is_empty() {
             return Err(vendor::profile("Facebook Instant Game"));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let failed = failed("Facebook Instant Game");
         queries
             .unlink_facebook_instant(uid)
@@ -118,11 +118,11 @@ impl super::UnlinkService {
 
     pub async fn game_center(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::GameCenterAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        let uid = bearer(headers, state)?;
+        let uid = bearer(headers, &self.plane)?;
         let complete = !account.bundle_id.is_empty()
             && !account.player_id.is_empty()
             && !account.public_key_url.is_empty()
@@ -132,7 +132,7 @@ impl super::UnlinkService {
         if complete {
             return Err(vendor::profile("GameCenter"));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let failed = failed("GameCenter");
         queries
             .unlink_gamecenter(uid)

@@ -7,7 +7,7 @@ pub async fn setting_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .put(format!("{}/v2/console/setting", env.base))
+                .put(format!("{}/v1/console/setting", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "name": "   ", "value": { "on": true } }))
                 .send()
@@ -21,7 +21,7 @@ pub async fn setting_surface(env: &Harness, console: &str, viewer: &str) {
     );
     refusal(
         env.client
-            .put(format!("{}/v2/console/setting", env.base))
+            .put(format!("{}/v1/console/setting", env.base))
             .bearer_auth(viewer)
             .json(&json!({ "name": name, "value": { "on": true } }))
             .send()
@@ -34,14 +34,14 @@ pub async fn setting_surface(env: &Harness, console: &str, viewer: &str) {
 
     let written = json_body(
         env.client
-            .put(format!("{}/v2/console/setting", env.base))
+            .put(format!("{}/v1/console/setting", env.base))
             .bearer_auth(console)
             .json(&json!({ "name": name, "value": { "rooms": 8, "beta": true } }))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/console/setting",
+        "PUT /v1/console/setting",
     )
     .await;
     assert_eq!(written["name"], name);
@@ -49,13 +49,13 @@ pub async fn setting_surface(env: &Harness, console: &str, viewer: &str) {
 
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/console/setting", env.base))
+            .get(format!("{}/v1/console/setting", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/setting",
+        "GET /v1/console/setting",
     )
     .await;
     assert_eq!(
@@ -69,19 +69,19 @@ pub async fn setting_surface(env: &Harness, console: &str, viewer: &str) {
 
     expect(
         env.client
-            .delete(format!("{}/v2/console/setting/{name}", env.base))
+            .delete(format!("{}/v1/console/setting/{name}", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/setting/{name}",
+        "DELETE /v1/console/setting/{name}",
     )
     .await;
     assert_eq!(
         refusal(
             env.client
-                .delete(format!("{}/v2/console/setting/{name}", env.base))
+                .delete(format!("{}/v1/console/setting/{name}", env.base))
                 .bearer_auth(console)
                 .send()
                 .await

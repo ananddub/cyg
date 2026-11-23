@@ -1,13 +1,11 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::Page;
 use crate::dto::console::leaderboard::{LeaderboardRecordRow, LeaderboardRow};
 use crate::error::V2Error;
 use crate::repositories::leaderboard::DeleteLeaderboardRecordParams;
-use crate::services::deps::q;
 use crate::utils::leaderboard::types::is_tournament;
 use crate::utils::leaderboard::window::record_window;
 use uuid::Uuid;
@@ -17,28 +15,24 @@ const MAX_RECORDS: i64 = 100;
 impl super::ConsoleService {
     pub async fn list_leaderboards(
         &self,
-        state: &ApiState,
+
         page: Page,
     ) -> Result<Json<Vec<LeaderboardRow>>, V2Error> {
-        self.boards(state, page, 0).await
+        self.boards(page, 0).await
     }
 
-    pub async fn list_tournaments(
-        &self,
-        state: &ApiState,
-        page: Page,
-    ) -> Result<Json<Vec<LeaderboardRow>>, V2Error> {
-        self.boards(state, page, 1).await
+    pub async fn list_tournaments(&self, page: Page) -> Result<Json<Vec<LeaderboardRow>>, V2Error> {
+        self.boards(page, 1).await
     }
 
     async fn boards(
         &self,
-        state: &ApiState,
+
         page: Page,
         category: i16,
     ) -> Result<Json<Vec<LeaderboardRow>>, V2Error> {
         let rows = crate::services::games::tenant::list_boards(
-            state,
+            &self.plane,
             page.game_id,
             category,
             page.limit(),
@@ -48,21 +42,19 @@ impl super::ConsoleService {
         Ok(Json(rows.into_iter().map(LeaderboardRow::from).collect()))
     }
 
-    pub async fn get_leaderboard(
-        &self,
-        state: &ApiState,
-        id: &str,
-    ) -> Result<Json<LeaderboardRow>, V2Error> {
-        let board = q(state).await?.get_leaderboard(id).await?;
+    pub async fn get_leaderboard(&self, id: &str) -> Result<Json<LeaderboardRow>, V2Error> {
+        let board = self.plane.q().await?.get_leaderboard(id).await?;
         Ok(Json(LeaderboardRow::from(board)))
     }
 
     pub async fn list_leaderboard_records(
         &self,
-        state: &ApiState,
+
         id: &str,
     ) -> Result<Json<Vec<LeaderboardRecordRow>>, V2Error> {
-        let rows = q(state)
+        let rows = self
+            .plane
+            .q()
             .await?
             .list_all_leaderboard_records(id, MAX_RECORDS)
             .await?;
@@ -73,7 +65,7 @@ impl super::ConsoleService {
 
     pub async fn delete_leaderboard_record(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
         owner_id: &str,
@@ -84,7 +76,7 @@ impl super::ConsoleService {
         }
         let owner = Uuid::parse_str(owner_id)
             .map_err(|_| V2Error::invalid_argument("Invalid owner ID."))?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let board = queries.get_leaderboard(id).await.map_err(|e| match e {
             crate::db::DbError::NotFound => V2Error::not_found("Leaderboard not found."),
             other => V2Error::from(other),
@@ -105,7 +97,7 @@ impl super::ConsoleService {
                 V2Error::internal("Error deleting score from leaderboard.")
             })?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "leaderboard.record.delete",
             "leaderboard",

@@ -28,7 +28,9 @@ impl UdpLane {
             .server
             .would_exceed_room_limit(&ctx.cfg.name, ctx.cfg.max_rooms)
         {
-            tracing::error!("[server-udp] ⛔ room limit reached: refusing UDP join from {peer_addr}");
+            tracing::error!(
+                "[server-udp] ⛔ room limit reached: refusing UDP join from {peer_addr}"
+            );
             return;
         }
         let room = match ctx.server.get_or_create(&ctx.cfg.name, b"") {
@@ -46,7 +48,10 @@ impl UdpLane {
         }
         // Same onAuth gate the TCP/WS path applies; UDP joins carry no options.
         if !room.authorize(room.next_player_id, "", "{}") {
-            tracing::error!("[server-udp] ⛔ room '{}' rejected {peer_addr} in onAuth", ctx.cfg.name);
+            tracing::error!(
+                "[server-udp] ⛔ room '{}' rejected {peer_addr} in onAuth",
+                ctx.cfg.name
+            );
             return;
         }
         let n = room.sessions.len() + self.udp_peers.len();

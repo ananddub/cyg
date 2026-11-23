@@ -18,7 +18,7 @@ type QueryParams<T> = axum::extract::Query<T>;
 macro_rules! idempotent_purchase {
     ($state:expr, $headers:expr, $auth:expr, $parts:expr, $call:expr) => {{
         let mut claim = match crate::services::idempotency::begin(
-            &$state,
+            &*$state.plane(),
             &$headers,
             "iap.purchase",
             &$auth.uid().to_string(),
@@ -30,13 +30,17 @@ macro_rules! idempotent_purchase {
             Err(err) => return err.into_response(),
         };
         if let Some(saved) = claim.replayed() {
-            return Json(saved).into_response();
+            return crate::app::middleware::replay_response(saved);
         }
         let result = $call.await;
         let stored = result
             .as_ref()
             .ok()
-            .and_then(|json| serde_json::to_value(&json.0).ok());
+            .and_then(|json| {
+                serde_json::to_string(&json.0).ok().map(|raw| {
+                    crate::services::idempotency::Stored { status: 200, raw }
+                })
+            });
         claim.settle(stored).await;
         return result.into_response();
     }};
@@ -64,7 +68,7 @@ struct IapController {
     service: Arc<IapService>,
 }
 
-#[controller("/v2/iap")]
+#[controller("/v1/iap")]
 impl IapController {
     fn new(service: Arc<IapService>) -> Self {
         Self { service }
@@ -84,7 +88,7 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.validate_apple_legacy(&state, &auth, body)
+            self.service.validate_apple_legacy(&auth, body)
         )
     }
 
@@ -102,7 +106,7 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_apple(&state, &auth, body)
+            self.service.purchase_apple(&auth, body)
         )
     }
 
@@ -120,7 +124,7 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_google(&state, &auth, body)
+            self.service.purchase_google(&auth, body)
         )
     }
 
@@ -138,7 +142,7 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_huawei(&state, &auth, body)
+            self.service.purchase_huawei(&auth, body)
         )
     }
 
@@ -156,7 +160,7 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_facebook_instant(&state, &auth, body)
+            self.service.purchase_facebook_instant(&auth, body)
         )
     }
 
@@ -174,7 +178,7 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_samsung(&state, &auth, body)
+            self.service.purchase_samsung(&auth, body)
         )
     }
 
@@ -182,7 +186,7 @@ impl IapController {
     async fn list_purchases(&self, auth: Authed, req: QueryParams<ListQuery>) -> Response {
         let state = current_state();
         self.service
-            .list_purchases(&state, &auth, req.0)
+            .list_purchases(&auth, req.0)
             .await
             .into_response()
     }
@@ -195,7 +199,7 @@ impl IapController {
     ) -> Response {
         let state = current_state();
         self.service
-            .subscription_apple(&state, &auth, body)
+            .subscription_apple(&auth, body)
             .await
             .into_response()
     }
@@ -208,7 +212,7 @@ impl IapController {
     ) -> Response {
         let state = current_state();
         self.service
-            .subscription_google(&state, &auth, body)
+            .subscription_google(&auth, body)
             .await
             .into_response()
     }
@@ -221,7 +225,7 @@ impl IapController {
     ) -> Response {
         let state = current_state();
         self.service
-            .subscription_huawei(&state, &auth, body)
+            .subscription_huawei(&auth, body)
             .await
             .into_response()
     }
@@ -230,7 +234,7 @@ impl IapController {
     async fn list_subscriptions(&self, auth: Authed, req: QueryParams<ListQuery>) -> Response {
         let state = current_state();
         self.service
-            .list_subscriptions(&state, &auth, req.0)
+            .list_subscriptions(&auth, req.0)
             .await
             .into_response()
     }
@@ -239,7 +243,7 @@ impl IapController {
     async fn active_subscriptions(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
-            .active_entitlements(&state, &auth)
+            .active_entitlements(&auth)
             .await
             .into_response()
     }
@@ -252,7 +256,7 @@ impl IapController {
     ) -> Response {
         let state = current_state();
         self.service
-            .subscription_by_product(&state, &auth, &product_id)
+            .subscription_by_product(&auth, &product_id)
             .await
             .into_response()
     }

@@ -2,8 +2,9 @@ use super::server::{TestServer, header};
 use super::{MAX_BODY_BYTES, test_state};
 
 #[test]
-fn both_paths_serve_a_seat_over_http() {
-    for path in ["/matchmake", "/api/matchmake"] {
+fn the_plane_serves_a_seat_over_http() {
+    let path = "/matchmake";
+    {
         let server = TestServer::start(test_state(1000, 1000));
         let (status, headers, body) = server.post(&format!("{path}/joinOrCreate/tank-3d"), "{}");
         assert_eq!(status, 200, "{path}: {body}");
@@ -18,6 +19,11 @@ fn both_paths_serve_a_seat_over_http() {
                 .unwrap()
                 .starts_with("dGFuay0z")
         );
+
+        // The old `/api/matchmake` alias was a second mount of the same plane;
+        // one base is the whole point, so it must not answer.
+        let (status, _, _) = server.post("/api/matchmake/joinOrCreate/tank-3d", "{}");
+        assert_eq!(status, 404, "the removed alias must not resurrect");
     }
 }
 

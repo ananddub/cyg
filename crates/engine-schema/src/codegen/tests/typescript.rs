@@ -29,7 +29,10 @@ fn sample() -> (Vec<crate::SchemaDef>, Option<crate::RootState>) {
 fn typescript_flag_and_file_name_are_stable() {
     assert_eq!(Language::parse("ts"), Some(Language::TypeScript));
     assert_eq!(Language::parse("typescript"), Some(Language::TypeScript));
-    assert_eq!(Language::TypeScript.file_name(), "cyg_schema_generated.d.ts");
+    assert_eq!(
+        Language::TypeScript.file_name(),
+        "cyg_schema_generated.d.ts"
+    );
     assert_eq!(Language::TypeScript.flag(), "ts");
 }
 
@@ -48,7 +51,9 @@ fn typescript_emits_typed_interfaces_and_runtime_tables() {
 
     // Runtime schema tables (kind metadata) with wire hash.
     assert!(text.contains("export const PlayerSchema: CygSchemaTableDef = {"));
-    assert!(text.contains("{ name: \"hp\", kind: \"u8\", code: 1, flags: 0, element: \"none\", size: 1 },"));
+    assert!(text.contains(
+        "{ name: \"hp\", kind: \"u8\", code: 1, flags: 0, element: \"none\", size: 1 },"
+    ));
     assert!(text.contains("import type { Room, SchemaMap } from \"cyg\";"));
 
     // Root state with typed collections and a typed room alias.

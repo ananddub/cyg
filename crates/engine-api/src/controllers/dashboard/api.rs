@@ -36,7 +36,7 @@ impl DashboardRestController {
     #[get("/identity")]
     async fn identity(&self, _auth: ConsoleAuthed) -> Response {
         let state = crate::current_state();
-        match tenant::resolve(&state).await {
+        match tenant::resolve(&*state.plane()).await {
             Ok(Some(game)) => Json(DashboardIdentity {
                 game_id: Some(game.id),
                 game_name: Some(game.name),
@@ -70,7 +70,7 @@ impl DashboardRestController {
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
         }
-        let rows = dashboard::build_rooms_scoped(&state, scope.game_id).await;
+        let rows = dashboard::build_rooms_scoped(&*state.plane(), scope.game_id).await;
         Json(rows).into_response()
     }
 
@@ -114,26 +114,26 @@ impl DashboardRestController {
 /// must be one this process hosts, and no claim means this process's own game.
 pub(crate) async fn guard(state: &ApiState, claimed: Option<Uuid>) -> Result<(), V2Error> {
     match claimed {
-        Some(game_id) => guards::require_hosted(state, game_id).await,
+        Some(game_id) => guards::require_hosted(&*state.plane(), game_id).await,
         None => Ok(()),
     }
 }
 
 pub(crate) async fn overview(State(state): State<ApiState>) -> Response {
-    Json(dashboard::build_overview(&state)).into_response()
+    Json(dashboard::build_overview(&*state.plane())).into_response()
 }
 
 #[allow(dead_code)]
 pub(crate) async fn rooms(State(state): State<ApiState>) -> Response {
-    Json(dashboard::build_rooms(&state)).into_response()
+    Json(dashboard::build_rooms(&*state.plane())).into_response()
 }
 
 pub(crate) async fn workers(State(state): State<ApiState>) -> Response {
-    Json(dashboard::build_workers(&state)).into_response()
+    Json(dashboard::build_workers(&*state.plane())).into_response()
 }
 
 pub(crate) async fn clients(State(state): State<ApiState>) -> Response {
-    Json(dashboard::build_clients(&state)).into_response()
+    Json(dashboard::build_clients(&*state.plane())).into_response()
 }
 
 pub(crate) async fn ticks(State(_state): State<ApiState>) -> Response {

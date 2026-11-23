@@ -13,7 +13,7 @@ struct ConsoleEconomyController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/economy")]
+#[controller("/v1/console/economy")]
 impl ConsoleEconomyController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -27,7 +27,7 @@ impl ConsoleEconomyController {
     ) -> Response {
         let state = current_state();
         self.service
-            .economy_summary(&state, query)
+            .economy_summary(query)
             .await
             .into_response()
     }

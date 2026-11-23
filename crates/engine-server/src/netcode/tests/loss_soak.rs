@@ -175,11 +175,13 @@ fn simulated_150ms_rtt_and_5pct_loss_converges() {
             }
             link.send_c2s(now, vec![0xAC, wire[0], wire[1]]);
         }
-
     }
 
     let counts = server_lane.counts();
-    assert!(input_count > 250, "soak actually sent inputs: {input_count}");
+    assert!(
+        input_count > 250,
+        "soak actually sent inputs: {input_count}"
+    );
     assert_eq!(
         server_last,
         Some(client_seq),

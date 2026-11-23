@@ -1,10 +1,11 @@
+use crate::services::plane::Plane;
+
 mod gamecenter;
 mod token;
 mod unsigned;
 
 use axum::Json;
 
-use crate::ApiState;
 use crate::dto::auth::ProviderAccount;
 use crate::dto::session::SessionResponse;
 use crate::services::auth::verify;
@@ -15,7 +16,7 @@ pub(crate) use token::token;
 pub use unsigned::instant_game;
 
 pub(crate) async fn provider(
-    state: &ApiState,
+    plane: &Plane,
     account: ProviderAccount,
     requested_username: &str,
     create: bool,
@@ -31,7 +32,7 @@ pub(crate) async fn provider(
         .unwrap_or_default()
         .to_owned();
     token::token(
-        state,
+        plane,
         kind,
         &token,
         requested_username,

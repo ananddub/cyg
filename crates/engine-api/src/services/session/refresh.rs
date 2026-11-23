@@ -1,28 +1,27 @@
 use axum::Json;
 use axum::http::HeaderMap;
 
-use crate::ApiState;
 use crate::app::middleware::server_key;
 use crate::dto::session::{RefreshRequest, SessionResponse};
 use crate::error::V2Error;
 use crate::infra::jwt;
-use crate::services::deps::q;
 use crate::utils::auth as rows;
 
 impl super::SessionService {
     pub async fn refresh(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         req: RefreshRequest,
     ) -> Result<Json<SessionResponse>, V2Error> {
-        server_key(headers, state)?;
+        server_key(headers, &self.plane)?;
         if req.token.is_empty() {
             return Err(V2Error::invalid_argument("Refresh token is required."));
         }
         let claims = jwt::verify_refresh(&req.token)?;
         let uid = claims.uuid()?;
-        if !state
+        if !self
+            .plane
             .sessions
             .is_valid_refresh(uid, claims.exp, &claims.tid)
         {
@@ -31,7 +30,7 @@ impl super::SessionService {
             ));
         }
 
-        let user = match q(state).await?.get_user_by_id(uid).await {
+        let user = match self.plane.q().await?.get_user_by_id(uid).await {
             Ok(user) => rows::existing(user)?,
             Err(crate::db::DbError::NotFound) => {
                 return Err(V2Error::not_found("User account not found."));

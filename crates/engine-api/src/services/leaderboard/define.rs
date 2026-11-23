@@ -5,12 +5,11 @@
 //! Nakama's `leaderboardCreate` and PlayFab's `CreateLeaderboard` exist because a
 //! season board is part of the game's content, not of its deployment.
 
-use serde_json::Value;
-
 use crate::app::middleware::Authed;
+use crate::dto::leaderboard::{BoardDefinition, BoardListResponse, DeletedBoard};
 use crate::error::V2Error;
 use crate::repositories::leaderboard::DefineLeaderboardParams;
-use crate::repositories::models::Leaderboard;
+use serde_json::Value;
 
 use super::{LeaderboardService, load_board};
 
@@ -82,11 +81,10 @@ impl LeaderboardService {
     /// every time it starts, and only the fields it states are overwritten.
     pub async fn define_board(
         &self,
-        state: &crate::ApiState,
         _auth: &Authed,
         path_id: &str,
         mut body: DefineRequest,
-    ) -> Result<serde_json::Value, V2Error> {
+    ) -> Result<BoardDefinition, V2Error> {
         body.normalise(path_id);
         if body.id.is_empty() {
             return Err(V2Error::invalid_argument(
@@ -100,7 +98,7 @@ impl LeaderboardService {
             ));
         }
 
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
         let params = DefineLeaderboardParams {
             id: body.id.clone(),
             title: body.title,
@@ -117,49 +115,32 @@ impl LeaderboardService {
             .define_leaderboard(&params)
             .await
             .map_err(V2Error::from)?;
-        Ok(board_json(&row))
+        Ok(BoardDefinition::from(&row))
     }
 
     /// Every board the game has defined.
-    pub async fn list_boards(
-        &self,
-        state: &crate::ApiState,
-        _auth: &Authed,
-    ) -> Result<serde_json::Value, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
-        let rows = queries.list_leaderboards(i64::MAX, 0).await?;
-        let boards: Vec<Value> = rows.iter().map(board_json).collect();
-        Ok(serde_json::json!({ "leaderboards": boards, "total": boards.len() }))
+    pub async fn list_boards(&self, _auth: &Authed) -> Result<BoardListResponse, V2Error> {
+        let queries = self.plane.q().await?;
+        // A ceiling the store can parse: `LIMIT i64::MAX` is not a useful
+        // number and overflows the query's parameter binding.
+        let rows = queries.list_leaderboards(10_000, 0).await?;
+        let leaderboards: Vec<BoardDefinition> = rows.iter().map(BoardDefinition::from).collect();
+        Ok(BoardListResponse {
+            total: leaderboards.len(),
+            leaderboards,
+        })
     }
 
     /// Remove a board and every score on it.
     ///
     /// Refused when the id does not exist, so a typo reports itself rather than
     /// looking like a successful delete.
-    pub async fn delete_board(
-        &self,
-        state: &crate::ApiState,
-        _auth: &Authed,
-        id: &str,
-    ) -> Result<Value, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
+    pub async fn delete_board(&self, _auth: &Authed, id: &str) -> Result<DeletedBoard, V2Error> {
+        let queries = self.plane.q().await?;
         load_board(&queries, id).await?;
         queries.delete_leaderboard(id).await?;
-        Ok(serde_json::json!({ "deleted": id }))
+        Ok(DeletedBoard {
+            deleted: id.to_owned(),
+        })
     }
-}
-
-fn board_json(row: &Leaderboard) -> Value {
-    serde_json::json!({
-        "id": row.id,
-        "title": row.title,
-        "description": row.description,
-        "sort_order": row.sort_order,
-        "operator": row.operator,
-        "reset_schedule": row.reset_schedule,
-        "metadata": row.metadata,
-        "authoritative": row.authoritative,
-        "category": row.category,
-        "max_num_score": row.max_num_score,
-    })
 }

@@ -1,3 +1,5 @@
+use crate::services::plane::Plane;
+
 use std::collections::BTreeMap;
 
 use axum::Json;
@@ -5,22 +7,16 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::assign::{self, Assignment};
-use crate::ApiState;
 use crate::dto::flag::{FlagListResponse, FlagView};
 use crate::error::V2Error;
 use crate::repositories::models::{FeatureFlag, FlagVariant};
-use crate::services::deps::q;
 
 impl super::FlagService {
     /// Every flag the operator defines, resolved for this one account. Nothing
     /// is cached against the account, so stopping an experiment drops it from
     /// the next reply rather than from the next login.
-    pub async fn resolve(
-        &self,
-        state: &ApiState,
-        user_id: Uuid,
-    ) -> Result<Json<FlagListResponse>, V2Error> {
-        let queries = q(state).await?;
+    pub async fn resolve(&self, user_id: Uuid) -> Result<Json<FlagListResponse>, V2Error> {
+        let queries = self.plane.q().await?;
         let flags = queries.list_flags().await?;
         let arms = group(queries.list_variants().await?);
         let pins = queries
@@ -55,8 +51,8 @@ impl super::FlagService {
 /// answer the same way as an account outside the rollout: not on. Gating code
 /// asks this and carries on with the plain behaviour otherwise, so an
 /// unreachable database cannot turn a matchmaker into a 500.
-pub async fn is_on(state: &ApiState, user_id: Uuid, flag_key: &str) -> bool {
-    let Ok(queries) = q(state).await else {
+pub async fn is_on(plane: &Plane, user_id: Uuid, flag_key: &str) -> bool {
+    let Ok(queries) = plane.q().await else {
         return false;
     };
     let Ok(Some(flag)) = queries.get_flag(flag_key).await else {

@@ -73,8 +73,8 @@ pub fn resolve_owner(user_id: &str, caller: Uuid) -> Result<Uuid, V2Error> {
     if user_id.is_empty() {
         return Ok(caller);
     }
-    let owner = Uuid::parse_str(user_id)
-        .map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
+    let owner =
+        Uuid::parse_str(user_id).map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
     if owner == Uuid::nil() {
         return Ok(caller);
     }

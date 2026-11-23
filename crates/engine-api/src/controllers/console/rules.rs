@@ -15,7 +15,7 @@ struct ConsoleRulesController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/rules")]
+#[controller("/v1/console/rules")]
 impl ConsoleRulesController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -24,14 +24,14 @@ impl ConsoleRulesController {
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        self.service.list_rules(&state).await.into_response()
+        self.service.list_rules().await.into_response()
     }
 
     #[post("")]
     async fn create(&self, auth: ConsoleAuthed, Body(body): Body<RuleRequest>) -> Response {
         let state = current_state();
         self.service
-            .create_rule(&state, &auth, body)
+            .create_rule(&auth, body)
             .await
             .into_response()
     }
@@ -40,7 +40,7 @@ impl ConsoleRulesController {
     async fn versions(&self, _auth: ConsoleAuthed, Path(key): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .rule_versions(&state, &key)
+            .rule_versions(&key)
             .await
             .into_response()
     }
@@ -56,7 +56,7 @@ impl ConsoleRulesController {
             return V2Error::invalid_argument("A rule version is a number.").into_response();
         };
         self.service
-            .publish_rule(&state, &auth, &key, version)
+            .publish_rule(&auth, &key, version)
             .await
             .into_response()
     }
@@ -65,7 +65,7 @@ impl ConsoleRulesController {
     async fn delete(&self, auth: ConsoleAuthed, Path(key): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .delete_rule(&state, &auth, &key)
+            .delete_rule(&auth, &key)
             .await
             .into_response()
     }
@@ -74,7 +74,7 @@ impl ConsoleRulesController {
     async fn dry_run(&self, _auth: ConsoleAuthed, Body(body): Body<RuleDryRun>) -> Response {
         let state = current_state();
         self.service
-            .dry_run_rule(&state, body)
+            .dry_run_rule(body)
             .await
             .into_response()
     }

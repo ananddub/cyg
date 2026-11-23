@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// How often the demux speaks up about a full session inbox. One warn per
 /// thousand dropped packets keeps a sustained backlog visible in the logs

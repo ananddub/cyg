@@ -213,7 +213,7 @@ function CredentialsTab({ game, onConfigure }: { game: GameDetail; onConfigure?:
 // ------------------------------------------------------------- shared: rooms
 
 /** The Live Rooms tab is the matches/room feed the Matches area already reads —
- * `GET /v2/console/match` — reused here rather than re-implemented. A selected
+ * `GET /v1/console/match` — reused here rather than re-implemented. A selected
  * room opens the same `MatchDetail` the Matches drawer renders. */
 function LiveRoomsTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null)

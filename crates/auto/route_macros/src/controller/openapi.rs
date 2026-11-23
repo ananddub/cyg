@@ -26,7 +26,12 @@ pub(crate) fn controller_openapi_submissions(
                 .as_ref()
                 .or(controller_docs.tag.as_ref())
                 .cloned()
-                .unwrap_or_else(|| LitStr::new(&openapi_tag(&path.value()), path.span()));
+                .unwrap_or_else(|| {
+                    LitStr::new(
+                        &openapi_tag(&crate::docs::without_version_prefix(&path.value())),
+                        path.span(),
+                    )
+                });
             let tag_description = option_lit_tokens(
                 route
                     .docs
@@ -81,7 +86,12 @@ pub(crate) fn module_openapi_submissions(
                 .as_ref()
                 .or(controller_docs.tag.as_ref())
                 .cloned()
-                .unwrap_or_else(|| LitStr::new(&openapi_tag(&path.value()), path.span()));
+                .unwrap_or_else(|| {
+                    LitStr::new(
+                        &openapi_tag(&crate::docs::without_version_prefix(&path.value())),
+                        path.span(),
+                    )
+                });
             let tag_description = option_lit_tokens(
                 route
                     .docs

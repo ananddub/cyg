@@ -1,10 +1,10 @@
-use crate::services::deps::{blobs, q};
-
 use super::*;
 
 impl MapService {
-    pub async fn list_maps(&self, state: &ApiState, game_id: Uuid) -> Result<Vec<MapDto>, V2Error> {
-        let rows: Vec<ListGameMapsRow> = q(state)
+    pub async fn list_maps(&self, game_id: Uuid) -> Result<Vec<MapDto>, V2Error> {
+        let rows: Vec<ListGameMapsRow> = self
+            .plane
+            .q()
             .await?
             .list_game_maps(game_id)
             .await
@@ -13,13 +13,14 @@ impl MapService {
     }
     pub async fn upload_map(
         &self,
-        state: &ApiState,
+
         game_id: Uuid,
         name: String,
         format: MapFormat,
         bytes: Vec<u8>,
     ) -> Result<MapUploadResponse, V2Error> {
-        let game_key = crate::services::games::GamesService::find_game(state, game_id)
+        let game_key = crate::services::games::GamesService::new(self.plane.clone())
+            .find_game(game_id)
             .await?
             .game_key;
         if name.is_empty() || name.len() > 255 {
@@ -30,7 +31,7 @@ impl MapService {
         Self::ensure_valid_format(format, &bytes)?;
         let sha256 = hex::encode(Sha256::digest(&bytes));
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let version = queries
             .latest_game_map_version(game_id)
             .await
@@ -41,7 +42,8 @@ impl MapService {
         let now = Utc::now();
         let id = Uuid::new_v4();
         let key = map_key(game_id, version, format.as_str());
-        blobs(state)
+        self.plane
+            .blobs()
             .await?
             .put(&key, &bytes)
             .await
@@ -61,7 +63,7 @@ impl MapService {
             .insert_game_map(game_id, id, format.as_str(), &data)
             .await
         {
-            let _ = blobs(state).await?.delete(&key).await;
+            let _ = self.plane.blobs().await?.delete(&key).await;
             return Err(V2Error::from(err));
         }
 
@@ -75,19 +77,15 @@ impl MapService {
             size_bytes: bytes.len() as i64,
             created_at: now,
         };
-        Self::publish_reload(state, &game_key, &map, &bytes);
+        Self::publish_reload(self, &game_key, &map, &bytes);
         Ok(MapUploadResponse { map })
     }
-    pub async fn activate_map(
-        &self,
-        state: &ApiState,
-        game_id: Uuid,
-        version: i32,
-    ) -> Result<MapDto, V2Error> {
-        let game_key = crate::services::games::GamesService::find_game(state, game_id)
+    pub async fn activate_map(&self, game_id: Uuid, version: i32) -> Result<MapDto, V2Error> {
+        let game_key = crate::services::games::GamesService::new(self.plane.clone())
+            .find_game(game_id)
             .await?
             .game_key;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
 
         let row: Option<StoredGameMapRow> = queries
             .game_map_at_version(game_id, version)
@@ -119,7 +117,9 @@ impl MapService {
                 "Map version {version} bytes are missing."
             )));
         };
-        let bytes = blobs(state)
+        let bytes = self
+            .plane
+            .blobs()
             .await?
             .get(&key)
             .await
@@ -127,7 +127,7 @@ impl MapService {
             .ok_or_else(|| {
                 V2Error::not_found(format!("Map version {version} bytes are missing."))
             })?;
-        Self::publish_reload(state, &game_key, &map, &bytes);
+        Self::publish_reload(self, &game_key, &map, &bytes);
         Ok(map)
     }
 }

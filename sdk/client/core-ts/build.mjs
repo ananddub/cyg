@@ -27,6 +27,14 @@ const umdBanner =
     "    const exports = module.exports;\n";
 const umdFooter = "\n    return module.exports;\n}));\n";
 
+// Every published bundle carries the same banner: the server serves this file
+// at /cyg.js and the client suites assert on it.
+const banner =
+    "/*! CYG Gaming SDK - browser bundle (UMD, served at /cyg.js).\n" +
+    " *  Exposes window.CYG for the web client plus AMD and CommonJS loaders.\n" +
+    " *  Built from sdk/client/core-ts with `just core-ts-build`; do not edit by hand.\n" +
+    " */\n";
+
 const shared = {
     entryPoints: [join(root, "src/index.ts")],
     bundle: true,
@@ -49,7 +57,7 @@ await build({
 
 // Wrap the bundled CJS body in the UMD shell.
 const cjsBody = await readFile(join(root, "dist/cyg-core.tmp.cjs"), "utf8");
-await writeFile(join(root, "dist/cyg.cjs"), umdBanner + cjsBody + umdFooter);
+await writeFile(join(root, "dist/cyg.cjs"), banner + umdBanner + cjsBody + umdFooter);
 
 await build({
     ...shared,

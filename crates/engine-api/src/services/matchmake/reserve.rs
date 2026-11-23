@@ -1,10 +1,13 @@
+use std::sync::Arc;
+
+use crate::services::plane::Plane;
+
 use std::net::IpAddr;
 
 use axum::http::StatusCode;
 
 use super::MatchmakeService;
 use crate::ApiError;
-use crate::ApiState;
 use crate::dto::matchmake::{SeatResponse, json_string_field};
 use crate::infra::seats::SeatRegistry;
 use crate::utils::matchmake::{MATCHMAKE_METHODS, printable, valid_room_name};
@@ -12,15 +15,15 @@ use crate::utils::matchmake::{MATCHMAKE_METHODS, printable, valid_room_name};
 impl MatchmakeService {
     pub fn reserve(
         &self,
-        state: &ApiState,
+
         ip: IpAddr,
         method: &str,
         room: &str,
         body: &str,
     ) -> Result<SeatResponse, ApiError> {
-        let charged = state.limiter.allow(ip);
+        let charged = self.plane.limiter.allow(ip);
         if !charged {
-            let wait = state.limiter.retry_after(ip).max(1);
+            let wait = self.plane.limiter.retry_after(ip).max(1);
             return Err(ApiError::rate_limited(wait));
         }
 
@@ -38,7 +41,7 @@ impl MatchmakeService {
         }
 
         if method == "reconnect" || method == "rejoin" {
-            return resume_seat(state, body);
+            return resume_seat(&self.plane, body);
         }
 
         // Room variants ([rooms.<name>] in config): the variant's filter_by
@@ -48,16 +51,16 @@ impl MatchmakeService {
         // When that room reaches the variant's cap, the join chains into the
         // next generation of the same variant (`...__g2`) instead of squeezing
         // in or dying with "room is full".
-        let (room_key, _variant) = match state.game.rooms.get(room) {
+        let (room_key, _variant) = match self.plane.game.rooms.get(room) {
             Some(variant) => {
                 let base = format!("{room}{}", variant.room_key_suffix(body));
-                let cap = variant.max_clients.unwrap_or(state.game.max_clients);
+                let cap = variant.max_clients.unwrap_or(self.plane.game.max_clients);
                 let now = std::time::Instant::now();
                 let generation = {
-                    let mut chain = state.chain.lock().map_err(|_| {
+                    let mut chain = self.plane.chain.lock().map_err(|_| {
                         ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "seat registry unavailable")
                     })?;
-                    let snapshot = state.latest_status.lock().ok();
+                    let snapshot = self.plane.latest_status.lock().ok();
                     let occupancy = |key: &str| -> u32 {
                         snapshot
                             .as_deref()
@@ -95,11 +98,12 @@ impl MatchmakeService {
             None => (room.to_string(), None),
         };
 
-        let seat = state
+        let seat = self
+            .plane
             .seats
             .lock()
             .map(|mut r: std::sync::MutexGuard<'_, SeatRegistry>| {
-                r.mint_with_options(&room_key, state.control.seat_ttl_secs, body)
+                r.mint_with_options(&room_key, self.plane.control.seat_ttl_secs, body)
             })
             .map_err(|_| {
                 ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "seat registry unavailable")
@@ -111,24 +115,24 @@ impl MatchmakeService {
                 )
             })?;
 
-        Ok(SeatResponse::new(state, &seat))
+        Ok(SeatResponse::new(&self.plane, &seat))
     }
 }
 
 pub fn reserve(
-    state: &ApiState,
+    plane: &Plane,
     ip: IpAddr,
     method: &str,
     room: &str,
     body: &str,
 ) -> Result<SeatResponse, ApiError> {
-    MatchmakeService.reserve(state, ip, method, room, body)
+    MatchmakeService::new(Arc::new(plane.clone())).reserve(ip, method, room, body)
 }
 
-fn resume_seat(state: &ApiState, body: &str) -> Result<SeatResponse, ApiError> {
+fn resume_seat(plane: &Plane, body: &str) -> Result<SeatResponse, ApiError> {
     let token = json_string_field(body, "reconnectionToken")
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "missing reconnectionToken"))?;
-    let seat = state
+    let seat = plane
         .seats
         .lock()
         .map(|mut r| r.verify(&token))
@@ -139,5 +143,5 @@ fn resume_seat(state: &ApiState, body: &str) -> Result<SeatResponse, ApiError> {
                 "reconnection token expired or unknown",
             )
         })?;
-    Ok(SeatResponse::new(state, &seat))
+    Ok(SeatResponse::new(plane, &seat))
 }

@@ -54,12 +54,7 @@ impl UdpLane {
 
     /// Queue a block for chunked delivery. Returns false when the block must
     /// take the ordinary datagram path (too large, empty, or no peer).
-    pub(crate) fn start_chunk(
-        &mut self,
-        peer: SocketAddr,
-        opcode: u8,
-        payload: &[u8],
-    ) -> bool {
+    pub(crate) fn start_chunk(&mut self, peer: SocketAddr, opcode: u8, payload: &[u8]) -> bool {
         if payload.is_empty() || payload.len() + 1 > MAX_BLOCK {
             return false;
         }
@@ -73,8 +68,7 @@ impl UdpLane {
         let Ok(sender) = ChunkSender::new(self.udp_chunk_seq, block, DEFAULT_SLICE_SIZE) else {
             return false;
         };
-        self.udp_chunks
-            .insert(peer, UdpChunkOut { sender, opcode });
+        self.udp_chunks.insert(peer, UdpChunkOut { sender, opcode });
         self.pump_chunks();
         true
     }

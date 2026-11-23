@@ -8,7 +8,7 @@ pub async fn device_auth(client: &Client, base: &str, pool: &Datastore) {
     );
     let device_id = format!("e2e-device-{}", Uuid::new_v4());
     let username = clean_username("e2e-player-");
-    let url = format!("{base}/v2/account/authenticate/device?username={username}&create=true");
+    let url = format!("{base}/v1/account/authenticate/device?username={username}&create=true");
 
     let created = json_body(
         client
@@ -29,7 +29,7 @@ pub async fn device_auth(client: &Client, base: &str, pool: &Datastore) {
     let resumed = json_body(
         client
             .post(format!(
-                "{base}/v2/account/authenticate/device?username={username}"
+                "{base}/v1/account/authenticate/device?username={username}"
             ))
             .header(reqwest::header::AUTHORIZATION, &basic)
             .json(&json!({ "id": device_id }))
@@ -47,7 +47,7 @@ pub async fn device_auth(client: &Client, base: &str, pool: &Datastore) {
     refusal(
         client
             .post(format!(
-                "{base}/v2/account/authenticate/device?username={username}"
+                "{base}/v1/account/authenticate/device?username={username}"
             ))
             .header(
                 reqwest::header::AUTHORIZATION,
@@ -67,7 +67,7 @@ pub async fn device_auth(client: &Client, base: &str, pool: &Datastore) {
     refusal(
         client
             .post(format!(
-                "{base}/v2/account/authenticate/device?username={username}"
+                "{base}/v1/account/authenticate/device?username={username}"
             ))
             .json(&json!({ "id": device_id }))
             .send()
@@ -114,7 +114,7 @@ pub async fn device_player(client: &Client, base: &str, label: &str) -> Player {
     let body = json_body(
         client
             .post(format!(
-                "{base}/v2/account/authenticate/device?username={username}&create=true"
+                "{base}/v1/account/authenticate/device?username={username}&create=true"
             ))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "id": device_id }))
@@ -139,7 +139,7 @@ pub async fn device_player(client: &Client, base: &str, label: &str) -> Player {
 pub async fn define_tournament(client: &Client, base: &str, console: &str, body: Value) -> Value {
     json_body(
         client
-            .post(format!("{base}/v2/console/tournament"))
+            .post(format!("{base}/v1/console/tournament"))
             .bearer_auth(console)
             .json(&body)
             .send()

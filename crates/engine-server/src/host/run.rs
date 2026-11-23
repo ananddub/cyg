@@ -53,7 +53,9 @@ pub fn run(
     let (schema_descriptor, schema_aoi) =
         boot_schema(&boot_maps, project_dir, cfg, &mut raw_transport);
     let packed_lane = crate::netcode::PackedSet::from_descriptor(&schema_descriptor);
-    let private_state = packed_lane.as_ref().is_some_and(netcode::PackedSet::has_private_fields);
+    let private_state = packed_lane
+        .as_ref()
+        .is_some_and(netcode::PackedSet::has_private_fields);
     if private_state {
         tracing::info!("[server] 🔒 private state fields active — per-session packed views");
     }
@@ -253,10 +255,9 @@ pub fn run(
     }
     // The host thread is leaving: stop and join every managed helper thread
     // before the process exits, so no thread outlives the lifecycle.
-    engine.manager.mark_thread(
-        "cyg-host",
-        engine_manager::ThreadState::Stopped,
-    );
+    engine
+        .manager
+        .mark_thread("cyg-host", engine_manager::ThreadState::Stopped);
     engine.manager.shutdown();
     Ok(())
 }

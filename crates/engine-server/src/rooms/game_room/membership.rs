@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 impl GameRoom {
     #[allow(dead_code)]
     pub(crate) fn pending_deadline(&self, session: &str) -> Option<Instant> {
-        self.lifecycle.pending_leaves
+        self.lifecycle
+            .pending_leaves
             .get(session)
             .map(|(_, deadline)| *deadline)
     }
@@ -44,7 +45,8 @@ impl GameRoom {
             return false;
         }
         let expired: Vec<(std::rc::Rc<str>, i64)> = self
-            .lifecycle.pending_leaves
+            .lifecycle
+            .pending_leaves
             .iter()
             .filter(|(_, (_, deadline))| now >= *deadline)
             .map(|(session, (id, _))| (session.clone(), *id))

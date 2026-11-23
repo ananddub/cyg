@@ -18,7 +18,7 @@ struct StorageController {
     service: Arc<StorageService>,
 }
 
-#[controller("/v2/storage")]
+#[controller("/v1/storage")]
 impl StorageController {
     fn new(service: Arc<StorageService>) -> Self {
         Self { service }
@@ -28,7 +28,7 @@ impl StorageController {
     async fn write_objects(&self, auth: Authed, Json(body): JsonBody<WriteRequest>) -> Response {
         let state = current_state();
         self.service
-            .write_objects(&state, &auth, body)
+            .write_objects(&auth, body)
             .await
             .into_response()
     }
@@ -37,7 +37,7 @@ impl StorageController {
     async fn read_objects(&self, auth: Authed, Json(body): JsonBody<ObjectIdsRequest>) -> Response {
         let state = current_state();
         self.service
-            .read_objects(&state, &auth, body)
+            .read_objects(&auth, body)
             .await
             .into_response()
     }
@@ -50,7 +50,7 @@ impl StorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .delete_objects(&state, &auth, body)
+            .delete_objects(&auth, body)
             .await
             .into_response()
     }
@@ -64,7 +64,7 @@ impl StorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_collection(&state, &auth, &collection, req)
+            .list_collection(&auth, &collection, req)
             .await
             .into_response()
     }
@@ -78,7 +78,7 @@ impl StorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_user_objects(&state, &auth, &collection, &user_id, req)
+            .list_user_objects(&auth, &collection, &user_id, req)
             .await
             .into_response()
     }
@@ -92,7 +92,7 @@ impl StorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .read_object(&state, &auth, &collection, &key, &user_id, req)
+            .read_object(&auth, &collection, &key, &user_id, req)
             .await
             .into_response()
     }

@@ -231,7 +231,10 @@ impl PackedSet {
     }
 
     fn collection_key(&self, hash: u32, fallback: u16) -> (u16, u32) {
-        (self.hash_collection.get(&hash).copied().unwrap_or(fallback), hash)
+        (
+            self.hash_collection.get(&hash).copied().unwrap_or(fallback),
+            hash,
+        )
     }
 
     fn cache_collection(
@@ -322,11 +325,7 @@ impl PackedSet {
     /// Builds a volatile-only patch already masked for one viewer. Used when
     /// `.private()` or a view can hide a volatile field; an unmasked patch
     /// would leak it to every peer.
-    pub fn volatile_patch_view(
-        &mut self,
-        viewer: u32,
-        view: Option<&ViewMask>,
-    ) -> Option<Vec<u8>> {
+    pub fn volatile_patch_view(&mut self, viewer: u32, view: Option<&ViewMask>) -> Option<Vec<u8>> {
         self.volatile_patch_view_impl(Some(viewer), view)
     }
 
@@ -340,11 +339,11 @@ impl PackedSet {
         }
         if self.world_mode {
             let mut collections = Vec::new();
-            let mut entries: Vec<(u16, u32, HashMap<u32, Vec<packed::WireValue>>)> =
-                self.volatile_collections
-                    .iter()
-                    .map(|((id, hash), rows)| (*id, *hash, rows.clone()))
-                    .collect();
+            let mut entries: Vec<(u16, u32, HashMap<u32, Vec<packed::WireValue>>)> = self
+                .volatile_collections
+                .iter()
+                .map(|((id, hash), rows)| (*id, *hash, rows.clone()))
+                .collect();
             entries.sort_by_key(|(id, hash, _)| (*id, *hash));
             for (id, hash, rows) in entries {
                 let bits = self.unreliable_bits_for(hash);
@@ -439,7 +438,9 @@ impl PackedSet {
         let bits = self.unreliable_bits_for(hash);
         let packed_schema = self.packed_by_hash(hash)?;
         let schema = self.schema_by_hash(hash)?.clone();
-        let rows = self.volatile_collections.get(&self.collection_key(hash, collection))?;
+        let rows = self
+            .volatile_collections
+            .get(&self.collection_key(hash, collection))?;
         if rows.is_empty() {
             return None;
         }
@@ -464,7 +465,9 @@ impl PackedSet {
         }
         if let Some(viewer) = viewer {
             let shift = self.nested_ids.contains(&collection).then_some(16);
-            let hidden = view.map(|view| view.hidden_for(Some(collection))).unwrap_or(0);
+            let hidden = view
+                .map(|view| view.hidden_for(Some(collection)))
+                .unwrap_or(0);
             mask_ops(&schema, &mut ops, viewer, shift, view, hidden);
         }
         if ops.is_empty() {
@@ -1012,8 +1015,7 @@ fn encode_with_budget(
 ) -> Result<(Vec<u8>, Vec<packed::PackedOp>), String> {
     let mut dropped: Vec<packed::PackedOp> = Vec::new();
     loop {
-        let out = packed::encode_patch(packed, &ops, clamped)
-            .map_err(|error| error.to_string())?;
+        let out = packed::encode_patch(packed, &ops, clamped).map_err(|error| error.to_string())?;
         if out.len() <= budget {
             dropped.reverse();
             return Ok((out, dropped));

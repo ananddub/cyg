@@ -15,7 +15,7 @@ struct UserController {
     service: Arc<UserService>,
 }
 
-#[controller("/v2/user")]
+#[controller("/v1/user")]
 impl UserController {
     fn new(service: Arc<UserService>) -> Self {
         Self { service }
@@ -25,7 +25,7 @@ impl UserController {
     async fn get_users(&self, auth: Authed, Params(req): Params<GetUsersQuery>) -> Response {
         let state = current_state();
         self.service
-            .get_users(&state, &auth, req)
+            .get_users(&auth, req)
             .await
             .into_response()
     }
@@ -34,7 +34,7 @@ impl UserController {
     async fn get_users_body(&self, auth: Authed, Body(body): Body<GetUsersQuery>) -> Response {
         let state = current_state();
         self.service
-            .get_users_body(&state, &auth, body)
+            .get_users_body(&auth, body)
             .await
             .into_response()
     }
@@ -43,7 +43,7 @@ impl UserController {
     async fn get_user(&self, auth: Authed, Path(raw): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .get_user(&state, &auth, &raw)
+            .get_user(&auth, &raw)
             .await
             .into_response()
     }

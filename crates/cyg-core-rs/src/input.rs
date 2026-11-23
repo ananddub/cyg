@@ -40,15 +40,34 @@ pub fn pack_schema_input(
         match (value, field.kind) {
             (InputValue::U8(v), engine_schema::WireKind::U8) => out.push(*v),
             (InputValue::Bool(v), engine_schema::WireKind::Bool) => out.push(*v as u8),
-            (InputValue::U16(v), engine_schema::WireKind::U16) => out.extend_from_slice(&v.to_le_bytes()),
-            (InputValue::I16(v), engine_schema::WireKind::I16) => out.extend_from_slice(&v.to_le_bytes()),
-            (InputValue::U32(v), engine_schema::WireKind::U32) => out.extend_from_slice(&v.to_le_bytes()),
-            (InputValue::I32(v), engine_schema::WireKind::I32) => out.extend_from_slice(&v.to_le_bytes()),
-            (InputValue::F32(v), engine_schema::WireKind::F32) => out.extend_from_slice(&v.to_le_bytes()),
-            (InputValue::F64(v), engine_schema::WireKind::F64) => out.extend_from_slice(&v.to_le_bytes()),
-            (InputValue::I64(v), engine_schema::WireKind::I64) => out.extend_from_slice(&(*v as u64).to_le_bytes()),
+            (InputValue::U16(v), engine_schema::WireKind::U16) => {
+                out.extend_from_slice(&v.to_le_bytes())
+            }
+            (InputValue::I16(v), engine_schema::WireKind::I16) => {
+                out.extend_from_slice(&v.to_le_bytes())
+            }
+            (InputValue::U32(v), engine_schema::WireKind::U32) => {
+                out.extend_from_slice(&v.to_le_bytes())
+            }
+            (InputValue::I32(v), engine_schema::WireKind::I32) => {
+                out.extend_from_slice(&v.to_le_bytes())
+            }
+            (InputValue::F32(v), engine_schema::WireKind::F32) => {
+                out.extend_from_slice(&v.to_le_bytes())
+            }
+            (InputValue::F64(v), engine_schema::WireKind::F64) => {
+                out.extend_from_slice(&v.to_le_bytes())
+            }
+            (InputValue::I64(v), engine_schema::WireKind::I64) => {
+                out.extend_from_slice(&(*v as u64).to_le_bytes())
+            }
             (InputValue::I8(v), engine_schema::WireKind::I8) => out.push(*v as u8),
-            _ => return Err(format!("input value type mismatch on field '{}'", field.name)),
+            _ => {
+                return Err(format!(
+                    "input value type mismatch on field '{}'",
+                    field.name
+                ));
+            }
         }
     }
     Ok(out)
@@ -84,7 +103,11 @@ mod tests {
         ];
         let wire = pack_schema_input(
             42,
-            &[InputValue::I32(-1), InputValue::F64(0.5), InputValue::Bool(true)],
+            &[
+                InputValue::I32(-1),
+                InputValue::F64(0.5),
+                InputValue::Bool(true),
+            ],
             &fields,
         )
         .unwrap();
@@ -114,6 +137,9 @@ mod tests {
             line: 0,
             column: 0,
         };
-        assert_eq!(engine_schema::wire_hash(&def), engine_schema::wire_hash(&def.clone()));
+        assert_eq!(
+            engine_schema::wire_hash(&def),
+            engine_schema::wire_hash(&def.clone())
+        );
     }
 }

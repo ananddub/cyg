@@ -1,6 +1,6 @@
 class_name CYGChat
 extends RefCounted
-## Text channels over the room server's `/v2/channel` routes, with a local
+## Text channels over the room server's `/v1/channel` routes, with a local
 ## message cache a UI can bind to through signals.
 ##
 ## Parity: the Unity SDK (`sdk/unity/Runtime/BaaS/CYGChat.cs`) and the Unreal
@@ -10,9 +10,9 @@ extends RefCounted
 ## `crates/engine-api/src/controllers/channel.rs` and the shapes in
 ## `crates/engine-api/src/dto/channel.rs`.
 ##
-## Channels are NOT addressed under `/v2/group`: group routes only manage
+## Channels are NOT addressed under `/v1/group`: group routes only manage
 ## membership (`join`/`leave`/`add`/…); a group's stream is still read and
-## written through `/v2/channel/{channel_id}`. The stream's identity is
+## written through `/v1/channel/{channel_id}`. The stream's identity is
 ## flattened into each message by mode: `room_name` (room stream), `group_id`
 ## (group stream) or `user_id_one`/`user_id_two` (direct messages) — exactly
 ## one of those families appears per message, and an absent member is an
@@ -24,7 +24,7 @@ extends RefCounted
 ##
 ## Endpoints, exactly as the server declares them:
 ##
-##  * `GET /v2/channel/{channel_id}` — a page of stored messages.
+##  * `GET /v1/channel/{channel_id}` — a page of stored messages.
 ##    Query (`ListQuery`): `limit` (int64), `cursor`, `forward` (bool; the
 ##    server default `true` reads oldest-to-newest from the head, `false`
 ##    walks back from the newest). Replies `MessageListResponse`:
@@ -32,7 +32,7 @@ extends RefCounted
 ##        {"messages": [apiChannelMessage], "next_cursor"?, "prev_cursor"?,
 ##         "cacheable_cursor"?}
 ##
-##  * `POST /v2/channel/{channel_id}/message` — send. Body (`SendRequest`):
+##  * `POST /v1/channel/{channel_id}/message` — send. Body (`SendRequest`):
 ##
 ##        {"content": <object or array>}
 ##
@@ -40,11 +40,11 @@ extends RefCounted
 ##    array", so plain text is wrapped as {"text": …} here. Replies the stored
 ##    `apiChannelMessage`.
 ##
-##  * `PUT /v2/channel/{channel_id}/message/{message_id}` — edit. Body
+##  * `PUT /v1/channel/{channel_id}/message/{message_id}` — edit. Body
 ##    (`UpdateRequest`): {"content": <object or array>}. Replies the updated
 ##    `apiChannelMessage`.
 ##
-##  * `DELETE /v2/channel/{channel_id}/message/{message_id}` — remove. Replies
+##  * `DELETE /v1/channel/{channel_id}/message/{message_id}` — remove. Replies
 ##    the deleted `apiChannelMessage`.
 ##
 ## `apiChannelMessage` fields (`MessageResponse`): `channel_id`, `message_id`,
@@ -80,7 +80,7 @@ extends RefCounted
 ##     chat.send(CYGChat.room_channel("lobby"), "gg", Callable())
 ##
 ## Independent GDScript port of this repo's Unity/Unreal BaaS layer onto the
-## documented `/v2/` endpoints of `crates/engine-api`; no upstream source text
+## documented `/v1/` endpoints of `crates/engine-api`; no upstream source text
 ## is copied.
 
 signal message_received(message: Dictionary)
@@ -203,7 +203,7 @@ func clear(channel_id: String = "") -> void:
 
 
 func _channel_path(channel_id: String) -> String:
-	return "/v2/channel/" + channel_id.uri_encode()
+	return "/v1/channel/" + channel_id.uri_encode()
 
 
 static func _content_body(text: Variant) -> String:

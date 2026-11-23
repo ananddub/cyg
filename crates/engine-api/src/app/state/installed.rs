@@ -57,13 +57,16 @@ pub async fn attach_state(
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .map(|connect| connect.0);
     match request.extensions().get::<ApiState>().cloned() {
-        Some(state) => REQUEST_STATE.scope(state, async move {
-            match remote {
-                Some(remote) => REQUEST_REMOTE.scope(remote, next.run(request)).await,
-                None => next.run(request).await,
-            }
-        })
-        .await,
+        Some(state) => {
+            REQUEST_STATE
+                .scope(state, async move {
+                    match remote {
+                        Some(remote) => REQUEST_REMOTE.scope(remote, next.run(request)).await,
+                        None => next.run(request).await,
+                    }
+                })
+                .await
+        }
         None => next.run(request).await,
     }
 }
@@ -94,6 +97,9 @@ pub fn with_plane_state(
         ))
         .layer(axum::middleware::from_fn(
             crate::app::middleware::player_rate_limit,
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::app::middleware::idempotency,
         ))
         .layer(axum::middleware::from_fn(
             crate::app::middleware::ip_rate_limit,

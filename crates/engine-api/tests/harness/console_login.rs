@@ -3,7 +3,7 @@ use super::*;
 pub async fn console_login(client: &Client, base: &str) -> String {
     let body = json_body(
         client
-            .post(format!("{base}/v2/console/authenticate"))
+            .post(format!("{base}/v1/console/authenticate"))
             .json(&json!({ "username": CONSOLE_USER, "password": CONSOLE_PASSWORD }))
             .send()
             .await
@@ -75,7 +75,7 @@ pub async fn device_player(client: &Client, base: &str, label: &str) -> Player {
     let body = json_body(
         client
             .post(format!(
-                "{base}/v2/account/authenticate/device?username={username}&create=true"
+                "{base}/v1/account/authenticate/device?username={username}&create=true"
             ))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "id": device_id, "vars": { "platform": "e2e" } }))

@@ -188,12 +188,7 @@ pub fn parse_input_batch(data: &[u8]) -> Option<InputBatch<'_>> {
     let meta = if p + 8 == data.len() && data[p..p + 2] == STAMP_MAGIC {
         Some(InputMeta {
             stamp: u16::from_le_bytes([data[p + 2], data[p + 3]]),
-            client_ms: u32::from_le_bytes([
-                data[p + 4],
-                data[p + 5],
-                data[p + 6],
-                data[p + 7],
-            ]),
+            client_ms: u32::from_le_bytes([data[p + 4], data[p + 5], data[p + 6], data[p + 7]]),
         })
     } else if p == data.len() {
         None

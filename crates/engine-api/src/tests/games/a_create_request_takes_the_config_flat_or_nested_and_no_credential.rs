@@ -99,24 +99,24 @@ pub(crate) fn an_update_request_is_a_patch_over_optional_fields() {
 pub(crate) fn games_routes() -> Vec<(&'static str, String)> {
     let id = "00000000-0000-0000-0000-000000000000";
     vec![
-        ("GET", "/v2/console/games".to_owned()),
-        ("POST", "/v2/console/games".to_owned()),
-        ("GET", format!("/v2/console/games/{id}")),
-        ("PUT", format!("/v2/console/games/{id}")),
-        ("DELETE", format!("/v2/console/games/{id}")),
+        ("GET", "/v1/console/games".to_owned()),
+        ("POST", "/v1/console/games".to_owned()),
+        ("GET", format!("/v1/console/games/{id}")),
+        ("PUT", format!("/v1/console/games/{id}")),
+        ("DELETE", format!("/v1/console/games/{id}")),
     ]
 }
 pub(crate) fn unity_settings_routes() -> Vec<(&'static str, String)> {
     let id = "00000000-0000-0000-0000-000000000000";
     vec![
-        ("GET", format!("/v2/console/games/{id}/unity-settings")),
+        ("GET", format!("/v1/console/games/{id}/unity-settings")),
         (
             "GET",
-            format!("/v2/console/games/{id}/unity-settings?format=asset"),
+            format!("/v1/console/games/{id}/unity-settings?format=asset"),
         ),
         (
             "GET",
-            format!("/v2/console/games/{id}/unity-settings?format=json"),
+            format!("/v1/console/games/{id}/unity-settings?format=json"),
         ),
     ]
 }
@@ -124,7 +124,7 @@ pub(crate) fn unity_settings_routes() -> Vec<(&'static str, String)> {
 pub(crate) fn every_games_route_demands_a_console_token() {
     let server = V2Server::start(v2_state());
     for (method, path) in games_routes().into_iter().chain(unity_settings_routes()) {
-        let reply = server.send(&method, &path, None, "{}");
+        let reply = server.send(method, &path, None, "{}");
         assert_eq!(
             reply.refusal(UNAUTHENTICATED),
             "Console token required",

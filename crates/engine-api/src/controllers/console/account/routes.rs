@@ -1,6 +1,6 @@
 use super::*;
 
-#[controller("/v2/console/account")]
+#[controller("/v1/console/account")]
 impl ConsoleAccountController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -10,7 +10,7 @@ impl ConsoleAccountController {
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
         self.service
-            .list_accounts(&state, page)
+            .list_accounts(page)
             .await
             .into_response()
     }
@@ -24,7 +24,7 @@ impl ConsoleAccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .import_account(&state, &auth, scope.id(), body)
+            .import_account(&auth, scope.id(), body)
             .await
             .into_response()
     }
@@ -41,11 +41,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), id).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), id).await {
             return err.into_response();
         }
         self.service
-            .get_account(&state, &id.to_string())
+            .get_account(&id.to_string())
             .await
             .into_response()
     }
@@ -62,11 +62,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), id).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), id).await {
             return err.into_response();
         }
         self.service
-            .delete_account(&state, &auth, &id.to_string())
+            .delete_account(&auth, &id.to_string())
             .await
             .into_response()
     }
@@ -83,11 +83,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), id).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), id).await {
             return err.into_response();
         }
         self.service
-            .export_account(&state, &auth, &id.to_string())
+            .export_account(&auth, &id.to_string())
             .await
             .into_response()
     }
@@ -102,7 +102,7 @@ impl ConsoleAccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .import_account_by_id(&state, &auth, &id, scope.id(), body)
+            .import_account_by_id(&auth, &id, scope.id(), body)
             .await
             .into_response()
     }
@@ -120,11 +120,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .ban_account(&state, &auth, &id, body)
+            .ban_account(&auth, &id, body)
             .await
             .into_response()
     }
@@ -141,11 +141,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .unban_account(&state, &auth, &id)
+            .unban_account(&auth, &id)
             .await
             .into_response()
     }
@@ -162,11 +162,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .list_account_notes(&state, &id)
+            .list_account_notes(&id)
             .await
             .into_response()
     }
@@ -184,11 +184,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .add_account_note(&state, &auth, &id, body)
+            .add_account_note(&auth, &id, body)
             .await
             .into_response()
     }
@@ -205,11 +205,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .delete_account_note(&state, &auth, &id, &note_id)
+            .delete_account_note(&auth, &id, &note_id)
             .await
             .into_response()
     }
@@ -226,11 +226,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, page.game_id, parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), page.game_id, parsed).await {
             return err.into_response();
         }
         self.service
-            .list_wallet_ledger(&state, &id, page)
+            .list_wallet_ledger(&id, page)
             .await
             .into_response()
     }
@@ -249,14 +249,14 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         let changeset = body.changeset.to_string();
         let metadata = body.metadata.to_string();
         let actor = format!("console:{}", auth.0.uuid().unwrap_or_else(uuid::Uuid::nil));
         let mut claim = match crate::services::idempotency::begin(
-            &state,
+            &*state.plane(),
             &headers,
             "console.wallet.update",
             &actor,
@@ -268,17 +268,21 @@ impl ConsoleAccountController {
             Err(err) => return err.into_response(),
         };
         if let Some(saved) = claim.replayed() {
-            return axum::Json(saved).into_response();
+            return crate::app::middleware::replay_response(saved);
         }
         let ledger_id = claim.operation_uuid().unwrap_or_else(uuid::Uuid::new_v4);
         let result = self
             .service
-            .update_account_wallet(&state, &auth, &id, body, ledger_id)
+            .update_account_wallet(&auth, &id, body, ledger_id)
             .await;
         let stored = result
             .as_ref()
             .ok()
-            .and_then(|json| serde_json::to_value(&json.0).ok());
+            .and_then(|json| {
+                serde_json::to_string(&json.0).ok().map(|raw| {
+                    crate::services::idempotency::Stored { status: 200, raw }
+                })
+            });
         claim.settle(stored).await;
         result.into_response()
     }
@@ -295,11 +299,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .delete_wallet_ledger(&state, &auth, &id, &wallet_id)
+            .delete_wallet_ledger(&auth, &id, &wallet_id)
             .await
             .into_response()
     }

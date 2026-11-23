@@ -18,6 +18,7 @@ pub(crate) struct ControllerOptions {
 pub(crate) struct RouteOptions {
     pub(crate) path: LitStr,
     pub(crate) sse_body: Option<Type>,
+    pub(crate) response_body: Option<Type>,
     pub(crate) docs: Docs,
 }
 
@@ -35,6 +36,7 @@ impl RouteOptions {
         Self {
             path: LitStr::new("", proc_macro2::Span::call_site()),
             sse_body: None,
+            response_body: None,
             docs: Docs::default(),
         }
     }
@@ -86,6 +88,8 @@ impl Parse for RouteOptions {
                     return Err(syn::Error::new_spanned(key, "duplicate `sse` route option"));
                 }
                 options.sse_body = Some(input.parse()?);
+            } else if key == "response_body" {
+                options.response_body = Some(input.parse()?);
             } else {
                 parse_docs_option(&mut options.docs, key, input)?;
             }
@@ -110,7 +114,7 @@ fn parse_docs_option(docs: &mut Docs, key: Ident, input: ParseStream<'_>) -> syn
         }
         _ => Err(syn::Error::new_spanned(
             key,
-            "unsupported route option; expected `sse = Type`, `tag`, `summary`, `description`, `request_description`, or `response_description`",
+            "unsupported route option; expected `sse = Type`, `response_body = Type`, `tag`, `summary`, `description`, `request_description`, or `response_description`",
         )),
     }
 }

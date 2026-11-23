@@ -20,7 +20,7 @@ struct AccountController {
     service: Arc<AccountService>,
 }
 
-#[controller("/v2/account")]
+#[controller("/v1/account")]
 impl AccountController {
     fn new(service: Arc<AccountService>) -> Self {
         Self { service }
@@ -30,7 +30,7 @@ impl AccountController {
     async fn account(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
-            .get_account(&state, &auth)
+            .get_account(&auth)
             .await
             .into_response()
     }
@@ -44,7 +44,7 @@ impl AccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_account(&state, &auth, params, body)
+            .update_account(&auth, params, body)
             .await
             .into_response()
     }
@@ -53,7 +53,7 @@ impl AccountController {
     async fn delete(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
-            .delete_account(&state, &auth)
+            .delete_account(&auth)
             .await
             .into_response()
     }
@@ -62,7 +62,7 @@ impl AccountController {
     async fn export(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
-            .export_account(&state, &auth)
+            .export_account(&auth)
             .await
             .into_response()
     }
@@ -74,11 +74,11 @@ impl AccountController {
         Json(body): JsonBody<EraseRequest>,
     ) -> Response {
         let state = current_state();
-        if let Err(err) = server_key_or_console(&headers, &state) {
+        if let Err(err) = server_key_or_console(&headers, &*state.plane()) {
             return err.into_response();
         }
         self.service
-            .erase(&state, body.user_id)
+            .erase(body.user_id)
             .await
             .into_response()
     }
@@ -86,7 +86,7 @@ impl AccountController {
     #[get("/wallet")]
     async fn wallet(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service.get_wallet(&state, &auth).await.into_response()
+        self.service.get_wallet(&auth).await.into_response()
     }
 
     #[post("/wallet")]
@@ -97,7 +97,7 @@ impl AccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_wallet(&state, &auth, body)
+            .update_wallet(&auth, body)
             .await
             .into_response()
     }
@@ -110,7 +110,7 @@ impl AccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_wallet(&state, &auth, body)
+            .update_wallet(&auth, body)
             .await
             .into_response()
     }

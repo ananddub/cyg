@@ -3,15 +3,20 @@ use crate::db::{Datastore, KvBudget, schema};
 use crate::services::status::StatusService;
 use axum::http::StatusCode;
 
-fn set_phase(state: &ApiState, phase: engine_bus::ServerPhase) {
-    *state.latest_status.lock().unwrap() = Some(engine_bus::StatusSnapshot {
+fn set_phase(
+    status: &std::sync::Arc<std::sync::Mutex<Option<engine_bus::StatusSnapshot>>>,
+    phase: engine_bus::ServerPhase,
+) {
+    *status.lock().unwrap() = Some(engine_bus::StatusSnapshot {
         server_phase: phase,
         ..Default::default()
     });
 }
 
-async fn probe(state: &ApiState) -> (StatusCode, serde_json::Value) {
-    let response = StatusService::new().readyz(state).await;
+async fn probe(plane: &crate::services::plane::Plane) -> (StatusCode, serde_json::Value) {
+    let response = StatusService::new(std::sync::Arc::new(plane.clone()))
+        .readyz()
+        .await;
     let (parts, body) = response.into_parts();
     let bytes = axum::body::to_bytes(body, 1 << 20)
         .await
@@ -25,7 +30,7 @@ async fn probe(state: &ApiState) -> (StatusCode, serde_json::Value) {
 #[tokio::test]
 async fn a_pod_is_ready_once_the_pump_owns_the_status_queue() {
     let state = state();
-    let (status, body) = probe(&state).await;
+    let (status, body) = probe(&state.plane()).await;
     assert_eq!(
         status,
         StatusCode::SERVICE_UNAVAILABLE,
@@ -44,8 +49,8 @@ async fn a_pod_is_ready_once_the_pump_owns_the_status_queue() {
     }
     assert!(state.status_rx.is_taken(), "the pump took the queue");
 
-    set_phase(&state, engine_bus::ServerPhase::Ready);
-    let (status, body) = probe(&state).await;
+    set_phase(&state.latest_status, engine_bus::ServerPhase::Ready);
+    let (status, body) = probe(&state.plane()).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["checks"]["pump"], "running");
     assert_eq!(body["checks"]["lifecycle"], "ready");
@@ -56,7 +61,7 @@ async fn a_pod_is_ready_once_the_pump_owns_the_status_queue() {
 async fn a_migrated_datastore_reports_both_checks_live() {
     let mut state = state();
     state.status_rx.try_take().expect("the pump owns the queue");
-    set_phase(&state, engine_bus::ServerPhase::Ready);
+    set_phase(&state.latest_status, engine_bus::ServerPhase::Ready);
     let db = Arc::new(
         Datastore::open(
             "mem://",
@@ -74,7 +79,7 @@ async fn a_migrated_datastore_reports_both_checks_live() {
     schema::ensure_schema(&db)
         .await
         .expect("the base DDL applies");
-    let (status, body) = probe(&state).await;
+    let (status, body) = probe(&state.plane()).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["checks"]["database"], "live");
     assert_eq!(body["checks"]["schema"], "migrated");
@@ -84,7 +89,7 @@ async fn a_migrated_datastore_reports_both_checks_live() {
 async fn a_store_without_the_schema_applied_is_not_ready() {
     let mut state = state();
     state.status_rx.try_take().expect("the pump owns the queue");
-    set_phase(&state, engine_bus::ServerPhase::Ready);
+    set_phase(&state.latest_status, engine_bus::ServerPhase::Ready);
     let db = Datastore::open(
         "mem://",
         "readyz-bare",
@@ -97,7 +102,7 @@ async fn a_store_without_the_schema_applied_is_not_ready() {
     .expect("the embedded store opens");
     state.db = Some(Arc::new(db));
 
-    let (status, body) = probe(&state).await;
+    let (status, body) = probe(&state.plane()).await;
     assert_eq!(
         status,
         StatusCode::SERVICE_UNAVAILABLE,
@@ -108,16 +113,16 @@ async fn a_store_without_the_schema_applied_is_not_ready() {
 
 #[tokio::test]
 async fn a_draining_or_booting_server_is_not_ready_even_when_the_store_is_live() {
-    let mut state = state();
+    let state = state();
     state.status_rx.try_take().expect("the pump owns the queue");
 
-    set_phase(&state, engine_bus::ServerPhase::Booting);
-    let (status, body) = probe(&state).await;
+    set_phase(&state.latest_status, engine_bus::ServerPhase::Booting);
+    let (status, body) = probe(&state.plane()).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     assert_eq!(body["checks"]["lifecycle"], "booting");
 
-    set_phase(&state, engine_bus::ServerPhase::Draining);
-    let (status, body) = probe(&state).await;
+    set_phase(&state.latest_status, engine_bus::ServerPhase::Draining);
+    let (status, body) = probe(&state.plane()).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     assert_eq!(body["checks"]["lifecycle"], "draining");
 }

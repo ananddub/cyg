@@ -14,7 +14,7 @@ struct SessionController {
     service: Arc<SessionService>,
 }
 
-#[controller("/v2")]
+#[controller("/v1")]
 impl SessionController {
     fn new(service: Arc<SessionService>) -> Self {
         Self { service }
@@ -24,7 +24,7 @@ impl SessionController {
     async fn refresh(&self, headers: HeaderMap, Body(req): Body<RefreshRequest>) -> Response {
         let state = current_state();
         self.service
-            .refresh(&state, &headers, req)
+            .refresh(&headers, req)
             .await
             .into_response()
     }
@@ -33,7 +33,7 @@ impl SessionController {
     async fn logout(&self, headers: HeaderMap, Body(req): Body<LogoutRequest>) -> Response {
         let state = current_state();
         self.service
-            .logout(&state, &headers, req)
+            .logout(&headers, req)
             .await
             .into_response()
     }

@@ -64,10 +64,7 @@ pub(crate) fn emit_ts(
     );
     out.push_str("// Regenerate: ox-game schema-codegen . --lang ts\n");
     out.push_str("// </auto-generated>\n");
-    let _ = writeln!(
-        out,
-        "import type {{ Room, SchemaMap }} from \"cyg\";\n"
-    );
+    let _ = writeln!(out, "import type {{ Room, SchemaMap }} from \"cyg\";\n");
 
     out.push_str("export interface CygSchemaFieldDef {\n    name: string;\n    kind: string;\n    code: number;\n    flags: number;\n    element: string;\n    size: number;\n}\n\n");
     out.push_str("export interface CygSchemaTableDef {\n    name: string;\n    version: number;\n    hash: number;\n    fields: readonly CygSchemaFieldDef[];\n}\n");
@@ -107,10 +104,7 @@ pub(crate) fn emit_ts(
     if let Some(root) = root {
         out.push('\n');
         out.push_str("/** Typed root state exposed as `room.state`. */\n");
-        out.push_str(&format!(
-            "export interface {}State {{\n",
-            root.name
-        ));
+        out.push_str(&format!("export interface {}State {{\n", root.name));
         for field in &root.scalars {
             let _ = writeln!(
                 out,
@@ -147,9 +141,7 @@ pub(crate) fn emit_ts(
         ));
         out.push_str(&ts_field_table(&root.scalars, "        "));
         out.push_str("    ],\n} as const;\n");
-        out.push_str(&format!(
-            "\nexport const rootCollections = [\n"
-        ));
+        out.push_str(&format!("\nexport const rootCollections = [\n"));
         for collection in &root.collections {
             let _ = writeln!(
                 out,
@@ -161,7 +153,9 @@ pub(crate) fn emit_ts(
         out.push_str("] as const;\n");
     }
 
-    out.push_str("\n/** Every schema table keyed by name — hand to `CYG.useSchema()` at runtime. */\n");
+    out.push_str(
+        "\n/** Every schema table keyed by name — hand to `CYG.useSchema()` at runtime. */\n",
+    );
     out.push_str("export const schemas = {\n");
     for schema in schemas {
         let _ = writeln!(out, "    {0}: {0}Schema,", schema.name);

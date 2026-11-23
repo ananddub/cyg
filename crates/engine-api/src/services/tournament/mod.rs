@@ -1,4 +1,6 @@
+use crate::services::plane::Plane;
 use auto_di::singleton;
+use std::sync::Arc;
 
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
@@ -14,12 +16,14 @@ pub mod records;
 mod submit;
 pub mod write;
 
-pub struct TournamentService;
+pub struct TournamentService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 #[singleton]
 impl TournamentService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 

@@ -17,7 +17,7 @@ pub async fn console_login_as(
     }
     let reply = json_body(
         env.client
-            .post(format!("{}/v2/console/authenticate", env.base))
+            .post(format!("{}/v1/console/authenticate", env.base))
             .json(&body)
             .send()
             .await

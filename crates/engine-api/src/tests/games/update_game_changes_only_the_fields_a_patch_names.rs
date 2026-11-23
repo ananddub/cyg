@@ -12,13 +12,15 @@ pub(crate) async fn update_game_changes_only_the_fields_a_patch_names() {
         config: Some(json!({"tick_rate": 20})),
         ..Default::default()
     };
-    let game = GamesService::create_game(&state, &body)
+    let game = GamesService::new(state.plane())
+        .create_game(&body)
         .await
         .expect("a game with an explicit engine and config registers");
 
     let renamed: UpdateGameRequest = serde_json::from_value(json!({"name": "Renamed Arena"}))
         .expect("a name-only patch deserializes");
-    let patched = GamesService::update_game(&state, game.id, &renamed, None)
+    let patched = GamesService::new(state.plane())
+        .update_game(game.id, &renamed, None)
         .await
         .expect("a patch that names one field is applied");
 
@@ -41,13 +43,15 @@ pub(crate) async fn update_game_changes_only_the_fields_a_patch_names() {
     let patched: UpdateGameRequest =
         serde_json::from_value(json!({"status": "suspended", "config": {"tick_rate": 64}}))
             .expect("a status-plus-config patch deserializes");
-    let patched = GamesService::update_game(&state, game.id, &patched, None)
+    let patched = GamesService::new(state.plane())
+        .update_game(game.id, &patched, None)
         .await
         .expect("the second patch is applied");
     assert_eq!(patched.status, "suspended");
     assert_eq!(patched.config["tick_rate"], json!(64));
 
-    let err = GamesService::update_game(&state, Uuid::new_v4(), &renamed, None)
+    let err = GamesService::new(state.plane())
+        .update_game(Uuid::new_v4(), &renamed, None)
         .await
         .expect_err("a patch to no game is not a write");
     assert_eq!(err.kind, NOT_FOUND, "{err:?}");
@@ -61,12 +65,14 @@ pub(crate) async fn archive_game_is_a_soft_delete_that_keeps_the_row_and_its_key
     };
 
     let game = db::create(&state, "archive").await;
-    let archived = GamesService::archive_game(&state, game.id)
+    let archived = GamesService::new(state.plane())
+        .archive_game(game.id)
         .await
         .expect("retiring a game is a service call, not a delete statement");
     assert!(archived, "and it reports that it archived something");
 
-    let row = GamesService::find_game(&state, game.id)
+    let row = GamesService::new(state.plane())
+        .find_game(game.id)
         .await
         .expect("the row is still there, which is the whole point of a soft delete");
     assert_eq!(row.status, "archived");
@@ -75,24 +81,28 @@ pub(crate) async fn archive_game_is_a_soft_delete_that_keeps_the_row_and_its_key
         "a retired tenant keeps its identity"
     );
 
-    let list = GamesService::list_games(&state)
+    let list = GamesService::new(state.plane())
+        .list_games()
         .await
         .expect("the listing reads");
     assert!(
         list.games.iter().any(|row| row.id == game.id),
         "an archived game stays in the listing"
     );
-    let detail = GamesService::get_game(&state, game.id)
+    let detail = GamesService::new(state.plane())
+        .get_game(game.id)
         .await
         .expect("the archived game is still readable in full");
     assert!(detail.api_key.starts_with(API_KEY_PREFIX));
 
     assert!(
-        GamesService::archive_game(&state, game.id)
+        GamesService::new(state.plane())
+            .archive_game(game.id)
             .await
             .expect("idempotent")
     );
-    let err = GamesService::archive_game(&state, Uuid::new_v4())
+    let err = GamesService::new(state.plane())
+        .archive_game(Uuid::new_v4())
         .await
         .expect_err("retiring no game is not a success");
     assert_eq!(err.kind, NOT_FOUND, "{err:?}");
@@ -106,35 +116,40 @@ pub(crate) async fn verify_api_key_authenticates_the_pair_and_refuses_probing() 
     };
 
     let game = db::create(&state, "secret").await;
-    let detail = GamesService::get_game(&state, game.id)
+    let detail = GamesService::new(state.plane())
+        .get_game(game.id)
         .await
         .expect("the secret is read from the detail view");
 
     assert!(
-        GamesService::verify_api_key(&state, &detail.game_key, &detail.api_key)
+        GamesService::new(state.plane())
+            .verify_api_key(&detail.game_key, &detail.api_key)
             .await
             .expect("the pair the console just printed authenticates")
     );
-    let wrong_secret = GamesService::verify_api_key(&state, &detail.game_key, "cyg_sec_wrong")
+    let wrong_secret = GamesService::new(state.plane())
+        .verify_api_key(&detail.game_key, "cyg_sec_wrong")
         .await
         .expect("a wrong secret is an authentication answer, not an error");
     assert!(!wrong_secret);
-    let unknown_key =
-        GamesService::verify_api_key(&state, "gm_no_such_game_000000", &detail.api_key)
-            .await
-            .expect("an unknown tenant key is the same kind of answer");
+    let unknown_key = GamesService::new(state.plane())
+        .verify_api_key("gm_no_such_game_000000", &detail.api_key)
+        .await
+        .expect("an unknown tenant key is the same kind of answer");
     assert!(
         !unknown_key,
         "an unknown key and a wrong secret must not be distinguishable"
     );
 
-    let row = GamesService::find_game_by_key(&state, &detail.game_key)
+    let row = GamesService::new(state.plane())
+        .find_game_by_key(&detail.game_key)
         .await
         .expect("a lookup by tenant key reads")
         .expect("and finds the game that key was minted for");
     assert_eq!(row.id, game.id);
     assert!(
-        GamesService::find_game_by_key(&state, "gm_never_minted_000000")
+        GamesService::new(state.plane())
+            .find_game_by_key("gm_never_minted_000000")
             .await
             .expect("an unknown key is a `None`, not an error")
             .is_none()

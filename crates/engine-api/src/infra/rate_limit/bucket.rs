@@ -57,11 +57,7 @@ impl<K: Eq + Hash + Clone> Store<K> {
         Store::with_ceiling(refill_per_sec, burst, MAX_BUCKETS)
     }
 
-    pub(super) fn with_ceiling(
-        refill_per_sec: f64,
-        burst: f64,
-        max_buckets: usize,
-    ) -> Store<K> {
+    pub(super) fn with_ceiling(refill_per_sec: f64, burst: f64, max_buckets: usize) -> Store<K> {
         Store {
             refill_per_sec: if refill_per_sec > 0.0 {
                 refill_per_sec.max(f64::EPSILON)
@@ -142,6 +138,13 @@ impl IpRateLimiter {
     }
 
     pub fn with_rates(refill_per_sec: f64, burst: f64) -> IpRateLimiter {
+        IpRateLimiter::with_limits(refill_per_sec, burst, AUTH_BURST)
+    }
+
+    /// The general plane window plus the password-route burst, which the
+    /// operator can raise (integration suites authenticate many players from one
+    /// address) without loosening the per-request path for anyone else.
+    pub fn with_limits(refill_per_sec: f64, burst: f64, auth_burst: f64) -> IpRateLimiter {
         IpRateLimiter {
             ips: std::array::from_fn(|_| {
                 Mutex::new(Store::with_ceiling(
@@ -154,7 +157,7 @@ impl IpRateLimiter {
             auth: std::array::from_fn(|_| {
                 Mutex::new(Store::with_ceiling(
                     AUTH_REFILL_PER_SEC,
-                    AUTH_BURST,
+                    auth_burst,
                     MAX_BUCKETS_PER_SHARD,
                 ))
             }),
@@ -177,9 +180,6 @@ impl IpRateLimiter {
     /// sum of the two stays equal.
     #[cfg(test)]
     pub(super) fn order_len(&self) -> usize {
-        self.ips
-            .iter()
-            .map(|shard| lock(shard).order.len())
-            .sum()
+        self.ips.iter().map(|shard| lock(shard).order.len()).sum()
     }
 }

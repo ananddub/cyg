@@ -16,7 +16,7 @@ async fn counters_track_the_registries_they_report() {
     }
     let _replies = s.signals.attach("seat-1").expect("fresh route attaches");
 
-    let body = json_of(status(&s.clone()).await).await;
+    let body = json_of(status(&s.plane()).await).await;
     assert_eq!(body["seats"]["minted"].as_u64(), Some(1));
     assert_eq!(body["seats"]["outstanding"].as_u64(), Some(1));
     assert_eq!(body["seats"]["rejected"].as_u64(), Some(1));

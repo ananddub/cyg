@@ -110,7 +110,7 @@ ownership row per status beat over the bus and the control plane writes it to
   `409 room '<name>' is running on node '<id>'; attach there`. `reconnect` and
   `rejoin` are exempt: the seat ticket is HMAC'd with the shared
   `CYG_SEAT_SECRET`, so it is portable and the player lands on the owning node.
-- `GET /v2/console/room` (console auth) lists every row with a `stale` flag for
+- `GET /v1/console/room` (console auth) lists every row with a `stale` flag for
   a lease that has lapsed, which is how you tell a dead host from a quiet one.
 
 ## 7. Verify

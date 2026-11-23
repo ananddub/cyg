@@ -22,7 +22,7 @@ pub struct Game {
 pub async fn create_game(env: &Harness, console: &str, name: &str, engine: &str) -> Game {
     let created = json_body(
         env.client
-            .post(format!("{}/v2/console/games", env.base))
+            .post(format!("{}/v1/console/games", env.base))
             .bearer_auth(console)
             .json(&json!({ "name": name, "engine_type": engine }))
             .send()
@@ -50,7 +50,7 @@ pub async fn upload_module(
 ) -> Value {
     json_body(
         env.client
-            .post(format!("{}/v2/console/games/{game}/wasm{path}", env.base))
+            .post(format!("{}/v1/console/games/{game}/wasm{path}", env.base))
             .bearer_auth(token)
             .multipart(body)
             .send()
@@ -78,7 +78,7 @@ pub async fn console_login_as(
     }
     let reply = json_body(
         env.client
-            .post(format!("{}/v2/console/authenticate", env.base))
+            .post(format!("{}/v1/console/authenticate", env.base))
             .json(&body)
             .send()
             .await
@@ -92,7 +92,7 @@ pub async fn console_login_as(
 pub async fn put_object(env: &Harness, token: &str, collection: &str, key: &str, value: Value) {
     json_body(
         env.client
-            .put(format!("{}/v2/storage", env.base))
+            .put(format!("{}/v1/storage", env.base))
             .bearer_auth(token)
             .json(&json!({
                 "objects": [{
@@ -105,7 +105,7 @@ pub async fn put_object(env: &Harness, token: &str, collection: &str, key: &str,
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/storage",
+        "PUT /v1/storage",
     )
     .await;
 }

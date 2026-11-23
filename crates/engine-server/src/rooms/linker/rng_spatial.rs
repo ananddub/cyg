@@ -34,9 +34,7 @@ pub(crate) fn register(
             .func_wrap(
                 ns,
                 "sys_clock_ms",
-                move |caller: wasmtime::Caller<'_, RoomHostData>| -> f64 {
-                    caller.data().clock_ms
-                },
+                move |caller: wasmtime::Caller<'_, RoomHostData>| -> f64 { caller.data().clock_ms },
             )
             .expect("link sys_clock_ms");
 

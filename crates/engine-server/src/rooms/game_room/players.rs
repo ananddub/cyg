@@ -144,7 +144,7 @@ impl GameRoom {
             self.seqs.remove(&id);
             self.entries.remove(&id);
             self.view_masks.remove(&id);
-        self.view_dirty.remove(&id);
+            self.view_dirty.remove(&id);
         }
         self.schema_sent.remove(session);
         self.spectators.insert(std::rc::Rc::from(session));

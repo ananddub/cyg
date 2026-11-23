@@ -1176,17 +1176,9 @@ fn run(dir: &Path) -> std::io::Result<()> {
     plane_cfg.wasm_path = wasm_path.clone();
     if plane_cfg.enabled {
         let udp_addr = plane_cfg.udp_addr.clone();
-        match engine_server::plane::spawn_sim_plane(
-            bus.clone(),
-            plane_cfg,
-            manager.stop_flag(),
-        ) {
+        match engine_server::plane::spawn_sim_plane(bus.clone(), plane_cfg, manager.stop_flag()) {
             Ok(handle) => {
-                manager.adopt_thread(
-                    engine_manager::ThreadRole::SimPlane,
-                    "cyg-sim",
-                    handle,
-                );
+                manager.adopt_thread(engine_manager::ThreadRole::SimPlane, "cyg-sim", handle);
                 tracing::info!("[main] 🧵 sim plane spawned (CYG_PLANES=1, udp {udp_addr})");
             }
             Err(e) => tracing::error!("[main] ✖ sim plane spawn failed: {e}"),
@@ -1198,7 +1190,13 @@ fn run(dir: &Path) -> std::io::Result<()> {
     // port clash is reported here rather than swallowing the game loop.
     // Held for the whole run — dropping it closes every HTTP and socket.
     let _control = if cfg.control.enabled {
-        match engine_control::spawn(&project_dir, &cfg, &cfg.control, bus.clone(), manager.clone()) {
+        match engine_control::spawn(
+            &project_dir,
+            &cfg,
+            &cfg.control,
+            bus.clone(),
+            manager.clone(),
+        ) {
             Ok(plane) => {
                 tracing::info!(
                     "[main] 🏛️  control plane on http://{}:{} (matchmake, /ws/signal, /status, statics)",

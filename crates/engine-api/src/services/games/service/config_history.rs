@@ -8,9 +8,6 @@ use crate::dto::console::config_history::ConfigVersionRow;
 use crate::repositories::config_history::game_config_version_id;
 use crate::repositories::console_mutations::InsertAuditLogParams;
 use crate::repositories::models::GameConfigVersion;
-use crate::services::deps::q;
-
-use super::*;
 
 fn config_sha(config: &Value) -> String {
     hex::encode(Sha256::digest(config.to_string().as_bytes()))
@@ -21,7 +18,8 @@ impl GamesService {
     /// failure is logged and never fails the update that produced it, and a
     /// body whose hash matches the newest stored version records nothing.
     pub async fn record_config_versions(
-        state: &ApiState,
+        &self,
+
         game_id: Uuid,
         previous: &Value,
         current: &Value,
@@ -30,7 +28,7 @@ impl GamesService {
         if config_sha(previous) == config_sha(current) {
             return;
         }
-        let Ok(queries) = q(state).await else {
+        let Ok(queries) = self.plane.q().await else {
             return;
         };
         let now = Utc::now();
@@ -73,21 +71,20 @@ impl GamesService {
         }
     }
 
-    pub async fn config_history(
-        state: &ApiState,
-        game_id: Uuid,
-    ) -> Result<Vec<ConfigVersionRow>, V2Error> {
-        Self::find_game(state, game_id).await?;
-        let rows = q(state).await?.list_config_versions(game_id).await?;
+    pub async fn config_history(&self, game_id: Uuid) -> Result<Vec<ConfigVersionRow>, V2Error> {
+        Self::find_game(self, game_id).await?;
+        let rows = self.plane.q().await?.list_config_versions(game_id).await?;
         Ok(rows.iter().map(|row| row.to_list_row()).collect())
     }
 
     pub async fn config_version(
-        state: &ApiState,
+        &self,
+
         game_id: Uuid,
         version: i64,
     ) -> Result<ConfigVersionRow, V2Error> {
-        q(state)
+        self.plane
+            .q()
             .await?
             .get_config_version(game_id, version)
             .await?
@@ -98,17 +95,18 @@ impl GamesService {
     /// Rollback appends a new version carrying the old body — history is
     /// never rewritten — and swaps the live `games.config` in the same pass.
     pub async fn rollback_config(
-        state: &ApiState,
+        &self,
+
         game_id: Uuid,
         version: i64,
         operator: Option<(Uuid, String, String)>,
     ) -> Result<ConfigVersionRow, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let target = queries
             .get_config_version(game_id, version)
             .await?
             .ok_or_else(|| V2Error::not_found(format!("Config version {version} not found.")))?;
-        let current = Self::find_game(state, game_id).await?;
+        let current = Self::find_game(self, game_id).await?;
 
         let latest = queries.latest_config_version(game_id).await?;
         let new_version = latest + 1;

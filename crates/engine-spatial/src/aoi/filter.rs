@@ -52,7 +52,15 @@ pub fn filter_for_viewer_indexed(
     }
 
     emit_filtered(
-        entities, bullet_count, bullets_range, delta, viewer_id, &visible, aoi, viewer_pos, out,
+        entities,
+        bullet_count,
+        bullets_range,
+        delta,
+        viewer_id,
+        &visible,
+        aoi,
+        viewer_pos,
+        out,
     );
 }
 

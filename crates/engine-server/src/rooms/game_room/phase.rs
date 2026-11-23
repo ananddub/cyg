@@ -30,7 +30,10 @@ impl GameRoom {
             return false;
         }
         if !self.lifecycle.phase.allows(next) {
-            tracing::warn!("[server] room refused {:?} -> {next:?}", self.lifecycle.phase);
+            tracing::warn!(
+                "[server] room refused {:?} -> {next:?}",
+                self.lifecycle.phase
+            );
             return false;
         }
         self.lifecycle.phase = next;

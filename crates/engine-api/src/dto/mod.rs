@@ -1,3 +1,4 @@
+pub mod common;
 use serde::Serialize;
 
 pub mod account;
@@ -30,7 +31,7 @@ pub mod tournament;
 pub mod user;
 pub mod webhook;
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, poem_openapi::Object)]
 pub struct Empty {}
 
 #[cfg(test)]

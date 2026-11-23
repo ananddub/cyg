@@ -5,14 +5,12 @@ mod write;
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::console::Page;
 use crate::dto::console::user::ConsoleUserView;
 use crate::error::V2Error;
 use crate::infra::console::ConsoleRole;
 use crate::repositories::db::Queries;
-use crate::services::deps::q;
 
 pub(super) use super::{ConsoleService, audit, id, never};
 
@@ -21,10 +19,12 @@ const MIN_PASSWORD_LEN: usize = 12;
 impl super::ConsoleService {
     pub async fn list_console_users(
         &self,
-        state: &ApiState,
+
         page: Page,
     ) -> Result<Json<Vec<ConsoleUserView>>, V2Error> {
-        let rows = q(state)
+        let rows = self
+            .plane
+            .q()
             .await?
             .list_console_users(page.limit(), page.offset())
             .await?;

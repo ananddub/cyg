@@ -15,7 +15,7 @@ struct ConsoleStorageController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/storage")]
+#[controller("/v1/console/storage")]
 impl ConsoleStorageController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -25,7 +25,7 @@ impl ConsoleStorageController {
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
         self.service
-            .list_storage(&state, page)
+            .list_storage(page)
             .await
             .into_response()
     }
@@ -38,7 +38,7 @@ impl ConsoleStorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_storage_collections(&state, scope.id())
+            .list_storage_collections(scope.id())
             .await
             .into_response()
     }
@@ -52,7 +52,7 @@ impl ConsoleStorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_storage_in_collection(&state, scope.id(), &collection)
+            .list_storage_in_collection(scope.id(), &collection)
             .await
             .into_response()
     }
@@ -69,11 +69,11 @@ impl ConsoleStorageController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), owner).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), owner).await {
             return err.into_response();
         }
         self.service
-            .delete_storage_object(&state, &auth, &collection, &key, &user_id)
+            .delete_storage_object(&auth, &collection, &key, &user_id)
             .await
             .into_response()
     }
@@ -87,7 +87,7 @@ impl ConsoleStorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .delete_storage_collection(&state, &auth, scope.id(), &collection)
+            .delete_storage_collection(&auth, scope.id(), &collection)
             .await
             .into_response()
     }

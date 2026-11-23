@@ -1,6 +1,6 @@
 use super::*;
 
-/// The served spec must describe the whole registered v2 surface: for every
+/// The served spec must describe the whole registered `/v1` surface: for every
 /// pinned route, a spec path whose static segments match and whose parameter
 /// segments stand in for the fixture ids the pin uses, carrying the method.
 #[test]
@@ -11,7 +11,7 @@ pub fn spec_covers_pinned_routes() {
 
     let mut missing = Vec::new();
     for (method, pinned) in pinned_routes() {
-        if !pinned.starts_with("/v2/") {
+        if !pinned.starts_with("/v1/") {
             continue;
         }
         let pin_segments: Vec<&str> = pinned.trim_matches('/').split('/').collect();

@@ -34,7 +34,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     }
     seed_board_opts(pool, &tournament_id, 1, false, true, 0, 0, true).await;
 
-    let url = |id: &str| format!("{base}/v2/leaderboard/{id}");
+    let url = |id: &str| format!("{base}/v1/leaderboard/{id}");
 
     refusal(
         client
@@ -199,7 +199,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     let around = api_get(
         client,
         with_query(
-            &format!("{base}/v2/leaderboard/{desc_id}/owner/{}", alice.uid),
+            &format!("{base}/v1/leaderboard/{desc_id}/owner/{}", alice.uid),
             &[("limit", "3")],
         ),
         &alice.token,
@@ -217,7 +217,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     let trimmed = api_get(
         client,
         with_query(
-            &format!("{base}/v2/leaderboard/{desc_id}/owner/{}", bob.uid),
+            &format!("{base}/v1/leaderboard/{desc_id}/owner/{}", bob.uid),
             &[("limit", "1")],
         ),
         &bob.token,
@@ -232,7 +232,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     let cursor_page = api_get(
         client,
         with_query(
-            &format!("{base}/v2/leaderboard/{desc_id}/owner/{}", alice.uid),
+            &format!("{base}/v1/leaderboard/{desc_id}/owner/{}", alice.uid),
             &[("limit", "2"), ("cursor", &cursor)],
         ),
         &alice.token,
@@ -243,7 +243,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     assert_eq!(cursor_page["records"].as_array().expect("records").len(), 1);
     let no_record = api_get(
         client,
-        format!("{base}/v2/leaderboard/{desc_id}/owner/{}", Uuid::new_v4()),
+        format!("{base}/v1/leaderboard/{desc_id}/owner/{}", Uuid::new_v4()),
         &alice.token,
         "a haystack for a player with no record",
     )
@@ -260,7 +260,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
         refusal(
             client
                 .get(with_query(
-                    &format!("{base}/v2/leaderboard/{desc_id}/owner/{}", alice.uid),
+                    &format!("{base}/v1/leaderboard/{desc_id}/owner/{}", alice.uid),
                     &pairs,
                 ))
                 .bearer_auth(&alice.token)
@@ -274,7 +274,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     }
     refusal(
         client
-            .get(format!("{base}/v2/leaderboard/{desc_id}/owner/not-a-uuid"))
+            .get(format!("{base}/v1/leaderboard/{desc_id}/owner/not-a-uuid"))
             .bearer_auth(&alice.token)
             .send()
             .await

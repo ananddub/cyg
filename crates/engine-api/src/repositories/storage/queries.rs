@@ -423,9 +423,11 @@ fn index_query(
 
     let collection = bind(&def.collection, params);
     let owner = bind(&caller.to_string(), params);
-    let mut filters = format!(
-        "collection = {collection} AND (read = 2 OR (read = 1 AND user_id = <uuid>{owner}))"
-    );
+    // `user_id` is stored as text, so the owner is compared as text too. A uuid
+    // cast here compares a string column against a uuid value, which is never
+    // equal: every owner-only object would vanish from its own index.
+    let mut filters =
+        format!("collection = {collection} AND (read = 2 OR (read = 1 AND user_id = {owner}))");
     if !def.key.is_empty() {
         let key = bind(&def.key, params);
         filters.push_str(&format!(" AND `key` = {key}"));
@@ -508,10 +510,7 @@ fn term_sql(term: &StorageIndexTerm, params: &mut BTreeMap<String, Value>, sql: 
             sql.push_str(&format!("type::{guard}(`value`[{access}])"));
             for (bound, lower_side) in bounds {
                 let value = if numeric {
-                    bind(
-                        &bound.number.as_deref().and_then(parse_number),
-                        params,
-                    )
+                    bind(&bound.number.as_deref().and_then(parse_number), params)
                 } else {
                     bind(&bound.text, params)
                 };

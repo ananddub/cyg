@@ -1,7 +1,8 @@
+use crate::services::plane::Plane;
+
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::error::V2Error;
 use crate::repositories::models::PlayerQuota;
 use crate::repositories::quota::quota_id;
@@ -17,12 +18,12 @@ const ATTEMPTS: u32 = 3;
 /// Spends `amount` of one account's window in `scope`. With the quotas off
 /// nothing is charged, so an opted-out plane behaves exactly as it did before
 /// this existed.
-pub async fn charge(state: &ApiState, uid: Uuid, scope: &str, amount: u32) -> Result<(), V2Error> {
-    let quotas = &state.control.quotas;
+pub async fn charge(plane: &Plane, uid: Uuid, scope: &str, amount: u32) -> Result<(), V2Error> {
+    let quotas = &plane.control.quotas;
     if !quotas.enabled {
         return Ok(());
     }
-    let queries = crate::services::deps::q(state).await?;
+    let queries = plane.q().await?;
     let window = quotas.window(scope);
     if window.cap == 0 {
         return Ok(());

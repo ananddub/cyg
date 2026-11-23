@@ -21,10 +21,8 @@ pub struct ControlPlane {
 impl ControlPlane {
     pub fn shutdown(self) {
         self.runtime.shutdown_timeout(Duration::from_secs(2));
-        self.manager.mark_thread(
-            "cyg-control",
-            engine_manager::ThreadState::Stopped,
-        );
+        self.manager
+            .mark_thread("cyg-control", engine_manager::ThreadState::Stopped);
     }
 
     pub fn signals(&self) -> engine_api::infra::signaling::SignalHub {

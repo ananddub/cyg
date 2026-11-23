@@ -110,12 +110,12 @@
 
     <h3>Steps</h3>
     <ol>
-      <li><b>Login</b> → <code>POST /v2/account/authenticate/device</code> → token.</li>
+      <li><b>Login</b> → <code>POST /v1/account/authenticate/device</code> → token.</li>
       <li><b>Matchmaking</b> → <code>POST /matchmake/joinOrCreate/tank-3d</code> with <code>{ name, skin }</code>.</li>
       <li><b>Seat JSON</b> → <code>sessionId</code>, <code>reconnectionToken</code>, <code>gamePort</code>, <code>iceServers</code>.</li>
       <li><b>Connect</b> → <code>wss://host/ws/signal?seat=token</code> (WebRTC) ya WebSocket fallback.</li>
       <li><b>Room</b> → <code>onJoin</code>, schema, state snapshot, input + state delta.</li>
-      <li><b>Match end</b> → room/host <code>POST /v2/events</code> ya <code>POST /v2/match/{id}/result</code> server-key se.</li>
+      <li><b>Match end</b> → room/host <code>POST /v1/events</code> ya <code>POST /v1/match/{id}/result</code> server-key se.</li>
     </ol>
 
     <pre><code>const room = await client.joinOrCreate("tank-3d", {
@@ -145,13 +145,13 @@ room.sendInput({ moveX: 1, jump: false });</code></pre>
     <div class="scroll"><img src="quest.svg" alt="Quest flow" /></div>
 
     <h3>Flow</h3>
-    <pre><code>operator → POST /v2/console/quests     (definition)
-server   → POST /v2/events             (counter +1)
-client   → GET  /v2/quest              (list + progress)
-client   → POST /v2/quest/claim        (reward)</code></pre>
+    <pre><code>operator → POST /v1/console/quests     (definition)
+server   → POST /v1/events             (counter +1)
+client   → GET  /v1/quest              (list + progress)
+client   → POST /v1/quest/claim        (reward)</code></pre>
 
     <h3>Definition (operator)</h3>
-    <pre><code>POST /v2/console/quests
+    <pre><code>POST /v1/console/quests
 {
   "quest_key": "win-3",
   "title": "Win 3 matches",
@@ -165,7 +165,7 @@ client   → POST /v2/quest/claim        (reward)</code></pre>
     <p><code>goal_kind</code> = counter ka naam. Event ka <code>name</code> isi se match karna chahiye.</p>
 
     <h3>Progress (game server)</h3>
-    <pre><code>POST /v2/events
+    <pre><code>POST /v1/events
 Authorization: Basic base64("&lt;server-key&gt;:")
 
 { "events": [
@@ -176,7 +176,7 @@ Authorization: Basic base64("&lt;server-key&gt;:")
     <div class="tip"><b>Room mirrored events:</b> sirf config me listed events +1 dete hain:<br><code>[gameplay] record_events = ["kill", "win", "match_end"]</code></div>
 
     <h3>List + progress</h3>
-    <pre><code>GET /v2/quest
+    <pre><code>GET /v1/quest
 
 { "quests": [{
   "quest_key": "win-3",
@@ -188,7 +188,7 @@ Authorization: Basic base64("&lt;server-key&gt;:")
 }]}</code></pre>
 
     <h3>Claim</h3>
-    <pre><code>POST /v2/quest/claim
+    <pre><code>POST /v1/quest/claim
 { "quest_key": "win-3" }</code></pre>
     <p>Server pehle quest row flip karta hai, phir reward deta hai — isliye double claim refuse hota hai.</p>
 
@@ -202,7 +202,7 @@ Authorization: Basic base64("&lt;server-key&gt;:")
     <p>Tournament = time-window wala leaderboard. Bracket/knockout system nahi hai.</p>
 
     <h3>Operator create</h3>
-    <pre><code>POST /v2/console/tournament
+    <pre><code>POST /v1/console/tournament
 {
   "id": "weekend-cup",
   "title": "Weekend Cup",
@@ -227,12 +227,12 @@ Authorization: Basic base64("&lt;server-key&gt;:")
     </table>
 
     <h3>Client flow</h3>
-    <pre><code>GET  /v2/tournament                     → tournaments[] + cursor
-POST /v2/tournament/weekend-cup/join    → eligibility check
-POST /v2/tournament/weekend-cup         → { score, subscore, operator }
-GET  /v2/tournament/weekend-cup         → records[] sorted
-GET  /v2/tournament/weekend-cup/owner/&lt;uid&gt;
-DELETE /v2/tournament/weekend-cup       → apna record</code></pre>
+    <pre><code>GET  /v1/tournament                     → tournaments[] + cursor
+POST /v1/tournament/weekend-cup/join    → eligibility check
+POST /v1/tournament/weekend-cup         → { score, subscore, operator }
+GET  /v1/tournament/weekend-cup         → records[] sorted
+GET  /v1/tournament/weekend-cup/owner/&lt;uid&gt;
+DELETE /v1/tournament/weekend-cup       → apna record</code></pre>
 
     <h3>Operators</h3>
     <table>
@@ -273,7 +273,7 @@ DELETE /v2/tournament/weekend-cup       → apna record</code></pre>
       <tr>
         <td>Game server</td>
         <td><code>Basic base64("&lt;server-key&gt;:")</code></td>
-        <td><code>POST /v2/events</code>, authoritative results, authoritative board writes</td>
+        <td><code>POST /v1/events</code>, authoritative results, authoritative board writes</td>
       </tr>
       <tr>
         <td>Console operator</td>
@@ -286,12 +286,12 @@ DELETE /v2/tournament/weekend-cup       → apna record</code></pre>
     <table>
       <tr><th>Kya list karna</th><th>Endpoint</th></tr>
       <tr><td>Live rooms</td><td><code>GET /api/rooms</code></td></tr>
-      <tr><td>Realtime match sessions</td><td><code>GET /v2/match</code></td></tr>
-      <tr><td>Quests + progress</td><td><code>GET /v2/quest</code></td></tr>
-      <tr><td>Tournaments</td><td><code>GET /v2/tournament</code></td></tr>
-      <tr><td>Tournament leaderboard</td><td><code>GET /v2/tournament/{id}</code></td></tr>
-      <tr><td>Apne aas-paas standing</td><td><code>GET /v2/tournament/{id}/owner/{uid}</code></td></tr>
-      <tr><td>Match history</td><td><code>GET /v2/match/{id}/history</code></td></tr>
+      <tr><td>Realtime match sessions</td><td><code>GET /v1/match</code></td></tr>
+      <tr><td>Quests + progress</td><td><code>GET /v1/quest</code></td></tr>
+      <tr><td>Tournaments</td><td><code>GET /v1/tournament</code></td></tr>
+      <tr><td>Tournament leaderboard</td><td><code>GET /v1/tournament/{id}</code></td></tr>
+      <tr><td>Apne aas-paas standing</td><td><code>GET /v1/tournament/{id}/owner/{uid}</code></td></tr>
+      <tr><td>Match history</td><td><code>GET /v1/match/{id}/history</code></td></tr>
     </table>
   </section>
 </main>

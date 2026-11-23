@@ -3,7 +3,6 @@ use chrono::Utc;
 use engine_config::Rotation;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::{Authed, ConsoleAuthed};
 use crate::dto::notify::{
     AttemptResponse, PreferenceListResponse, PreferenceRequest, PreferenceResponse, TestRequest,
@@ -14,7 +13,6 @@ use crate::infra::notify::{CHANNEL_EMAIL, CHANNEL_PUSH, KIND_ALL, Registry, chan
 use crate::repositories::models::NotificationPreference;
 use crate::repositories::notify::preference_id;
 use crate::services::console::{audit, id};
-use crate::services::deps::q;
 use crate::services::quest::catalog::definition_key;
 
 use super::NotifyService;
@@ -61,12 +59,8 @@ pub(crate) fn preference_row(
 impl NotifyService {
     /// What this account has spoken about. A kind with no row is not here, and
     /// means it is being sent.
-    pub async fn list(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-    ) -> Result<Json<PreferenceListResponse>, V2Error> {
-        let rows = q(state).await?.list_preferences(auth.uid()).await?;
+    pub async fn list(&self, auth: &Authed) -> Result<Json<PreferenceListResponse>, V2Error> {
+        let rows = self.plane.q().await?.list_preferences(auth.uid()).await?;
         Ok(Json(PreferenceListResponse {
             success: true,
             preferences: rows.into_iter().map(|row| row.into()).collect(),
@@ -77,7 +71,7 @@ impl NotifyService {
     /// this is the whole of it: there is nothing to create first.
     pub async fn set(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         body: PreferenceRequest,
     ) -> Result<Json<PreferenceResponse>, V2Error> {
@@ -87,7 +81,12 @@ impl NotifyService {
             &kind(&body.kind)?,
             body.enabled,
         );
-        q(state).await?.put_preference(&row).await.map(|_| ())?;
+        self.plane
+            .q()
+            .await?
+            .put_preference(&row)
+            .await
+            .map(|_| ())?;
         Ok(Json(PreferenceResponse {
             success: true,
             preference: row.into(),
@@ -96,21 +95,22 @@ impl NotifyService {
 
     /// The one write a recipient can make without signing in, because the proof
     /// of who they are arrives signed inside the link their mail carried.
-    pub async fn unsubscribe(
-        &self,
-        state: &ApiState,
-        presented: &str,
-    ) -> Result<Json<UnsubscribeResponse>, V2Error> {
+    pub async fn unsubscribe(&self, presented: &str) -> Result<Json<UnsubscribeResponse>, V2Error> {
         let previous = &Rotation::global().previous_seat_secret;
-        let target =
-            token::verify(&state.control.seat_secret, previous, presented).ok_or_else(|| {
+        let target = token::verify(&self.plane.control.seat_secret, previous, presented)
+            .ok_or_else(|| {
                 V2Error::invalid_argument(
                     "This unsubscribe link is not one this plane signed, or it has expired.",
                 )
             })?;
         let name = channel(&target.channel)?;
         let row = preference_row(target.user_id, name, &target.kind, false);
-        q(state).await?.put_preference(&row).await.map(|_| ())?;
+        self.plane
+            .q()
+            .await?
+            .put_preference(&row)
+            .await
+            .map(|_| ())?;
         Ok(Json(UnsubscribeResponse {
             success: true,
             channel: name.to_owned(),
@@ -127,7 +127,7 @@ impl NotifyService {
     /// reachable is never a reason to hold a request open.
     pub async fn test(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: TestRequest,
     ) -> Result<Json<AttemptResponse>, V2Error> {
@@ -151,10 +151,10 @@ impl NotifyService {
                 "There is no sender built for {provider}."
             )));
         };
-        let row = super::outbox::test_attempt(&provider, name, recipient);
-        q(state).await?.queue_attempt(&row).await?;
+        let row = super::outbox::test_attempt(&self.plane, &provider, name, recipient);
+        self.plane.q().await?.queue_attempt(&row).await?;
         audit(
-            state,
+            &self.plane,
             claims,
             "notify.test",
             "delivery_attempt",
@@ -172,11 +172,13 @@ impl NotifyService {
     /// surfaces after the test that was queued around it.
     pub async fn attempt(
         &self,
-        state: &ApiState,
+
         _claims: &ConsoleAuthed,
         raw: &str,
     ) -> Result<Json<AttemptResponse>, V2Error> {
-        let found = q(state)
+        let found = self
+            .plane
+            .q()
             .await?
             .attempt(id(raw, "delivery")?)
             .await?

@@ -8,6 +8,8 @@
 //! the user id its client claimed, and a mirrored event whose name is a visible
 //! quest counter credits that user — the same counters the server-key ingest
 //! door writes, so a quest reads one number no matter which door moved it.
+use crate::services::plane::Plane;
+use std::sync::Arc;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -92,17 +94,17 @@ impl QuestCounters {
     /// Rebuild the counter map from the quests that run right now. A failure
     /// keeps the previous map: stale counters lag an operator's change, an
     /// empty one would silently stop crediting everything.
-    async fn refresh(&mut self, state: &ApiState) {
+    async fn refresh(&mut self, plane: &Plane) {
         self.ticks_since_refresh = 0;
-        let Some(queries) = state.q.as_ref() else {
+        let Ok(queries) = plane.q().await else {
             return;
         };
         let now = Utc::now();
-        let Ok(seasons) = open_seasons(queries, now).await else {
+        let Ok(seasons) = open_seasons(&queries, now).await else {
             tracing::warn!("[control] quest counter refresh: seasons unavailable");
             return;
         };
-        let definitions = match crate::services::quest::owned_definitions(queries, state).await {
+        let definitions = match crate::services::quest::owned_definitions(&queries, plane).await {
             Ok(definitions) => definitions,
             Err(err) => {
                 tracing::warn!("[control] quest counter refresh failed: {err:?}");
@@ -154,7 +156,7 @@ fn stamp(secs: i64) -> DateTime<Utc> {
 /// Everything after that is `record_result`'s own path — the same balance
 /// checks, the same counters, the same rules and webhook. A guest's claim is
 /// worth no more than an HTTP caller's.
-async fn score_reported_result(state: &ApiState, finished: &engine_bus::MatchFinished) {
+async fn score_reported_result(plane: &Plane, finished: &engine_bus::MatchFinished) {
     let outcome = match crate::services::match_result::reported::decode(&finished.result) {
         Ok(outcome) => outcome,
         Err(problem) => {
@@ -173,8 +175,8 @@ async fn score_reported_result(state: &ApiState, finished: &engine_bus::MatchFin
         .map(|part| (part.user_id, String::new()))
         .collect();
     let request = outcome.into_request();
-    let service = crate::services::match_result::MatchResultService::new();
-    match service.apply(state, Uuid::new_v4(), request, seats).await {
+    let service = crate::services::match_result::MatchResultService::new(Arc::new(plane.clone()));
+    match service.apply(Uuid::new_v4(), request, seats).await {
         Ok(_) => tracing::info!("[control] room '{}' result scored", finished.room),
         Err(error) => tracing::warn!(
             "[control] room '{}' result refused: {:?}",
@@ -218,7 +220,7 @@ pub async fn pump_events(state: ApiState) {
         ticker.tick().await;
         counters.ticks_since_refresh += 1;
         if counters.due() {
-            counters.refresh(&state).await;
+            counters.refresh(&state.plane()).await;
         }
         // A seat bridge is a claim, not a line item: the newest one for a
         // (room, seat) is simply what the map holds, and a release removes it.
@@ -246,7 +248,7 @@ pub async fn pump_events(state: ApiState) {
                     if let Some(quests) = counters.by_counter.get(&write.stat) {
                         let visible: Vec<&QuestDefinition> = quests.iter().collect();
                         if let Err(err) = crate::services::quest::events::project_counter(
-                            &state,
+                            &state.plane(),
                             &q,
                             user_id,
                             &write.stat,
@@ -300,13 +302,19 @@ pub async fn pump_events(state: ApiState) {
                     let key = report.id.to_string();
                     let stored = q.record_desync_report(&report).await;
                     if stored.is_ok() {
-                        crate::services::webhook::emit(&state, "report.created", &key, summary)
-                            .await;
+                        crate::services::webhook::emit(
+                            &state.plane(),
+                            "report.created",
+                            &key,
+                            summary,
+                        )
+                        .await;
                     }
                     stored
                 }
                 None => {
-                    let credited = credit_mirrored_event(&state, &seats, &counters, &event).await;
+                    let credited =
+                        credit_mirrored_event(&state.plane(), &seats, &counters, &event).await;
                     if let Err(err) = credited {
                         tracing::warn!(
                             "[control] mirrored event '{}' could not be credited: {err}",
@@ -338,7 +346,7 @@ pub async fn pump_events(state: ApiState) {
             // the control plane decides whether that is worth scoring, through
             // the same checks that guard the REST endpoint.
             if !finished.result.is_empty() {
-                score_reported_result(&state, &finished).await;
+                score_reported_result(&state.plane(), &finished).await;
             }
             if let Err(err) = q
                 .record_match(&MatchHistory {
@@ -442,7 +450,7 @@ pub async fn pump_events(state: ApiState) {
 /// fire from their own services. A name no rule binds to costs one indexed
 /// query that reads nothing.
 async fn credit_mirrored_event(
-    state: &ApiState,
+    plane: &Plane,
     seats: &SeatBridges,
     counters: &QuestCounters,
     event: &SimEvent,
@@ -450,20 +458,20 @@ async fn credit_mirrored_event(
     let Some(user_id) = seats.resolve(event) else {
         return Ok(());
     };
-    let Some(queries) = state.q.as_ref() else {
+    let Ok(queries) = plane.q().await else {
         return Ok(());
     };
     if queries.get_user_by_id(user_id).await.is_err() {
         return Ok(());
     }
-    crate::services::rules::dispatch::fire(state, event.event.as_ref(), user_id).await;
+    crate::services::rules::dispatch::fire(plane, event.event.as_ref(), user_id).await;
     let Some(quests) = counters.by_counter.get(event.event.as_ref()) else {
         return Ok(());
     };
     let visible: Vec<&crate::repositories::models::QuestDefinition> = quests.iter().collect();
     crate::services::quest::events::credit_counter(
-        state,
-        queries,
+        plane,
+        &queries,
         user_id,
         &event.event,
         1,

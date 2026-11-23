@@ -41,8 +41,14 @@ fn a_child_collection_decodes_with_its_owner_and_slot_id() {
         version: 1,
         scalars: Vec::new(),
         collections: vec![
-            RootCollection { name: "players".into(), schema: "Player".into() },
-            RootCollection { name: "players_items".into(), schema: "Item".into() },
+            RootCollection {
+                name: "players".into(),
+                schema: "Player".into(),
+            },
+            RootCollection {
+                name: "players_items".into(),
+                schema: "Item".into(),
+            },
         ],
         nested: vec![NestedCollection {
             collection: "players_items".into(),
@@ -89,7 +95,13 @@ fn a_child_collection_decodes_with_its_owner_and_slot_id() {
     .unwrap();
     core.apply_section_direct(&world).expect("world decodes");
 
-    assert_eq!(core.state().collection("players").unwrap().entities.len(), 1);
+    assert_eq!(
+        core.state().collection("players").unwrap().entities.len(),
+        1
+    );
     let children = &core.state().collection("players_items").unwrap().entities;
-    assert_eq!(children.get(&child_id).unwrap().values[0], cyg_core_rs::state::Value::U16(5));
+    assert_eq!(
+        children.get(&child_id).unwrap().values[0],
+        cyg_core_rs::state::Value::U16(5)
+    );
 }

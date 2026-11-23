@@ -48,7 +48,14 @@ fn bench_wrap_delta(c: &mut Criterion) {
     c.bench_function("netcode/wrap_delta_2kb_full", |b| {
         let mut out = Vec::with_capacity(4096);
         b.iter(|| {
-            netcode::wrap_delta_into(black_box(&mut out), 42, black_box(sections.full), 7, 1000, 0);
+            netcode::wrap_delta_into(
+                black_box(&mut out),
+                42,
+                black_box(sections.full),
+                7,
+                1000,
+                0,
+            );
             black_box(&out);
         })
     });

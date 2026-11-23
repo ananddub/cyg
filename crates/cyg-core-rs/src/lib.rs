@@ -27,10 +27,10 @@
 
 pub mod state;
 pub use state::StateEvent;
-pub mod wire;
-pub mod interp;
 pub mod input;
+pub mod interp;
 pub mod predict;
+pub mod wire;
 // Native C-ABI (Mutex slots). On the wasm build wasm_ffi.rs provides the
 // same symbols with thread-local slots — both never compile together.
 #[cfg(not(feature = "wasm"))]
@@ -47,8 +47,8 @@ pub mod wasm;
 pub mod wasm_ffi;
 
 pub use engine_schema::{
-    parse_descriptor, emit_descriptor, Descriptor, SchemaDef, SchemaField, RootState,
-    wire_hash, WireKind, DESCRIPTOR_VERSION, INPUT_SCHEMA_NAME,
+    DESCRIPTOR_VERSION, Descriptor, INPUT_SCHEMA_NAME, RootState, SchemaDef, SchemaField, WireKind,
+    emit_descriptor, parse_descriptor, wire_hash,
 };
 
 use interp::Interp;
@@ -71,7 +71,8 @@ pub struct ClientCore {
 impl ClientCore {
     /// Parse the schema descriptor bytes (`cyg.schema.bin`).
     pub fn new(descriptor_bytes: &[u8]) -> Result<Self, String> {
-        if descriptor_bytes.len() >= 5 && &descriptor_bytes[..4] == b"OXSD"
+        if descriptor_bytes.len() >= 5
+            && &descriptor_bytes[..4] == b"OXSD"
             && descriptor_bytes[4] != DESCRIPTOR_VERSION
         {
             return Err(format!(
@@ -146,7 +147,8 @@ impl ClientCore {
         let events = self.state.apply_section(frame.section, &self.descriptor)?;
         // Every applied section is one moment in time: record it for interpolation. The tick comes
         // from the envelope tail, so the ring and the prediction clock share one notion of time.
-        self.interp.push(frame.server_tick, &self.state, &self.descriptor);
+        self.interp
+            .push(frame.server_tick, &self.state, &self.descriptor);
         Ok(events)
     }
 
@@ -177,14 +179,24 @@ impl ClientCore {
     }
 
     /// Apply a raw OXS2 section directly (test/bypass path).
-    pub fn apply_section_direct(&mut self, section: &[u8]) -> Result<Vec<state::StateEvent>, String> {
+    pub fn apply_section_direct(
+        &mut self,
+        section: &[u8],
+    ) -> Result<Vec<state::StateEvent>, String> {
         self.state.apply_section(section, &self.descriptor)
     }
 
     /// Encode a schema-lane input frame: `[seq u16 LE][Input fields in order]`.
     /// `values` must match the `Input` schema's field order.
-    pub fn encode_schema_input(&self, seq: u16, values: &[input::InputValue]) -> Result<Vec<u8>, String> {
-        let input_schema = self.descriptor.schemas.iter()
+    pub fn encode_schema_input(
+        &self,
+        seq: u16,
+        values: &[input::InputValue],
+    ) -> Result<Vec<u8>, String> {
+        let input_schema = self
+            .descriptor
+            .schemas
+            .iter()
             .find(|s| s.name == engine_schema::INPUT_SCHEMA_NAME)
             .ok_or_else(|| "descriptor has no Input schema".to_string())?;
         input::pack_schema_input(seq, values, &input_schema.fields)

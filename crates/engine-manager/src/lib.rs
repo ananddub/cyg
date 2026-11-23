@@ -9,6 +9,6 @@ pub mod room_lifecycle;
 pub mod server_lifecycle;
 pub mod threads;
 
-pub use room_lifecycle::{lifecycle_close_code, CloseReason, DRAIN_REASON, RoomLifecycle};
+pub use room_lifecycle::{CloseReason, DRAIN_REASON, RoomLifecycle, lifecycle_close_code};
 pub use server_lifecycle::{DrainState, ServerLifecycle, ServerManager, ServerPhase};
 pub use threads::{ThreadRegistry, ThreadRole, ThreadState, ThreadStatus};

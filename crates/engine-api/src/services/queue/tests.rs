@@ -1,5 +1,9 @@
 use super::*;
 
+fn service() -> QueueService {
+    QueueService::new(crate::services::plane::Plane::for_tests())
+}
+
 fn req(room: &str, party_size: usize, max: usize, mmr: f64) -> QueueJoin {
     QueueJoin {
         room: room.into(),
@@ -14,7 +18,7 @@ fn req(room: &str, party_size: usize, max: usize, mmr: f64) -> QueueJoin {
 
 #[test]
 fn two_solo_tickets_form_one_match() {
-    let q = QueueService::new();
+    let q = service();
     let a = q.join_test(req("arena", 1, 2, 1000.0), 0).unwrap();
     assert_eq!(a.status, "queued");
     let b = q.join_test(req("arena", 1, 2, 1010.0), 1).unwrap();
@@ -27,7 +31,7 @@ fn two_solo_tickets_form_one_match() {
 
 #[test]
 fn a_party_is_never_split_and_is_rejected_over_capacity() {
-    let q = QueueService::new();
+    let q = service();
     assert!(q.join_test(req("arena", 3, 2, 1000.0), 0).is_err());
     let party = q.join_test(req("arena", 2, 2, 1000.0), 0).unwrap();
     assert_eq!(party.status, "matched", "a full party fills its own room");
@@ -35,7 +39,7 @@ fn a_party_is_never_split_and_is_rejected_over_capacity() {
 
 #[test]
 fn modes_and_regions_do_not_cross_match() {
-    let q = QueueService::new();
+    let q = service();
     q.join_test(req("arena", 1, 2, 1000.0), 0).unwrap();
     let mut other = req("arena", 1, 2, 1000.0);
     other.region = "tokyo".into();
@@ -44,7 +48,7 @@ fn modes_and_regions_do_not_cross_match() {
 
 #[test]
 fn every_join_gets_a_fresh_unpredictable_ticket() {
-    let q = QueueService::new();
+    let q = service();
     let a = q.join_test(req("arena", 1, 4, 1000.0), 0).unwrap();
     let b = q.join_test(req("arena", 1, 4, 1000.0), 1).unwrap();
     assert_ne!(a.ticket_id, b.ticket_id);
@@ -53,7 +57,7 @@ fn every_join_gets_a_fresh_unpredictable_ticket() {
 
 #[test]
 fn cancel_is_terminal_and_idempotent() {
-    let q = QueueService::new();
+    let q = service();
     let a = q.join_test(req("arena", 1, 4, 1000.0), 0).unwrap();
     let left = q.leave_test(&a.ticket_id, 1).unwrap();
     assert_eq!(left.status, "cancelled");
@@ -63,7 +67,7 @@ fn cancel_is_terminal_and_idempotent() {
 
 #[test]
 fn tickets_expire_after_their_ttl() {
-    let q = QueueService::new();
+    let q = service();
     let mut r = req("arena", 1, 4, 1000.0);
     r.ttl_ms = Some(1_000);
     let a = q.join_test(r, 0).unwrap();

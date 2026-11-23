@@ -15,7 +15,7 @@ struct ConsoleGroupController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/group")]
+#[controller("/v1/console/group")]
 impl ConsoleGroupController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -24,7 +24,7 @@ impl ConsoleGroupController {
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service.list_groups(&state, page).await.into_response()
+        self.service.list_groups(page).await.into_response()
     }
 
     #[get("/{id}")]
@@ -38,7 +38,7 @@ impl ConsoleGroupController {
         if let Err(err) = guard(&state, scope.id(), &id).await {
             return err.into_response();
         }
-        self.service.get_group(&state, &id).await.into_response()
+        self.service.get_group(&id).await.into_response()
     }
 
     #[get("/{id}/member")]
@@ -53,7 +53,7 @@ impl ConsoleGroupController {
             return err.into_response();
         }
         self.service
-            .list_group_members(&state, &id)
+            .list_group_members(&id)
             .await
             .into_response()
     }
@@ -70,7 +70,7 @@ impl ConsoleGroupController {
             return err.into_response();
         }
         self.service
-            .export_group(&state, &auth, &id)
+            .export_group(&auth, &id)
             .await
             .into_response()
     }
@@ -87,7 +87,7 @@ impl ConsoleGroupController {
             return err.into_response();
         }
         self.service
-            .delete_group(&state, &auth, &id)
+            .delete_group(&auth, &id)
             .await
             .into_response()
     }
@@ -99,5 +99,5 @@ async fn guard(
     raw: &str,
 ) -> Result<(), crate::error::V2Error> {
     let id = crate::services::console::account_id(raw)?;
-    guards::require_group(state, game, id).await
+    guards::require_group(&*state.plane(), game, id).await
 }

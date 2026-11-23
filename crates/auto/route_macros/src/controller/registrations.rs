@@ -9,7 +9,7 @@ pub(crate) fn route_registrations(routes: &[Route]) -> Vec<proc_macro2::TokenStr
         .map(|route| {
             let method = &route.method;
             let handler = &route.handler;
-            let path = &route.path;
+            let path = &route.route_path;
             let arguments = route
                 .argument_types
                 .iter()

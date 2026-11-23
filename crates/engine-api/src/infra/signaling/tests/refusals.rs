@@ -35,7 +35,7 @@ async fn upgrade_get(addr: SocketAddr, path: &str) -> (u16, serde_json::Value) {
 #[tokio::test]
 async fn refuses_a_bad_or_missing_seat_token_before_the_upgrade() {
     let (state, mut inbound) = test_state();
-    let addr = spawn_plane(&state).await;
+    let addr = spawn_plane(&state.plane()).await;
     for path in [
         "/ws/signal",
         "/ws/signal?seat=not-a-signed-token",

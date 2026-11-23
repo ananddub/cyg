@@ -13,7 +13,7 @@ pub async fn wager_flow(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/wager/create", env.base))
+            .post(format!("{}/v1/wager/create", env.base))
             .bearer_auth(&winner.token)
             .json(&json!({
                 "room": room,
@@ -127,7 +127,7 @@ pub async fn wager_flow(env: &Harness, console: &str) {
     .await;
     refusal(
         env.client
-            .post(format!("{}/v2/wager/{wager_id}/settle", env.base))
+            .post(format!("{}/v1/wager/{wager_id}/settle", env.base))
             .bearer_auth(&winner.token)
             .json(&json!({"winner": winner.uid}))
             .send()

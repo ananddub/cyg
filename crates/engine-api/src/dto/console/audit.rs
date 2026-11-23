@@ -77,6 +77,8 @@ pub struct AclTemplateRow {
     pub name: String,
     pub description: String,
     pub acl: serde_json::Value,
+    /// The generation this row is at; the value in `ETag` speaks for it.
+    pub version: i64,
     pub create_time: DateTime<Utc>,
     pub update_time: DateTime<Utc>,
 }
@@ -88,6 +90,7 @@ impl From<ConsoleAclTemplate> for AclTemplateRow {
             name: t.name,
             description: t.description,
             acl: t.acl,
+            version: t.version.unwrap_or(1),
             create_time: t.create_time,
             update_time: t.update_time,
         }

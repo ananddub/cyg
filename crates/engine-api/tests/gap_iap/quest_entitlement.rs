@@ -11,7 +11,7 @@ pub async fn quest_entitlement(env: &Harness, console: &str) {
         assert_eq!(
             refusal(
                 env.client
-                    .post(format!("{}/v2/console/quests", env.base))
+                    .post(format!("{}/v1/console/quests", env.base))
                     .bearer_auth(console)
                     .json(&json!({
                         "quest_key": format!("bad-{}", letters_suffix()),

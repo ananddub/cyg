@@ -14,7 +14,7 @@ struct ConsoleBadgeController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/badges")]
+#[controller("/v1/console/badges")]
 impl ConsoleBadgeController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -23,7 +23,7 @@ impl ConsoleBadgeController {
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        self.service.list_badges(&state).await.into_response()
+        self.service.list_badges().await.into_response()
     }
 
     #[post("")]
@@ -34,7 +34,7 @@ impl ConsoleBadgeController {
     ) -> Response {
         let state = current_state();
         self.service
-            .create_badge(&state, &auth, body)
+            .create_badge(&auth, body)
             .await
             .into_response()
     }
@@ -48,7 +48,7 @@ impl ConsoleBadgeController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_badge(&state, &auth, &key, body)
+            .update_badge(&auth, &key, body)
             .await
             .into_response()
     }
@@ -57,7 +57,7 @@ impl ConsoleBadgeController {
     async fn delete(&self, auth: ConsoleAuthed, Path(key): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .delete_badge(&state, &auth, &key)
+            .delete_badge(&auth, &key)
             .await
             .into_response()
     }

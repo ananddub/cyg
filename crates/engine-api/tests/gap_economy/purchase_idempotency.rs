@@ -6,7 +6,7 @@ pub async fn purchase_idempotency(env: &Harness) {
 
     let first = json_body(
         env.client
-            .post(format!("{}/v2/iap/purchase/apple", env.base))
+            .post(format!("{}/v1/iap/purchase/apple", env.base))
             .bearer_auth(&player.token)
             .header("Idempotency-Key", "buy-1")
             .json(&json!({"receipt": "receipt-abcdef"}))
@@ -24,7 +24,7 @@ pub async fn purchase_idempotency(env: &Harness) {
 
     let replay = json_body(
         env.client
-            .post(format!("{}/v2/iap/purchase/apple", env.base))
+            .post(format!("{}/v1/iap/purchase/apple", env.base))
             .bearer_auth(&player.token)
             .header("Idempotency-Key", "buy-1")
             .json(&json!({"receipt": "receipt-abcdef"}))
@@ -45,7 +45,7 @@ pub async fn purchase_idempotency(env: &Harness) {
 
     let text = refusal(
         env.client
-            .post(format!("{}/v2/iap/purchase/apple", env.base))
+            .post(format!("{}/v1/iap/purchase/apple", env.base))
             .bearer_auth(&player.token)
             .header("Idempotency-Key", "buy-1")
             .json(&json!({"receipt": "a-different-receipt"}))

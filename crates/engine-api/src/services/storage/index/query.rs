@@ -1,6 +1,5 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::storage::StorageObject;
 use crate::dto::storage_index::{IndexPageCursor, IndexQueryRequest, StorageIndexList};
@@ -12,7 +11,6 @@ use crate::utils::storage::CURSOR_MESSAGE;
 
 use super::order::resolve_order;
 use super::parse;
-use crate::services::deps::q;
 
 const DEFAULT_LIMIT: i32 = 100;
 const MAX_LIMIT: i32 = 100;
@@ -22,7 +20,7 @@ const FIELD_MESSAGE: &str = "This index does not cover the field named in the qu
 impl StorageService {
     pub async fn query_index(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         name: &str,
         request: IndexQueryRequest,
@@ -34,7 +32,7 @@ impl StorageService {
         let terms = parse::parse(&request.query)?;
         let offset = resume_cursor(&request)?;
 
-        let def = self.index_by_name(state, name).await?;
+        let def = self.index_by_name(name).await?;
         let fields = StorageIndexRow::strings(&def.fields);
         if terms.iter().any(|term| !fields.contains(term_field(term))) {
             return Err(V2Error::invalid_argument(FIELD_MESSAGE));
@@ -50,7 +48,9 @@ impl StorageService {
         }
         let page = i64::from(limit).min(window);
 
-        let rows = q(state)
+        let rows = self
+            .plane
+            .q()
             .await?
             .storage_index_page(&def, &terms, &sorts, auth.uid(), page + 1, offset)
             .await

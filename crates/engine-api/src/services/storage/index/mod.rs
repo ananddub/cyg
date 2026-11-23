@@ -1,16 +1,14 @@
 mod order;
-mod parse;
+pub(crate) mod parse;
 mod query;
 
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::storage_index::{StorageIndexDef, StorageIndexDefinitions};
 use crate::error::V2Error;
 use crate::repositories::storage::{StorageIndexContent, StorageIndexRow};
-use crate::services::deps::q;
 
 pub(super) const MAX_INDEX_FIELDS: usize = 4;
 const DEFAULT_MAX_ENTRIES: i32 = 10_000;
@@ -49,7 +47,7 @@ fn validate_create(request: &crate::dto::storage_index::CreateIndexRequest) -> R
 impl super::StorageService {
     pub async fn create_index(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         request: crate::dto::storage_index::CreateIndexRequest,
     ) -> Result<Json<StorageIndexDef>, V2Error> {
@@ -65,7 +63,9 @@ impl super::StorageService {
             user_id: auth.uid(),
             create_time: chrono::Utc::now(),
         };
-        let row = q(state)
+        let row = self
+            .plane
+            .q()
             .await?
             .storage_insert_index(&content)
             .await
@@ -82,10 +82,12 @@ impl super::StorageService {
 
     pub async fn list_indexes(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
     ) -> Result<Json<StorageIndexDefinitions>, V2Error> {
-        let rows = q(state)
+        let rows = self
+            .plane
+            .q()
             .await?
             .storage_indexes()
             .await
@@ -97,17 +99,18 @@ impl super::StorageService {
 
     pub async fn delete_index(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         name: &str,
     ) -> Result<Json<serde_json::Value>, V2Error> {
-        let row = self.index_by_name(state, name).await?;
+        let row = self.index_by_name(name).await?;
         if row.user_id != auth.uid() {
             return Err(V2Error::permission_denied(
                 "Only the player who created this index can delete it.",
             ));
         }
-        q(state)
+        self.plane
+            .q()
             .await?
             .storage_delete_index(name)
             .await
@@ -115,12 +118,9 @@ impl super::StorageService {
         Ok(Json(serde_json::json!({})))
     }
 
-    pub(super) async fn index_by_name(
-        &self,
-        state: &ApiState,
-        name: &str,
-    ) -> Result<StorageIndexRow, V2Error> {
-        q(state)
+    pub(super) async fn index_by_name(&self, name: &str) -> Result<StorageIndexRow, V2Error> {
+        self.plane
+            .q()
             .await?
             .storage_index(name)
             .await

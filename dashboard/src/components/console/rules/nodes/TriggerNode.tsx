@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Pencil, Plus, Trash2, Zap } from 'lucide-react';
 import type { CardParam, TriggerNodeData } from '../types';
@@ -129,7 +130,7 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
                       top: r.bottom + 6,
                     });
                   }}
-                  className="h-4 w-4 shrink-0 rounded-full border border-card shadow-sm transition hover:scale-110 cursor-pointer"
+                  className="h-4 w-4 shrink-0 rounded-full border border-card shadow-sm transition hover:scale-110 cursor-pointer nodrag"
                   style={{ background: PARAM_TYPE_COLORS[param.type] ?? '#c8c8c8' }}
                   title={`type: ${param.type} — click for options`}
                 />
@@ -172,10 +173,7 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
                   </>
                 )}
                 {!isOpen && (
-                  <span
-                    className="max-w-[90px] truncate text-[11px] font-mono font-bold"
-                    style={{ color: PARAM_TYPE_COLORS[param.type] ?? '#c8c8c8' }}
-                  >
+                  <span className="max-w-[90px] truncate text-[11px] font-mono font-bold text-foreground">
                     {param.name}
                   </span>
                 )}
@@ -231,8 +229,9 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
         className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-card !bg-slate-400"
       />
 
-      {/* Dot ka dropdown: portal, niche khulta hai, colored naam+dot options */}
-      {dotMenu && (
+      {/* Dot ka dropdown: portal (body me), fixed coords — RF node ka
+          transform ispe asar nahi dalta, kahin dur nahi chala jayega */}
+      {dotMenu && createPortal(
         <div
           className="fixed z-[400] min-w-[140px] rounded-lg border border-border bg-popover/98 p-1 shadow-2xl nodrag nopan"
           style={{ left: dotMenu.left, top: dotMenu.top }}
@@ -259,7 +258,8 @@ export function TriggerNode({ data }: NodeProps & { data: TriggerNodeData }) {
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

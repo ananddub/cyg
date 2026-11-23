@@ -1,6 +1,6 @@
 class_name CYGApi
 extends Node
-## Player-facing REST surface of the CYG server: every `/v2/*` route the
+## Player-facing REST surface of the CYG server: every `/v1/*` route the
 ## engine-api registers, plus `/api/matchmake`, `/status`, `/api/rooms`, the
 ## health probes and the `/ws/signal` upgrade URL.
 ##
@@ -130,7 +130,7 @@ func signal_url(seat: String = "") -> String:
 	return url
 
 
-## Escape hatch for any route: `await api.request("GET", "/v2/account")`.
+## Escape hatch for any route: `await api.request("GET", "/v1/account")`.
 func request(http_method: String, path: String, body: Variant = null,
 		query: Dictionary = {}) -> Dictionary:
 	var method := _method_id(http_method)
@@ -181,53 +181,53 @@ func request(http_method: String, path: String, body: Variant = null,
 # --- Auth ---------------------------------------------------------------------
 
 func authenticate(body: Dictionary, query: Dictionary = {}) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate", body, query)
+	return await _auth_post("/v1/account/authenticate", body, query)
 
 
 func authenticate_apple(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate/apple", body)
+	return await _auth_post("/v1/account/authenticate/apple", body)
 
 
 func authenticate_custom(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate/custom", body)
+	return await _auth_post("/v1/account/authenticate/custom", body)
 
 
 func authenticate_device(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate/device", body)
+	return await _auth_post("/v1/account/authenticate/device", body)
 
 
 func authenticate_email(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate/email", body)
+	return await _auth_post("/v1/account/authenticate/email", body)
 
 
 func authenticate_facebook(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate/facebook", body)
+	return await _auth_post("/v1/account/authenticate/facebook", body)
 
 
 func authenticate_facebook_instant_game(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate/facebookinstantgame", body)
+	return await _auth_post("/v1/account/authenticate/facebookinstantgame", body)
 
 
 func authenticate_game_center(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate/gamecenter", body)
+	return await _auth_post("/v1/account/authenticate/gamecenter", body)
 
 
 func authenticate_google(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate/google", body)
+	return await _auth_post("/v1/account/authenticate/google", body)
 
 
 func authenticate_steam(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/authenticate/steam", body)
+	return await _auth_post("/v1/account/authenticate/steam", body)
 
 
 ## `body` is `{ token, vars }`; the response's `token`/`refresh_token` are stored.
 func refresh_session(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/session/refresh", body)
+	return await _auth_post("/v1/account/session/refresh", body)
 
 
 ## `body` is `{ token, refresh_token }`; clears the local token on success.
 func logout(body: Dictionary) -> Dictionary:
-	var result := await _post("/v2/session/logout", body)
+	var result := await _post("/v1/session/logout", body)
 	if bool(result.get("ok", false)):
 		set_token(null)
 		refresh_token = null
@@ -237,266 +237,266 @@ func logout(body: Dictionary) -> Dictionary:
 # --- Account linking ----------------------------------------------------------
 
 func link(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/link", body)
+	return await _auth_post("/v1/account/link", body)
 
 
 func link_apple(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/link/apple", body)
+	return await _auth_post("/v1/account/link/apple", body)
 
 
 func link_custom(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/link/custom", body)
+	return await _auth_post("/v1/account/link/custom", body)
 
 
 func link_device(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/link/device", body)
+	return await _auth_post("/v1/account/link/device", body)
 
 
 func link_email(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/link/email", body)
+	return await _auth_post("/v1/account/link/email", body)
 
 
 func link_facebook(body: Dictionary, sync: Variant = null) -> Dictionary:
-	return await _auth_post("/v2/account/link/facebook", body, _sync_query(sync))
+	return await _auth_post("/v1/account/link/facebook", body, _sync_query(sync))
 
 
 func link_facebook_instant_game(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/link/facebookinstantgame", body)
+	return await _auth_post("/v1/account/link/facebookinstantgame", body)
 
 
 func link_game_center(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/link/gamecenter", body)
+	return await _auth_post("/v1/account/link/gamecenter", body)
 
 
 func link_google(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/link/google", body)
+	return await _auth_post("/v1/account/link/google", body)
 
 
 func link_steam(body: Dictionary) -> Dictionary:
-	return await _auth_post("/v2/account/link/steam", body)
+	return await _auth_post("/v1/account/link/steam", body)
 
 
 func unlink(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink", body)
+	return await _post("/v1/account/unlink", body)
 
 
 func unlink_apple(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink/apple", body)
+	return await _post("/v1/account/unlink/apple", body)
 
 
 func unlink_custom(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink/custom", body)
+	return await _post("/v1/account/unlink/custom", body)
 
 
 func unlink_device(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink/device", body)
+	return await _post("/v1/account/unlink/device", body)
 
 
 func unlink_email(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink/email", body)
+	return await _post("/v1/account/unlink/email", body)
 
 
 func unlink_facebook(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink/facebook", body)
+	return await _post("/v1/account/unlink/facebook", body)
 
 
 func unlink_facebook_instant_game(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink/facebookinstantgame", body)
+	return await _post("/v1/account/unlink/facebookinstantgame", body)
 
 
 func unlink_game_center(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink/gamecenter", body)
+	return await _post("/v1/account/unlink/gamecenter", body)
 
 
 func unlink_google(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink/google", body)
+	return await _post("/v1/account/unlink/google", body)
 
 
 func unlink_steam(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/unlink/steam", body)
+	return await _post("/v1/account/unlink/steam", body)
 
 
 # --- Account & wallet ---------------------------------------------------------
 
 func get_account() -> Dictionary:
-	return await _get_request("/v2/account")
+	return await _get_request("/v1/account")
 
 
 func update_account(body: Dictionary, query: Dictionary = {}) -> Dictionary:
-	return await _put("/v2/account", body, query)
+	return await _put("/v1/account", body, query)
 
 
 func delete_account() -> Dictionary:
-	return await _delete("/v2/account")
+	return await _delete("/v1/account")
 
 
 func get_wallet() -> Dictionary:
-	return await _get_request("/v2/account/wallet")
+	return await _get_request("/v1/account/wallet")
 
 
 func update_wallet(body: Dictionary) -> Dictionary:
-	return await _post("/v2/account/wallet", body)
+	return await _post("/v1/account/wallet", body)
 
 
 ## Metadata merge only; balances move from the console.
 func merge_wallet(body: Dictionary) -> Dictionary:
-	return await _put("/v2/account/wallet", body)
+	return await _put("/v1/account/wallet", body)
 
 
 # --- Users --------------------------------------------------------------------
 
 func get_users(query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/user", query)
+	return await _get_request("/v1/user", query)
 
 
 func get_users_by_body(body: Dictionary) -> Dictionary:
-	return await _post("/v2/user", body)
+	return await _post("/v1/user", body)
 
 
 func get_user(user_id: String) -> Dictionary:
-	return await _get_request("/v2/user/%s" % _segment(user_id))
+	return await _get_request("/v1/user/%s" % _segment(user_id))
 
 
 # --- Friends ------------------------------------------------------------------
 
 func list_friends(query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/friend", query)
+	return await _get_request("/v1/friend", query)
 
 
 ## `query` is `{ ids: [...], usernames: [...], metadata: "…" }`.
 func add_friends(query: Dictionary) -> Dictionary:
-	return await _post("/v2/friend", null, query)
+	return await _post("/v1/friend", null, query)
 
 
 func delete_friends(query: Dictionary) -> Dictionary:
-	return await _delete("/v2/friend", null, query)
+	return await _delete("/v1/friend", null, query)
 
 
 func block_friends(query: Dictionary) -> Dictionary:
-	return await _post("/v2/friend/block", null, query)
+	return await _post("/v1/friend/block", null, query)
 
 
 func list_friends_of_friends(query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/friend/friends", query)
+	return await _get_request("/v1/friend/friends", query)
 
 
 func import_facebook_friends() -> Dictionary:
-	return await _post("/v2/friend/facebook")
+	return await _post("/v1/friend/facebook")
 
 
 func import_steam_friends() -> Dictionary:
-	return await _post("/v2/friend/steam")
+	return await _post("/v1/friend/steam")
 
 
 # --- Groups -------------------------------------------------------------------
 
 func list_groups(query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/group", query)
+	return await _get_request("/v1/group", query)
 
 
 func create_group(body: Dictionary) -> Dictionary:
-	return await _post("/v2/group", body)
+	return await _post("/v1/group", body)
 
 
 func get_group(group_id: String) -> Dictionary:
-	return await _get_request("/v2/group/%s" % _segment(group_id))
+	return await _get_request("/v1/group/%s" % _segment(group_id))
 
 
 func update_group(group_id: String, body: Dictionary) -> Dictionary:
-	return await _put("/v2/group/%s" % _segment(group_id), body)
+	return await _put("/v1/group/%s" % _segment(group_id), body)
 
 
 func delete_group(group_id: String) -> Dictionary:
-	return await _delete("/v2/group/%s" % _segment(group_id))
+	return await _delete("/v1/group/%s" % _segment(group_id))
 
 
 func join_group(group_id: String) -> Dictionary:
-	return await _post("/v2/group/%s/join" % _segment(group_id))
+	return await _post("/v1/group/%s/join" % _segment(group_id))
 
 
 func leave_group(group_id: String) -> Dictionary:
-	return await _post("/v2/group/%s/leave" % _segment(group_id))
+	return await _post("/v1/group/%s/leave" % _segment(group_id))
 
 
 func list_group_users(group_id: String, query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/group/%s/user" % _segment(group_id), query)
+	return await _get_request("/v1/group/%s/user" % _segment(group_id), query)
 
 
 ## The five member verbs take `?user_ids=a&user_ids=b`.
 func add_group_users(group_id: String, query: Dictionary) -> Dictionary:
-	return await _post("/v2/group/%s/add" % _segment(group_id), null, query)
+	return await _post("/v1/group/%s/add" % _segment(group_id), null, query)
 
 
 func kick_group_users(group_id: String, query: Dictionary) -> Dictionary:
-	return await _post("/v2/group/%s/kick" % _segment(group_id), null, query)
+	return await _post("/v1/group/%s/kick" % _segment(group_id), null, query)
 
 
 func ban_group_users(group_id: String, query: Dictionary) -> Dictionary:
-	return await _post("/v2/group/%s/ban" % _segment(group_id), null, query)
+	return await _post("/v1/group/%s/ban" % _segment(group_id), null, query)
 
 
 func promote_group_users(group_id: String, query: Dictionary) -> Dictionary:
-	return await _post("/v2/group/%s/promote" % _segment(group_id), null, query)
+	return await _post("/v1/group/%s/promote" % _segment(group_id), null, query)
 
 
 func demote_group_users(group_id: String, query: Dictionary) -> Dictionary:
-	return await _post("/v2/group/%s/demote" % _segment(group_id), null, query)
+	return await _post("/v1/group/%s/demote" % _segment(group_id), null, query)
 
 
 func list_user_groups(user_id: String, query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/user/%s/group" % _segment(user_id), query)
+	return await _get_request("/v1/user/%s/group" % _segment(user_id), query)
 
 
 # --- Tournaments --------------------------------------------------------------
 
 func list_tournaments(query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/tournament", query)
+	return await _get_request("/v1/tournament", query)
 
 
 func list_tournament_records(tournament_id: String, query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/tournament/%s" % _segment(tournament_id), query)
+	return await _get_request("/v1/tournament/%s" % _segment(tournament_id), query)
 
 
 func write_tournament_record(tournament_id: String, body: Variant) -> Dictionary:
-	return await _post("/v2/tournament/%s" % _segment(tournament_id), body)
+	return await _post("/v1/tournament/%s" % _segment(tournament_id), body)
 
 
 func replace_tournament_record(tournament_id: String, body: Variant) -> Dictionary:
-	return await _put("/v2/tournament/%s" % _segment(tournament_id), body)
+	return await _put("/v1/tournament/%s" % _segment(tournament_id), body)
 
 
 func delete_tournament_record(tournament_id: String) -> Dictionary:
-	return await _delete("/v2/tournament/%s" % _segment(tournament_id))
+	return await _delete("/v1/tournament/%s" % _segment(tournament_id))
 
 
 func list_tournament_records_around_owner(tournament_id: String, owner_id: String,
 		query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/tournament/%s/owner/%s" % [
+	return await _get_request("/v1/tournament/%s/owner/%s" % [
 		_segment(tournament_id), _segment(owner_id)
 	], query)
 
 
 func join_tournament(tournament_id: String) -> Dictionary:
-	return await _post("/v2/tournament/%s/join" % _segment(tournament_id))
+	return await _post("/v1/tournament/%s/join" % _segment(tournament_id))
 
 
 # --- Leaderboards -------------------------------------------------------------
 
 func write_leaderboard_record(leaderboard_id: String, body: Variant) -> Dictionary:
-	return await _post("/v2/leaderboard/%s" % _segment(leaderboard_id), body)
+	return await _post("/v1/leaderboard/%s" % _segment(leaderboard_id), body)
 
 
 func list_leaderboard_records(leaderboard_id: String, query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/leaderboard/%s" % _segment(leaderboard_id), query)
+	return await _get_request("/v1/leaderboard/%s" % _segment(leaderboard_id), query)
 
 
 func delete_leaderboard_record(leaderboard_id: String) -> Dictionary:
-	return await _delete("/v2/leaderboard/%s" % _segment(leaderboard_id))
+	return await _delete("/v1/leaderboard/%s" % _segment(leaderboard_id))
 
 
 func list_leaderboard_records_around_owner(leaderboard_id: String, owner_id: String,
 		query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/leaderboard/%s/owner/%s" % [
+	return await _get_request("/v1/leaderboard/%s/owner/%s" % [
 		_segment(leaderboard_id), _segment(owner_id)
 	], query)
 
@@ -505,32 +505,32 @@ func list_leaderboard_records_around_owner(leaderboard_id: String, owner_id: Str
 
 ## `{ objects: [{ collection, key, value, version, permission_read, permission_write }] }`
 func write_storage(body: Dictionary) -> Dictionary:
-	return await _put("/v2/storage", body)
+	return await _put("/v1/storage", body)
 
 
 ## `{ object_ids: [{ collection, key, user_id, version }] }`
 func read_storage(body: Dictionary) -> Dictionary:
-	return await _post("/v2/storage", body)
+	return await _post("/v1/storage", body)
 
 
 func delete_storage(body: Dictionary) -> Dictionary:
-	return await _put("/v2/storage/delete", body)
+	return await _put("/v1/storage/delete", body)
 
 
 func list_storage_collection(collection: String, query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/storage/%s" % _segment(collection), query)
+	return await _get_request("/v1/storage/%s" % _segment(collection), query)
 
 
 func list_user_storage(collection: String, user_id: String,
 		query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/storage/%s/%s" % [
+	return await _get_request("/v1/storage/%s/%s" % [
 		_segment(collection), _segment(user_id)
 	], query)
 
 
 func read_storage_object(collection: String, key: String, user_id: String,
 		query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/storage/%s/%s/%s" % [
+	return await _get_request("/v1/storage/%s/%s/%s" % [
 		_segment(collection), _segment(key), _segment(user_id)
 	], query)
 
@@ -538,62 +538,62 @@ func read_storage_object(collection: String, key: String, user_id: String,
 # --- Storage indexes ----------------------------------------------------------
 
 func create_storage_index(body: Dictionary) -> Dictionary:
-	return await _post("/v2/storage/index", body)
+	return await _post("/v1/storage/index", body)
 
 
 func list_storage_indexes() -> Dictionary:
-	return await _get_request("/v2/storage/index")
+	return await _get_request("/v1/storage/index")
 
 
 func delete_storage_index(name: String) -> Dictionary:
-	return await _delete("/v2/storage/index/%s" % _segment(name))
+	return await _delete("/v1/storage/index/%s" % _segment(name))
 
 
 func query_storage_index(name: String, body: Dictionary) -> Dictionary:
-	return await _post("/v2/storage/index/%s/query" % _segment(name), body)
+	return await _post("/v1/storage/index/%s/query" % _segment(name), body)
 
 
 # --- Inventory ----------------------------------------------------------------
 
 func list_inventory() -> Dictionary:
-	return await _get_request("/v2/inventory")
+	return await _get_request("/v1/inventory")
 
 
 func equip_item(body: Dictionary) -> Dictionary:
-	return await _post("/v2/inventory/equip", body)
+	return await _post("/v1/inventory/equip", body)
 
 
 func consume_item(body: Dictionary) -> Dictionary:
-	return await _post("/v2/inventory/consume", body)
+	return await _post("/v1/inventory/consume", body)
 
 
 func grant_item(body: Dictionary) -> Dictionary:
-	return await _post("/v2/inventory/grant", body)
+	return await _post("/v1/inventory/grant", body)
 
 
 func define_item(body: Dictionary) -> Dictionary:
-	return await _post("/v2/inventory/define", body)
+	return await _post("/v1/inventory/define", body)
 
 
 # --- Channels -----------------------------------------------------------------
 
 func list_channel_messages(channel_id: String, query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/channel/%s" % _segment(channel_id), query)
+	return await _get_request("/v1/channel/%s" % _segment(channel_id), query)
 
 
 func send_channel_message(channel_id: String, body: Dictionary) -> Dictionary:
-	return await _post("/v2/channel/%s/message" % _segment(channel_id), body)
+	return await _post("/v1/channel/%s/message" % _segment(channel_id), body)
 
 
 func update_channel_message(channel_id: String, message_id: String,
 		body: Dictionary) -> Dictionary:
-	return await _put("/v2/channel/%s/message/%s" % [
+	return await _put("/v1/channel/%s/message/%s" % [
 		_segment(channel_id), _segment(message_id)
 	], body)
 
 
 func delete_channel_message(channel_id: String, message_id: String) -> Dictionary:
-	return await _delete("/v2/channel/%s/message/%s" % [
+	return await _delete("/v1/channel/%s/message/%s" % [
 		_segment(channel_id), _segment(message_id)
 	])
 
@@ -601,77 +601,77 @@ func delete_channel_message(channel_id: String, message_id: String) -> Dictionar
 # --- Notifications ------------------------------------------------------------
 
 func list_notifications(query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/notification", query)
+	return await _get_request("/v1/notification", query)
 
 
 ## `{ ids: [...] }`
 func delete_notifications(body: Dictionary) -> Dictionary:
-	return await _delete("/v2/notification", body)
+	return await _delete("/v1/notification", body)
 
 
 func delete_notification(notification_id: String) -> Dictionary:
-	return await _delete("/v2/notification/%s" % _segment(notification_id))
+	return await _delete("/v1/notification/%s" % _segment(notification_id))
 
 
 # --- IAP ----------------------------------------------------------------------
 
-## Legacy Apple receipt validation (`POST /v2/iap`).
+## Legacy Apple receipt validation (`POST /v1/iap`).
 func validate_apple_purchase(body: Dictionary) -> Dictionary:
-	return await _post("/v2/iap", body)
+	return await _post("/v1/iap", body)
 
 
 func purchase_apple(body: Dictionary) -> Dictionary:
-	return await _post("/v2/iap/purchase/apple", body)
+	return await _post("/v1/iap/purchase/apple", body)
 
 
 func purchase_google(body: Dictionary) -> Dictionary:
-	return await _post("/v2/iap/purchase/google", body)
+	return await _post("/v1/iap/purchase/google", body)
 
 
 func purchase_huawei(body: Dictionary) -> Dictionary:
-	return await _post("/v2/iap/purchase/huawei", body)
+	return await _post("/v1/iap/purchase/huawei", body)
 
 
 func purchase_facebook_instant(body: Dictionary) -> Dictionary:
-	return await _post("/v2/iap/purchase/facebookinstant", body)
+	return await _post("/v1/iap/purchase/facebookinstant", body)
 
 
 func purchase_samsung(body: Dictionary) -> Dictionary:
-	return await _post("/v2/iap/purchase/samsung", body)
+	return await _post("/v1/iap/purchase/samsung", body)
 
 
 func list_purchases(query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/iap/purchase", query)
+	return await _get_request("/v1/iap/purchase", query)
 
 
 func subscribe_apple(body: Dictionary) -> Dictionary:
-	return await _post("/v2/iap/subscription/apple", body)
+	return await _post("/v1/iap/subscription/apple", body)
 
 
 func subscribe_google(body: Dictionary) -> Dictionary:
-	return await _post("/v2/iap/subscription/google", body)
+	return await _post("/v1/iap/subscription/google", body)
 
 
 func subscribe_huawei(body: Dictionary) -> Dictionary:
-	return await _post("/v2/iap/subscription/huawei", body)
+	return await _post("/v1/iap/subscription/huawei", body)
 
 
 func list_subscriptions(query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/iap/subscription", query)
+	return await _get_request("/v1/iap/subscription", query)
 
 
 func get_subscription(product_id: String) -> Dictionary:
-	return await _get_request("/v2/iap/subscription/%s" % _segment(product_id))
+	return await _get_request("/v1/iap/subscription/%s" % _segment(product_id))
 
 
 # --- Match browsing -----------------------------------------------------------
 
 func list_matches(query: Dictionary = {}) -> Dictionary:
-	return await _get_request("/v2/match", query)
+	return await _get_request("/v1/match", query)
 
 
 func matchmaker_stats() -> Dictionary:
-	return await _get_request("/v2/matchmaker/stats")
+	return await _get_request("/v1/matchmaker/stats")
 
 
 # --- Matchmaking & server status ---------------------------------------------
@@ -683,7 +683,7 @@ func matchmake(method: String, room: String, body: Dictionary = {}) -> Dictionar
 
 ## `POST /api/matchmake/{method}/{room}`.
 func matchmake_api(method: String, room: String, body: Dictionary = {}) -> Dictionary:
-	return await _post("/api/matchmake/%s/%s" % [_segment(method), _segment(room)], body)
+	return await _post("/matchmake/%s/%s" % [_segment(method), _segment(room)], body)
 
 
 func status() -> Dictionary:

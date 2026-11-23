@@ -126,7 +126,11 @@ pub fn rh_record<T: Copy>(h: &mut RingHistory<T>, tick: u64, data: T) {
     if h.count < h.capacity {
         h.ticks.push(tick);
         h.data.push(data);
-        h.head = if h.head + 1 == h.capacity { 0 } else { h.head + 1 };
+        h.head = if h.head + 1 == h.capacity {
+            0
+        } else {
+            h.head + 1
+        };
         h.count += 1;
         assert!(h.head < h.capacity);
         assert!(h.head == h.count || h.count == h.capacity);
@@ -134,7 +138,11 @@ pub fn rh_record<T: Copy>(h: &mut RingHistory<T>, tick: u64, data: T) {
     } else {
         h.ticks[h.head] = tick;
         h.data[h.head] = data;
-        h.head = if h.head + 1 == h.capacity { 0 } else { h.head + 1 };
+        h.head = if h.head + 1 == h.capacity {
+            0
+        } else {
+            h.head + 1
+        };
         assert!(h.head < h.capacity);
         assert!(h.count == h.capacity);
         assert!(h.ticks.len() == h.count);

@@ -15,7 +15,7 @@ struct ConsolePurchaseController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/purchase")]
+#[controller("/v1/console/purchase")]
 impl ConsolePurchaseController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -25,7 +25,7 @@ impl ConsolePurchaseController {
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
         self.service
-            .list_purchases(&state, page)
+            .list_purchases(page)
             .await
             .into_response()
     }
@@ -35,7 +35,7 @@ struct ConsoleSubscriptionController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/subscription")]
+#[controller("/v1/console/subscription")]
 impl ConsoleSubscriptionController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -45,7 +45,7 @@ impl ConsoleSubscriptionController {
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
         self.service
-            .list_subscriptions(&state, page)
+            .list_subscriptions(page)
             .await
             .into_response()
     }
@@ -59,7 +59,7 @@ impl ConsoleSubscriptionController {
     ) -> Response {
         let state = current_state();
         self.service
-            .delete_subscription_product(&state, &auth, scope.id(), &product_id)
+            .delete_subscription_product(&auth, scope.id(), &product_id)
             .await
             .into_response()
     }
@@ -69,7 +69,7 @@ struct ConsoleIapController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/iap")]
+#[controller("/v1/console/iap")]
 impl ConsoleIapController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -84,7 +84,7 @@ impl ConsoleIapController {
     ) -> Response {
         let state = current_state();
         self.service
-            .validate_vendor(&state, &auth, &vendor, body)
+            .validate_vendor(&auth, &vendor, body)
             .await
             .into_response()
     }
@@ -93,7 +93,7 @@ impl ConsoleIapController {
     async fn reset(&self, auth: ConsoleAuthed, Path(vendor): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .reset_vendor(&state, &auth, &vendor)
+            .reset_vendor(&auth, &vendor)
             .await
             .into_response()
     }

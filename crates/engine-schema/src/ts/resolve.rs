@@ -69,7 +69,10 @@ pub(super) fn resolve_declarations(
                     continue;
                 }
                 for nested in base.schema.nested_arrays {
-                    if nested_arrays.iter().any(|candidate| candidate.field == nested.field) {
+                    if nested_arrays
+                        .iter()
+                        .any(|candidate| candidate.field == nested.field)
+                    {
                         self.diagnostics.push(SchemaDiagnostic {
                             line: self.declarations[index].schema.line,
                             column: self.declarations[index].schema.column,
@@ -101,7 +104,10 @@ pub(super) fn resolve_declarations(
             }
 
             for nested in own_nested {
-                if nested_arrays.iter().any(|candidate| candidate.field == nested.field) {
+                if nested_arrays
+                    .iter()
+                    .any(|candidate| candidate.field == nested.field)
+                {
                     self.diagnostics.push(SchemaDiagnostic {
                         line: self.declarations[index].schema.line,
                         column: self.declarations[index].schema.column,

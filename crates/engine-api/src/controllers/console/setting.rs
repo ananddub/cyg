@@ -14,7 +14,7 @@ struct ConsoleSettingController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/setting")]
+#[controller("/v1/console/setting")]
 impl ConsoleSettingController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -23,7 +23,7 @@ impl ConsoleSettingController {
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        self.service.list_settings(&state).await.into_response()
+        self.service.list_settings().await.into_response()
     }
 
     #[put("")]
@@ -34,7 +34,7 @@ impl ConsoleSettingController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_setting(&state, &auth, body)
+            .update_setting(&auth, body)
             .await
             .into_response()
     }
@@ -43,7 +43,7 @@ impl ConsoleSettingController {
     async fn delete(&self, auth: ConsoleAuthed, Path(name): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .delete_setting(&state, &auth, &name)
+            .delete_setting(&auth, &name)
             .await
             .into_response()
     }

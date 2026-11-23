@@ -1,6 +1,7 @@
+use crate::services::plane::Plane;
+
 use axum::extract::ws::{Message, WebSocket};
 
-use crate::ApiState;
 use crate::infra::seats::Seat;
 
 use super::SignalIn;
@@ -13,7 +14,7 @@ const MAX_CANDIDATE_LEN: usize = 2 * 1024;
 
 pub(super) async fn handle_text(
     socket: &mut WebSocket,
-    state: &ApiState,
+    plane: &Plane,
     seat: &Seat,
     text: &str,
 ) -> bool {
@@ -23,7 +24,7 @@ pub(super) async fn handle_text(
                 oversize(socket, "offer").await;
                 return true;
             }
-            if !state.signals.post(SignalIn::Offer {
+            if !plane.signals.post(SignalIn::Offer {
                 seat: seat.clone(),
                 sdp,
             }) {
@@ -40,7 +41,7 @@ pub(super) async fn handle_text(
                 oversize(socket, "candidate").await;
                 return true;
             }
-            if !state.signals.post(SignalIn::Candidate {
+            if !plane.signals.post(SignalIn::Candidate {
                 seat: seat.clone(),
                 candidate,
                 sdp_mid,

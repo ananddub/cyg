@@ -1,24 +1,25 @@
+use crate::services::plane::Plane;
+use std::sync::Arc;
+
 use axum::Json;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
-
-use crate::ApiState;
 
 use super::StatusService;
 use crate::utils::status::{age_ms, client_host};
 
 /// The dialing details are identical for every room this process hosts, so they
 /// are built once and stamped onto each row.
-fn plumbing(state: &ApiState, host: &str, age_ms: Option<u64>, tick_hz: f64) -> Value {
+fn plumbing(plane: &Plane, host: &str, age_ms: Option<u64>, tick_hz: f64) -> Value {
     json!({
-        "maxClients": state.game.max_clients,
+        "maxClients": plane.game.max_clients,
         "tickHz": tick_hz,
-        "tickRate": state.game.tick_rate,
-        "port": state.game.port,
-        "controlPort": state.control_port(),
-        "serverId": format!("http://{host}:{}", state.control_port()),
-        "signalingUrl": format!("ws://{host}:{}/ws/signal", state.control_port()),
+        "tickRate": plane.game.tick_rate,
+        "port": plane.game.port,
+        "controlPort": plane.control_port(),
+        "serverId": format!("http://{host}:{}", plane.control_port()),
+        "signalingUrl": format!("ws://{host}:{}/ws/signal", plane.control_port()),
         "udpPort": std::env::var("CYG_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into()),
         "ageMs": age_ms,
     })
@@ -38,14 +39,14 @@ impl StatusService {
     /// One entry per room the host loop is actually running. Before the first
     /// sim sample there is nothing to report, so the reply stays the single
     /// game-named row a cold process has always returned.
-    pub async fn rooms(&self, state: &ApiState, headers: HeaderMap) -> Response {
-        let snapshot = state.latest_status.lock().ok().and_then(|g| g.clone());
+    pub async fn rooms(&self, headers: HeaderMap) -> Response {
+        let snapshot = self.plane.latest_status.lock().ok().and_then(|g| g.clone());
         let players = snapshot.as_ref().map(|s| s.players).unwrap_or(0);
         let tick_hz = snapshot.as_ref().map(|s| s.tick_hz_est).unwrap_or(0.0);
-        let max_clients = state.game.max_clients.max(0) as u32;
+        let max_clients = self.plane.game.max_clients.max(0) as u32;
         let host = client_host(&headers);
         let age_ms = snapshot.as_ref().map(age_ms);
-        let plumbing = plumbing(state, &host, age_ms, tick_hz);
+        let plumbing = plumbing(&self.plane, &host, age_ms, tick_hz);
         // A cold process has no room table and has not run a tick, so its phase
         // is genuinely unknown (`null`) rather than a guess.
         let fallback_phase = snapshot
@@ -75,7 +76,7 @@ impl StatusService {
                 .collect(),
             _ => vec![with_plumbing(
                 json!({
-                    "name": state.game.name,
+                    "name": self.plane.game.name,
                     "clients": players,
                     "spectators": 0,
                     "phase": fallback_phase.as_deref(),
@@ -89,6 +90,8 @@ impl StatusService {
     }
 }
 
-pub async fn rooms(state: &ApiState, headers: HeaderMap) -> Response {
-    StatusService.rooms(state, headers).await
+pub async fn rooms(plane: &Plane, headers: HeaderMap) -> Response {
+    StatusService::new(Arc::new(plane.clone()))
+        .rooms(headers)
+        .await
 }

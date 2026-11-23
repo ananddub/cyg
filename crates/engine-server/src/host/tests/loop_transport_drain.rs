@@ -21,13 +21,7 @@ fn drain_saves_the_state_of_every_room_it_closes() {
     let bus = Bus::new(8, 8);
     let mut cfg = engine_config::GameConfig::default();
     cfg.permissions.storage = true;
-    drain_rooms(
-        &mut server,
-        &mut t,
-        &bus,
-        &cfg,
-        "tank-3d",
-    );
+    drain_rooms(&mut server, &mut t, &bus, &cfg, "tank-3d");
 
     let saved = bus
         .snapshots_rx

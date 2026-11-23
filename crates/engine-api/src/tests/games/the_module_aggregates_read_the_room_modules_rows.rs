@@ -24,14 +24,16 @@ pub(crate) async fn the_module_aggregates_read_the_room_modules_rows() {
     .expect("the first version of a module is stored");
 
     assert_eq!(
-        GamesService::module_count(&state, game.id)
+        GamesService::new(state.plane())
+            .module_count(game.id)
             .await
             .expect("the count reads"),
         1,
         "one upload is one module"
     );
     assert_eq!(
-        GamesService::active_module_version(&state, game.id)
+        GamesService::new(state.plane())
+            .active_module_version(game.id)
             .await
             .expect("the active version reads"),
         Some(1),
@@ -85,14 +87,16 @@ pub(crate) async fn the_module_aggregates_read_the_room_modules_rows() {
     .expect("both statements land together");
 
     assert_eq!(
-        GamesService::module_count(&state, game.id)
+        GamesService::new(state.plane())
+            .module_count(game.id)
             .await
             .expect("count"),
         2,
         "a newer version adds to the history rather than replacing it"
     );
     assert_eq!(
-        GamesService::active_module_version(&state, game.id)
+        GamesService::new(state.plane())
+            .active_module_version(game.id)
             .await
             .expect("version"),
         Some(2),
@@ -106,7 +110,8 @@ pub(crate) async fn the_module_aggregates_read_the_room_modules_rows() {
     .await
     .expect("deactivating every version is representable");
     assert_eq!(
-        GamesService::active_module_version(&state, game.id)
+        GamesService::new(state.plane())
+            .active_module_version(game.id)
             .await
             .expect("version"),
         None,

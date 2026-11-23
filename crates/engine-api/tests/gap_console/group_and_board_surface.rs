@@ -7,7 +7,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
     let name = format!("e2e roster {}", letters_suffix());
     let created = json_body(
         env.client
-            .post(format!("{}/v2/group", env.base))
+            .post(format!("{}/v1/group", env.base))
             .bearer_auth(&leader.token)
             .json(&json!({ "name": name, "open": true, "max_count": 8 }))
             .send()
@@ -23,7 +23,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
         .to_owned();
     expect(
         env.client
-            .post(format!("{}/v2/group/{group_id}/join", env.base))
+            .post(format!("{}/v1/group/{group_id}/join", env.base))
             .bearer_auth(&member.token)
             .send()
             .await
@@ -35,13 +35,13 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
 
     let roster = json_body(
         env.client
-            .get(format!("{}/v2/console/group/{group_id}/member", env.base))
+            .get(format!("{}/v1/console/group/{group_id}/member", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/group/{id}/member",
+        "GET /v1/console/group/{id}/member",
     )
     .await;
     let rows = roster.as_array().expect("an array of members").clone();
@@ -69,7 +69,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
     for (token, score) in [(&leader.token, 300), (&member.token, 900)] {
         json_body(
             env.client
-                .post(format!("{}/v2/leaderboard/{board}", env.base))
+                .post(format!("{}/v1/leaderboard/{board}", env.base))
                 .bearer_auth(token)
                 .json(&json!({ "score": score }))
                 .send()
@@ -84,7 +84,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
     let records = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/leaderboard/{}/records",
+                "{}/v1/console/leaderboard/{}/records",
                 env.base, board
             ))
             .bearer_auth(console)
@@ -92,7 +92,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/leaderboard/{id}/records",
+        "GET /v1/console/leaderboard/{id}/records",
     )
     .await;
     let rows = records.as_array().expect("an array of records").clone();
@@ -106,7 +106,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
     let unknown = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/leaderboard/not-a-uuid/records",
+                "{}/v1/console/leaderboard/not-a-uuid/records",
                 env.base
             ))
             .bearer_auth(console)
@@ -124,7 +124,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
         refusal(
             env.client
                 .get(format!(
-                    "{}/v2/console/leaderboard/{}/records?game_id={}",
+                    "{}/v1/console/leaderboard/{}/records?game_id={}",
                     env.base, board, owned.id
                 ))
                 .bearer_auth(console)
@@ -146,7 +146,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
     let scoped = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/leaderboard/{}/records?game_id={}",
+                "{}/v1/console/leaderboard/{}/records?game_id={}",
                 env.base, board, owned.id
             ))
             .bearer_auth(console)
@@ -163,7 +163,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
         refusal(
             env.client
                 .get(format!(
-                    "{}/v2/console/leaderboard/{}/records?game_id={}",
+                    "{}/v1/console/leaderboard/{}/records?game_id={}",
                     env.base, board, other.id
                 ))
                 .bearer_auth(console)
@@ -181,7 +181,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/leaderboard/{}/owner/not-a-uuid",
+                    "{}/v1/console/leaderboard/{}/owner/not-a-uuid",
                     env.base, board
                 ))
                 .bearer_auth(console)
@@ -197,7 +197,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
     expect(
         env.client
             .delete(format!(
-                "{}/v2/console/leaderboard/{}/owner/{}",
+                "{}/v1/console/leaderboard/{}/owner/{}",
                 env.base, board, member.uid
             ))
             .bearer_auth(console)
@@ -205,13 +205,13 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/leaderboard/{id}/owner/{ownerId}",
+        "DELETE /v1/console/leaderboard/{id}/owner/{ownerId}",
     )
     .await;
     let after = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/leaderboard/{}/records",
+                "{}/v1/console/leaderboard/{}/records",
                 env.base, board
             ))
             .bearer_auth(console)
@@ -231,7 +231,7 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
 
     refusal(
         env.client
-            .delete(format!("{}/v2/console/leaderboard/{}", env.base, board))
+            .delete(format!("{}/v1/console/leaderboard/{}", env.base, board))
             .bearer_auth(viewer)
             .send()
             .await
@@ -242,13 +242,13 @@ pub async fn group_and_board_surface(env: &Harness, console: &str, viewer: &str)
     .await;
     expect(
         env.client
-            .delete(format!("{}/v2/console/leaderboard/{}", env.base, board))
+            .delete(format!("{}/v1/console/leaderboard/{}", env.base, board))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/leaderboard/{id}",
+        "DELETE /v1/console/leaderboard/{id}",
     )
     .await;
 }

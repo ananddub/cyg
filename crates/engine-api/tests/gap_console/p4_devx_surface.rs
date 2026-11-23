@@ -16,7 +16,7 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/console/rules", env.base))
+            .post(format!("{}/v1/console/rules", env.base))
             .bearer_auth(viewer)
             .json(&json!({ "key": key, "body": rule_body() }))
             .send()
@@ -29,7 +29,7 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
 
     let message = refusal(
         env.client
-            .post(format!("{}/v2/console/rules", env.base))
+            .post(format!("{}/v1/console/rules", env.base))
             .bearer_auth(console)
             .json(&json!({ "key": key, "body": { "field": "kills", "op": "between", "value": 1 } }))
             .send()
@@ -46,7 +46,7 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
 
     let draft = json_body(
         env.client
-            .post(format!("{}/v2/console/rules", env.base))
+            .post(format!("{}/v1/console/rules", env.base))
             .bearer_auth(console)
             .json(&json!({ "key": key, "body": rule_body() }))
             .send()
@@ -62,7 +62,7 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
 
     let bump = json_body(
         env.client
-            .post(format!("{}/v2/console/rules", env.base))
+            .post(format!("{}/v1/console/rules", env.base))
             .bearer_auth(console)
             .json(&json!({ "key": key }))
             .send()
@@ -77,7 +77,7 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
 
     let published = json_body(
         env.client
-            .post(format!("{}/v2/console/rules/{key}/publish/2", env.base))
+            .post(format!("{}/v1/console/rules/{key}/publish/2", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -90,7 +90,7 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
 
     let versions = json_body(
         env.client
-            .get(format!("{}/v2/console/rules/{key}", env.base))
+            .get(format!("{}/v1/console/rules/{key}", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -106,7 +106,7 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
 
     let dry = json_body(
         env.client
-            .post(format!("{}/v2/console/rules/dry-run", env.base))
+            .post(format!("{}/v1/console/rules/dry-run", env.base))
             .bearer_auth(console)
             .json(&json!({ "key": key, "context": { "kills": 12, "rank": "gold" } }))
             .send()
@@ -120,7 +120,7 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
 
     let dry = json_body(
         env.client
-            .post(format!("{}/v2/console/rules/dry-run", env.base))
+            .post(format!("{}/v1/console/rules/dry-run", env.base))
             .bearer_auth(console)
             .json(&json!({ "key": key, "context": { "kills": 2, "rank": "bronze" } }))
             .send()
@@ -134,7 +134,7 @@ pub async fn rules_surface(env: &Harness, console: &str, viewer: &str) {
 
     let deleted = json_body(
         env.client
-            .delete(format!("{}/v2/console/rules/{key}", env.base))
+            .delete(format!("{}/v1/console/rules/{key}", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -159,7 +159,7 @@ pub async fn config_history_surface(env: &Harness, console: &str, viewer: &str) 
 
     json_body(
         env.client
-            .put(format!("{}/v2/console/games/{id}", env.base))
+            .put(format!("{}/v1/console/games/{id}", env.base))
             .bearer_auth(console)
             .json(&json!({ "config": { "tick_rate": 30 } }))
             .send()
@@ -171,7 +171,7 @@ pub async fn config_history_surface(env: &Harness, console: &str, viewer: &str) 
     .await;
     json_body(
         env.client
-            .put(format!("{}/v2/console/games/{id}", env.base))
+            .put(format!("{}/v1/console/games/{id}", env.base))
             .bearer_auth(console)
             .json(&json!({ "config": { "tick_rate": 60, "max_clients": 32 } }))
             .send()
@@ -184,7 +184,7 @@ pub async fn config_history_surface(env: &Harness, console: &str, viewer: &str) 
 
     let history = json_body(
         env.client
-            .get(format!("{}/v2/console/games/{id}/config/history", env.base))
+            .get(format!("{}/v1/console/games/{id}/config/history", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -212,7 +212,7 @@ pub async fn config_history_surface(env: &Harness, console: &str, viewer: &str) 
     let single = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/games/{id}/config/{version}",
+                "{}/v1/console/games/{id}/config/{version}",
                 env.base
             ))
             .bearer_auth(console)
@@ -229,7 +229,7 @@ pub async fn config_history_surface(env: &Harness, console: &str, viewer: &str) 
     refusal(
         env.client
             .post(format!(
-                "{}/v2/console/games/{id}/config/rollback/{version}",
+                "{}/v1/console/games/{id}/config/rollback/{version}",
                 env.base
             ))
             .bearer_auth(viewer)
@@ -245,7 +245,7 @@ pub async fn config_history_surface(env: &Harness, console: &str, viewer: &str) 
     let rolled = json_body(
         env.client
             .post(format!(
-                "{}/v2/console/games/{id}/config/rollback/{version}",
+                "{}/v1/console/games/{id}/config/rollback/{version}",
                 env.base
             ))
             .bearer_auth(console)
@@ -265,7 +265,7 @@ pub async fn config_history_surface(env: &Harness, console: &str, viewer: &str) 
 
     let history = json_body(
         env.client
-            .get(format!("{}/v2/console/games/{id}/config/history", env.base))
+            .get(format!("{}/v1/console/games/{id}/config/history", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -282,7 +282,7 @@ pub async fn config_history_surface(env: &Harness, console: &str, viewer: &str) 
     refusal(
         env.client
             .post(format!(
-                "{}/v2/console/games/{id}/config/rollback/9999",
+                "{}/v1/console/games/{id}/config/rollback/9999",
                 env.base
             ))
             .bearer_auth(console)
@@ -303,7 +303,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
         json_body(
             env.client
                 .post(format!(
-                    "{}/v2/console/account/{}/wallet",
+                    "{}/v1/console/account/{}/wallet",
                     env.base, player.uid
                 ))
                 .bearer_auth(console)
@@ -320,7 +320,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
     let page = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/timeline/{}?limit=1",
+                "{}/v1/console/timeline/{}?limit=1",
                 env.base, player.uid
             ))
             .bearer_auth(console)
@@ -340,7 +340,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
     let page = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/timeline/{}?limit=1&before={}",
+                "{}/v1/console/timeline/{}?limit=1&before={}",
                 env.base, player.uid, cursor
             ))
             .bearer_auth(console)
@@ -360,7 +360,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
     refusal(
         env.client
             .get(format!(
-                "{}/v2/console/timeline/00000000-0000-0000-0000-000000000000",
+                "{}/v1/console/timeline/00000000-0000-0000-0000-000000000000",
                 env.base
             ))
             .bearer_auth(console)
@@ -373,7 +373,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
     .await;
     let viewer_page = json_body(
         env.client
-            .get(format!("{}/v2/console/timeline/{}", env.base, player.uid))
+            .get(format!("{}/v1/console/timeline/{}", env.base, player.uid))
             .bearer_auth(viewer)
             .send()
             .await
@@ -390,7 +390,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
     let empty = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/economy/summary?from=2026-01-01&to=2026-01-02",
+                "{}/v1/console/economy/summary?from=2026-01-01&to=2026-01-02",
                 env.base
             ))
             .bearer_auth(console)
@@ -408,7 +408,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
 
     let summary = json_body(
         env.client
-            .get(format!("{}/v2/console/economy/summary", env.base))
+            .get(format!("{}/v1/console/economy/summary", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -429,7 +429,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
     refusal(
         env.client
             .get(format!(
-                "{}/v2/console/economy/summary?from=not-a-date",
+                "{}/v1/console/economy/summary?from=not-a-date",
                 env.base
             ))
             .bearer_auth(console)
@@ -443,7 +443,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
     refusal(
         env.client
             .get(format!(
-                "{}/v2/console/economy/summary?from=2026-05-01&to=2026-01-01",
+                "{}/v1/console/economy/summary?from=2026-05-01&to=2026-01-01",
                 env.base
             ))
             .bearer_auth(console)
@@ -465,7 +465,7 @@ pub async fn p4_devx_surface_end_to_end() {
     let viewer_password = "e2e-console-viewer";
     json_body(
         env.client
-            .post(format!("{}/v2/console/user", env.base))
+            .post(format!("{}/v1/console/user", env.base))
             .bearer_auth(&console)
             .json(&json!({
                 "username": viewer_name,

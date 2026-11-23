@@ -1,3 +1,5 @@
+use crate::services::plane::Plane;
+
 use std::collections::HashMap;
 
 use axum::Json;
@@ -5,7 +7,6 @@ use uuid::Uuid;
 
 use super::super::validate;
 use super::super::verify::{self, Kind, Profile};
-use crate::ApiState;
 use crate::db::DbError;
 use crate::dto::session::SessionResponse;
 use crate::error::V2Error;
@@ -15,12 +16,11 @@ use crate::repositories::auth::{
 };
 use crate::repositories::db::Queries;
 use crate::repositories::models::Users;
-use crate::services::deps::q;
 use crate::services::quota;
 use crate::utils::auth::{existing, insert_failed, lookup_failed, session};
 
 pub(crate) async fn token(
-    state: &ApiState,
+    plane: &Plane,
     kind: Kind,
     raw: &str,
     requested_username: &str,
@@ -34,8 +34,8 @@ pub(crate) async fn token(
             kind.label()
         )));
     }
-    let profile = verify::profile(&state.control.social, kind, raw).await?;
-    let queries = q(state).await?;
+    let profile = verify::profile(&plane.control.social, kind, raw).await?;
+    let queries = plane.q().await?;
     let found = match kind {
         Kind::Apple => queries.get_user_by_apple_id(&profile.id).await,
         Kind::Facebook => queries.get_user_by_facebook_id(&profile.id).await,
@@ -45,7 +45,7 @@ pub(crate) async fn token(
     match found {
         Ok(user) => {
             let user = existing(user)?;
-            quota::charge(state, user.id, quota::LOGIN, 1).await?;
+            quota::charge(plane, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, false, vars))
         }
         Err(DbError::NotFound) if create => {
@@ -53,9 +53,9 @@ pub(crate) async fn token(
             let user = create_user(&queries, kind, &profile, &username)
                 .await
                 .map_err(insert_failed)?;
-            crate::services::games::tenant::stamp_user(state, user.id).await;
+            crate::services::games::tenant::stamp_user(plane, user.id).await;
             crate::services::webhook::emit(
-                state,
+                plane,
                 "account.created",
                 &user.id.to_string(),
                 serde_json::json!({
@@ -65,8 +65,8 @@ pub(crate) async fn token(
                 }),
             )
             .await;
-            crate::services::rules::dispatch::fire(state, "player_create", user.id).await;
-            quota::charge(state, user.id, quota::LOGIN, 1).await?;
+            crate::services::rules::dispatch::fire(plane, "player_create", user.id).await;
+            quota::charge(plane, user.id, quota::LOGIN, 1).await?;
             Ok(session(user.id, &user.username, true, vars))
         }
         Err(DbError::NotFound) => Err(V2Error::not_found("User account not found.")),

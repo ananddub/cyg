@@ -1,12 +1,10 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::group::{CreateGroupRequest, GroupEnvelope, GroupResponse};
 use crate::error::V2Error;
 use crate::repositories::group::{CreateGroupParams, JoinGroupEdgeParams};
-use crate::services::deps::q;
 use crate::services::social;
 use crate::utils::group::{ROLE_SUPERADMIN, metadata_of};
 
@@ -15,7 +13,7 @@ use super::{GROUP_CLOSED, GROUP_OPEN, GroupService};
 impl GroupService {
     pub async fn create_group(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         body: CreateGroupRequest,
     ) -> Result<Json<GroupEnvelope>, V2Error> {
@@ -32,7 +30,7 @@ impl GroupService {
             }
             Some(n) => n,
         };
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let creator = match body.creator_id.as_deref() {
             None | Some("") => auth.0.uuid()?,
             Some(raw) => {

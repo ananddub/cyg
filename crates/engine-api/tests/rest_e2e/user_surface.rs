@@ -8,7 +8,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/user?ids={}", a.uid))
+                .get(format!("{base}/v1/user?ids={}", a.uid))
                 .send()
                 .await
                 .unwrap(),
@@ -21,7 +21,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let empty = json_body(
         client
-            .get(format!("{base}/v2/user"))
+            .get(format!("{base}/v1/user"))
             .bearer_auth(&a.token)
             .send()
             .await
@@ -34,7 +34,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let found = json_body(
         client
-            .get(format!("{base}/v2/user?ids={}", a.uid))
+            .get(format!("{base}/v1/user?ids={}", a.uid))
             .bearer_auth(&a.token)
             .send()
             .await
@@ -55,7 +55,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
     let both = json_body(
         client
             .get(format!(
-                "{base}/v2/user?ids={},{}&usernames={}",
+                "{base}/v1/user?ids={},{}&usernames={}",
                 a.uid, b.uid, b.username
             ))
             .bearer_auth(&a.token)
@@ -71,7 +71,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
     let missing = json_body(
         client
             .get(format!(
-                "{base}/v2/user?ids={}&usernames=absent{}",
+                "{base}/v1/user?ids={}&usernames=absent{}",
                 Uuid::new_v4(),
                 letters_suffix()
             ))
@@ -87,7 +87,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let bad_id = refusal(
         client
-            .get(format!("{base}/v2/user?ids=not-a-uuid"))
+            .get(format!("{base}/v1/user?ids=not-a-uuid"))
             .bearer_auth(&a.token)
             .send()
             .await
@@ -100,7 +100,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let by_body = json_body(
         client
-            .post(format!("{base}/v2/user"))
+            .post(format!("{base}/v1/user"))
             .bearer_auth(&a.token)
             .json(&json!({ "ids": [a.uid], "usernames": [b.username] }))
             .send()
@@ -114,7 +114,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let single = json_body(
         client
-            .get(format!("{base}/v2/user/{}", a.uid))
+            .get(format!("{base}/v1/user/{}", a.uid))
             .bearer_auth(&a.token)
             .send()
             .await
@@ -126,7 +126,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(single["users"][0]["username"], a.username);
     let by_name = json_body(
         client
-            .get(format!("{base}/v2/user/{}", b.username))
+            .get(format!("{base}/v1/user/{}", b.username))
             .bearer_auth(&a.token)
             .send()
             .await
@@ -139,7 +139,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/user/absent{}", letters_suffix()))
+                .get(format!("{base}/v1/user/absent{}", letters_suffix()))
                 .bearer_auth(&a.token)
                 .send()
                 .await
@@ -154,7 +154,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
     set_disable(pool, &b.uid, &engine_api::db::time::encode(Utc::now())).await;
     let hidden = json_body(
         client
-            .get(format!("{base}/v2/user?ids={}", b.uid))
+            .get(format!("{base}/v1/user?ids={}", b.uid))
             .bearer_auth(&a.token)
             .send()
             .await
@@ -167,7 +167,7 @@ pub async fn user_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/user/{}", b.uid))
+                .get(format!("{base}/v1/user/{}", b.uid))
                 .bearer_auth(&a.token)
                 .send()
                 .await

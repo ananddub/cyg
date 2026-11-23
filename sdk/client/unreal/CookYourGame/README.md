@@ -322,11 +322,11 @@ FCYGBaasAuth::LoginDevice([](bool bOk, const FCYGBaasSession& Session)
 
 | Surface | Endpoints | Notes |
 | --- | --- | --- |
-| `FCYGBaasAuth` | `POST /v2/account/authenticate/{device,email,custom}` | `create=true\|false` and an optional `username` go in the query, matching the Unity client |
-| `FCYGBaasStorage` | `POST/PUT /v2/storage`, `PUT /v2/storage/delete`, `GET /v2/storage/{collection}` | values are JSON text; a write carries `permission_read`/`permission_write` |
-| `FCYGBaasLeaderboard` | `POST/GET /v2/leaderboard/{id}` | what a submission does with a score is the server's decision, not asserted here |
-| `FCYGBaasInventory` | `GET /v2/inventory`, `POST /v2/inventory/{equip,consume,grant}` | an operation is reported successful only after the refreshed cache came back |
-| `FCYGBaasChat` | `GET /v2/channel/{id}`, `POST/PUT/DELETE /v2/channel/{id}/message[/{message_id}]` | a bounded local timeline; build the dotted id with `RoomChannelId`/`GroupChannelId`/`DirectChannelId`; `Send` wraps text as `{"text":…}`, `SendContent`/`EditContent` take raw JSON, `Ingest` accepts a live message |
+| `FCYGBaasAuth` | `POST /v1/account/authenticate/{device,email,custom}` | `create=true\|false` and an optional `username` go in the query, matching the Unity client |
+| `FCYGBaasStorage` | `POST/PUT /v1/storage`, `PUT /v1/storage/delete`, `GET /v1/storage/{collection}` | values are JSON text; a write carries `permission_read`/`permission_write` |
+| `FCYGBaasLeaderboard` | `POST/GET /v1/leaderboard/{id}` | what a submission does with a score is the server's decision, not asserted here |
+| `FCYGBaasInventory` | `GET /v1/inventory`, `POST /v1/inventory/{equip,consume,grant}` | an operation is reported successful only after the refreshed cache came back |
+| `FCYGBaasChat` | `GET /v1/channel/{id}`, `POST/PUT/DELETE /v1/channel/{id}/message[/{message_id}]` | a bounded local timeline; build the dotted id with `RoomChannelId`/`GroupChannelId`/`DirectChannelId`; `Send` wraps text as `{"text":…}`, `SendContent`/`EditContent` take raw JSON, `Ingest` accepts a live message |
 
 An account is not a room: signing in needs no seat, and a seat needs no account.
 `FCYGBaasAuth` publishes the bearer it obtained to `FCYGBaasHttp`, so service calls

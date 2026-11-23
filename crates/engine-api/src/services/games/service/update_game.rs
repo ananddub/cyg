@@ -1,10 +1,9 @@
-use crate::services::deps::q;
-
 use super::*;
 
 impl GamesService {
     pub async fn update_game(
-        state: &ApiState,
+        &self,
+
         game_id: Uuid,
         body: &UpdateGameRequest,
         author: Option<&str>,
@@ -26,7 +25,7 @@ impl GamesService {
             ));
         }
 
-        let current = Self::find_game(state, game_id).await?;
+        let current = Self::find_game(self, game_id).await?;
 
         let name = match patch_name {
             Some(name) => name,
@@ -64,7 +63,9 @@ impl GamesService {
         }
         let config = serde_json::Value::Object(map);
 
-        let row = q(state)
+        let row = self
+            .plane
+            .q()
             .await?
             .update_game(&UpdateGameParams {
                 id: game_id,
@@ -77,20 +78,21 @@ impl GamesService {
             .await
             .map_err(V2Error::from)?;
 
-        Self::record_config_versions(state, game_id, &current.config, &config, author).await;
+        Self::record_config_versions(self, game_id, &current.config, &config, author).await;
 
         let tick_rate = config
             .get("tick_rate")
             .and_then(|v| v.as_u64())
             .map(|v| v as u32);
         if let Some(tick_rate) = tick_rate {
-            if crate::services::games::tenant::game_id(state)
+            if crate::services::games::tenant::game_id(&self.plane)
                 .await
                 .ok()
                 .flatten()
                 .is_some_and(|hosted| hosted == game_id)
             {
-                let _ = state
+                let _ = self
+                    .plane
                     .bus
                     .settings_tx
                     .try_send(engine_bus::SettingsReload { tick_rate });
@@ -99,17 +101,20 @@ impl GamesService {
 
         Ok(GameDto::from(GameRow::from(row)))
     }
-    pub async fn archive_game(state: &ApiState, game_id: Uuid) -> Result<bool, V2Error> {
-        Self::find_game(state, game_id).await?;
-        let done = q(state)
+    pub async fn archive_game(&self, game_id: Uuid) -> Result<bool, V2Error> {
+        Self::find_game(self, game_id).await?;
+        let done = self
+            .plane
+            .q()
             .await?
             .archive_game(game_id)
             .await
             .map_err(V2Error::from)?;
         Ok(done.rows_affected() > 0)
     }
-    pub async fn find_game(state: &ApiState, game_id: Uuid) -> Result<GameRow, V2Error> {
-        q(state)
+    pub async fn find_game(&self, game_id: Uuid) -> Result<GameRow, V2Error> {
+        self.plane
+            .q()
             .await?
             .find_game_by_id(game_id)
             .await
@@ -119,11 +124,10 @@ impl GamesService {
             .map(GameRow::from)
             .ok_or_else(|| V2Error::not_found(NOT_FOUND))
     }
-    pub async fn find_game_by_key(
-        state: &ApiState,
-        game_key: &str,
-    ) -> Result<Option<GameRow>, V2Error> {
-        Ok(q(state)
+    pub async fn find_game_by_key(&self, game_key: &str) -> Result<Option<GameRow>, V2Error> {
+        Ok(self
+            .plane
+            .q()
             .await?
             .find_game_by_key(game_key)
             .await
@@ -132,12 +136,10 @@ impl GamesService {
             .next()
             .map(GameRow::from))
     }
-    pub async fn verify_api_key(
-        state: &ApiState,
-        game_key: &str,
-        api_key: &str,
-    ) -> Result<bool, V2Error> {
-        let Some(stored) = q(state)
+    pub async fn verify_api_key(&self, game_key: &str, api_key: &str) -> Result<bool, V2Error> {
+        let Some(stored) = self
+            .plane
+            .q()
             .await?
             .find_game_secret_by_key(game_key)
             .await
@@ -149,11 +151,10 @@ impl GamesService {
         };
         Ok(secrets_match(stored.as_bytes(), api_key.as_bytes()))
     }
-    pub async fn active_module_version(
-        state: &ApiState,
-        game_id: Uuid,
-    ) -> Result<Option<i32>, V2Error> {
-        Ok(q(state)
+    pub async fn active_module_version(&self, game_id: Uuid) -> Result<Option<i32>, V2Error> {
+        Ok(self
+            .plane
+            .q()
             .await?
             .active_room_module_version(game_id)
             .await
@@ -161,8 +162,9 @@ impl GamesService {
             .into_iter()
             .next())
     }
-    pub async fn module_count(state: &ApiState, game_id: Uuid) -> Result<i64, V2Error> {
-        q(state)
+    pub async fn module_count(&self, game_id: Uuid) -> Result<i64, V2Error> {
+        self.plane
+            .q()
             .await?
             .count_room_modules(game_id)
             .await

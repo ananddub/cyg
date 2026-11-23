@@ -163,7 +163,9 @@ impl Queries {
                 Ok(_) => return Ok(()),
                 Err(err) if attempt < 2 => {
                     attempt += 1;
-                    tracing::warn!("[db] match outcome post conflict (attempt {attempt}), retrying: {err}");
+                    tracing::warn!(
+                        "[db] match outcome post conflict (attempt {attempt}), retrying: {err}"
+                    );
                 }
                 Err(err) => return Err(err),
             }

@@ -143,11 +143,7 @@ impl GameTransport for UdpTransport {
             )
         {
             let ids: Vec<String> = self.peer_addrs.keys().cloned().collect();
-            if !ids.is_empty()
-                && ids
-                    .iter()
-                    .all(|id| self.start_chunk(id, opcode, payload))
-            {
+            if !ids.is_empty() && ids.iter().all(|id| self.start_chunk(id, opcode, payload)) {
                 return Ok(());
             }
         }

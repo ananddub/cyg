@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn easy_mode_defaults_to_30hz_and_20hz_remains_available() {
     let cfg = crate::parse_config(CONFIG_TEMPLATE);
@@ -86,5 +85,9 @@ fn views_permission_is_deny_by_default_and_configurable() {
     let cfg = crate::parse_config("allow_views = true\n");
     assert!(cfg.permissions.views);
     assert!(!crate::GameConfig::default().permissions.rewind);
-    assert!(crate::parse_config("allow_rewind = true\n").permissions.rewind);
+    assert!(
+        crate::parse_config("allow_rewind = true\n")
+            .permissions
+            .rewind
+    );
 }

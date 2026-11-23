@@ -1,30 +1,31 @@
-use crate::services::deps::q;
+use crate::services::plane::Plane;
+
 use crate::utils::config::configured;
 
 use super::*;
 
-pub async fn resolve(state: &ApiState) -> Result<Option<GameRow>, V2Error> {
-    if let Some(raw) = configured(state.game.game_id.as_deref()) {
+pub async fn resolve(plane: &Plane) -> Result<Option<GameRow>, V2Error> {
+    if let Some(raw) = configured(plane.game.game_id.as_deref()) {
         let id = Uuid::parse_str(raw)
             .map_err(|_| V2Error::internal(format!("Configured game_id '{raw}' is not a UUID.")))?;
-        let game = by_id(state, id).await?;
+        let game = by_id(plane, id).await?;
         if game.is_none() {
             tracing::warn!("[tenancy] configured game_id {id} is not registered");
         }
         return Ok(game);
     }
-    if let Some(key) = configured(state.game.game_key.as_deref()) {
-        let game = by_key(state, key).await?;
+    if let Some(key) = configured(plane.game.game_key.as_deref()) {
+        let game = by_key(plane, key).await?;
         if game.is_none() {
             tracing::warn!("[tenancy] configured game_key '{key}' is not registered");
         }
         return Ok(game);
     }
-    if let Some(name) = configured(Some(&state.game.name)) {
-        if let Ok(Some(game)) = by_name(state, name).await {
+    if let Some(name) = configured(Some(&plane.game.name)) {
+        if let Ok(Some(game)) = by_name(plane, name).await {
             return Ok(Some(game));
         }
-        match auto_register(state, name).await {
+        match auto_register(plane, name).await {
             Ok(game) => {
                 tracing::info!(
                     "[tenancy] auto-registered game '{}' ({})",
@@ -38,13 +39,13 @@ pub async fn resolve(state: &ApiState) -> Result<Option<GameRow>, V2Error> {
             }
         }
     }
-    sole_active(state).await
+    sole_active(plane).await
 }
-pub async fn game_id(state: &ApiState) -> Result<Option<Uuid>, V2Error> {
-    Ok(resolve(state).await?.map(|game| game.id))
+pub async fn game_id(plane: &Plane) -> Result<Option<Uuid>, V2Error> {
+    Ok(resolve(plane).await?.map(|game| game.id))
 }
-pub async fn backfill(state: &ApiState, game_id: Uuid) {
-    let Ok(queries) = q(state).await else {
+pub async fn backfill(plane: &Plane, game_id: Uuid) {
+    let Ok(queries) = plane.q().await else {
         return;
     };
     for (table, claimed) in [
@@ -78,19 +79,19 @@ pub async fn backfill(state: &ApiState, game_id: Uuid) {
         }
     }
 }
-pub async fn stamp_user(state: &ApiState, user_id: Uuid) {
-    let Ok(queries) = q(state).await else {
+pub async fn stamp_user(plane: &Plane, user_id: Uuid) {
+    let Ok(queries) = plane.q().await else {
         return;
     };
-    let Ok(Some(game_id)) = game_id(state).await else {
+    let Ok(Some(game_id)) = game_id(plane).await else {
         return;
     };
     if let Err(err) = queries.stamp_user_game(game_id, user_id).await {
         tracing::warn!("[tenancy] could not stamp user {user_id}: {err}");
     }
 }
-pub async fn stamp_user_as(state: &ApiState, user_id: Uuid, game_id: Option<Uuid>) {
-    let (Ok(queries), Some(game_id)) = (q(state).await, game_id) else {
+pub async fn stamp_user_as(plane: &Plane, user_id: Uuid, game_id: Option<Uuid>) {
+    let (Ok(queries), Some(game_id)) = (plane.q().await, game_id) else {
         return;
     };
     if let Err(err) = queries.stamp_user_game(game_id, user_id).await {
@@ -98,12 +99,13 @@ pub async fn stamp_user_as(state: &ApiState, user_id: Uuid, game_id: Option<Uuid
     }
 }
 pub async fn list_accounts(
-    state: &ApiState,
+    plane: &Plane,
     game: Option<Uuid>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<Users>, V2Error> {
-    q(state)
+    plane
+        .q()
         .await?
         .tenancy_accounts(game, limit, offset)
         .await

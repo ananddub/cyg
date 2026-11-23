@@ -15,7 +15,7 @@ struct ReportController {
     service: Arc<ReportService>,
 }
 
-#[controller("/v2/reports")]
+#[controller("/v1/reports")]
 impl ReportController {
     fn new(service: Arc<ReportService>) -> Self {
         Self { service }
@@ -25,7 +25,7 @@ impl ReportController {
     async fn create_report(&self, auth: Authed, Body(req): Body<CreateReportRequest>) -> Response {
         let state = current_state();
         self.service
-            .create(&state, &auth, req)
+            .create(&auth, req)
             .await
             .into_response()
     }
@@ -33,7 +33,7 @@ impl ReportController {
     #[get("")]
     async fn list_reports(&self, auth: ConsoleAuthed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
-        self.service.list(&state, &auth, req).await.into_response()
+        self.service.list(&auth, req).await.into_response()
     }
 
     #[put("/{id}/status")]
@@ -45,7 +45,7 @@ impl ReportController {
     ) -> Response {
         let state = current_state();
         self.service
-            .set_status(&state, &auth, &id, req)
+            .set_status(&auth, &id, req)
             .await
             .into_response()
     }

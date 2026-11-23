@@ -2,23 +2,21 @@ use axum::Json;
 use axum::http::HeaderMap;
 
 use super::bearer;
-use crate::ApiState;
 use crate::dto::Empty;
 use crate::dto::auth;
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::utils::unlink::{last_account, refused};
 
 impl super::UnlinkService {
     pub async fn email(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::EmailAccount,
     ) -> Result<Json<Empty>, V2Error> {
         const FAILED: &str = "Error while trying to unlink email.";
-        let uid = bearer(headers, state)?;
-        let queries = q(state).await?;
+        let uid = bearer(headers, &self.plane)?;
+        let queries = self.plane.q().await?;
         if !account.email.is_empty() {
             let address = account.email.to_lowercase();
             let user = queries.get_user_by_id(uid).await.map_err(refused(FAILED))?;
@@ -32,13 +30,13 @@ impl super::UnlinkService {
 
     pub async fn custom(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::IdAccount,
     ) -> Result<Json<Empty>, V2Error> {
         const FAILED: &str = "Error while trying to unlink custom ID.";
-        let uid = bearer(headers, state)?;
-        let queries = q(state).await?;
+        let uid = bearer(headers, &self.plane)?;
+        let queries = self.plane.q().await?;
         if !account.id.is_empty() {
             let user = queries.get_user_by_id(uid).await.map_err(refused(FAILED))?;
             if user.custom_id.as_deref() != Some(account.id.as_str()) {

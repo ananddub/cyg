@@ -101,7 +101,8 @@ pub(crate) async fn the_persisted_config_round_trips_the_room_tuning_fields() {
         "auto_close_seconds": 5,
     }}))
     .expect("a config patch");
-    let patched = GamesService::update_game(&state, game.id, &patched, None)
+    let patched = GamesService::new(state.plane())
+        .update_game(game.id, &patched, None)
         .await
         .expect("the second config is stored");
     assert_eq!(patched.config["tick_rate"], json!(120));
@@ -110,7 +111,8 @@ pub(crate) async fn the_persisted_config_round_trips_the_room_tuning_fields() {
 
     let renamed: UpdateGameRequest =
         serde_json::from_value(json!({"name": "Still The Same Tuning"})).expect("a patch");
-    let kept = GamesService::update_game(&state, game.id, &renamed, None)
+    let kept = GamesService::new(state.plane())
+        .update_game(game.id, &renamed, None)
         .await
         .expect("a rename is applied");
     assert_eq!(

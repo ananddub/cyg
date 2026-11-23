@@ -125,10 +125,8 @@ impl UdpTransport {
         let Ok(sender) = ChunkSender::new(self.chunk_seq, block, DEFAULT_SLICE_SIZE) else {
             return false;
         };
-        self.chunk_out.insert(
-            client_id.to_string(),
-            ChunkOut { sender, opcode },
-        );
+        self.chunk_out
+            .insert(client_id.to_string(), ChunkOut { sender, opcode });
         self.pump_chunk(client_id, addr, CHUNK_BURST);
         true
     }
@@ -408,5 +406,4 @@ mod tests {
         assert_eq!(&assembled[1..], payload.as_slice());
         assert!(datagrams > 20, "block really was chunked and retransmitted");
     }
-
 }

@@ -5,7 +5,13 @@ use crate::options::Docs;
 pub(crate) struct Route {
     pub(crate) method: Ident,
     pub(crate) handler: Ident,
+    /// The documented path, with the API version it was authored under
+    /// (`/v1/leaderboard/{id}`). The spec rewrites the version segment.
     pub(crate) path: LitStr,
+    /// The same path without the leading version segment
+    /// (`/leaderboard/{id}`), which is what the router registers so the plane
+    /// can mount one versioned tree at more than one base.
+    pub(crate) route_path: LitStr,
     pub(crate) docs: Docs,
     pub(crate) argument_types: Vec<Type>,
     pub(crate) request_body: Option<RequestBody>,

@@ -1,15 +1,10 @@
-use crate::services::deps::{blobs, q};
-
 use super::*;
 
 impl MapService {
-    pub async fn delete_map(
-        &self,
-        state: &ApiState,
-        game_id: Uuid,
-        version: i32,
-    ) -> Result<(), V2Error> {
-        let flags = q(state)
+    pub async fn delete_map(&self, game_id: Uuid, version: i32) -> Result<(), V2Error> {
+        let flags = self
+            .plane
+            .q()
             .await?
             .game_map_active_flag(game_id, version)
             .await
@@ -27,34 +22,38 @@ impl MapService {
             }
             Some(false) => {}
         }
-        let deleted = q(state)
+        let deleted = self
+            .plane
+            .q()
             .await?
             .delete_game_map(game_id, version)
             .await
             .map_err(V2Error::from)?;
         for row in deleted {
             if let Some(key) = row.blob_key
-                && let Err(err) = blobs(state).await?.delete(&key).await
+                && let Err(err) = self.plane.blobs().await?.delete(&key).await
             {
                 tracing::warn!("[maps] orphaned blob {key}: {err}");
             }
         }
         Ok(())
     }
-    pub async fn load_boot_maps(state: &ApiState) -> BootMaps {
-        Self::try_load_boot_maps(state).await.unwrap_or_default()
+    pub async fn load_boot_maps(&self) -> BootMaps {
+        Self::try_load_boot_maps(self).await.unwrap_or_default()
     }
-    async fn try_load_boot_maps(state: &ApiState) -> Result<BootMaps, V2Error> {
-        let Some(game_id) = crate::services::games::tenant::game_id(state).await? else {
+    async fn try_load_boot_maps(&self) -> Result<BootMaps, V2Error> {
+        let Some(game_id) = crate::services::games::tenant::game_id(&self.plane).await? else {
             return Ok(BootMaps::default());
         };
-        let rows = q(state)
+        let rows = self
+            .plane
+            .q()
             .await?
             .load_active_game_maps(game_id)
             .await
             .map_err(V2Error::from)?;
 
-        let blobs = blobs(state).await?;
+        let blobs = self.plane.blobs().await?;
         let mut maps = BootMaps::default();
         for row in rows {
             let Some(format) = MapFormat::parse(&row.format) else {
@@ -143,8 +142,8 @@ impl MapService {
         }
         Ok(())
     }
-    pub(super) fn publish_reload(state: &ApiState, game_key: &str, map: &MapDto, bytes: &[u8]) {
-        let _ = state.bus.map_reloads_tx.try_send(MapReload {
+    pub(super) fn publish_reload(&self, game_key: &str, map: &MapDto, bytes: &[u8]) {
+        let _ = self.plane.bus.map_reloads_tx.try_send(MapReload {
             game_key: game_key.to_owned(),
             version: map.version,
             format: map.format.clone(),

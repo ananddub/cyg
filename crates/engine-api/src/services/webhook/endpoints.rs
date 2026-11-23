@@ -1,7 +1,6 @@
 use axum::Json;
 use chrono::Utc;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::webhook::{
@@ -10,18 +9,14 @@ use crate::dto::webhook::{
 use crate::error::V2Error;
 use crate::infra::webhook;
 use crate::services::console::{audit, id};
-use crate::services::deps::q;
 
 use super::EVENTS;
 use super::WebhookService;
 use super::drafting::{draft, new_secret};
 
 impl WebhookService {
-    pub async fn list_endpoints(
-        &self,
-        state: &ApiState,
-    ) -> Result<Json<EndpointListResponse>, V2Error> {
-        let rows = q(state).await?.list_webhook_endpoints().await?;
+    pub async fn list_endpoints(&self) -> Result<Json<EndpointListResponse>, V2Error> {
+        let rows = self.plane.q().await?.list_webhook_endpoints().await?;
         Ok(Json(EndpointListResponse {
             success: true,
             endpoints: rows.iter().map(EndpointRow::from).collect(),
@@ -40,7 +35,7 @@ impl WebhookService {
 
     pub async fn create_endpoint(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         mut body: EndpointRequest,
     ) -> Result<Json<EndpointCreatedResponse>, V2Error> {
@@ -49,14 +44,14 @@ impl WebhookService {
             body.secret = Some(new_secret());
         }
         let endpoint = draft(None, body, Utc::now())?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         if !queries.create_webhook_endpoint(&endpoint).await? {
             return Err(V2Error::already_exists(
                 "A webhook endpoint with this id already exists.",
             ));
         }
         audit(
-            state,
+            &self.plane,
             claims,
             "webhook.create",
             "webhook",
@@ -75,14 +70,14 @@ impl WebhookService {
     /// row, because editing a URL must not silently change how deliveries sign.
     pub async fn update_endpoint(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         endpoint_id: &str,
         mut body: EndpointRequest,
     ) -> Result<Json<EndpointRow>, V2Error> {
         claims.require_write()?;
         let id = id(endpoint_id, "webhook endpoint")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let Some(existing) = queries.webhook_endpoint(id).await? else {
             return Err(V2Error::not_found("Webhook endpoint not found."));
         };
@@ -92,7 +87,7 @@ impl WebhookService {
         let row = draft(Some(existing), body, Utc::now())?;
         queries.update_webhook_endpoint(&row).await?;
         audit(
-            state,
+            &self.plane,
             claims,
             "webhook.update",
             "webhook",
@@ -105,19 +100,19 @@ impl WebhookService {
 
     pub async fn delete_endpoint(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         endpoint_id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = id(endpoint_id, "webhook endpoint")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let Some(existing) = queries.webhook_endpoint(id).await? else {
             return Err(V2Error::not_found("Webhook endpoint not found."));
         };
         queries.delete_webhook_endpoint(id).await?;
         audit(
-            state,
+            &self.plane,
             claims,
             "webhook.delete",
             "webhook",

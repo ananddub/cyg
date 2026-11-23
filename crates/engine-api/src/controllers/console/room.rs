@@ -11,7 +11,7 @@ struct ConsoleRoomController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/room")]
+#[controller("/v1/console/room")]
 impl ConsoleRoomController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -23,6 +23,6 @@ impl ConsoleRoomController {
     #[get("")]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        self.service.list_rooms(&state).await.into_response()
+        self.service.list_rooms().await.into_response()
     }
 }

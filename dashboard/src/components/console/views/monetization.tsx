@@ -245,7 +245,7 @@ export function SubscriptionsView() {
         confirmLabel="Cancel product"
         destructive
         method="DELETE"
-        // DELETE /v2/console/subscription/{product_id} answers Empty ({}), so the
+        // DELETE /v1/console/subscription/{product_id} answers Empty ({}), so the
         // refresh rides the shared invalidation; the id comes from the row state.
         path={`${CONSOLE_ENDPOINTS.subscriptions}/${encodeURIComponent(cancelling?.product_id ?? "")}`}
         success="Subscriptions for the product cancelled."

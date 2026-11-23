@@ -12,6 +12,9 @@ impl Harness {
             seat_secret: "e2e-seat-secret".into(),
             rate_limit_rps: 1000,
             rate_limit_burst: 1000,
+            // A suite authenticates dozens of players from loopback;
+            // the production password window would refuse them.
+            auth_rate_limit_burst: 10_000,
             session: SessionConfig {
                 database_endpoint: "mem://".into(),
                 signing_key: "e2e-signing-key".into(),

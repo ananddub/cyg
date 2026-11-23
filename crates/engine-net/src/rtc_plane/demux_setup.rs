@@ -25,7 +25,12 @@ pub(super) fn route_datagram(
     stats: &DemuxStats,
 ) {
     if let Some(sid) = addr_routes.get(&from) {
-        deliver(sid, sessions, SessionInbound::Datagram { from, bytes }, stats);
+        deliver(
+            sid,
+            sessions,
+            SessionInbound::Datagram { from, bytes },
+            stats,
+        );
         return;
     }
     for sid in unbound {

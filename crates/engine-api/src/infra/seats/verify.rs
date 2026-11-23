@@ -1,8 +1,8 @@
 use hmac::Mac;
 
+use super::Seat;
 use super::b64::{b64url, b64url_decode};
 use super::registry::{HmacSha256, SeatRegistry};
-use super::Seat;
 
 /// FNV-1a over the token bytes: distinguishes two fallback seats that share a
 /// room and expiry, so one cannot route onto the other's signaling lane.

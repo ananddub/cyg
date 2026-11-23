@@ -29,13 +29,13 @@ pub async fn realtime_socket_every_event_end_to_end() {
 
     let list = json_body(
         env.client
-            .get(format!("{}/v2/match", env.base))
+            .get(format!("{}/v1/match", env.base))
             .bearer_auth(&alice.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/match lists relay matches",
+        "GET /v1/match lists relay matches",
     )
     .await;
     let ids: Vec<&str> = list["matches"]
@@ -50,13 +50,13 @@ pub async fn realtime_socket_every_event_end_to_end() {
     );
     let label_only = json_body(
         env.client
-            .get(format!("{}/v2/match?min_size=1", env.base))
+            .get(format!("{}/v1/match?min_size=1", env.base))
             .bearer_auth(&alice.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/match filters by size",
+        "GET /v1/match filters by size",
     )
     .await;
     assert!(
@@ -65,24 +65,24 @@ pub async fn realtime_socket_every_event_end_to_end() {
     );
     refusal(
         env.client
-            .get(format!("{}/v2/match?limit=0", env.base))
+            .get(format!("{}/v1/match?limit=0", env.base))
             .bearer_auth(&alice.token)
             .send()
             .await
             .unwrap(),
         StatusCode::BAD_REQUEST,
-        "GET /v2/match validates limit",
+        "GET /v1/match validates limit",
     )
     .await;
     let stats = json_body(
         env.client
-            .get(format!("{}/v2/matchmaker/stats", env.base))
+            .get(format!("{}/v1/matchmaker/stats", env.base))
             .bearer_auth(&alice.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/matchmaker/stats",
+        "GET /v1/matchmaker/stats",
     )
     .await;
     assert_eq!(stats["ticket_count"], 0, "no tickets are queued yet");

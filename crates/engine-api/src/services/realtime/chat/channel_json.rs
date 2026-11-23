@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 
 impl RealtimeChatService {
@@ -33,12 +35,7 @@ impl RealtimeChatService {
             node: None,
         }
     }
-    pub(super) async fn assert_member(
-        &self,
-        state: &ApiState,
-        uid: Uuid,
-        stream: &Stream,
-    ) -> Result<(), V2Error> {
+    pub(super) async fn assert_member(&self, uid: Uuid, stream: &Stream) -> Result<(), V2Error> {
         match stream.mode {
             MODE_DM => {
                 if uid != stream.subject && uid != stream.descriptor {
@@ -47,7 +44,7 @@ impl RealtimeChatService {
                 Ok(())
             }
             MODE_GROUP => {
-                let queries = crate::services::deps::q(state).await?;
+                let queries = crate::services::deps::q(&self.plane).await?;
                 match queries.get_group_edge_state(uid, stream.subject).await {
                     Ok(code) if code <= ROLE_MEMBER => Ok(()),
                     Ok(_) | Err(DbError::NotFound) => {

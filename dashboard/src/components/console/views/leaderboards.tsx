@@ -128,7 +128,7 @@ export function LeaderboardsView() {
         confirmLabel="Delete board"
         destructive
         method="DELETE"
-        // DELETE /v2/console/leaderboard/{id} — the answer is an empty `{}`, so
+        // DELETE /v1/console/leaderboard/{id} — the answer is an empty `{}`, so
         // the list refresh comes from the shared invalidation, not the reply.
         path={`${CONSOLE_ENDPOINTS.leaderboards}/${encodeURIComponent(deleting?.id ?? "")}`}
         success="Leaderboard deleted."

@@ -10,7 +10,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group"))
+                .post(format!("{base}/v1/group"))
                 .bearer_auth(&owner.token)
                 .json(&json!({ "name": "" }))
                 .send()
@@ -25,7 +25,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group"))
+                .post(format!("{base}/v1/group"))
                 .bearer_auth(&owner.token)
                 .json(&json!({ "name": format!("e2e-bad-{}", letters_suffix()), "max_count": -1 }))
                 .send()
@@ -40,7 +40,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group"))
+                .post(format!("{base}/v1/group"))
                 .bearer_auth(&owner.token)
                 .json(&json!({
                     "name": format!("e2e-bad-{}", letters_suffix()),
@@ -58,7 +58,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group"))
+                .post(format!("{base}/v1/group"))
                 .bearer_auth(&owner.token)
                 .json(&json!({ "name": format!("e2e-bad-{}", letters_suffix()), "metadata": "{not json" }))
                 .send()
@@ -74,7 +74,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     let open_name = format!("e2e-open-{}", letters_suffix());
     let created = api_post(
         client,
-        format!("{base}/v2/group"),
+        format!("{base}/v1/group"),
         &owner.token,
         json!({
             "name": open_name,
@@ -107,7 +107,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group"))
+                .post(format!("{base}/v1/group"))
                 .bearer_auth(&owner.token)
                 .json(&json!({ "name": open_name }))
                 .send()
@@ -122,7 +122,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let fetched = api_get(
         client,
-        format!("{base}/v2/group/{open_id}"),
+        format!("{base}/v1/group/{open_id}"),
         &owner.token,
         "get a group",
     )
@@ -131,7 +131,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/group/not-a-uuid"))
+                .get(format!("{base}/v1/group/not-a-uuid"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -145,7 +145,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/group/{}", Uuid::new_v4()))
+                .get(format!("{base}/v1/group/{}", Uuid::new_v4()))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -159,7 +159,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let by_name = api_get(
         client,
-        with_query(&format!("{base}/v2/group"), &[("name", open_name.as_str())]),
+        with_query(&format!("{base}/v1/group"), &[("name", open_name.as_str())]),
         &owner.token,
         "searching groups by name",
     )
@@ -169,7 +169,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .get(with_query(
-                    &format!("{base}/v2/group"),
+                    &format!("{base}/v1/group"),
                     &[("name", open_name.as_str()), ("open", "true")],
                 ))
                 .bearer_auth(&owner.token)
@@ -185,7 +185,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let discover = api_get(
         client,
-        format!("{base}/v2/group?open=true&members=1"),
+        format!("{base}/v1/group?open=true&members=1"),
         &owner.token,
         "discovering open groups",
     )
@@ -201,7 +201,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let bad_bool = refusal(
         client
-            .get(format!("{base}/v2/group?open=maybe"))
+            .get(format!("{base}/v1/group?open=maybe"))
             .bearer_auth(&owner.token)
             .send()
             .await
@@ -217,7 +217,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/group?limit=0"))
+                .get(format!("{base}/v1/group?limit=0"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -231,7 +231,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/group?cursor=not-a-cursor"))
+                .get(format!("{base}/v1/group?cursor=not-a-cursor"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -246,7 +246,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_post_empty(
             client,
-            format!("{base}/v2/group/{open_id}/join"),
+            format!("{base}/v1/group/{open_id}/join"),
             &member1.token,
             "member1 joins the open group",
         )
@@ -261,7 +261,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group/{open_id}/join"))
+                .post(format!("{base}/v1/group/{open_id}/join"))
                 .bearer_auth(&member2.token)
                 .send()
                 .await
@@ -276,7 +276,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group/{open_id}/leave"))
+                .post(format!("{base}/v1/group/{open_id}/leave"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -290,7 +290,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_post_empty(
             client,
-            format!("{base}/v2/group/{open_id}/leave"),
+            format!("{base}/v1/group/{open_id}/leave"),
             &member1.token,
             "member1 leaves the open group",
         )
@@ -302,7 +302,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     api_post_empty(
         client,
-        format!("{base}/v2/group/{open_id}/join"),
+        format!("{base}/v1/group/{open_id}/join"),
         &member2.token,
         "member2 joins the freed slot",
     )
@@ -316,7 +316,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_post_empty(
             client,
-            format!("{base}/v2/group/{open_id}/ban?user_ids={}", member2.uid),
+            format!("{base}/v1/group/{open_id}/ban?user_ids={}", member2.uid),
             &owner.token,
             "owner bans member2",
         )
@@ -331,7 +331,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group/{open_id}/join"))
+                .post(format!("{base}/v1/group/{open_id}/join"))
                 .bearer_auth(&member2.token)
                 .send()
                 .await
@@ -346,7 +346,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_post_empty(
             client,
-            format!("{base}/v2/group/{open_id}/add"),
+            format!("{base}/v1/group/{open_id}/add"),
             &owner.token,
             "adding no users",
         )
@@ -356,7 +356,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group/{open_id}/add?user_ids=not-a-uuid"))
+                .post(format!("{base}/v1/group/{open_id}/add?user_ids=not-a-uuid"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -371,7 +371,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .post(format!(
-                    "{base}/v2/group/{open_id}/add?user_ids={}",
+                    "{base}/v1/group/{open_id}/add?user_ids={}",
                     Uuid::new_v4()
                 ))
                 .bearer_auth(&owner.token)
@@ -387,7 +387,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_post_empty(
             client,
-            format!("{base}/v2/group/{open_id}/add?user_ids={}", member1.uid),
+            format!("{base}/v1/group/{open_id}/add?user_ids={}", member1.uid),
             &owner.token,
             "owner adds member1",
         )
@@ -402,7 +402,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let roster = api_get(
         client,
-        format!("{base}/v2/group/{open_id}/user?limit=100"),
+        format!("{base}/v1/group/{open_id}/user?limit=100"),
         &owner.token,
         "the group roster",
     )
@@ -417,7 +417,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/group/{open_id}/user?state=5"))
+                .get(format!("{base}/v1/group/{open_id}/user?state=5"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -431,7 +431,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/group/{open_id}/user?limit=0"))
+                .get(format!("{base}/v1/group/{open_id}/user?limit=0"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -446,7 +446,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .get(format!(
-                    "{base}/v2/group/{open_id}/user?cursor=not-a-cursor"
+                    "{base}/v1/group/{open_id}/user?cursor=not-a-cursor"
                 ))
                 .bearer_auth(&owner.token)
                 .send()
@@ -461,7 +461,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     api_post_empty(
         client,
-        format!("{base}/v2/group/{open_id}/promote?user_ids={}", member1.uid),
+        format!("{base}/v1/group/{open_id}/promote?user_ids={}", member1.uid),
         &owner.token,
         "owner promotes member1",
     )
@@ -472,7 +472,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     );
     let admins = api_get(
         client,
-        format!("{base}/v2/group/{open_id}/user?state=1"),
+        format!("{base}/v1/group/{open_id}/user?state=1"),
         &owner.token,
         "the group's admins",
     )
@@ -485,7 +485,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .post(format!(
-                    "{base}/v2/group/{open_id}/kick?user_ids={}",
+                    "{base}/v1/group/{open_id}/kick?user_ids={}",
                     owner.uid
                 ))
                 .bearer_auth(&member1.token)
@@ -501,7 +501,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     api_post_empty(
         client,
-        format!("{base}/v2/group/{open_id}/demote?user_ids={}", member1.uid),
+        format!("{base}/v1/group/{open_id}/demote?user_ids={}", member1.uid),
         &owner.token,
         "owner demotes member1",
     )
@@ -514,7 +514,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_post_empty(
             client,
-            format!("{base}/v2/group/{open_id}/kick?user_ids={}", member1.uid),
+            format!("{base}/v1/group/{open_id}/kick?user_ids={}", member1.uid),
             &owner.token,
             "owner kicks member1",
         )
@@ -525,7 +525,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(group_count(pool, open).await, 1);
     let roster = api_get(
         client,
-        format!("{base}/v2/group/{open_id}/user?limit=100"),
+        format!("{base}/v1/group/{open_id}/user?limit=100"),
         &owner.token,
         "the roster after the kick",
     )
@@ -535,7 +535,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     let closed_name = format!("e2e-closed-{}", letters_suffix());
     let closed = api_post(
         client,
-        format!("{base}/v2/group"),
+        format!("{base}/v1/group"),
         &owner.token,
         json!({ "name": closed_name }),
         "create a closed group",
@@ -553,7 +553,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     api_post_empty(
         client,
-        format!("{base}/v2/group/{closed_id}/join"),
+        format!("{base}/v1/group/{closed_id}/join"),
         &outsider.token,
         "outsider requests to join the closed group",
     )
@@ -565,7 +565,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(group_count(pool, closed_uuid).await, 1);
     let request = api_get(
         client,
-        format!("{base}/v2/notification?limit=10&sender_id={}", outsider.uid),
+        format!("{base}/v1/notification?limit=10&sender_id={}", outsider.uid),
         &owner.token,
         "the owner's join-request notification",
     )
@@ -586,7 +586,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     api_post_empty(
         client,
-        format!("{base}/v2/group/{closed_id}/join"),
+        format!("{base}/v1/group/{closed_id}/join"),
         &outsider.token,
         "outsider requests again",
     )
@@ -598,7 +598,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     api_post_empty(
         client,
-        format!("{base}/v2/group/{closed_id}/add?user_ids={}", outsider.uid),
+        format!("{base}/v1/group/{closed_id}/add?user_ids={}", outsider.uid),
         &owner.token,
         "owner accepts the join request",
     )
@@ -610,7 +610,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(group_count(pool, closed_uuid).await, 2);
     let added = api_get(
         client,
-        format!("{base}/v2/notification?limit=10&sender_id={}", owner.uid),
+        format!("{base}/v1/notification?limit=10&sender_id={}", owner.uid),
         &outsider.token,
         "the added player's notification",
     )
@@ -630,7 +630,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .put(format!("{base}/v2/group/{closed_id}"))
+                .put(format!("{base}/v1/group/{closed_id}"))
                 .bearer_auth(&owner.token)
                 .json(&json!({}))
                 .send()
@@ -645,7 +645,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .put(format!("{base}/v2/group/{closed_id}"))
+                .put(format!("{base}/v1/group/{closed_id}"))
                 .bearer_auth(&owner.token)
                 .json(&json!({ "name": open_name }))
                 .send()
@@ -660,7 +660,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .put(format!("{base}/v2/group/{closed_id}"))
+                .put(format!("{base}/v1/group/{closed_id}"))
                 .bearer_auth(&owner.token)
                 .json(&json!({ "max_count": 0 }))
                 .send()
@@ -675,7 +675,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .put(format!("{base}/v2/group/{closed_id}"))
+                .put(format!("{base}/v1/group/{closed_id}"))
                 .bearer_auth(&outsider.token)
                 .json(&json!({ "description": "not mine" }))
                 .send()
@@ -690,7 +690,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_put(
             client,
-            format!("{base}/v2/group/{closed_id}"),
+            format!("{base}/v1/group/{closed_id}"),
             &owner.token,
             json!({ "description": "updated", "open": true }),
             "owner updates the group",
@@ -700,7 +700,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     );
     let updated = api_get(
         client,
-        format!("{base}/v2/group/{closed_id}"),
+        format!("{base}/v1/group/{closed_id}"),
         &owner.token,
         "the updated group",
     )
@@ -710,7 +710,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let groups = api_get(
         client,
-        format!("{base}/v2/user/{}/group", outsider.uid),
+        format!("{base}/v1/user/{}/group", outsider.uid),
         &owner.token,
         "the outsider's groups",
     )
@@ -724,7 +724,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     );
     let only_member = api_get(
         client,
-        format!("{base}/v2/user/{}/group?state=2", outsider.uid),
+        format!("{base}/v1/user/{}/group?state=2", outsider.uid),
         &owner.token,
         "the outsider's memberships",
     )
@@ -738,7 +738,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     );
     let none = api_get(
         client,
-        format!("{base}/v2/user/{}/group?state=0", outsider.uid),
+        format!("{base}/v1/user/{}/group?state=0", outsider.uid),
         &owner.token,
         "groups the outsider owns",
     )
@@ -747,7 +747,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/user/{}/group?state=5", outsider.uid))
+                .get(format!("{base}/v1/user/{}/group?state=5", outsider.uid))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -761,7 +761,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/user/{}/group?limit=0", outsider.uid))
+                .get(format!("{base}/v1/user/{}/group?limit=0", outsider.uid))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -775,7 +775,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/user/not-a-uuid/group"))
+                .get(format!("{base}/v1/user/not-a-uuid/group"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -790,7 +790,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_post_empty(
             client,
-            format!("{base}/v2/group/{closed_id}/leave"),
+            format!("{base}/v1/group/{closed_id}/leave"),
             &outsider.token,
             "outsider leaves the closed group",
         )
@@ -805,7 +805,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/group/{closed_id}/leave"))
+                .post(format!("{base}/v1/group/{closed_id}/leave"))
                 .bearer_auth(&outsider.token)
                 .send()
                 .await
@@ -820,7 +820,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .delete(format!("{base}/v2/group/{closed_id}"))
+                .delete(format!("{base}/v1/group/{closed_id}"))
                 .bearer_auth(&member1.token)
                 .send()
                 .await
@@ -834,7 +834,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_delete(
             client,
-            format!("{base}/v2/group/{closed_id}"),
+            format!("{base}/v1/group/{closed_id}"),
             &owner.token,
             "owner deletes the closed group",
         )
@@ -844,7 +844,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/group/{closed_id}"))
+                .get(format!("{base}/v1/group/{closed_id}"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await
@@ -857,7 +857,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     );
     let owner_groups = api_get(
         client,
-        format!("{base}/v2/user/{}/group?limit=100", owner.uid),
+        format!("{base}/v1/user/{}/group?limit=100", owner.uid),
         &owner.token,
         "the owner's groups after a delete",
     )
@@ -873,7 +873,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_delete(
             client,
-            format!("{base}/v2/group/{open_id}"),
+            format!("{base}/v1/group/{open_id}"),
             &owner.token,
             "owner deletes the open group",
         )
@@ -883,7 +883,7 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/group/{open_id}"))
+                .get(format!("{base}/v1/group/{open_id}"))
                 .bearer_auth(&owner.token)
                 .send()
                 .await

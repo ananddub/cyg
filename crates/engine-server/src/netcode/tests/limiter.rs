@@ -29,6 +29,10 @@ fn a_batch_is_charged_whole_or_refused_whole() {
     let mut limiter = InputRateLimiter::new(10, 5.0);
     let now = std::time::Instant::now();
     assert!(limiter.allow_n(now, 4));
-    assert_eq!(limiter.allow_n(now, 2), false, "not enough for the whole batch");
+    assert_eq!(
+        limiter.allow_n(now, 2),
+        false,
+        "not enough for the whole batch"
+    );
     assert!(limiter.allow_n(now, 1), "a partial charge never happened");
 }

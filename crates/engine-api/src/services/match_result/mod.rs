@@ -1,4 +1,6 @@
+use crate::services::plane::Plane;
 use auto_di::singleton;
+use std::sync::Arc;
 
 pub mod badges;
 pub mod record;
@@ -15,11 +17,13 @@ const MAX_SCORE: i64 = 1_000_000_000_000_000;
 /// The most one counter may be raised by one result.
 const MAX_INCREMENT: i64 = 1_000_000;
 
-pub struct MatchResultService;
+pub struct MatchResultService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 #[singleton]
 impl MatchResultService {
-    pub fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }

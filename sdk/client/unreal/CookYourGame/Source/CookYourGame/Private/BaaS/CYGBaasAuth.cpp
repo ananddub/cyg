@@ -81,7 +81,7 @@ FString FCYGBaasAuth::DeviceId()
 
 FString FCYGBaasAuth::LoginPath(const TCHAR* Method, bool bCreate, const FString& Username)
 {
-	FString Path = FString::Printf(TEXT("/v2/account/authenticate/%s?create=%s"), Method, bCreate ? TEXT("true") : TEXT("false"));
+	FString Path = FString::Printf(TEXT("/v1/account/authenticate/%s?create=%s"), Method, bCreate ? TEXT("true") : TEXT("false"));
 
 	if (!Username.IsEmpty())
 	{

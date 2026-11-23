@@ -38,9 +38,10 @@ fn rust_core_matches_cygjs_on_captured_deltas() {
     let dir = fixtures_dir();
     let descriptor = std::fs::read(dir.join("descriptor.bin")).expect("descriptor fixture");
     let payloads = std::fs::read(dir.join("payloads.bin")).expect("payload fixture");
-    let expected: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(dir.join("expected.json")).expect("expected fixture"))
-            .expect("expected.json");
+    let expected: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(dir.join("expected.json")).expect("expected fixture"),
+    )
+    .expect("expected.json");
 
     let mut core = ClientCore::new(&descriptor).expect("descriptor parses");
 
@@ -63,11 +64,19 @@ fn rust_core_matches_cygjs_on_captured_deltas() {
             }
         }
     }
-    assert!(applied > 0, "no payload decoded — fixture transport changed?");
-    assert!(ready, "never reached a kind-1 full snapshot; last error: {last_err:?}");
+    assert!(
+        applied > 0,
+        "no payload decoded — fixture transport changed?"
+    );
+    assert!(
+        ready,
+        "never reached a kind-1 full snapshot; last error: {last_err:?}"
+    );
 
     // Compare against cyg.js's decoded players for the same bytes.
-    let players = expected.get("players").and_then(|v| v.as_array())
+    let players = expected
+        .get("players")
+        .and_then(|v| v.as_array())
         .expect("expected.json players array");
     assert!(!players.is_empty(), "cyg.js decoded no players");
 
@@ -75,7 +84,9 @@ fn rust_core_matches_cygjs_on_captured_deltas() {
     let coll = state.collections.first().expect("primary collection");
     let schema = {
         let descriptor = core.descriptor();
-        descriptor.schemas.iter()
+        descriptor
+            .schemas
+            .iter()
             .find(|s| engine_schema::wire_hash(s) == coll.schema_hash)
             .cloned()
             .expect("collection schema in descriptor")
@@ -84,7 +95,9 @@ fn rust_core_matches_cygjs_on_captured_deltas() {
 
     for want in players {
         let id = want.get("id").and_then(|v| v.as_u64()).unwrap() as u32;
-        let entity = coll.entities.get(&id)
+        let entity = coll
+            .entities
+            .get(&id)
             .unwrap_or_else(|| panic!("entity {id} missing from Rust decode"));
         for (name, want_value) in want.as_object().unwrap() {
             if name == "id" {

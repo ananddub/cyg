@@ -1,4 +1,6 @@
 use super::*;
+use crate::services::plane::Plane;
+use std::sync::Arc;
 
 pub(super) fn map_key(game_id: Uuid, version: i32, format: &str) -> String {
     format!("maps/{game_id}/{version}.{format}")
@@ -15,11 +17,13 @@ pub(super) fn map_dto(row: ListGameMapsRow) -> MapDto {
         created_at: row.created_at,
     }
 }
-pub struct MapService;
+pub struct MapService {
+    pub(crate) plane: Arc<Plane>,
+}
 #[singleton]
 impl MapService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 pub(super) const MAX_MAP_BYTES: usize = 32 * 1024 * 1024;

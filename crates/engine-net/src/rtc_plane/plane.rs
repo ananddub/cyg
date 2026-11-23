@@ -8,10 +8,10 @@ use tokio::sync::mpsc;
 use super::config::PlaneConfig;
 use super::demux::demux_loop;
 use super::handle::PlaneHandle;
-use super::types::UplinkEvent;
 use super::inbox::PlaneCommand;
 use super::registries::Registries;
 use super::stats::DemuxStats;
+use super::types::UplinkEvent;
 
 pub struct Plane {
     thread: Option<JoinHandle<()>>,

@@ -10,7 +10,7 @@ pub async fn group_surface(env: &Harness) {
 
     let created = json_body(
         env.client
-            .post(format!("{}/v2/group", env.base))
+            .post(format!("{}/v1/group", env.base))
             .bearer_auth(&lead.token)
             .json(&json!({
                 "name": format!("e2e ladder {}", letters_suffix()),
@@ -32,14 +32,14 @@ pub async fn group_surface(env: &Harness) {
     members_call(
         env,
         &lead.token,
-        &format!("/v2/group/{gid}/add?user_ids={}", one.uid),
-        "POST /v2/group/{groupId}/add",
+        &format!("/v1/group/{gid}/add?user_ids={}", one.uid),
+        "POST /v1/group/{groupId}/add",
     )
     .await;
     members_call(
         env,
         &lead.token,
-        &format!("/v2/group/{gid}/add?user_ids={},{}", two.uid, three.uid),
+        &format!("/v1/group/{gid}/add?user_ids={},{}", two.uid, three.uid),
         "add two more members in one call",
     )
     .await;
@@ -54,7 +54,7 @@ pub async fn group_surface(env: &Harness) {
 
     expect(
         env.client
-            .post(format!("{}/v2/group/{gid}/add", env.base))
+            .post(format!("{}/v1/group/{gid}/add", env.base))
             .bearer_auth(&lead.token)
             .send()
             .await
@@ -67,8 +67,8 @@ pub async fn group_surface(env: &Harness) {
     members_call(
         env,
         &lead.token,
-        &format!("/v2/group/{gid}/promote?user_ids={}", one.uid),
-        "POST /v2/group/{groupId}/promote",
+        &format!("/v1/group/{gid}/promote?user_ids={}", one.uid),
+        "POST /v1/group/{groupId}/promote",
     )
     .await;
     assert_eq!(
@@ -78,8 +78,8 @@ pub async fn group_surface(env: &Harness) {
     members_call(
         env,
         &lead.token,
-        &format!("/v2/group/{gid}/demote?user_ids={}", one.uid),
-        "POST /v2/group/{groupId}/demote",
+        &format!("/v1/group/{gid}/demote?user_ids={}", one.uid),
+        "POST /v1/group/{groupId}/demote",
     )
     .await;
     assert_eq!(
@@ -91,7 +91,7 @@ pub async fn group_surface(env: &Harness) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/group/{}/add?user_ids={}",
+                    "{}/v1/group/{}/add?user_ids={}",
                     env.base, gid, stray.uid
                 ))
                 .bearer_auth(&two.token)
@@ -108,16 +108,16 @@ pub async fn group_surface(env: &Harness) {
     members_call(
         env,
         &lead.token,
-        &format!("/v2/group/{gid}/kick?user_ids={}", two.uid),
-        "POST /v2/group/{groupId}/kick",
+        &format!("/v1/group/{gid}/kick?user_ids={}", two.uid),
+        "POST /v1/group/{groupId}/kick",
     )
     .await;
     assert_eq!(member_state(env, &lead.token, &gid, &two.uid).await, None);
     members_call(
         env,
         &lead.token,
-        &format!("/v2/group/{gid}/ban?user_ids={}", one.uid),
-        "POST /v2/group/{groupId}/ban",
+        &format!("/v1/group/{gid}/ban?user_ids={}", one.uid),
+        "POST /v1/group/{groupId}/ban",
     )
     .await;
     assert!(
@@ -133,7 +133,7 @@ pub async fn group_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/group/{gid}/join", env.base))
+                .post(format!("{}/v1/group/{gid}/join", env.base))
                 .bearer_auth(&one.token)
                 .send()
                 .await
@@ -147,14 +147,14 @@ pub async fn group_surface(env: &Harness) {
     members_call(
         env,
         &lead.token,
-        &format!("/v2/group/{gid}/add?user_ids={}", stray.uid),
+        &format!("/v1/group/{gid}/add?user_ids={}", stray.uid),
         "add the stray as a member",
     )
     .await;
     members_call(
         env,
         &lead.token,
-        &format!("/v2/group/{gid}/promote?user_ids={}", stray.uid),
+        &format!("/v1/group/{gid}/promote?user_ids={}", stray.uid),
         "promote the stray to admin",
     )
     .await;
@@ -162,7 +162,7 @@ pub async fn group_surface(env: &Harness) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/group/{}/kick?user_ids={}",
+                    "{}/v1/group/{}/kick?user_ids={}",
                     env.base, gid, lead.uid
                 ))
                 .bearer_auth(&stray.token)
@@ -179,15 +179,15 @@ pub async fn group_surface(env: &Harness) {
     members_call(
         env,
         &one.token,
-        &format!("/v2/group/{gid}/leave"),
-        "POST /v2/group/{groupId}/leave",
+        &format!("/v1/group/{gid}/leave"),
+        "POST /v1/group/{groupId}/leave",
     )
     .await;
     assert_eq!(member_state(env, &lead.token, &gid, &one.uid).await, None);
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/group/{gid}/leave", env.base))
+                .post(format!("{}/v1/group/{gid}/leave", env.base))
                 .bearer_auth(&lead.token)
                 .send()
                 .await
@@ -201,7 +201,7 @@ pub async fn group_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/group/{gid}/leave", env.base))
+                .post(format!("{}/v1/group/{gid}/leave", env.base))
                 .bearer_auth(&one.token)
                 .send()
                 .await
@@ -215,7 +215,7 @@ pub async fn group_surface(env: &Harness) {
 
     let walker = json_body(
         env.client
-            .post(format!("{}/v2/group", env.base))
+            .post(format!("{}/v1/group", env.base))
             .bearer_auth(&lead.token)
             .json(&json!({
                 "name": format!("e2e walker {}", letters_suffix()),
@@ -238,7 +238,7 @@ pub async fn group_surface(env: &Harness) {
         members_call(
             env,
             &lead.token,
-            &format!("/v2/group/{walk_gid}/add?user_ids={}", m.uid),
+            &format!("/v1/group/{walk_gid}/add?user_ids={}", m.uid),
             "add a paging member",
         )
         .await;
@@ -247,10 +247,10 @@ pub async fn group_surface(env: &Harness) {
     let mut cursor = String::new();
     for _ in 0..8 {
         let url = if cursor.is_empty() {
-            format!("{}/v2/group/{}/user?state=2&limit=1", env.base, walk_gid)
+            format!("{}/v1/group/{}/user?state=2&limit=1", env.base, walk_gid)
         } else {
             format!(
-                "{}/v2/group/{}/user?state=2&limit=1&cursor={}",
+                "{}/v1/group/{}/user?state=2&limit=1&cursor={}",
                 env.base, walk_gid, cursor
             )
         };
@@ -262,7 +262,7 @@ pub async fn group_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::OK,
-            "GET /v2/group/{groupId}/user?state=2&limit=1&cursor= (paging)",
+            "GET /v1/group/{groupId}/user?state=2&limit=1&cursor= (paging)",
         )
         .await;
         for row in page["group_users"].as_array().expect("a page").clone() {
@@ -291,13 +291,13 @@ pub async fn group_surface(env: &Harness) {
     }
     let members = json_body(
         env.client
-            .get(format!("{}/v2/group/{gid}/user?state=2&limit=10", env.base))
+            .get(format!("{}/v1/group/{gid}/user?state=2&limit=10", env.base))
             .bearer_auth(&lead.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/group/{groupId}/user?state=",
+        "GET /v1/group/{groupId}/user?state=",
     )
     .await;
     let rows = members["group_users"].as_array().expect("a page").clone();
@@ -335,7 +335,7 @@ pub async fn group_surface(env: &Harness) {
             refusal(
                 env.client
                     .get(format!(
-                        "{}/v2/group/{gid}/user?{query}",
+                        "{}/v1/group/{gid}/user?{query}",
                         env.base,
                         query = query
                     ))
@@ -354,7 +354,7 @@ pub async fn group_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/group/{gid}/user", env.base))
+                .get(format!("{}/v1/group/{gid}/user", env.base))
                 .send()
                 .await
                 .unwrap(),
@@ -368,7 +368,7 @@ pub async fn group_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/group/not-a-uuid/add", env.base))
+                .post(format!("{}/v1/group/not-a-uuid/add", env.base))
                 .bearer_auth(&lead.token)
                 .send()
                 .await
@@ -383,7 +383,7 @@ pub async fn group_surface(env: &Harness) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/group/{gid}/add?user_ids=not-a-uuid",
+                    "{}/v1/group/{gid}/add?user_ids=not-a-uuid",
                     env.base
                 ))
                 .bearer_auth(&lead.token)
@@ -400,7 +400,7 @@ pub async fn group_surface(env: &Harness) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/group/{gid}/ban?user_ids={}",
+                    "{}/v1/group/{gid}/ban?user_ids={}",
                     env.base,
                     Uuid::new_v4()
                 ))
@@ -416,9 +416,9 @@ pub async fn group_surface(env: &Harness) {
     );
     let ghost = Uuid::new_v4().to_string();
     for (label, path) in [
-        ("add", format!("/v2/group/{ghost}/add")),
-        ("kick", format!("/v2/group/{ghost}/kick")),
-        ("ban", format!("/v2/group/{ghost}/ban")),
+        ("add", format!("/v1/group/{ghost}/add")),
+        ("kick", format!("/v1/group/{ghost}/kick")),
+        ("ban", format!("/v1/group/{ghost}/ban")),
     ] {
         assert_eq!(
             refusal(
@@ -439,7 +439,7 @@ pub async fn group_surface(env: &Harness) {
 
     let packed = json_body(
         env.client
-            .post(format!("{}/v2/group", env.base))
+            .post(format!("{}/v1/group", env.base))
             .bearer_auth(&lead.token)
             .json(&json!({
                 "name": format!("e2e packed {}", letters_suffix()),
@@ -457,7 +457,7 @@ pub async fn group_surface(env: &Harness) {
     members_call(
         env,
         &lead.token,
-        &format!("/v2/group/{packed_id}/add?user_ids={}", three.uid),
+        &format!("/v1/group/{packed_id}/add?user_ids={}", three.uid),
         "fill the first free seat",
     )
     .await;
@@ -465,7 +465,7 @@ pub async fn group_surface(env: &Harness) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/group/{}/add?user_ids={}",
+                    "{}/v1/group/{}/add?user_ids={}",
                     env.base, packed_id, stray.uid
                 ))
                 .bearer_auth(&lead.token)

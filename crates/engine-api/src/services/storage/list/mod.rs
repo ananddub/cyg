@@ -3,12 +3,10 @@ mod reply;
 
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::storage::{ListQuery, StorageObjectList};
 use crate::error::V2Error;
 use crate::repositories::storage::StorageListing;
-use crate::services::deps::q;
 use crate::services::social;
 use crate::utils::storage::*;
 
@@ -18,7 +16,7 @@ use reply::reply;
 impl super::StorageService {
     pub async fn list_collection(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         collection: &str,
         req: ListQuery,
@@ -28,7 +26,9 @@ impl super::StorageService {
         }
         let limit = social::limit(req.limit, 1, MAX_LIST_LIMIT, LIST_LIMIT_MESSAGE)?;
         let after = resume(req.cursor.as_ref())?;
-        let rows = q(state)
+        let rows = self
+            .plane
+            .q()
             .await?
             .storage_listing(
                 StorageListing::PublicAll,
@@ -44,7 +44,7 @@ impl super::StorageService {
 
     pub async fn list_user_objects(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         collection: &str,
         user_id: &str,
@@ -62,7 +62,9 @@ impl super::StorageService {
         };
         let limit = social::limit(req.limit, 1, MAX_LIST_LIMIT, LIST_LIMIT_MESSAGE)?;
         let after = resume(req.cursor.as_ref())?;
-        let rows = q(state)
+        let rows = self
+            .plane
+            .q()
             .await?
             .storage_listing(listing, collection, Some(owner), after.as_ref(), limit)
             .await

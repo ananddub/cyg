@@ -23,7 +23,7 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct TournamentResponse {
     pub id: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -118,7 +118,7 @@ fn uint32(value: i64) -> u32 {
     value as u32
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, poem_openapi::Object)]
 pub struct TournamentListResponse {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tournaments: Vec<TournamentResponse>,

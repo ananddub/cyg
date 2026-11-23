@@ -1,12 +1,10 @@
 use axum::Json;
 use serde_json::{Value, json};
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::group::{GroupUserListResponse, GroupUserResponse};
 use crate::error::V2Error;
 use crate::repositories::group::{ListGroupUsersByStatePagedParams, ListGroupUsersPagedParams};
-use crate::services::deps::q;
 use crate::services::social::{self, limit};
 use crate::utils::group::{ROLE_BANNED, ROLE_SUPERADMIN, group_id};
 
@@ -18,13 +16,13 @@ use super::GroupMemberService;
 impl GroupMemberService {
     pub async fn list_group_users(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         raw_id: String,
         req: ListQuery,
     ) -> Result<Json<GroupUserListResponse>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         fetch_group(&queries, gid).await?;
         let page = limit(
             req.limit,

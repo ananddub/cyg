@@ -7,7 +7,7 @@ use crate::error::{INVALID_ARGUMENT, UNAUTHENTICATED, UNAVAILABLE};
 #[test]
 fn a_single_read_needs_a_player_token() {
     let server = V2Server::start(v2_state());
-    let path = format!("/v2/storage/save/slot1/{}", Uuid::new_v4());
+    let path = format!("/v1/storage/save/slot1/{}", Uuid::new_v4());
 
     let reply = server.get(&path, None);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Auth token required");
@@ -16,7 +16,7 @@ fn a_single_read_needs_a_player_token() {
 #[test]
 fn a_malformed_owner_is_a_bad_request_naming_the_id() {
     let server = V2Server::start(v2_state());
-    let reply = server.get("/v2/storage/save/slot1/not-a-uuid", Some(&player_token()));
+    let reply = server.get("/v1/storage/save/slot1/not-a-uuid", Some(&player_token()));
     assert_eq!(
         reply.refusal(INVALID_ARGUMENT),
         "Invalid user ID - make sure user ID is a valid UUID."
@@ -30,14 +30,14 @@ fn a_well_formed_read_reaches_the_database() {
     let no_db = "The database is not configured, set [control.session] database_endpoint.";
 
     let reply = server.get(
-        "/v2/storage/save/slot1/00000000-0000-0000-0000-000000000000",
+        "/v1/storage/save/slot1/00000000-0000-0000-0000-000000000000",
         Some(&auth),
     );
     assert_eq!(reply.refusal(UNAVAILABLE), no_db);
 
     let reply = server.get(
         &format!(
-            "/v2/storage/save/slot1/{}?version=d41d8cd98f00b204e9800998ecf8427e",
+            "/v1/storage/save/slot1/{}?version=d41d8cd98f00b204e9800998ecf8427e",
             Uuid::new_v4()
         ),
         Some(&auth),

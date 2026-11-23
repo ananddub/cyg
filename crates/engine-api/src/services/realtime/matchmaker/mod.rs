@@ -2,7 +2,7 @@ use auto_di::singleton;
 use auto_ws::{Conn, Msg};
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 use super::{

@@ -9,7 +9,7 @@ pub async fn write_record(
 ) -> Value {
     json_body(
         client
-            .post(format!("{base}/v2/tournament/{id}"))
+            .post(format!("{base}/v1/tournament/{id}"))
             .bearer_auth(token)
             .json(&body)
             .send()

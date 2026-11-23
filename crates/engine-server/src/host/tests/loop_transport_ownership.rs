@@ -115,7 +115,9 @@ fn the_udp_lane_gates_budget_and_sample_shape() {
     let domains = netcode::standard_input_domains();
     let mut clean = [0u8; 20];
     clean[12..16].copy_from_slice(&0.5f32.to_le_bytes());
-    assert!(udp_input_allowed(&mut rates, tick, peer, &mut clean, &domains));
+    assert!(udp_input_allowed(
+        &mut rates, tick, peer, &mut clean, &domains
+    ));
 
     let mut nan = clean;
     nan[4..8].copy_from_slice(&f32::NAN.to_le_bytes());

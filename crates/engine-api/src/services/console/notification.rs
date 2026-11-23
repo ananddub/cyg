@@ -1,7 +1,6 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::notification::{
@@ -9,17 +8,18 @@ use crate::dto::console::notification::{
 };
 use crate::error::V2Error;
 use crate::repositories::console_mutations::InsertNotificationParams;
-use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn list_notifications(
         &self,
-        state: &ApiState,
+
         query: NotificationQuery,
     ) -> Result<Json<Vec<NotificationRow>>, V2Error> {
         let user_id = super::account_id(&query.user_id)?;
-        crate::utils::guards::require_account(state, query.game_id, user_id).await?;
-        let rows = q(state)
+        crate::utils::guards::require_account(&self.plane, query.game_id, user_id).await?;
+        let rows = self
+            .plane
+            .q()
             .await?
             .list_notifications_for_user(user_id, query.limit())
             .await?;
@@ -28,7 +28,7 @@ impl super::ConsoleService {
 
     pub async fn send_notification(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         game: Option<Uuid>,
         body: SendNotificationRequest,
@@ -36,13 +36,13 @@ impl super::ConsoleService {
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let user_id = super::account_id(&body.user_id)?;
-        crate::utils::guards::require_account(state, game, user_id).await?;
+        crate::utils::guards::require_account(&self.plane, game, user_id).await?;
         let subject = body.subject.trim();
         if subject.is_empty() {
             return Err(V2Error::invalid_argument("A notification needs a subject."));
         }
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         queries.get_user_by_id(user_id).await?;
         queries
             .insert_notification(&InsertNotificationParams {
@@ -59,7 +59,7 @@ impl super::ConsoleService {
             })
             .await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "notification.send",
             "notification",
@@ -72,18 +72,18 @@ impl super::ConsoleService {
 
     pub async fn delete_notification(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         game: Option<Uuid>,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::id(id, "notification")?;
-        if !crate::services::games::tenant::delete_notification(state, game, id).await? {
+        if !crate::services::games::tenant::delete_notification(&self.plane, game, id).await? {
             return Err(V2Error::not_found("Notification not found."));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "notification.delete",
             "notification",

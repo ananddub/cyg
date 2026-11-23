@@ -379,8 +379,8 @@ cyg-game cook in.glb out.oxcl    <span class="c"># cook a 3D collision mesh for 
 │  Control plane (Tokio/Axum)          Game host loop (pinned sim)  │
 │  ├─ matchmake + seat tokens          ├─ WASM room runtime         │
 │  ├─ /ws/signal  (WebRTC signaling)   ├─ inbuilt ECS backend       │
-│  ├─ /v2/* player API (BaaS)          ├─ Rapier2D/3D physics       │
-│  ├─ /v2/console/* + web dashboard    ├─ AOI / spatial index       │
+│  ├─ /v1/* player API (BaaS)          ├─ Rapier2D/3D physics       │
+│  ├─ /v1/console/* + web dashboard    ├─ AOI / spatial index       │
 │  └─ statics (SDK + unity pages)      └─ WebRTC · UDP · QUIC lanes │
 │            everything talks through one lock-free bus             │
 └───────────────────────────────────────────────────────────────────┘</pre>
@@ -388,7 +388,7 @@ cyg-game cook in.glb out.oxcl    <span class="c"># cook a 3D collision mesh for 
   <table>
     <tr><th>Crate</th><th>What it is</th></tr>
     <tr><td><code>engine-server</code></td><td>host loop: WASM runtime, rooms, inbuilt ECS backend, RUDP, deltas, AOI</td></tr>
-    <tr><td><code>engine-api</code></td><td>/v2 player API + /v2/console + dashboard API</td></tr>
+    <tr><td><code>engine-api</code></td><td>/v2 player API + /v1/console + dashboard API</td></tr>
     <tr><td><code>engine-net</code></td><td>transports: WebRTC (str0m) + raw UDP + QUIC (quinn-proto, sans-IO)</td></tr>
     <tr><td><code>engine-webrtc-protocol</code></td><td>the shared wire: event/ack frames, SACK, lanes</td></tr>
     <tr><td><code>engine-wasm</code> / <code>engine-schema</code></td><td>guest ABI + permissions / schema compiler + codegen</td></tr>

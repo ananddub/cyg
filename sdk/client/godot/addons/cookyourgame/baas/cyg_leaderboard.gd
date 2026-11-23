@@ -1,6 +1,6 @@
 class_name CYGLeaderboard
 extends RefCounted
-## Competitive leaderboards over the room server's `/v2/leaderboard` routes.
+## Competitive leaderboards over the room server's `/v1/leaderboard` routes.
 ##
 ## Mirrors `CYGLeaderboard` in the Unity SDK (`Runtime/BaaS/CYGLeaderboard.cs`)
 ## against the routes the Rust engine actually serves
@@ -13,7 +13,7 @@ extends RefCounted
 ##
 ## Endpoints, exactly as the server declares them:
 ##
-##  * `POST /v2/leaderboard/{leaderboard_id}` — upsert the caller's record.
+##  * `POST /v1/leaderboard/{leaderboard_id}` — upsert the caller's record.
 ##    Request body (`RecordRequest`):
 ##
 ##        {"score": <int64>, "subscore": <int64>,
@@ -27,7 +27,7 @@ extends RefCounted
 ##         "num_score"?, "metadata", "create_time", "update_time",
 ##         "expiry_time"?, "rank"?, "max_num_score"?}
 ##
-##  * `GET /v2/leaderboard/{leaderboard_id}` — a page of records.
+##  * `GET /v1/leaderboard/{leaderboard_id}` — a page of records.
 ##    Query (`ListQuery`): `limit` (1..=MAX, absent means 1 unless owners are
 ##    named), `cursor`, `owner_ids` (comma-separated or repeated), `expiry`
 ##    (unix-seconds override of the board's reset window). Absent `limit` and
@@ -37,13 +37,13 @@ extends RefCounted
 ##        {"records"?: [RecordResponse], "owner_records"?: [RecordResponse],
 ##         "next_cursor"?, "prev_cursor"?, "rank_count"?}
 ##
-##  * `GET /v2/leaderboard/{leaderboard_id}/owner/{owner_id}` — the haystack:
+##  * `GET /v1/leaderboard/{leaderboard_id}/owner/{owner_id}` — the haystack:
 ##    the owner's record with its neighbours, i.e. the around-rank window.
 ##    Query (`HaystackQuery`): `limit`, `cursor`, `expiry` (same semantics;
 ##    passing a cursor turns it into an ordinary page). Replies
 ##    `RecordListResponse`. `owner_id` must be a UUID.
 ##
-##  * `DELETE /v2/leaderboard/{leaderboard_id}` — deletes the caller's own
+##  * `DELETE /v1/leaderboard/{leaderboard_id}` — deletes the caller's own
 ##    record inside the board's current reset window. Replies `{}` (Empty).
 ##
 ## Weekly boards: the DTO expresses no period field — a board's reset schedule
@@ -81,7 +81,7 @@ extends RefCounted
 ##         CYGLeaderboard.rank_of("weekly-deathmatch", my_uuid, on_my_rank)
 ##
 ## Independent GDScript port of this repo's Unity/Unreal BaaS layer onto the
-## documented `/v2/` endpoints of `crates/engine-api`; no upstream source text
+## documented `/v1/` endpoints of `crates/engine-api`; no upstream source text
 ## is copied.
 
 const _MAX_BODY_ERROR := 240
@@ -181,7 +181,7 @@ static func _list_query(limit: int, cursor: String, owner_ids: PackedStringArray
 	return "&".join(parts)
 
 
-## `POST /v2/leaderboard/{leaderboard_id}`. Upserts the caller's record with
+## `POST /v1/leaderboard/{leaderboard_id}`. Upserts the caller's record with
 ## `value` as `score`, `extra` as the `metadata` JSON string (Dictionary/Array
 ## is stringified; a String is sent as-is), and optional `subscore`/`operator`
 ## (0 = the board's default "set"; the server rejects operators its config
@@ -196,10 +196,10 @@ static func submit(leaderboard_id: String, value: Variant, extra: Variant, callb
 		"metadata": _encode_metadata(extra),
 		"operator": write_operator,
 	})
-	_request(HTTPClient.METHOD_POST, "/v2/leaderboard/" + leaderboard_id.uri_encode(), "", body, callback, _Mode.RECORD)
+	_request(HTTPClient.METHOD_POST, "/v1/leaderboard/" + leaderboard_id.uri_encode(), "", body, callback, _Mode.RECORD)
 
 
-## `GET /v2/leaderboard/{leaderboard_id}` with the real `ListQuery` knobs:
+## `GET /v1/leaderboard/{leaderboard_id}` with the real `ListQuery` knobs:
 ## `limit` (omit when 0 — absent means "1" server-side unless owners are named),
 ## `cursor`, `owner_ids` (batch of named owners, sent comma-separated) and
 ## `expiry` (unix-seconds string overriding the reset window). `data` on
@@ -210,10 +210,10 @@ static func list(leaderboard_id: String, callback: Callable, limit: int = 0, cur
 		_fail(callback, "leaderboard id and callback are required")
 		return
 	var query := _list_query(limit, cursor, owner_ids, expiry)
-	_request(HTTPClient.METHOD_GET, "/v2/leaderboard/" + leaderboard_id.uri_encode(), query, "", callback, _Mode.RECORDS)
+	_request(HTTPClient.METHOD_GET, "/v1/leaderboard/" + leaderboard_id.uri_encode(), query, "", callback, _Mode.RECORDS)
 
 
-## `GET /v2/leaderboard/{leaderboard_id}/owner/{owner_id}` — the around-owner
+## `GET /v1/leaderboard/{leaderboard_id}/owner/{owner_id}` — the around-owner
 ## (haystack) window: the owner's record plus `limit` neighbours on each side.
 ## Pass a `cursor` to page on as an ordinary listing (the route answers
 ## `RecordListResponse` either way). `data` on success: a `RecordListResponse`
@@ -224,7 +224,7 @@ static func around_owner(leaderboard_id: String, owner_id: String, callback: Cal
 		return
 	var query := _list_query(limit, cursor, PackedStringArray(), expiry)
 	_request(HTTPClient.METHOD_GET,
-		"/v2/leaderboard/" + leaderboard_id.uri_encode() + "/owner/" + owner_id.uri_encode(),
+		"/v1/leaderboard/" + leaderboard_id.uri_encode() + "/owner/" + owner_id.uri_encode(),
 		query, "", callback, _Mode.RECORDS)
 
 
@@ -236,18 +236,18 @@ static func rank_of(leaderboard_id: String, owner_id: String, callback: Callable
 		_fail(callback, "leaderboard id, owner id and callback are required")
 		return
 	_request(HTTPClient.METHOD_GET,
-		"/v2/leaderboard/" + leaderboard_id.uri_encode() + "/owner/" + owner_id.uri_encode(),
+		"/v1/leaderboard/" + leaderboard_id.uri_encode() + "/owner/" + owner_id.uri_encode(),
 		"limit=1", "", callback, _Mode.RANK)
 
 
-## `DELETE /v2/leaderboard/{leaderboard_id}` — removes the caller's own record
+## `DELETE /v1/leaderboard/{leaderboard_id}` — removes the caller's own record
 ## for the window the board's reset schedule names (a tournament board answers
 ## not-found here, exactly as the server documents). `data` on success: `{}`.
 static func delete(leaderboard_id: String, callback: Callable) -> void:
 	if leaderboard_id.is_empty() or not callback.is_valid():
 		_fail(callback, "leaderboard id and callback are required")
 		return
-	_request(HTTPClient.METHOD_DELETE, "/v2/leaderboard/" + leaderboard_id.uri_encode(), "", "", callback, _Mode.EMPTY)
+	_request(HTTPClient.METHOD_DELETE, "/v1/leaderboard/" + leaderboard_id.uri_encode(), "", "", callback, _Mode.EMPTY)
 
 
 static func _fail(callback: Callable, error: String) -> void:

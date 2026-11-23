@@ -138,9 +138,7 @@ pub(crate) fn recv_udp_batch(
                 iov_base: buf.as_mut_ptr() as *mut libc::c_void,
                 iov_len: buf.len(),
             });
-            scratch
-                .addrs_raw
-                .push(unsafe { std::mem::zeroed() });
+            scratch.addrs_raw.push(unsafe { std::mem::zeroed() });
         }
         scratch.msgs.clear();
         for i in 0..RECV_BATCH_MAX {
@@ -148,8 +146,7 @@ pub(crate) fn recv_udp_batch(
                 msg_hdr: libc::msghdr {
                     msg_name: (&mut scratch.addrs_raw[i] as *mut libc::sockaddr_storage)
                         .cast::<libc::c_void>(),
-                    msg_namelen: std::mem::size_of::<libc::sockaddr_storage>()
-                        as libc::socklen_t,
+                    msg_namelen: std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t,
                     msg_iov: &mut scratch.iovs[i],
                     msg_iovlen: 1,
                     msg_control: std::ptr::null_mut(),
@@ -179,24 +176,22 @@ pub(crate) fn recv_udp_batch(
                 if scratch.msgs[i].msg_hdr.msg_flags & libc::MSG_TRUNC != 0 {
                     scratch.lens[i] = 0;
                     scratch.truncated += 1;
-                    scratch.addrs[i] = SocketAddr::new(
-                        std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
-                        0,
-                    );
+                    scratch.addrs[i] =
+                        SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0);
                     continue;
                 }
                 scratch.lens[i] = scratch.msgs[i].msg_len as usize;
-                scratch.addrs[i] = storage_to_socket_addr(&scratch.addrs_raw[i])
-                    .unwrap_or_else(|| SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0));
+                scratch.addrs[i] =
+                    storage_to_socket_addr(&scratch.addrs_raw[i]).unwrap_or_else(|| {
+                        SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0)
+                    });
             }
             // Slots beyond the received batch are stale from a previous
             // batch; zero them so no caller ever reads old datagram bytes.
             for i in n..RECV_BATCH_MAX {
                 scratch.lens[i] = 0;
-                scratch.addrs[i] = SocketAddr::new(
-                    std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
-                    0,
-                );
+                scratch.addrs[i] =
+                    SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 0);
             }
             return Ok(n);
         }
@@ -208,9 +203,10 @@ pub(crate) fn recv_udp_batch(
             Some(libc::EINTR) => Ok(0),
             // recvmmsg unsupported by socket family/kernel: fall back to the
             // portable recv_from loop.
-            Some(libc::ENOSYS) | Some(libc::EINVAL) | Some(libc::EOPNOTSUPP) | Some(libc::EPERM) => {
-                recv_udp_batch_fallback(socket, scratch)
-            }
+            Some(libc::ENOSYS)
+            | Some(libc::EINVAL)
+            | Some(libc::EOPNOTSUPP)
+            | Some(libc::EPERM) => recv_udp_batch_fallback(socket, scratch),
             _ => Err(err),
         }
     }
@@ -220,7 +216,10 @@ pub(crate) fn recv_udp_batch(
     }
 }
 
-fn recv_udp_batch_fallback(socket: &mut UdpSocket, scratch: &mut RecvBatchScratch) -> io::Result<usize> {
+fn recv_udp_batch_fallback(
+    socket: &mut UdpSocket,
+    scratch: &mut RecvBatchScratch,
+) -> io::Result<usize> {
     let mut n = 0usize;
     while n < RECV_BATCH_MAX {
         let (len, addr) = match socket.recv_from(&mut scratch.bufs[n]) {

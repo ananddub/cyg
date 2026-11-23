@@ -112,15 +112,16 @@ fn a_shorter_mid_run_segment_breaks_the_run() {
         (dest, big.clone()),
     ];
     let refs: Vec<(SocketAddr, &[u8])> = msgs.iter().map(|(a, d)| (*a, d.as_slice())).collect();
-    assert_eq!(gso_run_len(&refs, 0), 1, "shorter mid-run segment breaks the run");
+    assert_eq!(
+        gso_run_len(&refs, 0),
+        1,
+        "shorter mid-run segment breaks the run"
+    );
     assert_eq!(gso_run_len(&refs, 1), 1);
     assert_eq!(gso_run_len(&refs, 2), 1);
 
     // Equal-length segments still batch.
-    let equal: Vec<(SocketAddr, Vec<u8>)> = vec![
-        (dest, big.clone()),
-        (dest, big.clone()),
-    ];
+    let equal: Vec<(SocketAddr, Vec<u8>)> = vec![(dest, big.clone()), (dest, big.clone())];
     let eq_refs: Vec<(SocketAddr, &[u8])> = equal.iter().map(|(a, d)| (*a, d.as_slice())).collect();
     assert_eq!(gso_run_len(&eq_refs, 0), 2);
 }

@@ -376,8 +376,8 @@
     });
 
     // Honest server-side occupancy: GET /api/rooms is the player-visible
-    // telemetry endpoint (no auth, status.rs). /v2/match and
-    // /v2/matchmaker/stats exist but are session-gated, so this token-less
+    // telemetry endpoint (no auth, status.rs). /v1/match and
+    // /v1/matchmaker/stats exist but are session-gated, so this token-less
     // demo cannot call them. Silently keeps the last value — and stays hidden
     // entirely — when no engine plane answers.
     async function pollRooms() {

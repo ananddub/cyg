@@ -25,7 +25,7 @@ that talk over an in-process message bus:
 
 | Crate | Role |
 |---|---|
-| `crates/engine-api` | Axum HTTP/WS control plane. PlayFab-shaped `/v2/*` player API plus a `/console` operator API. Owns SurrealDB. |
+| `crates/engine-api` | Axum HTTP/WS control plane. PlayFab-shaped `/v1/*` player API plus a `/console` operator API. Owns SurrealDB. |
 | `crates/engine-server` | The authoritative host loop: rooms, ticks, rollback, snapshots, UDP/WebRTC/QUIC netcode. |
 | `crates/engine-control` | Boots the runtime, binds the HTTP listener, spawns the host, signal handling, Agones integration. |
 | `crates/engine-net` | Transport layer (WS/UDP/QUIC/WebRTC), greeting, origin policy. |
@@ -144,7 +144,7 @@ service, e.g. `V2Error::failed_precondition("A currency balance cannot go negati
 
 ### 0.6 Adding a route (the smallest copyable chain)
 
-`controllers/notification.rs:18-29` (`#[controller("/v2/notification")]` +
+`controllers/notification.rs:18-29` (`#[controller("/v1/notification")]` +
 `#[get("")]` + `Params(req): Params<ListQuery>`) →
 `services/notification.rs:34-60` (`#[singleton]` service, `q(state).await?`) →
 `repositories/notification/queries.rs:110` (`list_notifications_paged`).
@@ -243,7 +243,7 @@ Work:
 3. Progress ingest: consume `SimEvent`s from §3.4 (event name → stat counter),
    which is why 4.2 follows 3.4. Update `player_quest.progress`, mark complete,
    grant rewards through the **idempotent** path from 4.1.
-4. Daily rewards: `POST /v2/account/daily/claim` behind `Authed`, gated on
+4. Daily rewards: `POST /v1/account/daily/claim` behind `Authed`, gated on
    UTC-day boundary stored on the user; second claim in the same day refuses.
 5. Tests: quest lifecycle from event → progress → claim → reward, daily claim
    idempotency across a day boundary, season window gating (outside window =
@@ -260,9 +260,9 @@ Work:
    simultaneously debits the seller/bettors and holds into a system wallet, with
    the negative-balance guard; settlement is a second transaction (release /
    split), refund is a third. Never two separate round trips.
-3. Routes `POST /v2/marketplace/listings`, `POST /v2/marketplace/listings/{id}/buy`,
-   `POST /v2/marketplace/listings/{id}/cancel`, `POST /v2/wager/create`,
-   `POST /v2/wager/{id}/settle` (server key only — a player must never settle).
+3. Routes `POST /v1/marketplace/listings`, `POST /v1/marketplace/listings/{id}/buy`,
+   `POST /v1/marketplace/listings/{id}/cancel`, `POST /v1/wager/create`,
+   `POST /v1/wager/{id}/settle` (server key only — a player must never settle).
 4. Validate the item belongs to the seller (`player_inventory_item` owner column)
    before listing; move ownership inside the same transaction.
 5. Tests: escrow debit+hold atomicity (injected failure leaves no half-state),
@@ -285,7 +285,7 @@ Work:
 2. Gate entitlements on it: currency grants from subscription products, premium
    inventory slots, and any season/quest track unlocked by a subscription. Refuse
    with `V2Error::failed_precondition` and a stable message.
-3. Add `GET /v2/iap/subscription/active` (`Authed`) returning the effective
+3. Add `GET /v1/iap/subscription/active` (`Authed`) returning the effective
    entitlement set.
 4. Re-verify with the §"Pattern A" IAP path when a subscription is older than
    `revalidation_days` (do not call Google/Apple on every read).
@@ -322,7 +322,7 @@ Work:
 
 ### 4.6 Match results, stats and badges
 
-1. `POST /v2/match/{id}/result` behind **server key only** (host reports outcome);
+1. `POST /v1/match/{id}/result` behind **server key only** (host reports outcome);
    validate participants against the §3.3 registry row before writing.
 2. Upsert `player_stat` counters (4.2) and `leaderboard_record` in one
    transaction; derive badges from `player_stat` thresholds via a new
@@ -367,7 +367,7 @@ Facts: none exist. Nearest analogue is global key/value `Setting`
    (`user_id, flag_key, variant`) for allowlists.
 2. Deterministic assignment: `hash(flag_key + salt + user_id) % 100 <
    rollout_percent`; stable across requests; document the exact formula.
-3. `GET /v2/flags` (`Authed`) returns the resolved set; a server-side resolver
+3. `GET /v1/flags` (`Authed`) returns the resolved set; a server-side resolver
    `flags::is_on(state, uid, key) -> bool` for gating inside other services
    (matchmaking pools, quest visibility, webhook events).
 4. Operator CRUD behind `ConsoleAuthed` + `require_write()`, with `require_admin()`
@@ -441,7 +441,7 @@ numeric code (`INVALID_ARGUMENT`=400, `UNAUTHENTICATED`=401, `FAILED_PRECONDITIO
 Server key / authenticate surface (`tests/gap_player/provider_auth_surface.rs`,
 `src/tests/authenticate/social.rs`):
 
-- `"Server key required"` (401) — every `/v2/account/authenticate*` verb without
+- `"Server key required"` (401) — every `/v1/account/authenticate*` verb without
   a Basic key.
 - `"Server key invalid"` (401) — wrong key.
 - `"Apple authentication is not configured."` (400) and
@@ -500,7 +500,7 @@ Dashboard / console (`tests/gap_edge/dashboard_api.rs`,
 Delete / GDPR (`tests/gap_http/player_surface.rs:196-215`,
 `tests/rest_e2e/account_surface.rs:411-442`):
 
-- `DELETE /v2/account` must leave the account row count at `0` and produce
+- `DELETE /v1/account` must leave the account row count at `0` and produce
   exactly `1` `user_tombstone` row (`assert_eq!(tombstoned, 1)`). §2.3 keeps
   these true while covering more tables.
 

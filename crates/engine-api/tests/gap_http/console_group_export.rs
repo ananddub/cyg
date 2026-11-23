@@ -6,7 +6,7 @@ pub async fn console_group_export(env: &Harness, console: &str) -> String {
     let name = format!("e2e group {}", letters_suffix());
     let created = json_body(
         env.client
-            .post(format!("{}/v2/group", env.base))
+            .post(format!("{}/v1/group", env.base))
             .bearer_auth(&owner.token)
             .json(&json!({
                 "name": name,
@@ -19,7 +19,7 @@ pub async fn console_group_export(env: &Harness, console: &str) -> String {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/group",
+        "POST /v1/group",
     )
     .await;
     let group_id = created["group"]["id"]
@@ -29,13 +29,13 @@ pub async fn console_group_export(env: &Harness, console: &str) -> String {
 
     let exported = json_body(
         env.client
-            .get(format!("{}/v2/console/group/{group_id}/export", env.base))
+            .get(format!("{}/v1/console/group/{group_id}/export", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/group/{id}/export",
+        "GET /v1/console/group/{id}/export",
     )
     .await;
     assert_eq!(exported["group"]["id"], group_id);
@@ -55,7 +55,7 @@ pub async fn console_group_export(env: &Harness, console: &str) -> String {
     refusal(
         env.client
             .get(format!(
-                "{}/v2/console/group/{}/export",
+                "{}/v1/console/group/{}/export",
                 env.base,
                 Uuid::new_v4()
             ))
@@ -70,25 +70,25 @@ pub async fn console_group_export(env: &Harness, console: &str) -> String {
 
     expect(
         env.client
-            .put(format!("{}/v2/group/{group_id}", env.base))
+            .put(format!("{}/v1/group/{group_id}", env.base))
             .bearer_auth(&owner.token)
             .json(&json!({"description": "renamed by its leader", "open": false}))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/group/{id} as the leader",
+        "PUT /v1/group/{id} as the leader",
     )
     .await;
     let fetched = json_body(
         env.client
-            .get(format!("{}/v2/group/{group_id}", env.base))
+            .get(format!("{}/v1/group/{group_id}", env.base))
             .bearer_auth(&owner.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/group/{id} after the update",
+        "GET /v1/group/{id} after the update",
     )
     .await;
     assert_eq!(fetched["group"]["open"], false);
@@ -99,18 +99,18 @@ pub async fn console_group_export(env: &Harness, console: &str) -> String {
 
     expect(
         env.client
-            .delete(format!("{}/v2/group/{group_id}", env.base))
+            .delete(format!("{}/v1/group/{group_id}", env.base))
             .bearer_auth(&owner.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/group/{id} as the leader",
+        "DELETE /v1/group/{id} as the leader",
     )
     .await;
     refusal(
         env.client
-            .get(format!("{}/v2/group/{group_id}", env.base))
+            .get(format!("{}/v1/group/{group_id}", env.base))
             .bearer_auth(&owner.token)
             .send()
             .await

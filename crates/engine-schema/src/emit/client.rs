@@ -35,7 +35,11 @@ pub(crate) fn emit_client_dts(
             .collect();
         nested_paths.sort_unstable();
         nested_paths.dedup();
-        for field in schema.fields.iter().filter(|field| field.nested_path.is_none()) {
+        for field in schema
+            .fields
+            .iter()
+            .filter(|field| field.nested_path.is_none())
+        {
             out.push_str(&format!(
                 "    {name}: {ty};\n",
                 name = field.name,
@@ -49,7 +53,10 @@ pub(crate) fn emit_client_dts(
                 .iter()
                 .filter(|field| field.nested_path.as_deref() == Some(path))
             {
-                let child = field.name.strip_prefix(&format!("{path}__")).unwrap_or(&field.name);
+                let child = field
+                    .name
+                    .strip_prefix(&format!("{path}__"))
+                    .unwrap_or(&field.name);
                 out.push_str(&format!(
                     "        {name}: {ty};\n",
                     name = child,

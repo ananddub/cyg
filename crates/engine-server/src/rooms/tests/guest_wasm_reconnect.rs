@@ -72,7 +72,8 @@ fn reconnect_after_the_deadline_is_a_fresh_join() {
     let mut room = lifecycle_room();
     let id = room.join("bob", 0.0, 0.0, b"");
     room.handle_unexpected_disconnect("bob", Duration::from_secs(120));
-    room.lifecycle.pending_leaves
+    room.lifecycle
+        .pending_leaves
         .insert("bob".into(), (id, Instant::now()));
     assert!(room.expire_pending_leaves(Instant::now()));
     assert_eq!(room.rejoin("bob"), None);

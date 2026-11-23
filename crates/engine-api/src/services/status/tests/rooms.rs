@@ -10,7 +10,7 @@ async fn rooms_lists_the_hosted_room_with_its_ports() {
         axum::http::header::HOST,
         "arena.example:9999".parse().expect("valid host header"),
     );
-    let body = json_of(rooms(&state(), headers).await).await;
+    let body = json_of(rooms(&state().plane(), headers).await).await;
     let room = &body[0];
     for key in [
         "name",
@@ -67,7 +67,7 @@ async fn rooms_reports_every_live_room_and_its_phase() {
         ],
         ..Default::default()
     });
-    let body = json_of(rooms(&state, axum::http::HeaderMap::new()).await).await;
+    let body = json_of(rooms(&state.plane(), axum::http::HeaderMap::new()).await).await;
     let rows = body.as_array().expect("room list");
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["name"], "arena");

@@ -7,7 +7,7 @@ pub(crate) fn the_games_writes_are_gated_on_the_admin_and_write_roles() {
 
     for role in [ConsoleRole::Readonly, ConsoleRole::Developer] {
         let reply = server.post(
-            "/v2/console/games",
+            "/v1/console/games",
             Some(&token_for(role)),
             r#"{"name":"Tank Arena"}"#,
         );
@@ -18,7 +18,7 @@ pub(crate) fn the_games_writes_are_gated_on_the_admin_and_write_roles() {
         );
     }
     let reply = server.delete(
-        &format!("/v2/console/games/{id}"),
+        &format!("/v1/console/games/{id}"),
         Some(&token_for(ConsoleRole::Developer)),
     );
     assert_eq!(
@@ -27,7 +27,7 @@ pub(crate) fn the_games_writes_are_gated_on_the_admin_and_write_roles() {
     );
 
     let reply = server.put(
-        &format!("/v2/console/games/{id}"),
+        &format!("/v1/console/games/{id}"),
         Some(&token_for(ConsoleRole::Readonly)),
         r#"{"name":"Renamed"}"#,
     );
@@ -36,15 +36,15 @@ pub(crate) fn the_games_writes_are_gated_on_the_admin_and_write_roles() {
         "This console user has read-only access."
     );
     let reply = server.put(
-        &format!("/v2/console/games/{id}"),
+        &format!("/v1/console/games/{id}"),
         Some(&token_for(ConsoleRole::Developer)),
         r#"{"name":"Renamed"}"#,
     );
     assert_eq!(reply.status, 503, "{}", reply.body);
 
     for path in [
-        "/v2/console/games".to_owned(),
-        format!("/v2/console/games/{id}"),
+        "/v1/console/games".to_owned(),
+        format!("/v1/console/games/{id}"),
     ] {
         let reply = server.get(&path, Some(&token_for(ConsoleRole::Readonly)));
         assert_eq!(reply.status, 503, "{path}: {}", reply.body);
@@ -61,9 +61,9 @@ pub(crate) fn the_unity_settings_route_is_a_read_mounted_in_both_formats() {
         ConsoleRole::Admin,
     ] {
         for path in [
-            format!("/v2/console/games/{id}/unity-settings"),
-            format!("/v2/console/games/{id}/unity-settings?format=asset"),
-            format!("/v2/console/games/{id}/unity-settings?format=json"),
+            format!("/v1/console/games/{id}/unity-settings"),
+            format!("/v1/console/games/{id}/unity-settings?format=asset"),
+            format!("/v1/console/games/{id}/unity-settings?format=json"),
         ] {
             let reply = server.get(&path, Some(&token_for(role)));
             assert_ne!(reply.status, 404, "`{role:?}` cannot reach {path}");
@@ -85,10 +85,10 @@ pub(crate) fn the_create_body_is_validated_before_the_database_is_reached() {
     let server = V2Server::start(v2_state());
     let auth = admin_token();
 
-    let reply = server.post("/v2/console/games", Some(&auth), r#"{"name":""}"#);
+    let reply = server.post("/v1/console/games", Some(&auth), r#"{"name":""}"#);
     assert_eq!(reply.refusal(INVALID_ARGUMENT), "A game needs a name.");
 
-    let reply = server.post("/v2/console/games", Some(&auth), "{}");
+    let reply = server.post("/v1/console/games", Some(&auth), "{}");
     assert_eq!(
         reply.refusal(INVALID_ARGUMENT),
         "A game needs a name.",
@@ -96,7 +96,7 @@ pub(crate) fn the_create_body_is_validated_before_the_database_is_reached() {
     );
 
     let reply = server.post(
-        "/v2/console/games",
+        "/v1/console/games",
         Some(&auth),
         r#"{"name":"Tank Arena","engine_type":"phaser"}"#,
     );
@@ -113,7 +113,7 @@ pub(crate) fn the_create_body_is_validated_before_the_database_is_reached() {
     }
 
     let reply = server.post(
-        "/v2/console/games",
+        "/v1/console/games",
         Some(&auth),
         r#"{"name":"Tank Arena","config":[1,2,3]}"#,
     );
@@ -130,7 +130,7 @@ pub(crate) fn the_create_body_is_validated_before_the_database_is_reached() {
         r#"{"name":"Tank Arena","engine_type":"unity","backend_mode":"wasm",
            "api_key":"cyg_sec_preselected"}"#,
     ] {
-        let reply = server.post("/v2/console/games", Some(&auth), &collapse(body));
+        let reply = server.post("/v1/console/games", Some(&auth), &collapse(body));
         assert_eq!(
             reply.refusal(UNAVAILABLE),
             "The database is not configured, set [control.session] database_endpoint.",

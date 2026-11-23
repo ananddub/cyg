@@ -9,6 +9,9 @@ pub struct ConsoleAclTemplate {
     pub name: String,
     pub description: String,
     pub acl: serde_json::Value,
+    /// Generation of this row, bumped by every in-place edit. A row written
+    /// before the counter existed reads as `None` and is treated as generation 1.
+    pub version: Option<i64>,
     #[serde(with = "time::iso")]
     pub create_time: DateTime<Utc>,
     #[serde(with = "time::iso")]

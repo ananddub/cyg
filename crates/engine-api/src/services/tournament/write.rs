@@ -6,14 +6,12 @@ use uuid::Uuid;
 use super::load_tournament;
 use super::require_rule;
 use super::submit::submit;
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::leaderboard::{RecordRequest, RecordResponse};
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::leaderboard::GetLeaderboardRecordParams;
 use crate::repositories::models::Leaderboard;
-use crate::services::deps::q;
 use crate::services::leaderboard::rank_of;
 use crate::utils::leaderboard::{DB_DECREMENT, at, calculate, parse_metadata, ranks_enabled};
 use crate::utils::tournament::statement::Write;
@@ -60,7 +58,7 @@ async fn read_back(
 impl super::TournamentService {
     pub async fn write_record(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         id: &str,
         body: Value,
@@ -74,7 +72,7 @@ impl super::TournamentService {
             _ => None,
         };
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let board = match load_tournament(&queries, id).await {
             Ok(board) => board,
             Err(_) => return Err(V2Error::not_found(NOT_FOUND)),

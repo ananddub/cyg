@@ -78,14 +78,7 @@ impl AoiViewIndex {
         }
 
         let cell_size = self.cell_size;
-        self.cell_bounds = [
-            i64::MAX,
-            i64::MIN,
-            i64::MAX,
-            i64::MIN,
-            i64::MAX,
-            i64::MIN,
-        ];
+        self.cell_bounds = [i64::MAX, i64::MIN, i64::MAX, i64::MIN, i64::MAX, i64::MIN];
         for (i, e) in entities.iter().enumerate() {
             let (cx, cy, cz) = (
                 cell_coord(e.pos[0], cell_size),
@@ -122,12 +115,7 @@ impl AoiViewIndex {
     /// Zero-alloc radius query. The visitor receives each entity slice index
     /// whose squared distance to `center` is `<= radius_sq`, at most once.
     /// Exact check per candidate — identical results to a linear scan.
-    pub fn query_squared(
-        &mut self,
-        center: [f64; 3],
-        radius_sq: f64,
-        mut f: impl FnMut(usize),
-    ) {
+    pub fn query_squared(&mut self, center: [f64; 3], radius_sq: f64, mut f: impl FnMut(usize)) {
         if self.positions.is_empty() {
             return;
         }
@@ -189,8 +177,7 @@ impl AoiViewIndex {
 
     #[inline]
     fn bucket_of_cell(&self, x: i64, y: i64, z: i64) -> usize {
-        let h = (x as u64)
-            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        let h = (x as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
             ^ (y as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
             ^ (z as u64).wrapping_mul(0x1656_67B1_9E37_79F9);
         (h & BUCKET_MASK) as usize
@@ -202,11 +189,7 @@ fn cell_coord(v: f64, cell_size: f64) -> i64 {
     let c = (v / cell_size).floor();
     // Saturating cast; NaN maps to 0. Entities at non-finite coordinates can
     // never satisfy an exact squared-distance check anyway.
-    if c.is_finite() {
-        c as i64
-    } else {
-        0
-    }
+    if c.is_finite() { c as i64 } else { 0 }
 }
 
 #[cfg(test)]
@@ -272,7 +255,10 @@ mod tests {
                     .map(|(i, _)| i)
                     .collect();
 
-                assert_eq!(got, want, "entities={entities:?} center={center:?} r={radius}");
+                assert_eq!(
+                    got, want,
+                    "entities={entities:?} center={center:?} r={radius}"
+                );
             }
         }
     }

@@ -269,23 +269,12 @@ fn world_root_unreliable_fields_are_split_too() {
     let descriptor = emit_descriptor(&[schema_def(), marker_def()], Some(&root));
     let mut lane = PackedSet::from_descriptor(&descriptor).unwrap();
     let packed_root = PackedSchema::from_def(&root_def);
-    let full = packed::encode_world_full(
-        &packed_root,
-        &[WireValue::U16(42)],
-        &[],
-        &mut 0,
-    )
-    .unwrap();
+    let full = packed::encode_world_full(&packed_root, &[WireValue::U16(42)], &[], &mut 0).unwrap();
     lane.full(&full).unwrap();
 
-    let patch = packed::encode_world_patch(
-        &packed_root,
-        1,
-        &[(0, WireValue::U16(43))],
-        &[],
-        &mut 0,
-    )
-    .unwrap();
+    let patch =
+        packed::encode_world_patch(&packed_root, 1, &[(0, WireValue::U16(43))], &[], &mut 0)
+            .unwrap();
     let reliable = lane.patch(&patch).unwrap();
     let decoded = packed::decode_world(&packed_root, &reliable).unwrap();
     assert_eq!(decoded.root_mask, 0);
@@ -522,8 +511,11 @@ fn a_new_update_for_the_same_row_supersedes_a_deferred_one() {
     )
     .unwrap()
     .len();
-    lane.patch_for_budget("arena", &player_patch(vec![old]), 7, 1).unwrap();
-    let out = lane.patch_for_budget("arena", &player_patch(vec![new]), 7, one).unwrap();
+    lane.patch_for_budget("arena", &player_patch(vec![old]), 7, 1)
+        .unwrap();
+    let out = lane
+        .patch_for_budget("arena", &player_patch(vec![new]), 7, one)
+        .unwrap();
     let decoded = packed::decode(&PackedSchema::from_def(&schema_def()), &out).unwrap();
     assert_eq!(decoded.ops.len(), 1);
     let PackedOp::Update { values, .. } = &decoded.ops[0] else {
@@ -548,26 +540,26 @@ fn a_world_patch_budget_defers_collection_updates_too() {
     };
     let one = player_patch(vec![a.clone()]).len();
     let hash = wire_hash(&schema_def());
-    let patch = world_patch(
-        Some(9),
-        &[(0, hash, player_patch(vec![a, b]))],
-    );
+    let patch = world_patch(Some(9), &[(0, hash, player_patch(vec![a, b]))]);
     let budget = one + 18;
     let first = lane.patch_for_budget("arena", &patch, 7, budget).unwrap();
     let decoded = packed::decode_world(&PackedSchema::from_def(&root_schema()), &first).unwrap();
-    let inner = packed::decode(&PackedSchema::from_def(&schema_def()), &decoded.collections[0].2)
-        .unwrap();
+    let inner = packed::decode(
+        &PackedSchema::from_def(&schema_def()),
+        &decoded.collections[0].2,
+    )
+    .unwrap();
     assert_eq!(inner.ops.len(), 1, "world budget carried one update");
     assert_eq!(op_id(&inner.ops[0]), 1);
 
-    let empty = world_patch(
-        None,
-        &[(0, hash, player_patch(Vec::new()))],
-    );
+    let empty = world_patch(None, &[(0, hash, player_patch(Vec::new()))]);
     let second = lane.patch_for_budget("arena", &empty, 7, budget).unwrap();
     let decoded = packed::decode_world(&PackedSchema::from_def(&root_schema()), &second).unwrap();
-    let inner = packed::decode(&PackedSchema::from_def(&schema_def()), &decoded.collections[0].2)
-        .unwrap();
+    let inner = packed::decode(
+        &PackedSchema::from_def(&schema_def()),
+        &decoded.collections[0].2,
+    )
+    .unwrap();
     assert_eq!(inner.ops.len(), 1, "deferred world update retried");
     assert_eq!(op_id(&inner.ops[0]), 2);
 }

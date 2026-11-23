@@ -7,7 +7,7 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
 
     expect(
         env.client
-            .post(format!("{}/v2/console/account/{uid}/note", env.base))
+            .post(format!("{}/v1/console/account/{uid}/note", env.base))
             .bearer_auth(console)
             .json(&json!({"note": "exported for the round trip"}))
             .send()
@@ -19,7 +19,7 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
     .await;
     expect(
         env.client
-            .post(format!("{}/v2/console/account/{uid}/wallet", env.base))
+            .post(format!("{}/v1/console/account/{uid}/wallet", env.base))
             .bearer_auth(console)
             .json(&json!({"changeset": {"gold": 250}, "metadata": {"reason": "e2e"}}))
             .send()
@@ -32,13 +32,13 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
 
     let ledger = json_body(
         env.client
-            .get(format!("{}/v2/console/account/{uid}/wallet", env.base))
+            .get(format!("{}/v1/console/account/{uid}/wallet", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/account/{id}/wallet",
+        "GET /v1/console/account/{id}/wallet",
     )
     .await;
     let rows = ledger.as_array().expect("the ledger is a list").clone();
@@ -47,13 +47,13 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
 
     let exported = json_body(
         env.client
-            .get(format!("{}/v2/console/account/{uid}/export", env.base))
+            .get(format!("{}/v1/console/account/{uid}/export", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/account/{id}/export",
+        "GET /v1/console/account/{id}/export",
     )
     .await;
     assert_eq!(exported["account"]["id"], player.uid);
@@ -69,7 +69,7 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
     };
     refusal(
         env.client
-            .post(format!("{}/v2/console/account/{uid}/import", env.base))
+            .post(format!("{}/v1/console/account/{uid}/import", env.base))
             .bearer_auth(console)
             .json(&mismatched)
             .send()
@@ -83,7 +83,7 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
     expect(
         env.client
             .delete(format!(
-                "{}/v2/console/account/{uid}/wallet/{ledger_id}",
+                "{}/v1/console/account/{uid}/wallet/{ledger_id}",
                 env.base
             ))
             .bearer_auth(console)
@@ -91,12 +91,12 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/account/{id}/wallet/{wallet_id}",
+        "DELETE /v1/console/account/{id}/wallet/{wallet_id}",
     )
     .await;
     let after = json_body(
         env.client
-            .get(format!("{}/v2/console/account/{uid}/wallet", env.base))
+            .get(format!("{}/v1/console/account/{uid}/wallet", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -109,7 +109,7 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
     refusal(
         env.client
             .delete(format!(
-                "{}/v2/console/account/{uid}/wallet/{ledger_id}",
+                "{}/v1/console/account/{uid}/wallet/{ledger_id}",
                 env.base
             ))
             .bearer_auth(console)
@@ -124,7 +124,7 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
     let document = exported.clone();
     expect(
         env.client
-            .delete(format!("{}/v2/console/account/{uid}", env.base))
+            .delete(format!("{}/v1/console/account/{uid}", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -144,14 +144,14 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
 
     expect(
         env.client
-            .post(format!("{}/v2/console/account/{uid}/import", env.base))
+            .post(format!("{}/v1/console/account/{uid}/import", env.base))
             .bearer_auth(console)
             .json(&document)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/account/{id}/import",
+        "POST /v1/console/account/{id}/import",
     )
     .await;
     let restored: Option<String> = scalar(
@@ -185,7 +185,7 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/console/account/{uid}/import", env.base))
+            .post(format!("{}/v1/console/account/{uid}/import", env.base))
             .bearer_auth(console)
             .json(&document)
             .send()
@@ -198,7 +198,7 @@ pub async fn console_account_lifecycle(env: &Harness, console: &str) {
     let trail = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/audit/log?action=account.import&limit=20",
+                "{}/v1/console/audit/log?action=account.import&limit=20",
                 env.base
             ))
             .bearer_auth(console)

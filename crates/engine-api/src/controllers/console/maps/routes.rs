@@ -17,7 +17,7 @@ impl ConsoleMapsController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .upload_map(&state, game_id, upload.name, upload.format, upload.bytes)
+            .upload_map(game_id, upload.name, upload.format, upload.bytes)
             .await
             .map(Json)
             .into_response()

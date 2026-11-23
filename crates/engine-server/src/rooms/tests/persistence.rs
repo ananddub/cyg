@@ -37,8 +37,12 @@ fn test_multi_room_autocreate_and_autoclose() {
 
     assert!(!server.rooms.get("room_b").unwrap().is_hibernating());
 
-    server.rooms.get_mut("room_a").unwrap().lifecycle.empty_since =
-        Some(Instant::now() - Duration::from_secs(31));
+    server
+        .rooms
+        .get_mut("room_a")
+        .unwrap()
+        .lifecycle
+        .empty_since = Some(Instant::now() - Duration::from_secs(31));
 
     let mut dead_rooms = Vec::new();
     for (name, room) in server.rooms.iter_mut() {

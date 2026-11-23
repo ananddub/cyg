@@ -14,7 +14,7 @@ struct ConsoleAuditController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/audit")]
+#[controller("/v1/console/audit")]
 impl ConsoleAuditController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -24,7 +24,7 @@ impl ConsoleAuditController {
     async fn list(&self, _auth: ConsoleAuthed, Params(query): Params<AuditLogQuery>) -> Response {
         let state = current_state();
         self.service
-            .list_audit_logs(&state, query)
+            .list_audit_logs(query)
             .await
             .into_response()
     }
@@ -33,7 +33,7 @@ impl ConsoleAuditController {
     async fn list_users(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
         self.service
-            .list_audit_log_users(&state)
+            .list_audit_log_users()
             .await
             .into_response()
     }
@@ -43,7 +43,7 @@ struct ConsoleAclController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/acl")]
+#[controller("/v1/console/acl")]
 impl ConsoleAclController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -53,7 +53,7 @@ impl ConsoleAclController {
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
         self.service
-            .list_acl_templates(&state)
+            .list_acl_templates()
             .await
             .into_response()
     }
@@ -62,7 +62,7 @@ impl ConsoleAclController {
     async fn create(&self, auth: ConsoleAuthed, Body(body): Body<AclTemplateRequest>) -> Response {
         let state = current_state();
         self.service
-            .create_acl_template(&state, &auth, body)
+            .create_acl_template(&auth, body)
             .await
             .into_response()
     }
@@ -76,7 +76,7 @@ impl ConsoleAclController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_acl_template(&state, &auth, &id, body)
+            .update_acl_template(&auth, &id, body, None)
             .await
             .into_response()
     }
@@ -85,7 +85,7 @@ impl ConsoleAclController {
     async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .delete_acl_template(&state, &auth, &id)
+            .delete_acl_template(&auth, &id)
             .await
             .into_response()
     }

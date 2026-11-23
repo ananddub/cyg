@@ -21,24 +21,7 @@ impl StatusController {
     #[get("")]
     async fn status(&self) -> Response {
         let state = current_state();
-        self.service.status(&state).await
-    }
-}
-
-struct RoomsController {
-    service: Arc<StatusService>,
-}
-
-#[controller("/api")]
-impl RoomsController {
-    fn new(service: Arc<StatusService>) -> Self {
-        Self { service }
-    }
-
-    #[get("/rooms")]
-    async fn rooms(&self, headers: HeaderMap) -> Response {
-        let state = current_state();
-        self.service.rooms(&state, headers).await
+        self.service.status().await
     }
 }
 
@@ -53,7 +36,7 @@ impl MetricsController {
     #[get("")]
     async fn metrics(&self, headers: HeaderMap) -> Response {
         let state = current_state();
-        if let Err(err) = crate::app::middleware::server_key_or_console(&headers, &state) {
+        if let Err(err) = crate::app::middleware::server_key_or_console(&headers, &*state.plane()) {
             return err.into_response();
         }
         let sample = state

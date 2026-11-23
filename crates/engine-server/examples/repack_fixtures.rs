@@ -17,8 +17,7 @@ use engine_server::netcode::PackedSet;
 const PREFIX: &[u8] = b"\xA5delta";
 
 fn main() {
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../cyg-core-rs/tests/fixtures");
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../cyg-core-rs/tests/fixtures");
     let descriptor = std::fs::read(fixtures.join("descriptor.bin")).expect("descriptor.bin");
     let payloads = std::fs::read(fixtures.join("payloads.bin")).expect("payloads.bin");
     let mut set = PackedSet::from_descriptor(&descriptor).expect("descriptor has schemas");
@@ -56,7 +55,9 @@ fn main() {
         let new_body = match full_kind {
             1 | 3 => set.full(body),
             2 | 4 => set.patch(body),
-            _ => Err(format!("kind {full_kind} is already packed; use the raw capture")),
+            _ => Err(format!(
+                "kind {full_kind} is already packed; use the raw capture"
+            )),
         };
         let Ok(new_body) = new_body else {
             write_frame(&mut out, frame);

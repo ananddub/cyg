@@ -22,7 +22,7 @@ struct ListingsController {
     service: Arc<MarketplaceService>,
 }
 
-#[controller("/v2/marketplace/listings")]
+#[controller("/v1/marketplace/listings")]
 impl ListingsController {
     fn new(service: Arc<MarketplaceService>) -> Self {
         Self { service }
@@ -32,7 +32,7 @@ impl ListingsController {
     async fn create(&self, auth: Authed, Json(body): JsonBody<ListItemsRequest>) -> Response {
         let state = current_state();
         self.service
-            .list_item(&state, &auth, body)
+            .list_item(&auth, body)
             .await
             .into_response()
     }
@@ -45,7 +45,7 @@ impl ListingsController {
             Err(err) => return err.into_response(),
         };
         self.service
-            .buy(&state, &auth, listing)
+            .buy(&auth, listing)
             .await
             .into_response()
     }
@@ -58,7 +58,7 @@ impl ListingsController {
             Err(err) => return err.into_response(),
         };
         self.service
-            .cancel(&state, &auth, listing)
+            .cancel(&auth, listing)
             .await
             .into_response()
     }
@@ -70,7 +70,7 @@ struct WagerController {
 
 /// Wagers move player currency without the players asking for it: this door is
 /// for the authoritative server only.
-#[controller("/v2/wager")]
+#[controller("/v1/wager")]
 impl WagerController {
     fn new(service: Arc<MarketplaceService>) -> Self {
         Self { service }
@@ -83,11 +83,11 @@ impl WagerController {
         Json(body): JsonBody<WagerCreateRequest>,
     ) -> Response {
         let state = current_state();
-        if let Err(err) = server_key(&headers, &state) {
+        if let Err(err) = server_key(&headers, &*state.plane()) {
             return err.into_response();
         }
         self.service
-            .create_wager(&state, body)
+            .create_wager(body)
             .await
             .into_response()
     }
@@ -100,7 +100,7 @@ impl WagerController {
         Json(body): JsonBody<WagerSettleRequest>,
     ) -> Response {
         let state = current_state();
-        if let Err(err) = server_key(&headers, &state) {
+        if let Err(err) = server_key(&headers, &*state.plane()) {
             return err.into_response();
         }
         let wager = match record_id(&wager, "wager") {
@@ -108,7 +108,7 @@ impl WagerController {
             Err(err) => return err.into_response(),
         };
         self.service
-            .settle_wager(&state, wager, body)
+            .settle_wager(wager, body)
             .await
             .into_response()
     }
@@ -116,7 +116,7 @@ impl WagerController {
     #[post("/{wager}/refund")]
     async fn refund(&self, headers: HeaderMap, Path(wager): Path<String>) -> Response {
         let state = current_state();
-        if let Err(err) = server_key(&headers, &state) {
+        if let Err(err) = server_key(&headers, &*state.plane()) {
             return err.into_response();
         }
         let wager = match record_id(&wager, "wager") {
@@ -124,7 +124,7 @@ impl WagerController {
             Err(err) => return err.into_response(),
         };
         self.service
-            .refund_wager(&state, wager)
+            .refund_wager(wager)
             .await
             .into_response()
     }
