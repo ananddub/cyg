@@ -109,7 +109,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     assert_eq!(page["records"][0]["rank"], "1");
     assert_eq!(page["records"][1]["rank"], "2");
     assert_eq!(page["rank_count"], "3");
-    let cursor = page["next_cursor"]
+    let cursor = page["nextPageToken"]
         .as_str()
         .expect("a leaderboard cursor")
         .to_owned();
@@ -124,8 +124,8 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["owner_id"], bob.uid);
     assert_eq!(records[0]["rank"], "3");
-    assert!(page["prev_cursor"].is_string());
-    assert!(page.get("next_cursor").is_none());
+    assert!(page["prevPageToken"].is_string());
+    assert!(page.get("nextPageToken").is_none());
 
     let default_page = api_get(
         client,
@@ -228,7 +228,7 @@ pub async fn leaderboard_surface(client: &Client, base: &str, pool: &Datastore) 
     assert_eq!(records.len(), 1);
     assert_eq!(records[0]["owner_id"], bob.uid);
     assert_eq!(records[0]["rank"], "3");
-    assert!(trimmed["prev_cursor"].is_string());
+    assert!(trimmed["prevPageToken"].is_string());
     let cursor_page = api_get(
         client,
         with_query(

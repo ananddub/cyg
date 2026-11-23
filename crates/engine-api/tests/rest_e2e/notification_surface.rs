@@ -228,7 +228,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         client
             .get(with_query(
                 &format!("{base}/v1/notification"),
-                &[("cacheableCursor", "garbage")],
+                &[("pageToken", "garbage")],
             ))
             .bearer_auth(&bob.token)
             .send()
@@ -259,7 +259,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     for _ in 0..3 {
         let mut pairs: Vec<(&str, &str)> = vec![("limit", "1")];
         if !cursor.is_empty() {
-            pairs.push(("cacheableCursor", &cursor));
+            pairs.push(("pageToken", &cursor));
         }
         let page = api_get(
             client,
@@ -271,7 +271,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
         let rows = page["notifications"].as_array().expect("notifications");
         assert_eq!(rows.len(), 1);
         seen.push(rows[0]["id"].as_str().expect("notification id").to_owned());
-        cursor = page["cacheable_cursor"]
+        cursor = page["nextPageToken"]
             .as_str()
             .expect("a cacheable cursor")
             .to_owned();
@@ -290,7 +290,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     .await;
     assert!(charlie_page.get("notifications").is_none());
     assert!(
-        !charlie_page["cacheable_cursor"]
+        !charlie_page["nextPageToken"]
             .as_str()
             .unwrap_or("")
             .is_empty()
@@ -354,7 +354,7 @@ pub async fn notification_surface(client: &Client, base: &str, pool: &Datastore)
     .await;
     assert!(cleared.get("notifications").is_none());
     assert!(
-        !cleared["cacheable_cursor"]
+        !cleared["nextPageToken"]
             .as_str()
             .unwrap_or("")
             .is_empty()

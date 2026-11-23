@@ -335,7 +335,7 @@ pub async fn timeline_and_economy_surface(env: &Harness, console: &str, viewer: 
     assert!(!entries.is_empty(), "the wallet change is on the feed");
     assert_eq!(entries[0]["kind"], "wallet");
     let first_id = entries[0]["id"].as_str().expect("entry id").to_owned();
-    let cursor = page["next_cursor"].as_str().expect("a cursor for page two");
+    let cursor = page["nextPageToken"].as_str().expect("a cursor for page two");
 
     let page = json_body(
         env.client

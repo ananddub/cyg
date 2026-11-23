@@ -510,7 +510,7 @@ pub async fn tournaments(client: &Client, base: &str, console: &str, pool: &Data
         "one record of the round",
     )
     .await;
-    let cursor = paged["next_cursor"]
+    let cursor = paged["nextPageToken"]
         .as_str()
         .expect("a truncated page carries a cursor")
         .to_owned();

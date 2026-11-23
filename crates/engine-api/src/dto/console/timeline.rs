@@ -20,6 +20,7 @@ pub struct TimelinePage {
     pub account_id: Uuid,
     pub entries: Vec<TimelineEntry>,
     /// Pass as `before` on the next request; `null` means the feed is done.
+    #[serde(rename = "nextPageToken", alias = "next_cursor")]
     pub next_cursor: Option<String>,
 }
 

@@ -95,12 +95,14 @@ pub struct SubscriptionResponse {
 #[derive(Debug, Serialize)]
 pub struct PurchaseListResponse {
     pub purchases: Vec<PurchaseResponse>,
+    #[serde(rename = "nextPageToken", alias = "next_cursor")]
     pub next_cursor: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SubscriptionListResponse {
     pub subscriptions: Vec<SubscriptionResponse>,
+    #[serde(rename = "nextPageToken", alias = "next_cursor")]
     pub next_cursor: String,
 }
 

@@ -29,8 +29,8 @@ extends RefCounted
 ##    server default `true` reads oldest-to-newest from the head, `false`
 ##    walks back from the newest). Replies `MessageListResponse`:
 ##
-##        {"messages": [apiChannelMessage], "next_cursor"?, "prev_cursor"?,
-##         "cacheable_cursor"?}
+##        {"messages": [apiChannelMessage], "next_page_token"?, "prev_page_token"?,
+##         "cacheable_page_token"?}
 ##
 ##  * `POST /v1/channel/{channel_id}/message` — send. Body (`SendRequest`):
 ##
@@ -116,7 +116,7 @@ static func direct_channel(user_id_one: String, user_id_two: String) -> String:
 ## Stored history for `channel_id`, page knobs matching `ListQuery`: `limit`
 ## (0 omits it), `cursor`, `forward` (sent only when `false`, since the server
 ## already defaults to `true`). Merges the page into the cache and answers
-## `data` = {"messages", "next_cursor", "prev_cursor", "cacheable_cursor"}.
+## `data` = {"messages", "next_page_token", "prev_page_token", "cacheable_page_token"}.
 ## Emits `messages_updated`; `message_received` is reserved for live arrivals.
 func history(channel_id: String, callback: Callable, limit: int = 0, cursor: String = "", forward: bool = true) -> void:
 	if channel_id.is_empty() or not callback.is_valid():
@@ -241,9 +241,9 @@ static func _message_list_to_dict(raw: Variant) -> Dictionary:
 		return out
 	for message in raw.get("messages", []):
 		out["messages"].append(_message_to_dict(message))
-	out["next_cursor"] = str(raw.get("next_cursor", ""))
-	out["prev_cursor"] = str(raw.get("prev_cursor", ""))
-	out["cacheable_cursor"] = str(raw.get("cacheable_cursor", ""))
+	out["next_page_token"] = str(raw.get("nextPageToken", ""))
+	out["prev_page_token"] = str(raw.get("prevPageToken", ""))
+	out["cacheable_page_token"] = str(raw.get("cacheablePageToken", ""))
 	return out
 
 

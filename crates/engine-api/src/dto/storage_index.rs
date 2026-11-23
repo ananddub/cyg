@@ -61,7 +61,11 @@ pub struct IndexQueryRequest {
 pub struct StorageIndexList {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub objects: Vec<StorageObject>,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(
+        rename = "nextPageToken",
+        alias = "next_cursor",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub next_cursor: String,
 }
 

@@ -347,7 +347,7 @@ export interface ConsoleTimelineEntry {
 export interface ConsoleTimelinePage {
   account_id: string;
   entries: ConsoleTimelineEntry[];
-  next_cursor: string | null;
+  next_page_token: string | null;
 }
 
 /** `console.EconomySummary` and its parts. */

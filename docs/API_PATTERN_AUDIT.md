@@ -34,7 +34,7 @@ deliberately left for later.
 |---|---|---|---|---|
 | ch. 24 | Versioning in the path | PASS | `#[controller("/v1/...")]` (302 declarations) | `/v1` retired |
 | — | Standard error model | PASS | `error/v2.rs` 16 canonical codes; `error/api.rs` derives its code from that table, one source of truth | `error::tests::the_legacy_envelope_uses_the_canonical_code_for_every_status` |
-| ch. 21 | Pagination (cursor) | PARTIAL | `dto/` `limit` (21), `cursor` (18) | response field naming is documented as a coordinated change in `API_PATTERN_PLAN.md` |
+| ch. 21 | Pagination (cursor) | PASS | responses publish `nextPageToken` / `prevPageToken`; requests read `pageToken` (old cursor spellings remain deserialization aliases only) | pagination e2e + SDK/dashboard consumers |
 | ch. 26 | Idempotency (`Idempotency-Key`) | PASS | `app/middleware.rs::idempotency` — plane-wide, claim → replay → release, status and body preserved | `tests/idempotency_plane.rs` (4 tests) |
 | ch. 7, 9 | Standard methods / custom methods | PASS | colon forms (`/games/{id}:undelete`, `/games:batch-get`) are accepted by the canonical-path adapter; handlers stay ordinary Axum routes | `app/canonical_paths.rs` (2 tests) + REST `:batch-get` |
 | ch. 24 | Schema-first spec | PARTIAL | `auto_route` infers from `Result<Json<T>, E>`; DTOs need `poem_openapi::Object`; leaderboard domain converted as the reference | ratchet: `src/tests/openapi.rs` + `tests/openapi_undocumented.txt` (297 routes still to convert) |

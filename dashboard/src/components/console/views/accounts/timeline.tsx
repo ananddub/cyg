@@ -40,12 +40,12 @@ export function AccountTimeline({ id }: { id: string }) {
   )
 
   const entries = [...pages, ...(page.data?.entries ?? [])]
-  const nextCursor = page.data?.next_cursor ?? null
+  const nextCursor = page.data?.next_page_token ?? null
 
   function older() {
     if (page.data !== undefined) {
       setPages((previous) => [...previous, ...(page.data?.entries ?? [])])
-      setCursor(page.data?.next_cursor ?? null)
+      setCursor(page.data?.next_page_token ?? null)
     }
   }
 

@@ -36,8 +36,8 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     )
     .await;
     assert_eq!(empty["messages"], json!([]));
-    assert!(empty.get("next_cursor").is_none());
-    assert!(empty.get("cacheable_cursor").is_none());
+    assert!(empty.get("nextPageToken").is_none());
+    assert!(empty.get("cacheablePageToken").is_none());
 
     for bad in [json!({ "content": "plain" }), json!({ "content": 7 })] {
         refusal(
@@ -112,11 +112,11 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["message_id"], first_id);
     assert_eq!(messages[1]["message_id"], second_id);
-    let next = page["next_cursor"]
+    let next = page["nextPageToken"]
         .as_str()
         .expect("forward page has a next cursor")
         .to_owned();
-    assert!(page.get("prev_cursor").is_none());
+    assert!(page.get("prevPageToken").is_none());
 
     let page = api_get(
         client,
@@ -131,8 +131,8 @@ pub async fn channel_surface(client: &Client, base: &str, pool: &Datastore) {
     let messages = page["messages"].as_array().expect("messages");
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["message_id"], third_id);
-    assert!(page.get("next_cursor").is_none());
-    assert!(page["prev_cursor"].is_string());
+    assert!(page.get("nextPageToken").is_none());
+    assert!(page["prevPageToken"].is_string());
 
     let page = api_get(
         client,

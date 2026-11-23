@@ -105,7 +105,7 @@ pub async fn channel_surface(env: &Harness) {
         json!({ "text": "gap first line" }),
         "forward reads oldest first"
     );
-    assert!(head["cacheable_cursor"].is_string());
+    assert!(head["cacheablePageToken"].is_string());
     assert_eq!(
         refusal(
             env.client

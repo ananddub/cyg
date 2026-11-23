@@ -35,7 +35,7 @@ extends RefCounted
 ##    Replies `RecordListResponse`:
 ##
 ##        {"records"?: [RecordResponse], "owner_records"?: [RecordResponse],
-##         "next_cursor"?, "prev_cursor"?, "rank_count"?}
+##         "next_page_token"?, "prev_page_token"?, "rank_count"?}
 ##
 ##  * `GET /v1/leaderboard/{leaderboard_id}/owner/{owner_id}` — the haystack:
 ##    the owner's record with its neighbours, i.e. the around-rank window.
@@ -119,8 +119,8 @@ static func _records_to_dict(raw: Variant) -> Dictionary:
 	var out := {"records": [], "owner_records": []}
 	if typeof(raw) != TYPE_DICTIONARY:
 		return out
-	out["next_cursor"] = str(raw.get("next_cursor", ""))
-	out["prev_cursor"] = str(raw.get("prev_cursor", ""))
+	out["next_page_token"] = str(raw.get("nextPageToken", ""))
+	out["prev_page_token"] = str(raw.get("prevPageToken", ""))
 	out["rank_count"] = int(str(raw.get("rank_count", "0")))
 	for record in raw.get("records", []):
 		out["records"].append(_record_to_dict(record))
@@ -203,7 +203,7 @@ static func submit(leaderboard_id: String, value: Variant, extra: Variant, callb
 ## `limit` (omit when 0 — absent means "1" server-side unless owners are named),
 ## `cursor`, `owner_ids` (batch of named owners, sent comma-separated) and
 ## `expiry` (unix-seconds string overriding the reset window). `data` on
-## success: {"records", "owner_records", "next_cursor", "prev_cursor",
+## success: {"records", "owner_records", "next_page_token", "prev_page_token",
 ## "rank_count"}.
 static func list(leaderboard_id: String, callback: Callable, limit: int = 0, cursor: String = "", owner_ids: PackedStringArray = PackedStringArray(), expiry: String = "") -> void:
 	if leaderboard_id.is_empty() or not callback.is_valid():

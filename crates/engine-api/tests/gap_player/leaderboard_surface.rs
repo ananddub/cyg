@@ -161,7 +161,7 @@ pub async fn leaderboard_surface(env: &Harness) {
     assert_eq!(rows.len(), 1, "{page}");
     assert_eq!(rows[0]["score"], "650", "the board reads in score order");
     assert_ne!(
-        page["next_cursor"],
+        page["nextPageToken"],
         json!(""),
         "a page that cut records off hands back a cursor"
     );

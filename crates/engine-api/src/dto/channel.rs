@@ -83,10 +83,22 @@ impl MessageResponse {
 #[derive(Debug, Serialize)]
 pub struct MessageListResponse {
     pub messages: Vec<MessageResponse>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "nextPageToken",
+        alias = "next_cursor",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub next_cursor: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "prevPageToken",
+        alias = "prev_cursor",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub prev_cursor: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "cacheablePageToken",
+        alias = "cacheable_cursor",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cacheable_cursor: Option<String>,
 }

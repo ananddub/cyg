@@ -7,7 +7,13 @@ use crate::services::social::{meta_str, ts, uid};
 pub struct ListQuery {
     #[serde(default)]
     pub limit: Option<i64>,
-    #[serde(default, rename = "cacheableCursor", alias = "cacheable_cursor")]
+    #[serde(
+        default,
+        rename = "pageToken",
+        alias = "cacheableCursor",
+        alias = "cacheable_cursor",
+        alias = "cursor"
+    )]
     pub cacheable_cursor: Option<String>,
     #[serde(default)]
     pub sender_id: Option<String>,
@@ -52,5 +58,6 @@ impl From<&Notification> for NotificationResponse {
 pub struct NotificationListResponse {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notifications: Vec<NotificationResponse>,
+    #[serde(rename = "nextPageToken", alias = "cacheable_cursor")]
     pub cacheable_cursor: String,
 }

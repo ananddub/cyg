@@ -80,8 +80,8 @@ void FCYGBaasLeaderboard::ParsePage(const FString& Body, FCYGBaasLeaderboardPage
 	AppendRecords(Object, TEXT("records"), OutPage.Records);
 	AppendRecords(Object, TEXT("owner_records"), OutPage.OwnerRecords);
 
-	OutPage.NextCursor = CYGBaasJson::ReadText(Object, TEXT("next_cursor"));
-	OutPage.PrevCursor = CYGBaasJson::ReadText(Object, TEXT("prev_cursor"));
+	OutPage.NextCursor = CYGBaasJson::ReadText(Object, TEXT("nextPageToken"));
+	OutPage.PrevCursor = CYGBaasJson::ReadText(Object, TEXT("prevPageToken"));
 }
 
 FCYGBaasLeaderboardRecord FCYGBaasLeaderboard::ParseRecord(const TSharedPtr<FJsonObject>& Object)

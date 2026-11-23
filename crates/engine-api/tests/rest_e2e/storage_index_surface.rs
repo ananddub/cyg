@@ -234,7 +234,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
     )
     .await;
     assert_eq!(first_page["objects"].as_array().expect("objects").len(), 2);
-    let cursor = first_page["next_cursor"]
+    let cursor = first_page["nextPageToken"]
         .as_str()
         .expect("an index cursor")
         .to_owned();
@@ -253,7 +253,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
         .map(|object| object["key"].as_str().expect("key").to_owned())
         .collect();
     assert_eq!(keys, vec!["k3"]);
-    assert!(second_page.get("next_cursor").is_none());
+    assert!(second_page.get("nextPageToken").is_none());
     refusal(
         client
             .post(query_url.clone())
@@ -326,7 +326,7 @@ pub async fn storage_index_surface(client: &Client, base: &str) {
     )
     .await;
     assert_eq!(capped["objects"].as_array().expect("objects").len(), 2);
-    let cursor = capped["next_cursor"]
+    let cursor = capped["nextPageToken"]
         .as_str()
         .expect("a capped index cursor")
         .to_owned();

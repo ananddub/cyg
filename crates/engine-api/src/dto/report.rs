@@ -28,7 +28,13 @@ pub struct CreateReportRequest {
 pub struct ListQuery {
     #[serde(default)]
     pub limit: Option<i64>,
-    #[serde(default, rename = "cacheableCursor", alias = "cacheable_cursor")]
+    #[serde(
+        default,
+        rename = "pageToken",
+        alias = "cacheableCursor",
+        alias = "cacheable_cursor",
+        alias = "cursor"
+    )]
     pub cacheable_cursor: Option<String>,
     #[serde(default)]
     pub status: Option<String>,
@@ -80,6 +86,7 @@ impl From<&ContentReport> for ReportResponse {
 pub struct ReportListResponse {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reports: Vec<ReportResponse>,
+    #[serde(rename = "nextPageToken", alias = "cacheable_cursor")]
     pub cacheable_cursor: String,
 }
 

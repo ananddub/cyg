@@ -126,12 +126,11 @@ envelope (used only by the Nakama-compatible `/matchmake` and `/queue` routes)
 therefore cannot drift from it. Test:
 `error::tests::the_legacy_envelope_uses_the_canonical_code_for_every_status`.
 
-**Deliberately deferred — pagination field naming.** Requests are already uniform
-(`limit` + `cursor`). Responses are not: 18 DTOs emit `cursor`, 6 emit
-`next_cursor`, 3 use `offset`. Renaming is a breaking wire change that has to
-land together with every SDK under `sdk/client/` (`core-ts`, `web`, `unity`,
-`godot`, `unreal`). Doing it in this pass would have shipped a half-migrated
-surface to five clients. The target shape is:
+**Landed — pagination field naming.** Responses now publish `nextPageToken` /
+`prevPageToken`; list requests accept `pageToken`. The old cursor spellings are
+kept as deserialization aliases so an in-flight request does not 400, but no
+response emits them. Godot, Unreal and the dashboard were moved to the canonical
+names in the same change.
 
 ```
 request:  ?limit=N&cursor=X

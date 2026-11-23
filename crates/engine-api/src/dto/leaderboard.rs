@@ -84,9 +84,17 @@ pub struct RecordListResponse {
     pub records: Vec<RecordResponse>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub owner_records: Vec<RecordResponse>,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(
+        rename = "nextPageToken",
+        alias = "next_cursor",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub next_cursor: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(
+        rename = "prevPageToken",
+        alias = "prev_cursor",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub prev_cursor: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rank_count: Option<String>,
