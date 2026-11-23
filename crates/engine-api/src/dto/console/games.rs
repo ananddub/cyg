@@ -145,6 +145,32 @@ pub struct GameListDto {
     pub total: i64,
 }
 
+
+#[derive(Debug, Deserialize, poem_openapi::Object)]
+pub struct GameIdsRequest {
+    /// The games to read, archive, or restore in one call. Order is preserved.
+    pub ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct GameBatchResponse {
+    pub games: Vec<GameDto>,
+}
+
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct GameArchiveBatchResponse {
+    pub archived: usize,
+}
+
+#[derive(Debug, Default, Deserialize, poem_openapi::Object)]
+pub struct GameCriteriaRequest {
+    /// Archive only games in this lifecycle state (`active`, `suspended`).
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Archive only games whose name contains this text.
+    #[serde(default)]
+    pub name_contains: Option<String>,
+}
 #[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct ArchiveGameResponse {
     pub archived: bool,

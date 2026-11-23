@@ -75,7 +75,11 @@ pub async fn app(state: ApiState) -> Result<Router, crate::db::DbError> {
             Err(err) => tracing::info!("auto_ws: skipping auto-registered sockets: {err}"),
         }
     }
-    Ok(state::with_plane_state(router, state, container))
+    let router = state::with_plane_state(router, state, container);
+    // Custom methods are authored as `/resource/{id}:verb`; this adapter
+    // rewrites them to the nested Axum route before matching.
+    Ok(axum::Router::new()
+        .fallback_service(crate::app::canonical_paths::CanonicalPaths::new(router)))
 }
 
 /// Everything a service may inject instead of reaching into `&ApiState`.

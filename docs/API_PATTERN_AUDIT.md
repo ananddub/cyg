@@ -36,14 +36,14 @@ deliberately left for later.
 | — | Standard error model | PASS | `error/v2.rs` 16 canonical codes; `error/api.rs` derives its code from that table, one source of truth | `error::tests::the_legacy_envelope_uses_the_canonical_code_for_every_status` |
 | ch. 21 | Pagination (cursor) | PARTIAL | `dto/` `limit` (21), `cursor` (18) | response field naming is documented as a coordinated change in `API_PATTERN_PLAN.md` |
 | ch. 26 | Idempotency (`Idempotency-Key`) | PASS | `app/middleware.rs::idempotency` — plane-wide, claim → replay → release, status and body preserved | `tests/idempotency_plane.rs` (4 tests) |
-| ch. 7, 9 | Standard methods / custom methods | PARTIAL | `get`/`post`/`put`/`delete` + verb routes (`/define`, `/claim`) | — |
+| ch. 7, 9 | Standard methods / custom methods | PASS | colon forms (`/games/{id}:undelete`, `/games:batch-get`) are accepted by the canonical-path adapter; handlers stay ordinary Axum routes | `app/canonical_paths.rs` (2 tests) + REST `:batch-get` |
 | ch. 24 | Schema-first spec | PARTIAL | `auto_route` infers from `Result<Json<T>, E>`; DTOs need `poem_openapi::Object`; leaderboard domain converted as the reference | ratchet: `src/tests/openapi.rs` + `tests/openapi_undocumented.txt` (297 routes still to convert) |
 | ch. 25 | Soft deletion / undelete | PARTIAL | games archive keeps the row; `POST /v1/console/games/{gameId}:undelete` restores it | `restore_game` tests (service + REST) |
 | ch. 27 | Request validation (`validateOnly`) | PARTIAL | games `PATCH`/`PUT` accept `validateOnly`; other dangerous domains still need the same flag | `validate_only_returns_the_planned_row_and_writes_nothing` |
 | ch. 28 | Resource revisions | PARTIAL | game config history is a domain read; the book's `@revision` read is not universal | `config_history`, `config_version` |
 | ch. 22 | Filtering | PARTIAL | domain-specific query parameters; no uniform filter string | — |
-| ch. 18 | Batch operations | GAP | no atomic batch create/update/delete surface | — |
-| ch. 19 | Criteria-based deletion | GAP | no filter-driven bulk delete | — |
+| ch. 18 | Batch operations | PARTIAL | games `batch-get`, `batch-delete`; missing ids are preflighted before writes | `GameService::batch_get` / `batch_archive` tests + REST `:batch-get` |
+| ch. 19 | Criteria-based deletion | PARTIAL | games `delete-by-filter` archives matching status/name; empty filter is refused | `archive_matching` tests |
 | ch. 30 | Request authentication | PARTIAL | bearer/session auth over TLS; no signed-request canonicalization | `app/middleware.rs` |
 | ch. 8 | Partial updates / field masks | PARTIAL | `PATCH /v1/console/games/{gameId}` + `updateMask`; `PUT` remains the whole-resource compatibility path | `services/games/service/update_game.rs::masked_update` (4 unit tests) + `tests/rest_e2e/games.rs` |
 | ch. 28 | Optimistic concurrency (ETag / If-Match) | PASS | `utils/precondition.rs`; ACL templates carry a `version` generation and a guarded update | `tests/precondition_plane.rs` (3 tests) |

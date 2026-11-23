@@ -68,10 +68,9 @@ impl ConsoleGamesController {
     /// Custom method on the resource (`API Design Patterns`, ch. 9): restore a
     /// soft-deleted game. The colon keeps the action attached to the resource
     /// instead of inventing a child path.
-    /// The whole resource segment is captured so the colon action can be
-    /// parsed here: axum's router does not allow a literal after a parameter
-    /// in the same segment, but the public URL is still `/games/123:undelete`.
-    #[post("/{gameId}")]
+    /// Canonical URL: `POST /v1/console/games/{id}:undelete`. The router
+    /// adapter rewrites the colon form to this nested handler.
+    #[post("/{gameId}/undelete")]
     async fn undelete(
         &self,
         auth: ConsoleAuthed,
@@ -79,7 +78,7 @@ impl ConsoleGamesController {
     ) -> Result<Json<GameDto>, V2Error> {
         let state = current_state();
         auth.require_write()?;
-        let id = parse_custom_id(&game_id, "undelete")?;
+        let id = parse_id(&game_id)?;
         let restored = self.service.restore_game(id).await?;
         config_audit(
             &state,
@@ -118,6 +117,58 @@ impl ConsoleGamesController {
             .await;
         }
         Ok(Json(updated))
+    }
+
+    /// Book batch get (`ch. 18`), targeting the collection:
+    /// `POST /v1/console/games:batch-get`.
+    #[post("/batch-get")]
+    async fn batch_get(
+        &self,
+        _auth: ConsoleAuthed,
+        Json(request): Json<GameIdsRequest>,
+    ) -> Result<Json<GameBatchResponse>, V2Error> {
+        let games = self.service.batch_get(&request.ids).await?;
+        Ok(Json(GameBatchResponse { games }))
+    }
+
+    /// Book batch delete (`ch. 18`). Missing ids are refused before any write.
+    /// `POST /v1/console/games:batch-delete`.
+    #[post("/batch-delete")]
+    async fn batch_delete(
+        &self,
+        auth: ConsoleAuthed,
+        Json(request): Json<GameIdsRequest>,
+    ) -> Result<Json<GameArchiveBatchResponse>, V2Error> {
+        let state = current_state();
+        auth.require_admin()?;
+        let archived = self.service.batch_archive(&request.ids).await?;
+        for id in &request.ids {
+            config_audit(
+                &state,
+                &auth,
+                *id,
+                "game.config.batch_delete",
+                "Archived a game in a batch delete.",
+            )
+            .await;
+        }
+        Ok(Json(GameArchiveBatchResponse { archived }))
+    }
+
+    /// Criteria-based delete (`API Design Patterns`, ch. 19).
+    /// `POST /v1/console/games:delete-by-filter`.
+    #[post("/delete-by-filter")]
+    async fn delete_by_filter(
+        &self,
+        auth: ConsoleAuthed,
+        Json(request): Json<GameCriteriaRequest>,
+    ) -> Result<Json<GameArchiveBatchResponse>, V2Error> {
+        auth.require_admin()?;
+        let archived = self
+            .service
+            .archive_matching(request.status.as_deref(), request.name_contains.as_deref())
+            .await?;
+        Ok(Json(GameArchiveBatchResponse { archived }))
     }
 
     #[get("/{gameId}/config/history")]
@@ -288,16 +339,6 @@ async fn config_audit(
 #[serde(rename_all = "camelCase")]
 struct UpdateGameQuery {
     update_mask: Option<String>,
-}
-
-fn parse_custom_id(raw: &str, action: &str) -> Result<Uuid, V2Error> {
-    let Some((id, verb)) = raw.rsplit_once(':') else {
-        return Err(V2Error::not_found("Unknown custom method."));
-    };
-    if verb != action {
-        return Err(V2Error::not_found("Unknown custom method."));
-    }
-    parse_id(id)
 }
 
 fn parse_update_mask(raw: Option<&str>) -> Result<Option<Vec<String>>, V2Error> {

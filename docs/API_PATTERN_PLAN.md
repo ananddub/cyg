@@ -138,7 +138,13 @@ request:  ?limit=N&cursor=X
 response: { items: [...], next_cursor: "..." }   // cursor kept as an alias for one minor
 ```
 
-**Deliberately deferred — custom-method paths.** `/define`, `/claim`, `/kick`
+**Landed — custom-method paths.** `app/canonical_paths.rs` rewrites the book's
+`/resource/{id}:verb` spelling into the nested handler before routing, with an
+allowlist of real verbs so a storage key containing `:` is untouched. Games
+`undelete`, batch and criteria routes are the reference; the adapter covers the
+existing custom verbs without moving every handler declaration.
+
+**Still open — response schemas.** `/define`, `/claim`, `/kick`
 should read `:define`, `:claim`, `:kick` per *API Design Patterns* ch. 11. The
 route macro currently folds `:segment` into a path parameter
 (`route_macros/src/docs.rs`), so this needs an explicit `is_custom_method` flag

@@ -221,6 +221,22 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     )
     .await;
 
+    let batch = json_body(
+        client
+            .post(format!("{base}/v1/console/games:batch-get"))
+            .bearer_auth(console)
+            .json(&json!({ "ids": [unity_id, wasm_id] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "batch-get two games through the canonical colon URL",
+    )
+    .await;
+    assert_eq!(batch["games"].as_array().unwrap().len(), 2);
+    assert_eq!(batch["games"][0]["id"], unity_id);
+    assert_eq!(batch["games"][1]["id"], wasm_id);
+
     let settings = json_body(
         client
             .get(format!(

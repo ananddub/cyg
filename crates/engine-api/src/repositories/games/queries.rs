@@ -168,6 +168,37 @@ impl Queries {
         )
         .await
     }
+    /// Criteria-based archive (`API Design Patterns`, ch. 19). The filter is
+    /// parameterised and only the two fields the operator surface exposes are
+    /// accepted; a caller cannot smuggle SurrealQL through it.
+    pub async fn archive_games_matching(
+        &self,
+        status: Option<&str>,
+        name_contains: Option<&str>,
+    ) -> Result<WriteResult, DbError> {
+        let mut query = String::from(
+            "UPDATE games SET status = 'archived', updated_at = $updated_at \
+             WHERE status != 'archived'",
+        );
+        if status.is_some() {
+            query.push_str(" AND status = $status");
+        }
+        if name_contains.is_some() {
+            query.push_str(" AND string::contains(name, $name_contains)");
+        }
+        query.push_str(" RETURN AFTER");
+        affected(
+            self,
+            &query,
+            params!(
+                updated_at = time::encode(Utc::now()),
+                status = status.unwrap_or_default(),
+                name_contains = name_contains.unwrap_or_default(),
+            ),
+        )
+        .await
+    }
+
     /// Reverse a soft delete. Only an archived row is restored, so an active
     /// row answers "nothing to undo" instead of silently succeeding.
     pub async fn restore_game(&self, id: Uuid) -> Result<WriteResult, DbError> {

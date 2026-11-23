@@ -203,3 +203,82 @@ pub(crate) async fn undelete_restores_an_archived_game_only_once() {
     assert_eq!(again.kind, FAILED_PRECONDITION, "{again:?}");
     db::forget(&pool, game.id).await;
 }
+
+#[tokio::test]
+pub(crate) async fn batch_get_and_batch_archive_keep_the_callers_order() {
+    let Some((state, pool)) = db::state().await else {
+        return skipped_without_database();
+    };
+    let first = db::create(&state, "batch-one").await;
+    let second = db::create(&state, "batch-two").await;
+    let service = GamesService::new(state.plane());
+    let games = service
+        .batch_get(&[second.id, first.id])
+        .await
+        .expect("both games exist");
+    assert_eq!(games[0].id, second.id);
+    assert_eq!(games[1].id, first.id);
+
+    let missing = service
+        .batch_get(&[first.id, Uuid::new_v4()])
+        .await
+        .expect_err("a batch with a missing id is refused");
+    assert_eq!(missing.kind, NOT_FOUND, "{missing:?}");
+
+    let archived = service
+        .batch_archive(&[first.id, second.id, first.id])
+        .await
+        .expect("the batch archives once per unique id");
+    assert_eq!(archived, 2);
+    assert_eq!(
+        service.find_game(first.id).await.expect("first row").status,
+        "archived"
+    );
+    assert_eq!(
+        service
+            .find_game(second.id)
+            .await
+            .expect("second row")
+            .status,
+        "archived"
+    );
+    db::forget(&pool, first.id).await;
+    db::forget(&pool, second.id).await;
+}
+
+#[tokio::test]
+pub(crate) async fn criteria_delete_refuses_an_empty_filter_and_archives_matches() {
+    let Some((state, pool)) = db::state().await else {
+        return skipped_without_database();
+    };
+    let marker = format!("criteria-{}", Uuid::new_v4().simple());
+    let first = db::create(&state, &format!("{marker}-one")).await;
+    let second = db::create(&state, &format!("{marker}-two")).await;
+    let service = GamesService::new(state.plane());
+
+    let empty = service
+        .archive_matching(None, None)
+        .await
+        .expect_err("an empty filter must not archive the fleet");
+    assert_eq!(empty.kind, INVALID_ARGUMENT, "{empty:?}");
+
+    let archived = service
+        .archive_matching(None, Some(&marker))
+        .await
+        .expect("the criteria archive runs");
+    assert!(archived >= 2, "both marked games are archived");
+    assert_eq!(
+        service.find_game(first.id).await.expect("first row").status,
+        "archived"
+    );
+    assert_eq!(
+        service
+            .find_game(second.id)
+            .await
+            .expect("second row")
+            .status,
+        "archived"
+    );
+    db::forget(&pool, first.id).await;
+    db::forget(&pool, second.id).await;
+}
