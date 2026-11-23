@@ -382,10 +382,13 @@ pub async fn every_migrated_path_is_still_registered() {
             .await
             .expect("dispatch")
             .status();
-        assert_eq!(
+        // The book layer makes PATCH available wherever a resource can be
+        // replaced, so a versioned path may answer 400 (no current
+        // representation to merge) instead of 405. Either way it is registered.
+        assert_ne!(
             status,
-            StatusCode::METHOD_NOT_ALLOWED,
-            "PATCH {path}: expected a registered path to answer 405"
+            StatusCode::NOT_FOUND,
+            "PATCH {path}: expected a registered path to answer"
         );
     }
 

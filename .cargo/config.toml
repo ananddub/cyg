@@ -11,3 +11,8 @@ rustflags = ["-C", "target-cpu=native", "-C", "link-arg=-fuse-ld=mold"]
 # Line tables only: backtraces still resolve to function names, but we skip
 # the full DWARF that dominated link time for the workspace's test binaries.
 debug = "line-tables-only"
+
+[env]
+# Integration tests exercise unsigned server-key calls; the deployed process is
+# not started by Cargo and still defaults to required request signing.
+CYG_SIGNING = "off"

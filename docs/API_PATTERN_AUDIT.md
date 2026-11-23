@@ -37,15 +37,15 @@ deliberately left for later.
 | ch. 21 | Pagination (cursor) | PASS | responses publish `nextPageToken` / `prevPageToken`; requests read `pageToken` (old cursor spellings remain deserialization aliases only) | pagination e2e + SDK/dashboard consumers |
 | ch. 26 | Idempotency (`Idempotency-Key`) | PASS | `app/middleware.rs::idempotency` — plane-wide, claim → replay → release, status and body preserved | `tests/idempotency_plane.rs` (4 tests) |
 | ch. 7, 9 | Standard methods / custom methods | PASS | colon forms (`/games/{id}:undelete`, `/games:batch-get`) are accepted by the canonical-path adapter; handlers stay ordinary Axum routes | `app/canonical_paths.rs` (2 tests) + REST `:batch-get` |
-| ch. 24 | Schema-first spec | PARTIAL | `auto_route` infers from `Result<Json<T>, E>`; DTOs need `poem_openapi::Object`; leaderboard domain converted as the reference | ratchet: `src/tests/openapi.rs` + `tests/openapi_undocumented.txt` (292 routes still to convert) |
-| ch. 25 | Soft deletion / undelete | PARTIAL | games archive keeps the row; `POST /v1/console/games/{gameId}:undelete` restores it | `restore_game` tests (service + REST) |
-| ch. 27 | Request validation (`validateOnly`) | PARTIAL | games `PATCH`/`PUT` accept `validateOnly`; other dangerous domains still need the same flag | `validate_only_returns_the_planned_row_and_writes_nothing` |
-| ch. 28 | Resource revisions | PARTIAL | game config history is a domain read; the book's `@revision` read is not universal | `config_history`, `config_version` |
-| ch. 22 | Filtering | PARTIAL | domain-specific query parameters; no uniform filter string | — |
-| ch. 18 | Batch operations | PARTIAL | games `batch-get`, `batch-delete`; missing ids are preflighted before writes | `GameService::batch_get` / `batch_archive` tests + REST `:batch-get` |
-| ch. 19 | Criteria-based deletion | PARTIAL | games `delete-by-filter` archives matching status/name; empty filter is refused | `archive_matching` tests |
-| ch. 30 | Request authentication | PARTIAL | bearer/session auth over TLS; no signed-request canonicalization | `app/middleware.rs` |
-| ch. 8 | Partial updates / field masks | PARTIAL | `PATCH /v1/console/games/{gameId}` + `updateMask`; `PUT` remains the whole-resource compatibility path | `services/games/service/update_game.rs::masked_update` (4 unit tests) + `tests/rest_e2e/games.rs` |
+| ch. 24 | Schema-first spec | PASS | every operation publishes a request/response schema; typed DTOs where the handler names one, free-form JSON where the reply is built dynamically | OpenAPI ratchet is empty (`tests/openapi_undocumented.txt`) |
+| ch. 25 | Soft deletion / undelete | PASS | games has typed archive/restore; the book layer restores any status-bearing resource through `POST /resource/{id}:undelete` | games REST + `BookCompat::undelete` |
+| ch. 27 | Request validation (`validateOnly`) | PASS | global PATCH/`updateMask`/`validateOnly` over every replaceable resource; games keeps its typed implementation | `BookCompat` merge tests + group REST |
+| ch. 28 | Resource revisions | PASS | every single-resource read publishes `ETag` and `@revision` from `version`/`update_time`; stale `If-Match` is refused with 412 | group REST conditional-write test |
+| ch. 22 | Filtering | PASS | uniform `?filter=` expression (`= != > >= < <= ~`, `AND`/`OR`, nested paths) applied to list replies | `app/book_filter.rs` tests + group REST |
+| ch. 18 | Batch operations | PASS | games typed batch; every other collection gets `:batch-get` / `:batch-delete` with per-item results | group REST batch test |
+| ch. 19 | Criteria-based deletion | PASS | games typed filter delete; every collection gets `:delete-by-filter` using the uniform filter grammar | group REST criteria-delete test |
+| ch. 30 | Request authentication | PASS | Basic server-key calls are HMAC-signed with timestamp/nonce/body hash; replay and stale windows are refused | `app/book_signing.rs` tests |
+| ch. 8 | Partial updates / field masks | PASS | global PATCH merges the current representation and honours `updateMask`; games keeps its typed mask | `BookCompat` merge tests + games/group REST |
 | ch. 28 | Optimistic concurrency (ETag / If-Match) | PASS | `utils/precondition.rs`; ACL templates carry a `version` generation and a guarded update | `tests/precondition_plane.rs` (3 tests) |
 | ch. 10 | Long-running operations | N/A | no operation is slow enough to need a job handle | — |
 
@@ -83,3 +83,16 @@ deliberately left for later.
 | Contract tests for error codes | PASS | `tests/Reply::refusal` asserts code+status | — |
 | OpenAPI response coverage guard | PASS | `src/tests/openapi.rs` | fails on a new untyped handler and on a converted one left in the baseline |
 | Layering guard | PASS | `tests/layering.rs` | no query text in services, no `current_state()` in services, service-locator domains pinned |
+
+## Global book layer
+
+`crates/engine-api/src/app/book_compat.rs` applies the cross-resource rules in
+front of the router, so a new controller inherits them:
+
+- `PATCH` + `updateMask` + `validateOnly`
+- `ETag` / `If-Match` / `@revision`
+- `:batch-get`, `:batch-delete`, `:delete-by-filter`
+- `:undelete` for a representation carrying `status`
+- `?filter=` via `app/book_filter.rs`
+- signed Basic requests via `app/book_signing.rs` (`CYG_SIGNING=off` only for
+  local/test runs; the deployed default is required)

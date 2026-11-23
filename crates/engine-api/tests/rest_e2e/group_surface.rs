@@ -128,6 +128,167 @@ pub async fn group_surface(client: &Client, base: &str, pool: &Datastore) {
     )
     .await;
     assert_eq!(fetched["group"]["id"], open_id);
+
+    // Global book layer: PATCH reads the current representation, applies only
+    // the masked field, and forwards a whole-resource PUT.
+    let patched = json_body(
+        client
+            .patch(format!("{base}/v1/group/{open_id}?updateMask=description"))
+            .bearer_auth(&owner.token)
+            .json(&json!({ "description": "patched by mask", "name": "must not change" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "patch a group through the global book layer",
+    )
+    .await;
+    assert_eq!(patched["description"], "patched by mask");
+    assert_eq!(patched["name"], open_name);
+
+    let dry = json_body(
+        client
+            .patch(format!(
+                "{base}/v1/group/{open_id}?updateMask=description&validateOnly=true"
+            ))
+            .bearer_auth(&owner.token)
+            .json(&json!({ "description": "dry run" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "validate a group patch without writing",
+    )
+    .await;
+    assert_eq!(dry["description"], "dry run");
+    let after_dry = api_get(
+        client,
+        format!("{base}/v1/group/{open_id}"),
+        &owner.token,
+        "read the group after validateOnly",
+    )
+    .await;
+    assert_eq!(after_dry["group"]["description"], "patched by mask");
+
+    let etag = client
+        .get(format!("{base}/v1/group/{open_id}"))
+        .bearer_auth(&owner.token)
+        .send()
+        .await
+        .unwrap()
+        .headers()
+        .get("etag")
+        .cloned()
+        .expect("a single resource carries an ETag");
+    assert_eq!(
+        client
+            .put(format!("{base}/v1/group/{open_id}"))
+            .bearer_auth(&owner.token)
+            .header("if-match", "\"0\"")
+            .json(&json!({ "name": open_name, "description": "stale" }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::PRECONDITION_FAILED,
+        "a stale If-Match is refused"
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/v1/group/{open_id}"))
+            .bearer_auth(&owner.token)
+            .header("if-match", etag)
+            .json(&json!({ "name": open_name, "description": "conditional" }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK,
+        "the current If-Match is accepted"
+    );
+    // Global batch get/delete and the uniform filter expression.
+    let batch = json_body(
+        client
+            .post(format!("{base}/v1/group:batch-get"))
+            .bearer_auth(&owner.token)
+            .json(&json!({ "ids": [open_id] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "batch-get a group through the canonical colon URL",
+    )
+    .await;
+    assert_eq!(batch["items"][0]["id"], open_id);
+    assert!(batch["missing"].as_array().unwrap().is_empty());
+
+    let filtered = json_body(
+        client
+            .get(format!("{base}/v1/group?limit=100&filter=name={open_name}"))
+            .bearer_auth(&owner.token)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "filter the group list",
+    )
+    .await;
+    let groups = filtered["groups"].as_array().unwrap();
+    assert!(!groups.is_empty());
+    assert!(groups.iter().all(|group| group["name"] == open_name));
+    assert!(
+        filtered.get("cursor").is_none(),
+        "a filtered page has no cursor"
+    );
+
+    let victim_name = format!("e2e-batch-victim-{}", letters_suffix());
+    let victim = api_post(
+        client,
+        format!("{base}/v1/group"),
+        &owner.token,
+        json!({ "name": victim_name.clone() }),
+        "create a batch-delete victim",
+    )
+    .await;
+    let victim_id = victim["group"]["id"].as_str().unwrap().to_owned();
+    let deleted = json_body(
+        client
+            .post(format!("{base}/v1/group:batch-delete"))
+            .bearer_auth(&owner.token)
+            .json(&json!({ "ids": [victim_id] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "batch-delete a group",
+    )
+    .await;
+    assert_eq!(deleted["deleted"], 1);
+    assert!(deleted["failed"].as_array().unwrap().is_empty());
+
+    let criteria_name = format!("e2e-criteria-victim-{}", letters_suffix());
+    api_post(
+        client,
+        format!("{base}/v1/group"),
+        &owner.token,
+        json!({ "name": criteria_name.clone() }),
+        "create a criteria-delete victim",
+    )
+    .await;
+    let criteria = json_body(
+        client
+            .post(format!("{base}/v1/group:delete-by-filter"))
+            .bearer_auth(&owner.token)
+            .json(&json!({ "filter": format!("name={criteria_name}") }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "criteria-delete a group",
+    )
+    .await;
+    assert_eq!(criteria["deleted"], 1);
+
     assert_eq!(
         refusal(
             client

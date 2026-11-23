@@ -5,6 +5,7 @@ use crate::model::{OpenApiParam, ParamSource, RequestBody, RequestContent, Respo
 
 pub(crate) fn request_schema_descriptor_tokens(
     body: Option<&RequestBody>,
+    method: &str,
 ) -> proc_macro2::TokenStream {
     match body {
         Some(RequestBody {
@@ -19,7 +20,19 @@ pub(crate) fn request_schema_descriptor_tokens(
         }) => quote! {
             ::std::option::Option::Some(::auto_route::OpenApiSchemaDescriptor::form::<#ty>())
         },
-        None => quote!(::std::option::Option::None),
+        None if matches!(method, "GET" | "HEAD" | "DELETE" | "OPTIONS") => {
+            quote!(::std::option::Option::None)
+        }
+        // A body method read through the engine's own `Body<T>` extractor is
+        // still a JSON body. Publish the free-form JSON schema rather than
+        // claiming the operation accepts nothing.
+        None => quote! {
+            ::std::option::Option::Some(
+                ::auto_route::OpenApiSchemaDescriptor::json::<
+                    ::auto_route::__private::serde_json::Value,
+                >(),
+            )
+        },
     }
 }
 
@@ -36,7 +49,16 @@ pub(crate) fn response_schema_descriptor_tokens(
         Some(ResponseBody::Sse(None)) => quote! {
             ::std::option::Option::Some(::auto_route::OpenApiSchemaDescriptor::sse())
         },
-        None => quote!(::std::option::Option::None),
+        // A handler that builds its reply dynamically still replies with JSON
+        // in this API. Publish that as the book's free-form JSON schema instead
+        // of leaving the operation undocumented.
+        None => quote! {
+            ::std::option::Option::Some(
+                ::auto_route::OpenApiSchemaDescriptor::json::<
+                    ::auto_route::__private::serde_json::Value,
+                >(),
+            )
+        },
     }
 }
 

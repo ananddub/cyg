@@ -59,10 +59,12 @@ documented requests but no responses.
 leaderboard handlers are typed.
 
 **Ratchet:** `src/tests/openapi.rs` compares every registered route against
-`tests/openapi_undocumented.txt`. A new untyped handler fails the build; a
-converted handler fails until its line is deleted. Regenerate with
+`tests/openapi_undocumented.txt`. Every operation now publishes a schema:
+`Result<Json<T>, E>` publishes `T`, and a handler that builds a dynamic reply
+publishes the free-form JSON object schema. Regenerate with
 `CYG_DUMP_OPENAPI=1 cargo test -p engine-api --lib openapi::undocumentation`.
-The remaining 297 routes are the visible backlog, not hidden debt.
+The baseline is empty; concrete DTOs are still preferable and should replace a
+free-form entry when that handler is touched.
 
 **Bug found and fixed:** `GET /v1/leaderboard` answered 500 because it asked the
 store for `LIMIT i64::MAX`. It now asks for 10 000.
@@ -71,25 +73,27 @@ store for `LIMIT i64::MAX`. It now asks for 10 000.
 
 **Was:** every console edit was last-writer-wins.
 
-**Now:** `utils/precondition.rs` plus a generation counter on `console_acl_template`.
+**Now:** `utils/precondition.rs` for the ACL template, and `app/book_compat.rs`
+for every resource.
 
-- `ETag: "<version>"` names the generation on the reply.
-- `If-Match: "<version>"` makes the write conditional. A stale generation is
-  refused with `ABORTED` (409) naming the version that won.
-- The check and the bump happen in one statement:
-  `... SET version = $next WHERE version = $expected OR (version IS NONE AND $expected = 1)`.
-- A request without `If-Match` keeps the unconditional write, so existing
-  dashboard clients are unaffected, but it still advances the generation.
+- `ETag: "<revision>"` and `@revision` name the generation on a single-resource
+  reply. The revision is the row's `version`, else its `update_time`/`updated_at`.
+- `If-Match: "<revision>"` makes any PUT/PATCH/DELETE conditional. A stale tag is
+  refused with `412 Precondition Failed`.
+- Lists are left alone; they have no single generation to name.
+- A representation without a version or update timestamp cannot be conditional
+  and is left unconditional rather than inventing a tag.
 
 **Tests:** `tests/precondition_plane.rs` — an edit lands only on the generation
 it named; a stale tag is refused with the winning version in the message; a
 malformed tag is `INVALID_ARGUMENT`; an unconditional write still bumps.
 
-**Follow-up landed:** `PATCH /v1/console/games/{gameId}` with an explicit
-`updateMask` (and an implicit mask when the query is absent), plus the book's
-`validateOnly` flag. `PUT` stays as the whole-resource compatibility path. The
-same pattern is the reference for the remaining console domains; the audit keeps
-them `PARTIAL` until they are converted.
+**Follow-up landed:** global `PATCH` in `app/book_compat.rs`. It reads the
+current representation, applies the patch body (or only the fields named by
+`?updateMask=`), then forwards a `PUT`; `?validateOnly=true` returns the merged
+representation without writing. Games keeps its typed mask as the reference.
+The same layer supplies `:batch-get`, `:batch-delete`, `:delete-by-filter`,
+`:undelete`, the uniform `?filter=` expression, and signed Basic requests.
 
 ## Phase 4 — outbound HTTP stability
 

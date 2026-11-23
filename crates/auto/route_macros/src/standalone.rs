@@ -62,8 +62,10 @@ fn expand_standalone_route(
         .collect::<syn::Result<Vec<_>>>()?;
     let params = infer_params(&path.value(), &argument_types);
     let params = param_descriptor_tokens(&params);
-    let request_schema =
-        request_schema_descriptor_tokens(infer_request_body(&argument_types).as_ref());
+    let request_schema = request_schema_descriptor_tokens(
+        infer_request_body(&argument_types).as_ref(),
+        &method_name,
+    );
     let docs = merged_docs(&route_options.docs, doc_comment_summary(&function.attrs));
     let tag = docs
         .tag

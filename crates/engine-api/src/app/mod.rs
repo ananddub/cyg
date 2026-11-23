@@ -1,4 +1,7 @@
 pub mod api;
+pub mod book_compat;
+pub mod book_filter;
+pub mod book_signing;
 pub mod canonical_paths;
 pub mod middleware;
 pub mod params;

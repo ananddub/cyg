@@ -78,8 +78,8 @@ pub async fn app(state: ApiState) -> Result<Router, crate::db::DbError> {
     let router = state::with_plane_state(router, state, container);
     // Custom methods are authored as `/resource/{id}:verb`; this adapter
     // rewrites them to the nested Axum route before matching.
-    Ok(axum::Router::new()
-        .fallback_service(crate::app::canonical_paths::CanonicalPaths::new(router)))
+    let router = crate::app::canonical_paths::CanonicalPaths::new(router);
+    Ok(axum::Router::new().fallback_service(crate::app::book_compat::BookCompat::new(router)))
 }
 
 /// Everything a service may inject instead of reaching into `&ApiState`.
