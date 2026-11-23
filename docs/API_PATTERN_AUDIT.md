@@ -33,14 +33,21 @@ deliberately left for later.
 | Reference | Pattern | Status | Code | Evidence |
 |---|---|---|---|---|
 | ch. 24 | Versioning in the path | PASS | `#[controller("/v1/...")]` (302 declarations) | `/v1` retired |
-| ch. 6 | Standard error model | PASS | `error/v2.rs` 16 canonical codes; `error/api.rs` derives its code from that table, one source of truth | `error::tests::the_legacy_envelope_uses_the_canonical_code_for_every_status` |
-| ch. 25 | Pagination (cursor) | PASS | `dto/` `limit` (21), `cursor` (18) | response field naming is documented as a coordinated change in `API_PATTERN_PLAN.md` |
+| — | Standard error model | PASS | `error/v2.rs` 16 canonical codes; `error/api.rs` derives its code from that table, one source of truth | `error::tests::the_legacy_envelope_uses_the_canonical_code_for_every_status` |
+| ch. 21 | Pagination (cursor) | PARTIAL | `dto/` `limit` (21), `cursor` (18) | response field naming is documented as a coordinated change in `API_PATTERN_PLAN.md` |
 | ch. 26 | Idempotency (`Idempotency-Key`) | PASS | `app/middleware.rs::idempotency` — plane-wide, claim → replay → release, status and body preserved | `tests/idempotency_plane.rs` (4 tests) |
-| ch. 11–14 | Standard methods / custom methods | PASS | `get`/`post`/`put`/`delete` + verb routes (`/define`, `/claim`) | — |
-| ch. 8 | Schema-first spec | PARTIAL | `auto_route` infers from `Result<Json<T>, E>`; DTOs need `poem_openapi::Object`; leaderboard domain converted as the reference | ratchet: `src/tests/openapi.rs` + `tests/openapi_undocumented.txt` (297 routes still to convert) |
-| ch. 17 | Partial updates / field masks | GAP | no `PATCH` handlers; `PUT` replaces whole resources | Phase 3 delivered `If-Match` instead |
-| ch. 18 | Optimistic concurrency (ETag / If-Match) | PASS | `utils/precondition.rs`; ACL templates carry a `version` generation and a guarded update | `tests/precondition_plane.rs` (3 tests) |
-| ch. 22 | Long-running operations | N/A | no operation is slow enough to need a job handle | — |
+| ch. 7, 9 | Standard methods / custom methods | PARTIAL | `get`/`post`/`put`/`delete` + verb routes (`/define`, `/claim`) | — |
+| ch. 24 | Schema-first spec | PARTIAL | `auto_route` infers from `Result<Json<T>, E>`; DTOs need `poem_openapi::Object`; leaderboard domain converted as the reference | ratchet: `src/tests/openapi.rs` + `tests/openapi_undocumented.txt` (297 routes still to convert) |
+| ch. 25 | Soft deletion / undelete | PARTIAL | games archive keeps the row; `POST /v1/console/games/{gameId}:undelete` restores it | `restore_game` tests (service + REST) |
+| ch. 27 | Request validation (`validateOnly`) | PARTIAL | games `PATCH`/`PUT` accept `validateOnly`; other dangerous domains still need the same flag | `validate_only_returns_the_planned_row_and_writes_nothing` |
+| ch. 28 | Resource revisions | PARTIAL | game config history is a domain read; the book's `@revision` read is not universal | `config_history`, `config_version` |
+| ch. 22 | Filtering | PARTIAL | domain-specific query parameters; no uniform filter string | — |
+| ch. 18 | Batch operations | GAP | no atomic batch create/update/delete surface | — |
+| ch. 19 | Criteria-based deletion | GAP | no filter-driven bulk delete | — |
+| ch. 30 | Request authentication | PARTIAL | bearer/session auth over TLS; no signed-request canonicalization | `app/middleware.rs` |
+| ch. 8 | Partial updates / field masks | PARTIAL | `PATCH /v1/console/games/{gameId}` + `updateMask`; `PUT` remains the whole-resource compatibility path | `services/games/service/update_game.rs::masked_update` (4 unit tests) + `tests/rest_e2e/games.rs` |
+| ch. 28 | Optimistic concurrency (ETag / If-Match) | PASS | `utils/precondition.rs`; ACL templates carry a `version` generation and a guarded update | `tests/precondition_plane.rs` (3 tests) |
+| ch. 10 | Long-running operations | N/A | no operation is slow enough to need a job handle | — |
 
 ## Reliability (Nygard, *Release It!*)
 

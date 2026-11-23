@@ -10,7 +10,7 @@ use crate::app::middleware::ConsoleAuthed;
 use crate::app::params::{Body, BoolFlag};
 use crate::current_state;
 use crate::dto::console::games::{
-    ArchiveGameResponse, CreateGameRequest, UnityConnectionDto, UpdateGameRequest,
+    ArchiveGameResponse, CreateGameRequest, GameDto, UnityConnectionDto, UpdateGameRequest,
 };
 use crate::error::V2Error;
 use crate::services::games::GamesService;

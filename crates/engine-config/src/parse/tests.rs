@@ -1,4 +1,5 @@
 use super::*;
+use crate::game::PhysicsFeature;
 
 #[test]
 fn wasm_pooling_defaults_on_and_parses() {

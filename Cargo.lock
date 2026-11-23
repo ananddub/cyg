@@ -6625,6 +6625,7 @@ checksum = "1ccbcc395bf4dd03df1da32da351b6b6732e4074ce27ddec315650e52a2be44c"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "chrono",
  "derive_more 2.1.1",
  "futures-util",
  "indexmap",
@@ -6641,6 +6642,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.21",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

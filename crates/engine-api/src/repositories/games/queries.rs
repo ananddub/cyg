@@ -168,6 +168,21 @@ impl Queries {
         )
         .await
     }
+    /// Reverse a soft delete. Only an archived row is restored, so an active
+    /// row answers "nothing to undo" instead of silently succeeding.
+    pub async fn restore_game(&self, id: Uuid) -> Result<WriteResult, DbError> {
+        affected(
+            self,
+            &format!(
+                "UPDATE {} SET status = 'active', updated_at = $updated_at \
+                 WHERE status = 'archived' RETURN AFTER",
+                record_uuid("games", "id")
+            ),
+            params!(updated_at = time::encode(Utc::now()), id = id.to_string(),),
+        )
+        .await
+    }
+
     pub async fn active_room_module_version(&self, game_id: Uuid) -> Result<Vec<i32>, DbError> {
         self.all(
             "SELECT VALUE version FROM room_modules \

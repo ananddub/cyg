@@ -85,9 +85,11 @@ store for `LIMIT i64::MAX`. It now asks for 10 000.
 it named; a stale tag is refused with the winning version in the message; a
 malformed tag is `INVALID_ARGUMENT`; an unconditional write still bumps.
 
-**Not done:** `PATCH` / field masks. The resources edited in place are small
-objects; a full replace under `If-Match` is honest and cheaper. Revisit if a
-resource grows fields that must be edited independently.
+**Follow-up landed:** `PATCH /v1/console/games/{gameId}` with an explicit
+`updateMask` (and an implicit mask when the query is absent), plus the book's
+`validateOnly` flag. `PUT` stays as the whole-resource compatibility path. The
+same pattern is the reference for the remaining console domains; the audit keeps
+them `PARTIAL` until they are converted.
 
 ## Phase 4 — outbound HTTP stability
 

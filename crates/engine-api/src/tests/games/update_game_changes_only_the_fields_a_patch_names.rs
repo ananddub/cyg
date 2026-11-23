@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::FAILED_PRECONDITION;
 
 #[tokio::test]
 pub(crate) async fn update_game_changes_only_the_fields_a_patch_names() {
@@ -155,5 +156,50 @@ pub(crate) async fn verify_api_key_authenticates_the_pair_and_refuses_probing() 
             .is_none()
     );
 
+    db::forget(&pool, game.id).await;
+}
+
+#[tokio::test]
+pub(crate) async fn validate_only_returns_the_planned_row_and_writes_nothing() {
+    let Some((state, pool)) = db::state().await else {
+        return skipped_without_database();
+    };
+    let game = db::create(&state, "validate").await;
+    let planned: UpdateGameRequest = serde_json::from_value(json!({
+        "name": "Only In The Reply",
+        "validateOnly": true,
+    }))
+    .expect("a validation request deserializes");
+    let preview = GamesService::new(state.plane())
+        .update_game(game.id, &planned, None)
+        .await
+        .expect("a validation request is safe");
+    assert_eq!(preview.name, "Only In The Reply");
+    let stored = GamesService::new(state.plane())
+        .find_game(game.id)
+        .await
+        .expect("the row is readable");
+    assert_eq!(
+        stored.name, game.name,
+        "validateOnly must not touch the row"
+    );
+    db::forget(&pool, game.id).await;
+}
+
+#[tokio::test]
+pub(crate) async fn undelete_restores_an_archived_game_only_once() {
+    let Some((state, pool)) = db::state().await else {
+        return skipped_without_database();
+    };
+    let game = db::create(&state, "undelete").await;
+    let service = GamesService::new(state.plane());
+    assert!(service.archive_game(game.id).await.expect("archive"));
+    let restored = service.restore_game(game.id).await.expect("undelete");
+    assert_eq!(restored.status, "active");
+    let again = service
+        .restore_game(game.id)
+        .await
+        .expect_err("an active game has nothing to restore");
+    assert_eq!(again.kind, FAILED_PRECONDITION, "{again:?}");
     db::forget(&pool, game.id).await;
 }

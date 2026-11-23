@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use super::*;
+use std::sync::Arc;
 
 type QueryParams<T> = axum::extract::Query<T>;
 pub(super) const PROTOCOL_VERSION: u16 = 1;
@@ -44,18 +44,70 @@ impl ConsoleGamesController {
         &self,
         auth: ConsoleAuthed,
         Path(game_id): Path<String>,
-        Body(body): Body<UpdateGameRequest>,
-    ) -> Response {
+        Json(body): Json<UpdateGameRequest>,
+    ) -> Result<Json<GameDto>, V2Error> {
+        self.apply_update(auth, game_id, body, None).await
+    }
+
+    /// Standard partial update (`API Design Patterns`, ch. 8). The mask is a
+    /// comma-separated field list; when it is absent the fields present in the
+    /// body are the implicit mask.
+    #[patch("/{gameId}")]
+    async fn patch(
+        &self,
+        auth: ConsoleAuthed,
+        Path(game_id): Path<String>,
+        Query(query): QueryParams<UpdateGameQuery>,
+        Json(body): Json<UpdateGameRequest>,
+    ) -> Result<Json<GameDto>, V2Error> {
+        let mask = parse_update_mask(query.update_mask.as_deref())?;
+        self.apply_update(auth, game_id, body, mask.as_deref())
+            .await
+    }
+
+    /// Custom method on the resource (`API Design Patterns`, ch. 9): restore a
+    /// soft-deleted game. The colon keeps the action attached to the resource
+    /// instead of inventing a child path.
+    /// The whole resource segment is captured so the colon action can be
+    /// parsed here: axum's router does not allow a literal after a parameter
+    /// in the same segment, but the public URL is still `/games/123:undelete`.
+    #[post("/{gameId}")]
+    async fn undelete(
+        &self,
+        auth: ConsoleAuthed,
+        Path(game_id): Path<String>,
+    ) -> Result<Json<GameDto>, V2Error> {
         let state = current_state();
-        if let Err(err) = auth.require_write() {
-            return err.into_response();
-        }
-        let id = match parse_id(&game_id) {
-            Ok(id) => id,
-            Err(err) => return err.into_response(),
-        };
-        let updated = self.service.update_game(id, &body, Some(&auth.0.username)).await;
-        if updated.is_ok() {
+        auth.require_write()?;
+        let id = parse_custom_id(&game_id, "undelete")?;
+        let restored = self.service.restore_game(id).await?;
+        config_audit(
+            &state,
+            &auth,
+            id,
+            "game.config.undelete",
+            "Restored an archived game.",
+        )
+        .await;
+        Ok(Json(restored))
+    }
+
+    async fn apply_update(
+        &self,
+        auth: ConsoleAuthed,
+        game_id: String,
+        body: UpdateGameRequest,
+        mask: Option<&[String]>,
+    ) -> Result<Json<GameDto>, V2Error> {
+        let state = current_state();
+        auth.require_write()?;
+        let id = parse_id(&game_id)?;
+        let validate_only = body.validate_only.unwrap_or(false);
+        let updated = self
+            .service
+            .update_game_with_mask(id, &body, Some(&auth.0.username), mask)
+            .await?;
+        if !validate_only {
             config_audit(
                 &state,
                 &auth,
@@ -65,7 +117,7 @@ impl ConsoleGamesController {
             )
             .await;
         }
-        answer(updated)
+        Ok(Json(updated))
     }
 
     #[get("/{gameId}/config/history")]
@@ -130,7 +182,8 @@ impl ConsoleGamesController {
             Err(err) => return err.into_response(),
         };
         answer(
-            self.service.archive_game(id)
+            self.service
+                .archive_game(id)
                 .await
                 .map(|archived| ArchiveGameResponse { archived }),
         )
@@ -229,4 +282,38 @@ async fn config_audit(
             },
         )
         .await;
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateGameQuery {
+    update_mask: Option<String>,
+}
+
+fn parse_custom_id(raw: &str, action: &str) -> Result<Uuid, V2Error> {
+    let Some((id, verb)) = raw.rsplit_once(':') else {
+        return Err(V2Error::not_found("Unknown custom method."));
+    };
+    if verb != action {
+        return Err(V2Error::not_found("Unknown custom method."));
+    }
+    parse_id(id)
+}
+
+fn parse_update_mask(raw: Option<&str>) -> Result<Option<Vec<String>>, V2Error> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let fields: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|field| !field.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if fields.is_empty() {
+        return Err(V2Error::invalid_argument(
+            "An updateMask must name at least one field.",
+        ));
+    }
+    Ok(Some(fields))
 }

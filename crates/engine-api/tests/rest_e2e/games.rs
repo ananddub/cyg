@@ -162,6 +162,52 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
         "empty game patch",
     )
     .await;
+    let masked = json_body(
+        client
+            .patch(format!(
+                "{base}/v1/console/games/{unity_id}?updateMask=name"
+            ))
+            .bearer_auth(console)
+            .json(&json!({ "name": format!("Masked {suffix}"), "status": "active" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "patch a game with an explicit mask",
+    )
+    .await;
+    assert_eq!(masked["name"], format!("Masked {suffix}"));
+    assert_eq!(
+        masked["status"], "suspended",
+        "a field outside the mask is ignored"
+    );
+
+    let planned = json_body(
+        client
+            .patch(format!("{base}/v1/console/games/{unity_id}"))
+            .bearer_auth(console)
+            .json(&json!({ "name": "Not Written", "validateOnly": true }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "validate a game patch without applying it",
+    )
+    .await;
+    assert_eq!(planned["name"], "Not Written");
+    let still = json_body(
+        client
+            .get(format!("{base}/v1/console/games/{unity_id}"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "read after validateOnly",
+    )
+    .await;
+    assert_eq!(still["name"], masked["name"], "validateOnly must not write");
+
     refusal(
         client
             .put(format!("{base}/v1/console/games/{}", Uuid::new_v4()))
@@ -281,6 +327,29 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     )
     .await;
     assert_eq!(after["status"], "archived");
+    let restored = json_body(
+        client
+            .post(format!("{base}/v1/console/games/{unity_id}:undelete"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "undelete an archived game",
+    )
+    .await;
+    assert_eq!(restored["status"], "active");
+    refusal(
+        client
+            .post(format!("{base}/v1/console/games/{unity_id}:undelete"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "undelete an active game",
+    )
+    .await;
     refusal(
         client
             .delete(format!("{base}/v1/console/games/{}", Uuid::new_v4()))

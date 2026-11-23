@@ -96,9 +96,8 @@ pub fn spawn(
 
     runtime.spawn(serve(listener, state.clone(), shutdown_signal()));
 
-    let boot_maps = runtime.block_on(engine_api::services::maps::MapService::load_boot_maps(
-        &state,
-    ));
+    let boot_maps = runtime
+        .block_on(engine_api::services::maps::MapService::new(state.plane()).load_boot_maps());
     if !boot_maps.is_empty() {
         tracing::info!(
             "[control] 🗺️  active maps from console: {}",
@@ -106,9 +105,8 @@ pub fn spawn(
         );
     }
 
-    let boot_module = runtime.block_on(engine_api::services::wasm::WasmService::load_boot_module(
-        &state,
-    ));
+    let boot_module = runtime
+        .block_on(engine_api::services::wasm::WasmService::new(state.plane()).load_boot_module());
     if let Some(module) = boot_module.as_ref() {
         tracing::info!(
             "[control] 📦 active room module from console: v{} ({} bytes, sha256 {}…)",

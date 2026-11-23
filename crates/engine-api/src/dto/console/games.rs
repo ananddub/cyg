@@ -53,7 +53,7 @@ pub struct CreateGameRequest {
     pub auto_close_seconds: Option<u32>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, poem_openapi::Object)]
 pub struct UpdateGameRequest {
     #[serde(default)]
     pub name: Option<String>,
@@ -71,6 +71,10 @@ pub struct UpdateGameRequest {
     pub persistent_rooms: Option<bool>,
     #[serde(default)]
     pub auto_close_seconds: Option<u32>,
+    /// Validate the request without applying it. Book ch.27: the flag defaults
+    /// to false and a validation request has no side effects.
+    #[serde(default, alias = "validateOnly")]
+    pub validate_only: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,7 +91,7 @@ pub struct GameRow {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct GameDto {
     pub id: Uuid,
     pub game_key: String,
@@ -141,7 +145,7 @@ pub struct GameListDto {
     pub total: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct ArchiveGameResponse {
     pub archived: bool,
 }
