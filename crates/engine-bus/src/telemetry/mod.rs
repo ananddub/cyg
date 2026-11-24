@@ -111,6 +111,8 @@ impl ServerPhase {
 #[serde(rename_all = "camelCase")]
 pub struct RoomTelemetry {
     pub name: String,
+    #[serde(default)]
+    pub room_id: String,
     pub phase: RoomPhase,
     pub clients: u32,
     pub spectators: u32,
@@ -119,6 +121,12 @@ pub struct RoomTelemetry {
     pub age_sec: u64,
 
     pub closes_in_sec: Option<u64>,
+    #[serde(default)]
+    pub max_clients: u32,
+    #[serde(default)]
+    pub locked: bool,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]

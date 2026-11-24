@@ -48,7 +48,7 @@ pub(super) fn test_state_with(rps: u32, burst: u32, ice: &str) -> ApiState {
         control: Arc::new(control),
         game: Arc::new(game),
         bus: bus.clone(),
-        seats: Arc::new(Mutex::new(SeatRegistry::new(DEV_SEAT_SECRET))),
+        seats: Arc::new(arc_swap::ArcSwap::from_pointee(SeatRegistry::new(DEV_SEAT_SECRET))),
         limiter: Arc::new(IpRateLimiter::new(rps, burst)),
         signals: SignalHub::new(ice.to_string()),
         statics: Arc::new(StaticServer::new(
@@ -57,7 +57,7 @@ pub(super) fn test_state_with(rps: u32, burst: u32, ice: &str) -> ApiState {
         )),
         port: 8124,
         status_rx: Arc::new(OnceReceiver::new(bus.status_rx.clone())),
-        latest_status: Arc::new(Mutex::new(None)),
+        latest_status: Arc::new(arc_swap::ArcSwapOption::empty()),
         started: Instant::now(),
         db: None,
         q: None,
@@ -75,7 +75,7 @@ pub(super) fn ip(n: u8) -> IpAddr {
 }
 
 pub(super) fn minted(plane: &Plane) -> u64 {
-    plane.seats.lock().unwrap().counts().0
+    plane.seats.load().counts().0
 }
 
 pub(super) fn ok(plane: &Plane, ip: IpAddr, method: &str, room: &str, body: &str) -> SeatResponse {

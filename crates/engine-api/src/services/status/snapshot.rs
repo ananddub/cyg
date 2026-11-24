@@ -13,11 +13,9 @@ impl StatusService {
         let snapshot = self
             .plane
             .latest_status
-            .lock()
-            .ok()
-            .and_then(|g| g.clone())
+            .load_full()
             .map(|snap| {
-                let mut obj = serde_json::to_value(&snap).unwrap_or_else(|_| json!({}));
+                let mut obj = serde_json::to_value(&*snap).unwrap_or_else(|_| json!({}));
                 if let Some(map) = obj.as_object_mut() {
                     map.insert("age_ms".to_string(), json!(age_ms(&snap)));
                 }
@@ -50,7 +48,7 @@ impl StatusService {
             },
             "sim": snapshot,
             "seats": {
-                "outstanding": self.plane.seats.lock().map(|r| r.outstanding()).unwrap_or(0),
+                "outstanding": self.plane.seats.load().outstanding(),
                 "minted": seats_minted,
                 "rejected": seats_rejected,
                 "refused": seats_refused,

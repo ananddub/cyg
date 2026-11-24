@@ -49,7 +49,7 @@ pub(super) fn v2_state() -> ApiState {
         control: Arc::new(control),
         game: Arc::new(GameConfig::default()),
         bus: bus.clone(),
-        seats: Arc::new(Mutex::new(SeatRegistry::new(DEV_SEAT_SECRET))),
+        seats: Arc::new(arc_swap::ArcSwap::from_pointee(SeatRegistry::new(DEV_SEAT_SECRET))),
         limiter: Arc::new(IpRateLimiter::new(1000, 1000)),
         signals: SignalHub::new("[]".to_string()),
         statics: Arc::new(StaticServer::new(
@@ -58,7 +58,7 @@ pub(super) fn v2_state() -> ApiState {
         )),
         port: 0,
         status_rx: Arc::new(OnceReceiver::new(bus.status_rx.clone())),
-        latest_status: Arc::new(Mutex::new(None)),
+        latest_status: Arc::new(arc_swap::ArcSwapOption::empty()),
         started: Instant::now(),
         db: None,
         q: None,

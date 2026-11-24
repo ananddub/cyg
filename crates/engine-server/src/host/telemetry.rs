@@ -28,23 +28,23 @@ impl<'a> Engine<'a> {
             );
             rooms.push(RoomTelemetry {
                 name: room_name.to_string(),
+                room_id: room_name.to_string(),
                 phase: room.phase(),
                 clients: room.sessions.len() as u32,
                 spectators: room.spectators.len() as u32,
                 tick: room.current_tick,
                 age_sec: room.lifecycle.born.elapsed().as_secs(),
-                closes_in_sec: self
-                    .cfg
-                    .lifecycle
-                    .closes_at(room.lifecycle.born)
-                    .map(|deadline| {
-                        let now = Instant::now();
-                        if now >= deadline {
-                            0
-                        } else {
-                            (deadline - now).as_secs()
-                        }
-                    }),
+                closes_in_sec: self.cfg.lifecycle.closes_at(room.lifecycle.born).map(|deadline| {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        0
+                    } else {
+                        (deadline - now).as_secs()
+                    }
+                }),
+                max_clients: self.cfg.max_clients.max(0) as u32,
+                locked: false,
+                metadata: serde_json::Value::Null,
             });
             let members = room.sessions.iter().map(|(s, &id)| (s, Some(id)));
             let watching = room.spectators.iter().map(|s| (s, None));

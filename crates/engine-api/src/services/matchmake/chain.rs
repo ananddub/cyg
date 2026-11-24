@@ -68,6 +68,79 @@ impl ChainTracker {
             }
         }
     }
+
+    /// `create`: pick the first generation with no live occupancy and no
+    /// outstanding fresh seats, so the new player gets a fresh room.
+    pub fn pick_create_generation(
+        &mut self,
+        base_key: &str,
+        cap: i32,
+        occupancy: impl Fn(&str) -> u32,
+        now: Instant,
+    ) -> u32 {
+        if cap <= 0 {
+            return 0;
+        }
+        let mut generation = 0u32;
+        loop {
+            let key = if generation == 0 {
+                base_key.to_string()
+            } else {
+                format!("{base_key}__g{generation}")
+            };
+            let live = occupancy(&key) as usize;
+            let fresh = self.outstanding(&key, now);
+            if live == 0 && fresh == 0 {
+                return generation;
+            }
+            generation += 1;
+            if generation > 512 {
+                return generation;
+            }
+        }
+    }
+
+    /// `join`: pick the first generation that exists (has live or fresh seats)
+    /// and has space. Returns None if no joinable room exists.
+    pub fn pick_join_generation(
+        &mut self,
+        base_key: &str,
+        cap: i32,
+        occupancy: impl Fn(&str) -> u32,
+        now: Instant,
+    ) -> Option<u32> {
+        if cap <= 0 {
+            return None;
+        }
+        let mut generation = 0u32;
+        let mut saw_any = false;
+        loop {
+            let key = if generation == 0 {
+                base_key.to_string()
+            } else {
+                format!("{base_key}__g{generation}")
+            };
+            let live = occupancy(&key) as usize;
+            let fresh = self.outstanding(&key, now);
+            if live > 0 || fresh > 0 {
+                saw_any = true;
+                if (live as i64 + fresh as i64) < cap as i64 {
+                    return Some(generation);
+                }
+            } else if saw_any {
+                // We passed existing generations and hit an empty gap; no room to join.
+                return None;
+            }
+            generation += 1;
+            if generation > 512 {
+                return if saw_any { Some(generation) } else { None };
+            }
+            // If we've never seen any room and we're past gen0, there's nothing to join.
+            if generation > 1 && !saw_any {
+                return None;
+            }
+        }
+    }
 }
 
 #[cfg(test)]

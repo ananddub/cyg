@@ -3440,6 +3440,7 @@ dependencies = [
 name = "engine-signaling"
 version = "0.1.0"
 dependencies = [
+ "scc",
  "tokio",
  "tracing",
 ]

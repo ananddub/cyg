@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
+use arc_swap::{ArcSwap, ArcSwapOption};
 use engine_bus::{Bus, StatusSnapshot};
 use engine_config::{ControlConfig, GameConfig, SessionConfig};
 
@@ -66,7 +67,7 @@ pub struct ApiState {
     pub control: Arc<ControlConfig>,
     pub game: Arc<GameConfig>,
     pub bus: Arc<Bus>,
-    pub seats: Arc<std::sync::Mutex<seats::SeatRegistry>>,
+    pub seats: Arc<ArcSwap<seats::SeatRegistry>>,
     /// Sharded per-IP rate limiter: locking happens per shard inside the
     /// limiter, so concurrent matchmake calls from different addresses do not
     /// serialize on one mutex.
@@ -75,7 +76,7 @@ pub struct ApiState {
     pub statics: Arc<crate::services::static_routes::StaticServer>,
     pub port: u16,
     pub status_rx: Arc<OnceReceiver>,
-    pub latest_status: Arc<std::sync::Mutex<Option<StatusSnapshot>>>,
+    pub latest_status: Arc<ArcSwapOption<StatusSnapshot>>,
     pub started: Instant,
     pub db: Option<Arc<Datastore>>,
     pub q: Option<Arc<crate::repositories::db::Queries>>,
@@ -85,7 +86,7 @@ pub struct ApiState {
     /// Outstanding variant seats per room key — matchmaking chaining counts
     /// these on top of the host's live occupancy so a burst of joins within
     /// one status interval cannot all land in the same full room.
-    pub chain: Arc<std::sync::Mutex<crate::services::matchmake::chain::ChainTracker>>,
+    pub chain: Arc<ArcSwap<crate::services::matchmake::chain::ChainTracker>>,
     /// Customer logic that answers account events, loaded once at boot.
     ///
     /// `None` when the project ships no hooks module, which is the common case —
@@ -150,7 +151,7 @@ impl ApiState {
             control.session.token_expiry_secs,
             control.session.refresh_expiry_secs,
         ));
-        let chain = Arc::new(std::sync::Mutex::new(
+        let chain = Arc::new(ArcSwap::from_pointee(
             crate::services::matchmake::chain::ChainTracker::default(),
         ));
         // Loaded once, here, because the runner owns a compiled module: compiling
@@ -175,7 +176,7 @@ impl ApiState {
             control: Arc::new(control.clone()),
             game: Arc::new(game.clone()),
             chain,
-            seats: Arc::new(std::sync::Mutex::new(seats::SeatRegistry::new(
+            seats: Arc::new(ArcSwap::from_pointee(seats::SeatRegistry::new(
                 &control.seat_secret,
             ))),
             limiter,
@@ -185,7 +186,7 @@ impl ApiState {
                 game,
             )),
             status_rx: Arc::new(OnceReceiver::new(bus.status_rx.clone())),
-            latest_status: Arc::new(std::sync::Mutex::new(None)),
+            latest_status: Arc::new(ArcSwapOption::empty()),
             port,
             bus,
             started: Instant::now(),
@@ -205,8 +206,7 @@ impl ApiState {
 
     pub fn verify_seat(&self, token: &str) -> Result<seats::Seat, String> {
         self.seats
-            .lock()
-            .map_err(|_| "seat registry is unavailable".to_string())?
+            .load()
             .verify(token)
             .ok_or_else(|| "seat token is invalid or expired".to_string())
     }

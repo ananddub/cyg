@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::ApiState;
@@ -7,8 +8,15 @@ pub async fn gc_seats(state: ApiState) {
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         ticker.tick().await;
-        if let Ok(mut registry) = state.seats.lock() {
-            registry.retire_expired();
+        let mut cur = state.seats.load();
+        loop {
+            let mut next = (**cur).clone();
+            next.retire_expired();
+            let prev = state.seats.compare_and_swap(&*cur, Arc::new(next));
+            if Arc::ptr_eq(&*cur, &*prev) {
+                break;
+            }
+            cur = prev;
         }
     }
 }

@@ -14,7 +14,7 @@ pub use ticks::{build_clients, build_ticks};
 use engine_dashboard::StatusSnapshot;
 
 pub(crate) fn latest_sample(plane: &Plane) -> Option<StatusSnapshot> {
-    plane.latest_status.lock().ok().and_then(|g| g.clone())
+    plane.latest_status.load_full()
 }
 
 pub(crate) fn sample_age_ms(snap: &StatusSnapshot) -> u64 {

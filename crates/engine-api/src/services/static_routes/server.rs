@@ -1,6 +1,7 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use scc::HashMap;
 
 use super::cache::Cached;
 use crate::utils::static_routes::guard::child_of;
@@ -12,7 +13,7 @@ pub struct StaticServer {
     schema_mjs: PathBuf,
     unity_build: PathBuf,
     pub(super) defaults: HashMap<String, Arc<Vec<u8>>>,
-    pub(super) cache: Mutex<HashMap<PathBuf, Cached>>,
+    pub(super) cache: HashMap<PathBuf, Cached>,
 }
 
 impl StaticServer {
@@ -26,12 +27,12 @@ impl StaticServer {
                 .join("node_modules/@colyseus/schema/build/index.mjs"),
             unity_build: project_dir.join(&game.unity_build),
             defaults: HashMap::new(),
-            cache: Mutex::new(HashMap::new()),
+            cache: HashMap::new(),
         }
     }
 
     pub fn default_for(&self, path: &str) -> Option<Arc<Vec<u8>>> {
-        self.defaults.get(path).cloned()
+        self.defaults.read_sync(path, |_, v| v.clone())
     }
 
     pub fn website_path(&self) -> &Path {

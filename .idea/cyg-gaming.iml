@@ -93,6 +93,7 @@
       <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/vendor/rune/themes/opencode/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/vendor/rune/vendor/tiny-skia-path/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/route_macros/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

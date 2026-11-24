@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use arc_swap::{ArcSwap, ArcSwapOption};
 use engine_bus::Bus;
 use engine_config::{ControlConfig, GameConfig};
 
@@ -37,13 +38,13 @@ pub struct Plane {
     pub game: Arc<GameConfig>,
     pub control: Arc<ControlConfig>,
     pub bus: Arc<Bus>,
-    pub seats: Arc<std::sync::Mutex<SeatRegistry>>,
+    pub seats: Arc<ArcSwap<SeatRegistry>>,
     pub limiter: Arc<IpRateLimiter>,
     pub signals: SignalHub,
     pub statics: Arc<StaticServer>,
     pub realtime: Arc<RealtimeHub>,
     pub sessions: Arc<SessionCache>,
-    pub chain: Arc<std::sync::Mutex<crate::services::matchmake::chain::ChainTracker>>,
+    pub chain: Arc<ArcSwap<crate::services::matchmake::chain::ChainTracker>>,
     pub db: Option<Arc<Datastore>>,
     /// The port this process binds, which is what a seat advertises.
     pub port: u16,
@@ -51,7 +52,7 @@ pub struct Plane {
     /// `/readyz`. They are plane-wide, not request-scoped: one reader, many
     /// readers' worth of answers.
     pub status_rx: Arc<crate::app::state::OnceReceiver>,
-    pub latest_status: Arc<std::sync::Mutex<Option<engine_bus::StatusSnapshot>>>,
+    pub latest_status: Arc<ArcSwapOption<engine_bus::StatusSnapshot>>,
     /// When the process started, which is what uptime is measured from.
     pub started: std::time::Instant,
     /// Whether this is an explicitly-started local session (`cyg run -d`).
@@ -79,8 +80,7 @@ impl Plane {
 
     pub fn verify_seat(&self, token: &str) -> Result<crate::infra::seats::Seat, String> {
         self.seats
-            .lock()
-            .map_err(|_| "seat registry is unavailable".to_string())?
+            .load()
             .verify(token)
             .ok_or_else(|| "seat token is invalid or expired".to_string())
     }
@@ -95,7 +95,7 @@ impl Plane {
             store: Store::default(),
             game: Arc::new(GameConfig::default()),
             control: Arc::new(ControlConfig::default()),
-            seats: Arc::new(std::sync::Mutex::new(SeatRegistry::new("test-seat-secret"))),
+            seats: Arc::new(ArcSwap::from_pointee(SeatRegistry::new("test-seat-secret"))),
             limiter: Arc::new(IpRateLimiter::new(10_000, 10_000)),
             signals: SignalHub::new("[]".to_string()),
             statics: Arc::new(StaticServer::new(
@@ -104,13 +104,13 @@ impl Plane {
             )),
             realtime: Arc::new(RealtimeHub::new(None)),
             sessions: Arc::new(SessionCache::new(60, 3600)),
-            chain: Arc::new(std::sync::Mutex::new(
+            chain: Arc::new(ArcSwap::from_pointee(
                 crate::services::matchmake::chain::ChainTracker::default(),
             )),
             db: None,
             port: 0,
             status_rx: Arc::new(crate::app::state::OnceReceiver::new(bus.status_rx.clone())),
-            latest_status: Arc::new(std::sync::Mutex::new(None)),
+            latest_status: Arc::new(ArcSwapOption::empty()),
             started: std::time::Instant::now(),
             dev_mode: false,
             bus: bus.clone(),

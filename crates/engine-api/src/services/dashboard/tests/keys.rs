@@ -39,13 +39,13 @@ fn an_idle_overview_serialises_every_key_as_zero_not_omission() {
 #[test]
 fn a_fed_snapshot_makes_the_room_live_with_an_age() {
     let s = state();
-    *s.latest_status.lock().unwrap() = Some(StatusSnapshot {
+    s.latest_status.store(Some(std::sync::Arc::new(StatusSnapshot {
         seq: 7,
         players: 2,
         empty_for_sec: 41,
         updated_ms: engine_bus::clock::mono_ns() / 1_000_000,
         ..Default::default()
-    });
+    })));
     let rooms = build_rooms(&s.plane());
     assert_eq!(rooms[0].status, "live");
     assert_eq!(rooms[0].clients, 2);

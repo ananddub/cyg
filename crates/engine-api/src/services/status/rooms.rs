@@ -40,7 +40,7 @@ impl StatusService {
     /// sim sample there is nothing to report, so the reply stays the single
     /// game-named row a cold process has always returned.
     pub async fn rooms(&self, headers: HeaderMap) -> Response {
-        let snapshot = self.plane.latest_status.lock().ok().and_then(|g| g.clone());
+        let snapshot = self.plane.latest_status.load_full();
         let players = snapshot.as_ref().map(|s| s.players).unwrap_or(0);
         let tick_hz = snapshot.as_ref().map(|s| s.tick_hz_est).unwrap_or(0.0);
         let max_clients = self.plane.game.max_clients.max(0) as u32;

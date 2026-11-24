@@ -19,8 +19,9 @@
 //! Both are per destination, never global: one dead push gateway must not stop
 //! purchase verification.
 
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
+
+use scc::HashMap;
 use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
@@ -132,41 +133,37 @@ impl BreakerState {
 }
 
 struct Plane {
-    breakers: Mutex<HashMap<String, Breaker>>,
-    bulkheads: Mutex<HashMap<String, std::sync::Arc<Semaphore>>>,
+    breakers: HashMap<String, Breaker>,
+    bulkheads: HashMap<String, std::sync::Arc<Semaphore>>,
 }
 
 fn plane() -> &'static Plane {
     static PLANE: OnceLock<Plane> = OnceLock::new();
     PLANE.get_or_init(|| Plane {
-        breakers: Mutex::new(HashMap::new()),
-        bulkheads: Mutex::new(HashMap::new()),
+        breakers: HashMap::new(),
+        bulkheads: HashMap::new(),
     })
 }
 
 fn bulkhead(destination: &str) -> std::sync::Arc<Semaphore> {
-    let mut bulkheads = plane()
+    plane()
         .bulkheads
-        .lock()
-        .expect("bulkhead registry lock poisoned");
-    bulkheads
-        .entry(destination.to_owned())
+        .entry_sync(destination.to_owned())
         .or_insert_with(|| {
             std::sync::Arc::new(Semaphore::new(liveops::config().http_bulkhead.max(1)))
         })
+        .get()
         .clone()
 }
 
 /// Asks the breaker to let one call out. A half-open breaker lets exactly one
 /// probe through; the rest are refused until that probe reports back.
 fn admit(destination: &str) -> Result<(), HttpError> {
-    let mut breakers = plane()
+    let mut entry = plane()
         .breakers
-        .lock()
-        .expect("breaker registry lock poisoned");
-    let breaker = breakers
-        .entry(destination.to_owned())
+        .entry_sync(destination.to_owned())
         .or_insert_with(Breaker::new);
+    let breaker = entry.get_mut();
     let now = Instant::now();
     match breaker.state(now) {
         BreakerState::Closed => Ok(()),
@@ -190,13 +187,11 @@ fn admit(destination: &str) -> Result<(), HttpError> {
 /// a 5xx counts against the breaker: a 4xx is the provider answering, which
 /// proves it is alive.
 fn record(destination: &str, outcome: Outcome) {
-    let mut breakers = plane()
+    let mut entry = plane()
         .breakers
-        .lock()
-        .expect("breaker registry lock poisoned");
-    let breaker = breakers
-        .entry(destination.to_owned())
+        .entry_sync(destination.to_owned())
         .or_insert_with(Breaker::new);
+    let breaker = entry.get_mut();
     let config = liveops::config();
     match outcome {
         Outcome::Alive => {
@@ -262,20 +257,15 @@ pub async fn send(destination: &str, request: RequestBuilder) -> Result<Response
 /// One line per destination for the Prometheus endpoint.
 pub fn snapshot() -> Vec<(&'static str, String)> {
     let now = Instant::now();
-    let breakers = plane()
-        .breakers
-        .lock()
-        .expect("breaker registry lock poisoned");
-    let mut rows: Vec<(String, BreakerState, u32)> = breakers
-        .iter()
-        .map(|(destination, breaker)| {
-            (
-                destination.clone(),
-                breaker.state(now),
-                breaker.consecutive_failures,
-            )
-        })
-        .collect();
+    let mut rows: Vec<(String, BreakerState, u32)> = Vec::new();
+    plane().breakers.scan_sync(|destination, breaker| {
+        rows.push((
+            destination.clone(),
+            breaker.state(now),
+            breaker.consecutive_failures,
+        ));
+        true
+    });
     rows.sort_by(|a, b| a.0.cmp(&b.0));
     let mut out = Vec::new();
     for (destination, state, failures) in rows {

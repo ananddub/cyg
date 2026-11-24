@@ -16,8 +16,9 @@
 //! `CYG_SIGNING=off` turns this off for local work; `optional` verifies a
 //! signature when one is present. The default is `required` for Basic requests.
 
-use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
+
+use scc::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
@@ -137,11 +138,10 @@ fn check(
 }
 
 fn remember_nonce(nonce: &str, now: i64) -> Result<(), V2Error> {
-    static SEEN: OnceLock<Mutex<BTreeMap<String, i64>>> = OnceLock::new();
-    let seen = SEEN.get_or_init(|| Mutex::new(BTreeMap::new()));
-    let mut seen = seen.lock().expect("the nonce cache is never poisoned");
-    seen.retain(|_, at| now - *at <= SKEW * 2);
-    if seen.insert(nonce.to_owned(), now).is_some() {
+    static SEEN: OnceLock<HashMap<String, i64>> = OnceLock::new();
+    let seen = SEEN.get_or_init(HashMap::new);
+    seen.retain_sync(|_, at| now - *at <= SKEW * 2);
+    if seen.insert_sync(nonce.to_owned(), now).is_err() {
         return Err(V2Error::unauthenticated(
             "Signed request nonce has already been used.",
         ));

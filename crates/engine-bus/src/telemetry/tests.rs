@@ -117,23 +117,31 @@ fn room_telemetry_names_its_phase_on_the_wire() {
     );
     let row = RoomTelemetry {
         name: "lobby".into(),
+        room_id: "lobby".into(),
         phase: RoomPhase::Hibernating,
         clients: 0,
         spectators: 1,
         tick: 4_200,
         age_sec: 90,
         closes_in_sec: Some(30),
+        max_clients: 16,
+        locked: false,
+        metadata: serde_json::Value::Null,
     };
     let value = serde_json::to_value(&row).unwrap();
     assert_eq!(value["phase"], serde_json::json!("hibernating"));
     for key in [
         "name",
+        "roomId",
         "phase",
         "clients",
         "spectators",
         "tick",
         "ageSec",
         "closesInSec",
+        "maxClients",
+        "locked",
+        "metadata",
     ] {
         assert!(
             value.as_object().unwrap().contains_key(key),

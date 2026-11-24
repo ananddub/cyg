@@ -230,23 +230,27 @@ impl QueueService {
             ));
         };
         if ticket.seats.is_none() {
-            let mut registry: std::sync::MutexGuard<'_, SeatRegistry> =
-                self.plane.seats.lock().map_err(|_| {
+            let mut seats = Vec::with_capacity(ticket.party_ids.len());
+            for party_id in &ticket.party_ids {
+                let desired = format!("{room}:{party_id}");
+                let seat = {
+                    let mut cur = self.plane.seats.load();
+                    loop {
+                        let mut next = (**cur).clone();
+                        let minted = next.mint(&desired);
+                        let prev = self.plane.seats.compare_and_swap(&*cur, Arc::new(next));
+                        if std::sync::Arc::ptr_eq(&*cur, &*prev) {
+                            break minted;
+                        }
+                        cur = prev;
+                    }
+                }
+                .ok_or_else(|| {
                     ApiError::new(
                         axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                        "seat registry unavailable",
+                        "the server is at its outstanding-seat limit",
                     )
                 })?;
-            let mut seats = Vec::with_capacity(ticket.party_size);
-            for _ in 0..ticket.party_size {
-                let seat = registry
-                    .mint_with_options(room, self.plane.control.seat_ttl_secs, "")
-                    .ok_or_else(|| {
-                        ApiError::new(
-                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                            "the server is at its outstanding-seat limit",
-                        )
-                    })?;
                 seats.push(seat);
             }
             ticket.seats = Some(seats);

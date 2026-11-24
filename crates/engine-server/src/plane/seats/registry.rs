@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 use hmac::{Hmac, Mac};
+use scc::HashMap;
 use sha2::Sha256;
 
 use crate::plane::seats::token::SeatError;
@@ -20,14 +18,14 @@ pub struct SeatRegistry {
     secret: Vec<u8>,
     /// token payload (room:exp) -> exp, for replay deny. Entries are pruned
     /// when expired or when the map grows too large.
-    seen: Mutex<HashMap<String, u64>>,
+    seen: HashMap<String, u64>,
 }
 
 impl SeatRegistry {
     pub fn new(secret: &str) -> Self {
         Self {
             secret: secret.as_bytes().to_vec(),
-            seen: Mutex::new(HashMap::new()),
+            seen: HashMap::new(),
         }
     }
 
@@ -67,17 +65,13 @@ impl SeatRegistry {
             }
         }
 
-        let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
-        if seen.len() > MAX_REPLAY_ENTRIES {
-            seen.retain(|_, e| *e > now);
-        } else if seen.len() > 256 {
-            seen.retain(|_, e| *e > now);
+        if self.seen.len() > MAX_REPLAY_ENTRIES || self.seen.len() > 256 {
+            self.seen.retain_sync(|_, e| *e > now);
         }
         let key = payload_str.to_string();
-        if seen.contains_key(&key) {
+        if self.seen.insert_sync(key, exp).is_err() {
             return Err(SeatError::Replayed);
         }
-        seen.insert(key, exp);
 
         Ok(SeatGrant {
             room: room.to_string(),
@@ -108,6 +102,8 @@ impl SeatRegistry {
         if room.is_empty() || room.contains('.') || exp <= now_unix() {
             return None;
         }
-        Some(SeatGrant { room: room.to_string() })
+        Some(SeatGrant {
+            room: room.to_string(),
+        })
     }
 }

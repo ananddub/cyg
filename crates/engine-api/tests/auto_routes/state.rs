@@ -25,7 +25,7 @@ pub fn state() -> engine_api::ApiState {
         limiter: Arc::new(engine_api::infra::rate_limit::IpRateLimiter::new(20, 40)),
         port: 8124,
         status_rx: Arc::new(engine_api::OnceReceiver::new(bus.status_rx.clone())),
-        latest_status: Arc::new(Mutex::new(None)),
+        latest_status: Arc::new(arc_swap::ArcSwapOption::empty()),
         bus,
         started: Instant::now(),
         db: None,
@@ -35,7 +35,7 @@ pub fn state() -> engine_api::ApiState {
         sessions: Arc::new(engine_api::infra::session_cache::SessionCache::new(
             60, 3600,
         )),
-        chain: Arc::new(Mutex::new(
+        chain: Arc::new(arc_swap::ArcSwap::from_pointee(
             engine_api::services::matchmake::chain::ChainTracker::default(),
         )),
         hooks: None,
