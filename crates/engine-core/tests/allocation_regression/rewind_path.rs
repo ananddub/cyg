@@ -1,6 +1,6 @@
 use engine_core::{PlayerInput, PlayerInputBuffer, RewindManager, TransformSnapshot};
 
-use super::harness::{allocs_in, min_allocs_per_iter, MEASURE_LOCK, WARMUP, WINDOWS};
+use super::harness::{MEASURE_LOCK, WARMUP, WINDOWS, allocs_in, min_allocs_per_iter};
 
 #[test]
 fn rewind_record_and_rewind_are_zero_alloc_steady_state() {

@@ -1,12 +1,15 @@
-// Delta row decoder — the client half of commitState().
+// Delta rows — a THIN SHIM over the cyg-core-rs native lib.
 //
-// Wire (server commitState → TLV rows):
-//   [tag u8][len u8][id u64 LE][len bytes of fields]
-//   - entity rows:   tags 0x01.. in collection declaration order; id = player/entity id;
-//     payload = fields concatenated in declaration order (t.number = f64 LE, t.int32 = i32 LE …)
-//   - root scalars:  one row tagged 0x10 (values in declaration order)
-// Field order matches `ox-game schema-codegen --lang cs` output
-// (CYGSchemaGenerated.cs), so decoded columns map straight onto those classes.
+// The old TLV/OXS2 decoder that lived in this file (envelope strip, per-tag
+// rows, f64 column splitting) has been removed: ALL schema decode now happens
+// in cyg-core-rs (crates/cyg-core-rs), the same core the web (wasm), Godot
+// (GDExtension) and Unreal SDKs use. CygClient builds a CygRoom from the
+// host's "OXSD" descriptor frame and feeds every schema delta through it;
+// this shim only re-shapes the core's decoded state into the legacy row form
+// for callers (and generated code) that still expects CygRow lists.
+//
+// Wire notes kept for history: the server's schema delta travels as
+// [0x11][0xA5 "delta"]… or [0xA5 "delta"]… — the core unwraps both.
 
 using System;
 using System.Collections.Generic;
@@ -16,9 +19,10 @@ namespace CYG
     public struct CygField
     {
         public string Name;
-        public double Number;      // t.number
-        public int Int;            // t.int32
-        public long Long;          // t.int64
+        public double Number;      // numeric fields (f64 view; i64 loses precision)
+        public long Long;          // exact i64
+        public string Str;         // string fields
+        public bool? Bool;         // bool fields
     }
 
     public struct CygRow
@@ -31,56 +35,93 @@ namespace CYG
 
     public static class CygDeltaDecoder
     {
-        /// Parse one delta packet into rows. Field names come from the caller's
-        /// schema map (tag → field names, taken from CYGSchemaGenerated / descriptor).
+        /// The decoded room (set by <see cref="Attach"/>, called by CygClient
+        /// when the descriptor lands — or manually in tests).
+        private static Cyg.CygRoom _room;
+        /// Field names used for entity rows, indexed by schema field position.
+        private static string[] _entityFields;
+
+        /// Route decode through `room`. `entityFields` names the entity schema's
+        /// fields in schema order (omit to use the core's field lookup).
+        public static void Attach(Cyg.CygRoom room, string[] entityFields = null)
+        {
+            _room = room;
+            _entityFields = entityFields;
+        }
+
+        public static void Detach()
+        {
+            _room = null;
+            _entityFields = null;
+        }
+
+        /// Build rows from the core's decoded state. `delta` is applied to the
+        /// attached room first (a schema delta decodes there); the returned
+        /// rows mirror the core state for the primary collection, then the
+        /// root scalars (tag 0x10). Without an attached room (no descriptor
+        /// seen yet) the returned list is empty — decode never throws.
         public static List<CygRow> Decode(byte[] delta, IReadOnlyDictionary<byte, string[]> tagFields)
         {
             var rows = new List<CygRow>();
-            int i = 0;
-            // Header forms — the server's wrap_delta_into emits
-            // [0x11 proto][0xA5]['d','e','l','t','a'][your_id i64] = 15 bytes,
-            // and bare [0xA5]['d','e','l','t','a'][id i64] = 14 bytes. The id
-            // is per-row inside the TLV records too, so the envelope's copy
-            // is stripped with the magic. (The old 7/6-byte strip left the id
-            // in place and every row decoded one id-width misaligned.)
-            if (delta.Length >= 15 && delta[0] == 0x11 && delta[1] == 0xA5
-                && delta[2] == (byte)'d' && delta[3] == (byte)'e'
-                && delta[4] == (byte)'l' && delta[5] == (byte)'t'
-                && delta[6] == (byte)'a') i = 15;
-            else if (delta.Length >= 14 && delta[0] == 0xA5 && delta[1] == 0x64
-                && delta[2] == (byte)'e' && delta[3] == (byte)'l'
-                && delta[4] == (byte)'t' && delta[5] == (byte)'a') i = 14;
+            var room = _room;
+            if (room == null) return rows;
 
-            while (i + 10 <= delta.Length)
+            if (delta != null && delta.Length > 0 && !Cyg.CygRoom.IsSchemaDescriptor(delta))
+                room.ApplyPayload(delta);
+
+            string[] names = null;
+            tagFields?.TryGetValue(0x01, out names);
+
+            uint count = room.EntityCount();
+            for (uint i = 0; i < count; i++)
             {
-                byte tag = delta[i];
-                int len = delta[i + 1];
-                if (len == 0 || i + 10 + len > delta.Length) break;
-                ulong id = 0;
-                for (int b = 0; b < 8; b++) id |= (ulong)delta[i + 2 + b] << (8 * b);
-                int payload = i + 10;
-                i += 10 + len;
+                uint id = room.EntityIdAt(i);
+                var fields = new List<CygField>();
+                int schemaFields = room.SchemaFieldCount(0);
+                for (int f = 0; f < schemaFields; f++)
+                {
+                    var field = new CygField();
+                    field.Name = (_entityFields != null && f < _entityFields.Length)
+                        ? _entityFields[f]
+                        : room.SchemaFieldName(0, f);
+                    switch (room.SchemaFieldKind(0, f))
+                    {
+                        case 8: field.Bool = room.GetBool(id, f); break;        // bool
+                        case 10: field.Str = room.GetString(id, f); break;      // string
+                        case 9: field.Long = room.GetI64(id, f);                // i64
+                            field.Number = field.Long; break;
+                        default: field.Number = room.GetF64(id, f); break;      // numeric
+                    }
+                    fields.Add(field);
+                }
+                // Named fields from the caller's map still win when the schema
+                // metadata is narrower than the legacy tag map.
+                if (names != null)
+                {
+                    for (int f = 0; f < fields.Count && f < names.Length; f++)
+                        fields[f] = new CygField { Name = names[f], Number = fields[f].Number, Long = fields[f].Long, Str = fields[f].Str, Bool = fields[f].Bool };
+                }
+                rows.Add(new CygRow { Tag = 0x01, IsRoot = false, EntityId = id, Fields = fields.ToArray() });
+            }
 
-                tagFields.TryGetValue(tag, out var names);
-                var fields = DecodeFields(delta, payload, len, names);
-                rows.Add(new CygRow { Tag = tag, IsRoot = tag == 0x10, EntityId = id, Fields = fields });
+            int rootCount = room.RootFieldCount();
+            if (rootCount > 0)
+            {
+                var fields = new List<CygField>();
+                string[] rootNames = null;
+                tagFields?.TryGetValue(0x10, out rootNames);
+                for (int f = 0; f < rootCount; f++)
+                {
+                    var field = new CygField();
+                    field.Name = rootNames != null && f < rootNames.Length
+                        ? rootNames[f]
+                        : room.RootFieldName(f);
+                    field.Number = room.GetRootF64(f);
+                    fields.Add(field);
+                }
+                rows.Add(new CygRow { Tag = 0x10, IsRoot = true, EntityId = 0, Fields = fields.ToArray() });
             }
             return rows;
-        }
-
-        private static CygField[] DecodeFields(byte[] delta, int start, int len, string[] names)
-        {
-            var fields = new List<CygField>();
-            int i = start, end = start + len, nameIndex = 0;
-            while (i + 8 <= end)
-            {
-                var f = new CygField { Number = BitConverter.ToDouble(delta, i) };
-                if (names != null && nameIndex < names.Length) f.Name = names[nameIndex];
-                fields.Add(f);
-                nameIndex++;
-                i += 8;
-            }
-            return fields.ToArray();
         }
     }
 }

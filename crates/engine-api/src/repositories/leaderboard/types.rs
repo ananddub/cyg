@@ -71,6 +71,7 @@ pub struct UpdateTournamentParams {
     pub join_required: bool,
     pub max_size: i32,
     pub max_num_score: i32,
+    pub rule_key: Option<String>,
 }
 
 pub(super) const UPDATE_TOURNAMENT: &str = "UPDATE type::record('leaderboard', $id)
@@ -78,7 +79,7 @@ SET title = $title, description = $description, operator = $operator,
     sort_order = $sort_order, reset_schedule = $reset_schedule, metadata = $metadata,
     authoritative = $authoritative, duration = $duration, start_time = $start_time,
     end_time = $end_time, join_required = $join_required, max_size = $max_size,
-    max_num_score = $max_num_score
+    max_num_score = $max_num_score, rule_key = $rule_key
 WHERE category = 1
 RETURN AFTER";
 
@@ -106,5 +107,6 @@ pub(super) fn new_leaderboard(id: &str, now: DateTime<Utc>) -> Leaderboard {
         start_time: now,
         enable_ranks: Some(true),
         game_id: None,
+        rule_key: None,
     }
 }

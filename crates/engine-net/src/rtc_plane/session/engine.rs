@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -32,10 +31,12 @@ pub struct RtcSession {
     pub(super) remote_addr: Option<SocketAddr>,
     pub(super) connected: bool,
     pub(super) next_timeout: Instant,
+    /// Reused delta-fragment frame buffer — send_delta writes one MTU-sized
+    /// frame per fragment; a fresh Vec per fragment churned the allocator.
+    pub(super) frame_scratch: Vec<u8>,
 }
 
 impl RtcSession {
-
     pub fn new_server(
         session_id: Arc<str>,
         local_addr: SocketAddr,
@@ -71,6 +72,7 @@ impl RtcSession {
             remote_addr: None,
             connected: false,
             next_timeout: now + Duration::from_secs(3600),
+            frame_scratch: Vec::with_capacity(WIRE_MTU_TARGET + 64),
         };
 
         let _ = session.drain();

@@ -20,7 +20,7 @@ const TArray<FCYGBaasInventoryItem>& FCYGBaasInventory::Items()
 
 void FCYGBaasInventory::GetInventory(const FCYGBaasInventoryResponse& Done)
 {
-	FCYGBaasHttp::Get(TEXT("/v2/inventory"),
+	FCYGBaasHttp::Get(TEXT("/v1/inventory"),
 		[Done](bool bSuccess, int32 StatusCode, const FString& Body)
 		{
 			TArray<FCYGBaasInventoryItem> Fetched;
@@ -48,7 +48,7 @@ void FCYGBaasInventory::Equip(const FString& InstanceId, int32 SlotIndex, const 
 	Body->SetStringField(TEXT("instance_id"), InstanceId);
 	Body->SetNumberField(TEXT("slot_index"), SlotIndex);
 
-	FCYGBaasHttp::Post(TEXT("/v2/inventory/equip"), CYGBaasJson::Write(Body),
+	FCYGBaasHttp::Post(TEXT("/v1/inventory/equip"), CYGBaasJson::Write(Body),
 		[Done](bool, int32 StatusCode, const FString& Reply)
 		{
 			FCYGBaasInventory::HandleOperationReply(Reply, StatusCode, TEXT("equip"), Done);
@@ -61,7 +61,7 @@ void FCYGBaasInventory::Consume(const FString& InstanceId, const FCYGBaasBoolRes
 	Body->SetStringField(TEXT("instance_id"), InstanceId);
 	Body->SetNumberField(TEXT("quantity"), FMath::Max(1, Quantity));
 
-	FCYGBaasHttp::Post(TEXT("/v2/inventory/consume"), CYGBaasJson::Write(Body),
+	FCYGBaasHttp::Post(TEXT("/v1/inventory/consume"), CYGBaasJson::Write(Body),
 		[Done](bool, int32 StatusCode, const FString& Reply)
 		{
 			FCYGBaasInventory::HandleOperationReply(Reply, StatusCode, TEXT("consume"), Done);
@@ -75,7 +75,7 @@ void FCYGBaasInventory::Grant(const FString& ItemId, const FCYGBaasBoolResponse&
 	Body->SetNumberField(TEXT("quantity"), FMath::Max(1, Quantity));
 	Body->SetNumberField(TEXT("slot_index"), SlotIndex);
 
-	FCYGBaasHttp::Post(TEXT("/v2/inventory/grant"), CYGBaasJson::Write(Body),
+	FCYGBaasHttp::Post(TEXT("/v1/inventory/grant"), CYGBaasJson::Write(Body),
 		[Done](bool, int32 StatusCode, const FString& Reply)
 		{
 			FCYGBaasInventory::HandleOperationReply(Reply, StatusCode, TEXT("grant"), Done);

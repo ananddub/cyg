@@ -1,4 +1,3 @@
-
 use bytes::{Buf, Bytes, BytesMut};
 
 pub const MAX_INBOUND_FRAME_SIZE: usize = 1024 * 1024;
@@ -69,4 +68,3 @@ pub fn next_ws_frame(buf: &mut BytesMut) -> Option<Result<(u8, bool, Bytes), ()>
     let payload = buf.split_to(payload_len).freeze();
     Some(Ok((ws_opcode, fin, payload)))
 }
-

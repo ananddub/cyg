@@ -213,7 +213,7 @@ function CredentialsTab({ game, onConfigure }: { game: GameDetail; onConfigure?:
 // ------------------------------------------------------------- shared: rooms
 
 /** The Live Rooms tab is the matches/room feed the Matches area already reads —
- * `GET /v2/console/match` — reused here rather than re-implemented. A selected
+ * `GET /v1/console/match` — reused here rather than re-implemented. A selected
  * room opens the same `MatchDetail` the Matches drawer renders. */
 function LiveRoomsTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -282,9 +282,10 @@ function WasmStudioTab({ game }: { game: GameDetail }) {
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
         This game is server-authoritative ({engineLabel(game.engine_type)}); its room logic runs in
-        WebAssembly. Upload a module, verify its ABI, then activate or roll it back below.
+        WebAssembly. The server loads <span className="font-mono">out/</span> from the project
+        directory, so there is nothing to upload — the history below is read-only.
       </p>
-      <WasmUploadPanel gameId={game.id} />
+      <WasmUploadPanel gameId={game.id} disabled />
     </div>
   )
 }
@@ -292,7 +293,9 @@ function WasmStudioTab({ game }: { game: GameDetail }) {
 function MapsTab({ game }: { game: GameDetail }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <MapsUploadPanel gameId={game.id} />
+      {/* Maps are cooked into the project directory and loaded at boot, so the
+          upload path is kept for reference but cannot be driven from here. */}
+      <MapsUploadPanel gameId={game.id} disabled />
       <MapsPanel gameId={game.id} />
     </div>
   )

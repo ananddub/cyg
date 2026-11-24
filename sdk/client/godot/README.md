@@ -1,7 +1,7 @@
 # CookYourGame SDK for Godot 4 (`CYGGodot`)
 
 Network client for the CYG Gaming room relay: view-based state sync, RPCs,
-Netfox-style rollback, lag compensation, the `/v2/` BaaS surface and an editor
+Netfox-style rollback, lag compensation, the `/v1/` BaaS surface and an editor
 dock — in GDScript, with no native plugin and no engine fork.
 
 Everything lives under `addons/cookyourgame/`. Design derives from Netfox's
@@ -33,7 +33,7 @@ your scene
 
 The relay is the room server on `:7777` (the same port answers the matchmake
 `/api/v1/games/.../matchmake` POST and the room WebSocket). BaaS calls go to the
-engine's `/v2/` control plane on `web_port` (8090 by default).
+engine's `/v1/` control plane on `web_port` (8090 by default).
 
 ## Layers
 
@@ -46,7 +46,8 @@ engine's `/v2/` control plane on `web_port` (8090 by default).
 | `resilience/` | `CYGSessionCookie`, `CYGNodePool`, `CYGLagComp2D/3D`, `CYGLagHitbox2D/3D` | identity across drops, pooling, rewind hit tests |
 | `profiler/` | `CYGNetworkProfiler`, `CYGProfilingTransport`, `CYGProfilerHUD` | per-second ring of bytes, packets, ticks, RTT, mispredicts |
 | `events/` | `CYGNetworkAudio2D/3D`, `CYGNetworkParticles2D/3D` | one-shot effects that dedup and pool instead of spawning |
-| `baas/` | `CYGHttp`, `CYGAuth`, `CYGStorage`, `CYGInventory`, `CYGLeaderboard`, `CYGChat` | the `/v2/` REST surface |
+| `cyg_voice.gd` | `CYGVoice` | relay-only voice (native WebRTC is unavailable on most exports): peer roster, mute verdicts, team/squad routing |
+| `baas/` | `CYGHttp`, `CYGAuth`, `CYGStorage`, `CYGInventory`, `CYGLeaderboard`, `CYGChat` | the `/v1/` REST surface |
 | `editor/` | `cyg_editor_dock.gd`, `CYGSceneScanner` | live stats and a scene audit |
 
 ## Quick start
@@ -91,6 +92,27 @@ view.send_rpc("footstep", [pos], CYGOpcodes.Target.ALL)   # sender
 
 `CYGOpcodes.Target` picks the audience: `ALL`, `Owner`, `Others`, or a specific
 actor. `server_rpc()` is the same path aimed at the room's own listener.
+
+## Voice and networked audio
+
+Godot has no usable native WebRTC on most export targets, so `CYGVoice` is a
+relay-only port of the JS mesh: `is_supported()` is `false` and `is_p2p()` always
+reports `false`, while every speaker still rides the authoritative server relay
+(`room.send_voice`). Peer roster, mute verdicts and server config still flow
+through signaling.
+
+```gdscript
+var voice := room.attach_voice()
+voice.enable(mic_stream)                          # relay-only
+room.set_voice_team("red")                        # string or number — hashed to u32
+room.send_voice(2, seq, timestamp, flags, opus)   # 0=proximity · 1=global · 2=team · 3=whisper
+room.set_voice_muted(true)
+room.set_voice_deafened(false)
+```
+
+One-shot positional SFX use the pooled `CYGNetworkAudio3D` / `CYGNetworkAudio2D`
+components (`play_at(position, event_id)`), which dedup by event identity and
+never allocate a node per sound.
 
 ## BaaS
 
@@ -192,7 +214,7 @@ the edited scene and lists findings per node: `NO_ROOT`, `ORPHAN_VIEW`,
   annotations with its own compiler at export time; a runtime SDK cannot register
   into that table. The hash of the method name on the wire is the same idea, and
   `CYGRpcRouter` is the dispatch table.
-* **BaaS speaks `/v2/` REST over `HTTPRequest`.** There is no engine-side
+* **BaaS speaks `/v1/` REST over `HTTPRequest`.** There is no engine-side
   client to bind against, so `CYGHttp` is pure GDScript and every class in
   `baas/` goes through it.
 

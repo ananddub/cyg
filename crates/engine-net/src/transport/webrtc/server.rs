@@ -1,7 +1,6 @@
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use str0m::net::Protocol;
 use str0m::{Candidate, Input};
@@ -15,7 +14,16 @@ pub struct WebRtcServer {
     pub(super) addr_to_session: HashMap<SocketAddr, String>,
     pub(super) announced_candidates: Vec<Candidate>,
     pub(super) sink: Sink,
+    /// Last time an unknown-source datagram was allowed through the
+    /// O(sessions) `rtc.accepts` scan. Everything in between is dropped.
+    pub(super) last_unknown_sweep: Option<Instant>,
+    /// Unknown-source datagrams dropped between sweeps.
+    pub(super) unknown_dropped: u64,
 }
+
+/// How often an unknown-source datagram triggers the session scan; cheap
+/// rate limit against UDP source-address flooding.
+const UNKNOWN_SWEEP_INTERVAL: Duration = Duration::from_millis(250);
 
 impl WebRtcServer {
     pub fn new(announced_addrs: Vec<SocketAddr>) -> Self {
@@ -30,7 +38,27 @@ impl WebRtcServer {
             addr_to_session: HashMap::new(),
             announced_candidates,
             sink: Sink::default(),
+            last_unknown_sweep: None,
+            unknown_dropped: 0,
         }
+    }
+
+    pub fn unknown_dropped(&self) -> u64 {
+        self.unknown_dropped
+    }
+
+    /// Whether an unknown-source datagram may run the (O(sessions)) accepts
+    /// scan now; otherwise it is dropped and counted.
+    pub fn admit_unknown_source(&mut self, now: Instant) -> bool {
+        let allowed = self
+            .last_unknown_sweep
+            .is_none_or(|last| now.duration_since(last) >= UNKNOWN_SWEEP_INTERVAL);
+        if allowed {
+            self.last_unknown_sweep = Some(now);
+        } else {
+            self.unknown_dropped += 1;
+        }
+        allowed
     }
 
     pub fn add_announced_addr(&mut self, addr: SocketAddr) {

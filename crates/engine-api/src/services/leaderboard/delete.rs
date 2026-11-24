@@ -1,28 +1,21 @@
 use axum::Json;
 
 use super::load_board;
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::leaderboard::DeleteLeaderboardRecordParams;
-use crate::services::deps::q;
 use crate::utils::leaderboard::types::{
     AUTH_DELETE, DELETE_FAILED, INVALID_ID, NOT_FOUND, is_tournament,
 };
 use crate::utils::leaderboard::window::record_window;
 
 impl super::LeaderboardService {
-    pub async fn delete_record(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-        id: &str,
-    ) -> Result<Json<Empty>, V2Error> {
+    pub async fn delete_record(&self, auth: &Authed, id: &str) -> Result<Json<Empty>, V2Error> {
         if id.is_empty() {
             return Err(V2Error::invalid_argument(INVALID_ID));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let board = load_board(&queries, id).await?;
         if is_tournament(&board) {
             return Err(V2Error::not_found(NOT_FOUND));

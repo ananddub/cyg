@@ -5,7 +5,7 @@ use serde::Deserialize;
 use crate::app::params::BoolFlag;
 use crate::error::V2Error;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct IdAccount {
     #[serde(default)]
     pub id: String,
@@ -13,7 +13,7 @@ pub struct IdAccount {
     pub vars: HashMap<String, String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct TokenAccount {
     #[serde(default)]
     pub token: String,
@@ -22,7 +22,7 @@ pub struct TokenAccount {
     pub vars: HashMap<String, String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct EmailAccount {
     #[serde(default)]
     pub email: String,
@@ -32,7 +32,7 @@ pub struct EmailAccount {
     pub vars: HashMap<String, String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct GameCenterAccount {
     #[serde(default, alias = "playerId")]
     pub player_id: String,
@@ -51,7 +51,7 @@ pub struct GameCenterAccount {
     pub vars: HashMap<String, String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct InstantGameAccount {
     #[serde(default, alias = "signedPlayerInfo")]
     pub signed_player_info: String,
@@ -60,7 +60,7 @@ pub struct InstantGameAccount {
     pub vars: HashMap<String, String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct ProviderAccount {
     #[serde(default)]
     pub provider: String,
@@ -72,7 +72,7 @@ pub struct ProviderAccount {
     pub vars: HashMap<String, String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct SteamLink {
     #[serde(default)]
     pub account: Option<TokenAccount>,

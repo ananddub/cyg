@@ -1,4 +1,3 @@
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -14,7 +13,6 @@ fn spawn_transport() -> (WsTransport, u16) {
 }
 
 fn poll(transport: &mut WsTransport) -> Vec<TransportEvent> {
-
     let _ = transport.flush();
     let mut events = Vec::new();
     transport
@@ -67,7 +65,6 @@ fn ws_upgrade_with_query(port: u16, transport: &mut WsTransport, query: &str) ->
     );
     stream.write_all(request.as_bytes()).expect("upgrade write");
 
-    
     let mut response = String::new();
     let mut byte = [0u8; 1];
     stream
@@ -82,11 +79,11 @@ fn ws_upgrade_with_query(port: u16, transport: &mut WsTransport, query: &str) ->
                 }
             }
             _ => {
-                poll(transport); 
+                poll(transport);
             }
         }
     }
-    
+
     poll(transport);
 
     assert!(
@@ -111,7 +108,6 @@ fn test_matchmake_seat_reservation_http() {
                    Content-Length: 2\r\n\r\n{}";
     stream.write_all(request.as_bytes()).expect("post ok");
 
-    
     stream
         .set_read_timeout(Some(Duration::from_millis(20)))
         .unwrap();
@@ -131,7 +127,7 @@ fn test_matchmake_seat_reservation_http() {
         response.contains("200 OK"),
         "seat reservation must be 200: {response}"
     );
-    
+
     assert!(response.contains("\"sessionId\":\""), "missing sessionId");
     assert!(
         response.contains("\"roomId\":\"game_room\""),

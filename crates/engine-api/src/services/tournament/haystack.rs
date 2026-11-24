@@ -2,14 +2,12 @@ use axum::Json;
 use uuid::Uuid;
 
 use super::load_tournament;
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::leaderboard::RecordListResponse;
 use crate::dto::tournament::RecordsQuery;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::Leaderboard;
-use crate::services::deps::q;
 use crate::services::leaderboard::{haystack, records_list};
 use crate::utils::leaderboard::{number, query_window};
 use crate::utils::tournament::types::{
@@ -19,7 +17,7 @@ use crate::utils::tournament::types::{
 impl super::TournamentService {
     pub async fn list_records_around_owner(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         id: &str,
         owner_id: &str,
@@ -35,7 +33,7 @@ impl super::TournamentService {
         let owner = Uuid::parse_str(owner_id).map_err(|_| V2Error::invalid_argument(BAD_OWNER))?;
         let override_expiry = number(req.expiry.as_deref(), BAD_EXPIRY)?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let board = load_tournament(&queries, id).await?;
         let listed = standing(
             &queries,

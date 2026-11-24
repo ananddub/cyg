@@ -30,6 +30,7 @@ pub mod report;
 pub mod room_registry;
 pub mod rules;
 pub mod session;
+pub mod stat_write;
 pub mod storage;
 pub mod tenancy;
 pub mod timeline;

@@ -14,21 +14,8 @@ import { CONSOLE_ENDPOINTS, type ConsoleRule, type ConsoleRuleDryRun } from "@/l
 import { formatTime } from "@/lib/format"
 import { VisualRuleBuilder } from "@/components/console/rules/VisualRuleBuilder"
 
-const SAMPLE = JSON.stringify(
-  {
-    all: [
-      { field: "kills", op: "gte", value: 10 },
-      {
-        any: [
-          { field: "rank", op: "eq", value: "gold" },
-          { field: "rank", op: "eq", value: "platinum" },
-        ],
-      },
-    ],
-  },
-  null,
-  2,
-)
+// Naya rule KHALI shuru hota hai — default logic apne aap na aaye.
+const SAMPLE = JSON.stringify({ value: true }, null, 2)
 
 export function RulesView() {
   const rules = useConsoleQuery<ConsoleRule[]>("rules", CONSOLE_ENDPOINTS.rules)

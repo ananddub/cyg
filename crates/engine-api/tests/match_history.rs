@@ -62,7 +62,7 @@ async fn a_rooms_history_and_desyncs_are_readable_by_their_own_token() {
 
     let rows = json_body(
         env.client
-            .get(format!("{}/v2/match/arena/events", env.base))
+            .get(format!("{}/v1/match/arena/events", env.base))
             .bearer_auth(player_token())
             .send()
             .await
@@ -79,7 +79,7 @@ async fn a_rooms_history_and_desyncs_are_readable_by_their_own_token() {
     // history" from "the server is broken", and 200-with-no-rows is the first.
     let empty = json_body(
         env.client
-            .get(format!("{}/v2/match/silent-room/events", env.base))
+            .get(format!("{}/v1/match/silent-room/events", env.base))
             .bearer_auth(player_token())
             .send()
             .await
@@ -93,7 +93,7 @@ async fn a_rooms_history_and_desyncs_are_readable_by_their_own_token() {
     let console = console_login(&env.client, &env.base).await;
     let desyncs = json_body(
         env.client
-            .get(format!("{}/v2/console/desync", env.base))
+            .get(format!("{}/v1/console/desync", env.base))
             .bearer_auth(&console)
             .send()
             .await
@@ -109,7 +109,7 @@ async fn a_rooms_history_and_desyncs_are_readable_by_their_own_token() {
 
     let narrowed = json_body(
         env.client
-            .get(format!("{}/v2/console/desync?room=other", env.base))
+            .get(format!("{}/v1/console/desync?room=other", env.base))
             .bearer_auth(&console)
             .send()
             .await
@@ -120,7 +120,7 @@ async fn a_rooms_history_and_desyncs_are_readable_by_their_own_token() {
     .await;
     assert_eq!(narrowed.as_array().map(|v| v.len()), Some(0), "{narrowed}");
 
-    for path in ["/v2/match/arena/events", "/v2/console/desync"] {
+    for path in ["/v1/match/arena/events", "/v1/console/desync"] {
         let status = env
             .client
             .get(format!("{}{path}", env.base))
@@ -187,7 +187,7 @@ async fn a_finished_match_is_readable_and_replayable() {
 
     let history = json_body(
         env.client
-            .get(format!("{}/v2/match/arena/history", env.base))
+            .get(format!("{}/v1/match/arena/history", env.base))
             .bearer_auth(player_token())
             .send()
             .await
@@ -206,7 +206,7 @@ async fn a_finished_match_is_readable_and_replayable() {
     let console = console_login(&env.client, &env.base).await;
     let replay = json_body(
         env.client
-            .get(format!("{}/v2/console/match/arena/replay", env.base))
+            .get(format!("{}/v1/console/match/arena/replay", env.base))
             .bearer_auth(&console)
             .send()
             .await
@@ -228,7 +228,7 @@ async fn a_finished_match_is_readable_and_replayable() {
     // events are the answer, and a 404 would throw them away.
     let empty = json_body(
         env.client
-            .get(format!("{}/v2/console/match/ghost/replay", env.base))
+            .get(format!("{}/v1/console/match/ghost/replay", env.base))
             .bearer_auth(&console)
             .send()
             .await
@@ -243,7 +243,7 @@ async fn a_finished_match_is_readable_and_replayable() {
 
     let denied = env
         .client
-        .get(format!("{}/v2/console/match/arena/replay", env.base))
+        .get(format!("{}/v1/console/match/arena/replay", env.base))
         .bearer_auth(player_token())
         .send()
         .await

@@ -9,6 +9,14 @@ pub(super) static INSTALLED_STATE: RwLock<Option<ApiState>> = RwLock::new(None);
 tokio::task_local! {
     pub(super) static REQUEST_STATE: ApiState;
     pub(super) static REQUEST_CONTAINER: auto_di::Container;
+    pub(crate) static REQUEST_REMOTE: std::net::SocketAddr;
+}
+
+/// The address the current request arrived from, for call sites that cannot
+/// take `ConnectInfo` through their signature (middleware helpers, deep
+/// stacks). `None` outside a request or when the server does not track it.
+pub fn current_remote() -> Option<std::net::SocketAddr> {
+    REQUEST_REMOTE.try_with(|remote| *remote).ok()
 }
 
 pub fn install_state(state: ApiState) {
@@ -44,8 +52,21 @@ pub async fn attach_state(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    let remote = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|connect| connect.0);
     match request.extensions().get::<ApiState>().cloned() {
-        Some(state) => REQUEST_STATE.scope(state, next.run(request)).await,
+        Some(state) => {
+            REQUEST_STATE
+                .scope(state, async move {
+                    match remote {
+                        Some(remote) => REQUEST_REMOTE.scope(remote, next.run(request)).await,
+                        None => next.run(request).await,
+                    }
+                })
+                .await
+        }
         None => next.run(request).await,
     }
 }
@@ -72,7 +93,16 @@ pub fn with_plane_state(
 ) -> axum::Router {
     router
         .layer(axum::middleware::from_fn(
+            crate::app::middleware::lifecycle_gate,
+        ))
+        .layer(axum::middleware::from_fn(
             crate::app::middleware::player_rate_limit,
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::app::middleware::idempotency,
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::app::middleware::ip_rate_limit,
         ))
         .layer(axum::middleware::from_fn(
             crate::app::middleware::request_id,

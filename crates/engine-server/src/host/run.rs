@@ -16,10 +16,26 @@ pub fn run(
     wasm_path: &Path,
     cfg: &GameConfig,
     bus: Arc<Bus>,
-    signals: Option<engine_api::infra::signaling::SignalHub>,
+    signals: Option<engine_signaling::SignalHub>,
     boot_maps: BootMaps,
     boot_module: Option<BootModule>,
+    manager: Arc<engine_manager::ServerManager>,
 ) -> std::io::Result<()> {
+    // Refuse a config with no lane before opening anything, and say which lanes
+    // this process is about to serve so the log answers "what is listening?"
+    // without needing to correlate four separate boot lines.
+    if let Err(problem) = cfg.transports.validate() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            problem,
+        ));
+    }
+    tracing::info!("[server] {}", cfg.transports.summary());
+    // Hooks are optional and must never stop a server from booting: a project
+    // without the file runs without them, and one whose module is broken says so
+    // and keeps serving rather than refusing every account event. Held for the
+    // process lifetime; see `engine_hooks` for the event contract.
+    let _hooks = engine_hooks::boot_hooks(project_dir, cfg);
     let (mut runtime, _epoch_ticker, mut raw_transport) = boot_runtime(wasm_path, cfg);
     match std::fs::metadata(wasm_path) {
         Ok(m) => tracing::info!(
@@ -34,12 +50,53 @@ pub fn run(
     let arena_mesh = boot_oxcl(&boot_maps, project_dir);
     let arena_2d = boot_map2d(&boot_maps, project_dir);
     let physics = boot_map3d(&boot_maps, project_dir, &arena_2d);
-    let (schema_descriptor, schema_aoi) = boot_schema(&boot_maps, project_dir, cfg, &mut raw_transport);
-    let udp_socket = boot_udp();
+    let (schema_descriptor, schema_aoi) =
+        boot_schema(&boot_maps, project_dir, cfg, &mut raw_transport);
+    let packed_lane = crate::netcode::PackedSet::from_descriptor(&schema_descriptor);
+    let private_state = packed_lane
+        .as_ref()
+        .is_some_and(netcode::PackedSet::has_private_fields);
+    if private_state {
+        tracing::info!("[server] 🔒 private state fields active — per-session packed views");
+    }
+    if cfg.permissions.views {
+        tracing::info!("[server] 👁️ per-session state views enabled (`allow_views`)");
+    }
+    if packed_lane.is_some() {
+        tracing::info!(
+            "[server] 📦 packed state lane active (bit-packed OXS2 kinds 5-8, root + collections)"
+        );
+    }
+    let join_options_fields = if schema_descriptor.is_empty() {
+        Vec::new()
+    } else {
+        engine_schema::parse_descriptor(&schema_descriptor)
+            .and_then(|descriptor| {
+                descriptor
+                    .schemas
+                    .into_iter()
+                    .find(|schema| schema.name == engine_schema::JOIN_OPTIONS_SCHEMA_NAME)
+            })
+            .map(|schema| schema.fields)
+            .unwrap_or_default()
+    };
+    let udp_socket = boot_udp(cfg.transports.enabled(engine_config::Lane::Udp), cfg.port);
     let Lanes { quic, ws } = boot_lanes(cfg, &schema_descriptor);
     let mut transport = LoopTransport::new(raw_transport, quic, ws);
     if cfg.simulate_latency_ms > 0 {
         transport.set_latency(Duration::from_millis(cfg.simulate_latency_ms as u64 / 2));
+        tracing::warn!(
+            "[server] NETWORK SIMULATION: simulated latency = {}ms RTT ({}ms one-way)",
+            cfg.simulate_latency_ms,
+            cfg.simulate_latency_ms / 2
+        );
+    }
+    if cfg.simulate_packet_loss > 0.0 {
+        transport.set_packet_loss_rate(cfg.simulate_packet_loss);
+        tracing::warn!(
+            "[server] ⚠️ NETWORK SIMULATION: simulated packet loss = {:.1}%",
+            cfg.simulate_packet_loss * 100.0
+        );
     }
     let PreSelection {
         pre,
@@ -86,20 +143,31 @@ pub fn run(
         transport,
         server,
         arena_mesh,
+        join_options_fields,
         udp: UdpLane {
             udp_sock: udp_socket.map(Arc::new),
             udp_peers: HashMap::new(),
+            udp_rooms: HashMap::new(),
+            seats: crate::plane::SeatRegistry::new(&cfg.control.seat_secret),
             udp_reliable: HashMap::new(),
             udp_rxd_seq: HashMap::new(),
             udp_input_rates: HashMap::new(),
             udp_join_rates: HashMap::new(),
             rudp_scratch: Vec::with_capacity(2100),
             schema_descriptor,
+            udp_chunks: HashMap::new(),
+            udp_chunk_in: HashMap::new(),
+            udp_chunk_seq: 0,
             timed_out_udp: Vec::new(),
+            wire_bytes_in: 0,
+            wire_bytes_out: 0,
+            wire_fragments: 0,
         },
         signal_rx,
-        drain: Drain::new(Duration::from_secs(cfg.lifecycle.drain_grace_secs)),
-        scratch: Scratch { events: Vec::new() },
+        manager,
+        scratch: Scratch {
+            events: Vec::with_capacity(1024),
+        },
         rates: Rates {
             rtc_input_rates: HashMap::new(),
             message_rate_limits: MessageRateLimits::new(cfg.max_messages_per_second),
@@ -113,9 +181,10 @@ pub fn run(
             publish_start: Instant::now(),
         },
         tick: TickRunner {
+            session_scratch: Vec::with_capacity(64),
+            room_names: Vec::new(),
             delta_buf: Vec::with_capacity(8 * 1024),
             view_buf: Vec::with_capacity(8 * 1024),
-            frame_buf: Vec::with_capacity(8 * 1024),
             delta_body: Vec::with_capacity(8 * 1024),
             filtered_buf: Vec::with_capacity(8 * 1024),
             udp_batch: Vec::new(),
@@ -128,9 +197,69 @@ pub fn run(
             stage_sim_us_sum: 0,
             stage_guest_us_sum: 0,
             match_peaks: HashMap::new(),
+            next_phase: 0,
+            slot_base: Instant::now(),
+            interval_pending: 0,
+            schema_full: 0..0,
+            schema_patch: 0..0,
+            wrap_full_packed: Vec::with_capacity(8 * 1024),
+            wrap_patch_packed: Vec::with_capacity(8 * 1024),
+            packed_full_body: Vec::with_capacity(8 * 1024),
+            packed_patch_body: Vec::with_capacity(8 * 1024),
+            packed_volatile_body: Vec::with_capacity(4 * 1024),
+            volatile_ready: false,
+            volatile_per_view: false,
+            packed_view_buf: Vec::with_capacity(8 * 1024),
+            packed_lane,
+            private_state,
+            packed_ready: false,
         },
     };
+    // The boot sequence is complete: runtime, lanes, rooms, and persistence are
+    // up, so the authoritative server lifecycle leaves `Booting` and starts
+    // accepting players. Every later transition (draining/shutdown) is driven
+    // through the same `engine-manager` state machine.
+    engine.manager.mark_ready();
+    tracing::info!(
+        "[server] ✅ lifecycle {} (boot took {:?})",
+        engine.manager.phase().display(),
+        engine.manager.uptime()
+    );
+    // Profiling builds exit cleanly after CYG_DHAT_SECS / CYG_CPU_PROF_SECS so
+    // the profiler drops and writes its report (release runs never exit on
+    // their own). Runtime env check (not cfg): crate features don't propagate
+    // from the bin.
+    let dhat_deadline = std::env::var("CYG_DHAT_SECS")
+        .ok()
+        .or_else(|| std::env::var("CYG_CPU_PROF_SECS").ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|secs| std::time::Instant::now() + std::time::Duration::from_secs(secs));
+    // Return freed arena pages to the OS on quiet ticks — glibc holds freed
+    // memory for reuse, which inflated post-disconnect RSS to ~2.1GB in
+    // loadtests even with zero clients. Trim only when the room set is
+    // idle-ish; trimming under load would fight the allocator.
+    let mut last_trim = std::time::Instant::now();
     loop {
-        engine.step()?;
+        if last_trim.elapsed().as_secs() >= 60 && engine.room_count() <= 1 {
+            unsafe { libc::malloc_trim(0) };
+            last_trim = std::time::Instant::now();
+        }
+        if engine.step()? {
+            tracing::info!("[server] 🛑 drain complete — shutting down");
+            break;
+        }
+        if let Some(deadline) = dhat_deadline {
+            if std::time::Instant::now() >= deadline {
+                tracing::info!("[dhat] window elapsed — clean exit for heap dump");
+                break;
+            }
+        }
     }
+    // The host thread is leaving: stop and join every managed helper thread
+    // before the process exits, so no thread outlives the lifecycle.
+    engine
+        .manager
+        .mark_thread("cyg-host", engine_manager::ThreadState::Stopped);
+    engine.manager.shutdown();
+    Ok(())
 }

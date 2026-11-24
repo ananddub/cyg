@@ -10,7 +10,6 @@ use crate::runtime::connection::ClientConn;
 use engine_core::StepContext;
 
 impl MioWorker {
-
     pub fn step<F>(
         &mut self,
         max_wait: Duration,

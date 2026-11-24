@@ -47,7 +47,8 @@ pub(crate) mod db {
             engine_type: engine.map(str::to_owned),
             ..Default::default()
         };
-        GamesService::create_game(state, &body)
+        GamesService::new(state.plane())
+            .create_game(&body)
             .await
             .expect("a named game registers")
     }
@@ -65,7 +66,8 @@ pub(crate) mod db {
     ) -> crate::dto::console::games::GameDto {
         let request: CreateGameRequest =
             serde_json::from_value(body).expect("the fixture body is a create request");
-        GamesService::create_game(state, &request)
+        GamesService::new(state.plane())
+            .create_game(&request)
             .await
             .expect("the fixture body registers a game")
     }

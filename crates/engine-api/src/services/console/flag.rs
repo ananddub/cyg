@@ -2,13 +2,11 @@ use axum::Json;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::flag::{FeatureFlagRequest, FeatureFlagRow};
 use crate::error::V2Error;
 use crate::repositories::models::FeatureFlag;
-use crate::services::deps::q;
 use crate::services::quest::catalog::definition_key;
 
 /// Above this share of the population an experiment is a rollout, not a test,
@@ -16,14 +14,14 @@ use crate::services::quest::catalog::definition_key;
 pub(super) const ADMIN_ABOVE: u32 = 50;
 
 impl super::ConsoleService {
-    pub async fn list_flags(&self, state: &ApiState) -> Result<Json<Vec<FeatureFlagRow>>, V2Error> {
-        let rows = q(state).await?.list_flags().await?;
+    pub async fn list_flags(&self) -> Result<Json<Vec<FeatureFlagRow>>, V2Error> {
+        let rows = self.plane.q().await?.list_flags().await?;
         Ok(Json(rows.into_iter().map(FeatureFlagRow::from).collect()))
     }
 
     pub async fn create_flag(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: FeatureFlagRequest,
     ) -> Result<Json<FeatureFlagRow>, V2Error> {
@@ -33,7 +31,7 @@ impl super::ConsoleService {
         admin_above(claims, pct)?;
         let row = FeatureFlag {
             id: key.clone(),
-            game_id: crate::services::games::tenant::game_id(state).await?,
+            game_id: crate::services::games::tenant::game_id(&self.plane).await?,
             description: described(&body.description, "")?,
             enabled: body.enabled.unwrap_or(true),
             rollout_pct: pct,
@@ -43,13 +41,13 @@ impl super::ConsoleService {
             update_time: Utc::now(),
         };
         let row = scheduled(row)?;
-        if !q(state).await?.create_flag(&row).await? {
+        if !self.plane.q().await?.create_flag(&row).await? {
             return Err(V2Error::already_exists(
                 "A flag with this key already exists.",
             ));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "flag.create",
             "flag",
@@ -65,14 +63,14 @@ impl super::ConsoleService {
     /// account to a different arm of a test that is still measuring people.
     pub async fn update_flag(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         raw_key: &str,
         body: FeatureFlagRequest,
     ) -> Result<Json<FeatureFlagRow>, V2Error> {
         claims.require_write()?;
         let key = definition_key(raw_key, "flag")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let Some(existing) = queries.get_flag(&key).await? else {
             return Err(V2Error::not_found("Flag not found."));
         };
@@ -96,7 +94,7 @@ impl super::ConsoleService {
         let row = scheduled(row)?;
         queries.update_flag(&row).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "flag.update",
             "flag",
@@ -111,19 +109,19 @@ impl super::ConsoleService {
     /// deleted experiment cannot keep assigning a key nothing defines anymore.
     pub async fn delete_flag(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         raw_key: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let key = definition_key(raw_key, "flag")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         if queries.delete_flag(&key).await?.rows_affected() == 0 {
             return Err(V2Error::not_found("Flag not found."));
         }
         queries.delete_flag_parts(&key).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "flag.delete",
             "flag",

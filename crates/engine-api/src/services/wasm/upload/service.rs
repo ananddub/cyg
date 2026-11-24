@@ -1,4 +1,6 @@
 use super::*;
+use crate::services::plane::Plane;
+use std::sync::Arc;
 
 pub const REQUIRED_EXPORTS: [&str; 8] = [
     "on_alloc",
@@ -20,11 +22,13 @@ pub struct InsertModuleParams {
     pub sha256: String,
 }
 pub(super) const WASM_BACKEND_MODE: &str = "wasm";
-pub struct WasmService;
+pub struct WasmService {
+    pub(crate) plane: Arc<Plane>,
+}
 #[singleton]
 impl WasmService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 pub(super) fn module_dto(row: ListRoomModulesRow) -> ModuleDto {

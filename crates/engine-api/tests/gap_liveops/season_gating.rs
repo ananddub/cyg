@@ -8,7 +8,7 @@ pub async fn season_gating(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/console/quests", env.base))
+            .post(format!("{}/v1/console/quests", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "quest_key": quest,

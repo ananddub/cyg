@@ -22,8 +22,17 @@ pub const FIELD_STATIC: u8 = 2;
 
 pub const FIELD_TRANSIENT: u8 = 4;
 
-impl WireKind {
+/// Owner-only field: the host blanks it for every row whose id is not the
+/// viewer's own id. The descriptor still carries the field so patch shapes
+/// stay stable; the value never reaches another client.
+pub const FIELD_PRIVATE: u8 = 8;
 
+/// Volatile field: sent on the unreliable state stream only. The reliable
+/// state stream omits it, so a dropped volatile frame never holds up a
+/// must-deliver field (inventory, score, quest state).
+pub const FIELD_UNRELIABLE: u8 = 16;
+
+impl WireKind {
     pub fn size(self) -> usize {
         match self {
             WireKind::U8 | WireKind::I8 | WireKind::Bool => 1,

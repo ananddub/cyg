@@ -57,3 +57,29 @@ test("Storage wraps values with JSON roundtrip", () => {
         globalThis.localStorage = orig;
     }
 });
+
+
+
+
+test("interpolation timeline blends bracketing ticks and holds the newest", () => {
+    const { InterpolationTimeline } = CYG;
+    const tl = new InterpolationTimeline({ interpTicks: 2, tickDurationMs: 50, maxSnaps: 8 });
+    tl.pushSnapshot(10, { 1: [0, 5] }, 1000);
+    tl.pushSnapshot(11, { 1: [10, 50] }, 1050);
+
+    const mid = tl._interpolateAt(10.5);
+    assert.equal(mid[1][0], 5, "position lerps across the tick bracket");
+    assert.equal(mid[1][1], 27.5, "non-discrete field lerps");
+
+    const newest = tl._interpolateAt(99);
+    assert.equal(newest[1][0], 10, "past newest holds, never extrapolates");
+    assert.equal(newest[1][1], 50);
+
+    const discrete = new InterpolationTimeline({
+        interpTicks: 2, tickDurationMs: 50, maxSnaps: 8, discrete: [1],
+    });
+    discrete.pushSnapshot(10, { 1: [0, 5] }, 1000);
+    discrete.pushSnapshot(11, { 1: [10, 50] }, 1050);
+    const snapped = discrete._interpolateAt(10.5);
+    assert.equal(snapped[1][1], 50, "discrete fields take the newer value");
+});

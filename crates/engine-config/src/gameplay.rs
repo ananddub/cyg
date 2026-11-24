@@ -1,4 +1,3 @@
-
 const DEFAULT_EVENT_TTL_DAYS: u32 = 30;
 
 const DEFAULT_MATCH_HISTORY_TTL_DAYS: u32 = 90;
@@ -15,7 +14,6 @@ fn bounded_ttl(days: u32, default: u32) -> u32 {
 
 #[derive(Debug, Clone, Default)]
 pub struct GameplayConfig {
-
     pub record_events: Vec<String>,
 
     pub event_ttl_days: u32,
@@ -26,7 +24,6 @@ pub struct GameplayConfig {
 }
 
 impl GameplayConfig {
-
     pub fn normalize(&mut self) {
         for name in &mut self.record_events {
             *name = name.trim().to_string();

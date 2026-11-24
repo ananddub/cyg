@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> Scheduled: start_time in future
+    Scheduled --> Active: now >= start_active
+    Active --> Active: join / write score
+    Active --> Ended: now >= end_active
+    Ended --> [*]
+
+    note right of Active
+        join_required? join first.
+        rule_key? rule must pass.
+    end note

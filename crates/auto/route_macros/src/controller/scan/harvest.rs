@@ -90,9 +90,10 @@ pub(super) fn receiver_arguments(signature: &Signature) -> syn::Result<Vec<Type>
     inputs
         .map(|argument| match argument {
             FnArg::Typed(PatType { ty, .. }) => Ok((**ty).clone()),
-            FnArg::Receiver(receiver) => {
-                Err(syn::Error::new_spanned(receiver, "unexpected receiver argument"))
-            }
+            FnArg::Receiver(receiver) => Err(syn::Error::new_spanned(
+                receiver,
+                "unexpected receiver argument",
+            )),
         })
         .collect()
 }

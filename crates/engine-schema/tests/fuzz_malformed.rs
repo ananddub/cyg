@@ -1,4 +1,3 @@
-
 use engine_schema::{DESCRIPTOR_VERSION, generate_with_root, parse_descriptor, ts};
 
 const SCHEMA_TS: &str = r#"
@@ -81,7 +80,6 @@ fn newer_descriptor_version_is_rejected() {
 
 #[test]
 fn invalid_utf8_name_is_rejected() {
-
     let mut bytes = descriptor();
     assert_eq!(bytes[8], 6, "first schema name is 'Player'");
     bytes[10] = 0xff;
@@ -90,7 +88,6 @@ fn invalid_utf8_name_is_rejected() {
 
 #[test]
 fn unknown_wire_code_is_rejected() {
-
     let mut bytes = descriptor();
     let field_name_len = u16::from_le_bytes([bytes[26], bytes[27]]) as usize;
     assert_eq!(field_name_len, 1);

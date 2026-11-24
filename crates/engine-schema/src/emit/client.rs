@@ -1,4 +1,4 @@
-use super::common::{field_typescript_type, HEADER};
+use super::common::{HEADER, field_typescript_type};
 use crate::model::{RootState, SchemaDef};
 
 pub(crate) fn emit_client_dts(
@@ -28,11 +28,48 @@ pub(crate) fn emit_client_dts(
         ));
         out.push_str(&format!("export interface {}State {{\n", schema.name));
         out.push_str("    id: number;\n");
-        for field in &schema.fields {
+        let mut nested_paths: Vec<&str> = schema
+            .fields
+            .iter()
+            .filter_map(|field| field.nested_path.as_deref())
+            .collect();
+        nested_paths.sort_unstable();
+        nested_paths.dedup();
+        for field in schema
+            .fields
+            .iter()
+            .filter(|field| field.nested_path.is_none())
+        {
             out.push_str(&format!(
                 "    {name}: {ty};\n",
                 name = field.name,
                 ty = field_typescript_type(field)
+            ));
+        }
+        for path in nested_paths {
+            out.push_str(&format!("    {path}: {{\n"));
+            for field in schema
+                .fields
+                .iter()
+                .filter(|field| field.nested_path.as_deref() == Some(path))
+            {
+                let child = field
+                    .name
+                    .strip_prefix(&format!("{path}__"))
+                    .unwrap_or(&field.name);
+                out.push_str(&format!(
+                    "        {name}: {ty};\n",
+                    name = child,
+                    ty = field_typescript_type(field)
+                ));
+            }
+            out.push_str("    };\n");
+        }
+        for nested in &schema.nested_arrays {
+            out.push_str(&format!(
+                "    {field}: {schema}State[];\n",
+                field = nested.field,
+                schema = nested.schema
             ));
         }
         out.push_str("}\n");
@@ -49,7 +86,15 @@ pub(crate) fn emit_client_dts(
                 ty = field_typescript_type(field)
             ));
         }
+        let nested_names: Vec<&str> = root
+            .nested
+            .iter()
+            .map(|nested| nested.collection.as_str())
+            .collect();
         for collection in &root.collections {
+            if nested_names.contains(&collection.name.as_str()) {
+                continue;
+            }
             let row = schemas
                 .iter()
                 .find(|schema| schema.name == collection.schema)

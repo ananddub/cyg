@@ -19,7 +19,6 @@ pub struct FragmentAssembler {
 }
 
 impl FragmentAssembler {
-
     pub fn insert(
         &mut self,
         header: &DeltaHeader,
@@ -54,8 +53,11 @@ impl FragmentAssembler {
                     self.rejected += 1;
                     return None;
                 }
-                self.inflight
-                    .push(PartialDelta::new(header.seq, header.tick, header.frag_total));
+                self.inflight.push(PartialDelta::new(
+                    header.seq,
+                    header.tick,
+                    header.frag_total,
+                ));
                 self.inflight.len() - 1
             }
         };

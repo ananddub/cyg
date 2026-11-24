@@ -1,3 +1,5 @@
+use crate::services::plane::Plane;
+
 mod cost;
 mod http;
 mod merged;
@@ -46,8 +48,8 @@ pub(super) fn test_state_with(rps: u32, burst: u32, ice: &str) -> ApiState {
         control: Arc::new(control),
         game: Arc::new(game),
         bus: bus.clone(),
-        seats: Arc::new(Mutex::new(SeatRegistry::new(DEV_SEAT_SECRET))),
-        limiter: Arc::new(Mutex::new(IpRateLimiter::new(rps, burst))),
+        seats: Arc::new(arc_swap::ArcSwap::from_pointee(SeatRegistry::new(DEV_SEAT_SECRET))),
+        limiter: Arc::new(IpRateLimiter::new(rps, burst)),
         signals: SignalHub::new(ice.to_string()),
         statics: Arc::new(StaticServer::new(
             std::path::Path::new("."),
@@ -55,13 +57,16 @@ pub(super) fn test_state_with(rps: u32, burst: u32, ice: &str) -> ApiState {
         )),
         port: 8124,
         status_rx: Arc::new(OnceReceiver::new(bus.status_rx.clone())),
-        latest_status: Arc::new(Mutex::new(None)),
+        latest_status: Arc::new(arc_swap::ArcSwapOption::empty()),
         started: Instant::now(),
         db: None,
         q: None,
         blobs: None,
         realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(crate::infra::session_cache::SessionCache::new(60, 3600)),
+        chain: Default::default(),
+        hooks: None,
+        dev_mode: false,
     }
 }
 
@@ -69,25 +74,19 @@ pub(super) fn ip(n: u8) -> IpAddr {
     IpAddr::from([198, 51, 100, n])
 }
 
-pub(super) fn minted(state: &ApiState) -> u64 {
-    state.seats.lock().unwrap().counts().0
+pub(super) fn minted(plane: &Plane) -> u64 {
+    plane.seats.load().counts().0
 }
 
-pub(super) fn ok(
-    state: &ApiState,
-    ip: IpAddr,
-    method: &str,
-    room: &str,
-    body: &str,
-) -> SeatResponse {
-    match reserve(state, ip, method, room, body) {
+pub(super) fn ok(plane: &Plane, ip: IpAddr, method: &str, room: &str, body: &str) -> SeatResponse {
+    match reserve(plane, ip, method, room, body) {
         Ok(seat) => seat,
         Err(e) => panic!("{method}/{room} refused: {} {}", e.status, e.message),
     }
 }
 
-pub(super) fn err(state: &ApiState, ip: IpAddr, method: &str, room: &str, body: &str) -> ApiError {
-    match reserve(state, ip, method, room, body) {
+pub(super) fn err(plane: &Plane, ip: IpAddr, method: &str, room: &str, body: &str) -> ApiError {
+    match reserve(plane, ip, method, room, body) {
         Ok(seat) => panic!(
             "{method}/{room} should have been refused, minted {}",
             seat.session_id
@@ -96,8 +95,8 @@ pub(super) fn err(state: &ApiState, ip: IpAddr, method: &str, room: &str, body: 
     }
 }
 
-pub(super) fn reserve_ok(state: &ApiState, method: &str, room: &str, body: &str) -> SeatResponse {
-    ok(state, ip(1), method, room, body)
+pub(super) fn reserve_ok(plane: &Plane, method: &str, room: &str, body: &str) -> SeatResponse {
+    ok(plane, ip(1), method, room, body)
 }
 
 pub(super) fn now_unix() -> u64 {

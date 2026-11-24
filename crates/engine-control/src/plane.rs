@@ -1,4 +1,3 @@
-
 use std::time::Duration;
 
 use engine_api::ApiState;
@@ -13,12 +12,17 @@ pub struct ControlPlane {
     pub(crate) boot_maps: engine_config::BootMaps,
 
     pub(crate) boot_module: Option<engine_config::BootModule>,
+
+    /// Shared lifecycle/thread authority; the control plane reports its own
+    /// thread state here on shutdown.
+    pub(crate) manager: std::sync::Arc<engine_manager::ServerManager>,
 }
 
 impl ControlPlane {
-
     pub fn shutdown(self) {
         self.runtime.shutdown_timeout(Duration::from_secs(2));
+        self.manager
+            .mark_thread("cyg-control", engine_manager::ThreadState::Stopped);
     }
 
     pub fn signals(&self) -> engine_api::infra::signaling::SignalHub {

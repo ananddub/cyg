@@ -19,19 +19,19 @@ static TUNING: std::sync::Once = std::sync::Once::new();
 /// same machine running on a wristwatch, and one that never talks to Apple.
 fn tuning(relay_port: u16) {
     TUNING.call_once(|| unsafe {
-        std::env::set_var("OX_NOTIFY_POLL_MS", "50");
-        std::env::set_var("OX_NOTIFY_BACKOFF_MS", "100");
-        std::env::set_var("OX_NOTIFY_TIMEOUT_MS", "1500");
-        std::env::set_var("OX_NOTIFY_CONCURRENCY", "2");
-        std::env::set_var("OX_NOTIFY_MAX_ATTEMPTS", "5");
-        std::env::set_var("OX_NOTIFY_TITLE", "e2e notifications");
-        std::env::set_var("OX_EMAIL_HOST", "127.0.0.1");
-        std::env::set_var("OX_EMAIL_PORT", relay_port.to_string());
-        std::env::set_var("OX_EMAIL_FROM", "ops@notify-e2e.test");
-        std::env::set_var("OX_EMAIL_DOMAIN", "notify-e2e.test");
+        std::env::set_var("CYG_NOTIFY_POLL_MS", "50");
+        std::env::set_var("CYG_NOTIFY_BACKOFF_MS", "100");
+        std::env::set_var("CYG_NOTIFY_TIMEOUT_MS", "1500");
+        std::env::set_var("CYG_NOTIFY_CONCURRENCY", "2");
+        std::env::set_var("CYG_NOTIFY_MAX_ATTEMPTS", "5");
+        std::env::set_var("CYG_NOTIFY_TITLE", "e2e notifications");
+        std::env::set_var("CYG_EMAIL_HOST", "127.0.0.1");
+        std::env::set_var("CYG_EMAIL_PORT", relay_port.to_string());
+        std::env::set_var("CYG_EMAIL_FROM", "ops@notify-e2e.test");
+        std::env::set_var("CYG_EMAIL_DOMAIN", "notify-e2e.test");
         // Plain loopback, because there is no certificate on this machine's own
         // address and nothing secret is being carried over it.
-        std::env::set_var("OX_EMAIL_TLS", "none");
+        std::env::set_var("CYG_EMAIL_TLS", "none");
     });
 }
 
@@ -51,7 +51,7 @@ pub async fn notification_delivery_end_to_end() {
     tuning(relay.port);
     let env = Harness::start_with(notify_plane).await;
     unsafe {
-        std::env::set_var("OX_NOTIFY_UNSUBSCRIBE_BASE", env.base.clone());
+        std::env::set_var("CYG_NOTIFY_UNSUBSCRIBE_BASE", env.base.clone());
     }
     let console = console_login(&env.client, &env.base).await;
 

@@ -3,7 +3,7 @@ use super::*;
 pub async fn wallet_idempotency(env: &Harness, console: &str) {
     eprintln!("gap: idempotent wallet writes");
     let player = device_player(&env.client, &env.base, "wallet").await;
-    let url = format!("{}/v2/console/account/{}/wallet", env.base, player.uid);
+    let url = format!("{}/v1/console/account/{}/wallet", env.base, player.uid);
 
     let first = json_body(
         env.client
@@ -112,7 +112,7 @@ pub async fn wallet_idempotency(env: &Harness, console: &str) {
 
     let account = json_body(
         env.client
-            .get(format!("{}/v2/console/account/{}", env.base, player.uid))
+            .get(format!("{}/v1/console/account/{}", env.base, player.uid))
             .bearer_auth(console)
             .send()
             .await

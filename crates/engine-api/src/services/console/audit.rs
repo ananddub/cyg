@@ -1,7 +1,6 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::audit::{
@@ -11,15 +10,16 @@ use crate::error::V2Error;
 use crate::repositories::console_mutations::{
     InsertAclTemplateParams, ListAuditLogsFilteredParams, UpdateAclTemplateParams,
 };
-use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn list_audit_logs(
         &self,
-        state: &ApiState,
+
         query: AuditLogQuery,
     ) -> Result<Json<Vec<AuditLogRow>>, V2Error> {
-        let rows = q(state)
+        let rows = self
+            .plane
+            .q()
             .await?
             .list_audit_logs_filtered(&ListAuditLogsFilteredParams {
                 action: query.action.trim().to_owned(),
@@ -34,25 +34,19 @@ impl super::ConsoleService {
         Ok(Json(rows.into_iter().map(AuditLogRow::from).collect()))
     }
 
-    pub async fn list_audit_log_users(
-        &self,
-        state: &ApiState,
-    ) -> Result<Json<AuditLogUsers>, V2Error> {
-        let usernames = q(state).await?.audit_usernames().await?;
+    pub async fn list_audit_log_users(&self) -> Result<Json<AuditLogUsers>, V2Error> {
+        let usernames = self.plane.q().await?.audit_usernames().await?;
         Ok(Json(AuditLogUsers { usernames }))
     }
 
-    pub async fn list_acl_templates(
-        &self,
-        state: &ApiState,
-    ) -> Result<Json<Vec<AclTemplateRow>>, V2Error> {
-        let rows = q(state).await?.list_acl_templates().await?;
+    pub async fn list_acl_templates(&self) -> Result<Json<Vec<AclTemplateRow>>, V2Error> {
+        let rows = self.plane.q().await?.list_acl_templates().await?;
         Ok(Json(rows.into_iter().map(AclTemplateRow::from).collect()))
     }
 
     pub async fn create_acl_template(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: AclTemplateRequest,
     ) -> Result<Json<AclTemplateRow>, V2Error> {
@@ -63,13 +57,13 @@ impl super::ConsoleService {
             description: body.description.trim().to_owned(),
             acl: template_acl(body.acl)?,
         };
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         queries
             .insert_acl_template(&params)
             .await
             .map_err(template_conflict)?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "acl.template.create",
             "acl_template",
@@ -82,12 +76,17 @@ impl super::ConsoleService {
         )))
     }
 
+    /// Edit a template in place.
+    ///
+    /// With `expected` set, the update is one guarded statement: it writes only
+    /// if the stored version is the one the caller saw, and the caller gets 409
+    /// naming the version that won instead of silently overwriting it.
     pub async fn update_acl_template(
         &self,
-        state: &ApiState,
         claims: &ConsoleAuthed,
         id: &str,
         body: AclTemplateRequest,
+        expected: Option<i64>,
     ) -> Result<Json<AclTemplateRow>, V2Error> {
         claims.require_admin()?;
         let id = super::id(id, "template")?;
@@ -97,17 +96,38 @@ impl super::ConsoleService {
             description: body.description.trim().to_owned(),
             acl: template_acl(body.acl)?,
         };
-        let queries = q(state).await?;
-        queries
-            .find_acl_template(id)
-            .await
-            .map_err(|_| V2Error::not_found("Template not found."))?;
-        queries
-            .update_acl_template(&params)
-            .await
-            .map_err(template_conflict)?;
+        let queries = self.plane.q().await?;
+        let row = match expected {
+            Some(expected) => match queries
+                .update_acl_template_if_version(&params, expected)
+                .await
+                .map_err(template_conflict)?
+            {
+                Some(row) => row,
+                None => {
+                    let current = queries
+                        .find_acl_template(id)
+                        .await
+                        .map_err(|_| V2Error::not_found("Template not found."))?;
+                    return Err(crate::utils::precondition::stale(
+                        current.version.unwrap_or(1),
+                    ));
+                }
+            },
+            None => {
+                queries
+                    .find_acl_template(id)
+                    .await
+                    .map_err(|_| V2Error::not_found("Template not found."))?;
+                queries
+                    .update_acl_template(&params)
+                    .await
+                    .map_err(template_conflict)?;
+                queries.find_acl_template(id).await?
+            }
+        };
         super::audit(
-            state,
+            &self.plane,
             claims,
             "acl.template.update",
             "acl_template",
@@ -115,27 +135,25 @@ impl super::ConsoleService {
             &format!("Edited ACL template {}.", params.name),
         )
         .await;
-        Ok(Json(AclTemplateRow::from(
-            queries.find_acl_template(id).await?,
-        )))
+        Ok(Json(AclTemplateRow::from(row)))
     }
 
     pub async fn delete_acl_template(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
         let id = super::id(id, "template")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let row = queries
             .find_acl_template(id)
             .await
             .map_err(|_| V2Error::not_found("Template not found."))?;
         queries.delete_acl_template(id).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "acl.template.delete",
             "acl_template",

@@ -16,7 +16,7 @@ namespace
 
 	FString ChannelPath(const FString& ChannelId)
 	{
-		return FString::Printf(TEXT("/v2/channel/%s"), *UCYGSettings::EscapeSegment(ChannelId));
+		return FString::Printf(TEXT("/v1/channel/%s"), *UCYGSettings::EscapeSegment(ChannelId));
 	}
 
 	FString MessagePath(const FString& ChannelId, const FString& MessageId)
@@ -278,9 +278,9 @@ void FCYGBaasChat::ParsePage(const FString& Body, FCYGBaasChatPage& OutPage)
 		OutPage.Messages.Add(ParseMessage(CYGBaasJson::ReadElement(Element)));
 	}
 
-	OutPage.NextCursor = CYGBaasJson::ReadText(Object, TEXT("next_cursor"));
-	OutPage.PrevCursor = CYGBaasJson::ReadText(Object, TEXT("prev_cursor"));
-	OutPage.CacheableCursor = CYGBaasJson::ReadText(Object, TEXT("cacheable_cursor"));
+	OutPage.NextCursor = CYGBaasJson::ReadText(Object, TEXT("nextPageToken"));
+	OutPage.PrevCursor = CYGBaasJson::ReadText(Object, TEXT("prevPageToken"));
+	OutPage.CacheableCursor = CYGBaasJson::ReadText(Object, TEXT("cacheablePageToken"));
 }
 
 bool FCYGBaasChat::Merge(const FString& ChannelId, const FCYGBaasChatMessage& Message)

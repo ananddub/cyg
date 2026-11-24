@@ -100,7 +100,6 @@ impl<T: Copy> EntityHistory<T> {
         oldest: HistorySample<T>,
         newest: HistorySample<T>,
     ) -> Option<Bounding<T>> {
-
         let tick_span = newest.tick - oldest.tick;
         if tick_span as usize == self.count - 1 && tick_span > 0 {
             let ms_per_tick = (newest.time_ms - oldest.time_ms) / tick_span as f64;

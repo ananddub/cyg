@@ -73,7 +73,7 @@ impl RapierWorld3D {
             1 => r3d::RigidBodyBuilder::fixed(),
             2 => r3d::RigidBodyBuilder::kinematic_velocity_based(),
             3 => r3d::RigidBodyBuilder::kinematic_position_based(),
-            _ => r3d::RigidBodyBuilder::dynamic(),
+            _ => r3d::RigidBodyBuilder::dynamic().lock_rotations(),
         };
         let rb = builder.translation(r3d::Vector::new(x, y, z)).build();
         self.rigid_body_set.insert(rb)
@@ -84,7 +84,10 @@ impl RapierWorld3D {
         handle: r3d::RigidBodyHandle,
         radius: f32,
     ) -> r3d::ColliderHandle {
-        let collider = r3d::ColliderBuilder::ball(radius).density(1.0).build();
+        let collider = r3d::ColliderBuilder::ball(radius)
+            .density(1.0)
+            .friction(0.0)
+            .build();
         self.collider_set
             .insert_with_parent(collider, handle, &mut self.rigid_body_set)
     }
@@ -98,6 +101,7 @@ impl RapierWorld3D {
     ) -> r3d::ColliderHandle {
         let collider = r3d::ColliderBuilder::cuboid(half_x, half_y, half_z)
             .density(1.0)
+            .friction(0.0)
             .build();
         self.collider_set
             .insert_with_parent(collider, handle, &mut self.rigid_body_set)

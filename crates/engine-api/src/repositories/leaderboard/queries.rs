@@ -218,6 +218,21 @@ impl Queries {
         )
         .await
     }
+    /// Remove a board and every score on it.
+    ///
+    /// The records go first: leaving them behind would keep rows pointing at a
+    /// board that no longer exists, and the next board to take that id would
+    /// inherit scores it never received.
+    pub async fn delete_leaderboard(&self, id: &str) -> Result<(), DbError> {
+        self.exec(
+            "DELETE leaderboard_record WHERE leaderboard_id = $id",
+            params!(id = id),
+        )
+        .await?;
+        self.exec("DELETE type::record('leaderboard', $id)", params!(id = id))
+            .await
+    }
+
     pub async fn delete_leaderboard_record(
         &self,
         params_in: &DeleteLeaderboardRecordParams,
@@ -254,6 +269,7 @@ impl Queries {
                 join_required = params_in.join_required,
                 max_size = params_in.max_size,
                 max_num_score = params_in.max_num_score,
+                rule_key = &params_in.rule_key,
             ),
         )
         .await

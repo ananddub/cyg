@@ -1,18 +1,18 @@
 use serde::Deserialize;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct BanAccountRequest {
     #[serde(default)]
     pub reason: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct AddNoteRequest {
     #[serde(default)]
     pub note: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct UpdateWalletRequest {
     #[serde(default)]
     pub changeset: serde_json::Value,

@@ -1,5 +1,5 @@
 use super::primitive::is_map_member_name;
-use crate::{RootState, SchemaDef, SchemaDiagnostic, MAX_FIELDS};
+use crate::{MAX_FIELDS, RootState, SchemaDef, SchemaDiagnostic};
 
 pub(super) fn validate(
     schemas: &[SchemaDef],

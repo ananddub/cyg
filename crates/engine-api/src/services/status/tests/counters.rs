@@ -12,11 +12,11 @@ async fn counters_track_the_registries_they_report() {
     );
     let ip = std::net::IpAddr::from([127, 0, 0, 1]);
     for _ in 0..41 {
-        s.limiter.lock().unwrap().allow(ip);
+        s.limiter.allow(ip);
     }
-    let _replies = s.signals.attach("seat-1");
+    let _replies = s.signals.attach("seat-1").expect("fresh route attaches");
 
-    let body = json_of(status(&s.clone()).await).await;
+    let body = json_of(status(&s.plane()).await).await;
     assert_eq!(body["seats"]["minted"].as_u64(), Some(1));
     assert_eq!(body["seats"]["outstanding"].as_u64(), Some(1));
     assert_eq!(body["seats"]["rejected"].as_u64(), Some(1));

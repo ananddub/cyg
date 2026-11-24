@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::WebRtcServer;
 use super::contract::Lane;
 use super::session::{Sink, WebRtcSession};
@@ -8,17 +10,39 @@ impl WebRtcServer {
         session: &mut WebRtcSession,
         seq: u16,
         tick: u32,
-        frames: Vec<Vec<u8>>,
+        frames: Vec<Arc<[u8]>>,
         fragments: usize,
         sink: &mut Sink,
     ) -> DeltaSendReport {
-        let lane = Lane::Unreliable;
+        Self::send_delta_frames_on_lane(
+            session,
+            seq,
+            tick,
+            frames,
+            fragments,
+            Lane::Unreliable,
+            sink,
+        )
+    }
+
+    pub(super) fn send_delta_frames_on_lane(
+        session: &mut WebRtcSession,
+        seq: u16,
+        tick: u32,
+        frames: Vec<Arc<[u8]>>,
+        fragments: usize,
+        lane: Lane,
+        sink: &mut Sink,
+    ) -> DeltaSendReport {
         let Some(cid) = session.channel_id(lane) else {
             sink.stats.frames_dropped_no_channel += frames.len() as u64;
             return DeltaSendReport::skipped(fragments);
         };
 
-        let superseded = if session.queue(lane).is_empty() {
+        // Reliable frames must not be superseded: every ordered patch is
+        // part of the must-deliver stream. Only the volatile lane drops older
+        // in-flight deltas.
+        let superseded = if lane == Lane::Reliable || session.queue(lane).is_empty() {
             0
         } else {
             session.queue(lane).purge_older_than(seq)

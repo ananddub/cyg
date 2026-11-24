@@ -1,4 +1,3 @@
-
 use engine_schema::codegen::{self, Language};
 use engine_schema::{generate_with_root, parse_descriptor, ts};
 use std::hint::black_box;
@@ -43,7 +42,6 @@ export const State = schema({
 "#;
 
 fn bench<T>(name: &str, iterations: u32, mut run: impl FnMut() -> T) -> T {
-
     black_box(run());
     let start = Instant::now();
     let mut last = None;

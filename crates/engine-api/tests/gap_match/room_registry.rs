@@ -2,10 +2,10 @@ use super::*;
 
 use std::path::Path;
 
+use chrono::Utc;
 use engine_api::ApiState;
 use engine_api::repositories::db::Queries;
 use engine_api::repositories::models::RoomRegistry;
-use chrono::Utc;
 use engine_bus::{Bus, RoomOwnership, RoomPhase};
 use engine_config::{ControlConfig, GameConfig, SessionConfig};
 
@@ -24,7 +24,7 @@ fn claim(room: &str, node: &str, peers: i64) -> RoomRegistry {
 
 async fn seat_for(env: &Harness, method: &str, room: &str) -> StatusCode {
     env.client
-        .post(format!("{}/api/matchmake/{method}/{room}", env.base))
+        .post(format!("{}/matchmake/{method}/{room}", env.base))
         .body("{}")
         .send()
         .await
@@ -46,7 +46,7 @@ async fn a_room_owned_by_another_node_is_not_created_twice() {
         .expect("a claim is stored");
     let message = refusal(
         env.client
-            .post(format!("{}/api/matchmake/joinOrCreate/arena", env.base))
+            .post(format!("{}/matchmake/joinOrCreate/arena", env.base))
             .body("{}")
             .send()
             .await
@@ -109,7 +109,7 @@ async fn a_room_owned_by_another_node_is_not_created_twice() {
     // your next room somewhere else" rather than a player stranded mid-match.
     let before = json_body(
         env.client
-            .post(format!("{}/api/matchmake/joinOrCreate/carry", env.base))
+            .post(format!("{}/matchmake/joinOrCreate/carry", env.base))
             .body("{}")
             .send()
             .await
@@ -130,7 +130,7 @@ async fn a_room_owned_by_another_node_is_not_created_twice() {
     );
     assert_eq!(
         env.client
-            .post(format!("{}/api/matchmake/reconnect/carry", env.base))
+            .post(format!("{}/matchmake/reconnect/carry", env.base))
             .body(json!({ "reconnectionToken": token }).to_string())
             .send()
             .await
@@ -146,7 +146,7 @@ async fn a_room_owned_by_another_node_is_not_created_twice() {
 }
 
 /// The console reads the registry across nodes, which no other room surface of
-/// this process can do: `/api/rooms` is one host's table.
+/// this process can do: `/lobby/rooms` is one host's table.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_console_sees_which_node_runs_each_room() {
     let env = Harness::start().await;
@@ -160,7 +160,7 @@ async fn the_console_sees_which_node_runs_each_room() {
 
     let list = json_body(
         env.client
-            .get(format!("{}/v2/console/room", env.base))
+            .get(format!("{}/v1/console/room", env.base))
             .bearer_auth(&console)
             .send()
             .await
@@ -180,7 +180,7 @@ async fn the_console_sees_which_node_runs_each_room() {
     // An unauthenticated caller gets nothing: the table names the pods.
     assert_eq!(
         env.client
-            .get(format!("{}/v2/console/room", env.base))
+            .get(format!("{}/v1/console/room", env.base))
             .send()
             .await
             .unwrap()
@@ -275,7 +275,10 @@ async fn a_host_beat_becomes_a_row_and_a_release_removes_it() {
     bus.push_ownership(beat(RoomPhase::Hibernating));
     let until_hibernating = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let rows = queries.list_room_registry().await.expect("the list reads back");
+            let rows = queries
+                .list_room_registry()
+                .await
+                .expect("the list reads back");
             if rows.first().is_some_and(|row| row.state == "hibernating") {
                 break rows;
             }

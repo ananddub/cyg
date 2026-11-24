@@ -10,7 +10,7 @@
 // workspace fresh, so switching projects never carries a worker drawer or a
 // socket frame across the boundary.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ArrowLeft } from "lucide-react"
 
 import { ConsoleSidebar } from "@/components/console/shell"
@@ -56,6 +56,7 @@ import { useDashboardToasts } from "@/hooks/use-dashboard-toasts"
 import { useMetricsWs } from "@/hooks/use-metrics-ws"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
+  GAME_DEFAULT_AREA,
   defaultGameArea,
   defaultGlobalArea,
   findArea,
@@ -139,6 +140,12 @@ function GlobalConsole({
   const navigateArea = (id: string) => onNavigate({ gameId: null, areaId: id })
   const openGame = (game: Game) => onNavigate(gameRoute(game.id))
 
+  // With one game per install the landing is a pass-through: it decides which
+  // game to enter and leaves. Rendering the picker while that decision is still
+  // pending is what made the games screen flash up before the redirect.
+  const entering = useConsoleQuery<GameList>("games", GAMES_ENDPOINT)
+  const passThrough = entering.data !== undefined && entering.data.games.length > 0
+
   // The global areas have no tenant of their own, so the socket is unscoped:
   // it carries no rows, only the bare marks that say a table moved.
   const ws = useMetricsWs(null, true)
@@ -169,7 +176,7 @@ function GlobalConsole({
         </div>
 
         <div key={area.id} className="page-in flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4 lg:p-8">
-          <GlobalAreaView area={area.id} onOpenGame={openGame} />
+          <GlobalAreaView area={area.id} onOpenGame={openGame} passThrough={passThrough} />
         </div>
       </SidebarInset>
     </SidebarProvider>
@@ -179,13 +186,15 @@ function GlobalConsole({
 function GlobalAreaView({
   area,
   onOpenGame,
+  passThrough,
 }: {
   area: string
   onOpenGame: (game: Game) => void
+  passThrough: boolean
 }) {
   switch (area) {
     case "games":
-      return <GamesView onOpenGame={onOpenGame} />
+      return passThrough ? <EnteringGame /> : <GamesView onOpenGame={onOpenGame} />
     case "users":
       return <ConsoleUsersView />
     case "audit":
@@ -216,7 +225,7 @@ function GameConsole({
   onNavigate: (to: ConsoleRoute) => void
   onLogout: () => void
 }) {
-  // In multi-game OpenOxide, every registered game on this server is hosted!
+  // In multi-game CYG, every registered game on this server is hosted!
   const identity = useIdentityQuery()
   const hosted = true
   const data = useDashboardData(gameId, hosted)
@@ -244,6 +253,22 @@ function GameConsole({
   const activeWorker =
     worker === null ? null : ((data.workers ?? []).find((candidate) => candidate.name === worker.name) ?? worker)
 
+  // One install, one game — there is no picker to show.
+  //
+  // The product model is a single project per server, so a "Games & Projects"
+  // list would always be a list with one row in it. Whatever the endpoint
+  // happens to return, the console enters the game it runs and stays there: the
+  // first entry if the list is somehow non-empty. Distinct from a multi-tenant
+  // console, which would have to make the operator choose.
+  const theGame = games.data?.games[0] ?? null
+  // `onNavigate` is stable, so this runs when the game or the route actually
+  // changes rather than on every render — which is what let it fight a
+  // navigation that was already under way.
+  useEffect(() => {
+    if (theGame === null || route.gameId !== null) return
+    onNavigate(gameRoute(theGame.id, GAME_DEFAULT_AREA))
+  }, [theGame, route.gameId, onNavigate])
+
   const back = () => onNavigate(GAMES_ROUTE)
   const navigateArea = (id: string) => onNavigate(gameRoute(gameId, id))
 
@@ -253,7 +278,10 @@ function GameConsole({
         area={area}
         areas={gameAreas()}
         game={game}
-        onBack={back}
+        // No "All games" escape hatch: with one game it would only bounce the
+        // operator back into the same workspace. `back` stays defined because
+        // the empty and error states still need something to click.
+        onBack={undefined}
         onNavigate={navigateArea}
         session={session}
         onLogout={onLogout}
@@ -269,6 +297,7 @@ function GameConsole({
             sectionLabel={area.label}
             gameName={game?.name}
             showFeed={hosted}
+            serverPhase={data.overview?.serverPhase}
           />
           <ThemeToggle />
         </div>
@@ -303,6 +332,22 @@ function GameConsole({
         onClose={() => setWorker(null)}
       />
     </SidebarProvider>
+  )
+}
+
+/** Shown for the moment between "we know which game this server runs" and the
+ * redirect that enters it. A skeleton rather than the picker: with one game the
+ * picker is never a destination, so showing it reads as a wrong turn. */
+function EnteringGame() {
+  return (
+    <div className="flex flex-col gap-4">
+      <Skeleton className="h-8 w-56" />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Skeleton className="h-28 w-full" />
+        <Skeleton className="h-28 w-full" />
+        <Skeleton className="h-28 w-full" />
+      </div>
+    </div>
   )
 }
 
@@ -425,6 +470,18 @@ function GameAreaView({
       return <PurchasesView />
     case "subscriptions":
       return <SubscriptionsView />
+    // Operator surfaces render identically inside the game: same components,
+    // same endpoints, just a page of the one game this console serves.
+    case "users":
+      return <ConsoleUsersView />
+    case "audit":
+      return <AuditLogView />
+    case "acl":
+      return <AclTemplatesView />
+    case "settings":
+      return <SettingsView />
+    case "security":
+      return <SecurityView />
     default:
       return <RuntimeView data={data} />
   }

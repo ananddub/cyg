@@ -97,7 +97,9 @@ export function fetchTicks(gameId: string | null): Promise<TickSeries> {
 
 /** `wss:` on a secure page, since the socket is same-origin with the app. The
  * console token rides in the query because a WebSocket handshake cannot set an
- * `Authorization` header. */
+ * `Authorization` header. NOTE: query params can leak into access logs and
+ * proxies — moving the token to a `Sec-WebSocket-Protocol` header or a
+ * short-lived one-time ticket needs a backend change (out of scope here). */
 export function wsUrl(gameId: string | null): string {
   const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
   const query = new URLSearchParams();
@@ -108,18 +110,45 @@ export function wsUrl(gameId: string | null): string {
   return `${scheme}//${window.location.host}${DASHBOARD_ENDPOINTS.ws}${suffix}`;
 }
 
-/** Narrows a raw socket message to a frame, or `null` if it is not one. */
-export function parseWsFrame(raw: string): WsFrame | null {
+/** `engine_dashboard::WS_PROTOCOL` — a hello advertising anything else is a
+ * protocol mismatch, not noise. */
+const WS_PROTOCOL = 1;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** A frame is either something a consumer can apply, a protocol it has never
+ * seen, or noise. Only the first is applied; the second stops the retry loop. */
+export type ParsedWsFrame =
+  | { kind: "frame"; frame: WsFrame }
+  | { kind: "noise" }
+  | { kind: "protocol" };
+
+/** The one WebSocket frame parser for the dashboard — the live hook and any
+ * test both go through this, so what tests see is what the socket applies. */
+export function parseWsFrameDetailed(raw: string): ParsedWsFrame {
+  if (raw === "") return { kind: "noise" };
   let value: unknown;
   try {
     value = JSON.parse(raw);
   } catch {
-    return null;
+    return { kind: "noise" };
   }
-  if (typeof value !== "object" || value === null) return null;
-  const type = (value as { type?: unknown }).type;
-  if (type !== "hello" && type !== "snapshot" && type !== "goodbye" && type !== "live") {
-    return null;
-  }
-  return value as WsFrame;
+  if (!isRecord(value)) return { kind: "noise" };
+  const type = value["type"];
+  if (type === "goodbye") return { kind: "frame", frame: value as unknown as WsFrame };
+  // A change notification: it carries no telemetry, but it is a frame the page
+  // turns into a cache invalidation.
+  if (type === "live") return { kind: "frame", frame: value as unknown as WsFrame };
+  if (type !== "hello" && type !== "snapshot") return { kind: "noise" };
+  if (!isRecord(value["overview"]) || !isRecord(value["ticks"])) return { kind: "noise" };
+  if (type === "hello" && value["protocol"] !== WS_PROTOCOL) return { kind: "protocol" };
+  return { kind: "frame", frame: value as unknown as WsFrame };
+}
+
+/** Narrows a raw socket message to a frame, or `null` if it is not one. */
+export function parseWsFrame(raw: string): WsFrame | null {
+  const parsed = parseWsFrameDetailed(raw);
+  return parsed.kind === "frame" ? parsed.frame : null;
 }

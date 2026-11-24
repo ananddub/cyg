@@ -29,8 +29,10 @@ impl<'a> HotReload<'a> {
             if let Ok(current) = std::fs::metadata(self.wasm_path).and_then(|m| m.modified()) {
                 if self.loaded_wasm_time != Some(current) || recompilation_triggered {
                     let server_perms = server.permissions;
-                    let result =
-                        self.runtime.load_or_compile_cached(self.wasm_path).and_then(|module| {
+                    let result = self
+                        .runtime
+                        .load_or_compile_cached(self.wasm_path)
+                        .and_then(|module| {
                             let linker =
                                 crate::rooms::build_host_linker(&*self.runtime, server_perms);
                             self.runtime.prepare(&linker, &module)
@@ -39,7 +41,7 @@ impl<'a> HotReload<'a> {
                         Ok(pre) => {
                             self.loaded_wasm_time = Some(current);
                             tracing::info!("[server] 🔥 DEV HOT-RELOAD: room logic updated!");
-                            server.hot_reload(pre, cfg.width, cfg.height);
+                            server.hot_reload(pre);
                         }
                         Err(e) => {
                             tracing::error!("[server] ⚠️ hot-reload compilation failed: {e}");

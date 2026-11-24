@@ -5,22 +5,20 @@ use uuid::Uuid;
 
 use super::listings::{escrow_holder, is_expired};
 use super::{MarketplaceService, transfer};
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::marketplace::{ListingResponse, ListingRow};
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::MarketListing;
-use crate::services::deps::q;
 
 impl MarketplaceService {
     pub async fn buy(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         listing_id: Uuid,
     ) -> Result<Json<ListingResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let listing = load_open(&queries, listing_id, auth.uid()).await?;
         if is_expired(&listing) {
             expire(&queries, &listing).await;
@@ -66,7 +64,7 @@ impl MarketplaceService {
             return Err(err);
         }
         crate::services::webhook::emit(
-            state,
+            &self.plane,
             "marketplace.trade.settled",
             &sold.id.to_string(),
             serde_json::json!({

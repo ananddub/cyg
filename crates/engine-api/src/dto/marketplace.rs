@@ -26,7 +26,7 @@ pub struct WagerSettleRequest {
     pub data: serde_json::Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ListingRow {
     pub listing_id: Uuid,
     pub seller_id: Uuid,
@@ -39,7 +39,7 @@ pub struct ListingRow {
     pub create_time: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct WagerRow {
     pub wager_id: Uuid,
     pub room: String,
@@ -51,13 +51,13 @@ pub struct WagerRow {
     pub create_time: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ListingResponse {
     pub success: bool,
     pub listing: ListingRow,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct WagerResponse {
     pub success: bool,
     pub wager: WagerRow,

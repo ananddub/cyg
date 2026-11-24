@@ -1,4 +1,3 @@
-
 pub fn handle_ws_handshake(buf: &[u8]) -> Option<Vec<u8>> {
     let req = String::from_utf8_lossy(buf);
     if !req.contains("\r\n\r\n") {

@@ -2,7 +2,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Ident, ItemFn, LitStr};
 
 use crate::docs::{doc_comment_summary, join_paths, marker_options, merged_docs};
-use crate::model::{ModuleRoute, ResponseBody};
+use crate::model::{ModuleRoute, RequestBody, RequestContent, ResponseBody};
 use crate::options::ControllerOptions;
 use crate::params::infer_params;
 use crate::schema::{
@@ -20,6 +20,15 @@ pub(crate) fn collect_module_route(
     let argument_types = route_argument_types(function.sig.inputs.iter())?;
     let route_options = marker_options(&attribute)?;
     let route_path = route_options.path.value();
+    let request_body = route_options
+        .request_body
+        .map(|ty| RequestBody {
+            ty,
+            content: route_options
+                .request_content
+                .unwrap_or(RequestContent::Json),
+        })
+        .or_else(|| infer_request_body(&argument_types));
     routes.push(ModuleRoute {
         method,
         handler: function.sig.ident.clone(),
@@ -28,7 +37,7 @@ pub(crate) fn collect_module_route(
             attribute.span(),
         ),
         docs: merged_docs(&route_options.docs, doc_comment_summary(&function.attrs)),
-        request_body: infer_request_body(&argument_types),
+        request_body,
         response_body: route_options
             .sse_body
             .map(|ty| ResponseBody::Sse(Some(ty)))

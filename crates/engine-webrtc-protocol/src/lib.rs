@@ -1,4 +1,3 @@
-
 pub mod channel;
 pub mod frames;
 
@@ -7,6 +6,9 @@ mod bytes;
 pub const LEN_SCALE: f32 = 16.0;
 
 pub const ANGLE_SCALE: f32 = 32768.0;
+
+pub mod bits;
+pub mod packed;
 
 pub const MAX_FRAME: usize = 1200;
 

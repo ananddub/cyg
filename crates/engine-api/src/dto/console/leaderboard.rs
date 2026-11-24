@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct TournamentWriteRequest {
     #[serde(default)]
     pub id: String,
@@ -34,14 +34,19 @@ pub struct TournamentWriteRequest {
     pub max_num_score: Option<i32>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+    /// Active rule set (`rules_definition.key`) a player must match before
+    /// joining or scoring. Omit to keep the stored rule, send an empty string
+    /// to clear it.
+    #[serde(default)]
+    pub rule_key: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct LeaderboardRow {
     pub id: String,
     pub title: String,
     pub description: String,
-    pub kind: &'static str,
+    pub kind: String,
     pub category: i16,
     pub operator: i16,
     pub sort_order: i16,
@@ -56,6 +61,7 @@ pub struct LeaderboardRow {
     pub end_time: DateTime<Utc>,
     pub duration: i32,
     pub create_time: DateTime<Utc>,
+    pub rule_key: Option<String>,
 }
 
 impl From<Leaderboard> for LeaderboardRow {
@@ -65,9 +71,9 @@ impl From<Leaderboard> for LeaderboardRow {
             title: l.title,
             description: l.description,
             kind: if l.category == 1 {
-                "tournament"
+                "tournament".to_owned()
             } else {
-                "leaderboard"
+                "leaderboard".to_owned()
             },
             category: l.category,
             operator: l.operator,
@@ -83,11 +89,12 @@ impl From<Leaderboard> for LeaderboardRow {
             end_time: l.end_time,
             duration: l.duration,
             create_time: l.create_time,
+            rule_key: l.rule_key,
         }
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct LeaderboardRecordRow {
     pub leaderboard_id: String,
     pub owner_id: Uuid,

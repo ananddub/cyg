@@ -1,10 +1,10 @@
 // One match's live state: the members joined right now, its tick, and the button
 // that stops it through the server's match lifecycle.
 //
-// The state comes from `GET /v2/console/match/{id}/state`, which for a relay match
+// The state comes from `GET /v1/console/match/{id}/state`, which for a relay match
 // answers the real presences with tick 0 and an empty handler state — the same
 // answer the reference server gives a relayed match, because there is no handler holding state.
-// Terminating routes `DELETE /v2/console/match/{id}`, which runs the match_handler
+// Terminating routes `DELETE /v1/console/match/{id}`, which runs the match_handler
 // lifecycle (members are notified, the match leaves the registry) rather than a
 // raw record delete.
 

@@ -1,21 +1,21 @@
 use super::*;
 
-#[controller("/v2/console/account")]
+type AccountRowList = Vec<crate::dto::console::account::AccountRow>;
+type AccountNoteRowList = Vec<crate::dto::console::account::AccountNoteRow>;
+type WalletLedgerRowList = Vec<crate::dto::console::account::WalletLedgerRow>;
+#[controller("/v1/console/account")]
 impl ConsoleAccountController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = AccountRowList)]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service
-            .list_accounts(&state, page)
-            .await
-            .into_response()
+        self.service.list_accounts(page).await.into_response()
     }
 
-    #[post("/import")]
+    #[post("/import", response_body = crate::dto::Empty)]
     async fn import(
         &self,
         auth: ConsoleAuthed,
@@ -24,12 +24,12 @@ impl ConsoleAccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .import_account(&state, &auth, scope.id(), body)
+            .import_account(&auth, scope.id(), body)
             .await
             .into_response()
     }
 
-    #[get("/{id}")]
+    #[get("/{id}", response_body = crate::dto::console::account::AccountRow)]
     pub(super) async fn get(
         &self,
         _auth: ConsoleAuthed,
@@ -41,16 +41,16 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), id).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), id).await {
             return err.into_response();
         }
         self.service
-            .get_account(&state, &id.to_string())
+            .get_account(&id.to_string())
             .await
             .into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,
@@ -62,16 +62,16 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), id).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), id).await {
             return err.into_response();
         }
         self.service
-            .delete_account(&state, &auth, &id.to_string())
+            .delete_account(&auth, &id.to_string())
             .await
             .into_response()
     }
 
-    #[get("/{id}/export")]
+    #[get("/{id}/export", response_body = crate::dto::console::account::AccountExport)]
     async fn export(
         &self,
         auth: ConsoleAuthed,
@@ -83,16 +83,16 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), id).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), id).await {
             return err.into_response();
         }
         self.service
-            .export_account(&state, &auth, &id.to_string())
+            .export_account(&auth, &id.to_string())
             .await
             .into_response()
     }
 
-    #[post("/{id}/import")]
+    #[post("/{id}/import", response_body = crate::dto::Empty)]
     async fn import_one(
         &self,
         auth: ConsoleAuthed,
@@ -102,12 +102,12 @@ impl ConsoleAccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .import_account_by_id(&state, &auth, &id, scope.id(), body)
+            .import_account_by_id(&auth, &id, scope.id(), body)
             .await
             .into_response()
     }
 
-    #[post("/{id}/ban")]
+    #[post("/{id}/ban", response_body = crate::dto::Empty)]
     async fn ban(
         &self,
         auth: ConsoleAuthed,
@@ -120,16 +120,16 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .ban_account(&state, &auth, &id, body)
+            .ban_account(&auth, &id, body)
             .await
             .into_response()
     }
 
-    #[post("/{id}/unban")]
+    #[post("/{id}/unban", response_body = crate::dto::Empty)]
     async fn unban(
         &self,
         auth: ConsoleAuthed,
@@ -141,16 +141,13 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
-        self.service
-            .unban_account(&state, &auth, &id)
-            .await
-            .into_response()
+        self.service.unban_account(&auth, &id).await.into_response()
     }
 
-    #[get("/{id}/note")]
+    #[get("/{id}/note", response_body = AccountNoteRowList)]
     async fn notes(
         &self,
         _auth: ConsoleAuthed,
@@ -162,16 +159,13 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
-        self.service
-            .list_account_notes(&state, &id)
-            .await
-            .into_response()
+        self.service.list_account_notes(&id).await.into_response()
     }
 
-    #[post("/{id}/note")]
+    #[post("/{id}/note", response_body = crate::dto::Empty)]
     async fn add_note(
         &self,
         auth: ConsoleAuthed,
@@ -184,16 +178,16 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .add_account_note(&state, &auth, &id, body)
+            .add_account_note(&auth, &id, body)
             .await
             .into_response()
     }
 
-    #[delete("/{id}/note/{note_id}")]
+    #[delete("/{id}/note/{note_id}", response_body = crate::dto::Empty)]
     async fn delete_note(
         &self,
         auth: ConsoleAuthed,
@@ -205,16 +199,16 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .delete_account_note(&state, &auth, &id, &note_id)
+            .delete_account_note(&auth, &id, &note_id)
             .await
             .into_response()
     }
 
-    #[get("/{id}/wallet")]
+    #[get("/{id}/wallet", response_body = WalletLedgerRowList)]
     async fn wallet(
         &self,
         _auth: ConsoleAuthed,
@@ -226,16 +220,16 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, page.game_id, parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), page.game_id, parsed).await {
             return err.into_response();
         }
         self.service
-            .list_wallet_ledger(&state, &id, page)
+            .list_wallet_ledger(&id, page)
             .await
             .into_response()
     }
 
-    #[post("/{id}/wallet")]
+    #[post("/{id}/wallet", response_body = crate::dto::console::account::AccountRow)]
     async fn update_wallet(
         &self,
         auth: ConsoleAuthed,
@@ -249,14 +243,14 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         let changeset = body.changeset.to_string();
         let metadata = body.metadata.to_string();
         let actor = format!("console:{}", auth.0.uuid().unwrap_or_else(uuid::Uuid::nil));
         let mut claim = match crate::services::idempotency::begin(
-            &state,
+            &*state.plane(),
             &headers,
             "console.wallet.update",
             &actor,
@@ -268,22 +262,23 @@ impl ConsoleAccountController {
             Err(err) => return err.into_response(),
         };
         if let Some(saved) = claim.replayed() {
-            return axum::Json(saved).into_response();
+            return crate::app::middleware::replay_response(saved);
         }
         let ledger_id = claim.operation_uuid().unwrap_or_else(uuid::Uuid::new_v4);
         let result = self
             .service
-            .update_account_wallet(&state, &auth, &id, body, ledger_id)
+            .update_account_wallet(&auth, &id, body, ledger_id)
             .await;
-        let stored = result
-            .as_ref()
-            .ok()
-            .and_then(|json| serde_json::to_value(&json.0).ok());
+        let stored = result.as_ref().ok().and_then(|json| {
+            serde_json::to_string(&json.0)
+                .ok()
+                .map(|raw| crate::services::idempotency::Stored { status: 200, raw })
+        });
         claim.settle(stored).await;
         result.into_response()
     }
 
-    #[delete("/{id}/wallet/{wallet_id}")]
+    #[delete("/{id}/wallet/{wallet_id}", response_body = crate::dto::Empty)]
     async fn delete_wallet(
         &self,
         auth: ConsoleAuthed,
@@ -295,11 +290,11 @@ impl ConsoleAccountController {
             Ok(id) => id,
             Err(err) => return err.into_response(),
         };
-        if let Err(err) = guards::require_account(&state, scope.id(), parsed).await {
+        if let Err(err) = guards::require_account(&*state.plane(), scope.id(), parsed).await {
             return err.into_response();
         }
         self.service
-            .delete_wallet_ledger(&state, &auth, &id, &wallet_id)
+            .delete_wallet_ledger(&auth, &id, &wallet_id)
             .await
             .into_response()
     }

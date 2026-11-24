@@ -3,8 +3,8 @@ use super::*;
 /// Badges are a threshold and a counter: nothing is granted, nothing is stored
 /// against the player, and re-tuning a threshold re-judges everybody at once.
 pub async fn badge_surface(env: &Harness, console: &str, host: &Player) {
-    let manage = format!("{}/v2/console/badges", env.base);
-    let mine = format!("{}/v2/badges", env.base);
+    let manage = format!("{}/v1/console/badges", env.base);
+    let mine = format!("{}/v1/badges", env.base);
 
     refusal(
         env.client.get(&manage).send().await.unwrap(),
@@ -153,7 +153,7 @@ async fn post_badge(
 ) -> Value {
     json_body(
         env.client
-            .post(format!("{}/v2/console/badges", env.base))
+            .post(format!("{}/v1/console/badges", env.base))
             .bearer_auth(console)
             .json(&badge_body(key, stat, threshold, is_active))
             .send()
@@ -175,7 +175,7 @@ async fn put_badge(
 ) -> Value {
     json_body(
         env.client
-            .put(format!("{}/v2/console/badges/{key}", env.base))
+            .put(format!("{}/v1/console/badges/{key}", env.base))
             .bearer_auth(console)
             .json(&badge_body(key, stat, threshold, is_active))
             .send()
@@ -201,7 +201,7 @@ fn badge_body(key: &str, stat: &str, threshold: i64, is_active: Option<bool>) ->
 async fn console_badges(env: &Harness, console: &str) -> Vec<Value> {
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/console/badges", env.base))
+            .get(format!("{}/v1/console/badges", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -219,7 +219,7 @@ async fn console_badges(env: &Harness, console: &str) -> Vec<Value> {
 async fn player_badges(env: &Harness, host: &Player) -> Vec<Value> {
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/badges", env.base))
+            .get(format!("{}/v1/badges", env.base))
             .bearer_auth(&host.token)
             .send()
             .await

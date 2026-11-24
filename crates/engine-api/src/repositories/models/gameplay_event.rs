@@ -10,6 +10,7 @@ use super::*;
     name = "gameplay_event_room_create_time_idx",
     fields = "room, create_time"
 )]
+#[derive(poem_openapi::Object)]
 #[index(name = "gameplay_event_create_time", fields = "create_time")]
 pub struct GameplayEvent {
     #[field(thing)]
@@ -40,6 +41,7 @@ pub struct GameplayEvent {
     name = "desync_report_room_create_time_idx",
     fields = "room, create_time"
 )]
+#[derive(poem_openapi::Object)]
 #[index(name = "desync_report_create_time", fields = "create_time")]
 pub struct DesyncReport {
     #[field(thing)]

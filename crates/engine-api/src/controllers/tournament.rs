@@ -1,3 +1,5 @@
+use crate::dto::leaderboard::RecordResponse;
+use crate::dto::leaderboard::{RecordListResponse, RecordRequest};
 use std::sync::Arc;
 
 use auto_route::controller;
@@ -16,22 +18,22 @@ struct TournamentController {
     service: Arc<TournamentService>,
 }
 
-#[controller("/v2/tournament")]
+#[controller("/v1/tournament")]
 impl TournamentController {
     fn new(service: Arc<TournamentService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::tournament::TournamentListResponse)]
     async fn list_tournaments(&self, auth: Authed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
         self.service
-            .list_tournaments(&state, &auth, req)
+            .list_tournaments(&auth, req)
             .await
             .into_response()
     }
 
-    #[get("/{tournament_id}")]
+    #[get("/{tournament_id}", response_body = RecordListResponse)]
     async fn list_records(
         &self,
         auth: Authed,
@@ -40,12 +42,12 @@ impl TournamentController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_records(&state, &auth, &id, req)
+            .list_records(&auth, &id, req)
             .await
             .into_response()
     }
 
-    #[post("/{tournament_id}")]
+    #[post("/{tournament_id}", request_body = RecordRequest, response_body = RecordResponse)]
     async fn write_record(
         &self,
         auth: Authed,
@@ -54,12 +56,12 @@ impl TournamentController {
     ) -> Response {
         let state = current_state();
         self.service
-            .write_record(&state, &auth, &id, body)
+            .write_record(&auth, &id, body)
             .await
             .into_response()
     }
 
-    #[put("/{tournament_id}")]
+    #[put("/{tournament_id}", request_body = RecordRequest, response_body = RecordResponse)]
     async fn write_record_replace(
         &self,
         auth: Authed,
@@ -68,21 +70,18 @@ impl TournamentController {
     ) -> Response {
         let state = current_state();
         self.service
-            .write_record(&state, &auth, &id, body)
+            .write_record(&auth, &id, body)
             .await
             .into_response()
     }
 
-    #[delete("/{tournament_id}")]
+    #[delete("/{tournament_id}", response_body = crate::dto::common::Empty)]
     async fn delete_record(&self, auth: Authed, Path(id): Path<String>) -> Response {
         let state = current_state();
-        self.service
-            .delete_record(&state, &auth, &id)
-            .await
-            .into_response()
+        self.service.delete_record(&auth, &id).await.into_response()
     }
 
-    #[get("/{tournament_id}/owner/{owner_id}")]
+    #[get("/{tournament_id}/owner/{owner_id}", response_body = RecordListResponse)]
     async fn list_records_around_owner(
         &self,
         auth: Authed,
@@ -91,16 +90,16 @@ impl TournamentController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_records_around_owner(&state, &auth, &id, &owner_id, req)
+            .list_records_around_owner(&auth, &id, &owner_id, req)
             .await
             .into_response()
     }
 
-    #[post("/{tournament_id}/join")]
+    #[post("/{tournament_id}/join", response_body = crate::dto::common::Empty)]
     async fn join_tournament(&self, auth: Authed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .join_tournament(&state, &auth, &id)
+            .join_tournament(&auth, &id)
             .await
             .into_response()
     }

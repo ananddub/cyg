@@ -1,7 +1,5 @@
-
 #[derive(Debug, Clone)]
 pub struct ConsoleConfig {
-
     pub username: String,
 
     pub password: String,

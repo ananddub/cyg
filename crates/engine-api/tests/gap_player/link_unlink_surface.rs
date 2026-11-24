@@ -5,19 +5,19 @@ pub async fn link_unlink_surface(env: &Harness) {
     let player = device_player(&env.client, &env.base, "linke").await;
     let post = |path: &str| {
         env.client
-            .post(format!("{}/v2/account/link{path}", env.base))
+            .post(format!("{}/v1/account/link{path}", env.base))
             .bearer_auth(&player.token)
     };
     let unpost = |path: &str| {
         env.client
-            .post(format!("{}/v2/account/unlink{path}", env.base))
+            .post(format!("{}/v1/account/unlink{path}", env.base))
             .bearer_auth(&player.token)
     };
 
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/account/link/google", env.base))
+                .post(format!("{}/v1/account/link/google", env.base))
                 .json(&json!({ "token": "vendor-token" }))
                 .send()
                 .await
@@ -33,7 +33,7 @@ pub async fn link_unlink_surface(env: &Harness) {
         refusal(
             post("/google").json(&json!({})).send().await.unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/account/link/google with no token",
+            "POST /v1/account/link/google with no token",
         )
         .await,
         "Google access token is required."
@@ -46,7 +46,7 @@ pub async fn link_unlink_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::UNAUTHORIZED,
-            "POST /v2/account/link/google",
+            "POST /v1/account/link/google",
         )
         .await,
         "Could not authenticate Google profile."
@@ -59,7 +59,7 @@ pub async fn link_unlink_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/account/link/apple",
+            "POST /v1/account/link/apple",
         )
         .await,
         "Apple authentication is not configured."
@@ -68,7 +68,7 @@ pub async fn link_unlink_surface(env: &Harness) {
         refusal(
             post("/gamecenter").json(&json!({})).send().await.unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/account/link/gamecenter missing its bundle",
+            "POST /v1/account/link/gamecenter missing its bundle",
         )
         .await,
         "GameCenter bundle ID is required."
@@ -88,7 +88,7 @@ pub async fn link_unlink_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::UNAUTHORIZED,
-            "POST /v2/account/link/gamecenter",
+            "POST /v1/account/link/gamecenter",
         )
         .await,
         "Could not authenticate GameCenter profile."
@@ -101,7 +101,7 @@ pub async fn link_unlink_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/account/link/facebookinstantgame with no signature",
+            "POST /v1/account/link/facebookinstantgame with no signature",
         )
         .await,
         "Signed Player Info for a Facebook Instant Game is required."
@@ -114,7 +114,7 @@ pub async fn link_unlink_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::UNAUTHORIZED,
-            "POST /v2/account/link/facebookinstantgame",
+            "POST /v1/account/link/facebookinstantgame",
         )
         .await,
         "Could not authenticate Facebook Instant Game profile."
@@ -166,7 +166,7 @@ pub async fn link_unlink_surface(env: &Harness) {
     expect(
         unpost("/facebook").json(&json!({})).send().await.unwrap(),
         StatusCode::OK,
-        "POST /v2/account/unlink/facebook",
+        "POST /v1/account/unlink/facebook",
     )
     .await;
     let cleared: Option<Value> = scalar(
@@ -182,13 +182,13 @@ pub async fn link_unlink_surface(env: &Harness) {
     expect(
         unpost("/apple").json(&json!({})).send().await.unwrap(),
         StatusCode::OK,
-        "POST /v2/account/unlink/apple",
+        "POST /v1/account/unlink/apple",
     )
     .await;
     expect(
         unpost("/google").json(&json!({})).send().await.unwrap(),
         StatusCode::OK,
-        "POST /v2/account/unlink/google",
+        "POST /v1/account/unlink/google",
     )
     .await;
     expect(
@@ -198,7 +198,7 @@ pub async fn link_unlink_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/account/unlink/facebookinstantgame",
+        "POST /v1/account/unlink/facebookinstantgame",
     )
     .await;
 
@@ -212,7 +212,7 @@ pub async fn link_unlink_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/account/unlink/facebook", env.base))
+                .post(format!("{}/v1/account/unlink/facebook", env.base))
                 .bearer_auth(&lone.token)
                 .json(&json!({}))
                 .send()

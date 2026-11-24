@@ -1,4 +1,3 @@
-
 use crate::framing::{OpCode, encode_frame, take_frame};
 use bytes::{Buf, Bytes, BytesMut};
 use mio::net::TcpStream;
@@ -27,7 +26,6 @@ impl ClientConn {
         loop {
             match crate::bufio::read_tcp(&mut self.stream, &mut self.read_buf, 16 * 1024) {
                 Ok(0) => {
-
                     if total == 0 {
                         return Ok(0);
                     }
@@ -47,7 +45,9 @@ impl ClientConn {
     }
 
     pub fn queue_message(&mut self, opcode: OpCode, payload: &[u8]) {
-        encode_frame(opcode, payload, &mut self.write_buf);
+        if let Err(e) = encode_frame(opcode, payload, &mut self.write_buf) {
+            tracing::warn!("[net] dropping oversized {opcode:?} frame: {e}");
+        }
     }
 
     pub fn do_write(&mut self) -> io::Result<bool> {

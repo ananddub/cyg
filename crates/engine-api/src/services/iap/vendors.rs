@@ -1,6 +1,7 @@
+use crate::services::plane::Plane;
+
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::iap::{PurchaseResponse, PurchaseTokenRequest};
 use crate::error::V2Error;
@@ -13,43 +14,43 @@ use super::verify::{self, GOOGLE};
 impl IapService {
     pub async fn purchase_google(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         body: PurchaseTokenRequest,
     ) -> Result<Json<PurchaseResponse>, V2Error> {
-        record_token_purchase(state, claims, body, GOOGLE).await
+        record_token_purchase(&self.plane, claims, body, GOOGLE).await
     }
 
     pub async fn purchase_huawei(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         body: PurchaseTokenRequest,
     ) -> Result<Json<PurchaseResponse>, V2Error> {
-        record_token_purchase(state, claims, body, 2).await
+        record_token_purchase(&self.plane, claims, body, 2).await
     }
 
     pub async fn purchase_facebook_instant(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         body: PurchaseTokenRequest,
     ) -> Result<Json<PurchaseResponse>, V2Error> {
-        record_token_purchase(state, claims, body, 3).await
+        record_token_purchase(&self.plane, claims, body, 3).await
     }
 
     pub async fn purchase_samsung(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         body: PurchaseTokenRequest,
     ) -> Result<Json<PurchaseResponse>, V2Error> {
-        record_token_purchase(state, claims, body, 4).await
+        record_token_purchase(&self.plane, claims, body, 4).await
     }
 }
 
 pub(super) async fn record_token_purchase(
-    state: &ApiState,
+    plane: &Plane,
     claims: &Authed,
     body: PurchaseTokenRequest,
     default_store: i16,
@@ -60,12 +61,12 @@ pub(super) async fn record_token_purchase(
     }
     let store = store_of(body.store, default_store);
     let verified = verify::verify_purchase(
-        &state.control.iap,
+        &plane.control.iap,
         store,
         credential,
         body.product_id.as_deref(),
         None,
     )
     .await?;
-    record_purchase(state, claims.0.uuid()?, verified, store).await
+    record_purchase(plane, claims.0.uuid()?, verified, store).await
 }

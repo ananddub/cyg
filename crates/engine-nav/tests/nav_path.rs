@@ -2,17 +2,8 @@ use engine_nav::{NavMesh2D, NavMesh3D};
 
 #[test]
 fn test_nav2d_from_trimesh_and_pathfinding() {
-
-    let vertices = vec![
-        (0.0, 0.0),
-        (10.0, 0.0),
-        (10.0, 10.0),
-        (0.0, 10.0),
-    ];
-    let triangles = vec![
-        [0, 1, 2],
-        [0, 2, 3],
-    ];
+    let vertices = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+    let triangles = vec![[0, 1, 2], [0, 2, 3]];
 
     let nav = NavMesh2D::from_trimesh(vertices, triangles).expect("Valid mesh");
 

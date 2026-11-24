@@ -1,25 +1,22 @@
+use crate::services::plane::Plane;
+
 use std::sync::Arc;
 
 use axum::Json;
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::quest::{QuestDefinitionRequest, QuestDefinitionRow};
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::QuestDefinition;
-use crate::services::deps::q;
 use crate::services::quest::catalog::{counter_name, definition_key};
 use crate::services::quest::reward::parse_reward;
 
 impl super::ConsoleService {
-    pub async fn list_quests(
-        &self,
-        state: &ApiState,
-    ) -> Result<Json<Vec<QuestDefinitionRow>>, V2Error> {
-        let rows = q(state).await?.list_quest_definitions().await?;
+    pub async fn list_quests(&self) -> Result<Json<Vec<QuestDefinitionRow>>, V2Error> {
+        let rows = self.plane.q().await?.list_quest_definitions().await?;
         Ok(Json(
             rows.into_iter().map(QuestDefinitionRow::from).collect(),
         ))
@@ -27,21 +24,21 @@ impl super::ConsoleService {
 
     pub async fn create_quest(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: QuestDefinitionRequest,
     ) -> Result<Json<QuestDefinitionRow>, V2Error> {
         claims.require_write()?;
         let key = definition_key(&body.quest_key, "quest")?;
-        let queries = q(state).await?;
-        let draft = draft(&queries, state, key.clone(), body, Utc::now()).await?;
+        let queries = self.plane.q().await?;
+        let draft = draft(&queries, &self.plane, key.clone(), body, Utc::now()).await?;
         if !queries.create_quest_definition(&draft).await? {
             return Err(V2Error::already_exists(
                 "A quest with this key already exists.",
             ));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "quest.create",
             "quest",
@@ -54,18 +51,18 @@ impl super::ConsoleService {
 
     pub async fn update_quest(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         name: &str,
         body: QuestDefinitionRequest,
     ) -> Result<Json<QuestDefinitionRow>, V2Error> {
         claims.require_write()?;
         let key = definition_key(name, "quest")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let existing = queries.get_quest_definition(&key).await?;
         let draft = draft(
             &queries,
-            state,
+            &self.plane,
             key.clone(),
             body,
             existing.map_or_else(Utc::now, |row| row.create_time),
@@ -73,7 +70,7 @@ impl super::ConsoleService {
         .await?;
         queries.update_quest_definition(&draft).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "quest.update",
             "quest",
@@ -86,18 +83,18 @@ impl super::ConsoleService {
 
     pub async fn delete_quest(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         name: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let key = definition_key(name, "quest")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         if queries.delete_quest_definition(&key).await?.rows_affected() == 0 {
             return Err(V2Error::not_found("Quest not found."));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "quest.delete",
             "quest",
@@ -113,7 +110,7 @@ impl super::ConsoleService {
 /// cannot be parsed here can never fail a player's claim later.
 async fn draft(
     queries: &Arc<Queries>,
-    state: &ApiState,
+    plane: &Plane,
     id: String,
     body: QuestDefinitionRequest,
     create_time: DateTime<Utc>,
@@ -168,7 +165,7 @@ async fn draft(
     }
     Ok(QuestDefinition {
         id,
-        game_id: crate::services::games::tenant::game_id(state).await?,
+        game_id: crate::services::games::tenant::game_id(plane).await?,
         title: title.to_string(),
         goal_kind,
         goal_amount: body.goal_amount,

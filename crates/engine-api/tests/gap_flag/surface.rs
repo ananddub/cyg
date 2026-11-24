@@ -48,7 +48,7 @@ async fn open(env: &Harness, admin: &str) {
         post(
             env,
             admin,
-            "/v2/console/flags",
+            "/v1/console/flags",
             json!({
                 "flag_key": KEY,
                 "description": "Two builds of the loot screen.",
@@ -76,7 +76,7 @@ async fn open(env: &Harness, admin: &str) {
             post(
                 env,
                 admin,
-                &format!("/v2/console/flags/{KEY}/variants"),
+                &format!("/v1/console/flags/{KEY}/variants"),
                 json!({ "name": name, "weight": weight }),
             )
             .await,
@@ -91,7 +91,7 @@ async fn open(env: &Harness, admin: &str) {
 /// What one account was told about the experiment.
 async fn told(env: &Harness, player: &str) -> (String, bool) {
     let body = json_body(
-        get(env, player, "/v2/flags").await,
+        get(env, player, "/v1/flags").await,
         StatusCode::OK,
         "the player's flags",
     )
@@ -121,7 +121,7 @@ pub async fn assignment_surface(env: &Harness) {
     open(env, &admin).await;
 
     let arms = json_body(
-        get(env, &admin, &format!("/v2/console/flags/{KEY}/variants")).await,
+        get(env, &admin, &format!("/v1/console/flags/{KEY}/variants")).await,
         StatusCode::OK,
         "the arm list",
     )
@@ -133,7 +133,7 @@ pub async fn assignment_surface(env: &Harness) {
 
     assert_eq!(
         refusal(
-            post(env, &admin, "/v2/console/flags", json!({ "flag_key": KEY })).await,
+            post(env, &admin, "/v1/console/flags", json!({ "flag_key": KEY })).await,
             StatusCode::CONFLICT,
             "a second flag under the same key",
         )
@@ -145,7 +145,7 @@ pub async fn assignment_surface(env: &Harness) {
             post(
                 env,
                 &admin,
-                "/v2/console/flags",
+                "/v1/console/flags",
                 json!({ "flag_key": "Not A Key" })
             )
             .await,
@@ -180,7 +180,7 @@ pub async fn assignment_surface(env: &Harness) {
 
     assert_eq!(
         env.client
-            .get(format!("{}/v2/flags", env.base))
+            .get(format!("{}/v1/flags", env.base))
             .send()
             .await
             .unwrap()
@@ -199,7 +199,7 @@ pub async fn rollout_surface(env: &Harness) {
         post(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}/stop"),
+            &format!("/v1/console/flags/{KEY}/stop"),
             json!({}),
         )
         .await,
@@ -222,7 +222,7 @@ pub async fn rollout_surface(env: &Harness) {
         put(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}/overrides"),
+            &format!("/v1/console/flags/{KEY}/overrides"),
             json!({ "user_id": pinned.uid, "variant": "treatment" }),
         )
         .await,
@@ -233,7 +233,7 @@ pub async fn rollout_surface(env: &Harness) {
     assert_eq!(pin["variant"], json!("treatment"), "{pin}");
     assert_eq!(
         json_body(
-            get(env, &admin, &format!("/v2/console/flags/{KEY}/overrides")).await,
+            get(env, &admin, &format!("/v1/console/flags/{KEY}/overrides")).await,
             StatusCode::OK,
             "the pin list",
         )
@@ -253,7 +253,7 @@ pub async fn rollout_surface(env: &Harness) {
         post(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}/rollout"),
+            &format!("/v1/console/flags/{KEY}/rollout"),
             json!({ "percent": 30 }),
         )
         .await,
@@ -273,7 +273,7 @@ pub async fn rollout_surface(env: &Harness) {
         put(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}"),
+            &format!("/v1/console/flags/{KEY}"),
             json!({ "enabled": false }),
         )
         .await,
@@ -301,7 +301,7 @@ pub async fn rollout_surface(env: &Harness) {
         put(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}"),
+            &format!("/v1/console/flags/{KEY}"),
             json!({ "enabled": true }),
         )
         .await,
@@ -320,7 +320,7 @@ pub async fn rollout_surface(env: &Harness) {
             put(
                 env,
                 &admin,
-                &format!("/v2/console/flags/{KEY}/overrides"),
+                &format!("/v1/console/flags/{KEY}/overrides"),
                 json!({ "user_id": crowd[1].uid, "variant": "gone" }),
             )
             .await,
@@ -335,7 +335,7 @@ pub async fn rollout_surface(env: &Harness) {
         del(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}/overrides/{}", pinned.uid),
+            &format!("/v1/console/flags/{KEY}/overrides/{}", pinned.uid),
         )
         .await,
         StatusCode::OK,
@@ -347,7 +347,7 @@ pub async fn rollout_surface(env: &Harness) {
             del(
                 env,
                 &admin,
-                &format!("/v2/console/flags/{KEY}/overrides/{}", pinned.uid),
+                &format!("/v1/console/flags/{KEY}/overrides/{}", pinned.uid),
             )
             .await,
             StatusCode::NOT_FOUND,
@@ -371,7 +371,7 @@ pub async fn rollout_surface(env: &Harness) {
         put(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}"),
+            &format!("/v1/console/flags/{KEY}"),
             json!({ "active_to": past }),
         )
         .await,
@@ -399,7 +399,7 @@ pub async fn rollout_surface(env: &Harness) {
             put(
                 env,
                 &admin,
-                &format!("/v2/console/flags/{KEY}"),
+                &format!("/v1/console/flags/{KEY}"),
                 json!({ "active_from": future, "active_to": past }),
             )
             .await,
@@ -414,7 +414,7 @@ pub async fn rollout_surface(env: &Harness) {
         put(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}"),
+            &format!("/v1/console/flags/{KEY}"),
             json!({ "active_to": future }),
         )
         .await,
@@ -439,7 +439,7 @@ pub async fn permission_surface(env: &Harness) {
 
     assert_eq!(
         env.client
-            .get(format!("{}/v2/console/flags", env.base))
+            .get(format!("{}/v1/console/flags", env.base))
             .send()
             .await
             .unwrap()
@@ -454,7 +454,7 @@ pub async fn permission_surface(env: &Harness) {
             post(
                 env,
                 &developer,
-                &format!("/v2/console/flags/{KEY}/rollout"),
+                &format!("/v1/console/flags/{KEY}/rollout"),
                 json!({ "percent": 80 }),
             )
             .await,
@@ -469,7 +469,7 @@ pub async fn permission_surface(env: &Harness) {
             post(
                 env,
                 &developer,
-                "/v2/console/flags",
+                "/v1/console/flags",
                 json!({ "flag_key": "gap-other", "rollout_pct": 75 }),
             )
             .await,
@@ -483,7 +483,7 @@ pub async fn permission_surface(env: &Harness) {
         post(
             env,
             &developer,
-            &format!("/v2/console/flags/{KEY}/rollout"),
+            &format!("/v1/console/flags/{KEY}/rollout"),
             json!({ "percent": 50 }),
         )
         .await,
@@ -495,7 +495,7 @@ pub async fn permission_surface(env: &Harness) {
         post(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}/rollout"),
+            &format!("/v1/console/flags/{KEY}/rollout"),
             json!({ "percent": 80 }),
         )
         .await,
@@ -509,7 +509,7 @@ pub async fn permission_surface(env: &Harness) {
             post(
                 env,
                 &admin,
-                &format!("/v2/console/flags/{KEY}/rollout"),
+                &format!("/v1/console/flags/{KEY}/rollout"),
                 json!({ "percent": 101 }),
             )
             .await,
@@ -524,7 +524,7 @@ pub async fn permission_surface(env: &Harness) {
             post(
                 env,
                 &admin,
-                &format!("/v2/console/flags/{KEY}/variants"),
+                &format!("/v1/console/flags/{KEY}/variants"),
                 json!({ "name": "heavy", "weight": 5_000 }),
             )
             .await,
@@ -541,7 +541,7 @@ pub async fn permission_surface(env: &Harness) {
             post(
                 env,
                 &reader,
-                "/v2/console/flags",
+                "/v1/console/flags",
                 json!({ "flag_key": "gap-readonly" }),
             )
             .await,
@@ -552,7 +552,7 @@ pub async fn permission_surface(env: &Harness) {
         "This console user has read-only access."
     );
     json_body(
-        get(env, &reader, &format!("/v2/console/flags/{KEY}/variants")).await,
+        get(env, &reader, &format!("/v1/console/flags/{KEY}/variants")).await,
         StatusCode::OK,
         "a read-only console user reading the arms",
     )
@@ -567,7 +567,7 @@ pub async fn delete_surface(env: &Harness) {
         put(
             env,
             &admin,
-            &format!("/v2/console/flags/{KEY}/overrides"),
+            &format!("/v1/console/flags/{KEY}/overrides"),
             json!({ "user_id": crowd[0].uid, "variant": "treatment" }),
         )
         .await,
@@ -577,7 +577,7 @@ pub async fn delete_surface(env: &Harness) {
     .await;
 
     expect(
-        del(env, &admin, &format!("/v2/console/flags/{KEY}")).await,
+        del(env, &admin, &format!("/v1/console/flags/{KEY}")).await,
         StatusCode::OK,
         "deleting the experiment",
     )
@@ -587,7 +587,7 @@ pub async fn delete_surface(env: &Harness) {
     assert_eq!(count(env.db(), "flag_override", None, &[]).await, 0);
     assert_eq!(
         json_body(
-            get(env, &crowd[0].token, "/v2/flags").await,
+            get(env, &crowd[0].token, "/v1/flags").await,
             StatusCode::OK,
             "the player's flags after the delete",
         )
@@ -600,7 +600,7 @@ pub async fn delete_surface(env: &Harness) {
 
     assert_eq!(
         refusal(
-            del(env, &admin, &format!("/v2/console/flags/{KEY}")).await,
+            del(env, &admin, &format!("/v1/console/flags/{KEY}")).await,
             StatusCode::NOT_FOUND,
             "deleting an experiment twice",
         )
@@ -612,7 +612,7 @@ pub async fn delete_surface(env: &Harness) {
             post(
                 env,
                 &admin,
-                &format!("/v2/console/flags/{KEY}/rollout"),
+                &format!("/v1/console/flags/{KEY}/rollout"),
                 json!({ "percent": 10 }),
             )
             .await,
@@ -627,7 +627,7 @@ pub async fn delete_surface(env: &Harness) {
             put(
                 env,
                 &admin,
-                &format!("/v2/console/flags/{KEY}/variants/{}", "control"),
+                &format!("/v1/console/flags/{KEY}/variants/{}", "control"),
                 json!({ "weight": 1 }),
             )
             .await,

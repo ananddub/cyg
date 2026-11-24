@@ -13,7 +13,7 @@ pub async fn notification_idempotency(env: &Harness, console: &str) {
         let subject = subject.to_owned();
         async move {
             client
-                .post(format!("{base}/v2/console/notification"))
+                .post(format!("{base}/v1/console/notification"))
                 .bearer_auth(&token)
                 .header("Idempotency-Key", key)
                 .json(&json!({"user_id": uid, "subject": subject, "content": {"v": 1}}))

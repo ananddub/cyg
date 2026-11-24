@@ -43,7 +43,6 @@ async fn apply(
 impl super::super::LeaderboardService {
     pub async fn write_record(
         &self,
-        state: &ApiState,
         auth: &Authed,
         id: &str,
         body: Value,
@@ -61,7 +60,7 @@ impl super::super::LeaderboardService {
             _ => None,
         };
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let board = load_board(&queries, id).await?;
         if board.authoritative {
             return Err(V2Error::permission_denied(AUTH_WRITE));
@@ -78,6 +77,22 @@ impl super::super::LeaderboardService {
             expiry: record_window(&board)?,
             operator,
         };
+        crate::services::rules::dispatch::fire(&self.plane, "leaderboard_submit", auth.uid()).await;
+        // Fired before the write, so a hook that refuses it means the score is
+        // never stored — a hook that only wants to award for a personal best can
+        // read the previous value from the board it was handed.
+        crate::services::hook_apply::fire(
+            &self.plane,
+            engine_hooks::HookEvent::LeaderboardSubmit,
+            auth.uid(),
+            serde_json::json!({
+                "leaderboard_id": board.id,
+                "score": input.score,
+                "subscore": input.subscore,
+                "authoritative": board.authoritative,
+            }),
+        )
+        .await?;
         Ok(Json(apply(&queries, &board, &write).await?))
     }
 }

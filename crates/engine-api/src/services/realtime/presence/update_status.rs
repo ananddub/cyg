@@ -39,7 +39,6 @@ impl RealtimePresenceService {
     pub async fn follow(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: StatusFollow = msg.payload()?;
         self.follow_users(
-            &state_of(conn),
             conn.id(),
             req.user_ids,
             req.usernames,

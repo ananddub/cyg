@@ -16,7 +16,7 @@ import { CONSOLE_ENDPOINTS } from "@/lib/console"
 
 const ACCOUNT = CONSOLE_ENDPOINTS.accounts
 
-// TODO(console-import): the backend also serves `POST /v2/console/account/{id}/import`
+// TODO(console-import): the backend also serves `POST /v1/console/account/{id}/import`
 // (see `account.rs` `import_one`), the same export document addressed at one id, where
 // the body's `account.id` must equal the path id. It is deliberately not wired here: it
 // needs a target id that is already known and free, a state this area's list/detail never

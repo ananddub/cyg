@@ -27,13 +27,14 @@ impl<'a> Engine<'a> {
                 room.phase(),
             );
             rooms.push(RoomTelemetry {
-                name: room_name.clone(),
+                name: room_name.to_string(),
+                room_id: room_name.to_string(),
                 phase: room.phase(),
                 clients: room.sessions.len() as u32,
                 spectators: room.spectators.len() as u32,
                 tick: room.current_tick,
-                age_sec: room.born.elapsed().as_secs(),
-                closes_in_sec: self.cfg.lifecycle.closes_at(room.born).map(|deadline| {
+                age_sec: room.lifecycle.born.elapsed().as_secs(),
+                closes_in_sec: self.cfg.lifecycle.closes_at(room.lifecycle.born).map(|deadline| {
                     let now = Instant::now();
                     if now >= deadline {
                         0
@@ -41,6 +42,9 @@ impl<'a> Engine<'a> {
                         (deadline - now).as_secs()
                     }
                 }),
+                max_clients: self.cfg.max_clients.max(0) as u32,
+                locked: false,
+                metadata: serde_json::Value::Null,
             });
             let members = room.sessions.iter().map(|(s, &id)| (s, Some(id)));
             let watching = room.spectators.iter().map(|s| (s, None));
@@ -48,14 +52,16 @@ impl<'a> Engine<'a> {
                 let live = self.transport.is_rtc_connected(session);
                 webrtc_live += live as u32;
                 sessions.push(SessionTelemetry {
-                    session: session.clone(),
+                    session: session.to_string(),
                     transport: if live { "webrtc" } else { "websocket" }.to_string(),
                     player_id,
-                    acked_seq: room.last_input_seq.get(session).map(|&seq| seq as u32),
+                    acked_seq: player_id
+                        .and_then(|id| room.seqs.get(&id))
+                        .map(|s| s.input as u32),
                     idle_ms: self
                         .rates
                         .last_input_at
-                        .get(session)
+                        .get(session.as_ref())
                         .map(|t| t.elapsed().as_millis() as u64),
                 });
             }
@@ -88,6 +94,7 @@ impl<'a> Engine<'a> {
             sessions,
             rooms,
             session_cap,
+            server_phase: self.manager.phase(),
         };
         if self.stats.recorder.maybe_publish(&self.bus, report) {
             self.stats.publish_start = Instant::now();

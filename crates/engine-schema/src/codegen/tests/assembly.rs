@@ -9,6 +9,8 @@ fn field(name: &str, kind: WireKind) -> SchemaField {
         ref_target: None,
         flags: 0,
         source_type: "number".into(),
+        encoding: crate::default_encoding(kind),
+        nested_path: None,
         line: 0,
         column: 0,
         default: None,
@@ -18,6 +20,7 @@ fn field(name: &str, kind: WireKind) -> SchemaField {
 #[test]
 fn as_codegen_emits_typed_state_with_dirty_commit() {
     let player = SchemaDef {
+        nested_arrays: Vec::new(),
         name: "Player".into(),
         version: 1,
         fields: vec![
@@ -29,6 +32,7 @@ fn as_codegen_emits_typed_state_with_dirty_commit() {
         column: 0,
     };
     let root = RootState {
+        nested: Vec::new(),
         name: "State".into(),
         version: 2,
         scalars: vec![field("tick", WireKind::F64)],

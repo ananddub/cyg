@@ -9,7 +9,7 @@ use super::helpers::{ADMIN, PASSWORD, V2Server, login, player_token, token_for, 
 #[test]
 fn the_player_match_routes_gate_on_a_session() {
     let server = V2Server::start(v2_state());
-    for path in ["/v2/match", "/v2/matchmaker/stats"] {
+    for path in ["/v1/match", "/v1/matchmaker/stats"] {
         let reply = server.get(path, None);
         assert_eq!(
             reply.refusal(UNAUTHENTICATED),
@@ -30,7 +30,7 @@ fn a_live_session_reaches_the_match_read_surface() {
     let server = V2Server::start(v2_state());
     let auth = player_token();
 
-    let reply = server.get("/v2/match", Some(&auth));
+    let reply = server.get("/v1/match", Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
     let body = reply.json();
     if let Some(matches) = body.get("matches") {
@@ -41,7 +41,7 @@ fn a_live_session_reaches_the_match_read_surface() {
         }
     }
 
-    let reply = server.get("/v2/matchmaker/stats", Some(&auth));
+    let reply = server.get("/v1/matchmaker/stats", Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert!(reply.json()["ticket_count"].is_number());
 }
@@ -49,9 +49,9 @@ fn a_live_session_reaches_the_match_read_surface() {
 #[test]
 fn the_console_match_routes_demand_a_console_token() {
     let server = V2Server::start(v2_state());
-    let reply = server.get("/v2/console/match", None);
+    let reply = server.get("/v1/console/match", None);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token required");
-    let reply = server.get("/v2/console/match", Some(&player_token()));
+    let reply = server.get("/v1/console/match", Some(&player_token()));
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token invalid");
 }
 
@@ -61,7 +61,7 @@ fn the_console_lists_running_matches_without_a_database() {
     let auth = format!("Bearer {}", login(&server, ADMIN, PASSWORD));
     let id = RealtimeMatchService::create_match_with_tokens(15, vec!["t".to_owned()]);
 
-    let reply = server.get("/v2/console/match", Some(&auth));
+    let reply = server.get("/v1/console/match", Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
     let matches = reply.json()["matches"]
         .as_array()
@@ -84,7 +84,7 @@ fn reading_a_match_state_names_the_missing_match() {
     let server = V2Server::start(v2_state());
     let auth = format!("Bearer {}", login(&server, ADMIN, PASSWORD));
     let reply = server.get(
-        &format!("/v2/console/match/{}/state", Uuid::new_v4()),
+        &format!("/v1/console/match/{}/state", Uuid::new_v4()),
         Some(&auth),
     );
     assert_eq!(
@@ -99,7 +99,7 @@ fn a_running_match_reports_its_state() {
     let auth = format!("Bearer {}", login(&server, ADMIN, PASSWORD));
     let id = RealtimeMatchService::create_match_with_tokens(5, vec!["t".to_owned()]);
 
-    let reply = server.get(&format!("/v2/console/match/{id}/state"), Some(&auth));
+    let reply = server.get(&format!("/v1/console/match/{id}/state"), Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
     let body = reply.json();
     assert!(body["presences"].is_array());
@@ -115,18 +115,18 @@ fn terminating_a_match_is_a_write_the_readonly_cannot_make() {
     let id = Uuid::new_v4();
 
     let read_only = token_for(ConsoleRole::Readonly);
-    let reply = server.delete(&format!("/v2/console/match/{id}"), Some(&read_only));
+    let reply = server.delete(&format!("/v1/console/match/{id}"), Some(&read_only));
     assert_eq!(
         reply.refusal(PERMISSION_DENIED),
         "This console user has read-only access."
     );
 
     let auth = format!("Bearer {}", login(&server, ADMIN, PASSWORD));
-    let reply = server.delete(&format!("/v2/console/match/{id}"), Some(&auth));
+    let reply = server.delete(&format!("/v1/console/match/{id}"), Some(&auth));
     assert_eq!(reply.refusal(NOT_FOUND), "Match not found.");
 
     let live = RealtimeMatchService::create_match_with_tokens(0, vec![]);
-    let reply = server.delete(&format!("/v2/console/match/{live}"), Some(&auth));
+    let reply = server.delete(&format!("/v1/console/match/{live}"), Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
 }
 
@@ -134,7 +134,7 @@ fn terminating_a_match_is_a_write_the_readonly_cannot_make() {
 fn the_route_explorer_lists_the_match_surface() {
     let server = V2Server::start(v2_state());
     let auth = format!("Bearer {}", login(&server, ADMIN, PASSWORD));
-    let reply = server.get("/v2/console/route", Some(&auth));
+    let reply = server.get("/v1/console/route", Some(&auth));
     assert_eq!(reply.status, 200, "{}", reply.body);
     let routes = reply.json();
     let routes = routes.as_array().expect("the explorer lists routes");
@@ -143,16 +143,16 @@ fn the_route_explorer_lists_the_match_surface() {
             .iter()
             .any(|r| r["method"] == method && r["path"] == path)
     };
-    assert!(has("GET", "/v2/match"), "{}", reply.body);
-    assert!(has("GET", "/v2/matchmaker/stats"), "{}", reply.body);
-    assert!(has("GET", "/v2/console/match"), "{}", reply.body);
+    assert!(has("GET", "/v1/match"), "{}", reply.body);
+    assert!(has("GET", "/v1/matchmaker/stats"), "{}", reply.body);
+    assert!(has("GET", "/v1/console/match"), "{}", reply.body);
     assert!(
-        has("GET", "/v2/console/match/{id}/state") || has("GET", "/v2/console/match/:id/state"),
+        has("GET", "/v1/console/match/{id}/state") || has("GET", "/v1/console/match/:id/state"),
         "{}",
         reply.body
     );
     assert!(
-        has("DELETE", "/v2/console/match/{id}") || has("DELETE", "/v2/console/match/:id"),
+        has("DELETE", "/v1/console/match/{id}") || has("DELETE", "/v1/console/match/:id"),
         "{}",
         reply.body
     );

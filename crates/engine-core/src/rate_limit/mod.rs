@@ -1,10 +1,8 @@
-
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RateDecision {
-
     Allow,
 
     Disconnect,
@@ -72,7 +70,6 @@ const IDLE_EVICT: Duration = Duration::from_secs(30);
 const EVICT_INTERVAL: Duration = Duration::from_secs(5);
 
 impl MessageRateLimits {
-
     pub fn new(max_per_second: u32) -> Self {
         Self {
             max_per_window: max_per_second,
@@ -102,7 +99,6 @@ impl MessageRateLimits {
             .or_insert_with(|| MessageRateGuard::with_window(max, window))
             .allow(now);
         if decision == RateDecision::Disconnect {
-
             self.guards.remove(session);
             self.last_seen.remove(session);
         }

@@ -1,9 +1,11 @@
+use crate::services::plane::Plane;
+
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::ApiState;
 use crate::infra::seats::Seat;
 
+#[derive(poem_openapi::Object)]
 pub struct SeatResponse {
     pub name: String,
     pub session_id: String,
@@ -19,11 +21,18 @@ pub struct SeatResponse {
 }
 
 impl SeatResponse {
-    pub fn new(state: &ApiState, seat: &Seat) -> SeatResponse {
-        let udp_port = std::env::var("OX_UDP_ADDR")
-            .ok()
-            .and_then(|addr| addr.split(':').last().and_then(|p| p.parse::<u16>().ok()))
-            .unwrap_or(7778);
+    pub fn new(plane: &Plane, seat: &Seat) -> SeatResponse {
+        // Whatever the lane actually bound. The lane asks the OS for an
+        // ephemeral port, so a fixed default here would hand every native
+        // client a port nobody is listening on.
+        // The lane binds `game.port + 1`; both sides derive it from config, so
+        // the seat stays right even though the control plane never sees the
+        // socket. Off means 0, which tells a native client to use WebSocket.
+        let udp_port = if plane.game.transports.enabled(engine_config::Lane::Udp) {
+            plane.game.port.saturating_add(1)
+        } else {
+            0
+        };
 
         SeatResponse {
             name: seat.room.clone(),
@@ -32,10 +41,10 @@ impl SeatResponse {
             process_id: format!("cyg_{}", std::process::id()),
             reconnection_token: seat.token.clone(),
             seat_token: seat.token.clone(),
-            game_port: state.game.port,
-            control_port: state.control_port(),
+            game_port: plane.game.port,
+            control_port: plane.control_port(),
             udp_port,
-            ice_servers: state.signals.ice_config().to_string(),
+            ice_servers: plane.signals.ice_config().to_string(),
             expires_at: seat.expires_at,
         }
     }

@@ -1,6 +1,5 @@
-
-mod net;
 mod r#loop;
+mod net;
 
 use std::collections::HashMap;
 use std::io;
@@ -15,6 +14,11 @@ use mio::{Events, Interest, Poll, Token};
 use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::framing::OpCode;
+
+/// Accept-queue depth for the game listener. The kernel clamps this to
+/// `net.core.somaxconn`, so a value above it is harmless; the point is to stop
+/// our own 1024 ceiling from refusing a 10k-CCU join burst.
+const LISTEN_BACKLOG: i32 = 8192;
 use crate::runtime::connection::ClientConn;
 use engine_core::FixedClock;
 
@@ -50,7 +54,6 @@ pub struct WorkerStats {
 
 #[derive(Debug)]
 pub struct ClientPacket {
-
     pub session_id: Arc<str>,
     pub token: Token,
     pub opcode: OpCode,
@@ -73,10 +76,11 @@ pub struct MioWorker {
 }
 
 impl MioWorker {
-
     pub fn new(cfg: WorkerConfig) -> io::Result<Self> {
         let poll = Poll::new()?;
-        let events = Events::with_capacity(1024);
+        // Must be able to return one event per pending client per turn; a
+        // capped ready list leaves connections waiting an extra poll round.
+        let events = Events::with_capacity(LISTEN_BACKLOG as usize);
 
         let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
         socket.set_reuse_address(true)?;
@@ -87,7 +91,7 @@ impl MioWorker {
 
         let socket_addr = cfg.bind_addr.into();
         socket.bind(&socket_addr)?;
-        socket.listen(1024)?;
+        socket.listen(LISTEN_BACKLOG)?;
 
         let std_listener: std::net::TcpListener = socket.into();
         let mut listener = TcpListener::from_std(std_listener);

@@ -5,14 +5,14 @@ use crate::repositories::models::{FeatureFlag, FlagOverride, FlagVariant};
 
 /// The player's view of one experiment: which arm they were placed in and
 /// whether that arm is the one that does something.
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct FlagView {
     pub key: String,
     pub on: bool,
     pub variant: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct FlagListResponse {
     pub flags: Vec<FlagView>,
 }
@@ -41,7 +41,7 @@ pub struct FeatureFlagRequest {
     pub active_to: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct FeatureFlagRow {
     pub flag_key: String,
     pub description: String,
@@ -76,7 +76,7 @@ pub struct RolloutRequest {
     pub percent: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct RolloutRow {
     pub flag_key: String,
     pub enabled: bool,
@@ -92,7 +92,7 @@ pub struct VariantRequest {
     pub weight: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct VariantRow {
     pub flag_key: String,
     pub name: String,
@@ -120,7 +120,7 @@ pub struct OverrideRequest {
     pub variant: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct OverrideRow {
     pub flag_key: String,
     pub user_id: String,

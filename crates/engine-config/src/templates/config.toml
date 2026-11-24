@@ -13,11 +13,42 @@ out = "room_logic.wasm"
 # CYG web SDK (`cyg.js`) and can leave this empty.
 sdk_dir = ""
 
+# Customer logic that runs on account events rather than on the room tick —
+# "on this purchase, grant coins". Empty means no hooks; `cyg build` writes a
+# compiled module to hooks/hooks.wasm, which is picked up automatically.
+#
+# events: purchase, wallet_change, level_up, match_end, leaderboard_submit,
+#         player_create, moderation
+# Only propose: the server applies each action through the same services the
+# REST API uses, so a hook cannot bypass a quota, a validation or an audit row.
+# hooks = "hooks/hooks.wasm"
+
 port = 7777
 web_port = 8090
+
+# Which network lanes to open. This is the only switch: no ports to pick.
+# `port` above is the game port; every other lane takes a free port from the OS
+# and prints it at boot, so two lanes can never collide.
+#
+#   webrtc    browsers, low-latency DataChannel
+#   websocket Godot / Unity / Unreal / cyg.js
+#   udp       native engine plugins
+#   quic      QUIC / WebTransport clients
+#
+# At least one lane must be on. Leave a lane off unless your clients use it:
+# every open lane is a listener that has to be firewalled and monitored.
 # 30 Hz is the easy-mode default; use 20 for slower/casual rooms or 60/128 for
 # competitive/rollback games.
 tick_rate = 30
+# Room tick staggering: split each tick interval into this many phase slots
+# and give every room its own slot, so many-room deployments simulate and fan
+# out in a smooth spread instead of one burst at the tick boundary. Per-room
+# tick rate is unchanged. 1 = off; try 4 for 100+ room servers.
+tick_stagger = 1
+# Batch the input lane: one guest `on_input` call per player per tick (newest
+# frame wins) instead of one call per arriving frame. Cuts host↔wasm calls
+# ~5x at high input rates; inputs land at tick boundaries. Off by default.
+input_coalesce = false
 max_clients = 16
 max_rooms = 1024
 # Per-client message budget per second; a client exceeding it is kicked (0 = off).
@@ -25,19 +56,49 @@ max_messages_per_second = 0
 # Synthetic round-trip latency (ms) for local testing; app data both ways is
 # delayed by half of this. 0 = off.
 simulate_latency_ms = 0
+# Synthetic packet loss (0.0 to 1.0 or percentage 0 to 100) for network testing. 0 = off.
+simulate_packet_loss = 0.0
+
+# Directory of the Unity WebGL build served at `/unity` (holds `Build/` and
+# `TemplateData/`). Relative to the project directory.
+unity_build = "unity"
 
 # Playfield
 width = 800.0
 height = 500.0
 speed = 240.0
 
-# CYG ABI Contract & Permissions
+# CYG ABI Contract & Permissions — every capability is DENIED unless listed
+# here; a guest only calls what the game config explicitly allows.
 abi_version = 1
 allow_physics = true
 allow_lag_compensation = true
 allow_logging = true
 allow_storage = true
 allow_messaging = true
+# Allow the room to credit per-player counters via cyg.stats.add().
+allow_stats = false
+# Allow the room to narrow a player's state view via cyg.views.* (subtractive only).
+allow_views = false
+# Allow the room to record/query generic per-entity rewind samples.
+allow_rewind = false
+
+# Which network lanes to open. This is the only switch: no ports to pick.
+# `port` above is the game port; every other lane takes a free port from the OS
+# and prints it at boot, so two lanes can never collide.
+#
+#   webrtc    browsers, low-latency DataChannel
+#   websocket Godot / Unity / Unreal / cyg.js
+#   udp       native engine plugins
+#   quic      QUIC / WebTransport clients
+#
+# At least one lane must be on. Leave a lane off unless your clients use it:
+# every open lane is a listener that has to be firewalled and monitored.
+[transports]
+webrtc = true
+websocket = true
+udp = false
+quic = false
 
 # Room lifetime. Every value is the window the host shipped as a hardcoded
 # literal, so leaving this block out changes nothing.
@@ -92,13 +153,20 @@ allow_messaging = true
 # website port over to Axum entirely.
 [control]
 enabled = true
-bind_addr = "0.0.0.0"
+# Loopback by default: a freshly scaffolded project is reachable only from
+# this machine, and that is also what lets it boot with placeholder secrets
+# without any env var. Change to "0.0.0.0" (and set real secrets) to expose it.
+bind_addr = "127.0.0.1"
+# Set true to boot with placeholder secrets even on a non-loopback address —
+# the same switch as the CYG_ALLOW_DEFAULT_SECRETS=1 env var, just in-file.
+# NEVER leave this on for a public server; it is the boot guard's off switch.
+# dev_mode = true
 api_port = 8124
 workers = 2
 seat_ttl_secs = 300
 rate_limit_rps = 20
 rate_limit_burst = 40
-# seat_secret = "change-me"   # prefer the OX_SEAT_SECRET environment variable
+# seat_secret = "change-me"   # prefer the CYG_SEAT_SECRET environment variable
 
 # Per-player quotas. Each charged route spends from a named window, and the
 # over-cap refusal carries a Retry-After. Off until a game opts in: a cap that

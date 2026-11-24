@@ -1,4 +1,6 @@
-use axum::extract::FromRequestParts;
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use axum::response::IntoResponse;
@@ -38,14 +40,23 @@ impl<S: Send + Sync> FromRequestParts<S> for Authed {
     type Rejection = V2Error;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        // `player_rate_limit` verifies every request that carries a session
+        // token while picking its bucket; reuse that instead of paying for a
+        // second JWT check per handler.
+        if let Some(authed) = parts.extensions.get::<Authed>() {
+            return Ok(authed.clone());
+        }
         Ok(Authed(session_claims(
             &parts.headers,
-            &crate::current_state(),
+            &crate::current_state().plane(),
         )?))
     }
 }
 
-pub fn session_claims(headers: &HeaderMap, state: &crate::ApiState) -> Result<Claims, V2Error> {
+pub fn session_claims(
+    headers: &HeaderMap,
+    plane: &crate::services::plane::Plane,
+) -> Result<Claims, V2Error> {
     match auth_headers(headers) {
         0 => return Err(V2Error::unauthenticated("Auth token required")),
         1 => {}
@@ -55,7 +66,7 @@ pub fn session_claims(headers: &HeaderMap, state: &crate::ApiState) -> Result<Cl
     let token = bearer_token(headers).ok_or_else(invalid)?;
     let claims = crate::infra::jwt::verify_session(token)?;
     let uid = claims.uuid()?;
-    if !state
+    if !plane
         .sessions
         .is_valid_session(uid, claims.exp, &claims.tid)
     {
@@ -64,7 +75,10 @@ pub fn session_claims(headers: &HeaderMap, state: &crate::ApiState) -> Result<Cl
     Ok(claims)
 }
 
-pub fn server_key(headers: &HeaderMap, state: &crate::ApiState) -> Result<(), V2Error> {
+pub fn server_key(
+    headers: &HeaderMap,
+    plane: &crate::services::plane::Plane,
+) -> Result<(), V2Error> {
     if auth_headers(headers) != 1 {
         return Err(V2Error::unauthenticated("Server key required"));
     }
@@ -81,7 +95,7 @@ pub fn server_key(headers: &HeaderMap, state: &crate::ApiState) -> Result<(), V2
     // not redeployed yet is not cut off mid-rotation; `!=` would leak the key one
     // byte at a time to anyone willing to measure attempts.
     if !engine_config::Rotation::global()
-        .accepts_server_key(&state.control.session.server_key, &presented)
+        .accepts_server_key(&plane.control.session.server_key, &presented)
     {
         return Err(V2Error::unauthenticated("Server key invalid"));
     }
@@ -90,11 +104,14 @@ pub fn server_key(headers: &HeaderMap, state: &crate::ApiState) -> Result<(), V2
 
 /// Privileged server-to-server routes accept either the server key (game
 /// backend) or a console session; a player session is never enough.
-pub fn server_key_or_console(headers: &HeaderMap, state: &crate::ApiState) -> Result<(), V2Error> {
-    if server_key(headers, state).is_ok() {
+pub fn server_key_or_console(
+    headers: &HeaderMap,
+    plane: &crate::services::plane::Plane,
+) -> Result<(), V2Error> {
+    if server_key(headers, plane).is_ok() {
         return Ok(());
     }
-    console_claims(headers).map(|_| ())
+    console_claims(headers, plane, crate::current_remote()).map(|_| ())
 }
 
 fn parse_basic_user(value: &str) -> Option<String> {
@@ -139,17 +156,55 @@ impl<S: Send + Sync> FromRequestParts<S> for ConsoleAuthed {
     type Rejection = V2Error;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(ConsoleAuthed(console_claims(&parts.headers)?))
+        Ok(ConsoleAuthed(console_claims(
+            &parts.headers,
+            &crate::current_state().plane(),
+            remote_addr(parts),
+        )?))
     }
 }
 
-pub fn console_claims(headers: &HeaderMap) -> Result<ConsoleClaims, V2Error> {
+/// The address the request arrived from, when the server tracks it.
+pub fn remote_addr(parts: &Parts) -> Option<SocketAddr> {
+    parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|connect| connect.0)
+}
+
+pub fn console_claims(
+    headers: &HeaderMap,
+    plane: &crate::services::plane::Plane,
+    remote: Option<SocketAddr>,
+) -> Result<ConsoleClaims, V2Error> {
+    // `cyg run -d`: the operator asked for a local session. Making them log in
+    // to their own machine is a loop with no secret in it — but the grant is
+    // only safe when the request really comes from this machine: the flag was
+    // resolved once at boot and the source address must be loopback, so a
+    // misconfigured bind cannot hand admin to a remote peer.
+    if dev_admin(plane, remote) {
+        return Ok(ConsoleClaims {
+            id: String::new(),
+            username: "dev".into(),
+            email: String::new(),
+            role: ConsoleRole::Admin.as_u8(),
+            jti: String::new(),
+            exp: i64::MAX,
+        });
+    }
     if auth_headers(headers) != 1 {
         return Err(V2Error::unauthenticated("Console token required"));
     }
     let token =
         bearer_token(headers).ok_or_else(|| V2Error::unauthenticated("Console token invalid"))?;
     console_token_claims(token)
+}
+
+/// Whether this request may ride the dev-session admin grant: the process was
+/// started with `cyg run -d` (resolved once at boot into the API state) and the
+/// request arrived over the loopback interface.
+fn dev_admin(plane: &crate::services::plane::Plane, remote: Option<SocketAddr>) -> bool {
+    plane.dev_mode && remote.is_some_and(|addr| addr.ip().is_loopback())
 }
 
 /// Browsers cannot set an `Authorization` header on a WebSocket handshake, so
@@ -166,44 +221,156 @@ pub fn console_token_claims(token: &str) -> Result<ConsoleClaims, V2Error> {
 /// The account a request speaks for. A token that verifies as neither a player
 /// session nor an unexempted operator is the handler's problem, not the
 /// limiter's: it answers with the refusal its own route already gives.
-fn bucketed(headers: &HeaderMap, state: &crate::ApiState) -> Option<Uuid> {
+fn bucketed(
+    headers: &HeaderMap,
+    state: &crate::ApiState,
+    remote: Option<SocketAddr>,
+) -> Option<Uuid> {
     if auth_headers(headers) != 1 {
         return None;
     }
-    if let Ok(claims) = session_claims(headers, state) {
+    if let Ok(claims) = session_claims(headers, &state.plane()) {
         return claims.uuid().ok();
     }
     if state.control.quotas.exempt_console {
         return None;
     }
-    console_claims(headers).ok()?.uuid()
+    console_claims(headers, &state.plane(), remote).ok()?.uuid()
+}
+
+/// Paths whose handler runs Argon2 (or an equivalent password check) per call.
+/// Each attempt is expensive for the server and silent for the attacker, so
+/// they draw from a tighter per-address bucket than the rest of the plane.
+fn password_path(path: &str) -> bool {
+    path.starts_with("/v1/account/authenticate") || path.starts_with("/v1/console/authenticate")
+}
+
+/// Matchmake routes charge the same per-address bucket inside
+/// `MatchmakeService::reserve` (direct callers and the seat tests rely on it).
+/// Charging here too would take two tokens per HTTP join, so the outer bucket
+/// leaves these to the service.
+fn matchmake_path(path: &str) -> bool {
+    path.starts_with("/matchmake/") || path.starts_with("/api/matchmake/")
+}
+
+/// Paths that take work from a player. Health, readyz, status, dashboard and
+/// statics stay reachable while the host is still booting or draining, so an
+/// operator can see *why* the server is not taking joins.
+fn work_path(path: &str) -> bool {
+    path.starts_with("/matchmake/")
+        || path.starts_with("/api/matchmake/")
+        || path.starts_with("/queue/")
+        || path.starts_with("/api/queue/")
+        || path == "/ws"
+        || path == "/ws/signal"
+}
+
+/// Don't accept work until start-up is complete, and stop accepting it once a
+/// drain begins. This is the application-level version of a readiness gate:
+/// bind early, serve probes, but fail joins fast with a retryable 503 instead
+/// of queueing them behind a booting/draining host.
+pub async fn lifecycle_gate(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if !work_path(request.uri().path()) {
+        return next.run(request).await;
+    }
+    if let Some(manager) = crate::app::state::lifecycle::manager()
+        && !manager.is_serving()
+    {
+        let phase = manager.phase();
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            [(axum::http::header::RETRY_AFTER, "1")],
+            axum::body::Body::from(format!("server is {}; retry shortly", phase.as_str())),
+        )
+            .into_response();
+    }
+    next.run(request).await
+}
+
+/// The outer per-address bucket, applied to every route before any other
+/// check: unauthenticated traffic has no account to bucket, so the source
+/// address is the only thing the limiter can charge. The general plane bucket
+/// is the operator's configured `rate_limit_rps`/`rate_limit_burst`; the
+/// password routes above draw from a much tighter one.
+pub async fn ip_rate_limit(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let state = crate::current_state();
+    let Some(remote) = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|connect| connect.0)
+    else {
+        return next.run(request).await;
+    };
+    let ip = remote.ip();
+    let path = request.uri().path();
+    if matchmake_path(path) {
+        return next.run(request).await;
+    }
+    if password_path(path) {
+        if !state.limiter.allow_auth(ip) {
+            let secs = state.limiter.retry_after_auth(ip).max(1);
+            return V2Error::resource_exhausted(
+                "Too many sign-in attempts from this address; slow down.",
+            )
+            .with_retry_after(secs)
+            .into_response();
+        }
+        return next.run(request).await;
+    }
+    if !state.limiter.allow(ip) {
+        let secs = state.limiter.retry_after(ip).max(1);
+        return V2Error::resource_exhausted("This address is asking too quickly.")
+            .with_retry_after(secs)
+            .into_response();
+    }
+    next.run(request).await
 }
 
 /// The per-account request bucket, applied to the whole plane instead of to the
 /// expensive handlers one by one. Off with the quotas.
 pub async fn player_rate_limit(
-    request: axum::extract::Request,
+    mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let state = crate::current_state();
     if !state.control.quotas.enabled {
         return next.run(request).await;
     }
-    if let Some(refusal) = rate_refusal(&state, request.headers()) {
+    // One verification per request: the claims the bucket decision needed are
+    // stashed here so the `Authed` extractor does not verify the token again.
+    let claims = session_claims(request.headers(), &state.plane()).ok();
+    if let Some(claims) = claims.clone() {
+        request.extensions_mut().insert(Authed(claims));
+    }
+    if let Some(refusal) = rate_refusal(&state, request.headers(), claims.as_ref()) {
         return refusal.into_response();
     }
     next.run(request).await
 }
 
 /// `None` means the request goes through — either it has tokens left or it is
-/// not the limiter's to judge.
-fn rate_refusal(state: &crate::ApiState, headers: &HeaderMap) -> Option<V2Error> {
-    let uid = bucketed(headers, state)?;
-    let mut limiter = state.limiter.lock().ok()?;
-    if limiter.allow_player(uid) {
+/// not the limiter's to judge. `verified` carries the session claims already
+/// checked by `player_rate_limit`, if any.
+fn rate_refusal(
+    state: &crate::ApiState,
+    headers: &HeaderMap,
+    verified: Option<&crate::infra::jwt::Claims>,
+) -> Option<V2Error> {
+    let uid = match verified.and_then(|claims| claims.uuid().ok()) {
+        Some(uid) => Some(uid),
+        None => bucketed(headers, state, crate::current_remote()),
+    };
+    let uid = uid?;
+    if state.limiter.allow_player(uid) {
         return None;
     }
-    let secs = limiter.retry_after_player(uid).max(1);
+    let secs = state.limiter.retry_after_player(uid).max(1);
     Some(V2Error::resource_exhausted("This account is asking too quickly.").with_retry_after(secs))
 }
 
@@ -233,10 +400,242 @@ pub async fn request_id(
             .and_then(|v| v.to_str().ok()),
     )
     .unwrap_or_else(|| Uuid::new_v4().to_string());
-    let span = tracing::info_span!("http", request_id = %id, method = %request.method());
-    let mut response = next.run(request).instrument(span).await;
+    let route = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|path| path.as_str().to_string());
+    let span = tracing::info_span!(
+        "http",
+        request_id = %id,
+        method = %request.method(),
+        http.route = tracing::field::Empty,
+        http.status_code = tracing::field::Empty,
+    );
+    if let Some(route) = route {
+        span.record("http.route", route.as_str());
+    }
+    let mut response = next.run(request).instrument(span.clone()).await;
+    span.record("http.status_code", response.status().as_u16());
     if let Ok(value) = axum::http::HeaderValue::from_str(&id) {
         response.headers_mut().insert(REQUEST_ID_HEADER, value);
     }
     response
+}
+
+/// Header the client sets to make one write safe to retry, and the header the
+/// server uses to say "this is the answer you already got".
+pub const IDEMPOTENCY_HEADER: &str = "idempotency-key";
+pub const REPLAYED_HEADER: &str = "idempotency-replayed";
+
+/// The deterministic row id a keyed write must land on, so a retry that races
+/// the first attempt still writes one row. A handler that mints its own id reads
+/// this instead of `Uuid::new_v4()`.
+#[derive(Debug, Clone, Copy)]
+pub struct IdempotentUuid(pub Uuid);
+
+/// Largest body the middleware will hold in memory to hash and to store. A
+/// bigger body passes through untouched: buffering a 200 MB upload to protect a
+/// retry nobody will make is the wrong trade.
+fn idempotency_limit() -> usize {
+    crate::infra::liveops::config().idempotency_max_body_bytes
+}
+
+/// A method that changes state, and so a method a retry can duplicate.
+fn idempotent_method(method: &axum::http::Method) -> bool {
+    use axum::http::Method;
+    matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    )
+}
+
+/// Routes that must never be buffered: multipart uploads (the body is the
+/// payload, not a document), socket upgrades and the dashboard's live feed (the
+/// reply is a stream, so there is nothing to replay).
+///
+/// The two console mounts take the upload at their root as well as at `/upload`,
+/// so the path is not enough on its own — `idempotency` also refuses to read a
+/// `multipart/form-data` body, which is the property that actually matters.
+fn idempotency_exempt(path: &str) -> bool {
+    path.ends_with("/upload")
+        || path.ends_with("/wasm")
+        || path.ends_with("/maps")
+        || path == "/ws"
+        || path.starts_with("/ws/")
+        || path.starts_with("/dashboard")
+        || path.starts_with("/api/dashboard")
+        || path.starts_with("/auto")
+}
+
+/// Who this key belongs to. A key is scoped per actor, so two players that both
+/// pick `retry-1` never collide.
+fn idempotency_actor(parts: &Parts, state: &crate::ApiState) -> String {
+    if let Some(authed) = parts.extensions.get::<Authed>()
+        && let Ok(uid) = authed.0.uuid()
+    {
+        return format!("user:{uid}");
+    }
+    if let Ok(claims) = session_claims(&parts.headers, &state.plane())
+        && let Ok(uid) = claims.uuid()
+    {
+        return format!("user:{uid}");
+    }
+    if let Ok(claims) = console_claims(&parts.headers, &state.plane(), remote_addr(parts)) {
+        return format!("console:{}", claims.id);
+    }
+    match remote_addr(parts) {
+        Some(addr) => format!("ip:{}", addr.ip()),
+        None => "anonymous".to_owned(),
+    }
+}
+
+/// The stored answer, put back on the wire with the status it was born with.
+pub(crate) fn replay_response(
+    stored: crate::services::idempotency::Stored,
+) -> axum::response::Response {
+    use axum::http::StatusCode;
+    let status = StatusCode::from_u16(stored.status).unwrap_or(StatusCode::OK);
+    let body = if stored.raw.is_empty() {
+        axum::body::Body::empty()
+    } else {
+        axum::body::Body::from(stored.raw)
+    };
+    let mut response = axum::response::Response::builder()
+        .status(status)
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .header(REPLAYED_HEADER, "true")
+        .body(body)
+        .expect("a replayable response has static headers");
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+
+/// Only a success is frozen under the key. A refusal means the request did not
+/// change anything, and the world it was refused against can change — a board
+/// created, an account topped up — so the key is released and the next attempt
+/// really runs instead of replaying a stale "no".
+fn storable_status(status: axum::http::StatusCode) -> bool {
+    status.is_success()
+}
+
+/// `Idempotency-Key` as a plane-wide concern instead of a per-handler ritual.
+///
+/// A write that carries the header is claimed before it runs, its reply is
+/// stored, and a retry with the same key gets that exact reply back — status
+/// included — without a second side effect. Without the header nothing changes:
+/// the request is not even read into memory.
+pub async fn idempotency(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::body::Body;
+    let state = crate::current_state();
+    if !idempotent_method(request.method()) || idempotency_exempt(request.uri().path()) {
+        return next.run(request).await;
+    }
+    if !request.headers().contains_key(IDEMPOTENCY_HEADER) {
+        return next.run(request).await;
+    }
+    // A multipart body is a stream of file parts, not a document: hashing and
+    // replaying it would mean holding the whole payload in memory.
+    let multipart = request
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("multipart/"));
+    if multipart {
+        return next.run(request).await;
+    }
+
+    let limit = idempotency_limit();
+    let (parts, body) = request.into_parts();
+    let bytes = match axum::body::to_bytes(body, limit).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return V2Error::invalid_argument(format!(
+                "A request with an Idempotency-Key may not exceed {limit} bytes."
+            ))
+            .into_response();
+        }
+    };
+    let scope = {
+        let path = parts
+            .extensions
+            .get::<axum::extract::MatchedPath>()
+            .map(|path| path.as_str())
+            .unwrap_or_else(|| parts.uri.path());
+        format!("{} {path}", parts.method)
+    };
+    let actor = idempotency_actor(&parts, &state);
+    let digest = {
+        use sha2::{Digest as _, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        hex::encode(hasher.finalize())
+    };
+
+    let mut claim = match crate::services::idempotency::begin(
+        &state.plane(),
+        &parts.headers,
+        &scope,
+        &actor,
+        &[&digest],
+    )
+    .await
+    {
+        Ok(claim) => claim,
+        Err(err) => return err.into_response(),
+    };
+    if let Some(stored) = claim.replayed() {
+        return replay_response(stored);
+    }
+
+    let operation = claim.operation_uuid();
+    let mut request = axum::extract::Request::from_parts(parts, Body::from(bytes));
+    if let Some(uuid) = operation {
+        request.extensions_mut().insert(IdempotentUuid(uuid));
+    }
+    let response = next.run(request).await;
+
+    // Only a buffered JSON reply can be stored. A stream, or a body larger than
+    // the ceiling, releases the key so a later retry is a real attempt rather
+    // than a replay of something we never captured.
+    let (parts, body) = response.into_parts();
+    let json = parts
+        .headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("application/json"));
+    // `size_hint` is exact for the buffered bodies `Json` produces and unknown
+    // for a stream, so a stream falls through to the release path instead of
+    // being truncated by the collection limit.
+    let small = {
+        use axum::body::HttpBody as _;
+        body.size_hint()
+            .upper()
+            .is_none_or(|upper| upper <= limit as u64)
+    };
+
+    if json && small && storable_status(parts.status) {
+        match axum::body::to_bytes(body, limit).await {
+            Ok(bytes) => {
+                let stored = crate::services::idempotency::Stored {
+                    status: parts.status.as_u16(),
+                    raw: String::from_utf8_lossy(&bytes).into_owned(),
+                };
+                claim.settle(Some(stored)).await;
+                axum::response::Response::from_parts(parts, Body::from(bytes))
+            }
+            Err(_) => {
+                claim.settle(None).await;
+                axum::response::Response::from_parts(parts, Body::empty())
+            }
+        }
+    } else {
+        claim.settle(None).await;
+        axum::response::Response::from_parts(parts, body)
+    }
 }

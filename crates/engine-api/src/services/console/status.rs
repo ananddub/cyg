@@ -1,15 +1,13 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::dto::console::status::{RouteRow, StatusResponse};
 use crate::error::V2Error;
-use crate::services::deps::q;
 
 const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
 
 impl super::ConsoleService {
-    pub async fn status(&self, state: &ApiState) -> Result<Json<StatusResponse>, V2Error> {
-        let (accounts, console_users, database) = match q(state).await {
+    pub async fn status(&self) -> Result<Json<StatusResponse>, V2Error> {
+        let (accounts, console_users, database) = match self.plane.q().await {
             Ok(queries) => (
                 queries.count_accounts().await.unwrap_or(0),
                 queries.count_console_users().await.unwrap_or(0),
@@ -17,13 +15,13 @@ impl super::ConsoleService {
             ),
             Err(_) => (0, 0, false),
         };
-        let control = &state.control;
+        let control = &self.plane.control;
 
         Ok(Json(StatusResponse {
-            name: state.game.name.clone(),
+            name: self.plane.game.name.clone(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
-            api_port: state.port,
-            uptime_secs: state.started.elapsed().as_secs() as i64,
+            api_port: self.plane.port,
+            uptime_secs: self.plane.started.elapsed().as_secs() as i64,
             database,
             accounts,
             console_users,

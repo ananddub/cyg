@@ -11,7 +11,7 @@ const VALID: &str = r#"{"id":"weekly-arena","title":"Weekly","duration":3600}"#;
 fn a_tournament_write_needs_a_console_token() {
     let server = V2Server::start(v2_state());
 
-    let reply = server.post("/v2/console/tournament", None, VALID);
+    let reply = server.post("/v1/console/tournament", None, VALID);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token required");
 
     let body = reply.json();
@@ -28,27 +28,27 @@ fn a_read_only_operator_cannot_write_boards_or_delete_rows() {
     for (method, path, body) in [
         (
             "POST",
-            "/v2/console/tournament".to_owned(),
+            "/v1/console/tournament".to_owned(),
             VALID.to_owned(),
         ),
         (
             "PUT",
-            "/v2/console/tournament/weekly-arena".to_owned(),
+            "/v1/console/tournament/weekly-arena".to_owned(),
             VALID.to_owned(),
         ),
         (
             "DELETE",
-            "/v2/console/tournament/weekly-arena".to_owned(),
+            "/v1/console/tournament/weekly-arena".to_owned(),
             String::new(),
         ),
         (
             "DELETE",
-            format!("/v2/console/leaderboard/{id}"),
+            format!("/v1/console/leaderboard/{id}"),
             String::new(),
         ),
         (
             "DELETE",
-            format!("/v2/console/notification/{id}"),
+            format!("/v1/console/notification/{id}"),
             String::new(),
         ),
     ] {
@@ -66,14 +66,14 @@ fn a_bad_tournament_definition_is_refused_before_the_database() {
     let server = V2Server::start(v2_state());
     let auth = token_for(ConsoleRole::Maintainer);
 
-    let reply = server.post("/v2/console/tournament", Some(&auth), "{}");
+    let reply = server.post("/v1/console/tournament", Some(&auth), "{}");
     assert_eq!(
         reply.refusal(INVALID_ARGUMENT),
         "Tournament ID must be provided."
     );
 
     let reply = server.post(
-        "/v2/console/tournament",
+        "/v1/console/tournament",
         Some(&auth),
         r#"{"id":"weekly-arena"}"#,
     );
@@ -83,7 +83,7 @@ fn a_bad_tournament_definition_is_refused_before_the_database() {
     );
 
     let reply = server.post(
-        "/v2/console/tournament",
+        "/v1/console/tournament",
         Some(&auth),
         r#"{"id":"weekly-arena","duration":60,"reset_schedule":"not a cron"}"#,
     );
@@ -103,27 +103,27 @@ fn a_write_role_passes_the_board_gates_and_reaches_the_database() {
     for (method, path, body) in [
         (
             "POST",
-            "/v2/console/tournament".to_owned(),
+            "/v1/console/tournament".to_owned(),
             VALID.to_owned(),
         ),
         (
             "PUT",
-            "/v2/console/tournament/weekly-arena".to_owned(),
+            "/v1/console/tournament/weekly-arena".to_owned(),
             VALID.to_owned(),
         ),
         (
             "DELETE",
-            "/v2/console/tournament/weekly-arena".to_owned(),
+            "/v1/console/tournament/weekly-arena".to_owned(),
             String::new(),
         ),
         (
             "DELETE",
-            "/v2/console/leaderboard/weekly-arena".to_owned(),
+            "/v1/console/leaderboard/weekly-arena".to_owned(),
             String::new(),
         ),
         (
             "DELETE",
-            format!("/v2/console/notification/{id}"),
+            format!("/v1/console/notification/{id}"),
             String::new(),
         ),
     ] {

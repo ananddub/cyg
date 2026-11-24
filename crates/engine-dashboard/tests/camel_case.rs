@@ -47,5 +47,4 @@ fn every_contract_struct_serialises_camel_case() {
     camel("ClientRow", &ClientRow::default());
     camel("TickSeries", &TickSeries::default());
     camel("TickPoint", &TickPoint::default());
-
 }

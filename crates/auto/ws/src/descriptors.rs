@@ -21,7 +21,6 @@ pub struct SocketRegistrar {
 }
 
 impl SocketRegistrar {
-
     pub fn merge(&mut self, other: SocketRegistrar) {
         self.events.extend(other.events);
         self.connects.extend(other.connects);

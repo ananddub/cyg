@@ -11,10 +11,14 @@ or the Rust suites. This file is the contract for what "SDK complete" means.
 | Matchmake (joinOrCreate/join/joinSpectator/reconnect) | WS lane HTTP + control plane | seat JSON: sessionId, reconnectionToken, gamePort, udpPort |
 | Room socket (state, schema descriptor, patches) | WS lane / WebRTC DataChannel / native UDP | WS = proto 14/15/17, WebRTC = lane-classified |
 | Input + reconciliation ack | all lanes | 23B mesh frame; acked seq echoed in delta tail |
-| Schema state decode (OXS2 world kind 3/4) | all lanes | descriptor = cyg.schema.bin (served on upgrade) |
+| Schema state decode (packed OXS2 kinds 5-8) | all lanes | descriptor = cyg.schema.bin (served on upgrade) |
+| Volatile fields (`.unreliable()`) | WebRTC reliable + lossy / UDP / WS ordered fallback | reliable patch strips marked fields; volatile-only `0xA6` patch has its own newest-tick gate |
 | Typed app messages (`send`/`onMessage`) | all lanes | `[0x05][type_len][type][payload]` |
 | Events (reliable ordered) | WebRTC reliable lane + WS | 15B event frame |
 | Batched inputs | WebRTC/UDP | OP_INPUT_BATCH 0x26 |
+| Server input timeline | guest SDK | accepted `__input` frames copied to `this.inputs` before `onInputFrame` |
+| Client prediction / reconcile | guest wasm exports | `attachPredict` + `input.tick`; acked seq echoes in delta tail |
+| Time-based rewind | host rewind ABI | `recordAt`/`atMs` linear interpolation, tick `at` stays step-exact |
 | Clock sync / server tick | delta tail (tick) + PING 18 | |
 | Reconnection (seat hold + signed token) | control plane + WS retained map | |
 | Stale-socket takeover | host Connected duplicate branch | |
@@ -30,6 +34,8 @@ or the Rust suites. This file is the contract for what "SDK complete" means.
 | Matchmake + room socket | ✅ tested | ✅ tested (live e2e) | ⚠️ live e2e built, blocked on server UDP-join deny | ✅ implemented (16.6k-line plugin: CYGClient, CookYourGame editor module, profiler, resilience cookies) |
 | Schema decode (OXS2) | ✅ tested | ✅ tested (decoder + e2e) | ❌ untested | ⚠️ |
 | Input + acks | ✅ tested | ✅ e2e | ❌ | ⚠️ |
+| Prediction/reconcile + input timeline | ✅ tested | ⚠️ exports present, wiring untested | ❌ | ❌ |
+| Time-based rewind | ✅ tested | ✅ units | ❌ | ❌ |
 | App messages | ✅ tested | ⚠️ unit only | ❌ | ⚠️ |
 | Events | ✅ | ⚠️ unit only | ❌ | ⚠️ |
 | WebRTC DataChannel lane | ✅ tested (loss/chaos suites) | ➖ WS-only (no GDExtension WebRTC assumed) | ❌ | ❌ |
@@ -42,7 +48,7 @@ or the Rust suites. This file is the contract for what "SDK complete" means.
 
 1. **Server WS lane feature depth**: events + reconnection + batched inputs
    over the WS lane reuse the rtc framing on the wire, but no automated test
-   drives them through `ws_port` yet (only state/input/leave are pinned).
+   drives them through the WebSocket lane yet (only state/input/leave are pinned).
 2. **Unity/C# runtime**: decoder contract tests green (12 checks, zero-dep
    `dotnet run`). The live native-UDP flow is built (CYG_E2E_ORIGIN env) and
    has already fixed three SDK bugs (seat host default, udpPort vs gamePort

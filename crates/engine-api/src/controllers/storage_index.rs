@@ -17,44 +17,38 @@ struct StorageIndexController {
     service: Arc<StorageService>,
 }
 
-#[controller("/v2/storage/index")]
+#[controller("/v1/storage/index")]
 impl StorageIndexController {
     fn new(service: Arc<StorageService>) -> Self {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::storage_index::StorageIndexDef)]
     async fn create_index(
         &self,
         auth: Authed,
         Json(body): JsonBody<CreateIndexRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .create_index(&state, &auth, body)
-            .await
-            .into_response()
+        self.service.create_index(&auth, body).await.into_response()
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::storage_index::StorageIndexDefinitions)]
     async fn list_indexes(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .list_indexes(&state, &auth)
-            .await
-            .into_response()
+        self.service.list_indexes(&auth).await.into_response()
     }
 
-    #[delete("/{name}")]
+    #[delete("/{name}", response_body = crate::dto::Empty)]
     async fn delete_index(&self, auth: Authed, Path(name): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .delete_index(&state, &auth, &name)
+            .delete_index(&auth, &name)
             .await
             .into_response()
     }
 
-    #[post("/{name}/query")]
+    #[post("/{name}/query", response_body = crate::dto::storage_index::StorageIndexList)]
     async fn query_index(
         &self,
         auth: Authed,
@@ -63,7 +57,7 @@ impl StorageIndexController {
     ) -> Response {
         let state = current_state();
         self.service
-            .query_index(&state, &auth, &name, body)
+            .query_index(&auth, &name, body)
             .await
             .into_response()
     }

@@ -23,7 +23,7 @@ pub async fn quest_lifecycle(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/console/quests", env.base))
+            .post(format!("{}/v1/console/quests", env.base))
             .bearer_auth(console)
             .json(&definition)
             .send()

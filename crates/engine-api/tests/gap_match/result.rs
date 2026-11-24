@@ -18,7 +18,7 @@ pub async fn result_surface(
 ) {
     subscribe(env, console).await;
     let match_id = seat_match(&[seat(host), seat(away)]);
-    let route = format!("{}/v2/match/{match_id}/result", env.base);
+    let route = format!("{}/v1/match/{match_id}/result", env.base);
 
     refusals(env, &route, host, outsider).await;
 
@@ -197,7 +197,7 @@ async fn refusals(env: &Harness, route: &str, host: &Player, outsider: &Player) 
         .unwrap();
     refusal(wrong_key, StatusCode::UNAUTHORIZED, "a bad server key").await;
 
-    let unknown = format!("{}/v2/match/{}/result", env.base, Uuid::new_v4());
+    let unknown = format!("{}/v1/match/{}/result", env.base, Uuid::new_v4());
     assert_eq!(
         refusal(
             post_result(env, &unknown, &body, None).await,
@@ -209,7 +209,7 @@ async fn refusals(env: &Harness, route: &str, host: &Player, outsider: &Player) 
         "an id that was never seated"
     );
 
-    let not_a_uuid = format!("{}/v2/match/yesterday/result", env.base);
+    let not_a_uuid = format!("{}/v1/match/yesterday/result", env.base);
     refusal(
         post_result(env, &not_a_uuid, &body, None).await,
         StatusCode::NOT_FOUND,
@@ -233,7 +233,7 @@ async fn refusals(env: &Harness, route: &str, host: &Player, outsider: &Player) 
     assert_counter(env, outsider, "wins", None).await;
 
     let alone = seat_match(&[seat(host)]);
-    let alone_route = format!("{}/v2/match/{alone}/result", env.base);
+    let alone_route = format!("{}/v1/match/{alone}/result", env.base);
     let twice = json!({
         "participants": [
             { "user_id": host.uid, "score": 1 },
@@ -381,7 +381,7 @@ async fn post_result(env: &Harness, route: &str, body: &Value, key: Option<&str>
 async fn subscribe(env: &Harness, console: &str) {
     json_body(
         env.client
-            .post(format!("{}/v2/console/webhooks", env.base))
+            .post(format!("{}/v1/console/webhooks", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "label": "match results",

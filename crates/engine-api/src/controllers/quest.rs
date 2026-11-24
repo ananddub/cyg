@@ -14,28 +14,22 @@ struct QuestController {
     service: Arc<QuestService>,
 }
 
-#[controller("/v2/quest")]
+#[controller("/v1/quest")]
 impl QuestController {
     fn new(service: Arc<QuestService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::quest::QuestListResponse)]
     async fn list(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .list_quests(&state, &auth)
-            .await
-            .into_response()
+        self.service.list_quests(&auth).await.into_response()
     }
 
-    #[post("/claim")]
+    #[post("/claim", response_body = crate::dto::quest::QuestClaimResponse)]
     async fn claim(&self, auth: Authed, Json(body): JsonBody<ClaimQuestRequest>) -> Response {
         let state = current_state();
-        self.service
-            .claim_quest(&state, &auth, body)
-            .await
-            .into_response()
+        self.service.claim_quest(&auth, body).await.into_response()
     }
 }
 
@@ -43,18 +37,15 @@ struct DailyController {
     service: Arc<QuestService>,
 }
 
-#[controller("/v2/account/daily")]
+#[controller("/v1/account/daily")]
 impl DailyController {
     fn new(service: Arc<QuestService>) -> Self {
         Self { service }
     }
 
-    #[post("/claim")]
+    #[post("/claim", response_body = crate::dto::quest::DailyClaimResponse)]
     async fn claim(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .claim_daily(&state, &auth)
-            .await
-            .into_response()
+        self.service.claim_daily(&auth).await.into_response()
     }
 }

@@ -16,13 +16,13 @@ struct ConsoleTimelineController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/timeline")]
+#[controller("/v1/console/timeline")]
 impl ConsoleTimelineController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("/{accountId}")]
+    #[get("/{accountId}", response_body = crate::dto::console::timeline::TimelinePage)]
     async fn feed(
         &self,
         _auth: ConsoleAuthed,
@@ -34,7 +34,7 @@ impl ConsoleTimelineController {
             return V2Error::invalid_argument("That account id is not a UUID.").into_response();
         };
         self.service
-            .player_timeline(&state, account_id, query)
+            .player_timeline(account_id, query)
             .await
             .into_response()
     }

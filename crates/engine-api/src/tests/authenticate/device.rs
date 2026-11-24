@@ -9,7 +9,7 @@ fn the_device_id_is_validated_before_the_username_it_might_create() {
     let key = server_key();
     let authenticate = |body: &str, query: &str| {
         server.post(
-            &format!("/v2/account/authenticate/device{query}"),
+            &format!("/v1/account/authenticate/device{query}"),
             Some(&key),
             body,
         )

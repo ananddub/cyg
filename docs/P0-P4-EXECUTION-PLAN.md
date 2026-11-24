@@ -17,7 +17,7 @@ that talk over an in-process message bus:
 
 | Crate | Role |
 |---|---|
-| `crates/engine-api` | Axum HTTP/WS control plane. PlayFab-shaped `/v2/*` player API plus a `/console` operator API. Owns SurrealDB. |
+| `crates/engine-api` | Axum HTTP/WS control plane. PlayFab-shaped `/v1/*` player API plus a `/console` operator API. Owns SurrealDB. |
 | `crates/engine-server` | The authoritative host loop: rooms, ticks, rollback, snapshots, UDP/WebRTC/QUIC netcode. |
 | `crates/engine-control` | Boots the runtime, binds the HTTP listener, spawns the host, signal handling, Agones integration. |
 | `crates/engine-net` | Transport layer (WS/UDP/QUIC/WebRTC), greeting, origin policy. |
@@ -136,7 +136,7 @@ service, e.g. `V2Error::failed_precondition("A currency balance cannot go negati
 
 ### 0.6 Adding a route (the smallest copyable chain)
 
-`controllers/notification.rs:18-29` (`#[controller("/v2/notification")]` +
+`controllers/notification.rs:18-29` (`#[controller("/v1/notification")]` +
 `#[get("")]` + `Params(req): Params<ListQuery>`) →
 `services/notification.rs:34-60` (`#[singleton]` service, `q(state).await?`) →
 `repositories/notification/queries.rs:110` (`list_notifications_paged`).
@@ -205,7 +205,7 @@ Current state, verified:
 - `SocialConfig` exists at `crates/engine-config/src/social.rs:11` with
   `*_configured()` (`:52-66`) and `allow_unverified` (`:30`), mounted at
   `crates/engine-config/src/control.rs:19`. TOML `[control.social]` parsing and
-  `OX_SOCIAL_*` env vars are already written
+  `CYG_SOCIAL_*` env vars are already written
   (`parse/toml.rs`, `parse/flat.rs`, `parse/mod.rs:164-202`).
 - Repository layer is **already complete** — no DB work needed:
   `repositories/auth/queries.rs` has `get_user_by_{google,apple,facebook,steam}_id`
@@ -237,7 +237,7 @@ Work to do:
    2. Empty-token refusal for the token providers, message
       `"{Label} access token is required."` from `Kind::label()`
       (`Facebook`/`Google`). Keep Apple/Steam checking configuration **first**:
-      `POST /v2/account/authenticate/apple` with `{}` must yield
+      `POST /v1/account/authenticate/apple` with `{}` must yield
       `"Apple authentication is not configured."` (400), not the empty-token
       message.
    3. `verify::profile(&state.control.social, kind, token).await?` — with the
@@ -312,12 +312,12 @@ Work:
    `details`, `path` (optional — message/channel/storage key), `status`
    (`open|actioned|dismissed`), `create_time`, `update_time`, index on
    `reported_id` and on `status`.
-2. Player API `POST /v2/reports` (or `POST /v2/account/report`, pick one and add
-   it to `tests/auto_routes/...:27-48`) behind `Authed`; `GET /v2/reports` list
+2. Player API `POST /v1/reports` (or `POST /v1/account/report`, pick one and add
+   it to `tests/auto_routes/...:27-48`) behind `Authed`; `GET /v1/reports` list
    for operators behind `ConsoleAuthed` + `require_write()`;
    `PATCH` status transition behind `ConsoleAuthed` + `require_write()`.
 3. Run `moderation::sanitize_json` on **all** free-text ingress, not just channel
-   messages: account `PUT /v2/account` display name
+   messages: account `PUT /v1/account` display name
    (`controllers/account.rs:35`), user metadata, storage values, inventory
    display strings, guild/group names (`services/group/*`), and every signup
    path — call `moderation::is_valid_username` from
@@ -359,11 +359,11 @@ Work:
 2. Add session revocation + kick to `services/account/delete.rs`
    (`state.sessions.remove_all(uid)`, `kick_user`) — a deleted account must not
    keep a live JWT session.
-3. New player route `GET /v2/account/export` behind `Authed`, returning the same
+3. New player route `GET /v1/account/export` behind `Authed`, returning the same
    record families as `AccountExport` **plus** purchases, subscriptions,
    inventory items, leaderboard records, group memberships, notifications, and
    messages in both directions. Reuse the queries; do not fork the DTO.
-4. New operator route `POST /v2/account/delete` behind
+4. New operator route `POST /v1/account/delete` behind
    `server_key_or_console` for service-driven erasure (same service function).
 5. Tests: extend `tests/gap_http/player_surface.rs:196-215` (which already
    asserts `rows == 0` for the account row and a `user_tombstone` count) to assert
@@ -373,7 +373,7 @@ Work:
 
 ### 2.4 P0 residual audit (small, one commit)
 
-- Confirm no remaining `/v2/*` write is behind only `Params` with no extractor;
+- Confirm no remaining `/v1/*` write is behind only `Params` with no extractor;
   grep `controllers/` for `#[post(` and list the routes that still take neither
   `Authed`, `server_key`, `server_key_or_console` nor `ConsoleAuthed`, then fix
   or document each. `GET /status` stays open by design (`controllers/status.rs:15`);
@@ -397,7 +397,7 @@ In the host loop `crates/engine-server/src/host.rs` (`run()` at `:518`, main
 tick `:1950-1974`) the timers are literals:
 `room.reap_check(Duration::from_secs(30))` at **`:1943`**, UDP peer idle
 **3000 ms at `:2292`**, pinned-plane UDP idle **10 s at `plane/udp.rs:59`**,
-`OX_TICK_HZ` default 128 at `plane/udp.rs:142`. `room_max_seconds`,
+`CYG_TICK_HZ` default 128 at `plane/udp.rs:142`. `room_max_seconds`,
 `reap_idle_secs`, `hibernate`, `persistent_rooms` do not exist.
 
 Work:
@@ -409,8 +409,8 @@ Work:
    Clamp in `Default`/parse (`max_rooms`-style): values must be sane, not panic.
 2. Parse them: `crates/engine-config/src/parse/toml.rs` `[game]` block,
    `parse/flat.rs` flat keys, `parse/mod.rs` env loop
-   (`OX_ROOM_MAX_SECONDS`, `OX_REAP_IDLE_SECS`, `OX_PEER_IDLE_MS`,
-   `OX_SEAT_HOLD_SECS`, `OX_PERSISTENT_ROOMS` comma-split).
+   (`CYG_ROOM_MAX_SECONDS`, `CYG_REAP_IDLE_SECS`, `CYG_PEER_IDLE_MS`,
+   `CYG_SEAT_HOLD_SECS`, `CYG_PERSISTENT_ROOMS` comma-split).
 3. Replace the literals `host.rs:1943` and `host.rs:2292`
    (`plane/udp.rs:59`) with config reads. Keep the 1 s telemetry publish (`:2325`)
    and 500 ms wasm hot-reload (`:2385`) as they are.
@@ -472,7 +472,7 @@ Work:
    (`rooms.rs:2282`) fall back to `load_room_snapshot` on a cold start.
 3. Add `room_registry` table (§0.5): `room_id`, `node_id`, `game_id`, `state`,
    `peers`, `tick`, `snapshot_seq`, `update_time`; writer = host via the same bus
-   path, reader = `/v2/match` and the console. Handoff = "registry row exists for
+   path, reader = `/v1/match` and the console. Handoff = "registry row exists for
    another node" ⇒ refuse local create, redirect/attach via the existing seat
    ticket machinery (`crates/engine-api/src/infra/seats/{registry.rs:9 HmacSha256, verify.rs}`).
 4. Tests: unit round-trip for the wire types; `crates/engine-api/tests/` gap test
@@ -502,7 +502,7 @@ Work:
    (§0.5): `id, room, game_id, event, player_id, payload, tick, create_time`,
    indexed on `(room, create_time)`. Retention: `event_ttl_days` config, sweeper
    in the same housekeeping pass as §3.1.
-4. Expose `GET /v2/match/{id}/events` behind `Authed` (participant-scoped) and
+4. Expose `GET /v1/match/{id}/events` behind `Authed` (participant-scoped) and
    console list behind `ConsoleAuthed`.
 5. Tests: bus round-trip unit test; `crates/engine-server/tests/host_services_test.rs`
    for allowlist filtering + backpressure (bounded queue drops, tick continues);
@@ -616,9 +616,9 @@ Work:
    `export_snapshot` (`host.rs:2311-2320`) through the §3.4 bus path — do not
    open a DB handle in the host.
 3. Replay artifact = last `snapshot_bytes` + the room's `gameplay_event` rows.
-   Serve `GET /v2/match/{id}/history` (`Authed`, participant-scoped) and
+   Serve `GET /v1/match/{id}/history` (`Authed`, participant-scoped) and
    `GET /console/match/{id}/replay` (`ConsoleAuthed`); keep the existing
-   `GET /v2/match` (`controllers/match.rs:21`) semantics unchanged.
+   `GET /v1/match` (`controllers/match.rs:21`) semantics unchanged.
 4. Retention config `match_history_ttl_days`; sweeper in the §3.1 pass.
 5. Tests: `crates/engine-server/tests/host_services_test.rs` for the end-reason
    mapping; API gap test for both read paths and participant scoping.
@@ -677,7 +677,7 @@ Work:
 3. Progress ingest: consume `SimEvent`s from §3.4 (event name → stat counter),
    which is why 4.2 follows 3.4. Update `player_quest.progress`, mark complete,
    grant rewards through the **idempotent** path from 4.1.
-4. Daily rewards: `POST /v2/account/daily/claim` behind `Authed`, gated on
+4. Daily rewards: `POST /v1/account/daily/claim` behind `Authed`, gated on
    UTC-day boundary stored on the user; second claim in the same day refuses.
 5. Tests: quest lifecycle from event → progress → claim → reward, daily claim
    idempotency across a day boundary, season window gating (outside window =
@@ -694,9 +694,9 @@ Work:
    simultaneously debits the seller/bettors and holds into a system wallet, with
    the negative-balance guard; settlement is a second transaction (release /
    split), refund is a third. Never two separate round trips.
-3. Routes `POST /v2/marketplace/listings`, `POST /v2/marketplace/listings/{id}/buy`,
-   `POST /v2/marketplace/listings/{id}/cancel`, `POST /v2/wager/create`,
-   `POST /v2/wager/{id}/settle` (server key only — a player must never settle).
+3. Routes `POST /v1/marketplace/listings`, `POST /v1/marketplace/listings/{id}/buy`,
+   `POST /v1/marketplace/listings/{id}/cancel`, `POST /v1/wager/create`,
+   `POST /v1/wager/{id}/settle` (server key only — a player must never settle).
 4. Validate the item belongs to the seller (`player_inventory_item` owner column)
    before listing; move ownership inside the same transaction.
 5. Tests: escrow debit+hold atomicity (injected failure leaves no half-state),
@@ -719,7 +719,7 @@ Work:
 2. Gate entitlements on it: currency grants from subscription products, premium
    inventory slots, and any season/quest track unlocked by a subscription. Refuse
    with `V2Error::failed_precondition` and a stable message.
-3. Add `GET /v2/iap/subscription/active` (`Authed`) returning the effective
+3. Add `GET /v1/iap/subscription/active` (`Authed`) returning the effective
    entitlement set.
 4. Re-verify with the §"Pattern A" IAP path when a subscription is older than
    `revalidation_days` (do not call Google/Apple on every read).
@@ -756,7 +756,7 @@ Work:
 
 ### 4.6 Match results, stats and badges
 
-1. `POST /v2/match/{id}/result` behind **server key only** (host reports outcome);
+1. `POST /v1/match/{id}/result` behind **server key only** (host reports outcome);
    validate participants against the §3.3 registry row before writing.
 2. Upsert `player_stat` counters (4.2) and `leaderboard_record` in one
    transaction; derive badges from `player_stat` thresholds via a new
@@ -801,7 +801,7 @@ Facts: none exist. Nearest analogue is global key/value `Setting`
    (`user_id, flag_key, variant`) for allowlists.
 2. Deterministic assignment: `hash(flag_key + salt + user_id) % 100 <
    rollout_percent`; stable across requests; document the exact formula.
-3. `GET /v2/flags` (`Authed`) returns the resolved set; a server-side resolver
+3. `GET /v1/flags` (`Authed`) returns the resolved set; a server-side resolver
    `flags::is_on(state, uid, key) -> bool` for gating inside other services
    (matchmaking pools, quest visibility, webhook events).
 4. Operator CRUD behind `ConsoleAuthed` + `require_write()`, with `require_admin()`
@@ -830,7 +830,7 @@ Work:
    `V2Error::unavailable` (helper already exists:
    `crates/engine-api/src/error/v2.rs unavailable(...)`), driven by config
    presence exactly like Pattern A.
-3. Email: one SMTP client (explicit `OX_EMAIL_*` config, STARTTLS/implicit TLS via
+3. Email: one SMTP client (explicit `CYG_EMAIL_*` config, STARTTLS/implicit TLS via
    the existing rustls stack), templates as data not code, unsubscribe token in
    the footer verified with HMAC (reuse the seats signing pattern).
 4. Respect `verify_time`/`disable_time` and the GDPR erase from §2.3 (deleted
@@ -916,16 +916,21 @@ Work:
    histogram for tick duration sourced from the existing `tick_histogram`.
    Keep `/metrics` behind `server_key_or_console`.
 2. Structured logs: switch the fmt layer to a JSON target when
-   `OX_LOG_FORMAT=json`, keep `compact` as default, and propagate a
+   `CYG_LOG_FORMAT=json`, keep `compact` as default, and propagate a
    `trace_id`/`request_id` field per request (new small middleware in
    `src/app/middleware.rs`). That request id doubles as the idempotency
    correlation key in §4.1.
 3. `docs/` dashboards: Prometheus scrape config + a minimal Grafana/JSON panel
    set for the gauges above; alert rules for tick p99 budget, desync rate, webhook
    dead-letter growth, snapshot failures.
-4. Only if the budget check passes (record the `cargo tree` + image-size delta in
-   the PR description) consider the `tracing-opentelemetry` bridge with an OTLP
-   exporter behind a cargo feature, off by default.
+4. Shipped as an opt-in feature: `tracing-opentelemetry` 0.34 +
+   `opentelemetry-otlp` 0.33 (OTLP/HTTP + protobuf, `reqwest-blocking-client`,
+   no tonic) behind `--features otel`, inert unless
+   `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Dependency delta measured with
+   `cargo tree -e normal`: **+12 crates / +0 build deps**, no OpenSSL. The
+   default build links none of it. See `src/telemetry.rs` and the
+   "OpenTelemetry traces" section in `docs/MONITORING.md`; re-measure the
+   release-binary/image delta before turning it on in a manifest.
 5. Tests: `/metrics` output still parses (assert the `# TYPE` lines and one new
    counter), JSON log mode emits `trace_id`, missing request id is generated.
 
@@ -934,7 +939,7 @@ Work:
 Facts: `docker-compose.yml` runs `surrealdb/surrealdb:latest` (port 8000,
 volume `./data`) + `server` built from `fedora:latest` exposing **19224**
 HTTP/WS/dashboard and **7977/7778/7978** UDP, env
-`OX_ALLOW_DEFAULT_SECRETS=1`, `RUST_LOG`, `GAME_DIR`, `SURREAL_*`, bind mount
+`CYG_ALLOW_DEFAULT_SECRETS=1`, `RUST_LOG`, `GAME_DIR`, `SURREAL_*`, bind mount
 `.:/app`, entrypoint `deploy/entrypoint.sh`. `deploy/Dockerfile` is
 `fedora:latest`, non-root uid 10001, copies `target/release/cyg-gaming`,
 `HEALTHCHECK curl http://127.0.0.1:7777/health`, `EXPOSE 7777/8090/7778-79`.
@@ -951,7 +956,7 @@ the Agones *runtime* integration (sidecar SDK client on `:9358`) already exists
    control plane, `service` + `ingress` with TLS, `pdb`, `NetworkPolicy`,
    `surrealdb` StatefulSet with a `VolumeClaimTemplate`, and `podMonitor`.
 2. Agones `Fleet`/`GameServer` + `GameServerAllocation` for the host pods, wired
-   to the existing `OX_AGONES` (`crates/engine-config/src/parse/mod.rs:56`) code
+   to the existing `CYG_AGONES` (`crates/engine-config/src/parse/mod.rs:56`) code
    path and the §3.7 drain.
 3. Probes: `/health` already exists (`controllers/health.rs:13`, static
    `controllers/static_routes.rs:22`, used by the Docker healthcheck). Add
@@ -960,7 +965,7 @@ the Agones *runtime* integration (sidecar SDK client on `:9358`) already exists
    UDP ports need `hostPort`/`direct` Agones ports.
 4. `deploy/helm/` optional but keep the raw manifests working without it.
 5. Note for review: the compose `server` currently sets
-   `OX_ALLOW_DEFAULT_SECRETS=1`. Every manifest must set it to `0`/omit it, since
+   `CYG_ALLOW_DEFAULT_SECRETS=1`. Every manifest must set it to `0`/omit it, since
    `refuse_default_secrets()` (`crates/engine-control/src/run.rs:106`) is the
    guard that blocks weak session signing/refresh/server key, seat secret, console
    password and remote DB password.
@@ -990,38 +995,38 @@ a `release.yml` that used to exist). No `rustfmt.toml`, no `clippy.toml`;
 ### 5.6 Secret rotation
 
 Facts: env is read once at boot; no vault, no rotation. Recognized `OX_*` vars
-(`crates/engine-config/src/parse/mod.rs` unless noted): `OX_SEAT_SECRET` (`:51`),
-`OX_AGONES` (`:56`), `OX_BLOBS` (`:68`), `OX_DB_MEMTABLE_MIB` (`:82`),
-`OX_DB_CACHE_MIB` (`:85`), `OX_DATABASE_URL` (`:95`, also `DATABASE_URL`),
-`OX_SIGNING_KEY` (`:105`), `OX_REFRESH_SIGNING_KEY` (`:107`), `OX_SERVER_KEY`
-(`:110`), `OX_CONSOLE_USERNAME` (`:119`), `OX_CONSOLE_PASSWORD` (`:120`),
-`OX_CONSOLE_SIGNING_KEY` (`:122`), `OX_CONSOLE_TOKEN_EXPIRES_SEC` (`:132`),
-`OX_IAP_APPLE_SHARED_SECRET/VERIFY_URL/SANDBOX_URL` (`:139-141`),
-`OX_IAP_GOOGLE_SERVICE_ACCOUNT/PACKAGE_NAME/TOKEN_URL/API_BASE` (`:143-151`),
-`OX_IAP_ALLOW_UNVERIFIED` (`:159`), `OX_SOCIAL_GOOGLE_TOKENINFO_URL` (`:164`),
-`OX_SOCIAL_APPLE_CLIENT_ID/KEYS_URL` (`:167-168`),
-`OX_SOCIAL_FACEBOOK_APP_ID/APP_SECRET/GRAPH_URL` (`:170-178`),
-`OX_SOCIAL_STEAM_WEB_API_KEY/API_URL` (`:182-185`),
-`OX_SOCIAL_GOOGLE_CLIENT_IDS` (`:193`), `OX_SOCIAL_STEAM_APP_ID` (`:196`),
-`OX_SOCIAL_ALLOW_UNVERIFIED` (`:202`); plus `OX_ALLOW_DEFAULT_SECRETS`
-(`engine-control/src/run.rs:104`), `OX_PLANES/SIM_CORE/UDP_ADDR/TICK_HZ/WASM_PATH/
-ROOM/MAX_PLAYERS` (`engine-server/src/plane/mod.rs:32-63`), `OX_MESSAGES`
-(`engine-server/src/rooms.rs:69`), `OX_DASHBOARD_DIST`
+(`crates/engine-config/src/parse/mod.rs` unless noted): `CYG_SEAT_SECRET` (`:51`),
+`CYG_AGONES` (`:56`), `CYG_BLOBS` (`:68`), `CYG_DB_MEMTABLE_MIB` (`:82`),
+`CYG_DB_CACHE_MIB` (`:85`), `CYG_DATABASE_URL` (`:95`, also `DATABASE_URL`),
+`CYG_SIGNING_KEY` (`:105`), `CYG_REFRESH_SIGNING_KEY` (`:107`), `CYG_SERVER_KEY`
+(`:110`), `CYG_CONSOLE_USERNAME` (`:119`), `CYG_CONSOLE_PASSWORD` (`:120`),
+`CYG_CONSOLE_SIGNING_KEY` (`:122`), `CYG_CONSOLE_TOKEN_EXPIRES_SEC` (`:132`),
+`CYG_IAP_APPLE_SHARED_SECRET/VERIFY_URL/SANDBOX_URL` (`:139-141`),
+`CYG_IAP_GOOGLE_SERVICE_ACCOUNT/PACKAGE_NAME/TOKEN_URL/API_BASE` (`:143-151`),
+`CYG_IAP_ALLOW_UNVERIFIED` (`:159`), `CYG_SOCIAL_GOOGLE_TOKENINFO_URL` (`:164`),
+`CYG_SOCIAL_APPLE_CLIENT_ID/KEYS_URL` (`:167-168`),
+`CYG_SOCIAL_FACEBOOK_APP_ID/APP_SECRET/GRAPH_URL` (`:170-178`),
+`CYG_SOCIAL_STEAM_WEB_API_KEY/API_URL` (`:182-185`),
+`CYG_SOCIAL_GOOGLE_CLIENT_IDS` (`:193`), `CYG_SOCIAL_STEAM_APP_ID` (`:196`),
+`CYG_SOCIAL_ALLOW_UNVERIFIED` (`:202`); plus `CYG_ALLOW_DEFAULT_SECRETS`
+(`engine-control/src/run.rs:104`), `CYG_PLANES/SIM_CORE/UDP_ADDR/TICK_HZ/WASM_PATH/
+ROOM/MAX_PLAYERS` (`engine-server/src/plane/mod.rs:32-63`), `CYG_MESSAGES`
+(`engine-server/src/rooms.rs:69`), `CYG_DASHBOARD_DIST`
 (`engine-api/src/utils/dashboard/*`), `SURREAL_ENDPOINT/NS/DB/USER/PASS`
 (`parse/mod.rs:62-67`). `ConsoleUser.mfa_secret`/`mfa_recovery_codes` are b64
 fields (`repositories/models/console_acl_template.rs:53-55`).
 
-1. Accept **keyed** secrets for the signing pairs: `OX_SIGNING_KEY_ID` +
-   `OX_SIGNING_KEY`, and let verification accept the previous key id for one
+1. Accept **keyed** secrets for the signing pairs: `CYG_SIGNING_KEY_ID` +
+   `CYG_SIGNING_KEY`, and let verification accept the previous key id for one
    token TTL window (dual-key rotation, no mass logout). Same for
-   `OX_SERVER_KEY` and `OX_SEAT_SECRET` (seat HMAC
+   `CYG_SERVER_KEY` and `CYG_SEAT_SECRET` (seat HMAC
    `infra/seats/registry.rs:9`).
 2. Document the runbook in `docs/`: generate new key → deploy with both → drain →
    retire old; per-secret blast radius; who may read each; k8s `Secret` versioning
    from §5.4.
 3. `cyg-gaming doctor` (`src/main.rs:79,112`) gains checks: secret length/entropy
    (mirror `refuse_default_secrets` rules, `run.rs:106`), dual-key overlap
-   configured, `OX_IAP_ALLOW_UNVERIFIED`/`OX_SOCIAL_ALLOW_UNVERIFIED` **set to
+   configured, `CYG_IAP_ALLOW_UNVERIFIED`/`CYG_SOCIAL_ALLOW_UNVERIFIED` **set to
    anything but false ⇒ fail** with the reason (rule 3).
 4. Tests: a token minted with key id A verifies during the A+B window and fails
    after B-only; doctor fails on `allow_unverified=true`.
@@ -1152,6 +1157,13 @@ with an existing `--check` parity flag (`src/main.rs:324`).
 4. Tests: evaluator truth tables per operator; publish/rollback switches
    `is_active`; a rules body that is not valid is refused at write time with the
    exact field error.
+5. Enforcement point: a tournament carries an optional `rule_key`
+   (`leaderboard.rule_key`, console `TournamentWriteRequest.rule_key`). Player
+   `POST /v1/tournament/{id}/join` and score writes load the active rule and
+   evaluate it against the player's `player_stat` map before entering or
+   writing; an unpublished, invalid, or unmet rule refuses the call (fail
+   closed) instead of silently opening the round. Omitting `rule_key` on a
+   console update keeps the stored rule; an empty string clears it.
 
 ### 6.7 Config versioning and diff/rollback UI
 
@@ -1222,7 +1234,7 @@ numeric code (`INVALID_ARGUMENT`=400, `UNAUTHENTICATED`=401, `FAILED_PRECONDITIO
 Server key / authenticate surface (`tests/gap_player/provider_auth_surface.rs`,
 `src/tests/authenticate/social.rs`):
 
-- `"Server key required"` (401) — every `/v2/account/authenticate*` verb without
+- `"Server key required"` (401) — every `/v1/account/authenticate*` verb without
   a Basic key.
 - `"Server key invalid"` (401) — wrong key.
 - `"Apple authentication is not configured."` (400) and
@@ -1281,7 +1293,7 @@ Dashboard / console (`tests/gap_edge/dashboard_api.rs`,
 Delete / GDPR (`tests/gap_http/player_surface.rs:196-215`,
 `tests/rest_e2e/account_surface.rs:411-442`):
 
-- `DELETE /v2/account` must leave the account row count at `0` and produce
+- `DELETE /v1/account` must leave the account row count at `0` and produce
   exactly `1` `user_tombstone` row (`assert_eq!(tombstoned, 1)`). §2.3 keeps
   these true while covering more tables.
 

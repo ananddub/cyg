@@ -86,3 +86,27 @@ fn arbitrary_payload_sizes_are_reliable_and_oversize_is_refused() {
     assert_eq!(lane.counts().rejected, 2);
     assert_eq!(lane.inflight(), 7);
 }
+
+#[test]
+fn a_retransmit_halves_the_congestion_window() {
+    let mut lane = ReliableLane::new();
+    assert_eq!(lane.cwnd(), MAX_INFLIGHT_EVENTS);
+    for seq in 0..8u16 {
+        lane.queue(seq, wire(seq), 0).unwrap();
+    }
+    lane.pump(0, |_| true);
+    assert_eq!(lane.cwnd(), MAX_INFLIGHT_EVENTS, "first send is not loss");
+    lane.pump(200, |_| true); // RTO has elapsed, so every entry is resent
+    assert_eq!(lane.cwnd(), MAX_INFLIGHT_EVENTS / 2);
+
+    for seq in 8..(MAX_INFLIGHT_EVENTS as u16 / 2) {
+        lane.queue(seq, wire(seq), 200).unwrap();
+    }
+    assert_eq!(
+        lane.queue(MAX_INFLIGHT_EVENTS as u16 / 2, wire(0), 200),
+        Err(QueueError::WindowFull {
+            inflight: MAX_INFLIGHT_EVENTS / 2
+        }),
+        "the reduced window is enforced"
+    );
+}

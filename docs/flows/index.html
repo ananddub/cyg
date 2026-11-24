@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CYG Game Flows</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --panel: #ffffff;
+    --text: #1d2330;
+    --muted: #5d6678;
+    --line: #dde2ec;
+    --accent: #4f46e5;
+    --accent-soft: #eef0ff;
+    --warn: #fff7e0;
+    --warn-line: #e8c869;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    background: rgba(246,247,251,.92);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 24px;
+    display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+  }
+  header b { color: var(--accent); }
+  nav { display: flex; gap: 12px; flex-wrap: wrap; }
+  nav a { color: var(--muted); text-decoration: none; font-size: 14px; }
+  nav a:hover { color: var(--accent); }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
+  section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 24px; margin: 0 0 26px; box-shadow: 0 8px 24px rgba(24,32,54,.04);
+  }
+  h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -.02em; }
+  h2 { margin: 0 0 8px; font-size: 22px; letter-spacing: -.01em; }
+  h3 { margin: 22px 0 8px; font-size: 17px; }
+  p.lead { color: var(--muted); margin: 0 0 18px; }
+  img { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+  .scroll { overflow-x: auto; }
+  .scroll img { min-width: 900px; }
+  .note {
+    background: var(--warn); border: 1px solid var(--warn-line);
+    border-radius: 12px; padding: 14px 16px; margin: 16px 0;
+  }
+  .tip {
+    background: var(--accent-soft); border: 1px solid #c9cdfa;
+    border-radius: 12px; padding: 14px 16px; margin: 16px 0;
+  }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: #eceff6; padding: 1px 6px; border-radius: 6px; font-size: .92em; }
+  pre {
+    background: #121724; color: #e6e9f4; padding: 16px; border-radius: 12px;
+    overflow: auto; font-size: 13px; line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 9px 10px; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: #fbfcff; }
+  .card b { display: block; margin-bottom: 4px; }
+  .small { font-size: 14px; color: var(--muted); }
+  .badge { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <b>CYG Game Flows</b>
+  <nav>
+    <a href="#overview">Overview</a>
+    <a href="#match">Match</a>
+    <a href="#quest">Quest</a>
+    <a href="#tournament">Tournament</a>
+    <a href="#states">States</a>
+    <a href="#who">Kaun kya bhejta hai</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Normal match, quest aur tournament — kaise chalte hain</h1>
+  <p class="lead">Har diagram ke saath Hinglish explanation. Golden rule: client progress/score khud nahi badhata — game server server-key se bhejta hai.</p>
+
+  <div class="note"><b>Ek line me:</b> client seat leta hai aur room me khelta hai; quests events se progress karte hain; tournament ek time-window wala leaderboard hai jisme client join karke score likhta hai.</div>
+
+  <section id="overview">
+    <h2>1. Overview — kaun kis se baat karta hai</h2>
+    <img src="overview.svg" alt="Overview diagram" />
+    <div class="grid" style="margin-top:16px">
+      <div class="card"><b>1 · login</b>Player token leta hai.</div>
+      <div class="card"><b>2 · matchmake / list / claim / score</b>Saari player HTTP calls.</div>
+      <div class="card"><b>3 · seat ticket</b>Control plane seat JSON deta hai.</div>
+      <div class="card"><b>4 · state / input</b>Client room se realtime baat karta hai.</div>
+      <div class="card"><b>5 · events / results</b>Room ya game server counters bhejta hai.</div>
+    </div>
+    <div class="tip"><b>Yaad rakho:</b> matchmaking sirf seat deta hai. Asli khel room ke andar chalta hai.</div>
+  </section>
+
+  <section id="match">
+    <h2>2. Normal match</h2>
+    <div class="scroll"><img src="match.svg" alt="Match flow" /></div>
+
+    <h3>Steps</h3>
+    <ol>
+      <li><b>Login</b> → <code>POST /v1/account/authenticate/device</code> → token.</li>
+      <li><b>Matchmaking</b> → <code>POST /matchmake/joinOrCreate/tank-3d</code> with <code>{ name, skin }</code>.</li>
+      <li><b>Seat JSON</b> → <code>sessionId</code>, <code>reconnectionToken</code>, <code>gamePort</code>, <code>iceServers</code>.</li>
+      <li><b>Connect</b> → <code>wss://host/ws/signal?seat=token</code> (WebRTC) ya WebSocket fallback.</li>
+      <li><b>Room</b> → <code>onJoin</code>, schema, state snapshot, input + state delta.</li>
+      <li><b>Match end</b> → room/host <code>POST /v1/events</code> ya <code>POST /v1/match/{id}/result</code> server-key se.</li>
+    </ol>
+
+    <pre><code>const room = await client.joinOrCreate("tank-3d", {
+  name: "miya",
+  skin: "ninja"
+});
+
+room.onStateChange((state) => draw(state));
+room.onMessage("chat", (msg) => {});
+room.sendInput({ moveX: 1, jump: false });</code></pre>
+
+    <table>
+      <tr><th>Method</th><th>Kaam</th></tr>
+      <tr><td><code>joinOrCreate</code></td><td>room hai to join, nahi hai to banao</td></tr>
+      <tr><td><code>join</code></td><td>sirf existing room</td></tr>
+      <tr><td><code>create</code></td><td>naya room</td></tr>
+      <tr><td><code>joinById</code></td><td>room id se join</td></tr>
+      <tr><td><code>spectate</code></td><td>bina khele dekhna</td></tr>
+      <tr><td><code>reconnect</code></td><td>purani seat wapas</td></tr>
+    </table>
+
+    <div class="note"><b>Server key</b> player token nahi hota: <code>Authorization: Basic base64("&lt;server-key&gt;:")</code></div>
+  </section>
+
+  <section id="quest">
+    <h2>3. Quest</h2>
+    <div class="scroll"><img src="quest.svg" alt="Quest flow" /></div>
+
+    <h3>Flow</h3>
+    <pre><code>operator → POST /v1/console/quests     (definition)
+server   → POST /v1/events             (counter +1)
+client   → GET  /v1/quest              (list + progress)
+client   → POST /v1/quest/claim        (reward)</code></pre>
+
+    <h3>Definition (operator)</h3>
+    <pre><code>POST /v1/console/quests
+{
+  "quest_key": "win-3",
+  "title": "Win 3 matches",
+  "goal_kind": "wins",
+  "goal_amount": 3,
+  "reward": {
+    "currency": { "gold": 50 },
+    "items": [{ "item_id": "medal", "quantity": 2 }]
+  }
+}</code></pre>
+    <p><code>goal_kind</code> = counter ka naam. Event ka <code>name</code> isi se match karna chahiye.</p>
+
+    <h3>Progress (game server)</h3>
+    <pre><code>POST /v1/events
+Authorization: Basic base64("&lt;server-key&gt;:")
+
+{ "events": [
+  { "user_id": "&lt;player-uuid&gt;", "name": "wins", "value": 1 }
+]}</code></pre>
+    <p>Server <code>player_stat</code> counter badhata hai, <code>player_quest</code> re-project karta hai, aur goal cross hone par <code>quest.completed</code> webhook bhejta hai.</p>
+
+    <div class="tip"><b>Room mirrored events:</b> sirf config me listed events +1 dete hain:<br><code>[gameplay] record_events = ["kill", "win", "match_end"]</code></div>
+
+    <h3>List + progress</h3>
+    <pre><code>GET /v1/quest
+
+{ "quests": [{
+  "quest_key": "win-3",
+  "goal_kind": "wins",
+  "goal_amount": 3,
+  "progress": 1,
+  "state": "in_progress",
+  "reward": { "currency": { "gold": 50 } }
+}]}</code></pre>
+
+    <h3>Claim</h3>
+    <pre><code>POST /v1/quest/claim
+{ "quest_key": "win-3" }</code></pre>
+    <p>Server pehle quest row flip karta hai, phir reward deta hai — isliye double claim refuse hota hai.</p>
+
+    <div class="note">Quest caveats: window + season gating, <code>requires_product</code> IAP check, quest chains/auto-claim abhi nahi, season <code>reward_track</code> auto-paid nahi.</div>
+  </section>
+
+  <section id="tournament">
+    <h2>4. Tournament</h2>
+    <div class="scroll"><img src="tournament.svg" alt="Tournament flow" /></div>
+
+    <p>Tournament = time-window wala leaderboard. Bracket/knockout system nahi hai.</p>
+
+    <h3>Operator create</h3>
+    <pre><code>POST /v1/console/tournament
+{
+  "id": "weekend-cup",
+  "title": "Weekend Cup",
+  "duration": 3600,
+  "start_time": "2026-11-04T18:00:00Z",
+  "join_required": true,
+  "max_size": 1000,
+  "max_num_score": 20,
+  "authoritative": false,
+  "rule_key": "ranked-eligibility"
+}</code></pre>
+
+    <table>
+      <tr><th>Field</th><th>Matlab</th></tr>
+      <tr><td><code>duration</code></td><td>round kitne seconds</td></tr>
+      <tr><td><code>start_time</code> / <code>end_time</code></td><td>window</td></tr>
+      <tr><td><code>join_required</code></td><td>pehle join zaroori?</td></tr>
+      <tr><td><code>max_size</code></td><td>kitne players</td></tr>
+      <tr><td><code>max_num_score</code></td><td>kitne score attempts</td></tr>
+      <tr><td><code>authoritative</code></td><td>sirf server-key writes</td></tr>
+      <tr><td><code>rule_key</code></td><td>eligibility rule</td></tr>
+    </table>
+
+    <h3>Client flow</h3>
+    <pre><code>GET  /v1/tournament                     → tournaments[] + cursor
+POST /v1/tournament/weekend-cup/join    → eligibility check
+POST /v1/tournament/weekend-cup         → { score, subscore, operator }
+GET  /v1/tournament/weekend-cup         → records[] sorted
+GET  /v1/tournament/weekend-cup/owner/&lt;uid&gt;
+DELETE /v1/tournament/weekend-cup       → apna record</code></pre>
+
+    <h3>Operators</h3>
+    <table>
+      <tr><th>operator</th><th>Matlab</th></tr>
+      <tr><td>1 / best</td><td>best score rakho</td></tr>
+      <tr><td>2 / set</td><td>replace karo</td></tr>
+      <tr><td>3 / increment</td><td>add karo</td></tr>
+      <tr><td>4 / decrement</td><td>subtract karo</td></tr>
+    </table>
+
+    <div class="tip"><b>Rule gating:</b> <code>rule_key</code> set ho to join aur score dono par active rule <code>player_stat</code> ke against evaluate hota hai. Rule unpublished/unmet → 400, fail closed.</div>
+    <div class="note"><b>Authoritative board:</b> player token se write → 403. Sirf game server/server-key lane se score.</div>
+  </section>
+
+  <section id="states">
+    <h2>5. State machines</h2>
+    <div class="grid">
+      <div>
+        <h3>Quest</h3>
+        <img src="quest-state.svg" alt="Quest state machine" />
+      </div>
+      <div>
+        <h3>Tournament</h3>
+        <img src="tournament-state.svg" alt="Tournament state machine" />
+      </div>
+    </div>
+  </section>
+
+  <section id="who">
+    <h2>6. Kaun kya bhejta hai</h2>
+    <table>
+      <tr><th>Kaun</th><th>Auth</th><th>Kya kar sakta hai</th></tr>
+      <tr>
+        <td>Player client</td>
+        <td><code>Bearer &lt;player-token&gt;</code></td>
+        <td>matchmake, quest list/claim, tournament list/join/score (non-authoritative), apna record delete</td>
+      </tr>
+      <tr>
+        <td>Game server</td>
+        <td><code>Basic base64("&lt;server-key&gt;:")</code></td>
+        <td><code>POST /v1/events</code>, authoritative results, authoritative board writes</td>
+      </tr>
+      <tr>
+        <td>Console operator</td>
+        <td><code>Bearer &lt;console-token&gt;</code></td>
+        <td>quest/season/rules/tournament definitions, audit, rooms</td>
+      </tr>
+    </table>
+
+    <h3>Listing cheat sheet</h3>
+    <table>
+      <tr><th>Kya list karna</th><th>Endpoint</th></tr>
+      <tr><td>Live rooms</td><td><code>GET /api/rooms</code></td></tr>
+      <tr><td>Realtime match sessions</td><td><code>GET /v1/match</code></td></tr>
+      <tr><td>Quests + progress</td><td><code>GET /v1/quest</code></td></tr>
+      <tr><td>Tournaments</td><td><code>GET /v1/tournament</code></td></tr>
+      <tr><td>Tournament leaderboard</td><td><code>GET /v1/tournament/{id}</code></td></tr>
+      <tr><td>Apne aas-paas standing</td><td><code>GET /v1/tournament/{id}/owner/{uid}</code></td></tr>
+      <tr><td>Match history</td><td><code>GET /v1/match/{id}/history</code></td></tr>
+    </table>
+  </section>
+</main>
+</body>
+</html>

@@ -1,13 +1,11 @@
 use axum::Json;
 use serde_json::json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::group::JoinGroupEdgeParams;
-use crate::services::deps::q;
 use crate::services::social;
 use crate::utils::group::{ROLE_ADMIN, ROLE_MEMBER, group_id};
 use crate::utils::guards::require_role;
@@ -21,13 +19,13 @@ use super::users::resolve_users;
 impl GroupMemberService {
     pub async fn add_group_users(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         raw_id: String,
         req: UsersQuery,
     ) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let group = fetch_group(&queries, gid).await?;
         require_role(&queries, auth.0.uuid()?, gid, ROLE_ADMIN).await?;
         if req.user_ids.is_none() {
@@ -65,7 +63,7 @@ impl GroupMemberService {
                 })
                 .await?;
             social::notify_with(
-                state,
+                &self.plane,
                 target,
                 auth.0.uuid()?,
                 format!("You've been added to group {}", group.name),

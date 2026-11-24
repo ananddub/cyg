@@ -5,6 +5,7 @@ Server se BAAT karne ka tarika: connect (WebRTC DataChannel), input bhejo,
 server ke state deltas ko decode karke game render karo.
   - web: openoxide-client.js (build se aata hai, /openoxide.js URL pe serve hota hai)
   - unity/ unreal/ godot/ native/ — har engine ka apna transport + helpers
+    (state decode hamesha shared core: `cyg-core-rs`; koi doosra OXS2 decoder nahi)
 
 ## sdk/server/ — GAME DEV ke paas (room logic likhne ka SDK)
 Tenant apna game logic likhta hai — engine sab expose karti hai:
@@ -27,7 +28,7 @@ Each SDK also lives in its own repository for registry publishing
 | Unity | github.com/ananddub/cyg-unity | UPM: `https://github.com/ananddub/cyg-unity.git` |
 | Godot | github.com/ananddub/cyg-godot | copy `addons/cyg/` into your project |
 | Unreal | github.com/ananddub/cyg-unreal | plugin folder |
-| C++ / Lua | github.com/ananddub/cyg-native | headers/sources |
+| C++ | github.com/ananddub/cyg-native | header-only typed rows (`cyg_schema_runtime.hpp`); state decode via `libcyg_core_rs` |
 | Web (cyg.js) | github.com/ananddub/cyg-web | `npm install cyg-client` — the server also serves it at `/cyg.js` |
 
 The copies in `sdk/client/` are the development sources; releases to the

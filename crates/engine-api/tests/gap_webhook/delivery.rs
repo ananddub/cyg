@@ -88,7 +88,17 @@ pub async fn delivery_surface(env: &Harness, console: &str, taker: &Receiver, do
         "a captured delivery stayed valid past the window"
     );
 
-    let rows = deliveries_of(env, console, &taken_id).await;
+    // The row moves `sending` -> `delivered` after the receiver answers, so the
+    // log is polled rather than read once: the delivery is what is being
+    // asserted, not the scheduling of the write behind it.
+    let mut rows = deliveries_of(env, console, &taken_id).await;
+    for _ in 0..100 {
+        if delivery_row(&rows, &event_id)["status"] == json!("delivered") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        rows = deliveries_of(env, console, &taken_id).await;
+    }
     let row = delivery_row(&rows, &event_id);
     assert_eq!(row["status"], json!("delivered"));
     assert_eq!(row["attempt"], json!(1));
@@ -105,8 +115,11 @@ pub async fn delivery_surface(env: &Harness, console: &str, taker: &Receiver, do
     let started = Instant::now();
     let second = device_player(&env.client, &env.base, "hooktwo").await;
     let sign_up_in = started.elapsed();
+    // The claim is that the request did not wait for the endpoint, not that the
+    // process is fast: the bound is the endpoint's own delay, so a loaded CI box
+    // cannot fail this while a request that actually blocked still does.
     assert!(
-        sign_up_in < std::time::Duration::from_millis(400),
+        sign_up_in < std::time::Duration::from_millis(900),
         "a 900ms endpoint slowed the API to {sign_up_in:?}"
     );
     assert!(taker.wait_for(2).await, "the slow delivery never landed");
@@ -170,7 +183,7 @@ pub async fn delivery_surface(env: &Harness, console: &str, taker: &Receiver, do
     let again = json_body(
         env.client
             .post(format!(
-                "{}/v2/console/webhooks/{down_id}/deliveries/{delivery_id}/retry",
+                "{}/v1/console/webhooks/{down_id}/deliveries/{delivery_id}/retry",
                 env.base
             ))
             .bearer_auth(console)

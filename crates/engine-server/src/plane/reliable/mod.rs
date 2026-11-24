@@ -1,11 +1,14 @@
+mod congestion;
 mod consts;
 mod error;
 mod lane;
 mod pump;
 
+pub use congestion::Congestion;
 pub use consts::EVENT_LIFETIME;
 pub use consts::INITIAL_RTO;
 pub use consts::MAX_BACKOFF_SHIFT;
+pub use consts::MAX_CWND_BYTES;
 pub use consts::MAX_EVENT_BYTES;
 pub use consts::MAX_INFLIGHT_EVENTS;
 pub use consts::MAX_RELIABLE_BYTES;

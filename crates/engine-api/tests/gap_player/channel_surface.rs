@@ -9,7 +9,7 @@ pub async fn channel_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/channel/2", env.base))
+                .get(format!("{}/v1/channel/2", env.base))
                 .bearer_auth(&author.token)
                 .send()
                 .await
@@ -24,13 +24,13 @@ pub async fn channel_surface(env: &Harness) {
     let room = format!("2...e2e-gap-room-{}", letters_suffix());
     let empty = json_body(
         env.client
-            .get(format!("{}/v2/channel/{room}", env.base))
+            .get(format!("{}/v1/channel/{room}", env.base))
             .bearer_auth(&author.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/channel/{channelId} (empty room)",
+        "GET /v1/channel/{channelId} (empty room)",
     )
     .await;
     assert_eq!(
@@ -41,7 +41,7 @@ pub async fn channel_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/channel/{room}/message", env.base))
+                .post(format!("{}/v1/channel/{room}/message", env.base))
                 .bearer_auth(&author.token)
                 .json(&json!({ "content": "hello" }))
                 .send()
@@ -55,14 +55,14 @@ pub async fn channel_surface(env: &Harness) {
     );
     let sent = json_body(
         env.client
-            .post(format!("{}/v2/channel/{room}/message", env.base))
+            .post(format!("{}/v1/channel/{room}/message", env.base))
             .bearer_auth(&author.token)
             .json(&json!({ "content": { "text": "gap first line" } }))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/channel/{channelId}/message",
+        "POST /v1/channel/{channelId}/message",
     )
     .await;
     assert_eq!(sent["channel_id"], room);
@@ -76,7 +76,7 @@ pub async fn channel_surface(env: &Harness) {
     let message_id = sent["message_id"].as_str().expect("message id").to_owned();
     json_body(
         env.client
-            .post(format!("{}/v2/channel/{room}/message", env.base))
+            .post(format!("{}/v1/channel/{room}/message", env.base))
             .bearer_auth(&author.token)
             .json(&json!({ "content": { "text": "gap second line" } }))
             .send()
@@ -89,13 +89,13 @@ pub async fn channel_surface(env: &Harness) {
 
     let head = json_body(
         env.client
-            .get(format!("{}/v2/channel/{room}?limit=10", env.base))
+            .get(format!("{}/v1/channel/{room}?limit=10", env.base))
             .bearer_auth(&author.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/channel/{channelId}?limit=10",
+        "GET /v1/channel/{channelId}?limit=10",
     )
     .await;
     let rows = head["messages"].as_array().expect("a page").clone();
@@ -105,11 +105,11 @@ pub async fn channel_surface(env: &Harness) {
         json!({ "text": "gap first line" }),
         "forward reads oldest first"
     );
-    assert!(head["cacheable_cursor"].is_string());
+    assert!(head["cacheablePageToken"].is_string());
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/channel/{room}?limit=0", env.base))
+                .get(format!("{}/v1/channel/{room}?limit=0", env.base))
                 .bearer_auth(&author.token)
                 .send()
                 .await
@@ -124,7 +124,7 @@ pub async fn channel_surface(env: &Harness) {
         refusal(
             env.client
                 .get(format!(
-                    "{}/v2/channel/{room}?cursor=not-a-cursor",
+                    "{}/v1/channel/{room}?cursor=not-a-cursor",
                     env.base
                 ))
                 .bearer_auth(&author.token)
@@ -141,7 +141,7 @@ pub async fn channel_surface(env: &Harness) {
     let edited = json_body(
         env.client
             .put(format!(
-                "{}/v2/channel/{room}/message/{message_id}",
+                "{}/v1/channel/{room}/message/{message_id}",
                 env.base
             ))
             .bearer_auth(&author.token)
@@ -150,7 +150,7 @@ pub async fn channel_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/channel/{channelId}/message/{messageId}",
+        "PUT /v1/channel/{channelId}/message/{messageId}",
     )
     .await;
     assert_eq!(
@@ -161,7 +161,7 @@ pub async fn channel_surface(env: &Harness) {
         refusal(
             env.client
                 .put(format!(
-                    "{}/v2/channel/{room}/message/{message_id}",
+                    "{}/v1/channel/{room}/message/{message_id}",
                     env.base
                 ))
                 .bearer_auth(&mate.token)
@@ -178,7 +178,7 @@ pub async fn channel_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .put(format!("{}/v2/channel/{room}/message/not-a-uuid", env.base))
+                .put(format!("{}/v1/channel/{room}/message/not-a-uuid", env.base))
                 .bearer_auth(&author.token)
                 .json(&json!({ "content": { "text": "?" } }))
                 .send()
@@ -194,7 +194,7 @@ pub async fn channel_surface(env: &Harness) {
     let tomb = json_body(
         env.client
             .delete(format!(
-                "{}/v2/channel/{room}/message/{message_id}",
+                "{}/v1/channel/{room}/message/{message_id}",
                 env.base
             ))
             .bearer_auth(&author.token)
@@ -202,7 +202,7 @@ pub async fn channel_surface(env: &Harness) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/channel/{channelId}/message/{messageId}",
+        "DELETE /v1/channel/{channelId}/message/{messageId}",
     )
     .await;
     assert_eq!(
@@ -214,7 +214,7 @@ pub async fn channel_surface(env: &Harness) {
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/channel/{room}/message/{message_id}",
+                    "{}/v1/channel/{room}/message/{message_id}",
                     env.base
                 ))
                 .bearer_auth(&mate.token)
@@ -230,7 +230,7 @@ pub async fn channel_surface(env: &Harness) {
 
     let created = json_body(
         env.client
-            .post(format!("{}/v2/group", env.base))
+            .post(format!("{}/v1/group", env.base))
             .bearer_auth(&author.token)
             .json(&json!({
                 "name": format!("e2e talkie {}", letters_suffix()),
@@ -250,19 +250,19 @@ pub async fn channel_surface(env: &Harness) {
     let group_channel = format!("3.{gid}..");
     json_body(
         env.client
-            .post(format!("{}/v2/channel/{group_channel}/message", env.base))
+            .post(format!("{}/v1/channel/{group_channel}/message", env.base))
             .bearer_auth(&author.token)
             .json(&json!({ "content": { "text": "group hello" } }))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/channel/{channelId}/message (group stream)",
+        "POST /v1/channel/{channelId}/message (group stream)",
     )
     .await;
     expect(
         env.client
-            .post(format!("{}/v2/group/{gid}/join", env.base))
+            .post(format!("{}/v1/group/{gid}/join", env.base))
             .bearer_auth(&mate.token)
             .send()
             .await
@@ -273,13 +273,13 @@ pub async fn channel_surface(env: &Harness) {
     .await;
     let log = json_body(
         env.client
-            .get(format!("{}/v2/channel/{group_channel}?limit=5", env.base))
+            .get(format!("{}/v1/channel/{group_channel}?limit=5", env.base))
             .bearer_auth(&mate.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/channel/{channelId} (group stream, member)",
+        "GET /v1/channel/{channelId} (group stream, member)",
     )
     .await;
     assert_eq!(log["messages"].as_array().map(Vec::len), Some(1), "{log}");
@@ -287,7 +287,7 @@ pub async fn channel_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/channel/{group_channel}", env.base))
+                .get(format!("{}/v1/channel/{group_channel}", env.base))
                 .bearer_auth(&outsider.token)
                 .send()
                 .await
@@ -307,7 +307,7 @@ pub async fn channel_surface(env: &Harness) {
     let dm = format!("4.{small}.{large}.");
     json_body(
         env.client
-            .post(format!("{}/v2/channel/{dm}/message", env.base))
+            .post(format!("{}/v1/channel/{dm}/message", env.base))
             .bearer_auth(&author.token)
             .json(&json!({ "content": { "text": "dm ping" } }))
             .send()
@@ -319,13 +319,13 @@ pub async fn channel_surface(env: &Harness) {
     .await;
     let box_ = json_body(
         env.client
-            .get(format!("{}/v2/channel/{dm}?limit=5", env.base))
+            .get(format!("{}/v1/channel/{dm}?limit=5", env.base))
             .bearer_auth(&mate.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/channel/{channelId} (DM stream)",
+        "GET /v1/channel/{channelId} (DM stream)",
     )
     .await;
     assert_eq!(box_["messages"].as_array().map(Vec::len), Some(1), "{box_}");
@@ -334,7 +334,7 @@ pub async fn channel_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/channel/{dm}", env.base))
+                .get(format!("{}/v1/channel/{dm}", env.base))
                 .bearer_auth(&outsider.token)
                 .send()
                 .await
@@ -348,7 +348,7 @@ pub async fn channel_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/channel/4.{large}.{small}.", env.base))
+                .get(format!("{}/v1/channel/4.{large}.{small}.", env.base))
                 .bearer_auth(&author.token)
                 .send()
                 .await

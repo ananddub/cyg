@@ -1,3 +1,4 @@
+pub mod common;
 use serde::Serialize;
 
 pub mod account;
@@ -14,9 +15,9 @@ pub mod leaderboard;
 pub mod link;
 pub mod marketplace;
 pub mod match_history;
+pub mod match_result;
 #[path = "match.rs"]
 pub mod matches;
-pub mod match_result;
 pub mod matchmake;
 pub mod notification;
 pub mod notify;
@@ -30,8 +31,7 @@ pub mod tournament;
 pub mod user;
 pub mod webhook;
 
-#[derive(Debug, Default, Serialize)]
-pub struct Empty {}
+pub use common::Empty;
 
 #[cfg(test)]
 mod tests {

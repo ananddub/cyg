@@ -1,11 +1,12 @@
 use super::*;
 use crate::rooms::GameRoom;
+use crate::rooms::close_code;
 
 #[test]
 fn ecs_room_movement_and_delta_flow() {
     let mut room = GameRoom::new_ecs("ecs-arena", None);
     assert!(room.is_ecs());
-    let id = room.join("sess_1", 0.0, 0.0);
+    let id = room.join("sess_1", 0.0, 0.0, b"");
     assert_eq!(id, 1);
 
     room.ecs_input("sess_1", &[input_flags::D]);
@@ -14,7 +15,7 @@ fn ecs_room_movement_and_delta_flow() {
     for _ in 0..30 {
         room.tick_ecs(1.0 / 60.0);
         for msg in room.drain_outbox() {
-            assert_eq!(msg.event, "delta");
+            assert_eq!(msg.event.as_ref(), "delta");
             assert_eq!(msg.target, 0, "delta broadcasts room-wide");
             saw_delta = true;
             let mut i = 0;
@@ -40,8 +41,8 @@ fn ecs_room_movement_and_delta_flow() {
 #[test]
 fn ecs_room_leave_stops_delta() {
     let mut room = GameRoom::new_ecs("ecs-leave", None);
-    room.join("sess_1", 0.0, 0.0);
-    room.release_player("sess_1", 1);
+    room.join("sess_1", 0.0, 0.0, b"");
+    room.release_player_with("sess_1", 1, close_code::LEFT);
     room.tick_ecs(1.0 / 60.0);
     room.drain_outbox();
     room.tick_ecs(1.0 / 60.0);

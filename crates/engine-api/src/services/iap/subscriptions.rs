@@ -1,3 +1,5 @@
+use crate::services::plane::Plane;
+
 use std::collections::BTreeSet;
 
 use axum::Json;
@@ -5,7 +7,6 @@ use base64::Engine;
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::iap::{
     ActiveSubscriptionResponse, ActiveSubscriptionRow, ListQuery, SubscriptionListResponse,
@@ -14,7 +15,6 @@ use crate::dto::iap::{
 use crate::error::V2Error;
 use crate::infra::liveops;
 use crate::repositories::iap::{InsertSubscriptionParams, ListPurchasesParams};
-use crate::services::deps::q;
 use crate::utils::iap::{decode_offset, epoch, store_of};
 
 use super::IapService;
@@ -24,38 +24,38 @@ use super::verify::{self, APPLE, GOOGLE};
 impl IapService {
     pub async fn subscription_apple(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         body: SubscriptionRequest,
     ) -> Result<Json<SubscriptionResponse>, V2Error> {
-        record_subscription(state, claims.0.uuid()?, body, APPLE).await
+        record_subscription(&self.plane, claims.0.uuid()?, body, APPLE).await
     }
 
     pub async fn subscription_google(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         body: SubscriptionRequest,
     ) -> Result<Json<SubscriptionResponse>, V2Error> {
-        record_subscription(state, claims.0.uuid()?, body, GOOGLE).await
+        record_subscription(&self.plane, claims.0.uuid()?, body, GOOGLE).await
     }
 
     pub async fn subscription_huawei(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         body: SubscriptionRequest,
     ) -> Result<Json<SubscriptionResponse>, V2Error> {
-        record_subscription(state, claims.0.uuid()?, body, 2).await
+        record_subscription(&self.plane, claims.0.uuid()?, body, 2).await
     }
 
     pub async fn list_subscriptions(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         req: ListQuery,
     ) -> Result<Json<SubscriptionListResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let limit = i64::from(req.limit.unwrap_or(100).clamp(1, 1000));
         let offset = decode_offset(req.cursor.as_deref());
         let rows = queries
@@ -81,12 +81,12 @@ impl IapService {
 
     pub async fn subscription_by_product(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         product_id: &str,
     ) -> Result<Json<SubscriptionResponse>, V2Error> {
         let uid = claims.0.uuid()?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let row = queries
             .subscription_by_product(uid, product_id)
             .await?
@@ -98,10 +98,10 @@ impl IapService {
     /// not heard from the store about in too long to trust on sight.
     pub async fn active_entitlements(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
     ) -> Result<Json<ActiveSubscriptionResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let now = Utc::now();
         let rows = queries.subscriptions_of(claims.0.uuid()?).await?;
         let stale_after = Duration::days(liveops::config().subscription_revalidation_days);
@@ -124,7 +124,7 @@ impl IapService {
 }
 
 async fn record_subscription(
-    state: &ApiState,
+    plane: &Plane,
     uid: Uuid,
     body: SubscriptionRequest,
     default_store: i16,
@@ -144,14 +144,14 @@ async fn record_subscription(
     };
     let store = store_of(body.store, default_store);
     let verified = verify::verify_purchase(
-        &state.control.iap,
+        &plane.control.iap,
         store,
         &token,
         body.product_id.as_deref(),
         None,
     )
     .await?;
-    let queries = q(state).await?;
+    let queries = plane.q().await?;
     let row = queries
         .insert_subscription(&InsertSubscriptionParams {
             original_transaction_id: verified.transaction_id,
@@ -171,7 +171,7 @@ async fn record_subscription(
     // A renewal rewrites the same row, so the expiry is what makes this fact a
     // different one from the record that landed last month.
     crate::services::webhook::emit(
-        state,
+        plane,
         "subscription.state_changed",
         &format!(
             "{}:{}",

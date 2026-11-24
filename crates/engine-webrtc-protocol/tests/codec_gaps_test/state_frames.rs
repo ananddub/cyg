@@ -7,8 +7,7 @@ use crate::harness::snapshot;
 
 #[test]
 fn state_decode_accepts_exactly_max_entities() {
-    let entities: Vec<EntitySnapshot> =
-        (0..MAX_ENTITIES_PER_STATE as u16).map(snapshot).collect();
+    let entities: Vec<EntitySnapshot> = (0..MAX_ENTITIES_PER_STATE as u16).map(snapshot).collect();
     let mut buf = Vec::new();
     encode_state(7, &entities, &mut buf).expect("max-entities state encodes");
     assert!(buf.len() <= MAX_FRAME);

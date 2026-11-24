@@ -32,7 +32,7 @@ export interface GameList {
   total: number
 }
 
-/** `GET /v2/console/games/{id}`: the game plus what only the detail carries. */
+/** `GET /v1/console/games/{id}`: the game plus what only the detail carries. */
 export interface GameDetail extends Game {
   api_key?: string
   active_module_version?: number | null
@@ -45,7 +45,7 @@ export interface CreatedGame extends Game {
   api_key: string
 }
 
-/** `GET /v2/console/games/{id}/unity-settings?format=json` — the same facts the
+/** `GET /v1/console/games/{id}/unity-settings?format=json` — the same facts the
  * `.asset` carries, as a copyable document. */
 export interface UnitySettingsJson {
   gameKey: string

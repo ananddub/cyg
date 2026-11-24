@@ -5,13 +5,14 @@ pub(super) const MAX_FILENAME_LEN: usize = 255;
 pub(super) struct ConsoleWasmController {
     pub(super) service: Arc<WasmService>,
 }
-#[controller("/v2/console/games/{gameId}/wasm")]
+type ModuleDtoList = Vec<crate::dto::console::wasm::ModuleDto>;
+#[controller("/v1/console/games/{gameId}/wasm")]
 impl ConsoleWasmController {
     fn new(service: Arc<WasmService>) -> Self {
         Self { service }
     }
 
-    #[post("/upload")]
+    #[post("/upload", request_body = crate::dto::console::wasm::WasmUploadRequest, request_content = "multipart", response_body = crate::dto::console::wasm::UploadResponse)]
     async fn upload(
         &self,
         auth: ConsoleAuthed,
@@ -21,7 +22,7 @@ impl ConsoleWasmController {
         self.store_upload(auth, game_id, request).await
     }
 
-    #[post("")]
+    #[post("", request_body = crate::dto::console::wasm::WasmUploadRequest, request_content = "multipart", response_body = crate::dto::console::wasm::UploadResponse)]
     async fn upload_at_root(
         &self,
         auth: ConsoleAuthed,
@@ -31,7 +32,7 @@ impl ConsoleWasmController {
         self.store_upload(auth, game_id, request).await
     }
 
-    #[get("")]
+    #[get("", response_body = ModuleDtoList)]
     async fn list(&self, _auth: ConsoleAuthed, Path(game_id): Path<String>) -> Response {
         let state = current_state();
         let game_id = match Self::game_id(&game_id) {
@@ -39,13 +40,13 @@ impl ConsoleWasmController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .list_modules(&state, game_id)
+            .list_modules(game_id)
             .await
             .map(Json)
             .into_response()
     }
 
-    #[post("/activate")]
+    #[post("/activate", response_body = crate::dto::console::wasm::ModuleDto)]
     async fn activate(
         &self,
         auth: ConsoleAuthed,
@@ -56,7 +57,7 @@ impl ConsoleWasmController {
             .await
     }
 
-    #[post("/rollback")]
+    #[post("/rollback", response_body = crate::dto::console::wasm::ModuleDto)]
     async fn rollback(
         &self,
         auth: ConsoleAuthed,
@@ -67,7 +68,7 @@ impl ConsoleWasmController {
             .await
     }
 
-    #[delete("/{version}")]
+    #[delete("/{version}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,
@@ -83,7 +84,7 @@ impl ConsoleWasmController {
             Err(e) => return e.into_response(),
         };
         self.service
-            .delete_module(&state, game_id, version)
+            .delete_module(game_id, version)
             .await
             .into_response()
     }

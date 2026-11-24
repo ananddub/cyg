@@ -2,25 +2,23 @@ use axum::Json;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::account::{AddNoteRequest, BanAccountRequest};
 use crate::error::V2Error;
 use crate::repositories::console_mutations::{InsertUserNoteAnonymousParams, InsertUserNoteParams};
-use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn ban_account(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
         body: BanAccountRequest,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let user = queries.get_user_by_id(id).await?;
         queries.set_account_disabled(Utc::now(), id).await?;
 
@@ -31,7 +29,7 @@ impl super::ConsoleService {
             format!("Banned {}: {reason}", user.username)
         };
 
-        state.sessions.remove_all(id);
+        self.plane.sessions.remove_all(id);
         let kicked =
             crate::services::realtime::RealtimeSessionHub::global().kick_user(id, &message);
 
@@ -40,23 +38,31 @@ impl super::ConsoleService {
         } else {
             message
         };
-        super::audit(state, claims, "account.ban", "account", Some(id), &message).await;
+        super::audit(
+            &self.plane,
+            claims,
+            "account.ban",
+            "account",
+            Some(id),
+            &message,
+        )
+        .await;
         Ok(Json(Empty {}))
     }
 
     pub async fn unban_account(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         let id = super::account_id(id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let user = queries.get_user_by_id(id).await?;
         queries.set_account_disabled(super::never(), id).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "account.unban",
             "account",
@@ -69,18 +75,18 @@ impl super::ConsoleService {
 
     pub async fn delete_account(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_admin()?;
         let id = super::account_id(id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let user = queries.get_user_by_id(id).await?;
         queries.create_tombstone(id).await?;
         queries.delete_account(id).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "account.delete",
             "account",
@@ -89,7 +95,7 @@ impl super::ConsoleService {
         )
         .await;
         crate::services::webhook::emit(
-            state,
+            &self.plane,
             "account.deleted",
             &id.to_string(),
             serde_json::json!({
@@ -104,7 +110,7 @@ impl super::ConsoleService {
 
     pub async fn add_account_note(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
         body: AddNoteRequest,
@@ -115,7 +121,7 @@ impl super::ConsoleService {
         if note.is_empty() {
             return Err(V2Error::invalid_argument("A note cannot be empty."));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         queries.get_user_by_id(id).await?;
         match claims.0.uuid() {
             Some(author) => {
@@ -139,7 +145,7 @@ impl super::ConsoleService {
             }
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "account.note.create",
             "account",
@@ -152,7 +158,7 @@ impl super::ConsoleService {
 
     pub async fn delete_account_note(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
         note_id: &str,
@@ -160,12 +166,12 @@ impl super::ConsoleService {
         claims.require_write()?;
         let id = super::account_id(id)?;
         let note_id = super::id(note_id, "note")?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         if queries.delete_user_note(note_id, id).await?.rows_affected() == 0 {
             return Err(V2Error::not_found("Note not found."));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "account.note.delete",
             "account",

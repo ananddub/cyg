@@ -29,11 +29,11 @@ pub(super) fn state() -> ApiState {
         game: Arc::new(game),
         control: Arc::new(control),
         signals: SignalHub::new("[]".into()),
-        seats: Arc::new(std::sync::Mutex::new(SeatRegistry::new("test-secret"))),
-        limiter: Arc::new(std::sync::Mutex::new(IpRateLimiter::new(20, 40))),
+        seats: Arc::new(arc_swap::ArcSwap::from_pointee(SeatRegistry::new("test-secret"))),
+        limiter: Arc::new(IpRateLimiter::new(20, 40)),
         port: 8124,
         status_rx: Arc::new(OnceReceiver::new(bus.status_rx.clone())),
-        latest_status: Arc::new(std::sync::Mutex::new(None)),
+        latest_status: Arc::new(arc_swap::ArcSwapOption::empty()),
         bus,
         started: std::time::Instant::now(),
         db: None,
@@ -41,6 +41,9 @@ pub(super) fn state() -> ApiState {
         blobs: None,
         realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(SessionCache::new(60, 3600)),
+        chain: Default::default(),
+        hooks: None,
+        dev_mode: false,
     }
 }
 
@@ -56,8 +59,9 @@ pub(super) fn overview_keys(frame: &serde_json::Value) -> BTreeSet<String> {
 #[test]
 fn hello_then_snapshot_carry_the_same_overview_keys() {
     let s = state();
-    let hello = serde_json::to_value(frames::hello_frame(&s)).unwrap();
-    let snapshot = serde_json::to_value(frames::snapshot_frame(&s)).unwrap();
+    let plane = s.plane();
+    let hello = serde_json::to_value(frames::hello_frame(&plane)).unwrap();
+    let snapshot = serde_json::to_value(frames::snapshot_frame(&plane)).unwrap();
     assert_eq!(hello["type"].as_str(), Some("hello"));
     assert_eq!(snapshot["type"].as_str(), Some("snapshot"));
     assert_eq!(
@@ -77,7 +81,8 @@ fn hello_then_snapshot_carry_the_same_overview_keys() {
 
 #[test]
 fn a_frame_is_bounded_in_size() {
-    let json = serde_json::to_string(&frames::snapshot_frame(&state())).unwrap();
+    let plane = state().plane();
+    let json = serde_json::to_string(&frames::snapshot_frame(&plane)).unwrap();
     assert!(
         json.len() < 128 * 1024,
         "snapshot frame is {} bytes",

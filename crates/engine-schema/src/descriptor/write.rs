@@ -1,6 +1,6 @@
 use crate::model::{RootState, SchemaDef, SchemaField};
 use crate::wire::WireKind;
-use crate::{wire_hash, DESCRIPTOR_MAGIC, DESCRIPTOR_VERSION};
+use crate::{DESCRIPTOR_MAGIC, DESCRIPTOR_VERSION, wire_hash};
 
 fn write_u16(out: &mut Vec<u8>, value: usize) {
     out.extend_from_slice(&(value as u16).to_le_bytes());
@@ -20,13 +20,22 @@ fn write_field(out: &mut Vec<u8>, field: &SchemaField) {
     out.push(field.kind.code());
     out.push(field.flags);
     out.push(field.element.map(WireKind::code).unwrap_or(0));
+    write_str(out, field.nested_path.as_deref().unwrap_or(""));
+    // Bit 7 carries the integer flag; the width is at most 32, so it always fits below it.
+    out.push(field.encoding.bits | if field.encoding.integer { 0x80 } else { 0 });
+    out.extend_from_slice(&field.encoding.min().to_bits().to_le_bytes());
+    out.extend_from_slice(&field.encoding.max().to_bits().to_le_bytes());
 }
 
+/// The wire contract has exactly one live version. Older descriptors are
+/// rejected by the reader with a "rebuild client/server" error; there is no
+/// dual parser and no silent fallback.
 pub fn emit_descriptor(schemas: &[SchemaDef], root: Option<&RootState>) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(DESCRIPTOR_MAGIC);
     out.push(DESCRIPTOR_VERSION);
-    out.push(0);
+    let nested_meta = root.is_some_and(|root| !root.nested.is_empty());
+    out.push(if nested_meta { 1 } else { 0 });
     write_u16(&mut out, schemas.len());
     for schema in schemas {
         write_str(&mut out, &schema.name);
@@ -39,6 +48,7 @@ pub fn emit_descriptor(schemas: &[SchemaDef], root: Option<&RootState>) -> Vec<u
     }
 
     let empty = RootState {
+        nested: Vec::new(),
         name: String::new(),
         version: 0,
         scalars: Vec::new(),
@@ -46,6 +56,7 @@ pub fn emit_descriptor(schemas: &[SchemaDef], root: Option<&RootState>) -> Vec<u
     };
     let root = root.unwrap_or(&empty);
     let root_schema = SchemaDef {
+        nested_arrays: Vec::new(),
         name: root.name.clone(),
         version: root.version,
         fields: root.scalars.clone(),
@@ -68,6 +79,14 @@ pub fn emit_descriptor(schemas: &[SchemaDef], root: Option<&RootState>) -> Vec<u
             .position(|schema| schema.name == collection.schema)
             .unwrap_or(u16::MAX as usize);
         write_u16(&mut out, index);
+    }
+    if nested_meta {
+        write_u16(&mut out, root.nested.len());
+        for nested in &root.nested {
+            write_str(&mut out, &nested.collection);
+            write_str(&mut out, &nested.parent);
+            write_str(&mut out, &nested.field);
+        }
     }
     out
 }

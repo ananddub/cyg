@@ -25,7 +25,7 @@ that talk over an in-process message bus:
 
 | Crate | Role |
 |---|---|
-| `crates/engine-api` | Axum HTTP/WS control plane. PlayFab-shaped `/v2/*` player API plus a `/console` operator API. Owns SurrealDB. |
+| `crates/engine-api` | Axum HTTP/WS control plane. PlayFab-shaped `/v1/*` player API plus a `/console` operator API. Owns SurrealDB. |
 | `crates/engine-server` | The authoritative host loop: rooms, ticks, rollback, snapshots, UDP/WebRTC/QUIC netcode. |
 | `crates/engine-control` | Boots the runtime, binds the HTTP listener, spawns the host, signal handling, Agones integration. |
 | `crates/engine-net` | Transport layer (WS/UDP/QUIC/WebRTC), greeting, origin policy. |
@@ -144,7 +144,7 @@ service, e.g. `V2Error::failed_precondition("A currency balance cannot go negati
 
 ### 0.6 Adding a route (the smallest copyable chain)
 
-`controllers/notification.rs:18-29` (`#[controller("/v2/notification")]` +
+`controllers/notification.rs:18-29` (`#[controller("/v1/notification")]` +
 `#[get("")]` + `Params(req): Params<ListQuery>`) →
 `services/notification.rs:34-60` (`#[singleton]` service, `q(state).await?`) →
 `repositories/notification/queries.rs:110` (`list_notifications_paged`).
@@ -216,7 +216,7 @@ Current state, verified:
 - `SocialConfig` exists at `crates/engine-config/src/social.rs:11` with
   `*_configured()` (`:52-66`) and `allow_unverified` (`:30`), mounted at
   `crates/engine-config/src/control.rs:19`. TOML `[control.social]` parsing and
-  `OX_SOCIAL_*` env vars are already written
+  `CYG_SOCIAL_*` env vars are already written
   (`parse/toml.rs`, `parse/flat.rs`, `parse/mod.rs:164-202`).
 - Repository layer is **already complete** — no DB work needed:
   `repositories/auth/queries.rs` has `get_user_by_{google,apple,facebook,steam}_id`
@@ -248,7 +248,7 @@ Work to do:
    2. Empty-token refusal for the token providers, message
       `"{Label} access token is required."` from `Kind::label()`
       (`Facebook`/`Google`). Keep Apple/Steam checking configuration **first**:
-      `POST /v2/account/authenticate/apple` with `{}` must yield
+      `POST /v1/account/authenticate/apple` with `{}` must yield
       `"Apple authentication is not configured."` (400), not the empty-token
       message.
    3. `verify::profile(&state.control.social, kind, token).await?` — with the
@@ -323,12 +323,12 @@ Work:
    `details`, `path` (optional — message/channel/storage key), `status`
    (`open|actioned|dismissed`), `create_time`, `update_time`, index on
    `reported_id` and on `status`.
-2. Player API `POST /v2/reports` (or `POST /v2/account/report`, pick one and add
-   it to `tests/auto_routes/...:27-48`) behind `Authed`; `GET /v2/reports` list
+2. Player API `POST /v1/reports` (or `POST /v1/account/report`, pick one and add
+   it to `tests/auto_routes/...:27-48`) behind `Authed`; `GET /v1/reports` list
    for operators behind `ConsoleAuthed` + `require_write()`;
    `PATCH` status transition behind `ConsoleAuthed` + `require_write()`.
 3. Run `moderation::sanitize_json` on **all** free-text ingress, not just channel
-   messages: account `PUT /v2/account` display name
+   messages: account `PUT /v1/account` display name
    (`controllers/account.rs:35`), user metadata, storage values, inventory
    display strings, guild/group names (`services/group/*`), and every signup
    path — call `moderation::is_valid_username` from
@@ -370,11 +370,11 @@ Work:
 2. Add session revocation + kick to `services/account/delete.rs`
    (`state.sessions.remove_all(uid)`, `kick_user`) — a deleted account must not
    keep a live JWT session.
-3. New player route `GET /v2/account/export` behind `Authed`, returning the same
+3. New player route `GET /v1/account/export` behind `Authed`, returning the same
    record families as `AccountExport` **plus** purchases, subscriptions,
    inventory items, leaderboard records, group memberships, notifications, and
    messages in both directions. Reuse the queries; do not fork the DTO.
-4. New operator route `POST /v2/account/delete` behind
+4. New operator route `POST /v1/account/delete` behind
    `server_key_or_console` for service-driven erasure (same service function).
 5. Tests: extend `tests/gap_http/player_surface.rs:196-215` (which already
    asserts `rows == 0` for the account row and a `user_tombstone` count) to assert
@@ -384,7 +384,7 @@ Work:
 
 ### 2.4 P0 residual audit (small, one commit)
 
-- Confirm no remaining `/v2/*` write is behind only `Params` with no extractor;
+- Confirm no remaining `/v1/*` write is behind only `Params` with no extractor;
   grep `controllers/` for `#[post(` and list the routes that still take neither
   `Authed`, `server_key`, `server_key_or_console` nor `ConsoleAuthed`, then fix
   or document each. `GET /status` stays open by design (`controllers/status.rs:15`);
@@ -428,7 +428,7 @@ numeric code (`INVALID_ARGUMENT`=400, `UNAUTHENTICATED`=401, `FAILED_PRECONDITIO
 Server key / authenticate surface (`tests/gap_player/provider_auth_surface.rs`,
 `src/tests/authenticate/social.rs`):
 
-- `"Server key required"` (401) — every `/v2/account/authenticate*` verb without
+- `"Server key required"` (401) — every `/v1/account/authenticate*` verb without
   a Basic key.
 - `"Server key invalid"` (401) — wrong key.
 - `"Apple authentication is not configured."` (400) and
@@ -487,7 +487,7 @@ Dashboard / console (`tests/gap_edge/dashboard_api.rs`,
 Delete / GDPR (`tests/gap_http/player_surface.rs:196-215`,
 `tests/rest_e2e/account_surface.rs:411-442`):
 
-- `DELETE /v2/account` must leave the account row count at `0` and produce
+- `DELETE /v1/account` must leave the account row count at `0` and produce
   exactly `1` `user_tombstone` row (`assert_eq!(tombstoned, 1)`). §2.3 keeps
   these true while covering more tables.
 

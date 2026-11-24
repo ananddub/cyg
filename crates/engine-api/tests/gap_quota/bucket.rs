@@ -45,7 +45,7 @@ pub async fn bucket_surface(env: &Harness) {
     eprintln!("gap: the per-account request bucket");
     let player = device_player(&env.client, &env.base, "burst").await;
     let room = format!("2...e2e-bucket-{}", letters_suffix());
-    let path = format!("/v2/channel/{room}");
+    let path = format!("/v1/channel/{room}");
 
     for _ in 1..=2 {
         assert_eq!(
@@ -81,7 +81,7 @@ pub async fn bucket_surface(env: &Harness) {
     let operator = operator_token();
     for _ in 1..=6 {
         assert_eq!(
-            ask(env, &operator, "/v2/console/user").await.0,
+            ask(env, &operator, "/v1/console/user").await.0,
             StatusCode::OK,
             "an exempt operator is not the limiter's to judge"
         );
@@ -93,12 +93,12 @@ pub async fn operator_bucket_surface(env: &Harness) {
     let operator = operator_token();
     for _ in 1..=2 {
         assert_eq!(
-            ask(env, &operator, "/v2/console/user").await.0,
+            ask(env, &operator, "/v1/console/user").await.0,
             StatusCode::OK,
             "the burst is there to be spent"
         );
     }
-    let (status, wait) = ask(env, &operator, "/v2/console/user").await;
+    let (status, wait) = ask(env, &operator, "/v1/console/user").await;
     assert_eq!(
         status,
         StatusCode::TOO_MANY_REQUESTS,
@@ -109,7 +109,7 @@ pub async fn operator_bucket_surface(env: &Harness) {
     let player = device_player(&env.client, &env.base, "unbound").await;
     let room = format!("2...e2e-opbucket-{}", letters_suffix());
     assert_eq!(
-        ask(env, &player.token, &format!("/v2/channel/{room}"))
+        ask(env, &player.token, &format!("/v1/channel/{room}"))
             .await
             .0,
         StatusCode::OK,

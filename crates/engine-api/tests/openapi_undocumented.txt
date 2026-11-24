@@ -1,0 +1,3 @@
+# Routes whose OpenAPI entry has no schema yet. One line per gap:
+# `<METHOD> <path>  (no response[, no request])`
+# Regenerate: CYG_DUMP_OPENAPI=1 cargo test -p engine-api --lib openapi::undocumentation

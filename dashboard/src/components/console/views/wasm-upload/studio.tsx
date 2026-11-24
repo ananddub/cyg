@@ -2,7 +2,7 @@
 // upload + live ABI checklist, and the deployment timeline with activate /
 // roll-back / delete.
 //
-// The upload is `POST /v2/console/games/{id}/wasm/upload` as multipart form data
+// The upload is `POST /v1/console/games/{id}/wasm/upload` as multipart form data
 // (`file`, optional `source_code`), which the console's JSON mutation hook cannot
 // carry, so this does the one raw request the modules need — same bearer token,
 // same rule that a refusal shows the server's own message. A 400 comes back with
@@ -206,8 +206,12 @@ export function WasmUploadPanel({ gameId, disabled = false }: { gameId: string; 
 
   return (
     <Panel
-      title="Upload module"
-      description="A .wasm binary; optionally its .ts source, stored alongside for audit."
+      title={disabled ? "Room module" : "Upload module"}
+      description={
+        disabled
+          ? "The server loads the module from the project directory at boot, so there is nothing to upload here. The deployment history below is read-only."
+          : "A .wasm binary; optionally its .ts source, stored alongside for audit."
+      }
     >
       <div className="space-y-3 px-4 py-3">
         <div

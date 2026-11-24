@@ -33,6 +33,12 @@ project needs no bundler:
   DataChannel, voice mesh, interpolation, replay, and rollback helpers still
   available for custom/legacy layouts. Pass `{ webrtc: false }` to
   `joinOrCreate`/`join` to keep a session on WebSocket only.
+- **Voice** — `room.attachVoice()` builds the WebRTC voice mesh
+  (`voice.enable(micStream)`); `room.sendVoice(mode, …)` streams Opus frames on
+  `0 = proximity`, `1 = global`, `2 = team-only`, `3 = whisper`.
+  `room.setVoiceTeam("red")` accepts a string or number (the label is hashed to
+  a u32 — `null` leaves the team), and `setVoiceMuted` / `setVoiceDeafened`
+  publish the local state to the host.
 - **Metering** — `room.bytesIn` and `room.bytesOut` count transport bytes, so
   the bundled [`bench/loadtest.mjs`](../../bench/loadtest.mjs) can report
   bandwidth without a packet capture.

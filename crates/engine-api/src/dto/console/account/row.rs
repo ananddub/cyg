@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::repositories::models::{Users, UsersNotes, WalletLedger};
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct AccountRow {
     pub id: Uuid,
     pub username: String,
@@ -57,7 +57,7 @@ impl From<Users> for AccountRow {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Serialize, Deserialize)]
 pub struct AccountNoteRow {
     pub id: Uuid,
     pub note: String,
@@ -76,7 +76,7 @@ impl From<UsersNotes> for AccountNoteRow {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Serialize, Deserialize)]
 pub struct WalletLedgerRow {
     pub id: Uuid,
     pub changeset: serde_json::Value,

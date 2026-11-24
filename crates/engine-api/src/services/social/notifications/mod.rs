@@ -1,9 +1,9 @@
+use crate::services::plane::Plane;
+
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::repositories::notification::CreateNotificationParams;
-use crate::services::deps::q;
 use crate::services::notify::outbox;
 
 pub const NOTIFY_DM_REQUEST: i16 = -1;
@@ -31,7 +31,7 @@ pub fn kind_of(code: i16) -> &'static str {
 }
 
 pub async fn notify(
-    state: &ApiState,
+    plane: &Plane,
     recipient: Uuid,
     sender: Uuid,
     sender_username: &str,
@@ -39,7 +39,7 @@ pub async fn notify(
     code: i16,
 ) {
     notify_with(
-        state,
+        plane,
         recipient,
         sender,
         subject,
@@ -53,14 +53,14 @@ pub async fn notify(
 /// A notification that could not be written is not delivered anywhere either:
 /// the inbox is the fact, and a message with no fact behind it is a bug.
 pub async fn notify_with(
-    state: &ApiState,
+    plane: &Plane,
     recipient: Uuid,
     sender: Uuid,
     subject: String,
     content: Value,
     code: i16,
 ) {
-    let Ok(queries) = q(state).await else {
+    let Ok(queries) = plane.q().await else {
         return;
     };
     let Ok(row) = queries
@@ -76,5 +76,5 @@ pub async fn notify_with(
     else {
         return;
     };
-    outbox::enqueue(state, &queries, &row).await;
+    outbox::enqueue(plane, &queries, &row).await;
 }

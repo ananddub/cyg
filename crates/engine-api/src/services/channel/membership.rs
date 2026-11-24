@@ -1,16 +1,16 @@
+use crate::services::plane::Plane;
+
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::db::DbError;
 use crate::error::V2Error;
-use crate::services::deps::q;
 
 use crate::utils::channel::{MODE_DM, MODE_GROUP, Stream};
 
 const ROLE_MAX: i16 = 2;
 
 pub(crate) async fn assert_member(
-    state: &ApiState,
+    plane: &Plane,
     uid: Uuid,
     stream: &Stream,
 ) -> Result<(), V2Error> {
@@ -22,7 +22,7 @@ pub(crate) async fn assert_member(
             Ok(())
         }
         MODE_GROUP => {
-            let queries = q(state).await?;
+            let queries = plane.q().await?;
             match queries.get_group_edge_state(uid, stream.subject).await {
                 Ok(state_code) if state_code <= ROLE_MAX => Ok(()),
                 Ok(_) | Err(DbError::NotFound) => {

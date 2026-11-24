@@ -1,5 +1,5 @@
 use crate::host::*;
-use engine_api::infra::signaling::SignalIn;
+use engine_signaling::SignalIn;
 
 impl<'a> Engine<'a> {
     pub(crate) fn pump_signals(&mut self) {
@@ -11,12 +11,13 @@ impl<'a> Engine<'a> {
         while let Ok(sig) = rx.try_recv() {
             match sig {
                 SignalIn::Offer { seat, sdp } => {
-                    self.transport.register_seat(&seat.id, &seat.room, "");
+                    self.transport
+                        .register_seat(&seat.id, &seat.room, &seat.options);
                     match self.transport.rtc_server().handle_offer(&seat.id, &sdp) {
                         Ok(answer) => {
                             hub.publish(
                                 &seat.id,
-                                engine_api::infra::signaling::SignalOut::Answer { sdp: answer },
+                                engine_signaling::SignalOut::Answer { sdp: answer },
                             );
                             tracing::info!(
                                 "[server] ⚡ WebRTC offer accepted for seat {} (room '{}'), SDP answer returned",
@@ -27,12 +28,14 @@ impl<'a> Engine<'a> {
                         Err(e) => {
                             hub.publish(
                                 &seat.id,
-                                engine_api::infra::signaling::SignalOut::Error { message: e },
+                                engine_signaling::SignalOut::Error { message: e },
                             );
                         }
                     }
                 }
-                SignalIn::Candidate { seat, candidate, .. } => {
+                SignalIn::Candidate {
+                    seat, candidate, ..
+                } => {
                     if let Err(e) = self
                         .transport
                         .rtc_server()
@@ -42,13 +45,26 @@ impl<'a> Engine<'a> {
                             "[server] ⚠️ seat {} candidate error: {e} ({candidate})",
                             seat.id
                         );
+                        hub.publish(
+                            &seat.id,
+                            engine_signaling::SignalOut::Error {
+                                message: format!("candidate rejected: {e}"),
+                            },
+                        );
                     }
                 }
-                SignalIn::Close { seat } => {
+                SignalIn::Close { seat, attach_id } => {
+                    if !hub.is_attached(&seat.id, attach_id) {
+                        tracing::debug!(
+                            "[server] ignoring stale close for seat {} (attach {attach_id} no longer current)",
+                            seat.id
+                        );
+                        continue;
+                    }
                     tracing::info!("[server] signaling socket closed for seat {}", seat.id);
-                    let _ = self
-                        .transport
-                        .disconnect_with(&seat.id, 1000, "signaling socket closed");
+                    let _ =
+                        self.transport
+                            .disconnect_with(&seat.id, 1000, "signaling socket closed");
                 }
             }
         }

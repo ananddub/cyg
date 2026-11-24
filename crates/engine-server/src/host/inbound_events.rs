@@ -32,7 +32,9 @@ impl<'a> Engine<'a> {
 
         for (cid, &pid) in &room.sessions {
             if pid != id && !self.transport.is_rtc_connected(cid) {
-                let _ = self.transport.send_to(cid, OpCode::RoomDataBytes, &wire_event);
+                let _ = self
+                    .transport
+                    .send_to(cid, OpCode::RoomDataBytes, &wire_event);
             }
         }
     }
@@ -48,7 +50,7 @@ impl<'a> Engine<'a> {
             && 2 + type_len <= data.len()
             && &data[2..2 + type_len] == b"__ox_schema_ready"
         {
-            room.schema_sent.insert(client_id.to_string());
+            room.schema_sent.insert(std::rc::Rc::from(client_id));
             return;
         }
         if let Some(ref mut wasm) = room.wasm {

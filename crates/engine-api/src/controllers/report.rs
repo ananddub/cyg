@@ -15,25 +15,25 @@ struct ReportController {
     service: Arc<ReportService>,
 }
 
-#[controller("/v2/reports")]
+#[controller("/v1/reports")]
 impl ReportController {
     fn new(service: Arc<ReportService>) -> Self {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::report::ReportResponse)]
     async fn create_report(&self, auth: Authed, Body(req): Body<CreateReportRequest>) -> Response {
         let state = current_state();
-        self.service.create(&state, &auth, req).await.into_response()
+        self.service.create(&auth, req).await.into_response()
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::report::ReportListResponse)]
     async fn list_reports(&self, auth: ConsoleAuthed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
-        self.service.list(&state, &auth, req).await.into_response()
+        self.service.list(&auth, req).await.into_response()
     }
 
-    #[put("/{id}/status")]
+    #[put("/{id}/status", response_body = crate::dto::report::ReportResponse)]
     async fn set_status(
         &self,
         auth: ConsoleAuthed,
@@ -41,6 +41,9 @@ impl ReportController {
         Body(req): Body<StatusRequest>,
     ) -> Response {
         let state = current_state();
-        self.service.set_status(&state, &auth, &id, req).await.into_response()
+        self.service
+            .set_status(&auth, &id, req)
+            .await
+            .into_response()
     }
 }

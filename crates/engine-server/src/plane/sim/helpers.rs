@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use engine_bus::PeerId;
 use crate::rooms::GameRoom;
+use engine_bus::PeerId;
 
 pub(super) const SPAWN_W: f64 = 800.0;
 pub(super) const SPAWN_H: f64 = 500.0;
@@ -30,11 +30,13 @@ pub(super) fn bind_peer(
     let id = room.next_player_id;
     room.next_player_id += 1;
     if let Some(ref mut wasm) = room.wasm {
-        if let Err(e) = wasm.on_join(id, x, y) {
-            tracing::error!("[sim] ⚠️ guest on_join error for player {id}: {e}");
-        }
+        GameRoom::call_on_join(wasm, id, b"", b"");
     }
-    room.sessions.insert(peer_id.clone(), id);
+    room.voice_room
+        .join_participant(id as u32, Some(engine_voice::hash_team("1")), [x, 0.0, y]);
+    room.sessions
+        .insert(std::rc::Rc::from(peer_id.as_str()), id);
+    room.entries.entry(id).or_default();
     session_of.insert(id, peer_id);
     id
 }
@@ -45,11 +47,12 @@ pub(super) fn drop_peer(
     browser_players: &mut std::collections::HashSet<i64>,
     session_of: &mut HashMap<i64, PeerId>,
 ) {
-    if let Some(id) = room.sessions.remove(peer_id) {
+    if let Some(id) = room.sessions.remove(peer_id.as_str()) {
         if let Some(ref mut wasm) = room.wasm {
-            let _ = wasm.on_leave(id);
+            let _ = wasm.on_leave(id, false as i32);
         }
-        room.last_input_seq.remove(peer_id.as_str());
+        room.entries.remove(&id);
+        room.seqs.remove(&id);
         browser_players.remove(&id);
         session_of.remove(&id);
         room.input_journal.retain(|j| j.id != id);

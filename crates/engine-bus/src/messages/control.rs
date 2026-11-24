@@ -53,6 +53,21 @@ pub struct RoomOwnership {
     pub snapshot_seq: i64,
 }
 
+/// One stat increment a room's guest asked the engine to record.
+///
+/// The room only names the seat and the counter. `write_id` is the host's
+/// idempotency key: the control plane stores it with the row it applied, so a
+/// redelivered write can never double-count.
+#[derive(Clone, Debug)]
+pub struct StatWrite {
+    pub room: String,
+    pub write_id: String,
+    pub tick: i64,
+    pub seat: i64,
+    pub stat: String,
+    pub delta: i64,
+}
+
 #[derive(Clone, Debug)]
 pub struct SeatUpdate {
     pub room: String,
@@ -69,7 +84,6 @@ pub enum ReloadKind {
 
 #[derive(Clone, Debug)]
 pub struct WasmReload {
-
     pub game_id: String,
 
     pub game_key: String,
@@ -94,13 +108,11 @@ pub struct MapReload {
 
 #[derive(Clone, Copy, Debug)]
 pub struct SettingsReload {
-
     pub tick_rate: u32,
 }
 
 #[derive(Debug)]
 pub enum SimCommand {
-
     BindPeer {
         peer_id: PeerId,
         room: String,

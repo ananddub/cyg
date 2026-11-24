@@ -3,7 +3,7 @@ use crate::services::status::snapshot::status;
 
 #[tokio::test]
 async fn status_reports_every_documented_group_on_an_idle_plane() {
-    let body = json_of(status(&state()).await).await;
+    let body = json_of(status(&state().plane()).await).await;
 
     for path in [
         "/plane/uptime_ms",
@@ -46,7 +46,7 @@ async fn status_reports_every_documented_group_on_an_idle_plane() {
 
 #[tokio::test]
 async fn agones_reports_absent_not_failing_when_no_sidecar_is_configured() {
-    let body = json_of(status(&state()).await).await;
+    let body = json_of(status(&state().plane()).await).await;
     assert_eq!(body["agones"]["enabled"].as_bool(), Some(false));
     assert_eq!(body["agones"]["ready"].as_bool(), Some(false));
     assert_eq!(
@@ -58,7 +58,7 @@ async fn agones_reports_absent_not_failing_when_no_sidecar_is_configured() {
 
 #[tokio::test]
 async fn a_missing_sim_sample_is_null_never_zeros() {
-    let body = json_of(status(&state()).await).await;
+    let body = json_of(status(&state().plane()).await).await;
     assert!(
         body["sim"].is_null(),
         "sim must be null, got {}",

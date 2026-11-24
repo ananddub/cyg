@@ -1,18 +1,61 @@
-//! =============================================================================
-//! CYG Game Server — Guest Room SDK for Rust
-//! WebAssembly Target: wasm32-unknown-unknown / wasm32-wasi
-//! =============================================================================
+// =============================================================================
+// CYG Game Server — Guest Room SDK for Rust
+// WebAssembly Target: wasm32-unknown-unknown / wasm32-wasi
+// =============================================================================
+
+#[link(wasm_import_module = "cyg")]
+extern "C" {
+    fn host_log(ptr: *const u8, len: i32) -> i32;
+    fn host_send(target: i64, type_ptr: *const u8, type_len: i32, data_ptr: *const u8, data_len: i32) -> i32;
+    fn host_kick(player_id: i64) -> i32;
+}
+
+/// Logs a message to the CYG server host logger.
+pub fn log(msg: &str) {
+    unsafe {
+        let _ = host_log(msg.as_ptr(), msg.len() as i32);
+    }
+}
+
+/// Broadcasts a typed event message to all players in the room.
+pub fn broadcast(event_type: &str, payload: &[u8]) {
+    unsafe {
+        let _ = host_send(0, event_type.as_ptr(), event_type.len() as i32, payload.as_ptr(), payload.len() as i32);
+    }
+}
+
+/// Sends a typed event message to a specific player in the room.
+pub fn send_to(target: i64, event_type: &str, payload: &[u8]) {
+    unsafe {
+        let _ = host_send(target, event_type.as_ptr(), event_type.len() as i32, payload.as_ptr(), payload.len() as i32);
+    }
+}
+
+/// Disconnects and kicks a player from the room.
+pub fn kick(player_id: i64) {
+    unsafe {
+        let _ = host_kick(player_id);
+    }
+}
 
 /// Trait defining the lifecycle of an authoritative CYG game room.
 pub trait Room: Default {
     /// Called once when the room instance is allocated on the host.
     fn on_create(&mut self, max_clients: i32);
 
-    /// Called when a new player joins the room.
-    fn on_join(&mut self, id: i64, spawn_x: f64, spawn_z: f64);
+    /// Validate the join; return auth data for onJoin (or empty to allow).
+    fn on_auth(&mut self, id: i64, options: &str, context: &str) -> String {
+        let _ = (id, options, context);
+        "{}".to_string()
+    }
 
-    /// Called when a player disconnects or leaves.
-    fn on_leave(&mut self, id: i64);
+    /// Called when a new player joins. `options` is the client's own join
+    /// data; `auth` is what `on_auth` returned.
+    fn on_join(&mut self, id: i64, options: &str, auth: &str);
+
+    /// Called when a player leaves — `code` 1000 LEFT, 1001 SERVER_SHUTDOWN,
+    /// 1005 TIMED_OUT, 1006 LOST.
+    fn on_leave(&mut self, id: i64, code: i32);
 
     /// Called when an authoritative client input packet arrives.
     fn on_input(&mut self, id: i64, data: &[u8]);
@@ -66,19 +109,49 @@ macro_rules! export_room {
         }
 
         #[no_mangle]
-        pub extern "C" fn on_join(id: i64, spawn_x: f64, spawn_z: f64) {
+        pub extern "C" fn on_auth(id: i64, opt_ptr: i32, opt_len: i32, ctx_ptr: i32, ctx_len: i32) -> i64 {
             unsafe {
                 if let Some(ref mut room) = G_CYG_ROOM {
-                    room.on_join(id, spawn_x, spawn_z);
+                    let read = |ptr: i32, len: i32| -> String {
+                        if ptr != 0 && len > 0 {
+                            let slice = std::slice::from_raw_parts(ptr as *const u8, len as usize);
+                            String::from_utf8_lossy(slice).into_owned()
+                        } else {
+                            String::new()
+                        }
+                    };
+                    let auth = room.on_auth(id, &read(opt_ptr, opt_len), &read(ctx_ptr, ctx_len));
+                    let bytes = auth.as_bytes();
+                    let out = room.on_alloc(bytes.len()) as i64;
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+                    return (out << 32) | (bytes.len() as i64 & 0xFFFF_FFFF);
+                }
+                0
+            }
+        }
+
+        #[no_mangle]
+        pub extern "C" fn on_join(id: i64, opt_ptr: i32, opt_len: i32, auth_ptr: i32, auth_len: i32) {
+            unsafe {
+                if let Some(ref mut room) = G_CYG_ROOM {
+                    let read = |ptr: i32, len: i32| -> String {
+                        if ptr != 0 && len > 0 {
+                            let slice = std::slice::from_raw_parts(ptr as *const u8, len as usize);
+                            String::from_utf8_lossy(slice).into_owned()
+                        } else {
+                            String::new()
+                        }
+                    };
+                    room.on_join(id, &read(opt_ptr, opt_len), &read(auth_ptr, auth_len));
                 }
             }
         }
 
         #[no_mangle]
-        pub extern "C" fn on_leave(id: i64) {
+        pub extern "C" fn on_leave(id: i64, code: i32) {
             unsafe {
                 if let Some(ref mut room) = G_CYG_ROOM {
-                    room.on_leave(id);
+                    room.on_leave(id, code);
                 }
             }
         }
@@ -100,7 +173,7 @@ macro_rules! export_room {
             unsafe {
                 if let Some(ref mut room) = G_CYG_ROOM {
                     let (ptr, len) = room.on_tick(dt);
-                    pack_delta(ptr, len)
+                    $crate::pack_delta(ptr, len)
                 } else {
                     0
                 }
@@ -112,7 +185,7 @@ macro_rules! export_room {
             unsafe {
                 if let Some(ref mut room) = G_CYG_ROOM {
                     let (ptr, len) = room.on_save();
-                    pack_delta(ptr, len)
+                    $crate::pack_delta(ptr, len)
                 } else {
                     0
                 }
@@ -192,4 +265,3 @@ pub enum KeyCode {
     ShiftLeft = 160, ShiftRight = 161, ControlLeft = 162, ControlRight = 163,
     AltLeft = 164, AltRight = 165,
 }
-

@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::repositories::models::RulesDefinition;
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(poem_openapi::Object, Debug, Deserialize, Default)]
 pub struct RuleRequest {
     #[serde(default)]
     pub key: String,
@@ -12,7 +12,7 @@ pub struct RuleRequest {
     pub body: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct RuleRow {
     pub key: String,
     pub game_id: Option<Uuid>,
@@ -37,7 +37,7 @@ impl From<RulesDefinition> for RuleRow {
     }
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(poem_openapi::Object, Debug, Deserialize, Default)]
 pub struct RuleDryRun {
     #[serde(default)]
     pub user_id: Option<Uuid>,
@@ -49,9 +49,18 @@ pub struct RuleDryRun {
     pub context: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct RuleDryRunResult {
     pub matched: bool,
     pub evaluated_against: serde_json::Value,
+    /// What a match would do. Empty when the rule did not match, so the console
+    /// cannot show a reward for a rule the player does not qualify for.
+    pub actions: Vec<serde_json::Value>,
     pub error: Option<String>,
+}
+
+/// How many stored versions a rule delete removed.
+#[derive(poem_openapi::Object, Debug, Serialize)]
+pub struct DeletedRuleResponse {
+    pub deleted: u64,
 }

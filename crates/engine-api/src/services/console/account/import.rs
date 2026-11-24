@@ -1,7 +1,6 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::account::AccountExport;
@@ -11,14 +10,13 @@ use crate::repositories::console_mutations::{
     ImportAccountParams, ImportDeviceParams, ImportLedgerParams, ImportNoteParams, ListUserEdgesRow,
 };
 use crate::repositories::models::Users;
-use crate::services::deps::q;
 
 use super::conflict::import_conflict;
 
 impl super::ConsoleService {
     pub async fn import_account_by_id(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
         game: Option<Uuid>,
@@ -30,12 +28,12 @@ impl super::ConsoleService {
                 "The account id in the body must match the id in the path.",
             ));
         }
-        self.import_account(state, claims, game, body).await
+        self.import_account(claims, game, body).await
     }
 
     pub async fn import_account(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         game: Option<Uuid>,
         body: AccountExport,
@@ -160,14 +158,15 @@ impl super::ConsoleService {
                 .collect(),
         };
 
-        q(state)
+        self.plane
+            .q()
             .await?
             .import_account_bundle(&params)
             .await
             .map_err(import_conflict)?;
-        crate::services::games::tenant::stamp_user_as(state, id, game).await;
+        crate::services::games::tenant::stamp_user_as(&self.plane, id, game).await;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "account.import",
             "account",

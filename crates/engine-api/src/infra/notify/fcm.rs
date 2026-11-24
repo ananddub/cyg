@@ -72,13 +72,11 @@ impl Sender {
             return Ok(token);
         }
         let assertion = self.assertion()?;
-        let response = http()
-            .post(self.settings.token_url.clone())
-            .form(&[
-                ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
-                ("assertion", assertion.as_str()),
-            ])
-            .send()
+        let request = http().post(self.settings.token_url.clone()).form(&[
+            ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
+            ("assertion", assertion.as_str()),
+        ]);
+        let response = crate::infra::http::send("fcm-oauth", request)
             .await
             .map_err(|err| err.to_string())?;
         let code = response.status().as_u16();
@@ -125,14 +123,14 @@ impl Vendor for Sender {
                     "apns": {"payload": {"aps": {"sound": "default"}}},
                 },
             });
-            let response = http()
+            let request = http()
                 .post(format!(
                     "{}/v1/projects/{}/messages:send",
                     self.settings.api_host, self.settings.project
                 ))
                 .header("authorization", format!("Bearer {token}"))
-                .json(&body)
-                .send()
+                .json(&body);
+            let response = crate::infra::http::send("fcm", request)
                 .await
                 .map_err(|err| err.to_string())?;
             let code = response.status().as_u16();

@@ -9,7 +9,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let empty = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/games/{}/wasm",
+                "{}/v1/console/games/{}/wasm",
                 env.base, wasm_game.id
             ))
             .bearer_auth(console)
@@ -17,7 +17,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/games/{gameId}/wasm on a fresh game",
+        "GET /v1/console/games/{gameId}/wasm on a fresh game",
     )
     .await;
     assert_eq!(empty.as_array().map(Vec::len), Some(0), "{empty}");
@@ -25,7 +25,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     refusal(
         env.client
             .post(format!(
-                "{}/v2/console/games/{}/wasm/upload",
+                "{}/v1/console/games/{}/wasm/upload",
                 env.base, wasm_game.id
             ))
             .bearer_auth(viewer)
@@ -42,7 +42,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/console/games/{}/wasm/upload",
+                    "{}/v1/console/games/{}/wasm/upload",
                     env.base, wasm_game.id
                 ))
                 .bearer_auth(console)
@@ -60,7 +60,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/console/games/{}/wasm/upload",
+                    "{}/v1/console/games/{}/wasm/upload",
                     env.base, wasm_game.id
                 ))
                 .bearer_auth(console)
@@ -83,7 +83,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let detail_before = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/games/{}",
+                "{}/v1/console/games/{}",
                 env.base, promoted_game.id
             ))
             .bearer_auth(console)
@@ -107,7 +107,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let detail = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/games/{}",
+                "{}/v1/console/games/{}",
                 env.base, promoted_game.id
             ))
             .bearer_auth(console)
@@ -230,7 +230,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let listing = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/games/{}/wasm",
+                "{}/v1/console/games/{}/wasm",
                 env.base, wasm_game.id
             ))
             .bearer_auth(console)
@@ -253,7 +253,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
 
     let detail = json_body(
         env.client
-            .get(format!("{}/v2/console/games/{}", env.base, wasm_game.id))
+            .get(format!("{}/v1/console/games/{}", env.base, wasm_game.id))
             .bearer_auth(console)
             .send()
             .await
@@ -268,7 +268,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let rolled_back = json_body(
         env.client
             .post(format!(
-                "{}/v2/console/games/{}/wasm/rollback",
+                "{}/v1/console/games/{}/wasm/rollback",
                 env.base, wasm_game.id
             ))
             .bearer_auth(console)
@@ -277,7 +277,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/games/{gameId}/wasm/rollback",
+        "POST /v1/console/games/{gameId}/wasm/rollback",
     )
     .await;
     assert_eq!(rolled_back["version"], 1);
@@ -293,7 +293,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     );
     let detail = json_body(
         env.client
-            .get(format!("{}/v2/console/games/{}", env.base, wasm_game.id))
+            .get(format!("{}/v1/console/games/{}", env.base, wasm_game.id))
             .bearer_auth(console)
             .send()
             .await
@@ -307,7 +307,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let activated = json_body(
         env.client
             .post(format!(
-                "{}/v2/console/games/{}/wasm/activate",
+                "{}/v1/console/games/{}/wasm/activate",
                 env.base, wasm_game.id
             ))
             .bearer_auth(console)
@@ -316,7 +316,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/games/{gameId}/wasm/activate",
+        "POST /v1/console/games/{gameId}/wasm/activate",
     )
     .await;
     assert_eq!(activated["version"], 2);
@@ -333,7 +333,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/games/{}/wasm/2",
+                    "{}/v1/console/games/{}/wasm/2",
                     env.base, wasm_game.id
                 ))
                 .bearer_auth(console)
@@ -353,7 +353,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     json_body(
         env.client
             .post(format!(
-                "{}/v2/console/games/{}/wasm/activate",
+                "{}/v1/console/games/{}/wasm/activate",
                 env.base, wasm_game.id
             ))
             .bearer_auth(console)
@@ -372,7 +372,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     expect(
         env.client
             .delete(format!(
-                "{}/v2/console/games/{}/wasm/2",
+                "{}/v1/console/games/{}/wasm/2",
                 env.base, wasm_game.id
             ))
             .bearer_auth(console)
@@ -380,7 +380,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/games/{gameId}/wasm/{version}",
+        "DELETE /v1/console/games/{gameId}/wasm/{version}",
     )
     .await;
     assert!(
@@ -390,7 +390,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let listing = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/games/{}/wasm",
+                "{}/v1/console/games/{}/wasm",
                 env.base, wasm_game.id
             ))
             .bearer_auth(console)
@@ -407,7 +407,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/games/{}/wasm/not-a-number",
+                    "{}/v1/console/games/{}/wasm/not-a-number",
                     env.base, wasm_game.id
                 ))
                 .bearer_auth(console)
@@ -424,7 +424,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/console/games/{}/wasm/activate",
+                    "{}/v1/console/games/{}/wasm/activate",
                     env.base, wasm_game.id
                 ))
                 .bearer_auth(console)
@@ -442,7 +442,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/games/{}/wasm/98",
+                    "{}/v1/console/games/{}/wasm/98",
                     env.base, wasm_game.id
                 ))
                 .bearer_auth(console)
@@ -458,7 +458,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/console/games/bogus/wasm", env.base))
+                .get(format!("{}/v1/console/games/bogus/wasm", env.base))
                 .bearer_auth(console)
                 .send()
                 .await
@@ -474,7 +474,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         (
             "listing modules of a game that does not exist",
             env.client
-                .get(format!("{}/v2/console/games/{stranger}/wasm", env.base))
+                .get(format!("{}/v1/console/games/{stranger}/wasm", env.base))
                 .bearer_auth(console)
                 .send()
                 .await
@@ -483,7 +483,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         (
             "deleting a module of a game that does not exist",
             env.client
-                .delete(format!("{}/v2/console/games/{stranger}/wasm/1", env.base))
+                .delete(format!("{}/v1/console/games/{stranger}/wasm/1", env.base))
                 .bearer_auth(console)
                 .send()
                 .await
@@ -500,7 +500,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let asset = env
         .client
         .get(format!(
-            "{}/v2/console/games/{}/unity-settings",
+            "{}/v1/console/games/{}/unity-settings",
             env.base, promoted_game.id
         ))
         .bearer_auth(console)
@@ -537,7 +537,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let settings = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/games/{}/unity-settings?format=json",
+                "{}/v1/console/games/{}/unity-settings?format=json",
                 env.base, promoted_game.id
             ))
             .bearer_auth(console)
@@ -545,7 +545,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/games/{gameId}/unity-settings?format=json",
+        "GET /v1/console/games/{gameId}/unity-settings?format=json",
     )
     .await;
     assert_eq!(settings["gameKey"], promoted_game.key);
@@ -559,7 +559,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let revealed = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/games/{}/unity-settings?format=json&reveal=true",
+                "{}/v1/console/games/{}/unity-settings?format=json&reveal=true",
                 env.base, promoted_game.id
             ))
             .bearer_auth(console)
@@ -582,7 +582,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .get(format!(
-                    "{}/v2/console/games/{}/unity-settings?format=xml",
+                    "{}/v1/console/games/{}/unity-settings?format=xml",
                     env.base, promoted_game.id
                 ))
                 .bearer_auth(console)
@@ -599,7 +599,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .put(format!("{}/v2/console/games/{}", env.base, wasm_game.id))
+                .put(format!("{}/v1/console/games/{}", env.base, wasm_game.id))
                 .bearer_auth(console)
                 .json(&json!({}))
                 .send()
@@ -614,7 +614,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .put(format!("{}/v2/console/games/{}", env.base, wasm_game.id))
+                .put(format!("{}/v1/console/games/{}", env.base, wasm_game.id))
                 .bearer_auth(console)
                 .json(&json!({ "status": "maintenance" }))
                 .send()
@@ -629,7 +629,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .put(format!("{}/v2/console/games/{}", env.base, wasm_game.id))
+                .put(format!("{}/v1/console/games/{}", env.base, wasm_game.id))
                 .bearer_auth(console)
                 .json(&json!({ "config": 64 }))
                 .send()
@@ -643,7 +643,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     );
     let renamed = json_body(
         env.client
-            .put(format!("{}/v2/console/games/{}", env.base, wasm_game.id))
+            .put(format!("{}/v1/console/games/{}", env.base, wasm_game.id))
             .bearer_auth(console)
             .json(&json!({
                 "name": "Gap WASM Renamed",
@@ -654,7 +654,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/console/games/{gameId}",
+        "PUT /v1/console/games/{gameId}",
     )
     .await;
     assert_eq!(renamed["name"], "Gap WASM Renamed");
@@ -666,7 +666,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/games/{}",
+                    "{}/v1/console/games/{}",
                     env.base, promoted_game.id
                 ))
                 .bearer_auth(viewer)
@@ -682,7 +682,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
     let archived = json_body(
         env.client
             .delete(format!(
-                "{}/v2/console/games/{}",
+                "{}/v1/console/games/{}",
                 env.base, promoted_game.id
             ))
             .bearer_auth(console)
@@ -690,7 +690,7 @@ pub async fn wasm_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/games/{gameId}",
+        "DELETE /v1/console/games/{gameId}",
     )
     .await;
     assert_eq!(archived["archived"], true);

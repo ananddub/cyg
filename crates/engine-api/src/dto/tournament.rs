@@ -23,7 +23,7 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct TournamentResponse {
     pub id: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -64,6 +64,9 @@ pub struct TournamentResponse {
     pub authoritative: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub join_required: bool,
+    /// Active rule set a player must satisfy to join or score.
+    #[serde(skip_serializing_if = "no_string")]
+    pub rule_key: Option<String>,
 }
 
 impl TournamentResponse {
@@ -102,6 +105,7 @@ impl TournamentResponse {
             operator: api_operator(board.operator),
             authoritative: board.authoritative,
             join_required: board.join_required,
+            rule_key: board.rule_key.clone(),
         })
     }
 }
@@ -114,7 +118,7 @@ fn uint32(value: i64) -> u32 {
     value as u32
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, poem_openapi::Object)]
 pub struct TournamentListResponse {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tournaments: Vec<TournamentResponse>,

@@ -13,7 +13,11 @@ fn supports_inheritance_third_arg_and_extend_chain() {
         .iter()
         .map(|field| field.name.as_str())
         .collect();
-    assert_eq!(names, ["x", "hp", "name", "score"], "base fields come first");
+    assert_eq!(
+        names,
+        ["x", "hp", "name", "score"],
+        "base fields come first"
+    );
     assert_eq!(parsed.schemas[2].version, 3);
     assert_eq!(parsed.schemas[1].version, 1);
 }
@@ -33,8 +37,8 @@ fn rejects_bad_inheritance_and_ref_targets() {
             .any(|e| e.message.contains("already inherited"))
     );
 
-    let errors = parse(r#"const Child = schema({ x: t.number() }, "Child").extend(Missing);"#)
-        .unwrap_err();
+    let errors =
+        parse(r#"const Child = schema({ x: t.number() }, "Child").extend(Missing);"#).unwrap_err();
     assert!(
         errors
             .iter()

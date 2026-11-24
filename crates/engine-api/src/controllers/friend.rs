@@ -14,49 +14,40 @@ struct FriendController {
     service: Arc<FriendService>,
 }
 
-#[controller("/v2/friend")]
+#[controller("/v1/friend")]
 impl FriendController {
     fn new(service: Arc<FriendService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::friend::FriendListResponse)]
     async fn list_friends(&self, auth: Authed, Params(req): Params<ListQuery>) -> Response {
         let state = current_state();
-        self.service
-            .list_friends(&state, &auth, req)
-            .await
-            .into_response()
+        self.service.list_friends(&auth, req).await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::Empty)]
     async fn add_friends(&self, auth: Authed, Params(req): Params<TargetsQuery>) -> Response {
         let state = current_state();
-        self.service
-            .add_friends(&state, &auth, req)
-            .await
-            .into_response()
+        self.service.add_friends(&auth, req).await.into_response()
     }
 
-    #[delete("")]
+    #[delete("", response_body = crate::dto::Empty)]
     async fn delete_friends(&self, auth: Authed, Params(req): Params<TargetsQuery>) -> Response {
         let state = current_state();
         self.service
-            .delete_friends(&state, &auth, req)
+            .delete_friends(&auth, req)
             .await
             .into_response()
     }
 
-    #[post("/block")]
+    #[post("/block", response_body = crate::dto::Empty)]
     async fn block_friends(&self, auth: Authed, Params(req): Params<TargetsQuery>) -> Response {
         let state = current_state();
-        self.service
-            .block_friends(&state, &auth, req)
-            .await
-            .into_response()
+        self.service.block_friends(&auth, req).await.into_response()
     }
 
-    #[get("/friends")]
+    #[get("/friends", response_body = crate::dto::friend::FriendsOfFriendsResponse)]
     async fn list_friends_of_friends(
         &self,
         auth: Authed,
@@ -64,19 +55,19 @@ impl FriendController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_friends_of_friends(&state, &auth, req)
+            .list_friends_of_friends(&auth, req)
             .await
             .into_response()
     }
 
     // Intentionally open: both imports are pure refusals until a vendor graph
     // key is configured, so there is no state for an anonymous caller to touch.
-    #[post("/facebook")]
+    #[post("/facebook", response_body = crate::dto::Empty)]
     async fn import_facebook_friends(&self) -> Response {
         self.service.import_facebook_friends().await.into_response()
     }
 
-    #[post("/steam")]
+    #[post("/steam", response_body = crate::dto::Empty)]
     async fn import_steam_friends(&self) -> Response {
         self.service.import_steam_friends().await.into_response()
     }

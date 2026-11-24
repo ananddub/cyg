@@ -6,4 +6,4 @@ mod runtime;
 mod schema;
 
 #[allow(unused_imports)]
-pub(crate) use {lanes::*, maps::*, map2d::*, map3d::*, runtime::*, schema::*};
+pub(crate) use {lanes::*, map2d::*, map3d::*, maps::*, runtime::*, schema::*};

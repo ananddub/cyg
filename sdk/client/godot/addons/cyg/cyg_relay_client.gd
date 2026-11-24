@@ -80,7 +80,7 @@ func resolve_token() -> Variant:
 
 
 ## REST surface shared with this client's endpoint and token: every
-## `/v2/*` account service, matchmake, room listing, status and signaling URL.
+## `/v1/*` account service, matchmake, room listing, status and signaling URL.
 func api() -> CYGApi:
 	if _api == null:
 		_api = CYGApi.new(http_base())

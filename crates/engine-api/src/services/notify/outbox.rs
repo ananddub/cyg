@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use crate::services::plane::Plane;
 
 use chrono::Utc;
+use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::infra::liveops;
 use crate::infra::notify::{
     CHANNEL_EMAIL, CHANNEL_PUSH, Face, KIND_ALL, PROVIDER_APNS, PROVIDER_FCM, PROVIDER_SMTP,
@@ -21,7 +21,7 @@ use crate::services::social;
 ///
 /// Nothing is queued for a channel with no configured vendor, which is what
 /// makes the whole surface inert until an operator puts credentials in.
-pub(crate) async fn enqueue(state: &ApiState, queries: &Arc<Queries>, note: &Notification) {
+pub(crate) async fn enqueue(plane: &Plane, queries: &Arc<Queries>, note: &Notification) {
     let users = match queries.users_by_id(&[note.user_id]).await {
         Ok(users) => users,
         Err(err) => {
@@ -79,7 +79,7 @@ pub(crate) async fn enqueue(state: &ApiState, queries: &Arc<Queries>, note: &Not
         let (subject, text) = match channel {
             CHANNEL_EMAIL => (
                 note.subject.clone(),
-                template::email(kind, &note.subject, &footer(state, &face, note.user_id)),
+                template::email(kind, &note.subject, &footer(plane, &face, note.user_id)),
             ),
             _ => (face.push_title.clone(), note.subject.clone()),
         };
@@ -110,6 +110,7 @@ pub(crate) async fn enqueue(state: &ApiState, queries: &Arc<Queries>, note: &Not
 /// it carries the nil one: a console that hammer-tests a relay spends the same
 /// shared window a player would, and no player's budget pays for that.
 pub(crate) fn test_attempt(
+    _plane: &Plane,
     provider: &str,
     channel: &'static str,
     recipient: String,
@@ -154,13 +155,13 @@ fn push_target<'a>(
 /// The footer link, or nothing when the operator has not said where this plane
 /// is reachable from the outside. It asks for the whole channel to stop: one
 /// click in a mail client should not have to go looking for the right switch.
-fn footer(state: &ApiState, face: &Face, user_id: Uuid) -> String {
+fn footer(plane: &Plane, face: &Face, user_id: Uuid) -> String {
     if face.link_base.is_empty() {
         return String::new();
     }
     let days = liveops::config().notify_unsubscribe_days;
     let signed = token::mint(
-        &state.control.seat_secret,
+        &plane.control.seat_secret,
         &token::Unsubscribe {
             user_id,
             channel: CHANNEL_EMAIL.to_owned(),
@@ -168,7 +169,11 @@ fn footer(state: &ApiState, face: &Face, user_id: Uuid) -> String {
         },
         days.saturating_mul(86_400),
     );
-    format!("{}/v2/notify/unsubscribe?token={signed}", face.link_base)
+    format!(
+        "{}{}/notify/unsubscribe?token={signed}",
+        face.link_base,
+        crate::app::api::API_BASE
+    )
 }
 
 /// The account's own row for the kind, then the channel's wildcard, then yes. A

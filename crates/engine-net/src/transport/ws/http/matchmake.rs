@@ -1,4 +1,3 @@
-
 use std::io::Write;
 
 use super::super::client::WsClient;
@@ -23,15 +22,12 @@ pub(super) fn serve_options(client: &mut WsClient, cors_allow: &str) -> bool {
     true
 }
 
-
-
 pub(super) fn serve_matchmake(
     client: &mut WsClient,
     req: &Greeting,
     cors_allow: &str,
     ctx: &mut ServerCtx<'_>,
 ) -> bool {
-    
     let result = match ctx.matchmake_hook {
         Some(hook) => hook(&req.url_method, &req.room_name, &req.url_body),
         None => default_matchmake(
@@ -42,16 +38,20 @@ pub(super) fn serve_matchmake(
             &client.session_id,
             ctx.game_port,
             ctx.udp_port,
+            &ctx.room_variants,
+            ctx.clients_meta,
         ),
     };
     let (status, payload) = match result {
         Ok(seat) => {
-            
             if let (Some(sid), Some(token)) = (
                 parse_json_string(&seat, "sessionId"),
                 parse_json_string(&seat, "reconnectionToken"),
             ) {
-                ctx.seat_tokens.insert(sid, token);
+                ctx.clients_meta
+                    .entry(std::sync::Arc::from(sid.as_str()))
+                    .or_default()
+                    .seat = Some(token);
             }
             ("200 OK", seat)
         }

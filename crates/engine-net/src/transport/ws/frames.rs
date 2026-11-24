@@ -1,5 +1,4 @@
-
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 
@@ -18,12 +17,12 @@ pub(super) fn process_ws_frames(
     client: &mut WsClient,
     events_out: &mut Vec<TransportEvent>,
     now: Instant,
+    simulated_latency: Duration,
 ) -> bool {
     while let Some(frame) = next_ws_frame(&mut client.recv_buf) {
         let (ws_opcode, fin, payload) = match frame {
             Ok(frame) => frame,
             Err(()) => {
-
                 client.consented = true;
                 queue_close_frame(client, 1009, "frame too large");
                 return true;
@@ -36,22 +35,18 @@ pub(super) fn process_ws_frames(
 
         match ws_opcode {
             0x8 => {
-
                 client.consented = true;
                 queue_close_frame(client, close_code::CONSENTED, "leave");
                 return true;
             }
             0x9 => {
-
                 queue_ws_control(client, 0xA, &payload);
                 continue;
             }
             0xA => {
-
                 continue;
             }
             0x0 => {
-
                 if client.frag_opcode.is_some() {
                     if client.frag_buf.len() + payload.len()
                         > super::rfc6455::MAX_INBOUND_FRAME_SIZE
@@ -64,7 +59,7 @@ pub(super) fn process_ws_frames(
                     if fin {
                         let msg = client.frag_buf.split().freeze();
                         client.frag_opcode = None;
-                        if dispatch_message(client, msg, events_out) {
+                        if dispatch_message(client, msg, events_out, now, simulated_latency) {
                             return true;
                         }
                     }
@@ -73,7 +68,7 @@ pub(super) fn process_ws_frames(
             }
             0x1 | 0x2 => {
                 if fin {
-                    if dispatch_message(client, payload, events_out) {
+                    if dispatch_message(client, payload, events_out, now, simulated_latency) {
                         return true;
                     }
                 } else {
@@ -93,6 +88,8 @@ fn dispatch_message(
     client: &mut WsClient,
     msg: Bytes,
     events_out: &mut Vec<TransportEvent>,
+    now: Instant,
+    simulated_latency: Duration,
 ) -> bool {
     if msg.is_empty() {
         return false;
@@ -100,11 +97,8 @@ fn dispatch_message(
     let code = msg[0] & PROTOCOL_CODE_MASK;
 
     match code {
-        PROTO_JOIN_ROOM => {
-
-        }
+        PROTO_JOIN_ROOM => {}
         PROTO_LEAVE_ROOM => {
-
             client.consented = true;
             queue_close_frame(client, close_code::CONSENTED, "leave");
             return true;
@@ -124,8 +118,13 @@ fn dispatch_message(
             });
         }
         PROTO_PING => {
-
-            queue_message(client, PROTO_PING, &msg[1..]);
+            if simulated_latency.is_zero() {
+                queue_message(client, PROTO_PING, &msg[1..]);
+            } else {
+                client
+                    .delayed_pings
+                    .push((now + simulated_latency, msg.slice(1..)));
+            }
         }
         PROTO_ROOM_REQUEST => {
             events_out.push(TransportEvent::Packet {
@@ -135,7 +134,6 @@ fn dispatch_message(
             });
         }
         _ => {
-
             events_out.push(TransportEvent::Packet {
                 client_id: client.session_id.clone(),
                 opcode: OpCode::Custom,

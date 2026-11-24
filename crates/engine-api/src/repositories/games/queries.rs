@@ -58,10 +58,15 @@ impl Queries {
         id: Uuid,
         data: &Value,
     ) -> Result<(), DbError> {
+        // One transaction: 4.0's SNAPSHOT isolation does not serialize two
+        // non-transactional statements, so two concurrent uploads could leave
+        // two rows active (the reader's LIMIT 1 then picks arbitrarily).
         self.exec(
-            "UPDATE room_modules SET is_active = false \
+            "BEGIN TRANSACTION; \
+             UPDATE room_modules SET is_active = false \
              WHERE game_id = $game_id AND is_active; \
-             CREATE type::record('room_modules', <uuid>$id) CONTENT $data",
+             CREATE type::record('room_modules', <uuid>$id) CONTENT $data; \
+             COMMIT;",
             params!(
                 game_id = game_id.to_string(),
                 id = id.to_string(),
@@ -73,10 +78,12 @@ impl Queries {
 
     pub async fn activate_room_module(&self, game_id: Uuid, version: i32) -> Result<(), DbError> {
         self.exec(
-            "UPDATE room_modules SET is_active = false \
+            "BEGIN TRANSACTION; \
+             UPDATE room_modules SET is_active = false \
              WHERE game_id = $game_id AND is_active; \
              UPDATE room_modules SET is_active = true \
-             WHERE game_id = $game_id AND version = $version",
+             WHERE game_id = $game_id AND version = $version; \
+             COMMIT;",
             params!(game_id = game_id.to_string(), version = version,),
         )
         .await
@@ -161,6 +168,52 @@ impl Queries {
         )
         .await
     }
+    /// Criteria-based archive (`API Design Patterns`, ch. 19). The filter is
+    /// parameterised and only the two fields the operator surface exposes are
+    /// accepted; a caller cannot smuggle SurrealQL through it.
+    pub async fn archive_games_matching(
+        &self,
+        status: Option<&str>,
+        name_contains: Option<&str>,
+    ) -> Result<WriteResult, DbError> {
+        let mut query = String::from(
+            "UPDATE games SET status = 'archived', updated_at = $updated_at \
+             WHERE status != 'archived'",
+        );
+        if status.is_some() {
+            query.push_str(" AND status = $status");
+        }
+        if name_contains.is_some() {
+            query.push_str(" AND string::contains(name, $name_contains)");
+        }
+        query.push_str(" RETURN AFTER");
+        affected(
+            self,
+            &query,
+            params!(
+                updated_at = time::encode(Utc::now()),
+                status = status.unwrap_or_default(),
+                name_contains = name_contains.unwrap_or_default(),
+            ),
+        )
+        .await
+    }
+
+    /// Reverse a soft delete. Only an archived row is restored, so an active
+    /// row answers "nothing to undo" instead of silently succeeding.
+    pub async fn restore_game(&self, id: Uuid) -> Result<WriteResult, DbError> {
+        affected(
+            self,
+            &format!(
+                "UPDATE {} SET status = 'active', updated_at = $updated_at \
+                 WHERE status = 'archived' RETURN AFTER",
+                record_uuid("games", "id")
+            ),
+            params!(updated_at = time::encode(Utc::now()), id = id.to_string(),),
+        )
+        .await
+    }
+
     pub async fn active_room_module_version(&self, game_id: Uuid) -> Result<Vec<i32>, DbError> {
         self.all(
             "SELECT VALUE version FROM room_modules \
@@ -210,8 +263,11 @@ impl Queries {
         game_id: Uuid,
     ) -> Result<Option<ActiveRoomModuleRow>, DbError> {
         self.opt(
+            // ORDER BY: 4.0's parallel executor returns rows in arbitrary
+            // order, and activate/insert are not yet serialized — two rows
+            // can briefly be is_active, so LIMIT 1 must pick deterministically.
             "SELECT version, sha256, blob_key FROM room_modules \
-             WHERE game_id = $game_id AND is_active LIMIT 1",
+             WHERE game_id = $game_id AND is_active ORDER BY version DESC LIMIT 1",
             params!(game_id = game_id.to_string()),
         )
         .await

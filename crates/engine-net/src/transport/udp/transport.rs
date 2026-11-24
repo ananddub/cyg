@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 
-use super::{UdpPeer, UdpTransport, UDP_SOCKET_TOKEN};
+use super::{UDP_SOCKET_TOKEN, UdpPeer, UdpTransport};
 use crate::framing::{OpCode, encode_frame, iter_frame_ranges};
 use crate::transport::{GameTransport, TransportEvent};
 
@@ -17,10 +17,14 @@ impl GameTransport for UdpTransport {
     ) -> io::Result<()> {
         self.poll.poll(&mut self.events, Some(timeout))?;
 
-        for event in self.events.iter() {
-            if event.token() == UDP_SOCKET_TOKEN && event.is_readable() {
+        let ready: Vec<bool> = self
+            .events
+            .iter()
+            .map(|event| event.token() == UDP_SOCKET_TOKEN && event.is_readable())
+            .collect();
+        for readable in ready {
+            if readable {
                 loop {
-
                     let (len, peer_addr) = match crate::bufio::recv_udp(
                         &mut self.socket,
                         &mut self.recv_buf,
@@ -54,6 +58,18 @@ impl GameTransport for UdpTransport {
                         }
                     };
                     for (opcode, range) in iter_frame_ranges(&datagram) {
+                        if opcode == OpCode::Custom {
+                            if let Some((opcode, payload)) =
+                                self.accept_chunk(&cid, peer_addr, &datagram[range])
+                            {
+                                events_out.push(TransportEvent::Packet {
+                                    client_id: cid.clone(),
+                                    opcode,
+                                    payload: payload.into(),
+                                });
+                            }
+                            continue;
+                        }
                         events_out.push(TransportEvent::Packet {
                             client_id: cid.clone(),
                             opcode,
@@ -62,6 +78,16 @@ impl GameTransport for UdpTransport {
                     }
                 }
             }
+        }
+
+        // Fresh slices and missing-slice retries for every in-flight block.
+        let chunks: Vec<(String, SocketAddr)> = self
+            .chunk_out
+            .keys()
+            .filter_map(|id| self.peer_addrs.get(id).map(|addr| (id.clone(), *addr)))
+            .collect();
+        for (client_id, addr) in chunks {
+            self.pump_chunk(&client_id, addr, super::CHUNK_BURST);
         }
 
         let now = Instant::now();
@@ -85,6 +111,18 @@ impl GameTransport for UdpTransport {
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> io::Result<()> {
+        if payload.len() > super::CHUNK_THRESHOLD
+            && matches!(
+                opcode,
+                OpCode::StateSnapshot
+                    | OpCode::StateDelta
+                    | OpCode::RoomDataBytes
+                    | OpCode::RoomResponse
+            )
+            && self.start_chunk(client_id, opcode, payload)
+        {
+            return Ok(());
+        }
         if let Some(&peer_addr) = self.peer_addrs.get(client_id) {
             self.sb.reserve(3 + payload.len());
             encode_frame(opcode, payload, &mut self.sb);
@@ -95,6 +133,20 @@ impl GameTransport for UdpTransport {
     }
 
     fn broadcast(&mut self, opcode: OpCode, payload: &[u8]) -> io::Result<()> {
+        if payload.len() > super::CHUNK_THRESHOLD
+            && matches!(
+                opcode,
+                OpCode::StateSnapshot
+                    | OpCode::StateDelta
+                    | OpCode::RoomDataBytes
+                    | OpCode::RoomResponse
+            )
+        {
+            let ids: Vec<String> = self.peer_addrs.keys().cloned().collect();
+            if !ids.is_empty() && ids.iter().all(|id| self.start_chunk(id, opcode, payload)) {
+                return Ok(());
+            }
+        }
         self.sb.reserve(3 + payload.len());
         encode_frame(opcode, payload, &mut self.sb);
         let frame: Bytes = self.sb.split().freeze();

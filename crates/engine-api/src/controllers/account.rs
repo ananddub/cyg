@@ -20,22 +20,19 @@ struct AccountController {
     service: Arc<AccountService>,
 }
 
-#[controller("/v2/account")]
+#[controller("/v1/account")]
 impl AccountController {
     fn new(service: Arc<AccountService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::account::AccountResponse)]
     async fn account(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .get_account(&state, &auth)
-            .await
-            .into_response()
+        self.service.get_account(&auth).await.into_response()
     }
 
-    #[put("")]
+    #[put("", response_body = crate::dto::account::AccountResponse)]
     async fn update(
         &self,
         auth: Authed,
@@ -44,45 +41,43 @@ impl AccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_account(&state, &auth, params, body)
+            .update_account(&auth, params, body)
             .await
             .into_response()
     }
 
-    #[delete]
+    #[delete("", response_body = crate::dto::Empty)]
     async fn delete(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .delete_account(&state, &auth)
-            .await
-            .into_response()
+        self.service.delete_account(&auth).await.into_response()
     }
 
-    #[get("/export")]
+    #[get("/export", response_body = crate::dto::console::account::AccountExport)]
     async fn export(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .export_account(&state, &auth)
-            .await
-            .into_response()
+        self.service.export_account(&auth).await.into_response()
     }
 
-    #[post("/delete")]
-    async fn delete_by_id(&self, headers: HeaderMap, Json(body): JsonBody<EraseRequest>) -> Response {
+    #[post("/delete", response_body = crate::dto::Empty)]
+    async fn delete_by_id(
+        &self,
+        headers: HeaderMap,
+        Json(body): JsonBody<EraseRequest>,
+    ) -> Response {
         let state = current_state();
-        if let Err(err) = server_key_or_console(&headers, &state) {
+        if let Err(err) = server_key_or_console(&headers, &*state.plane()) {
             return err.into_response();
         }
-        self.service.erase(&state, body.user_id).await.into_response()
+        self.service.erase(body.user_id).await.into_response()
     }
 
-    #[get("/wallet")]
+    #[get("/wallet", response_body = crate::dto::account::PlayerWalletResponse)]
     async fn wallet(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service.get_wallet(&state, &auth).await.into_response()
+        self.service.get_wallet(&auth).await.into_response()
     }
 
-    #[post("/wallet")]
+    #[post("/wallet", response_body = crate::dto::account::PlayerWalletResponse)]
     async fn update_wallet(
         &self,
         auth: Authed,
@@ -90,12 +85,12 @@ impl AccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_wallet(&state, &auth, body)
+            .update_wallet(&auth, body)
             .await
             .into_response()
     }
 
-    #[put("/wallet")]
+    #[put("/wallet", response_body = crate::dto::account::PlayerWalletResponse)]
     async fn put_wallet(
         &self,
         auth: Authed,
@@ -103,7 +98,7 @@ impl AccountController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_wallet(&state, &auth, body)
+            .update_wallet(&auth, body)
             .await
             .into_response()
     }

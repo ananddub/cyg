@@ -290,6 +290,7 @@ impl Queries {
             name: params_in.name.clone(),
             description: params_in.description.clone(),
             acl: params_in.acl.clone(),
+            version: Some(1),
             create_time: now,
             update_time: now,
         };
@@ -304,7 +305,9 @@ impl Queries {
         affected(
             self,
             "UPDATE type::record('console_acl_template', <uuid>$id) SET name = $name, \
-                description = $description, acl = $acl, update_time = $now RETURN AFTER",
+                description = $description, acl = $acl, \
+                version = (IF version IS NONE THEN 2 ELSE version + 1 END), \
+                update_time = $now RETURN AFTER",
             params!(
                 name = params_in.name,
                 description = params_in.description,
@@ -315,10 +318,37 @@ impl Queries {
         )
         .await
     }
+    /// Applies an edit only if the row is still at `expected`, and bumps the
+    /// generation in the same statement, so the check and the write cannot be
+    /// separated by another editor.
+    pub async fn update_acl_template_if_version(
+        &self,
+        params_in: &UpdateAclTemplateParams,
+        expected: i64,
+    ) -> Result<Option<ConsoleAclTemplate>, DbError> {
+        let rows: Vec<ConsoleAclTemplate> = self
+            .all(
+                "UPDATE type::record('console_acl_template', <uuid>$id) SET name = $name, \
+                    description = $description, acl = $acl, version = $next, update_time = $now \
+                 WHERE version = $expected OR (version IS NONE AND $expected = 1) \
+                 RETURN AFTER",
+                params!(
+                    name = params_in.name,
+                    description = params_in.description,
+                    acl = params_in.acl,
+                    id = params_in.id.to_string(),
+                    expected = expected,
+                    next = expected + 1,
+                    now = time::encode(Utc::now()),
+                ),
+            )
+            .await?;
+        Ok(rows.into_iter().next())
+    }
     pub async fn find_acl_template(&self, id: Uuid) -> Result<ConsoleAclTemplate, DbError> {
         self.one(
             &format!(
-                "SELECT id, name, description, acl, create_time, update_time FROM {}",
+                "SELECT id, name, description, acl, version, create_time, update_time FROM {}",
                 record_uuid("console_acl_template", "id")
             ),
             params!(id = id.to_string()),

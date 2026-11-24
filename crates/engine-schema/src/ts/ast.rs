@@ -17,6 +17,10 @@ pub(super) struct ParsedPrimitive {
 pub(super) enum ParsedType {
     Primitive(ParsedPrimitive),
     Map(String),
+    /// A field whose type is another schema: `stats: Stats`.
+    Nested(String),
+    /// A field declared as `items: t.array(Item)`.
+    NestedArray(String),
 }
 
 pub(super) enum Literal {

@@ -38,6 +38,7 @@ interface TournamentForm {
   start_time: string
   end_time: string
   reset_schedule: string
+  rule_key: string
   max_size: string
   max_num_score: string
   metadata: string
@@ -56,6 +57,7 @@ function seed(board: ConsoleLeaderboard | null): TournamentForm {
     start_time: board?.start_time ?? "",
     end_time: board?.end_time ?? "",
     reset_schedule: board?.reset_schedule ?? "",
+    rule_key: board?.rule_key ?? "",
     max_size: board === null ? "" : String(board.max_size),
     max_num_score: board === null ? "" : String(board.max_num_score),
     metadata: jsonText(board?.metadata),
@@ -79,6 +81,7 @@ function buildBody(form: TournamentForm, creating: boolean): Record<string, unkn
     authoritative: form.authoritative,
     join_required: form.join_required,
     reset_schedule: form.reset_schedule,
+    rule_key: form.rule_key,
   }
   if (creating) body.id = form.id
   if (form.duration !== "") body.duration = Number(form.duration)
@@ -158,6 +161,7 @@ export function TournamentDialog({
         <Select label="Sort order" value={form.sort_order} onChange={(value) => set("sort_order", value)} options={SORT_OPTIONS} />
         <MonoInput label="Duration (secs)" hint="A tournament round needs at least one second." value={form.duration} onChange={(value) => set("duration", value)} />
         <MonoInput label="Reset schedule" hint="A cron expression; blank clears the round clock." value={form.reset_schedule} onChange={(value) => set("reset_schedule", value)} />
+        <MonoInput label="Rule key" hint="A published rules key; blank leaves the round open." value={form.rule_key} onChange={(value) => set("rule_key", value)} />
         <MonoInput label="Start time" hint="RFC 3339, e.g. 2026-01-01T00:00:00Z" value={form.start_time} onChange={(value) => set("start_time", value)} />
         <MonoInput label="End time" hint="RFC 3339; blank keeps the stored window." value={form.end_time} onChange={(value) => set("end_time", value)} />
         <MonoInput label="Max size" value={form.max_size} onChange={(value) => set("max_size", value)} />

@@ -1,3 +1,4 @@
+use std::sync::Arc;
 
 use engine_webrtc_protocol::{
     DELTA_HEADER_LEN, MAX_DELTA_BODY, MAX_DELTA_CHUNK, delta_fragment_count, write_delta_frame,
@@ -7,7 +8,6 @@ use super::FRAME_MAX_WIRE_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeltaTooLarge {
-
     BodyTooLarge { body_len: usize, max: usize },
 }
 
@@ -28,7 +28,7 @@ pub fn split_delta(
     seq: u16,
     tick: u32,
     body: &[u8],
-    out: &mut Vec<Vec<u8>>,
+    out: &mut Vec<Arc<[u8]>>,
 ) -> Result<usize, DeltaTooLarge> {
     let Some(total) = delta_fragment_count(body.len()) else {
         out.clear();
@@ -46,12 +46,11 @@ pub fn split_delta(
             scratch.len() <= FRAME_MAX_WIRE_LEN,
             "frame exceeded the MTU"
         );
-        out.push(scratch.clone());
+        out.push(Arc::from(&scratch[..]));
     }
     if out.is_empty() {
-
         write_delta_frame(&mut scratch, seq, tick, 0, 1, &[]);
-        out.push(scratch.clone());
+        out.push(Arc::from(&scratch[..]));
     }
     debug_assert_eq!(out.len(), total as usize);
     Ok(out.len())

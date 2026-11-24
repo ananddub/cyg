@@ -46,13 +46,28 @@ pub async fn root_redirect(env: &Harness) {
 }
 pub async fn static_plane(env: &Harness) {
     eprintln!("gap: static file plane");
+    // /cyg.js is served by the binary itself (the embedded browser SDK), so
+    // it is not in the miss list below — it answers 200 with SDK content.
+    let sdk = env
+        .client
+        .get(format!("{}/cyg.js", env.base))
+        .send()
+        .await
+        .unwrap();
+    let (typed, body) = expect_text(sdk, StatusCode::OK, "GET /cyg.js").await;
+    assert!(
+        body.contains("CYG Gaming SDK"),
+        "GET /cyg.js serves the embedded SDK: {body}"
+    );
+    assert!(
+        typed.starts_with("application/javascript") || typed.starts_with("text/javascript"),
+        "GET /cyg.js is JavaScript: {typed}"
+    );
     for (label, path) in [
         ("GET /unity/index.html", "/unity/index.html"),
         ("GET /unity", "/unity"),
         ("GET /Build/game.js", "/Build/game.js"),
         ("GET /TemplateData/style.css", "/TemplateData/style.css"),
-        ("GET /cyg.js", "/cyg.js"),
-        ("GET /openoxide-client.js", "/openoxide-client.js"),
         ("GET /arena_map.json", "/arena_map.json"),
     ] {
         let (typed, body) = expect_text(

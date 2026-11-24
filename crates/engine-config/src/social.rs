@@ -1,7 +1,5 @@
-
 #[derive(Debug, Clone)]
 pub struct SocialConfig {
-
     pub google_client_ids: Vec<String>,
 
     pub google_tokeninfo_url: String,

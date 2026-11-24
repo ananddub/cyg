@@ -1,6 +1,6 @@
 use super::*;
 
-/// What `GET /v2/iap/subscription/active` says about a row as its clock moves:
+/// What `GET /v1/iap/subscription/active` says about a row as its clock moves:
 /// an entitlement that has to be re-checked with the store stays an entitlement,
 /// a lapsed one stops being one, and a refund stops it outright.
 pub async fn entitlement_surface(env: &Harness, _console: &str) {
@@ -9,7 +9,7 @@ pub async fn entitlement_surface(env: &Harness, _console: &str) {
 
     expect(
         env.client
-            .get(format!("{}/v2/iap/subscription/active", env.base))
+            .get(format!("{}/v1/iap/subscription/active", env.base))
             .send()
             .await
             .unwrap(),
@@ -80,7 +80,7 @@ pub async fn entitlement_surface(env: &Harness, _console: &str) {
     // The listed subscriptions answer with the same states the gate uses.
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/iap/subscription?limit=10", env.base))
+            .get(format!("{}/v1/iap/subscription?limit=10", env.base))
             .bearer_auth(&player.token)
             .send()
             .await

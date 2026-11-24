@@ -1,9 +1,7 @@
-
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct VoiceJitterEstimator {
-
     max_seq: u16,
 
     base_seq: u16,
@@ -55,7 +53,6 @@ impl VoiceJitterEstimator {
 
         let delta = seq.wrapping_sub(self.max_seq) as i16;
         if delta > 0 {
-
             let lost_between = (delta - 1).max(0) as i64;
             self.packets_lost += lost_between;
             self.max_seq = seq;

@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 use std::time::Instant;
 
-use str0m::net::{Protocol, Receive};
 use str0m::Input;
+use str0m::net::{Protocol, Receive};
 
 use super::WebRtcServer;
 
@@ -39,6 +39,12 @@ impl WebRtcServer {
                 Self::poll_session_events(session, &mut self.sink);
                 return;
             }
+        }
+
+        // Unknown source: the O(sessions) `rtc.accepts` scan is rate limited
+        // so a flood of spoofed datagrams cannot burn a full scan per packet.
+        if !self.admit_unknown_source(now) {
+            return;
         }
 
         let mut matched_client_id: Option<String> = None;

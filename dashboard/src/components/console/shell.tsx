@@ -85,14 +85,14 @@ export function ConsoleSidebar({
         ) : (
           <div
             className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-            title="cookyourgame"
+            title="cyg"
           >
             <span className="flex size-8.5 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent border border-sidebar-border/60 text-sidebar-foreground shadow-2xs">
               <BrandLogo className="size-5" />
             </span>
             <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
               <span className="truncate text-sm font-bold tracking-tight text-sidebar-foreground block">
-                cookyourgame
+                cyg
               </span>
               <span className="truncate font-mono text-[10px] text-muted-foreground uppercase tracking-wider block">
                 CYG Console

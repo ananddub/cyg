@@ -12,20 +12,20 @@ fn every_index_route_demands_a_player_token() {
     let server = V2Server::start(v2_state());
 
     for (method, path, body) in [
-        ("POST", "/v2/storage/index".to_owned(), VALID.to_owned()),
-        ("GET", "/v2/storage/index".to_owned(), String::new()),
+        ("POST", "/v1/storage/index".to_owned(), VALID.to_owned()),
+        ("GET", "/v1/storage/index".to_owned(), String::new()),
         (
             "DELETE",
-            "/v2/storage/index/rankings".to_owned(),
+            "/v1/storage/index/rankings".to_owned(),
             String::new(),
         ),
         (
             "POST",
-            "/v2/storage/index/rankings/query".to_owned(),
+            "/v1/storage/index/rankings/query".to_owned(),
             r#"{"query":"score:10"}"#.to_owned(),
         ),
     ] {
-        let reply = server.send(&method, &path, None, &body);
+        let reply = server.send(method, &path, None, &body);
         assert_eq!(
             reply.refusal(UNAUTHENTICATED),
             "Auth token required",
@@ -66,7 +66,7 @@ fn a_definition_that_breaks_the_rules_is_refused_before_the_database() {
         ),
     ];
     for (body, message) in cases {
-        let reply = server.post("/v2/storage/index", Some(&auth), body);
+        let reply = server.post("/v1/storage/index", Some(&auth), body);
         assert_eq!(reply.refusal(INVALID_ARGUMENT), message, "body: {body}");
     }
 }
@@ -77,7 +77,7 @@ fn a_query_that_makes_no_sense_is_refused_before_the_database() {
     let auth = player_token();
 
     let reply = server.post(
-        "/v2/storage/index/rankings/query",
+        "/v1/storage/index/rankings/query",
         Some(&auth),
         r#"{"query":"nocolon"}"#,
     );
@@ -87,7 +87,7 @@ fn a_query_that_makes_no_sense_is_refused_before_the_database() {
     );
 
     let reply = server.post(
-        "/v2/storage/index/rankings/query",
+        "/v1/storage/index/rankings/query",
         Some(&auth),
         r#"{"query":"","limit":500}"#,
     );
@@ -97,7 +97,7 @@ fn a_query_that_makes_no_sense_is_refused_before_the_database() {
     );
 
     let reply = server.post(
-        "/v2/storage/index/rankings/query",
+        "/v1/storage/index/rankings/query",
         Some(&auth),
         r#"{"query":"","cursor":"not-a-cursor!!"}"#,
     );
@@ -113,20 +113,20 @@ fn well_formed_index_requests_reach_the_database() {
     let auth = player_token();
 
     for (method, path, body) in [
-        ("POST", "/v2/storage/index".to_owned(), VALID.to_owned()),
-        ("GET", "/v2/storage/index".to_owned(), String::new()),
+        ("POST", "/v1/storage/index".to_owned(), VALID.to_owned()),
+        ("GET", "/v1/storage/index".to_owned(), String::new()),
         (
             "DELETE",
-            "/v2/storage/index/rankings".to_owned(),
+            "/v1/storage/index/rankings".to_owned(),
             String::new(),
         ),
         (
             "POST",
-            "/v2/storage/index/rankings/query".to_owned(),
+            "/v1/storage/index/rankings/query".to_owned(),
             r#"{"query":"score:[10 TO 20}","order":["-update_time"],"limit":10}"#.to_owned(),
         ),
     ] {
-        let reply = server.send(&method, &path, Some(&auth), &body);
+        let reply = server.send(method, &path, Some(&auth), &body);
         assert_eq!(reply.refusal(UNAVAILABLE), NO_DB, "{method} {path}");
     }
 }

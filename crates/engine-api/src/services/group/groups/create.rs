@@ -1,12 +1,10 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::group::{CreateGroupRequest, GroupEnvelope, GroupResponse};
 use crate::error::V2Error;
 use crate::repositories::group::{CreateGroupParams, JoinGroupEdgeParams};
-use crate::services::deps::q;
 use crate::services::social;
 use crate::utils::group::{ROLE_SUPERADMIN, metadata_of};
 
@@ -15,7 +13,7 @@ use super::{GROUP_CLOSED, GROUP_OPEN, GroupService};
 impl GroupService {
     pub async fn create_group(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         body: CreateGroupRequest,
     ) -> Result<Json<GroupEnvelope>, V2Error> {
@@ -32,7 +30,7 @@ impl GroupService {
             }
             Some(n) => n,
         };
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let creator = match body.creator_id.as_deref() {
             None | Some("") => auth.0.uuid()?,
             Some(raw) => {
@@ -55,14 +53,10 @@ impl GroupService {
                 id: Uuid::new_v4(),
                 creator_id: creator,
                 name,
-                description: crate::moderation::clean_text(
-                    &body.description.unwrap_or_default(),
-                ),
+                description: crate::moderation::clean_text(&body.description.unwrap_or_default()),
                 avatar_url: body.avatar_url.unwrap_or_default(),
                 lang_tag: body.lang_tag.unwrap_or_default(),
-                metadata: crate::moderation::sanitize_json(metadata_of(
-                    body.metadata.as_ref(),
-                )?),
+                metadata: crate::moderation::sanitize_json(metadata_of(body.metadata.as_ref())?),
                 max_count,
                 state: if open { GROUP_OPEN } else { GROUP_CLOSED },
             })

@@ -1,13 +1,13 @@
+use crate::services::plane::Plane;
+
 use axum::Json;
 use chrono::Utc;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::flag::{VariantRequest, VariantRow};
 use crate::error::V2Error;
 use crate::repositories::models::FlagVariant;
-use crate::services::deps::q;
 use crate::services::quest::catalog::definition_key;
 
 /// How many arms one flag may split its rollout across, and the largest weight
@@ -17,13 +17,9 @@ const MAX_ARMS: usize = 16;
 const MAX_WEIGHT: u32 = 1_000;
 
 impl super::ConsoleService {
-    pub async fn list_variants(
-        &self,
-        state: &ApiState,
-        raw_key: &str,
-    ) -> Result<Json<Vec<VariantRow>>, V2Error> {
+    pub async fn list_variants(&self, raw_key: &str) -> Result<Json<Vec<VariantRow>>, V2Error> {
         let key = definition_key(raw_key, "flag")?;
-        let arms = q(state).await?.arms_of(&key).await?;
+        let arms = self.plane.q().await?.arms_of(&key).await?;
         Ok(Json(
             arms.into_iter()
                 .enumerate()
@@ -36,15 +32,15 @@ impl super::ConsoleService {
     /// nobody can read, so this reports the collision instead of writing over it.
     pub async fn create_variant(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         raw_key: &str,
         body: VariantRequest,
     ) -> Result<Json<VariantRow>, V2Error> {
         claims.require_write()?;
         let key = definition_key(raw_key, "flag")?;
-        let queries = q(state).await?;
-        defined(state, &key).await?;
+        let queries = self.plane.q().await?;
+        defined(&self.plane, &key).await?;
         let name = definition_key(body.name.as_deref().unwrap_or_default(), "variant")?;
         let arm = arm(&key, &name, body.weight)?;
         let arms = queries.arms_of(&key).await?;
@@ -59,7 +55,7 @@ impl super::ConsoleService {
             ));
         }
         audit_arm(
-            state,
+            &self.plane,
             claims,
             "flag.variant.create",
             &format!(
@@ -80,7 +76,7 @@ impl super::ConsoleService {
     /// hash at read time and never stored against an account.
     pub async fn put_variant(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         raw_key: &str,
         raw_name: &str,
@@ -88,14 +84,14 @@ impl super::ConsoleService {
     ) -> Result<Json<VariantRow>, V2Error> {
         claims.require_write()?;
         let key = definition_key(raw_key, "flag")?;
-        let queries = q(state).await?;
-        defined(state, &key).await?;
+        let queries = self.plane.q().await?;
+        defined(&self.plane, &key).await?;
         let name = definition_key(raw_name, "variant")?;
         let arm = arm(&key, &name, body.weight)?;
         let before = queries.arms_of(&key).await?;
         queries.update_variant(&arm).await?;
         audit_arm(
-            state,
+            &self.plane,
             claims,
             "flag.variant.update",
             &format!("Set flag {key} arm {name} to weight {}.", arm.weight),
@@ -109,7 +105,7 @@ impl super::ConsoleService {
 
     pub async fn delete_variant(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         raw_key: &str,
         raw_name: &str,
@@ -117,7 +113,9 @@ impl super::ConsoleService {
         claims.require_write()?;
         let key = definition_key(raw_key, "flag")?;
         let name = definition_key(raw_name, "variant")?;
-        if q(state)
+        if self
+            .plane
+            .q()
             .await?
             .delete_variant(&key, &name)
             .await?
@@ -127,7 +125,7 @@ impl super::ConsoleService {
             return Err(V2Error::not_found("Arm not found."));
         }
         audit_arm(
-            state,
+            &self.plane,
             claims,
             "flag.variant.delete",
             &format!("Removed {name} from flag {key}."),
@@ -139,8 +137,8 @@ impl super::ConsoleService {
 
 /// An arm or a pin needs a flag to belong to: without this check a route could
 /// keep writing parts for a key nothing reads back once the experiment is gone.
-pub(super) async fn defined(state: &ApiState, key: &str) -> Result<(), V2Error> {
-    if q(state).await?.get_flag(key).await?.is_none() {
+pub(super) async fn defined(plane: &Plane, key: &str) -> Result<(), V2Error> {
+    if plane.q().await?.get_flag(key).await?.is_none() {
         return Err(V2Error::not_found("Flag not found."));
     }
     Ok(())
@@ -161,6 +159,6 @@ fn arm(flag_key: &str, name: &str, weight: u32) -> Result<FlagVariant, V2Error> 
     })
 }
 
-async fn audit_arm(state: &ApiState, claims: &ConsoleAuthed, action: &str, message: &str) {
-    super::audit(state, claims, action, "flag", None, message).await;
+async fn audit_arm(plane: &Plane, claims: &ConsoleAuthed, action: &str, message: &str) {
+    super::audit(plane, claims, action, "flag", None, message).await;
 }

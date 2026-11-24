@@ -1,14 +1,12 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, FnArg, ItemFn, LitStr, PatType};
+use syn::{FnArg, ItemFn, LitStr, PatType, parse_macro_input};
 
 use crate::descriptor::{
     param_descriptor_tokens, request_schema_descriptor_tokens, response_schema_descriptor_tokens,
 };
-use crate::docs::{
-    doc_comment_summary, join_paths, merged_docs, openapi_tag, option_lit_tokens,
-};
-use crate::model::ResponseBody;
+use crate::docs::{doc_comment_summary, join_paths, merged_docs, openapi_tag, option_lit_tokens};
+use crate::model::{RequestBody, RequestContent, ResponseBody};
 use crate::options::RouteOptions;
 use crate::params::infer_params;
 use crate::schema::{infer_request_body, infer_response_body};
@@ -45,10 +43,11 @@ fn expand_standalone_route(
     let method = format_ident!("{method}");
     let method_name = method.to_string().to_ascii_uppercase();
     let factory = format_ident!("__auto_route_factory_{}", handler);
-    let path = LitStr::new(
-        &join_paths("", &route_options.path.value()),
-        route_options.path.span(),
-    );
+    let joined_path = join_paths("", &route_options.path.value());
+    // A standalone route keeps its full path, so it only joins the versioned
+    // tree when it is authored with a version segment the plane mounts.
+    let versioned = crate::docs::api_version(&joined_path).is_some();
+    let path = LitStr::new(&joined_path, route_options.path.span());
     let argument_types = function
         .sig
         .inputs
@@ -63,8 +62,17 @@ fn expand_standalone_route(
         .collect::<syn::Result<Vec<_>>>()?;
     let params = infer_params(&path.value(), &argument_types);
     let params = param_descriptor_tokens(&params);
-    let request_schema =
-        request_schema_descriptor_tokens(infer_request_body(&argument_types).as_ref());
+    let request_body = route_options
+        .request_body
+        .clone()
+        .map(|ty| RequestBody {
+            ty,
+            content: route_options
+                .request_content
+                .unwrap_or(RequestContent::Json),
+        })
+        .or_else(|| infer_request_body(&argument_types));
+    let request_schema = request_schema_descriptor_tokens(request_body.as_ref(), &method_name);
     let docs = merged_docs(&route_options.docs, doc_comment_summary(&function.attrs));
     let tag = docs
         .tag
@@ -75,8 +83,9 @@ fn expand_standalone_route(
     let request_description = option_lit_tokens(docs.request_description.as_ref());
     let response_description = option_lit_tokens(docs.response_description.as_ref());
     let response_body = route_options
-        .sse_body
-        .map(|ty| ResponseBody::Sse(Some(ty)))
+        .response_body
+        .map(ResponseBody::Json)
+        .or_else(|| route_options.sse_body.map(|ty| ResponseBody::Sse(Some(ty))))
         .or_else(|| infer_response_body(&function.sig.output));
     let response_schema = response_schema_descriptor_tokens(response_body.as_ref());
 
@@ -102,7 +111,7 @@ fn expand_standalone_route(
         }
 
         ::auto_route::__private::inventory::submit! {
-            ::auto_route::RouteDescriptor::new(#factory)
+            ::auto_route::RouteDescriptor::new(#factory, #versioned)
         }
 
         ::auto_route::__private::inventory::submit! {

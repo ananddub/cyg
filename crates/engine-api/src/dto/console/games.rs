@@ -35,7 +35,7 @@ impl GameConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct CreateGameRequest {
     #[serde(default)]
     pub name: String,
@@ -53,7 +53,7 @@ pub struct CreateGameRequest {
     pub auto_close_seconds: Option<u32>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, poem_openapi::Object)]
 pub struct UpdateGameRequest {
     #[serde(default)]
     pub name: Option<String>,
@@ -71,6 +71,10 @@ pub struct UpdateGameRequest {
     pub persistent_rooms: Option<bool>,
     #[serde(default)]
     pub auto_close_seconds: Option<u32>,
+    /// Validate the request without applying it. Book ch.27: the flag defaults
+    /// to false and a validation request has no side effects.
+    #[serde(default, alias = "validateOnly")]
+    pub validate_only: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,7 +91,7 @@ pub struct GameRow {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct GameDto {
     pub id: Uuid,
     pub game_key: String,
@@ -118,7 +122,7 @@ impl From<GameRow> for GameDto {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct GameDetailDto {
     pub id: Uuid,
     pub game_key: String,
@@ -135,18 +139,43 @@ pub struct GameDetailDto {
     pub module_count: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct GameListDto {
     pub games: Vec<GameDto>,
     pub total: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, poem_openapi::Object)]
+pub struct GameIdsRequest {
+    /// The games to read, archive, or restore in one call. Order is preserved.
+    pub ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct GameBatchResponse {
+    pub games: Vec<GameDto>,
+}
+
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct GameArchiveBatchResponse {
+    pub archived: usize,
+}
+
+#[derive(Debug, Default, Deserialize, poem_openapi::Object)]
+pub struct GameCriteriaRequest {
+    /// Archive only games in this lifecycle state (`active`, `suspended`).
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Archive only games whose name contains this text.
+    #[serde(default)]
+    pub name_contains: Option<String>,
+}
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct ArchiveGameResponse {
     pub archived: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct UnityConnectionDto {
     #[serde(rename = "gameKey")]
     pub game_key: String,

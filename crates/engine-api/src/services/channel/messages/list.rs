@@ -1,14 +1,12 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::channel::{ListQuery, MessageListResponse, MessageResponse};
 use crate::error::V2Error;
 use crate::repositories::channel::{
     ListChannelMessagesBackwardParams, ListChannelMessagesForwardParams,
 };
-use crate::services::deps::q;
 use crate::services::social::{ts_head, ts_tail};
 
 use crate::utils::channel::{
@@ -21,13 +19,13 @@ use super::super::membership::assert_member;
 impl ChannelService {
     pub async fn list_messages(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         channel_id: &str,
         req: ListQuery,
     ) -> Result<Json<MessageListResponse>, V2Error> {
         let stream = stream_of_channel(channel_id)?;
-        assert_member(state, auth.0.uuid()?, &stream).await?;
+        assert_member(&self.plane, auth.0.uuid()?, &stream).await?;
 
         let page = match req.limit {
             None => 1,
@@ -52,7 +50,7 @@ impl ChannelService {
         };
         let flip = cursor.as_ref().is_some_and(|c| !c.next);
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let (create_time, id) =
             cursor
                 .as_ref()

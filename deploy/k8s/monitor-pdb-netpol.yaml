@@ -23,7 +23,7 @@ spec:
       # credential; only the username half is checked by the server.
       basicAuth:
         name: cyg-secrets
-        key: OX_SERVER_KEY
+        key: CYG_SERVER_KEY
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

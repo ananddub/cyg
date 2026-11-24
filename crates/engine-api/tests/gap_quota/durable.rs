@@ -48,7 +48,7 @@ async fn send(
 ) -> Result<Value, reqwest::Response> {
     let resp = env
         .client
-        .post(format!("{}/v2/channel/{room}/message", env.base))
+        .post(format!("{}/v1/channel/{room}/message", env.base))
         .bearer_auth(token)
         .json(&json!({ "content": { "text": line } }))
         .send()
@@ -76,7 +76,7 @@ async fn put_batch(
         })
         .collect();
     env.client
-        .put(format!("{}/v2/storage", env.base))
+        .put(format!("{}/v1/storage", env.base))
         .bearer_auth(token)
         .json(&json!({ "objects": objects }))
         .send()

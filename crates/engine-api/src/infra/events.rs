@@ -8,6 +8,8 @@
 //! the user id its client claimed, and a mirrored event whose name is a visible
 //! quest counter credits that user — the same counters the server-key ingest
 //! door writes, so a quest reads one number no matter which door moved it.
+use crate::services::plane::Plane;
+use std::sync::Arc;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -17,7 +19,9 @@ use engine_bus::{RoomSnapshot, SeatUpdate, SimEvent};
 use uuid::Uuid;
 
 use crate::ApiState;
-use crate::repositories::models::{DesyncReport, GameplayEvent, MatchHistory, QuestDefinition, RoomRegistry};
+use crate::repositories::models::{
+    DesyncReport, GameplayEvent, MatchHistory, QuestDefinition, RoomRegistry, StatWriteReceipt,
+};
 use crate::services::quest::catalog::{open_seasons, visible};
 
 const PUMP_INTERVAL: Duration = Duration::from_millis(250);
@@ -58,11 +62,15 @@ impl SeatBridges {
         self.0.retain(|(name, _), _| name != room);
     }
 
-    fn resolve(&self, event: &SimEvent) -> Option<Uuid> {
-        if event.target == 0 {
+    fn user(&self, room: &str, seat: i64) -> Option<Uuid> {
+        if seat <= 0 {
             return None;
         }
-        self.0.get(&(event.room.clone(), event.target)).copied()
+        self.0.get(&(room.to_string(), seat)).copied()
+    }
+
+    fn resolve(&self, event: &SimEvent) -> Option<Uuid> {
+        self.user(&event.room, event.target)
     }
 }
 
@@ -86,29 +94,32 @@ impl QuestCounters {
     /// Rebuild the counter map from the quests that run right now. A failure
     /// keeps the previous map: stale counters lag an operator's change, an
     /// empty one would silently stop crediting everything.
-    async fn refresh(&mut self, state: &ApiState) {
+    async fn refresh(&mut self, plane: &Plane) {
         self.ticks_since_refresh = 0;
-        let Some(queries) = state.q.as_ref() else {
+        let Ok(queries) = plane.q().await else {
             return;
         };
         let now = Utc::now();
-        let Ok(seasons) = open_seasons(queries, now).await else {
+        let Ok(seasons) = open_seasons(&queries, now).await else {
             tracing::warn!("[control] quest counter refresh: seasons unavailable");
             return;
         };
-        let definitions = match crate::services::quest::owned_definitions(queries, state).await {
+        let definitions = match crate::services::quest::owned_definitions(&queries, plane).await {
             Ok(definitions) => definitions,
             Err(err) => {
                 tracing::warn!("[control] quest counter refresh failed: {err:?}");
                 return;
             }
         };
-        self.by_counter = visible(&definitions, &seasons, now)
-            .into_iter()
-            .fold(HashMap::new(), |mut map, quest| {
-                map.entry(quest.goal_kind.clone()).or_default().push(quest.clone());
+        self.by_counter = visible(&definitions, &seasons, now).into_iter().fold(
+            HashMap::new(),
+            |mut map, quest| {
+                map.entry(quest.goal_kind.clone())
+                    .or_default()
+                    .push(quest.clone());
                 map
-            });
+            },
+        );
     }
 
     fn due(&self) -> bool {
@@ -131,6 +142,48 @@ fn phase_name(phase: engine_bus::RoomPhase) -> &'static str {
 /// The host reports wall seconds because an `Instant` cannot survive a restart.
 fn stamp(secs: i64) -> DateTime<Utc> {
     DateTime::from_timestamp(secs, 0).unwrap_or_else(Utc::now)
+}
+
+/// Score a result the room reported for itself.
+///
+/// The players are taken from the report, not from the realtime registry: a
+/// room that has just closed is gone from the registry, and asking it who was
+/// seated would answer "nobody" for every match. The room's own list is the
+/// authority here because the node that held it resolved those ids from the
+/// seats it was given, which is the same set the registry would have returned
+/// a moment earlier.
+///
+/// Everything after that is `record_result`'s own path — the same balance
+/// checks, the same counters, the same rules and webhook. A guest's claim is
+/// worth no more than an HTTP caller's.
+async fn score_reported_result(plane: &Plane, finished: &engine_bus::MatchFinished) {
+    let outcome = match crate::services::match_result::reported::decode(&finished.result) {
+        Ok(outcome) => outcome,
+        Err(problem) => {
+            // A result the control plane cannot read is dropped, loudly. The
+            // room is already gone; there is nowhere to return it to.
+            tracing::warn!(
+                "[control] room '{}' reported a result that could not be read: {problem}",
+                finished.room
+            );
+            return;
+        }
+    };
+    let seats: std::collections::HashMap<Uuid, String> = outcome
+        .participants
+        .iter()
+        .map(|part| (part.user_id, String::new()))
+        .collect();
+    let request = outcome.into_request();
+    let service = crate::services::match_result::MatchResultService::new(Arc::new(plane.clone()));
+    match service.apply(Uuid::new_v4(), request, seats).await {
+        Ok(_) => tracing::info!("[control] room '{}' result scored", finished.room),
+        Err(error) => tracing::warn!(
+            "[control] room '{}' result refused: {:?}",
+            finished.room,
+            error
+        ),
+    }
 }
 
 fn checksum_pair(payload: &[u8]) -> Option<(u64, u64)> {
@@ -158,6 +211,7 @@ pub async fn pump_events(state: ApiState) {
     let fetches_rx = state.bus.fetches_rx.clone();
     let ownership_rx = state.bus.ownership_rx.clone();
     let seats_rx = state.bus.seats_rx.clone();
+    let stats_rx = state.bus.stats_rx.clone();
     let mut seats = SeatBridges::default();
     let mut counters = QuestCounters::new();
     let mut ticker = tokio::time::interval(PUMP_INTERVAL);
@@ -166,15 +220,62 @@ pub async fn pump_events(state: ApiState) {
         ticker.tick().await;
         counters.ticks_since_refresh += 1;
         if counters.due() {
-            counters.refresh(&state).await;
+            counters.refresh(&state.plane()).await;
         }
         // A seat bridge is a claim, not a line item: the newest one for a
         // (room, seat) is simply what the map holds, and a release removes it.
         while let Ok(seat) = seats_rx.try_recv() {
             seats.apply(seat);
         }
+        // Guest stat intents: already validated by the host, already coalesced
+        // per tick. The pump only resolves the seat to a user and applies the
+        // increment exactly once; projections follow from the new total.
+        while let Ok(write) = stats_rx.try_recv() {
+            let Some(user_id) = seats.user(&write.room, write.seat) else {
+                continue;
+            };
+            let receipt = StatWriteReceipt {
+                id: write.write_id,
+                room: write.room.clone(),
+                tick: write.tick,
+                user_id,
+                stat: write.stat.clone(),
+                delta: write.delta,
+                create_time: Utc::now(),
+            };
+            match q.apply_stat_write(&receipt).await {
+                Ok(Some(total)) => {
+                    if let Some(quests) = counters.by_counter.get(&write.stat) {
+                        let visible: Vec<&QuestDefinition> = quests.iter().collect();
+                        if let Err(err) = crate::services::quest::events::project_counter(
+                            &state.plane(),
+                            &q,
+                            user_id,
+                            &write.stat,
+                            total,
+                            write.delta,
+                            &visible,
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                "[control] stat '{}' for {user_id} applied but quest projection failed: {err}",
+                                write.stat
+                            );
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => tracing::warn!(
+                    "[control] dropped a stat write '{}' for seat {} in '{}': {err}",
+                    write.stat,
+                    write.seat,
+                    write.room
+                ),
+            }
+        }
         while let Ok(event) = rx.try_recv() {
-            let desync = if event.event == DESYNC_EVENT {
+            let desync = if event.event.as_ref() == DESYNC_EVENT {
                 checksum_pair(&event.payload)
             } else {
                 None
@@ -201,13 +302,19 @@ pub async fn pump_events(state: ApiState) {
                     let key = report.id.to_string();
                     let stored = q.record_desync_report(&report).await;
                     if stored.is_ok() {
-                        crate::services::webhook::emit(&state, "report.created", &key, summary)
-                            .await;
+                        crate::services::webhook::emit(
+                            &state.plane(),
+                            "report.created",
+                            &key,
+                            summary,
+                        )
+                        .await;
                     }
                     stored
                 }
                 None => {
-                    let credited = credit_mirrored_event(&state, &seats, &counters, &event).await;
+                    let credited =
+                        credit_mirrored_event(&state.plane(), &seats, &counters, &event).await;
                     if let Err(err) = credited {
                         tracing::warn!(
                             "[control] mirrored event '{}' could not be credited: {err}",
@@ -220,8 +327,8 @@ pub async fn pump_events(state: ApiState) {
                         tick: event.tick,
                         seq: event.seq as i64,
                         player_id: event.target,
-                        event: event.event,
-                        payload: event.payload,
+                        event: event.event.to_string(),
+                        payload: event.payload.to_vec(),
                         create_time: Utc::now(),
                     })
                     .await
@@ -234,6 +341,13 @@ pub async fn pump_events(state: ApiState) {
         // A finished match is one row per room, and the room is already gone by
         // the time it arrives: losing it is a hole in the ledger, not a stall.
         while let Ok(finished) = matches_rx.try_recv() {
+            // A round that reported its own result is scored here, before the
+            // history row takes ownership of the bytes. The guest said who won;
+            // the control plane decides whether that is worth scoring, through
+            // the same checks that guard the REST endpoint.
+            if !finished.result.is_empty() {
+                score_reported_result(&state.plane(), &finished).await;
+            }
             if let Err(err) = q
                 .record_match(&MatchHistory {
                     id: Uuid::new_v4(),
@@ -278,7 +392,10 @@ pub async fn pump_events(state: ApiState) {
                 }),
                 Ok(None) => None,
                 Err(err) => {
-                    tracing::warn!("[control] snapshot fetch for '{}' failed: {err}", fetch.room);
+                    tracing::warn!(
+                        "[control] snapshot fetch for '{}' failed: {err}",
+                        fetch.room
+                    );
                     None
                 }
             };
@@ -310,7 +427,10 @@ pub async fn pump_events(state: ApiState) {
                 .await
             };
             if let Err(err) = stored {
-                tracing::warn!("[control] dropped the registry row for '{}': {err}", row.room);
+                tracing::warn!(
+                    "[control] dropped the registry row for '{}': {err}",
+                    row.room
+                );
             }
         }
     }
@@ -323,28 +443,35 @@ pub async fn pump_events(state: ApiState) {
 /// server-key ingest door instead. A seat whose claimed user does not exist as
 /// an account is dropped: counters are keyed by real accounts, and a bogus
 /// claim must not mint rows.
+///
+/// The same event is also a user-defined trigger: any rule bound to the event's
+/// name — `boss_died`, `combo_3x`, whatever the game listed in `record_events`
+/// — fires here for the seated player, exactly the way the built-in triggers
+/// fire from their own services. A name no rule binds to costs one indexed
+/// query that reads nothing.
 async fn credit_mirrored_event(
-    state: &ApiState,
+    plane: &Plane,
     seats: &SeatBridges,
     counters: &QuestCounters,
     event: &SimEvent,
 ) -> Result<(), String> {
-    let Some(quests) = counters.by_counter.get(&event.event) else {
-        return Ok(());
-    };
     let Some(user_id) = seats.resolve(event) else {
         return Ok(());
     };
-    let Some(queries) = state.q.as_ref() else {
+    let Ok(queries) = plane.q().await else {
         return Ok(());
     };
     if queries.get_user_by_id(user_id).await.is_err() {
         return Ok(());
     }
+    crate::services::rules::dispatch::fire(plane, event.event.as_ref(), user_id).await;
+    let Some(quests) = counters.by_counter.get(event.event.as_ref()) else {
+        return Ok(());
+    };
     let visible: Vec<&crate::repositories::models::QuestDefinition> = quests.iter().collect();
     crate::services::quest::events::credit_counter(
-        state,
-        queries,
+        plane,
+        &queries,
         user_id,
         &event.event,
         1,
@@ -378,6 +505,11 @@ pub async fn sweep_match_history(state: ApiState) {
             .await
         {
             tracing::warn!("[control] match history prune failed: {err}");
+        }
+        // A stat receipt only has to outlive a redelivered frame; keeping them
+        // forever would make the idempotency table outgrow the counters.
+        if let Err(err) = q.prune_stat_writes(cutoff(1)).await {
+            tracing::warn!("[control] stat receipt prune failed: {err}");
         }
     }
 }
@@ -413,7 +545,7 @@ mod seat_credit_tests {
                 seq: 1,
                 target: 1,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             }),
             Some(user)
         );
@@ -425,7 +557,7 @@ mod seat_credit_tests {
                 seq: 2,
                 target: 2,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             }),
             None
         );
@@ -436,7 +568,7 @@ mod seat_credit_tests {
                 seq: 3,
                 target: 0,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             }),
             None
         );
@@ -452,7 +584,7 @@ mod seat_credit_tests {
                 seq: 4,
                 target: 1,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             }),
             None,
             "the leave cleared the bridge"
@@ -463,7 +595,10 @@ mod seat_credit_tests {
             user_id: Some(user.to_string()),
         });
         bridges.drop_room("arena");
-        assert!(bridges.0.is_empty(), "the closed room took its bridges with it");
+        assert!(
+            bridges.0.is_empty(),
+            "the closed room took its bridges with it"
+        );
     }
 
     /// The full loop: a seated guest's mirrored `coins` events move the same
@@ -529,7 +664,7 @@ mod seat_credit_tests {
                 seq,
                 target: 1,
                 event: "coins".into(),
-                payload: vec![],
+                payload: vec![].into(),
             });
         }
 
@@ -551,7 +686,10 @@ mod seat_credit_tests {
         pump.abort();
         assert!(credited, "the pump never credited the second event");
 
-        let rows = queries.list_player_quests(user).await.expect("progress rows");
+        let rows = queries
+            .list_player_quests(user)
+            .await
+            .expect("progress rows");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].quest_key, "coin-hoarder");
         assert_eq!(rows[0].state, "completed", "the goal was crossed");
@@ -619,7 +757,7 @@ mod seat_credit_tests {
             seq: 1,
             target: 4,
             event: "coins".into(),
-            payload: vec![],
+            payload: vec![].into(),
         });
 
         let pump = tokio::spawn(crate::pump_events(state.clone()));
@@ -627,6 +765,9 @@ mod seat_credit_tests {
         pump.abort();
 
         let stats = queries.list_player_stats(user).await.expect("stat query");
-        assert!(stats.is_empty(), "the event on seat 4 credited seat 9's user");
+        assert!(
+            stats.is_empty(),
+            "the event on seat 4 credited seat 9's user"
+        );
     }
 }

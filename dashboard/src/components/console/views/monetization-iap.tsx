@@ -1,6 +1,6 @@
 // Vendor IAP maintenance: run a credential through a vendor's validation route
-// (`POST /v2/console/iap/{vendor}/validate`) and clear a vendor's stored
-// configuration (`DELETE /v2/console/iap/{vendor}/reset`).
+// (`POST /v1/console/iap/{vendor}/validate`) and clear a vendor's stored
+// configuration (`DELETE /v1/console/iap/{vendor}/reset`).
 
 import { useState } from "react"
 import { Loader2, ShieldCheck, Trash2 } from "lucide-react"
@@ -12,10 +12,10 @@ import { JsonBlock, Panel } from "@/components/console/data-table"
 import { Checkbox, Select, TextArea, TextInput } from "@/components/console/form"
 import { useConsoleMutation } from "@/hooks/use-console"
 
-/** `/v2/console/iap` has no entry in the endpoint catalogue yet; these are the
+/** `/v1/console/iap` has no entry in the endpoint catalogue yet; these are the
  * five spellings the server's `Vendor::parse` accepts, with the credential
  * field each vendor's player route reads. */
-const IAP = "/v2/console/iap"
+const IAP = "/v1/console/iap"
 
 const VENDORS = [
   { value: "apple", label: "Apple", credential: "receipt", subscriptions: true },
@@ -77,7 +77,7 @@ export function VendorValidationPanel() {
       <Panel
         title="Validate a receipt"
         description="Run one store credential through the vendor's verification API."
-        actions={<RouteChip method="POST" path="/v2/console/iap/{vendor}/validate" />}
+        actions={<RouteChip method="POST" path="/v1/console/iap/{vendor}/validate" />}
       >
         <div className="space-y-4 p-4">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -151,7 +151,7 @@ export function VendorConfigurationPanel() {
       <Panel
         title="Stored store credentials"
         description="Clear a vendor's saved configuration so it falls back to unconfigured."
-        actions={<RouteChip method="DELETE" path="/v2/console/iap/{vendor}/reset" />}
+        actions={<RouteChip method="DELETE" path="/v1/console/iap/{vendor}/reset" />}
       >
         <ul className="divide-y divide-border/60">
           {VENDORS.map((candidate) => (

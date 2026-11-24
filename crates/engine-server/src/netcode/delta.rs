@@ -1,10 +1,10 @@
 use engine_net::transport::WebRtcServer;
 
+use crate::rooms::SessionSeqs;
+
 use super::DeltaEntity;
 
-pub fn parse_delta_sections(
-    delta: &[u8],
-) -> Option<(u32, Vec<DeltaEntity>, u32, usize, usize)> {
+pub fn parse_delta_sections(delta: &[u8]) -> Option<(u32, Vec<DeltaEntity>, u32, usize, usize)> {
     let (ver, entities, bullets, (bc_off, bullet_end)) = engine_spatial::aoi::parse_delta(delta)?;
     Some((ver, entities, bullets, bc_off, bullet_end))
 }
@@ -18,9 +18,11 @@ pub fn filter_delta_for_viewer(
     viewer_pos: Option<[f64; 3]>,
     tick: u64,
     aoi: &engine_config::AoiConfig,
+    index: &mut engine_spatial::aoi::AoiViewIndex,
     out: &mut Vec<u8>,
+    visible: &mut Vec<bool>,
 ) {
-    engine_spatial::aoi::filter_for_viewer(
+    engine_spatial::aoi::filter_for_viewer_indexed(
         entities,
         bullet_count,
         bullets_range,
@@ -29,7 +31,9 @@ pub fn filter_delta_for_viewer(
         viewer_pos,
         tick,
         aoi,
+        index,
         out,
+        visible,
     );
 }
 
@@ -55,16 +59,44 @@ pub fn send_delta_framed(
     }
 }
 
+pub fn send_delta_framed_reliable(
+    webrtc_server: &mut WebRtcServer,
+    session: &str,
+    seq: u16,
+    tick: u32,
+    body: &[u8],
+) -> usize {
+    match webrtc_server.send_delta_reliable(session, seq, tick, body) {
+        Ok(report) => {
+            if report.delivered() {
+                report.fragments
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            tracing::error!("[server] ⚠️ reliable delta refused for {session}: {e} — dropped");
+            0
+        }
+    }
+}
+
 pub fn record_channel_ack(
     room: &mut crate::rooms::GameRoom,
     client_id: &str,
     ack: engine_webrtc_protocol::Ack,
 ) {
-    let slot = room
-        .acked_event_seq
-        .entry(client_id.to_string())
-        .or_insert(ack.seq);
-    if engine_webrtc_protocol::is_newer(*slot, ack.seq) {
-        *slot = ack.seq;
+    // Keyed by player id (session-slab step 2): an ack from a session the
+    // room no longer seats has no player to acknowledge — drop it.
+    let Some(&id) = room.sessions.get(client_id) else {
+        return;
+    };
+    let entry = room.seqs.entry(id).or_insert(SessionSeqs {
+        input: 0,
+        acked_event: 0,
+        stamp: 0,
+    });
+    if engine_webrtc_protocol::is_newer(entry.acked_event, ack.seq) {
+        entry.acked_event = ack.seq;
     }
 }

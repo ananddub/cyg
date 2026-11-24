@@ -4,7 +4,7 @@ use syn::{ImplItem, LitStr};
 use crate::docs::{
     doc_comment_summary, join_paths, marker_options, merged_docs, validate_route_signature,
 };
-use crate::model::{ResponseBody, Route};
+use crate::model::{RequestBody, RequestContent, ResponseBody, Route};
 use crate::params::infer_params;
 use crate::schema::{infer_request_body, infer_response_body, is_result_type, response_body_type};
 
@@ -65,16 +65,28 @@ pub(crate) fn scan_impl_routes(
         let route_options = marker_options(&attribute)?;
         let route_path = route_options.path.value();
         let full_path = join_paths(controller_path, &route_path);
+        let registered_path = crate::docs::without_version_prefix(&full_path);
 
+        let request_body = route_options
+            .request_body
+            .map(|ty| RequestBody {
+                ty,
+                content: route_options
+                    .request_content
+                    .unwrap_or(RequestContent::Json),
+            })
+            .or_else(|| infer_request_body(&argument_types));
         routes.push(Route {
             method,
             handler: function.sig.ident.clone(),
             path: LitStr::new(&full_path, attribute.span()),
+            route_path: LitStr::new(&registered_path, attribute.span()),
             docs: merged_docs(&route_options.docs, doc_comment_summary(&function.attrs)),
-            request_body: infer_request_body(&argument_types),
+            request_body,
             response_body: route_options
-                .sse_body
-                .map(|ty| ResponseBody::Sse(Some(ty)))
+                .response_body
+                .map(ResponseBody::Json)
+                .or_else(|| route_options.sse_body.map(|ty| ResponseBody::Sse(Some(ty))))
                 .or_else(|| infer_response_body(&function.sig.output)),
             params: infer_params(&full_path, &argument_types),
             argument_types,

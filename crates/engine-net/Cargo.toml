@@ -5,6 +5,7 @@ edition = "2024"
 description = "Raw mio thread-per-core high-performance network transport layer"
 
 [dependencies]
+engine-config = { path = "../engine-config" }
 tracing = "0.1"
 bytes = "1.12.1"
 engine-core = { path = "../engine-core" }
@@ -31,3 +32,4 @@ proptest = "1"
 engine-wasm = { path = "../engine-wasm" }
 wasmtime = "50.0.0"
 dashmap = "6.2"
+

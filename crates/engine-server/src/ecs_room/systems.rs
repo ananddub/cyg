@@ -5,7 +5,10 @@ use crate::ecs_room::input_flags;
 use crate::ecs_room::state::MOVE_SPEED;
 use crate::ecs_room::state::SessionInputs;
 
-pub(super) fn apply_inputs(mut query: Query<(&EntityId, &mut Velocity)>, inputs: Res<SessionInputs>) {
+pub(super) fn apply_inputs(
+    mut query: Query<(&EntityId, &mut Velocity)>,
+    inputs: Res<SessionInputs>,
+) {
     for (eid, mut vel) in &mut query {
         let Some(&flags) = inputs.flags.get(&eid.0) else {
             continue;

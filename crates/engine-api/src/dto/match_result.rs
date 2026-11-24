@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 /// What the host says one player did. `stats` are the counters this match raised
 /// for them, named the way an event names a counter.
-#[derive(Debug, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Serialize, Deserialize)]
 pub struct ParticipantResult {
     pub user_id: Uuid,
     pub score: i64,
@@ -20,7 +20,7 @@ pub struct ParticipantResult {
 }
 
 /// The host's word on how a match ended, for one leaderboard at a time.
-#[derive(Debug, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Serialize, Deserialize)]
 pub struct MatchResultRequest {
     /// The board these scores post to. Without one the counters still move and
     /// no score is published.
@@ -31,7 +31,7 @@ pub struct MatchResultRequest {
 
 /// One player as the control plane recorded them: the score now on the board and
 /// the counters this result left behind.
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct RecordedScore {
     pub user_id: Uuid,
     pub score: i64,
@@ -39,7 +39,7 @@ pub struct RecordedScore {
     pub counters: BTreeMap<String, i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MatchResultResponse {
     pub success: bool,
     pub match_id: Uuid,

@@ -1,19 +1,19 @@
+use crate::services::plane::Plane;
+
 use axum::Json;
 use axum::http::HeaderMap;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::bearer_token;
 use crate::dto::Empty;
 use crate::dto::console::auth::{AuthenticateRequest, ConsoleSessionResponse, LogoutRequest};
 use crate::error::V2Error;
 use crate::infra::console::{self, ConsoleRole};
-use crate::services::deps::q;
 
 impl super::ConsoleService {
     pub async fn authenticate(
         &self,
-        state: &ApiState,
+
         body: AuthenticateRequest,
     ) -> Result<Json<ConsoleSessionResponse>, V2Error> {
         let username = body.username.trim();
@@ -21,15 +21,15 @@ impl super::ConsoleService {
             return Err(invalid_credentials());
         }
 
-        let configured = &state.control.console;
+        let configured = &self.plane.control.console;
         if username == configured.username && body.password == configured.password {
             let email = bootstrap_email(username);
             return Ok(Json(
-                sign_in(state, None, username, &email, ConsoleRole::Admin).await,
+                sign_in(&self.plane, None, username, &email, ConsoleRole::Admin).await,
             ));
         }
 
-        let queries = q(state).await.map_err(|_| invalid_credentials())?;
+        let queries = self.plane.q().await.map_err(|_| invalid_credentials())?;
         let Ok(row) = queries.find_console_user_mfa(username).await else {
             return Err(invalid_credentials());
         };
@@ -47,13 +47,13 @@ impl super::ConsoleService {
 
         let role = ConsoleRole::from_acl(&row.acl);
         Ok(Json(
-            sign_in(state, Some(row.id), &row.username, &row.email, role).await,
+            sign_in(&self.plane, Some(row.id), &row.username, &row.email, role).await,
         ))
     }
 
     pub async fn logout(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         body: LogoutRequest,
     ) -> Result<Json<Empty>, V2Error> {
@@ -65,7 +65,7 @@ impl super::ConsoleService {
         {
             console::revoke(claims.uuid(), claims.exp, &claims.jti);
             super::insert_audit(
-                state,
+                &self.plane,
                 claims.uuid(),
                 &claims.username,
                 &claims.email,
@@ -81,14 +81,14 @@ impl super::ConsoleService {
 }
 
 async fn sign_in(
-    state: &ApiState,
+    plane: &Plane,
     id: Option<Uuid>,
     username: &str,
     email: &str,
     role: ConsoleRole,
 ) -> ConsoleSessionResponse {
     super::insert_audit(
-        state,
+        plane,
         id,
         username,
         email,
@@ -103,7 +103,7 @@ async fn sign_in(
         token: console::mint(&id, username, email, role),
         username: username.to_owned(),
         email: email.to_owned(),
-        role: role.as_str(),
+        role: role.as_str().to_owned(),
     }
 }
 

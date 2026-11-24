@@ -15,13 +15,13 @@ struct ChannelController {
     service: Arc<ChannelService>,
 }
 
-#[controller("/v2/channel")]
+#[controller("/v1/channel")]
 impl ChannelController {
     fn new(service: Arc<ChannelService>) -> Self {
         Self { service }
     }
 
-    #[get("/{channel_id}")]
+    #[get("/{channel_id}", response_body = crate::dto::channel::MessageListResponse)]
     async fn list_messages(
         &self,
         auth: Authed,
@@ -30,12 +30,12 @@ impl ChannelController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_messages(&state, &auth, &channel_id, req)
+            .list_messages(&auth, &channel_id, req)
             .await
             .into_response()
     }
 
-    #[post("/{channel_id}/message")]
+    #[post("/{channel_id}/message", response_body = crate::dto::channel::MessageResponse)]
     async fn send_message(
         &self,
         auth: Authed,
@@ -44,12 +44,12 @@ impl ChannelController {
     ) -> Response {
         let state = current_state();
         self.service
-            .send_message(&state, &auth, &channel_id, body)
+            .send_message(&auth, &channel_id, body)
             .await
             .into_response()
     }
 
-    #[put("/{channel_id}/message/{message_id}")]
+    #[put("/{channel_id}/message/{message_id}", response_body = crate::dto::channel::MessageResponse)]
     async fn update_message(
         &self,
         auth: Authed,
@@ -58,12 +58,12 @@ impl ChannelController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_message(&state, &auth, &channel_id, &message_id, body)
+            .update_message(&auth, &channel_id, &message_id, body)
             .await
             .into_response()
     }
 
-    #[delete("/{channel_id}/message/{message_id}")]
+    #[delete("/{channel_id}/message/{message_id}", response_body = crate::dto::channel::MessageResponse)]
     async fn delete_message(
         &self,
         auth: Authed,
@@ -71,7 +71,7 @@ impl ChannelController {
     ) -> Response {
         let state = current_state();
         self.service
-            .delete_message(&state, &auth, &channel_id, &message_id)
+            .delete_message(&auth, &channel_id, &message_id)
             .await
             .into_response()
     }

@@ -52,7 +52,7 @@ pub async fn record_subscription(
 ) -> Value {
     json_body(
         env.client
-            .post(format!("{}/v2/iap/subscription/apple", env.base))
+            .post(format!("{}/v1/iap/subscription/apple", env.base))
             .bearer_auth(token)
             .json(&json!({
                 "receipt": format!("e2e-iap-{label}"),
@@ -105,7 +105,7 @@ pub async fn stamp_subscription(
 pub async fn entitlements(env: &Harness, token: &str) -> Value {
     json_body(
         env.client
-            .get(format!("{}/v2/iap/subscription/active", env.base))
+            .get(format!("{}/v1/iap/subscription/active", env.base))
             .bearer_auth(token)
             .send()
             .await
@@ -130,7 +130,7 @@ pub fn row_for(reply: &Value, product_id: &str) -> Value {
 pub async fn create_quest(env: &Harness, console: &str, body: Value) -> Value {
     json_body(
         env.client
-            .post(format!("{}/v2/console/quests", env.base))
+            .post(format!("{}/v1/console/quests", env.base))
             .bearer_auth(console)
             .json(&body)
             .send()
@@ -145,7 +145,7 @@ pub async fn create_quest(env: &Harness, console: &str, body: Value) -> Value {
 pub async fn quests_of(env: &Harness, token: &str) -> Vec<Value> {
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/quest", env.base))
+            .get(format!("{}/v1/quest", env.base))
             .bearer_auth(token)
             .send()
             .await
@@ -165,7 +165,7 @@ pub fn lists(quests: &[Value], quest_key: &str) -> bool {
 
 pub async fn claim_quest(env: &Harness, token: &str, quest_key: &str) -> reqwest::Response {
     env.client
-        .post(format!("{}/v2/quest/claim", env.base))
+        .post(format!("{}/v1/quest/claim", env.base))
         .bearer_auth(token)
         .json(&json!({ "quest_key": quest_key }))
         .send()
@@ -178,7 +178,7 @@ pub async fn claim_quest(env: &Harness, token: &str, quest_key: &str) -> reqwest
 pub async fn ingest(env: &Harness, events: Value) {
     json_body(
         env.client
-            .post(format!("{}/v2/events", env.base))
+            .post(format!("{}/v1/events", env.base))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "events": events }))
             .send()

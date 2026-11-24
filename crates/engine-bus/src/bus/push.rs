@@ -1,7 +1,7 @@
 use std::sync::atomic::Ordering;
 
 use crate::messages::{
-    InputMsg, MatchFinished, RoomOwnership, RoomSnapshot, SeatUpdate, SimEvent,
+    InputMsg, MatchFinished, RoomOwnership, RoomSnapshot, SeatUpdate, SimEvent, StatWrite,
 };
 
 use super::*;
@@ -16,13 +16,26 @@ impl Bus {
     }
 
     pub fn push_input(&self, msg: InputMsg) {
-        let msg = match self.inputs_tx.try_send(msg) {
-            Ok(()) => return,
-            Err(crossbeam_channel::TrySendError::Full(m)) => m,
-            Err(_) => return,
-        };
-        let _ = self.inputs_rx.try_recv();
-        let _ = self.inputs_tx.try_send(msg);
+        let mut msg = msg;
+        if self.inputs_tx.try_send(msg.clone()).is_ok() {
+            return;
+        }
+        // Drop-oldest until the incoming message fits; every evicted input is
+        // counted and the caller's message itself is never dropped (only when
+        // the channel is disconnected, where nothing would be delivered).
+        loop {
+            let _ = self.inputs_rx.try_recv();
+            self.inputs_dropped.fetch_add(1, Ordering::Relaxed);
+            match self.inputs_tx.try_send(msg) {
+                Ok(()) => return,
+                Err(crossbeam_channel::TrySendError::Full(m)) => msg = m,
+                Err(_) => return,
+            }
+        }
+    }
+
+    pub fn inputs_dropped(&self) -> u64 {
+        self.inputs_dropped.load(Ordering::Relaxed)
     }
 
     pub fn push_event(&self, event: SimEvent) {
@@ -93,5 +106,23 @@ impl Bus {
 
     pub fn seats_dropped(&self) -> u64 {
         self.seats_dropped.load(Ordering::Relaxed)
+    }
+
+    /// Queues one validated stat increment. The queue is bounded; when it is
+    /// full the oldest intent is evicted and counted, never the simulation
+    /// thread that produced it.
+    pub fn push_stat(&self, write: StatWrite) {
+        let write = match self.stats_tx.try_send(write) {
+            Ok(()) => return,
+            Err(crossbeam_channel::TrySendError::Full(w)) => w,
+            Err(_) => return,
+        };
+        let _ = self.stats_rx.try_recv();
+        self.stats_dropped.fetch_add(1, Ordering::Relaxed);
+        let _ = self.stats_tx.try_send(write);
+    }
+
+    pub fn stats_dropped(&self) -> u64 {
+        self.stats_dropped.load(Ordering::Relaxed)
     }
 }

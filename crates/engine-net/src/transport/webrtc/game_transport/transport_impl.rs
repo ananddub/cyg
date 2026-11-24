@@ -36,10 +36,10 @@ impl GameTransport for WebRtcTransport {
     }
 
     fn send_to(&mut self, client_id: &str, opcode: OpCode, payload: &[u8]) -> io::Result<()> {
-
         match opcode {
             OpCode::StateDelta | OpCode::StateSnapshot => {
-                let _ = self.server.send_delta(client_id, 0, 0, payload);
+                let seq = self.next_delta_seq(client_id);
+                let _ = self.server.send_delta(client_id, seq, 0, payload);
             }
             _ => {
                 self.server.send_reliable(client_id, payload);
@@ -58,9 +58,9 @@ impl GameTransport for WebRtcTransport {
     }
 
     fn disconnect(&mut self, client_id: &str) -> io::Result<()> {
-
         if self.server.remove_session(client_id) {
             self.last_seen.remove(client_id);
+            self.delta_seqs.remove(client_id);
             if !self.pending.iter().any(|e| matches!(e, TransportEvent::Disconnected { client_id: cid } if cid.as_ref() == client_id)) {
                 self.pending.push(TransportEvent::Disconnected {
                     client_id: client_id.into(),

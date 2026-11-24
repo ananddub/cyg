@@ -13,7 +13,7 @@ void FCYGBaasLeaderboard::SubmitScore(const FString& LeaderboardId, int64 Score,
 	Body->SetNumberField(TEXT("subscore"), static_cast<double>(Subscore));
 	Body->SetStringField(TEXT("metadata"), MetadataJson);
 
-	const FString Path = FString::Printf(TEXT("/v2/leaderboard/%s"), *UCYGSettings::EscapeSegment(LeaderboardId));
+	const FString Path = FString::Printf(TEXT("/v1/leaderboard/%s"), *UCYGSettings::EscapeSegment(LeaderboardId));
 
 	FCYGBaasHttp::Post(Path, CYGBaasJson::Write(Body),
 		[Done, LeaderboardId](bool bSuccess, int32 StatusCode, const FString& Reply)
@@ -32,7 +32,7 @@ void FCYGBaasLeaderboard::SubmitScore(const FString& LeaderboardId, int64 Score,
 
 void FCYGBaasLeaderboard::GetScores(const FString& LeaderboardId, const FCYGBaasLeaderboardResponse& Done, int32 Limit, const FString& Cursor)
 {
-	FString Path = FString::Printf(TEXT("/v2/leaderboard/%s?limit=%d"), *UCYGSettings::EscapeSegment(LeaderboardId), FMath::Max(1, Limit));
+	FString Path = FString::Printf(TEXT("/v1/leaderboard/%s?limit=%d"), *UCYGSettings::EscapeSegment(LeaderboardId), FMath::Max(1, Limit));
 
 	if (!Cursor.IsEmpty())
 	{
@@ -80,8 +80,8 @@ void FCYGBaasLeaderboard::ParsePage(const FString& Body, FCYGBaasLeaderboardPage
 	AppendRecords(Object, TEXT("records"), OutPage.Records);
 	AppendRecords(Object, TEXT("owner_records"), OutPage.OwnerRecords);
 
-	OutPage.NextCursor = CYGBaasJson::ReadText(Object, TEXT("next_cursor"));
-	OutPage.PrevCursor = CYGBaasJson::ReadText(Object, TEXT("prev_cursor"));
+	OutPage.NextCursor = CYGBaasJson::ReadText(Object, TEXT("nextPageToken"));
+	OutPage.PrevCursor = CYGBaasJson::ReadText(Object, TEXT("prevPageToken"));
 }
 
 FCYGBaasLeaderboardRecord FCYGBaasLeaderboard::ParseRecord(const TSharedPtr<FJsonObject>& Object)

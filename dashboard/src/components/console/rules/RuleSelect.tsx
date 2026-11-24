@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Check, Search } from 'lucide-react';
 
 export interface RuleSelectOption {
   value: string;
   label: string;
+  /** Optional type color — option ke naam ke bagal me dot dikhta hai (UE
+      Blueprint variable picker jaisa). */
+  color?: string;
 }
 
 export interface RuleSelectProps {
@@ -26,8 +30,10 @@ export function RuleSelect({
   className = '',
 }: RuleSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number; width: number } | null>(null);
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // focus the search box when the menu opens; reset the query on close
@@ -41,7 +47,14 @@ export function RuleSelect({
   // Close when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      // Portal menu document.body me rehta hai — uspe click "outside" nahi
+      // hai, warna option pe click karte hi menu unmount ho jata hai.
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(target) &&
+        !(menuRef.current && menuRef.current.contains(target))
+      ) {
         setIsOpen(false);
       }
     }
@@ -92,7 +105,8 @@ export function RuleSelect({
     },
   };
 
-  const currentAccent = accentStyles[accent];
+  // Ek hi neutral look — node type ka color select pe nahi lapete.
+  const currentAccent = accentStyles.default;
   const hoverItem = {
     violet: 'hover:bg-violet-500/15',
     sky: 'hover:bg-sky-500/15',
@@ -107,12 +121,30 @@ export function RuleSelect({
       <button
         type="button"
         data-slot="rule-select-trigger"
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={() => {
+          if (!isOpen && containerRef.current) {
+            const r = containerRef.current.getBoundingClientRect();
+            // Menu ki REAL height estimate (options count se) — chhoti menu
+            // neeche khulti hai, sirf tab upar jab viewport me fit na ho.
+            const menuH = Math.min(options.length * 34, 256) + (options.length > 4 ? 40 : 12);
+            const below = window.innerHeight - r.bottom;
+            const openUp = below < menuH + 8;
+            setMenuPos({
+              left: r.left,
+              top: openUp ? Math.max(8, r.top - menuH - 4) : r.bottom + 4,
+              width: r.width,
+            });
+          }
+          setIsOpen((prev) => !prev);
+        }}
         className={`flex h-8 w-full items-center justify-between rounded-lg border bg-card/95 px-2.5 text-xs font-semibold shadow-xs transition-all outline-none cursor-pointer nodrag ${
           currentAccent.border
         } ${isOpen ? 'ring-1 ring-primary/40' : ''}`}
       >
-        <span className={selectedOption ? 'text-foreground truncate' : 'text-muted-foreground font-medium truncate'}>
+        <span className={selectedOption ? 'flex min-w-0 items-center gap-2 text-foreground truncate' : 'text-muted-foreground font-medium truncate'}>
+          {selectedOption?.color && (
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: selectedOption.color }} />
+          )}
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <ChevronDown
@@ -122,9 +154,13 @@ export function RuleSelect({
         />
       </button>
 
-      {/* Floating Menu Popover */}
-      {isOpen && (
-        <div className="absolute left-0 top-full z-50 mt-1 max-h-64 w-full min-w-[190px] overflow-y-auto rounded-lg border border-border bg-popover/98 p-1 shadow-2xl backdrop-blur-xl nodrag nopan nowheel">
+      {/* Floating Menu Popover — portal se render, card ke layout se alag */}
+      {isOpen && menuPos && createPortal(
+        <div
+          ref={menuRef}
+          className="fixed z-[400] max-h-64 overflow-y-auto rounded-lg border border-border bg-popover/98 p-1 shadow-2xl backdrop-blur-xl nodrag nopan nowheel"
+          style={{ left: menuPos.left, top: menuPos.top, width: menuPos.width }}
+        >
           {options.length > 4 && (
             <div className="sticky top-0 z-10 mb-1 flex items-center gap-2 rounded-md border border-border/70 bg-popover px-2.5 py-1.5">
               <Search className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -155,12 +191,21 @@ export function RuleSelect({
                     : `text-popover-foreground ${hoverItem}`
                 }`}
               >
-                <span className="truncate">{opt.label}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  {opt.color && (
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ background: opt.color }}
+                    />
+                  )}
+                  <span className="truncate">{opt.label}</span>
+                </span>
                 {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

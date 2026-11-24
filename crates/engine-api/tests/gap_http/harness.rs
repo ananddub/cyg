@@ -34,9 +34,29 @@ pub async fn static_surface(env: &Harness) {
         "GET / lands on the dashboard shell"
     );
 
+    // /cyg.js is served by the binary itself now (the embedded browser SDK,
+    // "no copy needed"), so it answers 200 even with no project files —
+    // everything else in this list must still be a clean 404 miss.
+    let sdk = env
+        .client
+        .get(format!("{}/cyg.js", env.base))
+        .send()
+        .await
+        .unwrap_or_else(|err| panic!("GET /cyg.js: {err}"));
+    assert_eq!(
+        sdk.status(),
+        StatusCode::OK,
+        "GET /cyg.js serves the embedded SDK: {}",
+        sdk.status()
+    );
+    assert!(
+        sdk.text()
+            .await
+            .unwrap_or_default()
+            .contains("CYG Gaming SDK"),
+        "GET /cyg.js body is the browser SDK"
+    );
     for path in [
-        "/cyg.js",
-        "/openoxide-client.js",
         "/arena_map.json",
         "/packages/sdk/dist/colyseus.js",
         "/node_modules/@colyseus/schema/build/index.mjs",

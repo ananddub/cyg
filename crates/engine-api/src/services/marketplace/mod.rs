@@ -1,3 +1,4 @@
+use crate::services::plane::Plane;
 use std::sync::Arc;
 
 use auto_di::singleton;
@@ -14,12 +15,14 @@ pub mod sale;
 pub mod wager_refund;
 pub mod wagers;
 
-pub struct MarketplaceService;
+pub struct MarketplaceService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 #[singleton]
 impl MarketplaceService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 

@@ -4,7 +4,7 @@ pub async fn matchmake(client: &Client, base: &str, port: u16) -> String {
     eprintln!("e2e: matchmake");
     let seat = json_body(
         client
-            .post(format!("{base}/api/matchmake/joinOrCreate/e2e-room"))
+            .post(format!("{base}/matchmake/joinOrCreate/e2e-room"))
             .body("{}")
             .send()
             .await
@@ -27,7 +27,9 @@ pub async fn matchmake(client: &Client, base: &str, port: u16) -> String {
     let ice: Value = serde_json::from_str(seat["iceServers"].as_str().unwrap())
         .expect("iceServers is JSON text");
     assert!(ice.is_array());
-    assert!(seat["udpPort"].as_u64().is_some_and(|p| p > 0));
+    // The [transports] switch leaves UDP off by default; an off lane
+    // advertises udpPort = 0 (use WebSocket) rather than a dead port.
+    assert_eq!(seat["udpPort"].as_u64(), Some(0));
 
     let other = json_body(
         client
@@ -45,7 +47,7 @@ pub async fn matchmake(client: &Client, base: &str, port: u16) -> String {
 
     let resumed = json_body(
         client
-            .post(format!("{base}/api/matchmake/reconnect/e2e-room"))
+            .post(format!("{base}/matchmake/reconnect/e2e-room"))
             .json(&json!({ "reconnectionToken": token }))
             .send()
             .await
@@ -59,7 +61,7 @@ pub async fn matchmake(client: &Client, base: &str, port: u16) -> String {
 
     let unknown = refusal(
         client
-            .post(format!("{base}/api/matchmake/reconnect/e2e-room"))
+            .post(format!("{base}/matchmake/reconnect/e2e-room"))
             .json(&json!({ "reconnectionToken": "not-a-seat" }))
             .send()
             .await
@@ -72,7 +74,7 @@ pub async fn matchmake(client: &Client, base: &str, port: u16) -> String {
 
     expect(
         client
-            .post(format!("{base}/api/matchmake/teleport/e2e-room"))
+            .post(format!("{base}/matchmake/teleport/e2e-room"))
             .body("{}")
             .send()
             .await
@@ -83,7 +85,7 @@ pub async fn matchmake(client: &Client, base: &str, port: u16) -> String {
     .await;
     expect(
         client
-            .post(format!("{base}/api/matchmake/joinOrCreate/bad%20room"))
+            .post(format!("{base}/matchmake/joinOrCreate/bad%20room"))
             .body("{}")
             .send()
             .await
@@ -94,7 +96,7 @@ pub async fn matchmake(client: &Client, base: &str, port: u16) -> String {
     .await;
     expect(
         client
-            .post(format!("{base}/api/matchmake/joinOrCreate/e2e-room"))
+            .post(format!("{base}/matchmake/joinOrCreate/e2e-room"))
             .body("x".repeat(4097))
             .send()
             .await

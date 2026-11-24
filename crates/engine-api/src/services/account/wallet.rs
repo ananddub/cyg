@@ -1,7 +1,6 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::account::{PlayerWalletResponse, UpdatePlayerWalletRequest};
 use crate::dto::console::account::WalletLedgerRow;
@@ -11,12 +10,8 @@ use crate::repositories::console::ListWalletLedgerParams;
 const LEDGER_PAGE: i64 = 100;
 
 impl super::AccountService {
-    pub async fn get_wallet(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-    ) -> Result<Json<PlayerWalletResponse>, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
+    pub async fn get_wallet(&self, auth: &Authed) -> Result<Json<PlayerWalletResponse>, V2Error> {
+        let queries = self.plane.q().await?;
         let user = queries.get_user_by_id(auth.uid()).await?;
         let ledger = ledger_rows(&queries, auth.uid()).await?;
         Ok(Json(PlayerWalletResponse {
@@ -27,11 +22,11 @@ impl super::AccountService {
 
     pub async fn update_wallet(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         body: UpdatePlayerWalletRequest,
     ) -> Result<Json<PlayerWalletResponse>, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
 
         if let Some(items) = body.wallet_items.as_object() {
             if !items.is_empty() {

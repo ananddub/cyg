@@ -8,7 +8,7 @@ pub async fn inventory_surface(client: &Client, base: &str) {
     // so they authenticate with the console session rather than a player token.
     let console = console_login(client, base).await;
     let item_id = format!("e2e-item-{}", letters_suffix());
-    let inventory = format!("{base}/v2/inventory");
+    let inventory = format!("{base}/v1/inventory");
 
     let empty = api_get(client, inventory.clone(), &alice.token, "empty inventory").await;
     assert_eq!(empty["items"], json!([]));

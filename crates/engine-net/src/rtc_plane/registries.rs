@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 
 use ahash::RandomState;
@@ -10,7 +9,6 @@ pub(crate) type FastMap<K, V> = scc::HashMap<K, V, RandomState>;
 
 #[derive(Clone)]
 pub(crate) struct Registries {
-
     pub(crate) outbox: Arc<FastMap<Arc<str>, mpsc::Sender<SessionInbound>>>,
 
     pub(crate) player_index: Arc<FastMap<Arc<str>, Arc<str>>>,

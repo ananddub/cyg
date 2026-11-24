@@ -1,14 +1,14 @@
+use crate::services::plane::Plane;
+
 use axum::Json;
 use base64::Engine;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::iap::{ListQuery, PurchaseListResponse, PurchaseRequest, PurchaseResponse};
 use crate::error::V2Error;
 use crate::repositories::iap::{InsertPurchaseParams, ListPurchasesParams};
-use crate::services::deps::q;
 use crate::utils::iap::{decode_offset, epoch, store_of};
 
 use super::IapService;
@@ -17,16 +17,16 @@ use super::verify;
 impl IapService {
     pub async fn validate_apple_legacy(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         body: PurchaseRequest,
     ) -> Result<Json<PurchaseResponse>, V2Error> {
-        self.purchase_apple(state, claims, body).await
+        self.purchase_apple(claims, body).await
     }
 
     pub async fn purchase_apple(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         body: PurchaseRequest,
     ) -> Result<Json<PurchaseResponse>, V2Error> {
@@ -34,7 +34,7 @@ impl IapService {
             return Err(V2Error::invalid_argument("receipt cannot be empty"));
         }
         let verified = verify::verify_purchase(
-            &state.control.iap,
+            &self.plane.control.iap,
             verify::APPLE,
             &body.receipt,
             body.product_id.as_deref(),
@@ -42,7 +42,7 @@ impl IapService {
         )
         .await?;
         record_purchase(
-            state,
+            &self.plane,
             claims.0.uuid()?,
             verified,
             store_of(body.store, verify::APPLE),
@@ -52,11 +52,11 @@ impl IapService {
 
     pub async fn list_purchases(
         &self,
-        state: &ApiState,
+
         claims: &Authed,
         req: ListQuery,
     ) -> Result<Json<PurchaseListResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let limit = i64::from(req.limit.unwrap_or(100).clamp(1, 1000));
         let offset = decode_offset(req.cursor.as_deref());
         let rows = queries
@@ -81,12 +81,12 @@ impl IapService {
 }
 
 pub(super) async fn record_purchase(
-    state: &ApiState,
+    plane: &Plane,
     uid: Uuid,
     verified: verify::VerifiedPurchase,
     store: i16,
 ) -> Result<Json<PurchaseResponse>, V2Error> {
-    let queries = q(state).await?;
+    let queries = plane.q().await?;
     let row = queries
         .insert_purchase(&InsertPurchaseParams {
             transaction_id: verified.transaction_id,
@@ -99,8 +99,27 @@ pub(super) async fn record_purchase(
             raw_response: verified.raw,
         })
         .await?;
+    // Rules first: they are what an operator wrote in the console, and most
+    // projects have them while having no Wasm module at all.
+    crate::services::rules::dispatch::fire(plane, "purchase", uid).await;
+    // Fired after the row exists, so a hook that reads the purchase finds it, and
+    // before the response, so a hook that refuses it still refuses it to the
+    // client. A hook that merely proposes rewards cannot un-record the purchase:
+    // the store has already charged, so a failed grant is logged, not raised.
+    let _ = crate::services::hook_apply::fire(
+        plane,
+        engine_hooks::HookEvent::Purchase,
+        uid,
+        serde_json::json!({
+            "transaction_id": row.transaction_id,
+            "product_id": row.product_id,
+            "store": row.store,
+            "environment": row.environment,
+        }),
+    )
+    .await;
     crate::services::webhook::emit(
-        state,
+        plane,
         "iap.purchase.verified",
         &row.transaction_id,
         serde_json::json!({

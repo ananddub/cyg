@@ -2,14 +2,12 @@ use engine_agones::{PingOutcome, UNHEALTHY_AFTER_MISSES};
 
 #[derive(Debug, Default)]
 pub(super) struct Loudness {
-
     logged: u32,
 }
 
 impl Loudness {
     pub(super) fn should_log(&mut self, outcome: &PingOutcome) -> bool {
         if outcome.ok {
-
             let was_loud = self.logged > 0;
             self.logged = 0;
             return was_loud;

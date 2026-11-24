@@ -2,7 +2,7 @@
 // engine/backend-mode contract. They live apart from the view so the view file
 // exports components only — other panels import these without pulling in a render.
 
-export const GAMES_ENDPOINT = "/v2/console/games"
+export const GAMES_ENDPOINT = "/v1/console/games"
 
 export function gamePath(id: string): string {
   return `${GAMES_ENDPOINT}/${encodeURIComponent(id)}`
@@ -18,7 +18,7 @@ export function gameMapsPath(id: string): string {
   return `${gamePath(id)}/maps`
 }
 
-/** `GET /v2/console/games/{id}/unity-settings` — the Unity `CYGServerSettings.asset`.
+/** `GET /v1/console/games/{id}/unity-settings` — the Unity `CYGServerSettings.asset`.
  * `?format=asset` is a Content-Disposition download; `?format=json` is the same
  * data as a document the Credentials tab can copy. */
 export function gameUnitySettingsPath(id: string): string {

@@ -4,6 +4,7 @@ impl GameServer {
     pub(crate) fn get_or_create(
         &mut self,
         name: &str,
+        create_options: &[u8],
     ) -> Result<&mut GameRoom, engine_wasm::WasmError> {
         if !self.rooms.contains_key(name) {
             let mut room = if let Some(pre) = &self.pre {
@@ -13,9 +14,16 @@ impl GameServer {
                     self.physics.clone(),
                     self.arena_2d.as_ref(),
                     self.navmesh.clone(),
+                    create_options,
+                    &self.features,
                 )?;
                 if let Some(w) = room.wasm.as_mut() {
-                    w.data_mut().seed_rng(name);
+                    // Mix the process-unique room id into the seed: the name
+                    // alone is attacker-chosen and would make same-name rooms
+                    // share one predictable stream.
+                    let room_id = self.next_room_id;
+                    self.next_room_id += 1;
+                    w.data_mut().seed_rng(&format!("{name}\u{0}{room_id}"));
                 }
                 tracing::info!(
                     "[server] room '{name}' created with 2D/3D physics world (ABI v{})",
@@ -29,6 +37,10 @@ impl GameServer {
                 GameRoom::new_relay()
             };
             room.storage_enabled = self.permissions.storage;
+            room.input_coalesce = self.input_coalesce;
+            room.idle_input_hold = self.idle_input_hold;
+            room.tick_phase = self.next_room_phase;
+            self.next_room_phase = self.next_room_phase.wrapping_add(1);
 
             if let Some(snap_bytes) = self.persistent_snapshots.get(name) {
                 if let Err(e) = room.import_snapshot(snap_bytes) {
@@ -40,7 +52,7 @@ impl GameServer {
                 }
             }
 
-            self.rooms.insert(name.to_string(), room);
+            self.rooms.insert(std::rc::Rc::from(name), room);
         }
         Ok(self.rooms.get_mut(name).expect("room just inserted"))
     }
@@ -57,21 +69,18 @@ impl GameServer {
                 if arena.is_some() { " + OXCL arena" } else { "" }
             );
             room.storage_enabled = self.permissions.storage;
-            self.rooms.insert(name.to_string(), room);
+            room.tick_phase = self.next_room_phase;
+            self.next_room_phase = self.next_room_phase.wrapping_add(1);
+            self.rooms.insert(std::rc::Rc::from(name), room);
         }
         self.rooms.get_mut(name).expect("room just inserted")
     }
 
-    pub(crate) fn hot_reload(
-        &mut self,
-        pre: engine_wasm::WasmPreInstance<RoomHostData>,
-        width: f64,
-        height: f64,
-    ) {
+    pub(crate) fn hot_reload(&mut self, pre: engine_wasm::WasmPreInstance<RoomHostData>) {
         self.pre = Some(pre);
         let pre = self.pre.as_ref().expect("just set by hot_reload");
         for (room_name, room) in &mut self.rooms {
-            match room.reload_wasm(pre, self.max_clients, width, height) {
+            match room.reload_wasm(pre, self.max_clients) {
                 Ok(players) => {
                     tracing::info!(
                         "[server] 🔄 Room '{room_name}' hot-reloaded with {players} active players!"

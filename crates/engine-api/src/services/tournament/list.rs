@@ -1,14 +1,12 @@
 use axum::Json;
 use chrono::{DateTime, Utc};
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::tournament::{ListQuery, TournamentListResponse, TournamentResponse};
 use crate::error::V2Error;
 use crate::repositories::models::Leaderboard;
 use crate::repositories::tournament::TournamentPage;
-use crate::services::deps::q;
 use crate::utils::leaderboard::at;
 use crate::utils::tournament::types::{
     BAD_CATEGORY_END, BAD_CATEGORY_ORDER, BAD_NUMBER, BAD_PAGE_LIMIT, BAD_TIME_ORDER,
@@ -68,14 +66,14 @@ fn small(value: i64, message: &str) -> Result<i16, V2Error> {
 impl super::TournamentService {
     pub async fn list_tournaments(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         req: ListQuery,
     ) -> Result<Json<TournamentListResponse>, V2Error> {
         let cursor_id = decode_page_cursor(&req.cursor)?;
         let limit = limit(req.limit.as_deref(), DEFAULT_PAGE_LIMIT, BAD_PAGE_LIMIT)?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let bounds = bounds(&req, Utc::now())?;
 
         let anchor = match cursor_id {

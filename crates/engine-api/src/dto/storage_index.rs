@@ -24,7 +24,7 @@ pub struct CreateIndexRequest {
     pub index_only: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct StorageIndexDef {
     pub collection: String,
     pub index: String,
@@ -39,7 +39,7 @@ pub struct StorageIndexDef {
     pub index_only: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct StorageIndexDefinitions {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub indexes: Vec<StorageIndexDef>,
@@ -57,11 +57,15 @@ pub struct IndexQueryRequest {
     pub cursor: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct StorageIndexList {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub objects: Vec<StorageObject>,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(
+        rename = "nextPageToken",
+        alias = "next_cursor",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub next_cursor: String,
 }
 

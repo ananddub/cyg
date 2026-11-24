@@ -1,0 +1,26 @@
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[package]
+name = "cyg-core-rs"
+version = "0.1.0"
+edition = "2024"
+description = "Single-source client core: schema descriptor parsing, OXS2 snapshot/patch decode, and input encoding — compiled to wasm (web) and native libs (C ABI) so every client language shares one protocol implementation."
+
+[dependencies]
+engine-schema = { path = "../engine-schema" }
+engine-webrtc-protocol = { path = "../engine-webrtc-protocol" }
+
+# Optional wasm binding layer: `cargo build --target wasm32-unknown-unknown
+# --features wasm` produces the web SDK core; without the feature the crate is
+# a plain native lib exposing the same C ABI.
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+
+[features]
+default = []
+wasm = []
+web-bindgen = ["dep:wasm-bindgen", "dep:js-sys"]
+
+[dev-dependencies]
+serde_json = "1"

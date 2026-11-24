@@ -16,6 +16,33 @@ export interface ClientOptions {
     token?: string;
 }
 
+/** How the SDK's auth methods hit the backend. The endpoint is coerced:
+ * `ws://`/`wss://` (and scheme-less) hosts are rewritten to `http(s)://` and a
+ * trailing slash is stripped, so `new Client("wss://api.example.com")` and
+ * `new Client("api.example.com")` both reach `https://api.example.com/v1/...`. */
+export interface CygAuth {
+    /** Device auth: new/returning device account. */
+    device(deviceId: string): Promise<AuthResponse>;
+    /** Email + password login (existing account). */
+    login(email: string, password: string): Promise<AuthResponse>;
+    /** New email account registration (POST '' with `create: true`). */
+    register(email: string, password: string, username: string): Promise<AuthResponse>;
+    /** Apple Game Center credential. */
+    gameCenter(credential: string): Promise<AuthResponse>;
+    /** Instant game (Facebook Instant / light platforms). */
+    instantGame(signedRequest: string): Promise<AuthResponse>;
+    /** Custom runtime provider (server-side provider RPC). */
+    provider(name: string, data?: unknown): Promise<AuthResponse>;
+    /** Token manually set (restore from your own storage). */
+    setToken(token: string): this;
+}
+
+export interface AuthResponse {
+    token?: string;
+    user?: { sessionId?: string } & Record<string, unknown>;
+    [key: string]: unknown;
+}
+
 export interface MatchmakeOptions {
     [key: string]: unknown;
 }
@@ -80,15 +107,16 @@ export type SchemaEntity = { id: number } & Record<string, number | boolean | bi
 
 /**
  * `room.state` — a Map of id -> entity. The root collection name from the
- * server's schema descriptor is also exposed as a property, so
- * `room.state.players` is the same map (Colyseus-style access).
+ * server's schema descriptor is also reachable as a property, so
+ * `room.state.players` is the same map (Colyseus-style access) — declare the
+ * collection on your `TState` type parameter to get it typed, e.g.
+ * `Room<{ players: SchemaMap<Player> }>`.
  */
 export class SchemaMap<V extends { id: number } = SchemaEntity> extends Map<number, V> {
     onAdd(callback: (entity: V, id: number) => void, immediate?: boolean): () => void;
     onRemove(callback: (entity: V, id: number) => void): () => void;
     onChange(callback: (id: number, entity: V) => void): () => void;
     toJSON(): Record<number, V>;
-    [collection: string]: any;
 }
 
 /** Colyseus v5 callback API, obtained from `getStateCallbacks(room)` (alias: `Callbacks.get(room)`). */
@@ -106,8 +134,6 @@ export const Callbacks: {
     get(room: Room | { state: unknown }): SchemaCallbacks;
     /** Alias matching Colyseus v5's `getStateCallbacks(room)`. */
     getStateCallbacks(room: Room | { state: unknown }): SchemaCallbacks;
-    /** Legacy `$(room.state).players.onAdd(...)` proxy. */
-    getLegacy(room: Room): SchemaMap;
     getRawChanges(): () => void;
 };
 
@@ -139,6 +165,49 @@ export class Room<TState extends object = Record<string, unknown>> {
     reconnectionToken: string | null;
     ackedSeq: number;
     serverTick: number;
+    /** Samples from the Phase D RTT echo so far (delta-tail pairs). */
+    echoSamples: number;
+
+    /**
+     * Server-time clock + latency surface (Colyseus `room.clock` parity).
+     * `serverNow()` reads the TimeSync line; `smoothedRtt()`/`jitter()` come
+     * from the Phase D echo pair once it has samples, falling back to the
+     * ping-based estimates before that. `ping()` keeps working on its own.
+     */
+    clock: {
+        setTimeout(fn: () => void, ms: number): number;
+        setInterval(fn: () => void, ms: number): number;
+        clearTimeout(id: number): void;
+        clearInterval(id: number): void;
+        now(): number;
+        /** Server's estimated wall time right now (ms). */
+        serverNow(): number;
+        /** Smoothed RTT in ms (echo EMA alpha 0.125, else ping). */
+        smoothedRtt(): number;
+        /** Jitter in ms (RFC 3550-style mean deviation, else ping). */
+        jitter(): number;
+    };
+
+    /**
+     * Client prediction driver. Feature-detected: `available` is true only
+     * after a guest WASM instance with the full predict export set
+     * (`cyg_predict_tick`, `cyg_predicted_state_ptr/len`, `cyg_reconcile`,
+     * `cyg_drift_ema`, `cyg_drift_peak`) was handed to `attachPredict` —
+     * until then every call is a no-op.
+     */
+    readonly predict: PredictDriver;
+    /** Same stamped input frame is written this many times on the unreliable
+     *  lane (1–4, default 2); reliable/WS always sends one. */
+    inputRedundancy: number;
+    /** Previous unacked frames replayed with the current one (0–7, default 2).
+     *  Sent as one `__input_batch` message on the unreliable lane. */
+    inputHistory: number;
+    /** Attach the guest WASM instance (web: ECS-template pages only — the
+     *  SDK does not instantiate the guest itself; Unity/Godot embeds do). */
+    attachPredict(instance: unknown, opts?: {
+        readServerState?: (delta: Uint8Array, room: Room) => ArrayLike<number> | Uint8Array | null;
+        tickRate?: number;
+    }): boolean;
 
     /** Bytes received on the WebSocket and WebRTC data channels. */
     bytesIn: number;
@@ -159,6 +228,13 @@ export class Room<TState extends object = Record<string, unknown>> {
 
     connect(): Promise<this>;
     leave(): void;
+
+    /**
+     * App-level RTT probe: resolves with the RTT in ms (-1 on timeout). The
+     * WebRTC path measures on the unreliable lane; `clock.smoothedRtt()` is
+     * the passive, echo-based alternative.
+     */
+    ping(callback?: (ms: number) => void): Promise<number>;
 
     send(type: string, data?: CYGValue): boolean;
     sendJSON(type: string, value: unknown): boolean;
@@ -185,7 +261,33 @@ export class Room<TState extends object = Record<string, unknown>> {
     /** WebRTC voice mesh, attached on demand. */
     voice: Voice | null;
 
-    /** Interpolation / prediction controls (legacy delta rooms). */
+    /** Attach (or reuse) the room's WebRTC voice mesh. */
+    attachVoice(options?: Record<string, unknown>): Voice;
+
+    /**
+     * Stream one Opus voice frame. `channelMode`: 0 = proximity,
+     * 1 = global, 2 = team-only, 3 = whisper.
+     */
+    sendVoice(
+        channelMode: 0 | 1 | 2 | 3,
+        seq: number,
+        timestamp: number,
+        flags: number,
+        opusPayload: Uint8Array,
+    ): void;
+
+    /**
+     * Set the squad/team used by `sendVoice(2, ...)`.
+     * Accepts a string (`"red"`, `"squad-a"`) or any number; the host hashes
+     * the UTF-8 label to a u32. `null`/`""` leaves the team.
+     */
+    setVoiceTeam(teamId: string | number | null): void;
+    /** Notify the server that the local microphone is muted. */
+    setVoiceMuted(isMuted: boolean): void;
+    /** Notify the server that the local player cannot hear anyone. */
+    setVoiceDeafened(isDeafened: boolean): void;
+
+    /** Interpolation / prediction controls (delta rooms). */
     enableInterpolation(options?: Record<string, unknown>, decoder?: ((bytes: Uint8Array) => unknown) | null): void;
     enableJitterBuffer?(): void;
     disableJitterBuffer?(): void;
@@ -213,6 +315,8 @@ export class Client {
     constructor(endpoint: string, options?: ClientOptions);
     readonly endpoint: string;
     lastSeat: SeatReservation | null;
+    /** Backend auth (`/v1/account/authenticate/*`); stores the token on success. */
+    auth: CygAuth;
 
     /** Return a token string (or `{ token }`) before each matchmake call. */
     onAuth(callback: () => string | { token: string } | null | Promise<string | { token: string } | null>): this;
@@ -243,6 +347,29 @@ export class ReplayPlayer {
 export class DeltaSequencer {
     constructor(...args: any[]);
     [key: string]: any;
+}
+
+/** Client-side prediction driver over the guest WASM predict exports. */
+export class PredictDriver {
+    /** False until a guest instance with the full export set is attached. */
+    readonly available: boolean;
+    /** Unacked inputs kept for reconcile (max 64, FIFO). */
+    readonly pending: Array<{ seq: number; input: Uint8Array; atMs: number }>;
+    /** Mirrors of the guest's cyg_drift_ema / cyg_drift_peak counters. */
+    driftEma: number;
+    driftPeak: number;
+    /** Fixed-step driver: returns the send budget n consumed this frame. */
+    tick(now: number): number;
+    /** Latch an input edge OUTSIDE the step loop; consumed inside exactly once. */
+    latch(key: number | string, value?: boolean): void;
+    /** Reconcile against the authoritative delta body (tail stripped). */
+    onAck(serverStateBytes?: Uint8Array): void;
+    /** Latest predicted state (decoded when a delta decoder is attached). */
+    predictedState(): unknown;
+    /** Predicted value for the local player; falls through to the
+     *  interpolation timeline for remotes. */
+    value(entity: number | null, field: string): unknown;
+    reset(): void;
 }
 
 export class RollbackPredictor {

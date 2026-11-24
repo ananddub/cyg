@@ -16,6 +16,13 @@ impl UdpPlane {
             total.acked += c.acked;
             total.expired += c.expired;
             total.rejected += c.rejected;
+            total.bytes_sent += c.bytes_sent;
+            total.bytes_acked += c.bytes_acked;
+            total.loss_events += c.loss_events;
+            total.pto_count += c.pto_count;
+            total.rack_losses += c.rack_losses;
+            total.cwnd_bytes = total.cwnd_bytes.max(c.cwnd_bytes);
+            total.pacing_bps = total.pacing_bps.max(c.pacing_bps);
         }
         total
     }

@@ -72,6 +72,7 @@ cert.crt
 /test-client/
 /tests/
 /architecture/
+/tmp/
 # Embedded SurrealKV store (`surrealkv://data/cyg`)
 /data/
 /run_website.sh
@@ -80,3 +81,20 @@ examples/*
 .idea/
 .delta/
 /bench/release-out/
+bench-game-*
+dhat*.json
+
+
+# core-ts build artifacts
+sdk/client/core-ts/node_modules/
+sdk/client/core-ts/dist/
+
+# editor/agent configs
+.zcode/
+.vscode/
+
+# verus build output
+verus/target/
+
+# Dashboard local SurrealKV runtime data
+/dashboard/data/

@@ -8,9 +8,7 @@ pub(crate) fn boot_map2d(
     let map_path = project_dir.join("arena_map.json");
     let arena_2d_path = project_dir.join("arena_2d.json");
 
-    let arena_2d: Option<engine_physics::MapConfig2D> = if let Some(asset) =
-        boot.map2d.as_ref()
-    {
+    let arena_2d: Option<engine_physics::MapConfig2D> = if let Some(asset) = boot.map2d.as_ref() {
         match serde_json::from_slice::<engine_physics::MapConfig2D>(&asset.bytes) {
             Ok(m) => {
                 tracing::info!(

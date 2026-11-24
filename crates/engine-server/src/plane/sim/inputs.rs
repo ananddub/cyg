@@ -24,6 +24,7 @@ impl Plane {
             }
             self.last_input_at.insert(session.clone(), Instant::now());
             let dt = self.dt;
+            let mut payload = msg.payload;
             if netcode::apply_input(
                 &mut self.room,
                 &self.plane_game_cfg,
@@ -31,7 +32,7 @@ impl Plane {
                 session,
                 msg.player_id,
                 msg.seq,
-                &msg.payload,
+                &mut payload,
             )
             .is_err()
             {

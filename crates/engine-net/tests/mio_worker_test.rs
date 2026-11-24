@@ -22,7 +22,6 @@ fn test_mio_worker_client_echo_and_ticks() {
     println!("✓ MioWorker bound to 127.0.0.1:{} with SO_REUSEPORT", port);
 
     let client_handle = thread::spawn(move || {
-
         thread::sleep(Duration::from_millis(50));
 
         let mut stream =
@@ -33,7 +32,7 @@ fn test_mio_worker_client_echo_and_ticks() {
             .unwrap();
 
         let mut send_buf = Vec::new();
-        encode_frame(OpCode::PlayerInput, &[42, 100, 200], &mut send_buf);
+        let _ = encode_frame(OpCode::PlayerInput, &[42, 100, 200], &mut send_buf);
         stream.write_all(&send_buf).expect("Write ok");
         stream.flush().expect("Flush ok");
 

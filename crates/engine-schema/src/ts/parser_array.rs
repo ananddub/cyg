@@ -77,11 +77,25 @@ impl Parser {
                 }
                 Some(kind) => kind,
             }
+        } else if let TokenKind::Ident(target) = inner.kind.clone() {
+            // `t.array(Item)` names a declared schema: it becomes a child
+            // collection keyed by owner + slot, not a scalar wire array.
+            self.advance();
+            if !self.eat_symbol(')') {
+                let token = self.current().clone();
+                self.error(
+                    token.line,
+                    token.column,
+                    "expected ')' after the nested array schema name",
+                );
+                self.skip_balanced('(', ')');
+            }
+            return Some(ParsedType::NestedArray(target));
         } else {
             self.error(
                 inner.line,
                 inner.column,
-                "t.array(...) expects a t.* element type, e.g. t.array(t.uint32())",
+                "t.array(...) expects a t.* element type or a declared schema, e.g. t.array(Item)",
             );
             self.skip_balanced('(', ')');
             return None;

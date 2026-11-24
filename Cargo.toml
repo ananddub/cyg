@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["verus"]
 members = [
     ".",
     "crates/engine-agones",
@@ -8,6 +9,7 @@ members = [
     "crates/engine-config",
     "crates/engine-control",
     "crates/engine-core",
+    "crates/engine-manager",
     "crates/engine-dashboard",
     "crates/engine-net",
     "crates/engine-nav",
@@ -16,7 +18,9 @@ members = [
     "crates/engine-server",
     "crates/engine-spatial",
     "crates/engine-wasm",
+    "crates/engine-hooks",
     "crates/engine-webrtc-protocol",
+    "crates/cyg-core-rs",
     "crates/engine-voice", "crates/test-datafusion",
     "crates/auto/route",
     "crates/auto/route_macros",
@@ -26,47 +30,118 @@ members = [
     "crates/auto/ws_macros",
 ]
 
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[workspace.lints.rust]
+unsafe_code = "allow"
+
+[workspace.lints.clippy]
+todo = "warn"
+
 [package]
 name = "cyg-gaming"
 version = "0.1.0"
 edition = "2024"
+# Only the [[bin]] below is built; no `cyg-gaming` / `cyg-game` duplicates.
+autobins = false
 
 [dependencies]
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# OTLP trace export. Off by default: `--features otel` adds the bridge and the
+# HTTP/protobuf exporter, so a plain build keeps the old dependency graph.
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"], optional = true }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"], optional = true }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "http-proto", "reqwest-blocking-client"], optional = true }
+tracing-opentelemetry = { version = "0.34", default-features = false, optional = true }
 engine-bus = { path = "crates/engine-bus" }
 engine-api = { path = "crates/engine-api" }
+# Only for the Verus parity tests: the mirror is Verus-annotated and builds
+# under the Verus toolchain (`./scripts/verify-verus.sh`), not plain rustc.
+ox-verified = { path = "verus/ox-verified", optional = true }
 engine-config = { path = "crates/engine-config" }
 engine-control = { path = "crates/engine-control" }
+engine-manager = { path = "crates/engine-manager" }
 engine-server = { path = "crates/engine-server" }
 engine-physics = { path = "crates/engine-physics" }
 engine-schema = { path = "crates/engine-schema" }
 engine-spatial = { path = "crates/engine-spatial" }
+engine-hooks = { path = "crates/engine-hooks" }
 engine-wasm = { path = "crates/engine-wasm" }
 wasmtime = "50.0.0"
 hmac = "0.13.0"
 sha2 = "0.11.1"
 gltf = "1.4"
-mimalloc = { version = "0.1.52", default-features = false }
+mimalloc = { version = "0.1.52", default-features = false, optional = true }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 flate2 = "1"
 chrono = "0.4"
 serde_json = "1"
 
+
+# Heap profiler for allocation break-downs (`cargo build --features dhat`, CYG_DHAT_SECS=n exits cleanly)
+dhat = { version = "0.3", optional = true }
+# CPU sampling profiler (SIGPROF, no perf/sudo needed): `--features cpu-prof`,
+# CYG_CPU_PROF_SECS=n exits cleanly and writes cpu-flamegraph.svg
+pprof = { version = "0.14", default-features = false, features = ["flamegraph"], optional = true }
+
 [dev-dependencies]
 engine-core = { path = "crates/engine-core" }
 engine-nav = { path = "crates/engine-nav" }
+# The hot-path bench and the parity tests reach into these directly; without the
+# entries `cargo check --all-targets` fails on names the workspace does have.
+engine-api = { path = "crates/engine-api" }
+engine-config = { path = "crates/engine-config" }
+engine-server = { path = "crates/engine-server" }
+engine-spatial = { path = "crates/engine-spatial" }
+engine-webrtc-protocol = { path = "crates/engine-webrtc-protocol" }
+criterion = { version = "0.5", features = ["html_reports"] }
+uuid = { version = "1", features = ["v4"] }
 bevy_ecs = { version = "0.15", default-features = false }
 rapier3d = "0.36"
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 
+[[bench]]
+name = "hotpath"
+harness = false
+
+[[test]]
+name = "verus_parity"
+# Off by default: `ox_verified` is Verus-annotated and only compiles under the
+# Verus toolchain, which a normal `cargo test` does not have.
+required-features = ["verus-parity"]
+
+[features]
+default = []
+# `cargo test --features verus-parity` with the Verus toolchain on PATH.
+verus-parity = ["dep:ox-verified"]
+# `cargo build --features otel` (+ OTEL_EXPORTER_OTLP_ENDPOINT) exports spans
+# over OTLP/HTTP. Without the feature the binary has no OpenTelemetry code.
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+dhat = ["dep:dhat"]
+cpu-prof = ["dep:pprof"]
+# Opt-in mimalloc global allocator; default is the system (glibc) allocator.
+mimalloc = ["dep:mimalloc"]
 
 
-# `cyg-game` short alias — templates/docs isse reference karte hain
+
+# One binary, one name: `cyg`.
+#
+# `autobins = false` in [package] stops cargo from ALSO emitting
+# `cyg-gaming` (from the package name) and the old `cyg-game` alias, so a
+# build produces exactly one executable and users never have to guess which
+# of three spellings to type.
 [[bin]]
-name = "cyg-game"
+name = "cyg"
 path = "src/main.rs"
 
 [profile.release]
@@ -75,6 +150,13 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Profiler builds: same codegen as release, but keep symbols so dhat/pprof
+# backtraces resolve to function names instead of hex addresses.
+[profile.profiling]
+inherits = "release"
+debug = 1
+strip = false
 
 # local auto-di checkout (register_instance API) until 0.6.1 is published
 [patch.crates-io]

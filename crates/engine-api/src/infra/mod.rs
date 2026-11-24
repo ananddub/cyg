@@ -1,6 +1,7 @@
 pub mod console;
 pub mod events;
 pub mod gc;
+pub mod http;
 pub mod jwt;
 pub mod liveops;
 pub mod logfeed;

@@ -2,7 +2,7 @@ use crate::repositories::models::PlayerInventoryItem;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Serialize, Deserialize)]
 pub struct ListInventoryResponse {
     pub items: Vec<PlayerInventoryItem>,
 }
@@ -38,7 +38,7 @@ pub struct DefineItemRequest {
     pub properties: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Serialize, Deserialize)]
 pub struct InventoryOperationResponse {
     pub success: bool,
     pub message: String,

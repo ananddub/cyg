@@ -5,7 +5,7 @@ edition = "2024"
 description = "WebAssembly sandbox runtime powered by Wasmtime for guest game room logic"
 
 [dependencies]
-engine-core = { path = "../engine-core" }
+engine-config = { path = "../engine-config" }
 thiserror = "2.0.21"
 wasmtime = "50.0.0"
 

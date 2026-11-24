@@ -12,12 +12,12 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
   ];
 
   return (
-    <div className="w-76 rounded-xl border border-emerald-500/50 bg-card/95 p-3.5 shadow-xl shadow-emerald-500/10 backdrop-blur-md">
+    <div className="w-76 rounded-xl border border-border border-l-4 border-l-emerald-500 bg-card/95 p-3.5 shadow-sm">
       <Handle
         type="target"
         position={Position.Left}
         id="in"
-        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-card !bg-emerald-500"
+        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-card !bg-slate-400"
       />
 
       <div className="flex items-center justify-between border-b border-border pb-2.5">
@@ -26,7 +26,7 @@ export function ActionNode({ data }: NodeProps & { data: ActionNodeData }) {
             <Gift className="h-4 w-4" />
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300">Reward / Action</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-foreground">Reward / Action</div>
           </div>
         </div>
         {data.onDelete && (

@@ -17,22 +17,20 @@ struct ConsoleUserController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/user")]
+type ConsoleUserViewList = Vec<crate::dto::console::user::ConsoleUserView>;
+#[controller("/v1/console/user")]
 impl ConsoleUserController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = ConsoleUserViewList)]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service
-            .list_console_users(&state, page)
-            .await
-            .into_response()
+        self.service.list_console_users(page).await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::console::user::ConsoleUserView)]
     async fn create(
         &self,
         auth: ConsoleAuthed,
@@ -40,12 +38,12 @@ impl ConsoleUserController {
     ) -> Response {
         let state = current_state();
         self.service
-            .create_console_user(&state, &auth, body)
+            .create_console_user(&auth, body)
             .await
             .into_response()
     }
 
-    #[put("/{id}")]
+    #[put("/{id}", response_body = crate::dto::console::user::ConsoleUserView)]
     async fn update(
         &self,
         auth: ConsoleAuthed,
@@ -54,21 +52,21 @@ impl ConsoleUserController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_console_user(&state, &auth, &id, body)
+            .update_console_user(&auth, &id, body)
             .await
             .into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .delete_console_user(&state, &auth, &id)
+            .delete_console_user(&auth, &id)
             .await
             .into_response()
     }
 
-    #[post("/{id}/password")]
+    #[post("/{id}/password", response_body = crate::dto::Empty)]
     async fn password(
         &self,
         auth: ConsoleAuthed,
@@ -77,61 +75,61 @@ impl ConsoleUserController {
     ) -> Response {
         let state = current_state();
         self.service
-            .set_console_user_password(&state, &auth, &id, body)
+            .set_console_user_password(&auth, &id, body)
             .await
             .into_response()
     }
 
-    #[post("/{id}/disable")]
+    #[post("/{id}/disable", response_body = crate::dto::Empty)]
     async fn disable(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .set_console_user_disabled(&state, &auth, &id, true)
+            .set_console_user_disabled(&auth, &id, true)
             .await
             .into_response()
     }
 
-    #[post("/{id}/enable")]
+    #[post("/{id}/enable", response_body = crate::dto::Empty)]
     async fn enable(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .set_console_user_disabled(&state, &auth, &id, false)
+            .set_console_user_disabled(&auth, &id, false)
             .await
             .into_response()
     }
 
-    #[delete("/{id}/mfa")]
+    #[delete("/{id}/mfa", response_body = crate::dto::Empty)]
     async fn clear_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .clear_console_user_mfa(&state, &auth, &id)
+            .clear_console_user_mfa(&auth, &id)
             .await
             .into_response()
     }
 
-    #[post("/{id}/mfa/require")]
+    #[post("/{id}/mfa/require", response_body = crate::dto::Empty)]
     async fn require_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .set_console_user_mfa_required(&state, &auth, &id, true)
+            .set_console_user_mfa_required(&auth, &id, true)
             .await
             .into_response()
     }
 
-    #[delete("/{id}/mfa/require")]
+    #[delete("/{id}/mfa/require", response_body = crate::dto::Empty)]
     async fn unrequire_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .set_console_user_mfa_required(&state, &auth, &id, false)
+            .set_console_user_mfa_required(&auth, &id, false)
             .await
             .into_response()
     }
 
-    #[delete("/{id}/mfa/reset")]
+    #[delete("/{id}/mfa/reset", response_body = crate::dto::Empty)]
     async fn reset_mfa(&self, auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .reset_console_user_mfa(&state, &auth, &id)
+            .reset_console_user_mfa(&auth, &id)
             .await
             .into_response()
     }

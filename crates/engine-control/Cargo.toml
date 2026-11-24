@@ -10,7 +10,9 @@ engine-agones = { path = "../engine-agones" }
 engine-api = { path = "../engine-api" }
 engine-bus = { path = "../engine-bus" }
 engine-config = { path = "../engine-config" }
+engine-manager = { path = "../engine-manager" }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "macros", "signal"] }
+socket2 = { version = "0.6.5", features = ["all"] }
 
 [dev-dependencies]
 serde_json = "1.0"

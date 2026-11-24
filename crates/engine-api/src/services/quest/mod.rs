@@ -1,3 +1,4 @@
+use crate::services::plane::Plane;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -6,13 +7,11 @@ use axum::Json;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::quest::{ClaimQuestRequest, QuestClaimResponse, QuestListResponse, QuestRow};
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::QuestDefinition;
-use crate::services::deps::q;
 
 pub(crate) mod catalog;
 pub mod daily;
@@ -26,22 +25,20 @@ pub(crate) use catalog::{
 };
 pub(crate) use reward::parse_reward;
 
-pub struct QuestService;
+pub struct QuestService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 #[singleton]
 impl QuestService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 
 impl QuestService {
-    pub async fn list_quests(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-    ) -> Result<Json<QuestListResponse>, V2Error> {
-        let queries = q(state).await?;
+    pub async fn list_quests(&self, auth: &Authed) -> Result<Json<QuestListResponse>, V2Error> {
+        let queries = self.plane.q().await?;
         let now = Utc::now();
         let progress = progress_by_quest(&queries, auth.uid()).await?;
         let stats = stats_by_player(&queries, auth.uid()).await?;
@@ -49,7 +46,7 @@ impl QuestService {
         let products =
             crate::services::iap::entitlements::active_products(&queries, auth.uid(), now).await?;
         let quests = entitled(
-            &owned_definitions(&queries, state).await?,
+            &owned_definitions(&queries, &self.plane).await?,
             &seasons,
             now,
             &products,
@@ -68,7 +65,7 @@ impl QuestService {
 
     pub async fn claim_quest(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: ClaimQuestRequest,
     ) -> Result<Json<QuestClaimResponse>, V2Error> {
@@ -76,9 +73,9 @@ impl QuestService {
         if quest_key.is_empty() {
             return Err(V2Error::invalid_argument("A quest needs a key."));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let now = Utc::now();
-        let definition = definition_of(&queries, state, quest_key).await?;
+        let definition = definition_of(&queries, &self.plane, quest_key).await?;
         if !runs_now(&definition, &open_seasons(&queries, now).await?, now) {
             return Err(V2Error::failed_precondition(
                 "This quest is outside its running window.",

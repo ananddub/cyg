@@ -21,6 +21,7 @@ pub(crate) fn escape_string(text: &str) -> String {
 
 pub(crate) fn root_hash(root: &RootState) -> u32 {
     crate::wire_hash(&SchemaDef {
+        nested_arrays: Vec::new(),
         name: root.name.clone(),
         version: root.version,
         fields: root.scalars.clone(),

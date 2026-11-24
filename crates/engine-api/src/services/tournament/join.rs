@@ -3,26 +3,20 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::load_tournament;
-use crate::ApiState;
+use super::require_rule;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::Empty;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::{Leaderboard, LeaderboardRecord};
-use crate::services::deps::q;
 use crate::utils::leaderboard::{at, calculate};
 use crate::utils::tournament::statement::joined_row;
 use crate::utils::tournament::types::{INACTIVE_JOIN, JOIN_FAILED, MAX_SIZE_JOIN};
 
 impl super::TournamentService {
-    pub async fn join_tournament(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-        id: &str,
-    ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state).await?;
+    pub async fn join_tournament(&self, auth: &Authed, id: &str) -> Result<Json<Empty>, V2Error> {
+        let queries = self.plane.q().await?;
         let board = load_tournament(&queries, id).await?;
         if !board.join_required {
             return Ok(Json(Empty {}));
@@ -33,6 +27,7 @@ impl super::TournamentService {
         if deadlines.end_active <= now.timestamp() {
             return Err(V2Error::invalid_argument(INACTIVE_JOIN));
         }
+        require_rule(&queries, &board, auth.uid()).await?;
 
         enter(
             &queries,

@@ -48,7 +48,7 @@ pub(crate) fn an_activate_request_carries_only_a_version() {
 pub(crate) fn every_wasm_route_demands_a_console_token() {
     let server = V2Server::start(v2_state());
     for (method, path) in wasm_paths("00000000-0000-0000-0000-000000000000") {
-        let reply = server.send(&method, &path, None, "{}");
+        let reply = server.send(method, &path, None, "{}");
         assert_eq!(
             reply.refusal(UNAUTHENTICATED),
             "Console token required",
@@ -57,7 +57,7 @@ pub(crate) fn every_wasm_route_demands_a_console_token() {
     }
 }
 pub(crate) fn wasm_paths(game: &str) -> Vec<(&'static str, String)> {
-    let base = format!("/v2/console/games/{game}/wasm");
+    let base = format!("/v1/console/games/{game}/wasm");
     vec![
         ("GET", base.clone()),
         ("POST", base.clone()),
@@ -80,7 +80,7 @@ pub(crate) fn a_malformed_module_game_id_is_a_bad_request_naming_the_game() {
         } else {
             r#"{"version":1}"#.to_owned()
         };
-        let reply = server.send(&method, &path, Some(&auth), &body);
+        let reply = server.send(method, &path, Some(&auth), &body);
         assert_eq!(
             reply.refusal(INVALID_ARGUMENT),
             "Invalid game id.",
@@ -105,7 +105,7 @@ pub(crate) fn the_wasm_routes_are_mounted_under_their_game() {
             ("POST", false) => r#"{"version":1}"#.to_owned(),
             _ => String::new(),
         };
-        let reply = server.send(&method, &path, Some(&auth), &body);
+        let reply = server.send(method, &path, Some(&auth), &body);
         assert_ne!(reply.status, 404, "{method} {path} is not mounted at all");
         assert_ne!(
             reply.status, 405,
@@ -136,7 +136,7 @@ pub(crate) fn the_wasm_listing_reaches_the_database_it_needs() {
         console::mint("", "wasm-probe", "wasm@console.local", ConsoleRole::Admin)
     );
     let game = uuid::Uuid::new_v4();
-    let reply = server.get(&format!("/v2/console/games/{game}/wasm"), Some(&auth));
+    let reply = server.get(&format!("/v1/console/games/{game}/wasm"), Some(&auth));
     assert_eq!(
         reply.refusal(crate::error::UNAVAILABLE),
         "The database is not configured, set [control.session] database_endpoint."

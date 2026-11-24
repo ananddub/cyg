@@ -17,14 +17,14 @@ fn the_body_limit_and_the_seat_survive_being_merged_into_the_plane() {
         "the neighbour still routes"
     );
 
-    let (status, _, body) = server.post("/api/matchmake/joinOrCreate/tank-3d", "{}");
+    let (status, _, body) = server.post("/matchmake/joinOrCreate/tank-3d", "{}");
     assert_eq!(status, 200, "merged seat: {body}");
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["roomId"].as_str().unwrap(), "tank-3d");
 
     let big = "x".repeat(super::MAX_BODY_BYTES + 1024);
     let (status, _, _) = server.post(
-        "/api/matchmake/reconnect/tank-3d",
+        "/matchmake/reconnect/tank-3d",
         &format!("{{\"reconnectionToken\":\"{big}\"}}"),
     );
     assert_eq!(status, 413, "the ceiling survives the merge");

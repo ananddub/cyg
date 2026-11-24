@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::grid::StaticObstacleGrid;
 use super::lag::LagCompensator;
 use super::map::{MapConfig, ObstacleCollider};
@@ -10,7 +12,10 @@ pub struct PhysicsWorld3D {
     pub obstacles: Vec<ObstacleCollider>,
     pub lag_comp: LagCompensator,
 
-    grid: StaticObstacleGrid,
+    /// Static geometry index — immutable after map load, so every room
+    /// shares ONE copy instead of deep-cloning the Vec<Vec<u32>> cells
+    /// (625 rooms x ~70KB was ~45MB of identical data at 10k CCU).
+    grid: Arc<StaticObstacleGrid>,
 }
 
 impl Clone for PhysicsWorld3D {
@@ -19,7 +24,7 @@ impl Clone for PhysicsWorld3D {
             arena_half_width: self.arena_half_width,
             arena_half_depth: self.arena_half_depth,
             obstacles: self.obstacles.clone(),
-            grid: self.grid.clone(),
+            grid: Arc::clone(&self.grid),
             lag_comp: LagCompensator::default(),
         }
     }
@@ -37,7 +42,7 @@ impl PhysicsWorld3D {
             arena_half_width: half_width,
             arena_half_depth: half_depth,
             obstacles: Vec::new(),
-            grid: StaticObstacleGrid::new(half_width, half_depth),
+            grid: Arc::new(StaticObstacleGrid::new(half_width, half_depth)),
             lag_comp: LagCompensator::default(),
         }
     }
@@ -74,7 +79,9 @@ impl PhysicsWorld3D {
             height: bounds.max.y,
             is_walkable_roof: walkable_roof,
         });
-        self.grid.insert(index, &bounds);
+        // Copy-on-write: unique at map-build time, so this never clones;
+        // a room that mutates a shared map gets its own private grid.
+        Arc::make_mut(&mut self.grid).insert(index, &bounds);
     }
 
     #[inline]

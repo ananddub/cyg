@@ -7,4 +7,4 @@ mod state;
 
 pub use state::LoopTransport;
 #[allow(unused_imports)]
-pub(crate) use state::DelayedOut;
+pub(crate) use state::{DelayedOut, SeatEntry};

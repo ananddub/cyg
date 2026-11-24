@@ -240,13 +240,18 @@ pub enum EnvelopeMessage {
     NotificationsList {
         #[serde(default)]
         limit: Option<i64>,
-        #[serde(default)]
+        #[serde(
+            default,
+            rename = "pageToken",
+            alias = "cacheable_cursor",
+            alias = "cacheableCursor"
+        )]
         cacheable_cursor: Option<String>,
     },
     #[serde(rename = "notifications_list")]
     Notifications {
         notifications: Vec<NotificationResponse>,
-        #[serde(default)]
+        #[serde(default, rename = "nextPageToken", alias = "cacheable_cursor")]
         cacheable_cursor: String,
     },
     #[serde(rename = "notification")]

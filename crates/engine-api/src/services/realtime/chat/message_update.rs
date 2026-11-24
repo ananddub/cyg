@@ -3,7 +3,7 @@ use super::*;
 impl RealtimeChatService {
     pub async fn message_update(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: ChannelMessageUpdate = msg.payload()?;
-        let state = state_of(conn);
+        let _state = state_of(conn);
         let s = session_of(conn);
         if self.stream_of(&req.channel_id).is_none() {
             return Err(V2Error::not_found(
@@ -12,7 +12,7 @@ impl RealtimeChatService {
         }
         let id = Uuid::parse_str(&req.message_id)
             .map_err(|_| V2Error::invalid_argument("Invalid message ID."))?;
-        let updated = crate::services::deps::q(&state)
+        let updated = crate::services::deps::q(&self.plane)
             .await?
             .update_channel_message(&UpdateChannelMessageParams {
                 content: req.content,
@@ -57,7 +57,7 @@ impl RealtimeChatService {
     }
     pub async fn message_remove(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: ChannelMessageRemove = msg.payload()?;
-        let state = state_of(conn);
+        let _state = state_of(conn);
         let s = session_of(conn);
         if self.stream_of(&req.channel_id).is_none() {
             return Err(V2Error::not_found(
@@ -66,7 +66,7 @@ impl RealtimeChatService {
         }
         let id = Uuid::parse_str(&req.message_id)
             .map_err(|_| V2Error::invalid_argument("Invalid message ID."))?;
-        let deleted = crate::services::deps::q(&state)
+        let deleted = crate::services::deps::q(&self.plane)
             .await?
             .delete_channel_message(id, s.uid)
             .await

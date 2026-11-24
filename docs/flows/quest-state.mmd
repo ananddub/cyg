@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> Available: definition in window
+    Available --> InProgress: first counter > 0
+    InProgress --> Completed: counter >= goal_amount
+    Completed --> Claimed: POST /v1/quest/claim
+    Claimed --> [*]
+
+    note right of Claimed
+        Reward paid once.
+        Second claim refuses.
+    end note

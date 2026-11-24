@@ -1,7 +1,6 @@
 use super::{RoomHostData, TimerState};
 
 impl RoomHostData {
-
     pub fn timer_set(&mut self, timer_id: i64, delay_ticks: i64, interval_ticks: i64) {
         let delay = delay_ticks.max(1);
         self.timers.insert(
@@ -44,5 +43,4 @@ impl RoomHostData {
             self.fired_timers.remove(0)
         }
     }
-
 }

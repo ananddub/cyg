@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::repositories::models::GameConfigVersion;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ConfigVersionRow {
     pub game_id: Uuid,
     pub version: i64,

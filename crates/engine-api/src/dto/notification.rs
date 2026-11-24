@@ -7,7 +7,13 @@ use crate::services::social::{meta_str, ts, uid};
 pub struct ListQuery {
     #[serde(default)]
     pub limit: Option<i64>,
-    #[serde(default, rename = "cacheableCursor", alias = "cacheable_cursor")]
+    #[serde(
+        default,
+        rename = "pageToken",
+        alias = "cacheableCursor",
+        alias = "cacheable_cursor",
+        alias = "cursor"
+    )]
     pub cacheable_cursor: Option<String>,
     #[serde(default)]
     pub sender_id: Option<String>,
@@ -15,13 +21,13 @@ pub struct ListQuery {
     pub code: Option<i16>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct DeleteRequest {
     #[serde(default)]
     pub ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationResponse {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -48,9 +54,10 @@ impl From<&Notification> for NotificationResponse {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(poem_openapi::Object, Debug, Serialize, Deserialize, Default)]
 pub struct NotificationListResponse {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notifications: Vec<NotificationResponse>,
+    #[serde(rename = "nextPageToken", alias = "cacheable_cursor")]
     pub cacheable_cursor: String,
 }

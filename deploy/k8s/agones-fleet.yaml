@@ -36,19 +36,19 @@ spec:
               image: ghcr.io/REPLACE_ME/cyg-gaming:REPLACE_ME_TAG
               args: ["run", "/app/game"]
               env:
-                - name: OX_AGONES
+                - name: CYG_AGONES
                   value: "1"
                 - name: RUST_LOG
                   value: info
-                - name: OX_LOG_FORMAT
+                - name: CYG_LOG_FORMAT
                   value: json
                 # Absent on purpose: refuse_default_secrets() must stay armed.
-                - name: OX_UDP_ADDR
+                - name: CYG_UDP_ADDR
                   value: "0.0.0.0:7778"
                 # Every container's root process is pid 1, so the compiled-in
                 # fallback would name this node cyg_1 and every other node too.
                 # A registry row that two nodes both claim is no ownership at all.
-                - name: OX_NODE_ID
+                - name: CYG_NODE_ID
                   valueFrom:
                     fieldRef: { fieldPath: metadata.name }
               envFrom:
@@ -66,7 +66,7 @@ spec:
               # Readiness is the control plane's own view: datastore reachable,
               # schema current, status pump running. Agones gates allocation on
               # the sidecar's /ready call, which this process makes itself when
-              # OX_AGONES=1.
+              # CYG_AGONES=1.
               readinessProbe:
                 httpGet: { path: /readyz, port: 8124 }
                 periodSeconds: 5

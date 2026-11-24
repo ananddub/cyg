@@ -41,6 +41,7 @@ async fn only_a_tournament_category_board_reads() {
         join_required: false,
         max_size: 100,
         max_num_score: 1_000_000,
+        rule_key: None,
     })
     .await
     .expect("the tournament gets a duration");

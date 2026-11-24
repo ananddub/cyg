@@ -1,7 +1,6 @@
 use axum::Json;
 use serde_json::{Value, json};
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::db::DbError;
 use crate::dto::Empty;
@@ -9,7 +8,6 @@ use crate::error::V2Error;
 use crate::repositories::friend::{
     IncrementPairEdgeCountParams, InsertFriendEdgeParams, UpdateFriendEdgeMetadataParams,
 };
-use crate::services::deps::q;
 use crate::services::social;
 
 use crate::dto::friend::TargetsQuery;
@@ -21,11 +19,11 @@ use super::resolve::{edge_state, resolve_targets};
 impl FriendService {
     pub async fn add_friends(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: TargetsQuery,
     ) -> Result<Json<Empty>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let me = auth.0.uuid()?;
         let targets =
             match resolve_targets(&queries, me, &auth.0.un, &req, "Cannot add self as friend.")
@@ -70,7 +68,7 @@ impl FriendService {
                         .await?;
                 }
                 social::notify(
-                    state,
+                    &self.plane,
                     target,
                     me,
                     &auth.0.un,
@@ -109,7 +107,7 @@ impl FriendService {
                     })
                     .await?;
                 social::notify(
-                    state,
+                    &self.plane,
                     target,
                     me,
                     &auth.0.un,

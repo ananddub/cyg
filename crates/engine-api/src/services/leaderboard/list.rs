@@ -5,14 +5,12 @@ use uuid::Uuid;
 use super::load_board;
 use super::page::{Page, record_page};
 use super::rank::{rank_count, wires};
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::leaderboard::{ListQuery, RecordListResponse, RecordResponse};
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::leaderboard::ListLeaderboardRecordsForOwnerParams;
 use crate::repositories::models::Leaderboard;
-use crate::services::deps::q;
 use crate::utils::leaderboard::cursor::Cursor;
 use crate::utils::leaderboard::types::{
     BAD_EXPIRY, BAD_OWNERS, INVALID_ID, LIST_FAILED, LIST_LIMIT, MAX_LIST_LIMIT, ascending, number,
@@ -43,7 +41,6 @@ fn requested_limit(
 impl super::LeaderboardService {
     pub async fn list_records(
         &self,
-        state: &ApiState,
         _auth: &Authed,
         id: &str,
         req: ListQuery,
@@ -55,7 +52,7 @@ impl super::LeaderboardService {
         let limit = requested_limit(req.limit.as_deref(), &req.cursor, !owners.is_empty())?;
         let override_expiry = number(req.expiry.as_deref(), BAD_EXPIRY)?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let board = load_board(&queries, id).await?;
         let Some(window) = query_window(&board, override_expiry)? else {
             return Ok(Json(RecordListResponse::default()));

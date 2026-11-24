@@ -19,10 +19,10 @@ case "$OS" in
     CYG_NT*|MINGW*)
         echo "Windows pe ye one-liner nahi chalega. PowerShell me chalao:"
         echo ""
-        echo "  irm https://github.com/$REPO/releases/latest/download/cyg-gaming-x86_64-pc-windows-msvc.zip -OutFile cyg.zip"
+        echo "  irm https://github.com/$REPO/releases/latest/download/cyg-x86_64-pc-windows-msvc.zip -OutFile cyg.zip"
         echo "  Expand-Archive cyg.zip -DestinationPath ."
         echo ""
-        echo "  phir cyg-gaming.exe ko PATH me daal do."
+        echo "  phir cyg.exe ko PATH me daal do."
         exit 1
         ;;
     *) echo "Unsupported OS: $OS" >&2; exit 1 ;;
@@ -45,7 +45,7 @@ else
     [ "$ARCH_PART" = "x86_64" ] && TRIPLE="x86_64-apple-darwin"
 fi
 
-ASSET="cyg-gaming-$TRIPLE.tar.gz"
+ASSET="cyg-$TRIPLE.tar.gz"
 URL="https://github.com/$REPO/releases/latest/download/$ASSET"
 
 echo "→ Downloading $ASSET …"
@@ -55,8 +55,8 @@ curl -fsSL "$URL" -o "$TMP/$ASSET"
 
 tar xzf "$TMP/$ASSET" -C "$TMP"
 mkdir -p "$DEST"
-mv "$TMP/cyg-gaming-$TRIPLE/cyg-gaming" "$DEST/cyg-gaming"
-chmod +x "$DEST/cyg-gaming"
+mv "$TMP/cyg-$TRIPLE/cyg" "$DEST/cyg"
+chmod +x "$DEST/cyg"
 
 case ":$PATH:" in
     *":$DEST:"*) ;;
@@ -69,10 +69,10 @@ case ":$PATH:" in
 esac
 
 echo ""
-echo "✓ cyg-gaming installed → $DEST/cyg-gaming"
+echo "✓ cyg installed → $DEST/cyg"
 echo ""
 echo "Ab 2-minute setup:"
-echo "  cyg-gaming init my-game && cd my-game"
-echo "  cyg-gaming run"
+echo "  cyg init my-game && cd my-game"
+echo "  cyg run"
 echo ""
 echo "Docs: https://github.com/$REPO#readme"

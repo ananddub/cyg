@@ -7,6 +7,14 @@ use super::heartbeat::HeartbeatConfig;
 use super::transport::WsTransport;
 
 impl WsTransport {
+    /// Room variants for filtered matchmaking on this lane.
+    pub fn set_room_variants(
+        &mut self,
+        variants: std::collections::BTreeMap<String, engine_config::RoomVariantDef>,
+    ) {
+        self.room_variants = variants;
+    }
+
     pub fn set_schema_descriptor(&mut self, descriptor: impl Into<Bytes>) {
         self.schema_descriptor = descriptor.into();
     }
@@ -38,11 +46,19 @@ impl WsTransport {
     }
 
     pub fn room_of(&self, client_id: &str) -> Option<&str> {
-        self.client_rooms.get(client_id).map(String::as_str)
+        self.clients_meta.get(client_id)?.room.as_deref()
     }
 
     pub fn options_of(&self, client_id: &str) -> Option<&str> {
-        self.client_options.get(client_id).map(String::as_str)
+        self.clients_meta.get(client_id)?.options.as_deref()
+    }
+
+    pub fn room_of_shared(&self, client_id: &str) -> Option<std::sync::Arc<str>> {
+        self.clients_meta.get(client_id)?.room.clone()
+    }
+
+    pub fn options_of_shared(&self, client_id: &str) -> Option<std::sync::Arc<str>> {
+        self.clients_meta.get(client_id)?.options.clone()
     }
 
     pub fn take_consented(&mut self, client_id: &str) -> bool {

@@ -3,10 +3,8 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::dto::console::timeline::{TimelineEntry, TimelinePage, TimelineQuery};
 use crate::error::V2Error;
-use crate::services::deps::q;
 
 const MAX_LIMIT: i64 = 200;
 const DEFAULT_LIMIT: i64 = 50;
@@ -17,11 +15,11 @@ impl super::ConsoleService {
     /// (gameplay events, match history) join as one more fetch-and-map arm.
     pub async fn player_timeline(
         &self,
-        state: &ApiState,
+
         account_id: Uuid,
         query: TimelineQuery,
     ) -> Result<Json<TimelinePage>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         if !queries.timeline_account_exists(account_id).await? {
             return Err(V2Error::not_found("That account does not exist."));
         }

@@ -32,7 +32,7 @@ async fn requester(env: &Harness, label: &str) -> Player {
 async fn friend_request(env: &Harness, from: &Player, to: &Player) {
     json_body(
         env.client
-            .post(format!("{}/v2/friend?ids={}", env.base, to.uid))
+            .post(format!("{}/v1/friend?ids={}", env.base, to.uid))
             .bearer_auth(&from.token)
             .send()
             .await
@@ -79,7 +79,7 @@ async fn quiet() {
 async fn prefer(env: &Harness, player: &Player, channel: &str, kind: &str, enabled: bool) -> u16 {
     let resp = env
         .client
-        .put(format!("{}/v2/notify/preferences", env.base))
+        .put(format!("{}/v1/notify/preferences", env.base))
         .bearer_auth(&player.token)
         .json(&json!({ "channel": channel, "kind": kind, "enabled": enabled }))
         .send()
@@ -141,7 +141,7 @@ pub async fn one_mail_arrives(env: &Harness, relay: &Relay, ada: &Player, from: 
         "the kind's own sentence is missing: {letter:?}"
     );
     assert!(
-        letter.says(&format!("{}/v2/notify/unsubscribe?token=", env.base)),
+        letter.says(&format!("{}/v1/notify/unsubscribe?token=", env.base)),
         "the footer does not lead back here: {letter:?}"
     );
     // Only mail: no sender is configured for a push, so nothing was queued for
@@ -168,7 +168,7 @@ pub async fn the_footer_link_stops_the_channel(env: &Harness, relay: &Relay, ada
     let signed = footer_token(relay, "ada");
     let body = json_body(
         env.client
-            .get(format!("{}/v2/notify/unsubscribe?token={signed}", env.base))
+            .get(format!("{}/v1/notify/unsubscribe?token={signed}", env.base))
             .send()
             .await
             .expect("unsubscribe"),
@@ -227,7 +227,7 @@ pub async fn a_forged_link_opens_nothing(env: &Harness, ada: &Player) {
         );
         let why = refusal(
             env.client
-                .get(format!("{}/v2/notify/unsubscribe?token={signed}", env.base))
+                .get(format!("{}/v1/notify/unsubscribe?token={signed}", env.base))
                 .send()
                 .await
                 .unwrap_or_else(|err| panic!("{what} unsubscribe link: {err}")),
@@ -242,7 +242,7 @@ pub async fn a_forged_link_opens_nothing(env: &Harness, ada: &Player) {
     }
     let why = refusal(
         env.client
-            .get(format!("{}/v2/notify/unsubscribe", env.base))
+            .get(format!("{}/v1/notify/unsubscribe", env.base))
             .send()
             .await
             .expect("absent unsubscribe token"),
@@ -290,7 +290,7 @@ pub async fn one_kind_does_not_switch_off_the_others(env: &Harness, bobo: &Playe
     assert_eq!(prefer(env, bobo, "sms", "*", false).await, 400);
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/notify/preferences", env.base))
+            .get(format!("{}/v1/notify/preferences", env.base))
             .bearer_auth(&bobo.token)
             .send()
             .await
@@ -420,7 +420,7 @@ pub async fn a_spent_budget_defers_the_message(env: &Harness, zoe: &Player) {
 pub async fn the_console_can_ask(env: &Harness, relay: &Relay, console: &str) {
     let why = refusal(
         env.client
-            .post(format!("{}/v2/notify/test", env.base))
+            .post(format!("{}/v1/notify/test", env.base))
             .bearer_auth(console)
             .json(&json!({ "provider": "apns", "recipient": "deadbeef" }))
             .send()
@@ -431,13 +431,13 @@ pub async fn the_console_can_ask(env: &Harness, relay: &Relay, console: &str) {
     )
     .await;
     assert!(
-        why.contains("OX_PUSH_APNS_TEAM"),
+        why.contains("CYG_PUSH_APNS_TEAM"),
         "the refusal does not name the settings to set: {why}"
     );
 
     let unknown = refusal(
         env.client
-            .post(format!("{}/v2/notify/test", env.base))
+            .post(format!("{}/v1/notify/test", env.base))
             .bearer_auth(console)
             .json(&json!({ "provider": "gcm", "recipient": "deadbeef" }))
             .send()
@@ -451,7 +451,7 @@ pub async fn the_console_can_ask(env: &Harness, relay: &Relay, console: &str) {
 
     let body = json_body(
         env.client
-            .post(format!("{}/v2/notify/test", env.base))
+            .post(format!("{}/v1/notify/test", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "provider": "smtp",
@@ -476,7 +476,7 @@ pub async fn the_console_can_ask(env: &Harness, relay: &Relay, console: &str) {
 
     let gone = refusal(
         env.client
-            .get(format!("{}/v2/notify/test/{}", env.base, Uuid::new_v4()))
+            .get(format!("{}/v1/notify/test/{}", env.base, Uuid::new_v4()))
             .bearer_auth(console)
             .send()
             .await
@@ -492,7 +492,7 @@ async fn ask_about(env: &Harness, console: &str, id: &str) -> Value {
     for _ in 0..200 {
         let body = json_body(
             env.client
-                .get(format!("{}/v2/notify/test/{id}", env.base))
+                .get(format!("{}/v1/notify/test/{id}", env.base))
                 .bearer_auth(console)
                 .send()
                 .await

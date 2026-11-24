@@ -1,0 +1,17 @@
+[package]
+name = "engine-hooks"
+version = "0.1.0"
+edition = "2024"
+description = "Server-side hooks: customer WASM logic that runs on account events, not on the room tick"
+
+[dev-dependencies]
+wat = "1.261.0"
+
+[dependencies]
+engine-config = { path = "../engine-config" }
+engine-wasm = { path = "../engine-wasm" }
+thiserror = "2.0.21"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+wasmtime = "50.0.0"
+tracing = "0.1"

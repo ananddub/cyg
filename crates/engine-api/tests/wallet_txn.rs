@@ -5,10 +5,19 @@ use engine_api::db::{Datastore, KvBudget, schema};
 use engine_api::repositories::db::Queries;
 
 async fn db() -> (Arc<Datastore>, Queries) {
-    let db = Datastore::open("mem://", "wallet", "wallet", None, None, KvBudget::default())
+    let db = Datastore::open(
+        "mem://",
+        "wallet",
+        "wallet",
+        None,
+        None,
+        KvBudget::default(),
+    )
+    .await
+    .expect("the embedded store opens");
+    schema::ensure_schema(&db)
         .await
-        .expect("the embedded store opens");
-    schema::ensure_schema(&db).await.expect("the base DDL applies");
+        .expect("the base DDL applies");
     let db = Arc::new(db);
     let queries = Queries::new(db.clone());
     (db, queries)

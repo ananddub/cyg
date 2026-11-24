@@ -1,4 +1,3 @@
-
 pub(super) const RING: usize = 1024;
 
 pub(super) fn ring_push(buf: &mut [u64; RING], n: &mut usize, sample: u64) {

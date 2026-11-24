@@ -10,7 +10,7 @@ pub(super) const NOBODY: &str = "00000000-0000-0000-0000-000000000000";
 
 pub(super) fn login(server: &V2Server, username: &str, password: &str) -> String {
     let body = format!(r#"{{"username":"{username}","password":"{password}"}}"#);
-    let reply = server.post("/v2/console/authenticate", None, &body);
+    let reply = server.post("/v1/console/authenticate", None, &body);
     assert_eq!(reply.status, 200, "login failed: {}", reply.body);
     reply.json()["token"]
         .as_str()

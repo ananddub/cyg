@@ -7,15 +7,15 @@ pub(crate) fn register(
     for ns in &[
         engine_wasm::HOST_NAMESPACE_V1,
         engine_wasm::HOST_NAMESPACE_LEGACY,
+        "cyg",
         "ox",
     ] {
-
         linker
             .func_wrap(
                 ns,
                 "sys_physics_lag_record",
                 move |mut caller: wasmtime::Caller<'_, RoomHostData>,
-                      tick: i64,
+                      _tick: i64,
                       entity_id: i32,
                       kind: i32,
                       min_x: f64,
@@ -27,12 +27,15 @@ pub(crate) fn register(
                     if !permissions.lag_compensation {
                         return;
                     }
+                    // The guest's tick argument is not trusted — stamp the
+                    // host clock so a guest cannot poison the lag history.
+                    let tick = caller.data().clock_ticks.max(0) as u64;
                     let bounds = engine_physics::Aabb {
                         min: engine_physics::Vec3::new(min_x, min_y, min_z),
                         max: engine_physics::Vec3::new(max_x, max_y, max_z),
                     };
                     caller.data_mut().record_entity_hitbox(
-                        tick as u64,
+                        tick,
                         0,
                         entity_id as u32,
                         kind as u32,
@@ -98,6 +101,5 @@ pub(crate) fn register(
                 },
             )
             .expect("link sys_physics_lag_raycast");
-
     }
 }

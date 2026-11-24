@@ -1,7 +1,5 @@
-
 #[derive(Debug, Clone, Copy)]
 pub struct AoiConfig {
-
     pub enabled: bool,
 
     pub near_radius: f64,
@@ -14,7 +12,6 @@ pub struct AoiConfig {
 
 #[derive(Debug, Clone, Copy)]
 pub struct RollbackConfig {
-
     pub enabled: bool,
 
     pub max_replay_ticks: u64,

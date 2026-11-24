@@ -22,6 +22,8 @@ pub(super) fn bind_udp(addr: SocketAddr) -> io::Result<std::net::UdpSocket> {
     let sock = unsafe { std::net::UdpSocket::from_raw_fd(fd) };
     let on: libc::c_int = 1;
     let len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+    // Best-effort socket buffer sizing; the kernel may cap these values.
+    const SOCKET_BUF_SIZE: libc::c_int = 4 * 1024 * 1024;
     unsafe {
         libc::setsockopt(
             fd,
@@ -30,6 +32,32 @@ pub(super) fn bind_udp(addr: SocketAddr) -> io::Result<std::net::UdpSocket> {
             (&on as *const libc::c_int).cast(),
             len,
         );
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_RCVBUF,
+            (&SOCKET_BUF_SIZE as *const libc::c_int).cast(),
+            len,
+        );
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            (&SOCKET_BUF_SIZE as *const libc::c_int).cast(),
+            len,
+        );
+        let mut actual: libc::c_int = 0;
+        let mut actual_len = len;
+        if libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_RCVBUF,
+            (&mut actual as *mut libc::c_int).cast(),
+            &mut actual_len,
+        ) == 0
+        {
+            tracing::debug!(rcvbuf = actual, "plane UDP socket SO_RCVBUF");
+        }
         #[cfg(any(
             target_os = "linux",
             target_os = "android",

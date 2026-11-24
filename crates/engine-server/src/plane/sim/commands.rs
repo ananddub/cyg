@@ -46,18 +46,23 @@ impl Plane {
                     if wanted != self.cfg.room_name || self.room.sessions.is_empty() {
                         continue;
                     }
-                    let targets: Vec<String> = match target {
-                        Some(t) if self.room.sessions.contains_key(&t) => vec![t],
+                    let targets: Vec<std::rc::Rc<str>> = match target {
+                        Some(t) if self.room.sessions.contains_key(t.as_str()) => {
+                            vec![std::rc::Rc::from(t.as_str())]
+                        }
                         Some(_) => vec![],
                         None => self.room.sessions.keys().cloned().collect(),
                     };
                     for t in targets {
                         let frame = OutFrame {
-                            peer_id: t.clone(),
+                            peer_id: t.to_string(),
                             kind: FrameKind::Reliable,
                             bytes: bytes.clone(),
                         };
-                        if self.browser_players.contains(&self.room.sessions[&t]) {
+                        if self
+                            .browser_players
+                            .contains(&self.room.sessions[t.as_ref()])
+                        {
                             let _ = self.bus.deltas_tx.try_send(frame);
                         } else if !self.udp.send_frame(&frame) {
                             self.native_send_failed += 1;

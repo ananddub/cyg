@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::services::realtime::matches::MatchSnapshot;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MatchResponse {
     pub match_id: String,
     pub authoritative: bool,
@@ -55,7 +55,7 @@ pub struct ListMatchesParams {
     pub query: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MatchmakerStatsResponse {
     pub ticket_count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,7 +66,7 @@ pub struct MatchmakerStatsResponse {
     pub matchsets: Vec<MatchsetStat>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MatchsetStat {
     pub matchset: String,
     pub ticket_count: i64,

@@ -1,7 +1,6 @@
 use axum::Json;
 use axum::http::HeaderMap;
 
-use crate::ApiState;
 use crate::app::middleware::session_claims;
 use crate::dto::Empty;
 use crate::dto::session::LogoutRequest;
@@ -13,11 +12,11 @@ use crate::utils::session::revocation;
 impl super::SessionService {
     pub async fn logout(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         req: LogoutRequest,
     ) -> Result<Json<Empty>, V2Error> {
-        let claims = session_claims(headers, state)?;
+        let claims = session_claims(headers, &self.plane)?;
         let uid = claims.uuid()?;
 
         let (session_exp, session_id) = revocation(
@@ -34,9 +33,9 @@ impl super::SessionService {
         )?;
 
         if session_id.is_empty() && refresh_id.is_empty() {
-            state.sessions.remove_all(uid);
+            self.plane.sessions.remove_all(uid);
         } else {
-            state
+            self.plane
                 .sessions
                 .remove(uid, session_exp, &session_id, refresh_exp, &refresh_id);
         }

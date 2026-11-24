@@ -2,7 +2,7 @@
 // and the version table with activate and delete. Rendered by the per-game
 // detail tabs as the "Maps" tab.
 //
-// The upload is `POST /v2/console/games/{id}/maps/upload` as multipart form
+// The upload is `POST /v1/console/games/{id}/maps/upload` as multipart form
 // data (`file`, `format`, optional `name`) — like the wasm studio, the one raw
 // request the panel needs, same bearer token, refusals surfaced as toasts.
 
@@ -873,7 +873,7 @@ export function ArenaCanvasPreview({
 
 /** The drop zone + format picker. A `.json` upload needs its dialect picked
  * (2D arena vs 3D arena); the other extensions carry their format alone. */
-export function MapsUploadPanel({ gameId }: { gameId: string }) {
+export function MapsUploadPanel({ gameId, disabled = false }: { gameId: string; disabled?: boolean }) {
   const token = useSession()?.token ?? ""
   const [file, setFile] = useState<File | null>(null)
   const [format, setFormat] = useState<GameMapInfo["format"]>("map2d")
@@ -931,7 +931,7 @@ export function MapsUploadPanel({ gameId }: { gameId: string }) {
 
   /** The one raw request the panel makes: multipart with upload progress. */
   function upload() {
-    if (file === null || gameId === "" || token === "") return
+    if (disabled || file === null || gameId === "" || token === "") return
     const form = new FormData()
     form.append("file", file)
     form.append("format", format)
@@ -972,25 +972,35 @@ export function MapsUploadPanel({ gameId }: { gameId: string }) {
 
   return (
     <Panel
-      title="Upload map"
-      description="A cooked .oxcl mesh, an arena JSON (2D/3D), or a baked navmesh — the server loads the active version at boot."
+      title={disabled ? "Maps" : "Upload map"}
+      description={
+        disabled
+          ? "Maps are cooked into the project directory and loaded at boot, so there is nothing to upload here. The versions below are read-only."
+          : "A cooked .oxcl mesh, an arena JSON (2D/3D), or a baked navmesh — the server loads the active version at boot."
+      }
     >
       <div className="space-y-3 px-4 py-3">
         <div
           role="button"
           tabIndex={0}
-          onClick={() => fileInput.current?.click()}
-          onKeyDown={(event) => event.key === "Enter" && fileInput.current?.click()}
+          onClick={() => !disabled && fileInput.current?.click()}
+          onKeyDown={(event) => event.key === "Enter" && !disabled && fileInput.current?.click()}
           onDragOver={(event) => {
+            if (disabled) return
             event.preventDefault()
             setDragActive(true)
           }}
           onDragLeave={() => setDragActive(false)}
-          onDrop={onDrop}
+          onDrop={(event) => {
+            if (disabled) return
+            onDrop(event)
+          }}
           className={`flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors ${
-            dragActive
-              ? "cursor-pointer border-primary bg-primary/5"
-              : "cursor-pointer border-border hover:border-primary/50"
+            disabled
+              ? "cursor-not-allowed border-border opacity-60"
+              : dragActive
+                ? "cursor-pointer border-primary bg-primary/5"
+                : "cursor-pointer border-border hover:border-primary/50"
           }`}
         >
           <Upload className="size-5 text-muted-foreground" />
@@ -1056,7 +1066,7 @@ export function MapsUploadPanel({ gameId }: { gameId: string }) {
             <div />
           )}
 
-          <Button onClick={upload} disabled={file === null || gameId === "" || progress !== null}>
+          <Button onClick={upload} disabled={disabled || file === null || gameId === "" || progress !== null}>
             {progress === null ? <Rocket /> : <Loader2 className="animate-spin" />}
             Upload &amp; activate
           </Button>

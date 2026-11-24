@@ -7,11 +7,19 @@ pub struct GameServer {
     pub(crate) pre: Option<engine_wasm::WasmPreInstance<RoomHostData>>,
     pub(crate) max_clients: i32,
     pub(crate) physics: PhysicsWorld3D,
-    pub(crate) rooms: HashMap<String, GameRoom>,
+    pub(crate) rooms: HashMap<std::rc::Rc<str>, GameRoom>,
     pub(crate) permissions: engine_wasm::AbiPermissions,
+    pub(crate) features: engine_config::FeaturesConfig,
     pub(crate) persistent_snapshots: HashMap<String, Vec<u8>>,
     pub(crate) arena_2d: Option<engine_physics::MapConfig2D>,
     pub(crate) navmesh: Option<std::sync::Arc<NavMesh2D>>,
+    pub(crate) input_coalesce: bool,
+    pub(crate) idle_input_hold: bool,
+    /// Round-robin counter handing each new room its tick-stagger phase.
+    pub(crate) next_room_phase: u32,
+    /// Process-unique room counter — mixed into each room's RNG seed so two
+    /// rooms with the same name never share a predictable stream.
+    pub(crate) next_room_id: u64,
 }
 
 impl GameServer {
@@ -21,15 +29,30 @@ impl GameServer {
         physics: PhysicsWorld3D,
         permissions: engine_wasm::AbiPermissions,
     ) -> Self {
+        Self::new_with_features(pre, max_clients, physics, permissions, Default::default())
+    }
+
+    pub(crate) fn new_with_features(
+        pre: Option<engine_wasm::WasmPreInstance<RoomHostData>>,
+        max_clients: i32,
+        physics: PhysicsWorld3D,
+        permissions: engine_wasm::AbiPermissions,
+        features: engine_config::FeaturesConfig,
+    ) -> Self {
         Self {
             pre,
             max_clients,
             physics,
             rooms: HashMap::new(),
             permissions,
+            features,
             persistent_snapshots: HashMap::new(),
             arena_2d: None,
             navmesh: None,
+            input_coalesce: false,
+            idle_input_hold: true,
+            next_room_phase: 0,
+            next_room_id: 0,
         }
     }
 
@@ -64,5 +87,4 @@ impl GameServer {
     pub(crate) fn would_exceed_room_limit(&self, name: &str, max_rooms: u32) -> bool {
         max_rooms > 0 && !self.rooms.contains_key(name) && self.rooms.len() >= max_rooms as usize
     }
-
 }

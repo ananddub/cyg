@@ -1,4 +1,3 @@
-
 use bytes::{Bytes, BytesMut};
 use engine_net::framing::{OpCode, encode_frame, iter_frames, take_frame};
 use proptest::prelude::*;
@@ -27,7 +26,7 @@ proptest! {
         chunk_size in 1usize..64,
     ) {
         let mut wire = BytesMut::new();
-        encode_frame(opcode, &payload, &mut wire);
+        let _ = encode_frame(opcode, &payload, &mut wire);
 
         let mut acc = BytesMut::new();
         let mut decoded: Vec<(OpCode, Bytes)> = Vec::new();
@@ -48,7 +47,7 @@ proptest! {
     ) {
         let mut wire = BytesMut::new();
         for (op, payload) in &frames {
-            encode_frame(*op, payload, &mut wire);
+            let _ = encode_frame(*op, payload, &mut wire);
         }
         let decoded: Vec<(OpCode, Vec<u8>)> = iter_frames(&wire)
             .map(|(op, payload)| (op, payload.to_vec()))

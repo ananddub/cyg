@@ -54,12 +54,12 @@ async fn pump_keeps_the_newest_snapshot_the_sim_publishes() {
 
     assert!(s.status_rx.try_take().is_none(), "the pump owns the queue");
 
-    let status_body = json_of(status(&s.clone()).await).await;
+    let status_body = json_of(status(&s.plane()).await).await;
     assert_eq!(status_body["sim"]["seq"].as_u64(), Some(2));
     assert_eq!(status_body["sim"]["players"].as_u64(), Some(3));
     assert!(status_body["sim"]["age_ms"].as_u64().unwrap() < 5_000);
 
-    let rooms_body = json_of(rooms(&s, axum::http::HeaderMap::new()).await).await;
+    let rooms_body = json_of(rooms(&s.plane(), axum::http::HeaderMap::new()).await).await;
     assert_eq!(rooms_body[0]["clients"].as_u64(), Some(3));
     assert_eq!(rooms_body[0]["tickHz"].as_f64(), Some(128.0));
     assert_eq!(rooms_body[0]["hasSimSample"].as_bool(), Some(true));

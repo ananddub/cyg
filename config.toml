@@ -3,20 +3,20 @@ name = "game_room"
 # The registered game this process hosts. Stats and player data shown in the
 # console are scoped to this tenant; another game's workspace reports that it
 # is not hosted here instead of falling back to global telemetry.
-game_id = "aa1cea32-77f1-4c0e-ad4b-b47f4bef64cd"
-game_key = "gm_test_5312a6"
+# game_id = ""  # register via the console; persistent DB keeps it across restarts
+# game_key = ""
 runtime = "assemblyscript"
 source = "crates/engine-net/examples/e2e/room.ts"
 out = "crates/engine-net/examples/e2e/room_logic.wasm"
 sdk_dir = "../colyseus"
 website = "crates/engine-net/examples/e2e/website.html"
-port = 7777
+port = 7776
 web_port = 8090
-tick_rate = 128
-max_clients = 16
+tick_rate = 60
+max_clients = 64
 
 [control.session]
-database_endpoint = "ws://localhost:8000"
+database_endpoint = "surrealkv:///mnt/SSD/Devloper/pannel/openoxide-gaming/data/console.kv"
 database_user = "root"
 database_pass = "root"
 database_ns = "cyg"

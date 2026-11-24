@@ -214,3 +214,48 @@ async fn an_index_filters_and_sorts_stored_values() {
             .is_none()
     );
 }
+
+/// An equality term on a numeric field must match the number, not the text that
+/// spells it. The HTTP surface takes `hp:200` as `Eq { text: "200", number:
+/// Some("200") }`; if the numeric half of the filter is missing, the query
+/// silently returns nothing while the range scan keeps working.
+#[tokio::test]
+async fn an_equality_term_matches_a_numeric_value() {
+    let Some((state, _db)) = db::state().await else {
+        return skipped_without_database();
+    };
+    let q = state.q.as_ref().expect("the fixture opens queries");
+    let owner = Uuid::new_v4();
+    insert_row(q, owner, "equal", "a", r#"{"hp":100}"#, None, None).await;
+    insert_row(q, owner, "equal", "b", r#"{"hp":200}"#, None, None).await;
+
+    q.storage_insert_index(&StorageIndexContent {
+        name: "by-hp".to_string(),
+        collection: "equal".to_string(),
+        key: String::new(),
+        fields: vec!["hp".to_string()],
+        sortable_fields: vec!["hp".to_string()],
+        max_entries: 100,
+        index_only: false,
+        user_id: owner,
+        create_time: Utc::now(),
+    })
+    .await
+    .expect("the index registers");
+    let def = q
+        .storage_index("by-hp")
+        .await
+        .expect("the index reads")
+        .expect("the index exists");
+
+    let terms = crate::services::storage::index::parse::parse("hp:200").expect("the term parses");
+    let rows = q
+        .storage_index_page(&def, &terms, &[], owner, 11, 0)
+        .await
+        .expect("the page reads");
+    assert_eq!(
+        rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(),
+        vec!["b"],
+        "hp:200 selects the object whose hp is the number 200"
+    );
+}

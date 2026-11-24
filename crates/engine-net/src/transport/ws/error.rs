@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone)]
 pub struct MatchMakeError {
     pub code: u16,

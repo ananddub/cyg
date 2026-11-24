@@ -15,19 +15,19 @@ pub struct ListQuery {
     pub forward: Option<bool>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct SendRequest {
     #[serde(default)]
     pub content: Value,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct UpdateRequest {
     #[serde(default)]
     pub content: Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MessageResponse {
     pub channel_id: String,
     pub message_id: String,
@@ -80,13 +80,25 @@ impl MessageResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct MessageListResponse {
     pub messages: Vec<MessageResponse>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "nextPageToken",
+        alias = "next_cursor",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub next_cursor: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "prevPageToken",
+        alias = "prev_cursor",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub prev_cursor: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "cacheablePageToken",
+        alias = "cacheable_cursor",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cacheable_cursor: Option<String>,
 }

@@ -77,9 +77,5 @@ fn __auto_route_factory_dashboard_index_slash<'a>(
     Box::pin(async move { Ok(Router::new().route("/dashboard/", axum::routing::get(index))) })
 }
 
-auto_route::__private::inventory::submit! {
-    auto_route::RouteDescriptor::new(__auto_route_factory_dashboard_index_slash)
-}
-
 #[cfg(test)]
 mod tests;

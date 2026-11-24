@@ -12,11 +12,16 @@ export interface ICYGRoom {
     /** Called once when the room is created */
     onCreate(maxClients: number): void;
 
-    /** Called when a player joins with spawn coordinates */
-    onJoin(id: bigint, spawnX: number, spawnZ: number): void;
+    /** Called when a player joins with the client's own join options (JSON) */
+    /**
+     * Called when a player joins with the CLIENT's own join options.
+     * Typed instance when the schema declares `JoinOptions`, else the raw
+     * JSON string (jsonString/jsonNumber helpers).
+     */
+    onJoin(id: bigint, options: unknown): void;
 
-    /** Called when a player leaves or disconnects */
-    onLeave(id: bigint): void;
+    /** Called when a player leaves; `consented` is false on timeout/kick */
+    onLeave(id: bigint, consented: boolean): void;
 
     /** Called when a client sends an authoritative input payload */
     onInput(id: bigint, data: Uint8Array): void;
@@ -45,8 +50,8 @@ export interface ICYGRoom {
  */
 export interface ICYGWasmExports {
     on_create(maxClients: number): void;
-    on_join(id: bigint, spawnX: number, spawnZ: number): void;
-    on_leave(id: bigint): void;
+    on_join(id: bigint, optionsPtr: number, optionsLen: number): void;
+    on_leave(id: bigint, consented: number): void;
     on_input(id: bigint, ptr: number, len: number): void;
     on_tick(dt: number): bigint;
     on_save(): bigint;
@@ -293,6 +298,9 @@ export declare enum FieldType {
 
 export declare class SchemaDef {
     constructor(name: string, version?: number);
+    range(bits: number, min: number, max: number): this;
+    ownerOnly(): this;
+    unreliable(): this;
     readonly name: string;
     readonly version: number;
     readonly hash: number;
@@ -537,107 +545,27 @@ export declare class InputReader {
     readU8(): number;
     readU16(): number;
     readU32(): number;
+    readI8(): number;
+    readI16(): number;
     readI32(): number;
     readI64(): bigint;
     readF32(): number;
     readF64(): number;
+    readBool(): boolean;
+    /** A length-prefixed UTF-8 string ([len u16 LE][bytes]). */
+    readString(): string;
     readVec2(): Vec2;
     readVec3(): Vec3;
 }
 
+/** String value of `key` in the flat join-options JSON, or `fallback`. */
+export declare function jsonString(json: string, key: string, fallback: string): string;
+/** Number value of `key`, or `fallback` when absent or not numeric. */
+export declare function jsonNumber(json: string, key: string, fallback: number): number;
+/** Boolean value of `key`, or `fallback` when absent. */
+export declare function jsonBool(json: string, key: string, fallback: boolean): boolean;
 
 
-export declare class Random {
-    static seed(s: bigint): void;
-    static nextU32(): number;
-    static nextFloat(): number;
-    static range(min: number, max: number): number;
-    static rangeFloat(min: number, max: number): number;
-    static chance(percentage: number): boolean;
-}
-
-export declare class CooldownTracker {
-    update(dt: number): void;
-    isReady(actionKey: string): boolean;
-    trigger(actionKey: string, durationSeconds: number): void;
-    getRemaining(actionKey: string): number;
-    reset(): void;
-}
-
-export declare enum ZoneType {
-    NONE = 0,
-    DAMAGE = 1,
-    SPEED_BUFF = 2,
-    SPEED_SLOW = 3,
-    JUMP_PAD = 4,
-    CAPTURE_ZONE = 5,
-    TELEPORT = 6
-}
-
-export declare class TriggerZone {
-    id: number;
-    type: ZoneType;
-    minX: number; minY: number; minZ: number;
-    maxX: number; maxY: number; maxZ: number;
-    value: number;
-    constructor(id: number, type: ZoneType, minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number, value?: number);
-    contains(pos: Vec3): boolean;
-    containsRaw(px: number, py: number, pz: number): boolean;
-}
-
-export declare enum HitZone {
-    BODY = 0,
-    HEAD = 1,
-    LIMB = 2
-}
-
-export declare class DamageResult {
-    damageDealt: number;
-    shieldAbsorbed: number;
-    healthRemaining: number;
-    isKilled: boolean;
-    isCritical: boolean;
-}
-
-export declare class Combat {
-    static applyDamage(baseDamage: number, hitZone: HitZone, armor: number, currentShield: number, currentHealth: number): DamageResult;
-}
-
-export declare enum MatchPhase {
-    WAITING_FOR_PLAYERS = 0,
-    COUNTDOWN = 1,
-    ROUND_ACTIVE = 2,
-    OVERTIME = 3,
-    ROUND_OVER = 4,
-    RESETTING = 5
-}
-
-export declare class MatchStateMachine {
-    phase: MatchPhase;
-    timer: number;
-    roundNumber: number;
-    startCountdown(durationSeconds?: number): void;
-    startRound(roundDurationSeconds?: number): void;
-    endRound(postRoundSeconds?: number): void;
-    update(dt: number): boolean;
-}
-
-export declare class SpatialGrid2D {
-    update(id: bigint, pos: Vec3): void;
-    updateRaw(id: bigint, x: number, z: number): void;
-    remove(id: bigint): void;
-    queryRadius(center: Vec3, radius: number): bigint[];
-    queryRadiusRaw(cx: number, cz: number, radius: number): bigint[];
-}
-
-export declare class Steering {
-    static seek(from: Vec3, target: Vec3, maxSpeed: number): Vec3;
-    static seekRaw(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number): Vec3;
-    static flee(from: Vec3, threat: Vec3, maxSpeed: number): Vec3;
-    static fleeRaw(fromX: number, fromZ: number, threatX: number, threatZ: number, maxSpeed: number): Vec3;
-    static arrive(from: Vec3, target: Vec3, maxSpeed: number, slowingDistance: number): Vec3;
-    static arriveRaw(fromX: number, fromZ: number, targetX: number, targetZ: number, maxSpeed: number, slowingDistance: number): Vec3;
-}
 
 export type MessageHandlerCallback = (senderId: bigint, reader: InputReader, room: Room) => void;
 export type RoomEventCallback = (id: bigint, val0: number, val1: number, room: Room | null) => void;
@@ -649,22 +577,134 @@ export declare class EventEmitter {
     clear(): void;
 }
 
+export declare class Client {
+    /** Mutable only for the bridge's scratch-reuse; treat as read-only. */
+    id: bigint;
+    get sessionId(): string;
+    auth: string;
+    send(type: string, payload?: ArrayBuffer | null): boolean;
+    sendText(type: string, text: string): boolean;
+    /** Remove this player; the room gets onLeave(id, CloseCode.KICKED). */
+    leave(): void;
+}
+
+/**
+ * What one player earned in a round, for `endMatch`.
+ *
+ * Written as a literal, so the common case is one line per player:
+ *
+ * ```ts
+ * this.endMatch("weekly_kills", [
+ *     { user: winnerId, score: 1200, stats: { wins: 1, matches: 1 } },
+ *     { user: loserId,  score: 10,   stats: { matches: 1 } },
+ * ]);
+ * ```
+ *
+ * Every field but `user` is optional. `stats` are deltas — `wins: 1` raises the
+ * counter by one, it does not set it to one.
+ */
+export interface MatchScore {
+    user: string;
+    score?: number | bigint;
+    subscore?: number | bigint;
+    stats?: MatchStats;
+    metadata?: string;
+}
+
+/** The counters one player earned, as a literal: `{ wins: 1, matches: 1 }`. */
+export interface MatchStats {
+    wins?: number | bigint;
+    losses?: number | bigint;
+    matches?: number | bigint;
+    kills?: number | bigint;
+    deaths?: number | bigint;
+    assists?: number | bigint;
+    score?: number | bigint;
+    goals?: number | bigint;
+    time_played?: number | bigint;
+}
+
+export declare class MatchParticipant {
+    userId: string;
+    score: bigint;
+    subscore: bigint;
+    metadata: string;
+    statNames: string[];
+    statDeltas: bigint[];
+    constructor(userId: string);
+}
+
+/**
+ * Builds the result a round reports to the host.
+ *
+ * ```ts
+ * this.endMatch("weekly_kills")
+ *     .participant(winnerId, 1200)
+ *     .stat(winnerId, "wins", 1);
+ * ```
+ */
+export declare class MatchResultBuilder {
+    static readonly MAX_PARTICIPANTS: number;
+    constructor(leaderboard?: string);
+    /** Score one player. Calling again for the same player replaces the score. */
+    participant(userId: string, score: bigint, subscore?: bigint, metadata?: string): this;
+    /** Raise one counter. Deltas add; the same stat twice in a round sums. */
+    stat(userId: string, name: string, delta?: bigint): this;
+    /** Report every player at once — the terse form of `participant` + `stat`. */
+    scores(list: MatchScore[]): this;
+    /** Raise a counter whose name is not one of `MatchStats`' fields. */
+    counter(userId: string, name: string, delta?: bigint): this;
+    readonly count: number;
+    /** Host ABI: packed `(ptr << 32) | len`. */
+    seal(): bigint;
+}
+
 export declare abstract class Room {
     maxPlayers: number;
     events: EventEmitter;
+    /** A Colyseus-shaped handle over the player id the hooks carry. */
+    client(id: bigint): Client;
     onMessage(type: string, handler: MessageHandlerCallback): void;
     onOpcodeMessage(opcode: number, handler: MessageHandlerCallback): void;
-    broadcast(type: string, payload?: ArrayBuffer | null): boolean;
+    broadcast(type: string, payload?: ArrayBuffer | null, except?: bigint, afterNextPatch?: boolean): boolean;
+    broadcastAfterPatch(type: string, payload?: ArrayBuffer | null, except?: bigint): boolean;
+    flushDeferredMessages(): void;
     sendTo(playerId: bigint, type: string, payload?: ArrayBuffer | null): boolean;
-    broadcastText(type: string, text: string): boolean;
+    broadcastText(type: string, text: string, except?: bigint, afterNextPatch?: boolean): boolean;
     sendTextTo(playerId: bigint, type: string, text: string): boolean;
     on(event: string, callback: RoomEventCallback): void;
     emit(event: string, id?: bigint, val0?: number, val1?: number): void;
     abstract onCreate(max: number): void;
-    abstract onJoin(id: bigint, spawnX: number, spawnZ: number): void;
-    abstract onLeave(id: bigint): void;
+    /**
+     * Called when a player joins with the CLIENT's own join options.
+     * Typed instance when the schema declares `JoinOptions`, else the raw
+     * JSON string (jsonString/jsonNumber helpers).
+     */
+    onJoin(id: bigint, options: unknown, auth?: string): void;
+    onLeave(id: bigint, code: number): void;
+    onDrop(id: bigint, code: number): void;
+    onAuth(id: bigint, options: string, context: string): string;
+    onBeforeShutdown(): void;
+
+    /**
+     * Tell the host the match is over.
+     *
+     * The host posts the result — counters, leaderboard, rules and webhooks —
+     * with the server key, which a guest never holds. Call once; a second call
+     * in the same match is ignored.
+     */
+    endMatch(leaderboard?: string, scores?: MatchScore[] | null): MatchResultBuilder;
+
+    /** True once `endMatch` has been called. */
+    readonly matchEnded: boolean;
+
+    /** Host ABI. Returns the packed result, or 0 when the match never ended. */
+    on_match_end(): bigint;
+    onUncaughtException(message: string, methodName: string): void;
     onInput(id: bigint, ptr: number, len: number): void;
     onInputPacket(id: bigint, input: InputReader): void;
+    /** Typed per-tick input — client-style or (id: bigint, input) both work */
+    onInputFrame(client: Client, input: InputReader): void;
     abstract onTick(dt: number): bigint;
     onSave(): bigint;
     onLoad(ptr: number, len: number): void;

@@ -1,11 +1,11 @@
+use crate::services::plane::Plane;
 use auto_di::singleton;
 use chrono::{DateTime, Utc};
+use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::repositories::console_mutations::InsertAuditLogParams;
-use crate::services::deps::q;
 
 pub mod account;
 pub mod audit;
@@ -35,14 +35,16 @@ pub mod storage;
 pub mod timeline;
 pub mod user;
 
-pub struct ConsoleService;
+pub struct ConsoleService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 pub(super) const RECOVERY_CODES: usize = 8;
 
 #[singleton]
 impl ConsoleService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 
@@ -53,7 +55,7 @@ pub(super) fn never() -> DateTime<Utc> {
 }
 
 pub(super) async fn audit(
-    state: &ApiState,
+    plane: &Plane,
     claims: &ConsoleAuthed,
     action: &str,
     resource: &str,
@@ -61,7 +63,7 @@ pub(super) async fn audit(
     message: &str,
 ) {
     insert_audit(
-        state,
+        plane,
         claims.0.uuid(),
         &claims.0.username,
         &claims.0.email,
@@ -74,7 +76,7 @@ pub(super) async fn audit(
 }
 
 pub(super) async fn insert_audit(
-    state: &ApiState,
+    plane: &Plane,
     id: Option<Uuid>,
     username: &str,
     email: &str,
@@ -83,7 +85,7 @@ pub(super) async fn insert_audit(
     target: Option<Uuid>,
     message: &str,
 ) {
-    let Ok(queries) = q(state).await else {
+    let Ok(queries) = plane.q().await else {
         return;
     };
     let _ = queries

@@ -1,7 +1,6 @@
 use axum::Json;
 use serde_json::{Value, json};
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::friend::{
     FoFQuery, FriendListResponse, FriendResponse, FriendsOfFriendsEntry, FriendsOfFriendsResponse,
@@ -11,7 +10,6 @@ use crate::error::V2Error;
 use crate::repositories::friend::{
     ListFriendsOfFriendsParams, ListUserEdgesByStatePagedParams, ListUserEdgesPagedParams,
 };
-use crate::services::deps::q;
 use crate::services::social::{self, limit};
 
 use super::FriendService;
@@ -20,11 +18,11 @@ use crate::utils::friend::{STATE_BLOCKED, STATE_FRIENDS};
 impl FriendService {
     pub async fn list_friends(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: ListQuery,
     ) -> Result<Json<FriendListResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let me = auth.0.uuid()?;
         let page = limit(
             req.limit,
@@ -97,11 +95,11 @@ impl FriendService {
 
     pub async fn list_friends_of_friends(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: FoFQuery,
     ) -> Result<Json<FriendsOfFriendsResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let page = limit(
             req.limit,
             10,

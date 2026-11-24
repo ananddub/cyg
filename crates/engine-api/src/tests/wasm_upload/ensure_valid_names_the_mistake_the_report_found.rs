@@ -52,12 +52,12 @@ pub(crate) async fn insert_module_versions_monotonically_and_deactivates_the_old
     let Some((state, pool)) = db::state().await else {
         return skipped_without_database();
     };
-    let service = WasmService;
+    let service = WasmService::new(state.plane());
     let game = db::create_wasm(&state, "wasm-insert").await;
     let (bytes, names) = complete_wasm();
 
     let first = service
-        .insert_module(&state, game.id, params("room-v1.wasm", &bytes, None))
+        .insert_module(game.id, params("room-v1.wasm", &bytes, None))
         .await
         .expect("the first upload is version 1");
     assert_eq!(first.version, 1);
@@ -74,7 +74,6 @@ pub(crate) async fn insert_module_versions_monotonically_and_deactivates_the_old
 
     let second = service
         .insert_module(
-            &state,
             game.id,
             params("room-v2.wasm", &bytes, Some("fn on_tick() {}")),
         )
@@ -83,7 +82,7 @@ pub(crate) async fn insert_module_versions_monotonically_and_deactivates_the_old
     assert_eq!(second.version, 2, "versions only ever go up, per game");
 
     let list = service
-        .list_modules(&state, game.id)
+        .list_modules(game.id)
         .await
         .expect("the listing reads");
     assert_eq!(list.len(), 2);
@@ -106,13 +105,15 @@ pub(crate) async fn insert_module_versions_monotonically_and_deactivates_the_old
     );
 
     assert_eq!(
-        crate::services::games::GamesService::active_module_version(&state, game.id)
+        crate::services::games::GamesService::new(state.plane())
+            .active_module_version(game.id)
             .await
             .expect("the active version reads"),
         Some(2)
     );
     assert_eq!(
-        crate::services::games::GamesService::module_count(&state, game.id)
+        crate::services::games::GamesService::new(state.plane())
+            .module_count(game.id)
             .await
             .expect("the count reads"),
         2
@@ -120,7 +121,7 @@ pub(crate) async fn insert_module_versions_monotonically_and_deactivates_the_old
 
     let other = db::create_wasm(&state, "wasm-insert-other").await;
     let foreign = service
-        .insert_module(&state, other.id, params("room.wasm", &bytes, None))
+        .insert_module(other.id, params("room.wasm", &bytes, None))
         .await
         .expect("another game's first upload");
     assert_eq!(

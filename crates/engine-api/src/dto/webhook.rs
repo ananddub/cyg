@@ -21,7 +21,7 @@ pub struct EndpointRequest {
     pub is_active: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct EndpointRow {
     pub endpoint_id: Uuid,
     pub label: String,
@@ -32,13 +32,13 @@ pub struct EndpointRow {
     pub update_time: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct EndpointListResponse {
     pub success: bool,
     pub endpoints: Vec<EndpointRow>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct EndpointCreatedResponse {
     pub success: bool,
     pub endpoint: EndpointRow,
@@ -46,7 +46,7 @@ pub struct EndpointCreatedResponse {
     pub secret: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct DeliveryRow {
     pub delivery_id: Uuid,
     pub endpoint_id: Uuid,
@@ -60,7 +60,7 @@ pub struct DeliveryRow {
     pub create_time: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct DeliveryListResponse {
     pub success: bool,
     pub deliveries: Vec<DeliveryRow>,
@@ -95,4 +95,26 @@ impl From<&WebhookDelivery> for DeliveryRow {
             create_time: row.create_time,
         }
     }
+}
+
+/// How a webhook delivery is signed, in receiver-facing terms.
+#[derive(poem_openapi::Object, Debug, Serialize)]
+pub struct WebhookSigningSpec {
+    pub algorithm: String,
+    pub signed_string: String,
+    pub signature_header: String,
+    pub signature_format: String,
+    pub timestamp_header: String,
+    pub delivery_header: String,
+    pub replay_window_seconds: i64,
+    pub content_type: String,
+    pub note: String,
+}
+
+/// The events a webhook can subscribe to plus the signing recipe.
+#[derive(poem_openapi::Object, Debug, Serialize)]
+pub struct WebhookSigningSpecResponse {
+    pub success: bool,
+    pub events: Vec<String>,
+    pub signing: WebhookSigningSpec,
 }

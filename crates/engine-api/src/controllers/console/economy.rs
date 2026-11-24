@@ -13,22 +13,19 @@ struct ConsoleEconomyController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/economy")]
+#[controller("/v1/console/economy")]
 impl ConsoleEconomyController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("/summary")]
+    #[get("/summary", response_body = crate::dto::console::economy::EconomySummary)]
     async fn summary(
         &self,
         _auth: ConsoleAuthed,
         Params(query): Params<EconomySummaryQuery>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .economy_summary(&state, query)
-            .await
-            .into_response()
+        self.service.economy_summary(query).await.into_response()
     }
 }

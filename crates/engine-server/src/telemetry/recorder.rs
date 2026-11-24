@@ -1,4 +1,3 @@
-
 use std::time::{Duration, Instant};
 
 use engine_bus::TICK_HISTOGRAM_BUCKETS;

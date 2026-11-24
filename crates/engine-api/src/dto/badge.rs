@@ -18,7 +18,7 @@ pub struct BadgeDefinitionRequest {
     pub is_active: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct BadgeDefinitionRow {
     pub badge_key: String,
     pub title: String,
@@ -45,7 +45,7 @@ impl From<BadgeDefinition> for BadgeDefinitionRow {
 
 /// One badge as the player sees it: the threshold, the counter's current value
 /// and whether that value has reached it. Nothing here is stored per player.
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct BadgeRow {
     pub badge_key: String,
     pub title: String,
@@ -56,7 +56,7 @@ pub struct BadgeRow {
     pub earned: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct BadgeListResponse {
     pub badges: Vec<BadgeRow>,
 }

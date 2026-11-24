@@ -40,7 +40,13 @@ pub(crate) fn expand_controller(
     let type_ident = type_ident(&self_ty)?;
     let factory_ident = format_ident!("__auto_route_factory_{}", type_ident);
 
-    let routes = scan::scan_impl_routes(&mut item_impl.items, &controller_options.path.value())?;
+    let controller_path = controller_options.path.value();
+    // A controller whose path opens with an API version is part of the versioned
+    // tree: its routes register without that segment and the plane mounts them
+    // under the canonical base (and any deprecated alias). Everything else —
+    // `/status`, `/ws`, `/dashboard/*` — stays where it is, outside the version.
+    let versioned = crate::docs::api_version(&controller_path).is_some();
+    let routes = scan::scan_impl_routes(&mut item_impl.items, &controller_path)?;
 
     if routes.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -129,7 +135,7 @@ pub(crate) fn expand_controller(
         }
 
         ::auto_route::__private::inventory::submit! {
-            ::auto_route::RouteDescriptor::new(#factory_ident)
+            ::auto_route::RouteDescriptor::new(#factory_ident, #versioned)
         }
 
         #(#openapi_submissions)*

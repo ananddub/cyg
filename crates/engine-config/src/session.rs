@@ -1,7 +1,5 @@
-
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
-
     pub database_endpoint: String,
 
     pub database_ns: String,

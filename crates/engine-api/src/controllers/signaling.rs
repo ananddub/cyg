@@ -25,6 +25,6 @@ impl SignalingController {
     #[get("/signal")]
     async fn signal(&self, query: QueryParams<SignalQuery>, ws: WebSocketUpgrade) -> Response {
         let state = current_state();
-        self.service.signal(&state, query.0, ws)
+        self.service.signal(query.0, ws)
     }
 }

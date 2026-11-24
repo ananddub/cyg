@@ -10,13 +10,14 @@ pub const MIN_SECRET_LEN: usize = 16;
 
 pub const MIN_PASSWORD_LEN: usize = 8;
 
-pub const ALLOW_DEFAULTS_ENV: &str = "OX_ALLOW_DEFAULT_SECRETS";
+pub const ALLOW_DEFAULTS_ENV: &str = "CYG_ALLOW_DEFAULT_SECRETS";
 
 pub fn placeholder_secret(value: &str) -> bool {
     let lower = value.trim().to_ascii_lowercase();
     lower.is_empty()
         || lower.starts_with("default")
         || lower.starts_with("ox-dev")
+        || lower.starts_with("cyg-dev")
         || lower.contains("change-me")
         || lower.contains("changeme")
         || lower.contains("placeholder")
@@ -64,8 +65,8 @@ pub fn audit_secrets(control: &ControlConfig, rotation: &Rotation, env: Env) -> 
 
 pub fn unverified_reason(name: &str) -> String {
     match name {
-        "OX_IAP_ALLOW_UNVERIFIED" => "store receipts are trusted without asking the store, so any client can mint currency".into(),
-        "OX_SOCIAL_ALLOW_UNVERIFIED" => "social tokens are mapped to an identity without asking the issuer, so any client can pick an account to log in as".into(),
+        "CYG_IAP_ALLOW_UNVERIFIED" => "store receipts are trusted without asking the store, so any client can mint currency".into(),
+        "CYG_SOCIAL_ALLOW_UNVERIFIED" => "social tokens are mapped to an identity without asking the issuer, so any client can pick an account to log in as".into(),
         other => format!("{other} accepts a credential nobody verified"),
     }
 }

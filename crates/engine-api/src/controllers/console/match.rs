@@ -14,22 +14,19 @@ struct ConsoleMatchController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/match")]
+#[controller("/v1/console/match")]
 impl ConsoleMatchController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::console::matches::ConsoleMatchList)]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service
-            .list_matches(&state, page)
-            .await
-            .into_response()
+        self.service.list_matches(page).await.into_response()
     }
 
-    #[get("/{id}/state")]
+    #[get("/{id}/state", response_body = crate::dto::console::matches::ConsoleMatchState)]
     async fn state(
         &self,
         _auth: ConsoleAuthed,
@@ -38,12 +35,12 @@ impl ConsoleMatchController {
     ) -> Response {
         let state = current_state();
         self.service
-            .match_state(&state, scope.id(), &id)
+            .match_state(scope.id(), &id)
             .await
             .into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,
@@ -52,7 +49,7 @@ impl ConsoleMatchController {
     ) -> Response {
         let state = current_state();
         self.service
-            .terminate_match(&state, &auth, scope.id(), &id)
+            .terminate_match(&auth, scope.id(), &id)
             .await
             .into_response()
     }

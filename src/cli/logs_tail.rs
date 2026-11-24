@@ -38,7 +38,7 @@ pub fn run(args: &[String]) {
 
 async fn fetch(url: &str, token: &str, limit: usize) -> Result<Vec<serde_json::Value>, String> {
     let mut request = reqwest::Client::new()
-        .get(format!("{url}/v2/console/logs/recent?limit={limit}"))
+        .get(format!("{url}/v1/console/logs/recent?limit={limit}"))
         .header("accept", "application/json");
     if !token.is_empty() {
         request = request.bearer_auth(token);

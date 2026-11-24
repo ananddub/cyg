@@ -1,18 +1,15 @@
-
 use str0m::channel::{ChannelConfig, Reliability};
 
 use super::{LABEL_RELIABLE, LABEL_UNRELIABLE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lane {
-
     Unreliable,
 
     Reliable,
 }
 
 impl Lane {
-
     pub fn label(self) -> &'static str {
         match self {
             Lane::Unreliable => LABEL_UNRELIABLE,
@@ -23,36 +20,19 @@ impl Lane {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabelVerdict {
-
     Contract(Lane),
-
-    LegacyAlias(Lane),
 
     Ignored,
 }
 
+/// Only the two contract labels are data lanes. Any other label is ignored —
+/// there is no suffix/alias matching, so a typo or an old SDK cannot silently
+/// bind gameplay traffic to the wrong lane.
 pub fn classify_label(label: &str) -> LabelVerdict {
     match label {
-        LABEL_UNRELIABLE => return LabelVerdict::Contract(Lane::Unreliable),
-        LABEL_RELIABLE => return LabelVerdict::Contract(Lane::Reliable),
-        _ => {}
-    }
-    if ends_with_token(label, "unreliable") {
-        LabelVerdict::LegacyAlias(Lane::Unreliable)
-    } else if ends_with_token(label, "reliable") {
-        LabelVerdict::LegacyAlias(Lane::Reliable)
-    } else {
-        LabelVerdict::Ignored
-    }
-}
-
-fn ends_with_token(label: &str, token: &str) -> bool {
-    if label == token {
-        return true;
-    }
-    match label.strip_suffix(token) {
-        Some(rest) => matches!(rest.chars().next_back(), Some('-') | Some('_')),
-        None => false,
+        LABEL_UNRELIABLE => LabelVerdict::Contract(Lane::Unreliable),
+        LABEL_RELIABLE => LabelVerdict::Contract(Lane::Reliable),
+        _ => LabelVerdict::Ignored,
     }
 }
 

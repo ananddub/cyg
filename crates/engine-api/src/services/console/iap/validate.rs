@@ -2,7 +2,6 @@ use axum::Json;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::console::iap::{
     ConsoleValidateRequest, ValidatedPurchaseReply, ValidatedSubscriptionReply,
@@ -10,7 +9,6 @@ use crate::dto::console::iap::{
 use crate::dto::iap::{PurchaseResponse, SubscriptionResponse};
 use crate::error::V2Error;
 use crate::repositories::iap::{InsertPurchaseParams, InsertSubscriptionParams};
-use crate::services::deps::q;
 use crate::services::iap::verify;
 use crate::utils::iap::{epoch, hex_id};
 
@@ -33,7 +31,7 @@ impl IntoResponse for ValidatedReply {
 impl super::super::ConsoleService {
     pub async fn validate_vendor(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         vendor_name: &str,
         body: ConsoleValidateRequest,
@@ -86,14 +84,14 @@ impl super::super::ConsoleService {
         }
         let uid = super::super::id(raw_id, "account")?;
         let verified = verify::verify_purchase(
-            &state.control.iap,
+            &self.plane.control.iap,
             vendor.store(),
             credential,
             body.product_id.as_deref(),
             None,
         )
         .await?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         queries.get_user_by_id(uid).await?;
         let (product_id, transaction_id, environment, purchase_time, raw) = (
             verified.product_id,
@@ -117,7 +115,7 @@ impl super::super::ConsoleService {
                 })
                 .await?;
             super::super::audit(
-                state,
+                &self.plane,
                 claims,
                 "iap.validate",
                 "iap",
@@ -144,7 +142,7 @@ impl super::super::ConsoleService {
                 })
                 .await?;
             super::super::audit(
-                state,
+                &self.plane,
                 claims,
                 "iap.validate",
                 "iap",

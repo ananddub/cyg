@@ -1,4 +1,4 @@
-use engine_wasm::{wasm_module, WasmRuntime};
+use engine_wasm::{WasmRuntime, wasm_module};
 
 wasm_module! {
     pub struct BattleRoom {

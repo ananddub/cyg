@@ -1,5 +1,5 @@
-// Tournaments: the boards an operator writes. `GET/POST /v2/console/tournament`
-// and `PUT/DELETE /v2/console/tournament/{id}` — the same rows as leaderboards,
+// Tournaments: the boards an operator writes. `GET/POST /v1/console/tournament`
+// and `PUT/DELETE /v1/console/tournament/{id}` — the same rows as leaderboards,
 // with category 1 fixed by the server.
 
 import { useEffect, useState } from "react"
@@ -56,7 +56,7 @@ export function TournamentsView() {
     const kind = row.authoritative ? "authoritative" : "relay"
     if (filter !== "all" && kind !== filter) return false
     if (needle === "") return true
-    return [row.id, row.title, kind, row.reset_schedule ?? ""].some((value) =>
+    return [row.id, row.title, kind, row.reset_schedule ?? "", row.rule_key ?? ""].some((value) =>
       value.toLowerCase().includes(needle),
     )
   })
@@ -75,6 +75,7 @@ export function TournamentsView() {
       cell: (row) => <Mono>{`${formatTime(row.start_time)} → ${formatTime(row.end_time)}`}</Mono>,
     },
     { header: "Round", cell: (row) => <Mono>{dash(row.reset_schedule)}</Mono> },
+    { header: "Rule", cell: (row) => <Mono>{dash(row.rule_key)}</Mono> },
     {
       header: "Auth",
       cell: (row) =>

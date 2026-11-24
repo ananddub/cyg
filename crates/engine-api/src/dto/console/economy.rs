@@ -12,7 +12,7 @@ pub struct EconomySummaryQuery {
     pub game_id: Option<uuid::Uuid>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct EconomySummary {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
@@ -28,14 +28,14 @@ pub struct EconomySummary {
     pub empty: bool,
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(poem_openapi::Object, Debug, Serialize, Default)]
 pub struct PurchaseVolume {
     pub total: i64,
     pub refunded: i64,
     pub by_environment: BTreeMap<String, i64>,
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(poem_openapi::Object, Debug, Serialize, Default)]
 pub struct WalletFlow {
     pub credits: i64,
     pub debits: i64,
@@ -43,13 +43,13 @@ pub struct WalletFlow {
     pub net_by_currency: BTreeMap<String, f64>,
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(poem_openapi::Object, Debug, Serialize, Default)]
 pub struct QuestActivity {
     pub completed: i64,
     pub claimed: i64,
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(poem_openapi::Object, Debug, Serialize, Default)]
 pub struct MarketActivity {
     pub listings_created: i64,
     pub trades_settled: i64,

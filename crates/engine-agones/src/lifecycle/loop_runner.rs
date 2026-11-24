@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use super::{Lifecycle, SidecarErrorInfo, SLEEP_SLICE, Step, poisoned};
+use super::{Lifecycle, SLEEP_SLICE, SidecarErrorInfo, Step, poisoned};
 use crate::error::{SidecarError, SidecarErrorKind};
 use crate::health::PingOutcome;
 use crate::state::ServerState;

@@ -6,7 +6,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     let unity_name = format!("E2E Unity {suffix}");
     let unity = json_body(
         client
-            .post(format!("{base}/v2/console/games"))
+            .post(format!("{base}/v1/console/games"))
             .bearer_auth(console)
             .json(&json!({ "name": unity_name, "engine_type": "unity" }))
             .send()
@@ -37,7 +37,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     let wasm_name = format!("E2E Custom {suffix}");
     let wasm_game = json_body(
         client
-            .post(format!("{base}/v2/console/games"))
+            .post(format!("{base}/v1/console/games"))
             .bearer_auth(console)
             .json(&json!({
                 "name": wasm_name,
@@ -62,7 +62,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
 
     refusal(
         client
-            .post(format!("{base}/v2/console/games"))
+            .post(format!("{base}/v1/console/games"))
             .bearer_auth(console)
             .json(&json!({ "name": "   " }))
             .send()
@@ -74,7 +74,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     .await;
     refusal(
         client
-            .post(format!("{base}/v2/console/games"))
+            .post(format!("{base}/v1/console/games"))
             .bearer_auth(console)
             .json(&json!({ "name": "Frostbite", "engine_type": "frostbite" }))
             .send()
@@ -86,7 +86,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     .await;
     refusal(
         client
-            .post(format!("{base}/v2/console/games"))
+            .post(format!("{base}/v1/console/games"))
             .bearer_auth(console)
             .json(&json!({ "name": "Bad Config", "config": [1, 2] }))
             .send()
@@ -99,7 +99,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
 
     let listing = json_body(
         client
-            .get(format!("{base}/v2/console/games"))
+            .get(format!("{base}/v1/console/games"))
             .bearer_auth(console)
             .send()
             .await
@@ -119,7 +119,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
 
     let detail = json_body(
         client
-            .get(format!("{base}/v2/console/games/{unity_id}"))
+            .get(format!("{base}/v1/console/games/{unity_id}"))
             .bearer_auth(console)
             .send()
             .await
@@ -136,7 +136,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     let renamed = format!("E2E Unity Renamed {suffix}");
     let updated = json_body(
         client
-            .put(format!("{base}/v2/console/games/{unity_id}"))
+            .put(format!("{base}/v1/console/games/{unity_id}"))
             .bearer_auth(console)
             .json(&json!({ "name": renamed, "status": "suspended" }))
             .send()
@@ -152,7 +152,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
 
     refusal(
         client
-            .put(format!("{base}/v2/console/games/{unity_id}"))
+            .put(format!("{base}/v1/console/games/{unity_id}"))
             .bearer_auth(console)
             .json(&json!({}))
             .send()
@@ -162,9 +162,55 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
         "empty game patch",
     )
     .await;
+    let masked = json_body(
+        client
+            .patch(format!(
+                "{base}/v1/console/games/{unity_id}?updateMask=name"
+            ))
+            .bearer_auth(console)
+            .json(&json!({ "name": format!("Masked {suffix}"), "status": "active" }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "patch a game with an explicit mask",
+    )
+    .await;
+    assert_eq!(masked["name"], format!("Masked {suffix}"));
+    assert_eq!(
+        masked["status"], "suspended",
+        "a field outside the mask is ignored"
+    );
+
+    let planned = json_body(
+        client
+            .patch(format!("{base}/v1/console/games/{unity_id}"))
+            .bearer_auth(console)
+            .json(&json!({ "name": "Not Written", "validateOnly": true }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "validate a game patch without applying it",
+    )
+    .await;
+    assert_eq!(planned["name"], "Not Written");
+    let still = json_body(
+        client
+            .get(format!("{base}/v1/console/games/{unity_id}"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "read after validateOnly",
+    )
+    .await;
+    assert_eq!(still["name"], masked["name"], "validateOnly must not write");
+
     refusal(
         client
-            .put(format!("{base}/v2/console/games/{}", Uuid::new_v4()))
+            .put(format!("{base}/v1/console/games/{}", Uuid::new_v4()))
             .bearer_auth(console)
             .json(&json!({ "name": "ghost" }))
             .send()
@@ -175,10 +221,26 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     )
     .await;
 
+    let batch = json_body(
+        client
+            .post(format!("{base}/v1/console/games:batch-get"))
+            .bearer_auth(console)
+            .json(&json!({ "ids": [unity_id, wasm_id] }))
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "batch-get two games through the canonical colon URL",
+    )
+    .await;
+    assert_eq!(batch["games"].as_array().unwrap().len(), 2);
+    assert_eq!(batch["games"][0]["id"], unity_id);
+    assert_eq!(batch["games"][1]["id"], wasm_id);
+
     let settings = json_body(
         client
             .get(format!(
-                "{base}/v2/console/games/{unity_id}/unity-settings?format=json"
+                "{base}/v1/console/games/{unity_id}/unity-settings?format=json"
             ))
             .bearer_auth(console)
             .send()
@@ -205,7 +267,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     let revealed = json_body(
         client
             .get(format!(
-                "{base}/v2/console/games/{unity_id}/unity-settings?format=json&reveal=true"
+                "{base}/v1/console/games/{unity_id}/unity-settings?format=json&reveal=true"
             ))
             .bearer_auth(console)
             .send()
@@ -218,7 +280,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     assert_eq!(revealed["apiKey"], api_key);
 
     let asset_resp = client
-        .get(format!("{base}/v2/console/games/{unity_id}/unity-settings"))
+        .get(format!("{base}/v1/console/games/{unity_id}/unity-settings"))
         .bearer_auth(console)
         .send()
         .await
@@ -246,7 +308,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     refusal(
         client
             .get(format!(
-                "{base}/v2/console/games/{unity_id}/unity-settings?format=xml"
+                "{base}/v1/console/games/{unity_id}/unity-settings?format=xml"
             ))
             .bearer_auth(console)
             .send()
@@ -259,7 +321,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
 
     let archived = json_body(
         client
-            .delete(format!("{base}/v2/console/games/{unity_id}"))
+            .delete(format!("{base}/v1/console/games/{unity_id}"))
             .bearer_auth(console)
             .send()
             .await
@@ -271,7 +333,7 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     assert_eq!(archived["archived"], true);
     let after = json_body(
         client
-            .get(format!("{base}/v2/console/games/{unity_id}"))
+            .get(format!("{base}/v1/console/games/{unity_id}"))
             .bearer_auth(console)
             .send()
             .await
@@ -281,9 +343,32 @@ pub async fn games(client: &Client, base: &str, port: u16, console: &str) -> (St
     )
     .await;
     assert_eq!(after["status"], "archived");
+    let restored = json_body(
+        client
+            .post(format!("{base}/v1/console/games/{unity_id}:undelete"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::OK,
+        "undelete an archived game",
+    )
+    .await;
+    assert_eq!(restored["status"], "active");
     refusal(
         client
-            .delete(format!("{base}/v2/console/games/{}", Uuid::new_v4()))
+            .post(format!("{base}/v1/console/games/{unity_id}:undelete"))
+            .bearer_auth(console)
+            .send()
+            .await
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "undelete an active game",
+    )
+    .await;
+    refusal(
+        client
+            .delete(format!("{base}/v1/console/games/{}", Uuid::new_v4()))
             .bearer_auth(console)
             .send()
             .await

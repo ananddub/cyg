@@ -5,15 +5,16 @@ use engine_webrtc_protocol::channel::{
 
 #[test]
 fn a_delivery_releases_the_older_partial() {
+    const MAXC: usize = MAX_DELTA_CHUNK;
     let mut assembler = FragmentAssembler::default();
     assert_eq!(
-        assembler.insert_frame(&frame(10, 1, 0, 2, &[0xaa]), 0),
+        assembler.insert_frame(&frame(10, 1, 0, 2, &[0xaa; MAXC]), 0),
         None
     );
     assert_eq!(assembler.inflight(), 1);
 
     assert_eq!(
-        assembler.insert_frame(&frame(11, 2, 0, 2, &[0xbb]), 1),
+        assembler.insert_frame(&frame(11, 2, 0, 2, &[0xbb; MAXC]), 1),
         None
     );
     assert_eq!(assembler.inflight(), 2, "both deltas are in flight");
@@ -21,10 +22,9 @@ fn a_delivery_releases_the_older_partial() {
     let delta = assembler
         .insert_frame(&frame(11, 2, 1, 2, &[0xbc]), 2)
         .expect("11 closes");
-    assert_eq!(
-        (delta.seq, delta.tick, delta.body),
-        (11, 2, vec![0xbb, 0xbc])
-    );
+    let mut expected = vec![0xbb; MAXC];
+    expected.push(0xbc);
+    assert_eq!((delta.seq, delta.tick, delta.body), (11, 2, expected));
     assert_eq!(assembler.inflight(), 0, "10 was superseded by the delivery");
     assert_eq!(assembler.evicted(), 1);
     assert_eq!(assembler.buffered_bytes(), 0);

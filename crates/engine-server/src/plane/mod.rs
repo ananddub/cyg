@@ -13,7 +13,7 @@ use engine_bus::Bus;
 pub use crate::plane::dispatch::{emit_delta, wrap_body};
 pub use crate::plane::pin::{current_core, pin_current_thread};
 pub use crate::plane::reliable::{QueueError, ReliableCounts, ReliableLane};
-pub use crate::plane::seats::{SeatGrant, SeatRegistry};
+pub use crate::plane::seats::{SeatGrant, SeatRegistry, join_token};
 pub use crate::plane::udp::UdpPlane;
 pub use engine_bus::clock::{mono_ns, tick_period};
 
@@ -33,23 +33,23 @@ pub struct PlaneConfig {
 
 impl PlaneConfig {
     pub fn from_env(project_dir: &std::path::Path) -> PlaneConfig {
-        let enabled = std::env::var("OX_PLANES").map_or(false, |v| v == "1");
-        let sim_core = std::env::var("OX_SIM_CORE")
+        let enabled = std::env::var("CYG_PLANES").map_or(false, |v| v == "1");
+        let sim_core = std::env::var("CYG_SIM_CORE")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(2);
-        let udp_addr = std::env::var("OX_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into());
-        let tick_hz = std::env::var("OX_TICK_HZ")
+        let udp_addr = std::env::var("CYG_UDP_ADDR").unwrap_or_else(|_| "0.0.0.0:7778".into());
+        let tick_hz = std::env::var("CYG_TICK_HZ")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(128.0);
-        let seat_secret = std::env::var("OX_SEAT_SECRET")
+        let seat_secret = std::env::var("CYG_SEAT_SECRET")
             .unwrap_or_else(|_| engine_config::DEV_SEAT_SECRET.into());
-        let wasm_path = std::env::var("OX_WASM_PATH")
+        let wasm_path = std::env::var("CYG_WASM_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|_| project_dir.join("ox-server").join("room_logic.wasm"));
-        let room_name = std::env::var("OX_ROOM").unwrap_or_else(|_| "tank-3d".into());
-        let max_players = std::env::var("OX_MAX_PLAYERS")
+        let room_name = std::env::var("CYG_ROOM").unwrap_or_else(|_| "tank-3d".into());
+        let max_players = std::env::var("CYG_MAX_PLAYERS")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(8);
@@ -73,9 +73,10 @@ impl PlaneConfig {
 pub fn spawn_sim_plane(
     bus: Arc<Bus>,
     cfg: PlaneConfig,
+    stop: Arc<std::sync::atomic::AtomicBool>,
 ) -> std::io::Result<std::thread::JoinHandle<()>> {
     std::thread::Builder::new()
-        .name("ox-sim".into())
+        .name("cyg-sim".into())
         .spawn(move || {
             if let Err(e) = pin::pin_current_thread(cfg.sim_core) {
                 tracing::error!(
@@ -83,6 +84,6 @@ pub fn spawn_sim_plane(
                     cfg.sim_core
                 );
             }
-            sim::run(bus, cfg);
+            sim::run(bus, cfg, stop);
         })
 }

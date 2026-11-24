@@ -1,0 +1,7 @@
+[package]
+name = "ox-verified"
+version = "0.1.0"
+edition = "2024"
+description = "Verus-verified mirrors of critical engine logic. Exec modules compile with plain cargo (used by tests/verus_parity.rs); the same files are pulled into proofs/verify.rs and verified with the Verus toolchain (scripts/verify-verus.sh)."
+
+[dependencies]

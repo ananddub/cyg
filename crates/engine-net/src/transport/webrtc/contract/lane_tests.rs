@@ -1,4 +1,3 @@
-
 use str0m::channel::{ChannelConfig, Reliability};
 
 use super::{
@@ -23,27 +22,12 @@ fn exact_labels_are_the_contract_and_other_labels_are_ignored() {
     assert_eq!(classify_label("GAME-RELIABLE"), LabelVerdict::Ignored);
     assert_eq!(classify_label("game-reliable-v2"), LabelVerdict::Ignored);
 
-    assert_eq!(
-        classify_label("unreliable"),
-        LabelVerdict::LegacyAlias(Lane::Unreliable)
-    );
-    assert_eq!(
-        classify_label("reliable"),
-        LabelVerdict::LegacyAlias(Lane::Reliable)
-    );
-    assert_eq!(
-        classify_label("client-unreliable"),
-        LabelVerdict::LegacyAlias(Lane::Unreliable)
-    );
-    assert_eq!(
-        classify_label("client_reliable"),
-        LabelVerdict::LegacyAlias(Lane::Reliable)
-    );
-
-    assert_ne!(
-        classify_label("client-unreliable"),
-        LabelVerdict::LegacyAlias(Lane::Reliable)
-    );
+    // No suffix/alias matching: only the exact contract labels are lanes.
+    assert_eq!(classify_label("unreliable"), LabelVerdict::Ignored);
+    assert_eq!(classify_label("reliable"), LabelVerdict::Ignored);
+    assert_eq!(classify_label("client-unreliable"), LabelVerdict::Ignored);
+    assert_eq!(classify_label("client_reliable"), LabelVerdict::Ignored);
+    assert_eq!(classify_label("game-unreliable-"), LabelVerdict::Ignored);
 }
 
 #[test]
@@ -71,11 +55,10 @@ fn sctp_parameters_must_match_the_lane() {
 
 #[test]
 fn sdk_app_messages_classify_as_app() {
-
     let frame = [0x05u8, 5, b'i', b'n', b'p', b'u', b't', 1, 2, 3];
     match classify_inbound(Some(Lane::Reliable), &frame) {
         Inbound::App { data } => {
-            assert_eq!(data, frame.to_vec(), "full envelope host ko jaata hai");
+            assert_eq!(&data[..], &frame[..], "full envelope host ko jaata hai");
         }
         _ => panic!("0x05 envelope must classify as App"),
     }

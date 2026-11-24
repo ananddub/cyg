@@ -9,6 +9,8 @@ pub struct SeatGrant {
 pub enum SeatError {
     Bad,
     Expired,
+    RoomMismatch,
+    Replayed,
 }
 
 pub(super) fn now_unix() -> u64 {
@@ -16,6 +18,22 @@ pub(super) fn now_unix() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// One raw-UDP join frame: `[0x20][token_len u8][seat_token]`.
+///
+/// This is the only parser for the join envelope. Both the host UDP lane and
+/// the pinned sim plane call it, so a token cannot mean one thing on one lane
+/// and something else on the other.
+pub fn join_token(frame: &[u8]) -> Option<&str> {
+    if frame.len() < 3 || frame[0] != 0x20 {
+        return None;
+    }
+    let token_len = frame[1] as usize;
+    if token_len == 0 || frame.len() != 2 + token_len {
+        return None;
+    }
+    std::str::from_utf8(&frame[2..]).ok()
 }
 
 pub(super) const B64_ALPHABET: &[u8; 64] =

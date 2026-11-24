@@ -23,7 +23,7 @@ where
     text.parse::<i64>().map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Serialize, Deserialize)]
 pub struct RecordRequest {
     #[serde(default, deserialize_with = "flex_i64")]
     pub score: i64,
@@ -35,7 +35,7 @@ pub struct RecordRequest {
     pub operator: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, poem_openapi::Object)]
 pub struct RecordResponse {
     pub leaderboard_id: String,
     pub owner_id: String,
@@ -78,15 +78,23 @@ impl RecordResponse {
     }
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, poem_openapi::Object)]
 pub struct RecordListResponse {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub records: Vec<RecordResponse>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub owner_records: Vec<RecordResponse>,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(
+        rename = "nextPageToken",
+        alias = "next_cursor",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub next_cursor: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(
+        rename = "prevPageToken",
+        alias = "prev_cursor",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub prev_cursor: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rank_count: Option<String>,
@@ -112,4 +120,48 @@ pub struct HaystackQuery {
     pub cursor: String,
     #[serde(default)]
     pub expiry: Option<String>,
+}
+
+/// A board as the game declared it. The wire shape is spelled out here instead
+/// of being assembled in the service, so the spec can describe it.
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct BoardDefinition {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub sort_order: i16,
+    pub operator: i16,
+    pub reset_schedule: Option<String>,
+    pub metadata: Value,
+    pub authoritative: bool,
+    pub category: i16,
+    pub max_num_score: i32,
+}
+
+impl From<&crate::repositories::models::Leaderboard> for BoardDefinition {
+    fn from(row: &crate::repositories::models::Leaderboard) -> Self {
+        BoardDefinition {
+            id: row.id.clone(),
+            title: row.title.clone(),
+            description: row.description.clone(),
+            reset_schedule: row.reset_schedule.clone(),
+            sort_order: row.sort_order,
+            operator: row.operator,
+            metadata: row.metadata.clone(),
+            authoritative: row.authoritative,
+            category: row.category,
+            max_num_score: row.max_num_score,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct BoardListResponse {
+    pub leaderboards: Vec<BoardDefinition>,
+    pub total: usize,
+}
+
+#[derive(Debug, Serialize, poem_openapi::Object)]
+pub struct DeletedBoard {
+    pub deleted: String,
 }

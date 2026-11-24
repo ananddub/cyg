@@ -48,14 +48,21 @@ impl Queries {
         if let Value::Object(map) = &mut user_value {
             map.remove("id");
         }
-        let created: Vec<Value> = self
-            .all(
-                "IF array::len((SELECT VALUE id FROM user_device \
-                    WHERE id = type::record('user_device', $device_id))) = 0 { \
-                     CREATE type::record('user_device', $device_id) CONTENT $device; \
-                     CREATE type::record('users', <uuid>$id) CONTENT $user; \
-                     RETURN true; \
-                 } ELSE { RETURN false; };",
+        // Transactional + unique-conflict-mapped: the check-then-create was
+        // non-atomic (two concurrent registrations both saw an empty device
+        // table; the loser surfaced as a raw Unique error) and a users CREATE
+        // failure orphaned the device row. Under SurrealDB 4's SNAPSHOT
+        // default the race window only widened. The CREATEs are now one
+        // transaction: an existing device aborts the whole thing via its
+        // unique index (no orphaned users row, RETURN-inside-transaction
+        // would abort the txn anyway), and the loser's unique conflict reads
+        // as `false`.
+        match self
+            .all::<Value>(
+                "BEGIN TRANSACTION; \
+                 CREATE type::record('user_device', $device_id) CONTENT $device; \
+                 CREATE type::record('users', <uuid>$id) CONTENT $user; \
+                 COMMIT;",
                 params!(
                     device_id = device_id,
                     device = device,
@@ -63,8 +70,12 @@ impl Queries {
                     user = user_value,
                 ),
             )
-            .await?;
-        Ok(created.first().and_then(Value::as_bool).unwrap_or(false))
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(DbError::Unique(_)) => Ok(false),
+            Err(err) => Err(err),
+        }
     }
     pub async fn delete_user(&self, id: Uuid) -> Result<(), DbError> {
         self.exec(

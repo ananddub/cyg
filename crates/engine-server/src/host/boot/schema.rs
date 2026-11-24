@@ -15,6 +15,14 @@ pub(crate) fn boot_schema(
     let schema_descriptor = found
         .and_then(|p| std::fs::read(p).ok())
         .unwrap_or_default();
+    if !schema_descriptor.is_empty()
+        && engine_schema::parse_descriptor(&schema_descriptor).is_none()
+    {
+        tracing::error!(
+            "[server] stale or unsupported schema descriptor (v{}); rebuild the client and server together — clients will reject this room",
+            schema_descriptor.get(4).copied().unwrap_or(0)
+        );
+    }
     if !schema_descriptor.is_empty() {
         tracing::info!(
             "[server] 📋 schema descriptor loaded ({} bytes) from {}",

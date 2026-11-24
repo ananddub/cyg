@@ -9,7 +9,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let empty = api_get(
         client,
-        format!("{base}/v2/friend"),
+        format!("{base}/v1/friend"),
         &alice.token,
         "an empty friend list",
     )
@@ -20,7 +20,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/friend?limit=0"))
+                .get(format!("{base}/v1/friend?limit=0"))
                 .bearer_auth(&alice.token)
                 .send()
                 .await
@@ -34,7 +34,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/friend?state=4"))
+                .get(format!("{base}/v1/friend?state=4"))
                 .bearer_auth(&alice.token)
                 .send()
                 .await
@@ -48,7 +48,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/friend?cursor=not-a-cursor"))
+                .get(format!("{base}/v1/friend?cursor=not-a-cursor"))
                 .bearer_auth(&alice.token)
                 .send()
                 .await
@@ -64,7 +64,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .post(with_query(
-                    &format!("{base}/v2/friend"),
+                    &format!("{base}/v1/friend"),
                     &[("ids", alice.uid.as_str())],
                 ))
                 .bearer_auth(&alice.token)
@@ -81,7 +81,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .post(with_query(
-                    &format!("{base}/v2/friend"),
+                    &format!("{base}/v1/friend"),
                     &[("usernames", "no-such-player-at-all")],
                 ))
                 .bearer_auth(&alice.token)
@@ -98,7 +98,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .post(with_query(
-                    &format!("{base}/v2/friend"),
+                    &format!("{base}/v1/friend"),
                     &[("ids", "not-a-uuid")],
                 ))
                 .bearer_auth(&alice.token)
@@ -116,7 +116,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         api_post_empty(
             client,
             with_query(
-                &format!("{base}/v2/friend"),
+                &format!("{base}/v1/friend"),
                 &[("ids", bob.uid.as_str()), ("metadata", r#"{"nick":"bob"}"#)],
             ),
             &alice.token,
@@ -132,7 +132,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let inbox = api_get(
         client,
-        format!("{base}/v2/notification?limit=10&sender_id={}", alice.uid),
+        format!("{base}/v1/notification?limit=10&sender_id={}", alice.uid),
         &bob.token,
         "bob's friend-request notification",
     )
@@ -152,7 +152,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let pending = api_get(
         client,
-        format!("{base}/v2/friend?state=1"),
+        format!("{base}/v1/friend?state=1"),
         &alice.token,
         "alice's sent invites",
     )
@@ -168,7 +168,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         api_post_empty(
             client,
             with_query(
-                &format!("{base}/v2/friend"),
+                &format!("{base}/v1/friend"),
                 &[
                     ("ids", alice.uid.as_str()),
                     ("metadata", r#"{"since":"accepted"}"#),
@@ -198,7 +198,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let accepted = api_get(
         client,
-        format!("{base}/v2/notification?limit=10&sender_id={}", bob.uid),
+        format!("{base}/v1/notification?limit=10&sender_id={}", bob.uid),
         &alice.token,
         "alice's acceptance notification",
     )
@@ -214,14 +214,14 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
 
     api_post_empty(
         client,
-        with_query(&format!("{base}/v2/friend"), &[("ids", carol.uid.as_str())]),
+        with_query(&format!("{base}/v1/friend"), &[("ids", carol.uid.as_str())]),
         &bob.token,
         "bob invites carol",
     )
     .await;
     api_post_empty(
         client,
-        with_query(&format!("{base}/v2/friend"), &[("ids", bob.uid.as_str())]),
+        with_query(&format!("{base}/v1/friend"), &[("ids", bob.uid.as_str())]),
         &carol.token,
         "carol accepts bob's invite",
     )
@@ -230,7 +230,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let fof = api_get(
         client,
-        format!("{base}/v2/friend/friends?limit=10"),
+        format!("{base}/v1/friend/friends?limit=10"),
         &alice.token,
         "alice's friends of friends",
     )
@@ -253,7 +253,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/friend/friends?limit=0"))
+                .get(format!("{base}/v1/friend/friends?limit=0"))
                 .bearer_auth(&alice.token)
                 .send()
                 .await
@@ -269,7 +269,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .post(with_query(
-                    &format!("{base}/v2/friend/block"),
+                    &format!("{base}/v1/friend/block"),
                     &[("ids", carol.uid.as_str())],
                 ))
                 .bearer_auth(&carol.token)
@@ -286,7 +286,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         api_post_empty(
             client,
             with_query(
-                &format!("{base}/v2/friend/block"),
+                &format!("{base}/v1/friend/block"),
                 &[("ids", alice.uid.as_str())],
             ),
             &carol.token,
@@ -301,7 +301,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_post_empty(
             client,
-            with_query(&format!("{base}/v2/friend"), &[("ids", carol.uid.as_str())],),
+            with_query(&format!("{base}/v1/friend"), &[("ids", carol.uid.as_str())],),
             &alice.token,
             "alice invites a player who blocked her",
         )
@@ -316,7 +316,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let blocked = api_get(
         client,
-        format!("{base}/v2/friend?state=3"),
+        format!("{base}/v1/friend?state=3"),
         &carol.token,
         "carol's blocked list",
     )
@@ -327,7 +327,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_delete(
             client,
-            with_query(&format!("{base}/v2/friend"), &[("ids", carol.uid.as_str())],),
+            with_query(&format!("{base}/v1/friend"), &[("ids", carol.uid.as_str())],),
             &bob.token,
             "bob deletes carol",
         )
@@ -340,7 +340,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(edge_count(pool, c).await, 1);
     let removed = api_get(
         client,
-        format!("{base}/v2/notification?limit=10&sender_id={}", bob.uid),
+        format!("{base}/v1/notification?limit=10&sender_id={}", bob.uid),
         &carol.token,
         "carol's removal notification",
     )
@@ -357,7 +357,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_delete(
             client,
-            with_query(&format!("{base}/v2/friend"), &[("ids", bob.uid.as_str())],),
+            with_query(&format!("{base}/v1/friend"), &[("ids", bob.uid.as_str())],),
             &alice.token,
             "alice deletes bob",
         )
@@ -373,7 +373,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
         refusal(
             client
                 .delete(with_query(
-                    &format!("{base}/v2/friend"),
+                    &format!("{base}/v1/friend"),
                     &[("ids", alice.uid.as_str())],
                 ))
                 .bearer_auth(&alice.token)
@@ -389,7 +389,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         api_delete(
             client,
-            format!("{base}/v2/friend"),
+            format!("{base}/v1/friend"),
             &alice.token,
             "deleting no friends",
         )
@@ -400,7 +400,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/friend/facebook"))
+                .post(format!("{base}/v1/friend/facebook"))
                 .send()
                 .await
                 .unwrap(),
@@ -413,7 +413,7 @@ pub async fn friend_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/friend/steam"))
+                .post(format!("{base}/v1/friend/steam"))
                 .send()
                 .await
                 .unwrap(),

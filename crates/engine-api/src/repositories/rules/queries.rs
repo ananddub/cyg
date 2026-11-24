@@ -14,6 +14,24 @@ impl Queries {
         .await
     }
 
+    /// Every active rule bound to one event.
+    ///
+    /// Filtered in the database rather than in Rust: a game accumulates rules
+    /// over a season, and reading all of them to discard most would make each
+    /// purchase pay for every rule the operator ever wrote.
+    pub async fn active_rules_for_trigger(
+        &self,
+        trigger: &str,
+    ) -> Result<Vec<RulesDefinition>, DbError> {
+        self.all(
+            "SELECT * FROM rules_definition \
+             WHERE is_active = true AND body.trigger = $trigger \
+             ORDER BY key ASC",
+            params!(trigger = trigger),
+        )
+        .await
+    }
+
     pub async fn list_rule_versions(&self, key: &str) -> Result<Vec<RulesDefinition>, DbError> {
         self.all(
             "SELECT * FROM rules_definition WHERE key = $key ORDER BY version DESC",
@@ -66,15 +84,34 @@ impl Queries {
 
     /// Activates one version and retires every other version of the key in a
     /// single transaction, so readers never see two active versions.
+    /// SNAPSHOT isolation (the 4.0 default) can let two concurrent
+    /// activations of different versions both commit when nothing was active
+    /// to conflict on — the post-commit check re-runs until one is active.
     pub async fn activate_rule(&self, key: &str, version: i64) -> Result<(), DbError> {
-        self.exec(
-            "BEGIN TRANSACTION; \
-             UPDATE rules_definition SET is_active = false WHERE key = $key AND is_active = true; \
-             UPDATE type::record('rules_definition', $id) SET is_active = true; \
-             COMMIT;",
-            params!(key = key, id = rules_definition_id(key, version)),
-        )
-        .await
+        for _ in 0..3 {
+            self.exec(
+                "BEGIN TRANSACTION; \
+                 UPDATE rules_definition SET is_active = false WHERE key = $key AND is_active = true; \
+                 UPDATE type::record('rules_definition', $id) SET is_active = true; \
+                 COMMIT;",
+                params!(key = key, id = rules_definition_id(key, version)),
+            )
+            .await?;
+            let actives: Vec<i64> = self
+                .all(
+                    "SELECT VALUE version FROM rules_definition \
+                     WHERE key = $key AND is_active = true",
+                    params!(key = key),
+                )
+                .await?;
+            if actives.len() <= 1 {
+                return Ok(());
+            }
+        }
+        tracing::warn!(
+            "[db] rule activation for {key} still sees multiple active versions after 3 passes"
+        );
+        Ok(())
     }
 
     pub async fn delete_rule_versions(&self, key: &str) -> Result<WriteResult, DbError> {

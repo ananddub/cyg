@@ -1,4 +1,3 @@
-
 use bytes::{Bytes, BytesMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,7 +24,6 @@ pub enum OpCode {
 }
 
 impl OpCode {
-
     pub fn from_u8(val: u8) -> Option<Self> {
         match val {
             0 => Some(Self::Ping),
@@ -113,11 +111,33 @@ pub fn iter_frame_ranges(buf: &[u8]) -> impl Iterator<Item = (OpCode, std::ops::
     })
 }
 
-pub fn encode_frame(opcode: OpCode, payload: &[u8], out_buffer: &mut impl bytes::BufMut) {
+/// Encode one length-prefixed frame. Errors when the payload exceeds the
+/// 16-bit length prefix (`u16::MAX`) — nothing is written on error, so the
+/// caller can drop the frame instead of silently corrupting the stream.
+pub fn encode_frame(
+    opcode: OpCode,
+    payload: &[u8],
+    out_buffer: &mut impl bytes::BufMut,
+) -> std::io::Result<()> {
+    if payload.len() > u16::MAX as usize {
+        debug_assert!(
+            false,
+            "frame payload of {} bytes exceeds u16::MAX",
+            payload.len()
+        );
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "frame payload of {} bytes exceeds the u16 length prefix",
+                payload.len()
+            ),
+        ));
+    }
     let len = payload.len() as u16;
     out_buffer.put_slice(&len.to_be_bytes());
     out_buffer.put_u8(opcode as u8);
     out_buffer.put_slice(payload);
+    Ok(())
 }
 
 pub fn take_frame(buf: &mut BytesMut) -> Option<(OpCode, Bytes)> {

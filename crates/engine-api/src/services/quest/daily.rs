@@ -3,12 +3,10 @@ use chrono::{Datelike, Utc};
 
 use super::QuestService;
 use super::{payout, reward::parse_reward};
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::quest::DailyClaimResponse;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
-use crate::services::deps::q;
 use std::sync::Arc;
 
 /// The marker holding the last UTC day this player took the daily reward.
@@ -17,12 +15,8 @@ const DAILY_STAT: &str = "daily_claim";
 const DAILY_SETTING: &str = "daily_reward";
 
 impl QuestService {
-    pub async fn claim_daily(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-    ) -> Result<Json<DailyClaimResponse>, V2Error> {
-        let queries = q(state).await?;
+    pub async fn claim_daily(&self, auth: &Authed) -> Result<Json<DailyClaimResponse>, V2Error> {
+        let queries = self.plane.q().await?;
         let today = Utc::now().date_naive().num_days_from_ce() as i64;
         let reward = parse_reward(&daily_reward(&queries).await?)?;
         if reward.is_empty() {

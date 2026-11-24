@@ -14,7 +14,7 @@ import { CONSOLE_ROLES } from "@/lib/console/roles"
 
 const USERS = CONSOLE_ENDPOINTS.users
 
-/** `PUT /v2/console/user/{id}` — the mutable profile: username, email, role and
+/** `PUT /v1/console/user/{id}` — the mutable profile: username, email, role and
  * the second-factor requirement. The password is absent from this body by
  * construction; `PasswordDialog` is the only route that touches it. */
 export function UpdateOperatorDialog({
@@ -78,7 +78,7 @@ export function UpdateOperatorDialog({
   )
 }
 
-/** `POST /v2/console/user/{id}/password` — an operator handing someone a new
+/** `POST /v1/console/user/{id}/password` — an operator handing someone a new
  * credential. Nothing else travels in this body. */
 export function PasswordDialog({
   id,

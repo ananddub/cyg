@@ -5,8 +5,8 @@ use serde_json::json;
 #[tokio::test]
 async fn relays_offer_and_answer_over_a_real_socket() {
     let (state, mut inbound) = test_state();
-    let addr = spawn_plane(&state).await;
-    let seat = mint_seat(&state);
+    let addr = spawn_plane(&state.plane()).await;
+    let seat = mint_seat(&state.plane());
     let mut ws = WsClient::open(addr, &signal_path(&seat)).await;
 
     assert_eq!(
@@ -69,10 +69,10 @@ async fn relays_offer_and_answer_over_a_real_socket() {
     ws.send_text(r#"{"type":"close"}"#).await;
     assert_eq!(
         next_signal(&mut inbound).await,
-        SignalIn::Close { seat: seat.clone() }
+        SignalIn::Close { seat: seat.clone(), .. }
     );
     expect_quiet(&mut inbound).await;
-    wait_peers(&state.signals, 0).await;
+    wait_peers(&state.plane().signals, 0).await;
     assert!(
         !state.signals.publish(
             &seat.id,

@@ -1,4 +1,3 @@
-
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -7,9 +6,10 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
 use super::config::PlaneConfig;
-use super::demux_setup::{create_session, route_datagram};
+use super::demux_setup::{create_session, deliver, route_datagram};
 use super::inbox::{PlaneCommand, SessionInbound, SessionNotice};
 use super::registries::{Registries, unbind_player};
+use super::stats::DemuxStats;
 use super::types::UplinkEvent;
 
 pub(crate) async fn demux_loop(
@@ -18,9 +18,10 @@ pub(crate) async fn demux_loop(
     mut cmd_rx: mpsc::UnboundedReceiver<PlaneCommand>,
     mut notice_rx: mpsc::UnboundedReceiver<SessionNotice>,
     notice_tx: mpsc::UnboundedSender<SessionNotice>,
-    uplink_tx: mpsc::UnboundedSender<UplinkEvent>,
+    uplink_tx: mpsc::Sender<UplinkEvent>,
     registries: Registries,
     config: PlaneConfig,
+    stats: DemuxStats,
 ) {
     let mut sessions: HashMap<Arc<str>, mpsc::Sender<SessionInbound>> = HashMap::new();
     let mut addr_routes: HashMap<SocketAddr, Arc<str>> = HashMap::new();
@@ -34,8 +35,8 @@ pub(crate) async fn demux_loop(
             recv = socket.recv_from(&mut buf) => {
                 if let Ok((n, from)) = recv {
                     if n > 0 {
-                        let bytes: Arc<[u8]> = Arc::from(&buf[..n]);
-                        route_datagram(from, bytes, &addr_routes, &unbound, &sessions);
+                        let bytes = bytes::Bytes::copy_from_slice(&buf[..n]);
+                        route_datagram(from, bytes, &addr_routes, &unbound, &sessions, &stats);
                     }
                 }
             }
@@ -60,9 +61,8 @@ pub(crate) async fn demux_loop(
                     }
                     PlaneCommand::Forward { session_id, msg } => {
                         let closing = matches!(msg, SessionInbound::Close);
-                        if let Some(tx) = sessions.get(&session_id) {
-
-                            let _ = tx.try_send(msg);
+                        if sessions.contains_key(&session_id) {
+                            deliver(&session_id, &sessions, msg, &stats);
                         } else if closing {
                             unbind_player(&session_id, &registries);
                         }

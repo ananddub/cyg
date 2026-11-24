@@ -1,39 +1,42 @@
+use crate::services::plane::Plane;
 use auto_di::singleton;
 use axum::Json;
+use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::inventory::*;
 use crate::error::V2Error;
 
-pub struct InventoryService;
+pub struct InventoryService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 #[singleton]
 impl InventoryService {
-    pub fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 
 impl InventoryService {
     pub async fn get_inventory(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
     ) -> Result<Json<ListInventoryResponse>, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
         let items = queries.list_inventory(auth.uid()).await?;
         Ok(Json(ListInventoryResponse { items }))
     }
 
     pub async fn equip_item(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: EquipItemRequest,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
         let item = queries
             .get_inventory_item(req.instance_id)
             .await?
@@ -57,7 +60,7 @@ impl InventoryService {
 
     pub async fn consume_item(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         req: ConsumeItemRequest,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
@@ -67,7 +70,7 @@ impl InventoryService {
             ));
         }
 
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
         let item = queries
             .get_inventory_item(req.instance_id)
             .await?
@@ -99,12 +102,12 @@ impl InventoryService {
 
     pub async fn grant_item(
         &self,
-        state: &ApiState,
+
         target_user: Uuid,
         req: GrantItemRequest,
         instance_id: Uuid,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
 
         let def = queries
             .get_item_definition(&req.item_id)
@@ -146,10 +149,10 @@ impl InventoryService {
 
     pub async fn define_item(
         &self,
-        state: &ApiState,
+
         req: DefineItemRequest,
     ) -> Result<Json<InventoryOperationResponse>, V2Error> {
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
         let max_stack = req.max_stack.unwrap_or(1).max(1);
         let rarity = req.rarity.unwrap_or_else(|| "common".to_string());
         let properties = crate::moderation::sanitize_json(

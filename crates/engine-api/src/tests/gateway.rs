@@ -6,7 +6,7 @@ use crate::error::{INVALID_ARGUMENT, UNAUTHENTICATED, UNAVAILABLE};
 fn the_body_is_decoded_before_the_credential_is_read() {
     let server = V2Server::start(v2_state());
 
-    let broken = server.post("/v2/account/authenticate/device", None, r#"{"id":"#);
+    let broken = server.post("/v1/account/authenticate/device", None, r#"{"id":"#);
     assert_eq!(broken.status, 400);
     assert!(
         broken
@@ -16,7 +16,7 @@ fn the_body_is_decoded_before_the_credential_is_read() {
     );
 
     let anonymous = server.post(
-        "/v2/account/authenticate/device",
+        "/v1/account/authenticate/device",
         None,
         r#"{"id":"0123456789ab"}"#,
     );
@@ -32,7 +32,7 @@ fn the_body_is_decoded_before_the_credential_is_read() {
 #[test]
 fn a_bad_query_flag_is_refused_before_the_credential_too() {
     let server = V2Server::start(v2_state());
-    let reply = server.post("/v2/account/authenticate/device?create=maybe", None, "{}");
+    let reply = server.post("/v1/account/authenticate/device?create=maybe", None, "{}");
     assert_eq!(reply.status, 400);
     let message = reply.refusal(INVALID_ARGUMENT);
     assert!(
@@ -47,7 +47,7 @@ fn the_server_key_is_the_user_half_of_basic_and_the_colon_is_part_of_it() {
     let server = V2Server::start(v2_state());
 
     let accepted = server.post(
-        "/v2/account/authenticate/device",
+        "/v1/account/authenticate/device",
         Some(&server_key()),
         r#"{"id":"0123456789ab"}"#,
     );
@@ -58,14 +58,14 @@ fn the_server_key_is_the_user_half_of_basic_and_the_colon_is_part_of_it() {
     );
 
     let colonless = server.post(
-        "/v2/account/authenticate/device",
+        "/v1/account/authenticate/device",
         Some("Basic ZGVmYXVsdGtleQ=="),
         "{}",
     );
     assert_eq!(colonless.refusal(UNAUTHENTICATED), "Server key invalid");
 
     let wrong = server.post(
-        "/v2/account/authenticate/device",
+        "/v1/account/authenticate/device",
         Some("Basic d3Jvbmc6"),
         "{}",
     );
@@ -76,18 +76,18 @@ fn the_server_key_is_the_user_half_of_basic_and_the_colon_is_part_of_it() {
 fn an_account_route_needs_a_session_and_will_not_take_the_server_key() {
     let server = V2Server::start(v2_state());
 
-    let no_credential = server.post("/v2/account/link/custom", None, r#"{"id":"abcdefgh"}"#);
+    let no_credential = server.post("/v1/account/link/custom", None, r#"{"id":"abcdefgh"}"#);
     assert_eq!(no_credential.status, 401);
     assert_eq!(
         no_credential.refusal(UNAUTHENTICATED),
         "Auth token required"
     );
 
-    let wrong_kind = server.post("/v2/account/unlink/custom", Some(&server_key()), "{}");
+    let wrong_kind = server.post("/v1/account/unlink/custom", Some(&server_key()), "{}");
     assert_eq!(wrong_kind.refusal(UNAUTHENTICATED), "Auth token invalid");
 
     let undecodable = server.post(
-        "/v2/account/unlink/custom",
+        "/v1/account/unlink/custom",
         Some("Bearer not.a.token"),
         "{}",
     );

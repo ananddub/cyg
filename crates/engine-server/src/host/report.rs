@@ -1,13 +1,8 @@
-
-use engine_bus::{
-    Bus, MatchFinished, RoomSnapshot,
-};
+use engine_bus::{Bus, MatchFinished, RoomSnapshot};
 use engine_net::framing::OpCode;
 use engine_net::transport::GameTransport;
 
-use crate::rooms::{
-    GameRoom, GameServer, RoomBackend,
-};
+use crate::rooms::{GameRoom, GameServer, RoomBackend};
 
 use crate::host::*;
 pub(crate) fn report_match(
@@ -23,12 +18,12 @@ pub(crate) fn report_match(
         room: name.to_string(),
         game_id: game_id.to_string(),
         end_reason: end_reason.to_string(),
-        started_at_unix: now - room.born.elapsed().as_secs() as i64,
+        started_at_unix: now - room.lifecycle.born.elapsed().as_secs() as i64,
         ended_at_unix: now,
         ticks: room.current_tick as i64,
         peak_players: peak_players as i64,
         snapshot_seq: room.snapshot_seq as i64,
-        result: room.result.clone().unwrap_or_default(),
+        result: room.result.as_deref().unwrap_or_default().to_vec(),
     });
 }
 
@@ -77,8 +72,8 @@ pub(crate) fn announce_closure(server: &GameServer, transport: &mut LoopTranspor
     for room in server.rooms.values() {
         let mut targets: Vec<&str> =
             Vec::with_capacity(room.sessions.len() + room.spectators.len());
-        targets.extend(room.sessions.keys().map(String::as_str));
-        targets.extend(room.spectators.iter().map(String::as_str));
+        targets.extend(room.sessions.keys().map(|s| s.as_ref()));
+        targets.extend(room.spectators.iter().map(|s| s.as_ref()));
         let _ = transport.send_to_many(&targets, OpCode::RoomDataBytes, &frame);
     }
     let _ = transport.flush();

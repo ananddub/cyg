@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::dto::iap::{PurchaseResponse, SubscriptionResponse};
 use crate::repositories::models::{Purchase, Subscription};
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct PurchaseRow {
     pub transaction_id: String,
     pub user_id: Uuid,
@@ -32,7 +32,7 @@ impl From<Purchase> for PurchaseRow {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct SubscriptionRow {
     pub original_transaction_id: String,
     pub user_id: Uuid,
@@ -62,7 +62,7 @@ impl From<Subscription> for SubscriptionRow {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct ConsoleValidateRequest {
     #[serde(default)]
     pub receipt: String,
@@ -102,12 +102,19 @@ impl ConsoleValidateRequest {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ValidatedPurchaseReply {
     pub validated_purchases: Vec<PurchaseResponse>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ValidatedSubscriptionReply {
     pub subscription: SubscriptionResponse,
+}
+
+/// The two shapes a vendor validation can answer with.
+#[derive(poem_openapi::Union, Debug)]
+pub enum ValidatedReplyResponse {
+    Purchase(ValidatedPurchaseReply),
+    Subscription(ValidatedSubscriptionReply),
 }

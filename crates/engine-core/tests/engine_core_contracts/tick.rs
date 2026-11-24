@@ -32,10 +32,7 @@ fn tick_runner_survivor_when_marker_removed_before_tick() {
         .spawn(Position2D::default())
         .insert(PendingDespawn)
         .id();
-    runner
-        .world
-        .entity_mut(marked)
-        .remove::<PendingDespawn>();
+    runner.world.entity_mut(marked).remove::<PendingDespawn>();
     runner.tick();
     assert!(runner.world.get_entity(marked).is_ok());
 }
@@ -48,13 +45,15 @@ fn tick_runner_tolerates_entity_despawned_by_a_system() {
         .spawn(Position2D::default())
         .insert(PendingDespawn)
         .id();
-    runner.add_system(move |mut commands: Commands, q: Query<Entity, With<Position2D>>| {
-        for e in &q {
-            if e == victim {
-                commands.entity(e).despawn();
+    runner.add_system(
+        move |mut commands: Commands, q: Query<Entity, With<Position2D>>| {
+            for e in &q {
+                if e == victim {
+                    commands.entity(e).despawn();
+                }
             }
-        }
-    });
+        },
+    );
     runner.tick();
     assert_eq!(runner.world.entities().len(), 0);
 }

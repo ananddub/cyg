@@ -14,32 +14,31 @@ struct ConsoleQuestController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/quests")]
+type QuestDefinitionRowList = Vec<crate::dto::console::quest::QuestDefinitionRow>;
+type SeasonRowList = Vec<crate::dto::console::quest::SeasonRow>;
+#[controller("/v1/console/quests")]
 impl ConsoleQuestController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = QuestDefinitionRowList)]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        self.service.list_quests(&state).await.into_response()
+        self.service.list_quests().await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::console::quest::QuestDefinitionRow)]
     async fn create(
         &self,
         auth: ConsoleAuthed,
         Json(body): JsonBody<QuestDefinitionRequest>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .create_quest(&state, &auth, body)
-            .await
-            .into_response()
+        self.service.create_quest(&auth, body).await.into_response()
     }
 
-    #[put("/{key}")]
+    #[put("/{key}", response_body = crate::dto::console::quest::QuestDefinitionRow)]
     async fn update(
         &self,
         auth: ConsoleAuthed,
@@ -48,18 +47,15 @@ impl ConsoleQuestController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_quest(&state, &auth, &key, body)
+            .update_quest(&auth, &key, body)
             .await
             .into_response()
     }
 
-    #[delete("/{key}")]
+    #[delete("/{key}", response_body = crate::dto::Empty)]
     async fn delete(&self, auth: ConsoleAuthed, Path(key): Path<String>) -> Response {
         let state = current_state();
-        self.service
-            .delete_quest(&state, &auth, &key)
-            .await
-            .into_response()
+        self.service.delete_quest(&auth, &key).await.into_response()
     }
 }
 
@@ -67,28 +63,28 @@ struct ConsoleSeasonController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/seasons")]
+#[controller("/v1/console/seasons")]
 impl ConsoleSeasonController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = SeasonRowList)]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        self.service.list_seasons(&state).await.into_response()
+        self.service.list_seasons().await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::console::quest::SeasonRow)]
     async fn create(&self, auth: ConsoleAuthed, Json(body): JsonBody<SeasonRequest>) -> Response {
         let state = current_state();
         self.service
-            .create_season(&state, &auth, body)
+            .create_season(&auth, body)
             .await
             .into_response()
     }
 
-    #[put("/{key}")]
+    #[put("/{key}", response_body = crate::dto::console::quest::SeasonRow)]
     async fn update(
         &self,
         auth: ConsoleAuthed,
@@ -97,16 +93,16 @@ impl ConsoleSeasonController {
     ) -> Response {
         let state = current_state();
         self.service
-            .update_season(&state, &auth, &key, body)
+            .update_season(&auth, &key, body)
             .await
             .into_response()
     }
 
-    #[delete("/{key}")]
+    #[delete("/{key}", response_body = crate::dto::Empty)]
     async fn delete(&self, auth: ConsoleAuthed, Path(key): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .delete_season(&state, &auth, &key)
+            .delete_season(&auth, &key)
             .await
             .into_response()
     }

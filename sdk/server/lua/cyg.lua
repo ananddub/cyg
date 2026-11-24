@@ -34,20 +34,23 @@ function CYG.Room:onCreate(max_clients)
     self.max_clients = max_clients or 16
 end
 
---- Called when a new player joins with authoritative spawn coordinates.
-function CYG.Room:onJoin(id, spawn_x, spawn_z)
+--- Called when a new player joins. `options` is the JSON the client passed
+--- to joinOrCreate (their name, skin, loadout — anything); the room spawns.
+function CYG.Room:onAuth(id, options, context) return "{}" end
+
+function CYG.Room:onJoin(id, options, auth)
     self.players[id] = {
         id = id,
-        x = spawn_x,
+        x = 60.0 + ((#(self.players or {}) + 1) * 97.0) % 680.0,
         y = 0.0,
-        z = spawn_z,
+        z = 60.0 + ((#(self.players or {}) + 1) * 61.0) % 380.0,
         health = 100.0,
         score = 0.0,
     }
 end
 
---- Called when a player leaves or disconnects.
-function CYG.Room:onLeave(id)
+--- Called when a player leaves. `consented` is false on a timeout or kick.
+function CYG.Room:onLeave(id, code)
     self.players[id] = nil
 end
 

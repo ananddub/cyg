@@ -1,8 +1,8 @@
 # Monitoring
 
 The control plane exposes Prometheus text at **`GET /metrics`**
-(`crates/engine-api/src/controllers/status.rs`). It is hand-rendered — there is
-no exporter crate in the binary. The endpoint is behind
+(`crates/engine-api/src/controllers/status.rs`). It is hand-rendered — the
+default binary contains no metrics exporter crate. The endpoint is behind
 `server_key_or_console`: authenticate with either the
 `[session] server_key` as HTTP Basic (`Basic base64(server_key:)`) or a Bearer
 console token. An unauthenticated scrape gets `401`, so the scrape config below
@@ -40,13 +40,46 @@ and alert on the current value, not `rate()`.
 ## Logs
 
 Default format is `tracing`'s compact line on stderr. Set
-`OX_LOG_FORMAT=json` for one JSON object per line (fields `timestamp`, `level`,
+`CYG_LOG_FORMAT=json` for one JSON object per line (fields `timestamp`, `level`,
 `fields.message`, and span fields). Every HTTP request runs inside an
 `http` span carrying `request_id` and `method`, so JSON logs are greppable by
 request id. `RUST_LOG` still controls the filter (default `info`). The sim's
 once-a-second `[status]` snapshot is logged at `debug`, so the default stream
 carries operator events rather than machine telemetry; use `RUST_LOG=debug`
 when you want the raw sample beside the metrics.
+
+## OpenTelemetry traces (optional)
+
+Traces are **off in the default build**. Build with the `otel` feature and point
+the process at an OTLP/HTTP collector:
+
+```bash
+cargo build --release --features otel
+OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 \
+OTEL_SERVICE_NAME=cyg \
+OTEL_TRACES_SAMPLER=parentbased_traceidratio \
+OTEL_TRACES_SAMPLER_ARG=0.1 \
+  ./target/release/cyg run .
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Collector base URL. Unset ⇒ the bridge is inert even in an `otel` build. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` takes precedence. |
+| `OTEL_SERVICE_NAME` | `cyg` | `service.name` resource attribute |
+| `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | `always_on`, `always_off`, `traceidratio`, `parentbased_*` |
+| `OTEL_TRACES_SAMPLER_ARG` | `1.0` | Ratio for `*traceidratio` samplers |
+| `OTEL_SDK_DISABLED` | unset | `true` turns the bridge off without a rebuild |
+
+The exporter uses OTLP/HTTP + protobuf (`/v1/traces`), so any collector that
+accepts 4318 works (Grafana Alloy, OpenTelemetry Collector, Jaeger's OTLP
+receiver). Spans are batched in a dedicated thread and flushed when the process
+exits cleanly; `std::process::exit` paths (startup failures) skip the flush.
+
+The `http` span carries `request_id`, `method`, `http.route` (the matched Axum
+path, not the raw URL) and `http.status_code`. With `CYG_LOG_FORMAT=json`, the
+same lines include the span's `trace_id`/`span_id`, so a log line and its trace
+can be joined. `/metrics`, Prometheus scraping and alert rules are unchanged —
+OpenTelemetry here is traces only, not a second metrics pipeline.
 
 ## Request ids
 
@@ -59,7 +92,7 @@ replaced with a fresh UUID v4.
 
 ```yaml
 scrape_configs:
-  - job_name: cyg-game
+  - job_name: cyg
     metrics_path: /metrics
     scheme: http                       # or https behind the ingress
     basic_auth:
@@ -73,7 +106,7 @@ Alert rules:
 
 ```yaml
 groups:
-  - name: cyg-game
+  - name: cyg
     rules:
       - alert: CygTickP99OverBudget
         expr: cyg_tick_budget_p99_us > cyg_nominal_tick_us

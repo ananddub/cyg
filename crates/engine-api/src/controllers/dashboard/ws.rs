@@ -45,12 +45,21 @@ impl DashboardWsController {
         Params(scope): Params<DashboardScope>,
     ) -> Response {
         let state = crate::current_state();
-        let token = scope.token.as_deref().or_else(|| bearer_token(&headers));
-        let Some(token) = token else {
-            return V2Error::unauthenticated("Console token required").into_response();
-        };
-        if let Err(err) = console_token_claims(token) {
-            return err.into_response();
+        // The dashboard socket carries the same console token as the REST calls.
+        // In an explicit dev session (`cyg run -d`) there is no token to carry,
+        // and requiring one would leave the dashboard live metrics permanently
+        // disconnected — so the handshake is allowed without it, but only from
+        // the machine running the process (same bar as the console REST grant).
+        let dev = state.dev_mode
+            && crate::current_remote().is_some_and(|remote| remote.ip().is_loopback());
+        if !dev {
+            let token = scope.token.as_deref().or_else(|| bearer_token(&headers));
+            let Some(token) = token else {
+                return V2Error::unauthenticated("Console token required").into_response();
+            };
+            if let Err(err) = console_token_claims(token) {
+                return err.into_response();
+            }
         }
         if let Err(err) = guard(&state, scope.game_id).await {
             return err.into_response();
@@ -76,7 +85,7 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
     let (mut sink, mut stream) = socket.split();
 
     if sink
-        .send(text_frame(&frames::hello_frame(&state)))
+        .send(text_frame(&frames::hello_frame(&*state.plane())))
         .await
         .is_err()
     {
@@ -125,7 +134,7 @@ async fn serve(socket: WebSocket, state: ApiState, game: Option<Uuid>) {
     loop {
         tokio::select! {
             _ = ticker.tick() => {
-                match tokio::time::timeout(SEND_GRACE, tx.send(frames::snapshot_frame(&state))).await {
+                match tokio::time::timeout(SEND_GRACE, tx.send(frames::snapshot_frame(&*state.plane()))).await {
                     Ok(Ok(())) => {}
                     Ok(Err(_)) => break,
                     Err(_) => dropped += 1,

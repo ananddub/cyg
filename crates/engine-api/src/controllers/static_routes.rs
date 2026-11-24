@@ -26,86 +26,71 @@ impl StaticRoutesController {
 
     #[get("/")]
     async fn root(&self) -> Response {
+        let state = current_state();
         self.service.serve_root()
     }
 
     #[get("/cyg.js")]
     async fn sdk(&self) -> Response {
         let state = current_state();
-        self.service.serve_sdk(&state)
+        self.service.serve_sdk()
+    }
+
+    #[get("/cyg_core_rs.wasm")]
+    async fn sdk_core_wasm(&self) -> Response {
+        let state = current_state();
+        self.service.serve_sdk_core_wasm()
     }
 
     #[get("/openoxide-client.js")]
     async fn sdk_client(&self) -> Response {
         let state = current_state();
-        self.service.serve_sdk(&state)
+        self.service.serve_sdk()
     }
 
     #[get("/arena_map.json")]
     async fn map(&self) -> Response {
         let state = current_state();
-        self.service.serve_map(&state)
+        self.service.serve_map()
     }
 
     #[get("/packages/sdk/dist/colyseus.js")]
     async fn sdk_bundle(&self) -> Response {
         let state = current_state();
-        self.service.serve_sdk_bundle(&state)
+        self.service.serve_sdk_bundle()
     }
 
     #[get("/node_modules/@colyseus/schema/build/index.mjs")]
     async fn schema(&self) -> Response {
         let state = current_state();
-        self.service.serve_schema(&state)
+        self.service.serve_schema()
     }
 
     #[get("/unity")]
     async fn unity(&self) -> Response {
         let state = current_state();
-        self.service.serve_unity_index(&state)
+        self.service.serve_unity_index()
     }
 
     #[get("/unity/{*rest}")]
     async fn unity_asset(&self, uri: OriginalUri) -> Response {
         let state = current_state();
-        self.service.serve_unity_asset(&state, uri.path())
+        self.service.serve_unity_asset(uri.path())
     }
 
     #[get("/Build/{*rest}")]
     async fn build_asset(&self, uri: OriginalUri) -> Response {
         let state = current_state();
-        self.service.serve_unity_asset(&state, uri.path())
+        self.service.serve_unity_asset(uri.path())
     }
 
     #[get("/TemplateData/{*rest}")]
     async fn template_data_asset(&self, uri: OriginalUri) -> Response {
         let state = current_state();
-        self.service.serve_unity_asset(&state, uri.path())
+        self.service.serve_unity_asset(uri.path())
     }
 }
 
 pub async fn fallback(State(state): State<ApiState>, OriginalUri(uri): OriginalUri) -> Response {
-    StaticRoutesService.fallback(&state, uri.path())
-}
-
-#[doc(hidden)]
-#[allow(non_snake_case)]
-fn __auto_route_factory_unity_index_slash<'a>(
-    _container: &'a auto_route::__private::auto_di::Container,
-) -> auto_route::__private::auto_di::BoxFuture<
-    'a,
-    Result<axum::Router<()>, auto_route::__private::auto_di::DiError>,
-> {
-    Box::pin(async move {
-        Ok(axum::Router::new().route("/unity/", axum::routing::get(unity_index_slash)))
-    })
-}
-
-async fn unity_index_slash() -> Response {
-    let state = current_state();
-    StaticRoutesService.serve_unity_index(&state)
-}
-
-auto_route::__private::inventory::submit! {
-    auto_route::RouteDescriptor::new(__auto_route_factory_unity_index_slash)
+    StaticRoutesService::new(state.plane()).fallback(uri.path())
 }

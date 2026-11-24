@@ -1,6 +1,6 @@
 use axum::routing::post;
 use axum::{Json, Router};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::*;
 
@@ -46,7 +46,9 @@ async fn a_production_receipt_is_recorded_with_its_transaction() {
     );
     let base = serve(app).await;
     let config = config(&format!("{base}/verify"), &format!("{base}/sandbox"));
-    let purchase = verify(&config, "receipt", None, None).await.expect("verified");
+    let purchase = verify(&config, "receipt", None, None)
+        .await
+        .expect("verified");
     assert_eq!(purchase.transaction_id, "2001");
     assert_eq!(purchase.product_id, "gem.small");
     assert_eq!(purchase.environment, 2);

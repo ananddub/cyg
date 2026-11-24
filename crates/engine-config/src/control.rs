@@ -1,8 +1,14 @@
-
 #[derive(Debug, Clone)]
 pub struct ControlConfig {
     pub enabled: bool,
     pub bind_addr: String,
+
+    /// Explicit dev opt-in: allow placeholder secrets to boot even when the
+    /// server is bound to a non-loopback address. Same power as the
+    /// CYG_ALLOW_DEFAULT_SECRETS=1 environment variable, but lives in
+    /// config.toml so `cyg run` works without exporting anything. Never set
+    /// this on a public box — it is the boot guard's off switch.
+    pub dev_mode: bool,
 
     pub api_port: u16,
     pub workers: usize,
@@ -11,6 +17,11 @@ pub struct ControlConfig {
     pub seat_secret: String,
     pub rate_limit_rps: u32,
     pub rate_limit_burst: u32,
+    /// Burst for the password routes (`/v1/account/authenticate*`,
+    /// `/v1/console/authenticate`). Each attempt runs Argon2, so this window is
+    /// deliberately much tighter than `rate_limit_burst` and does not scale with
+    /// the operator's traffic profile. Tests raise it; production does not.
+    pub auth_rate_limit_burst: u32,
     pub agones: AgonesConfig,
     pub quotas: crate::quota::QuotaConfig,
     pub session: crate::session::SessionConfig,
@@ -43,13 +54,18 @@ impl Default for ControlConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            bind_addr: "0.0.0.0".into(),
+            // Loopback: the *default* must never be the exposed one. An operator
+            // putting this on a public host opts in by editing config.toml (or
+            // setting the env var), and then also has to supply real secrets.
+            bind_addr: "127.0.0.1".into(),
+            dev_mode: false,
             api_port: 8124,
             workers: 2,
             seat_ttl_secs: 300,
             seat_secret: crate::game::DEV_SEAT_SECRET.into(),
             rate_limit_rps: 20,
             rate_limit_burst: 40,
+            auth_rate_limit_burst: 10,
             agones: AgonesConfig::default(),
             quotas: crate::quota::QuotaConfig::default(),
             session: crate::session::SessionConfig::default(),

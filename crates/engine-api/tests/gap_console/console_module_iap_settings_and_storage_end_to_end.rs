@@ -9,7 +9,7 @@ pub async fn console_module_iap_settings_and_storage_end_to_end() {
     let viewer_password = "e2e-console-viewer";
     json_body(
         env.client
-            .post(format!("{}/v2/console/user", env.base))
+            .post(format!("{}/v1/console/user", env.base))
             .bearer_auth(&console)
             .json(&json!({
                 "username": viewer_name,
@@ -35,7 +35,7 @@ pub async fn console_module_iap_settings_and_storage_end_to_end() {
 
     let trail = json_body(
         env.client
-            .get(format!("{}/v2/console/audit/log?limit=100", env.base))
+            .get(format!("{}/v1/console/audit/log?limit=100", env.base))
             .bearer_auth(&console)
             .send()
             .await

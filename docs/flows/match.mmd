@@ -1,0 +1,43 @@
+sequenceDiagram
+    autonumber
+    actor P as Player Client
+    participant API as Control Plane<br/>engine-api
+    participant SR as Seat Registry
+    participant ROOM as Game Room<br/>engine-net + WASM
+    participant DB as SurrealDB
+
+    P->>API: POST /v1/account/authenticate/device
+    API-->>P: token + user
+
+    P->>API: POST /matchmake/joinOrCreate/tank-3d<br/>{ name, skin }
+    API->>SR: mint seat(room, TTL, options)
+    SR-->>API: sessionId + reconnectionToken
+    API-->>P: seat JSON<br/>sessionId, gamePort, seatToken, iceServers
+
+    alt WebRTC available
+        P->>API: wss://host/ws/signal?seat=token
+        API-->>P: ICE config + SDP answer
+        P->>ROOM: DataChannel connect
+    else WebSocket fallback
+        P->>ROOM: ws://host:gamePort/room?sessionId=...
+    end
+
+    ROOM-->>P: schema descriptor + state snapshot
+    loop every tick
+        P->>ROOM: sendInput / send message
+        ROOM-->>P: state delta
+    end
+    Note over ROOM: onJoin · onMessage · onTick
+
+    ROOM->>API: mirrored gameplay events (record_events)
+    API->>DB: player_stat += 1
+
+    opt connection dropped
+        P->>API: POST /matchmake/reconnect<br/>{ reconnectionToken }
+        API-->>P: same seat
+    end
+
+    opt match end / authoritative result
+        ROOM->>API: POST /v1/match/{id}/result (server key)
+        API->>DB: scores + counters
+    end

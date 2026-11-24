@@ -1,4 +1,3 @@
-
 pub fn shutdown() -> Result<bool, String> {
     engine_agones::shutdown_sidecar()
 }
@@ -14,7 +13,6 @@ mod tests {
 
     #[test]
     fn shutdown_without_a_lifecycle_is_a_told_reason_not_a_panic() {
-
         let result = shutdown();
         assert!(result.is_ok() || result.unwrap_err().contains("no Agones lifecycle"));
     }

@@ -17,22 +17,21 @@ struct ConsoleLeaderboardController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/leaderboard")]
+type LeaderboardRowList = Vec<crate::dto::console::leaderboard::LeaderboardRow>;
+type LeaderboardRecordRowList = Vec<crate::dto::console::leaderboard::LeaderboardRecordRow>;
+#[controller("/v1/console/leaderboard")]
 impl ConsoleLeaderboardController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = LeaderboardRowList)]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service
-            .list_leaderboards(&state, page)
-            .await
-            .into_response()
+        self.service.list_leaderboards(page).await.into_response()
     }
 
-    #[get("/{id}")]
+    #[get("/{id}", response_body = crate::dto::console::leaderboard::LeaderboardRow)]
     async fn get(
         &self,
         _auth: ConsoleAuthed,
@@ -43,13 +42,10 @@ impl ConsoleLeaderboardController {
         if let Err(err) = guard_board(&state, scope.id(), &id).await {
             return err.into_response();
         }
-        self.service
-            .get_leaderboard(&state, &id)
-            .await
-            .into_response()
+        self.service.get_leaderboard(&id).await.into_response()
     }
 
-    #[get("/{id}/records")]
+    #[get("/{id}/records", response_body = LeaderboardRecordRowList)]
     async fn records(
         &self,
         _auth: ConsoleAuthed,
@@ -61,12 +57,12 @@ impl ConsoleLeaderboardController {
             return err.into_response();
         }
         self.service
-            .list_leaderboard_records(&state, &id)
+            .list_leaderboard_records(&id)
             .await
             .into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,
@@ -78,12 +74,12 @@ impl ConsoleLeaderboardController {
             return err.into_response();
         }
         self.service
-            .delete_leaderboard(&state, &auth, &id)
+            .delete_leaderboard(&auth, &id)
             .await
             .into_response()
     }
 
-    #[delete("/{id}/owner/{owner_id}")]
+    #[delete("/{id}/owner/{owner_id}", response_body = crate::dto::Empty)]
     async fn delete_record(
         &self,
         auth: ConsoleAuthed,
@@ -95,7 +91,7 @@ impl ConsoleLeaderboardController {
             return err.into_response();
         }
         self.service
-            .delete_leaderboard_record(&state, &auth, &id, &owner_id)
+            .delete_leaderboard_record(&auth, &id, &owner_id)
             .await
             .into_response()
     }
@@ -105,22 +101,19 @@ struct ConsoleTournamentController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/tournament")]
+#[controller("/v1/console/tournament")]
 impl ConsoleTournamentController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = LeaderboardRowList)]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service
-            .list_tournaments(&state, page)
-            .await
-            .into_response()
+        self.service.list_tournaments(page).await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::tournament::TournamentResponse)]
     async fn create(
         &self,
         auth: ConsoleAuthed,
@@ -129,12 +122,12 @@ impl ConsoleTournamentController {
     ) -> Response {
         let state = current_state();
         self.service
-            .create_tournament(&state, &auth, scope.id(), body)
+            .create_tournament(&auth, scope.id(), body)
             .await
             .into_response()
     }
 
-    #[put("/{id}")]
+    #[put("/{id}", response_body = crate::dto::tournament::TournamentResponse)]
     async fn update(
         &self,
         auth: ConsoleAuthed,
@@ -147,12 +140,12 @@ impl ConsoleTournamentController {
             return err.into_response();
         }
         self.service
-            .update_tournament(&state, &auth, &id, body)
+            .update_tournament(&auth, &id, body)
             .await
             .into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,
@@ -164,7 +157,7 @@ impl ConsoleTournamentController {
             return err.into_response();
         }
         self.service
-            .delete_tournament(&state, &auth, &id)
+            .delete_tournament(&auth, &id)
             .await
             .into_response()
     }
@@ -175,7 +168,7 @@ async fn guard_board(
     game: Option<uuid::Uuid>,
     id: &str,
 ) -> Result<(), V2Error> {
-    if tenant::board_in_game(state, game, id).await? {
+    if tenant::board_in_game(&*state.plane(), game, id).await? {
         Ok(())
     } else {
         Err(V2Error::not_found("Leaderboard not found."))
@@ -187,7 +180,7 @@ async fn guard_tournament(
     game: Option<uuid::Uuid>,
     id: &str,
 ) -> Result<(), V2Error> {
-    if tenant::board_in_game(state, game, id).await? {
+    if tenant::board_in_game(&*state.plane(), game, id).await? {
         Ok(())
     } else {
         Err(V2Error::not_found("Tournament not found."))

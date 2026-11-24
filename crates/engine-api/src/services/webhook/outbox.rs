@@ -1,16 +1,16 @@
+use crate::services::plane::Plane;
+
 use axum::Json;
 use chrono::Utc;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::webhook::{DeliveryListResponse, DeliveryRow};
 use crate::error::V2Error;
 use crate::repositories::models::{WebhookDelivery, WebhookEndpoint};
 use crate::repositories::webhook::QUEUED;
 use crate::services::console::{audit, id};
-use crate::services::deps::q;
 use crate::services::quota;
 
 use super::WebhookService;
@@ -24,8 +24,8 @@ const PAGE: i64 = 100;
 ///
 /// `key` is the fact's own identity — the account id, the transaction id, the
 /// listing id — and it is what a replayed request cannot queue twice.
-pub(crate) async fn emit(state: &ApiState, event: &str, key: &str, payload: Value) {
-    let Ok(queries) = q(state).await else { return };
+pub(crate) async fn emit(plane: &Plane, event: &str, key: &str, payload: Value) {
+    let Ok(queries) = plane.q().await else { return };
     let Ok(rows) = queries.active_endpoints().await else {
         tracing::warn!("[webhook] {event} could not be fanned out");
         return;
@@ -71,11 +71,11 @@ pub(crate) fn asks_for(endpoint: &WebhookEndpoint, event: &str) -> bool {
 impl WebhookService {
     pub async fn list_deliveries(
         &self,
-        state: &ApiState,
+
         endpoint_id: &str,
     ) -> Result<Json<DeliveryListResponse>, V2Error> {
         let id = id(endpoint_id, "webhook endpoint")?;
-        let rows = q(state).await?.list_deliveries(id, PAGE).await?;
+        let rows = self.plane.q().await?.list_deliveries(id, PAGE).await?;
         Ok(Json(DeliveryListResponse {
             success: true,
             deliveries: rows.iter().map(DeliveryRow::from).collect(),
@@ -87,7 +87,7 @@ impl WebhookService {
     /// the ceiling is what stops a receiver that is down from being hammered.
     pub async fn retry_delivery(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         endpoint_id: &str,
         delivery_id: &str,
@@ -98,9 +98,9 @@ impl WebhookService {
         // An operator re-queue costs an outbound post, so it is charged like a
         // player's spend. An id that is no account id cannot be bucketed.
         if let Some(actor) = claims.0.uuid() {
-            quota::charge(state, actor, quota::WEBHOOK_RETRY, 1).await?;
+            quota::charge(&self.plane, actor, quota::WEBHOOK_RETRY, 1).await?;
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let Some(row) = queries.delivery(delivery_id).await? else {
             return Err(V2Error::not_found("Webhook delivery not found."));
         };
@@ -113,7 +113,7 @@ impl WebhookService {
             ));
         }
         audit(
-            state,
+            &self.plane,
             claims,
             "webhook.retry",
             "webhook",

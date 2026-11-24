@@ -16,7 +16,7 @@ fn publish_to_an_unknown_seat_is_refused_and_counted() {
 #[test]
 fn a_full_per_seat_queue_drops_and_counts_without_blocking_the_publisher() {
     let hub = SignalHub::new("[]".into());
-    let mut replies = hub.attach("seat");
+    let mut replies = hub.attach("seat").expect("fresh route attaches");
     for i in 0..PER_SEAT_QUEUE {
         assert!(hub.publish("seat", SignalOut::Answer { sdp: i.to_string() }));
     }
@@ -46,19 +46,26 @@ fn a_full_per_seat_queue_drops_and_counts_without_blocking_the_publisher() {
 }
 
 #[test]
-fn attach_replaces_the_route_and_detach_respects_generation() {
+fn attach_refuses_a_live_route_and_takes_over_a_dropped_one() {
     let hub = SignalHub::new("[]".into());
-    let first = hub.attach("seat");
-    let _second = hub.attach("seat");
+    let first = hub.attach("seat").expect("fresh route attaches");
+    assert!(
+        hub.attach("seat").is_none(),
+        "a live route cannot be hijacked by a second attach"
+    );
     assert_eq!(hub.peers(), 1, "one route per seat");
-    drop(first);
-    assert_eq!(hub.peers(), 1);
     assert!(hub.publish("seat", SignalOut::Answer { sdp: "v=0".into() }));
     assert_eq!(hub.counts(), (1, 0));
+    drop(first);
+    assert_eq!(hub.peers(), 0);
+    let _second = hub.attach("seat").expect("a closed route is taken over");
+    assert_eq!(hub.peers(), 1);
+    assert!(hub.publish("seat", SignalOut::Answer { sdp: "v=0".into() }));
+    assert_eq!(hub.counts(), (2, 0));
     drop(_second);
     assert_eq!(hub.peers(), 0);
     assert!(!hub.publish("seat", SignalOut::Answer { sdp: "v=0".into() }));
-    assert_eq!(hub.counts(), (1, 1));
+    assert_eq!(hub.counts(), (2, 1));
 }
 
 #[test]
@@ -74,6 +81,7 @@ fn the_inbound_queue_is_bounded_and_post_never_blocks() {
         room: "r".into(),
         token: "t".into(),
         expires_at: u64::MAX,
+        options: String::new(),
     };
     for _ in 0..INBOUND_QUEUE {
         assert!(hub.post(SignalIn::Offer {

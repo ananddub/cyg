@@ -1,4 +1,3 @@
-
 use std::io::Write;
 
 use bytes::{Buf, BufMut, BytesMut};
@@ -109,6 +108,5 @@ pub fn finish_close(client: WsClient) {
         let std_stream: std::net::TcpStream = client.stream.into();
         let _ = std_stream.set_nonblocking(false);
         let _ = (&std_stream).write_all(&client.send_queue);
-
     }
 }

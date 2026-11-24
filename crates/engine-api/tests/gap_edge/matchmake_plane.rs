@@ -40,9 +40,14 @@ pub async fn matchmake_plane(env: &Harness) -> String {
             Some(env.port as i64),
             "{method}: the control port is the socket the client just dialled"
         );
-        assert!(
-            body["udpPort"].as_i64().unwrap_or_default() > 0,
-            "{method}: a udp port is offered: {body}"
+        // The [transports] switch leaves the UDP lane OFF by default, and an
+        // off lane advertises udpPort = 0 — the native client's signal to use
+        // WebSocket instead. The lane-on value (game.port + 1) is asserted in
+        // the sdk_json unit tests where the lane is explicitly enabled.
+        assert_eq!(
+            body["udpPort"].as_i64(),
+            Some(0),
+            "{method}: the off-by-default UDP lane advertises 0, not a dead port: {body}"
         );
         assert_eq!(
             body["iceServers"].as_str(),
@@ -65,13 +70,13 @@ pub async fn matchmake_plane(env: &Harness) -> String {
 
     json_body(
         env.client
-            .post(format!("{}/api/matchmake/create/{room}", env.base))
+            .post(format!("{}/matchmake/create/{room}", env.base))
             .body("{}")
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /api/matchmake/create/{room}",
+        "POST /matchmake/create/{room}",
     )
     .await;
 

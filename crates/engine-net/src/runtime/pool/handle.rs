@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
@@ -13,7 +12,6 @@ pub struct WorkerPoolHandle {
 }
 
 impl WorkerPoolHandle {
-
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
     }

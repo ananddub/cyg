@@ -1,9 +1,6 @@
 use super::SocketIdentity;
 use crate::{
-    auth::AUTHENTICATOR,
-    rooms::SocketSubscriptions,
-    rooms::release,
-    state::ACCESS_ENDPOINTS,
+    auth::AUTHENTICATOR, rooms::SocketSubscriptions, rooms::release, state::ACCESS_ENDPOINTS,
 };
 use socketioxide::{
     extract::{Data, SocketRef},

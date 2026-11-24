@@ -41,12 +41,12 @@ spec:
           env:
             - name: RUST_LOG
               value: info
-            - name: OX_LOG_FORMAT
+            - name: CYG_LOG_FORMAT
               value: json
-            # OX_ALLOW_DEFAULT_SECRETS is deliberately absent: the boot guard in
+            # CYG_ALLOW_DEFAULT_SECRETS is deliberately absent: the boot guard in
             # engine-control refuses default signing keys, seat secret, server
             # key and console password unless it is set to 1.
-            - name: OX_NODE_ID
+            - name: CYG_NODE_ID
               valueFrom:
                 fieldRef: { fieldPath: metadata.name }
           envFrom:

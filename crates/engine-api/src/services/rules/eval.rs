@@ -12,6 +12,12 @@
 
 use serde_json::Value;
 
+mod compare;
+
+pub(crate) use super::action::parse_actions;
+pub use super::action::{Action, Limits};
+use compare::{compare, lookup};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleError {
     /// The dotted path inside the rule body the problem sits at, `all[2].op`.
@@ -34,12 +40,25 @@ impl std::fmt::Display for RuleError {
     }
 }
 
-const OPERATORS: [&str; 8] = ["eq", "ne", "gt", "gte", "lt", "lte", "in", "contains"];
+const OPERATORS: [&str; 11] = [
+    "eq",
+    "ne",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "in",
+    "contains",
+    "between",
+    "within_days",
+    "older_than_days",
+];
 
 /// Checks the whole body without evaluating it, so an operator console can
 /// refuse a rule at write time with the exact field error.
 pub fn validate(body: &Value) -> Result<(), RuleError> {
-    parse(body, "").map(|_| ())
+    parse(body, "")?;
+    parse_actions(body, "").map(|_| ())
 }
 
 /// Evaluates the rule against `context` (a JSON object, usually a player's
@@ -50,6 +69,23 @@ pub fn evaluate(body: &Value, context: &Value) -> Result<bool, RuleError> {
     Ok(expr.matches(context))
 }
 
+/// Evaluates the rule and reports what a match should do.
+///
+/// Actions come back only when the rule matched, so a caller cannot apply a
+/// reward it did not earn. A rule with no `actions` returns an empty list, which
+/// is the whole of a condition-only rule's behaviour.
+pub fn evaluate_with_actions(
+    body: &Value,
+    context: &Value,
+) -> Result<(bool, Vec<Action>), RuleError> {
+    let expr = parse(body, "")?;
+    let matched = expr.matches(context);
+    if !matched {
+        return Ok((false, Vec::new()));
+    }
+    Ok((true, parse_actions(body, "")?))
+}
+
 #[derive(Debug)]
 enum Expr {
     All(Vec<Expr>),
@@ -58,7 +94,11 @@ enum Expr {
     Cmp {
         field: String,
         op: String,
-        value: Value,
+        value: Option<Value>,
+        /// A named variable from the rule's `variables` (or any context field).
+        /// When set, it — not `value` — is the expected side of the comparison,
+        /// so an operator tunes the threshold without republishing the rule.
+        var: Option<String>,
     },
     Truth(bool),
 }
@@ -70,74 +110,28 @@ impl Expr {
             Expr::Any(children) => children.iter().any(|child| child.matches(context)),
             Expr::Not(child) => !child.matches(context),
             Expr::Truth(value) => *value,
-            Expr::Cmp { field, op, value } => match lookup(context, field) {
-                // A field the context never set is not null — only `ne` can
-                // succeed against it, every other comparison is false.
-                None => op == "ne",
-                Some(actual) => compare(actual, op, value),
-            },
+            Expr::Cmp {
+                field,
+                op,
+                value,
+                var,
+            } => {
+                let expected = match var {
+                    Some(name) => lookup(context, name),
+                    None => value.as_ref().map(|value| value as &Value),
+                };
+                match (lookup(context, field), expected) {
+                    // A field the context never set is not null — only `ne` can
+                    // succeed against it, every other comparison is false.
+                    (None, _) => op == "ne",
+                    // A variable that resolves to nothing behaves like a
+                    // missing field: false for everything but `ne`, rather
+                    // than a rule that silently matches everything.
+                    (Some(_), None) => false,
+                    (Some(actual), Some(expected)) => compare(actual, op, expected),
+                }
+            }
         }
-    }
-}
-
-fn lookup<'a>(context: &'a Value, field: &str) -> Option<&'a Value> {
-    let mut current = context;
-    for part in field.split('.') {
-        match current.get(part) {
-            Some(next) => current = next,
-            None => return None,
-        }
-    }
-    Some(current)
-}
-
-fn compare(actual: &Value, op: &str, expected: &Value) -> bool {
-    match op {
-        "eq" => values_equal(actual, expected),
-        "ne" => !values_equal(actual, expected),
-        "in" => expected
-            .as_array()
-            .is_some_and(|items| items.iter().any(|item| values_equal(actual, item))),
-        "contains" => match actual {
-            Value::Array(items) => items.iter().any(|item| values_equal(item, expected)),
-            Value::String(text) => expected
-                .as_str()
-                .is_some_and(|needle| text.contains(needle)),
-            _ => false,
-        },
-        ordering => match (as_number(actual), as_number(expected)) {
-            (Some(left), Some(right)) => match ordering {
-                "gt" => left > right,
-                "gte" => left >= right,
-                "lt" => left < right,
-                "lte" => left <= right,
-                _ => false,
-            },
-            _ => match (actual.as_str(), expected.as_str()) {
-                (Some(left), Some(right)) => match ordering {
-                    "gt" => left > right,
-                    "gte" => left >= right,
-                    "lt" => left < right,
-                    "lte" => left <= right,
-                    _ => false,
-                },
-                _ => false,
-            },
-        },
-    }
-}
-
-fn values_equal(left: &Value, right: &Value) -> bool {
-    match (as_number(left), as_number(right)) {
-        (Some(a), Some(b)) => (a - b).abs() < f64::EPSILON,
-        _ => left == right,
-    }
-}
-
-fn as_number(value: &Value) -> Option<f64> {
-    match value {
-        Value::Number(number) => number.as_f64(),
-        _ => None,
     }
 }
 
@@ -214,19 +208,51 @@ fn parse_comparison(
             format!("op is one of {}", OPERATORS.join(", ")),
         ));
     }
-    let value = object
-        .get("value")
-        .ok_or_else(|| RuleError::at(&child_path(path, "value"), "a comparison needs a value"))?;
-    if op == "in" && !value.is_array() {
+    // An explicit null is a literal like any other — a rule may compare a
+    // field against null — while an absent key means nothing was written.
+    let value = object.get("value");
+    let var = object
+        .get("var")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+    // A comparison expects exactly one expected side: a literal value or a
+    // variable name. Both is a typo someone must resolve, neither is a rule
+    // that could never match anything.
+    match (value, &var) {
+        (Some(_), Some(_)) => {
+            return Err(RuleError::at(
+                &child_path(path, "var"),
+                "state the expected side once — as value or as var, not both",
+            ));
+        }
+        (None, None) => {
+            return Err(RuleError::at(
+                &child_path(path, "value"),
+                "a comparison needs a value or a var",
+            ));
+        }
+        _ => {}
+    }
+    let value = value.cloned().unwrap_or(Value::Null);
+    if op == "in" && !var.is_some() && !value.is_array() {
         return Err(RuleError::at(
             &child_path(path, "value"),
             "in compares against an array of values",
         ));
     }
+    if op == "between" && value.as_array().is_none_or(|bounds| bounds.len() != 2) {
+        return Err(RuleError::at(
+            &child_path(path, "value"),
+            "between compares against a two-element [low, high] array",
+        ));
+    }
     Ok(Expr::Cmp {
         field: field.trim().to_owned(),
         op: op.to_owned(),
-        value: value.clone(),
+        value: if var.is_some() { None } else { Some(value) },
+        var,
     })
 }
 
@@ -239,102 +265,4 @@ fn child_path(path: &str, key: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn context() -> Value {
-        json!({ "kills": 12, "rank": "gold", "wins": 3.5, "badges": ["sharpshooter", "veteran"] })
-    }
-
-    #[test]
-    fn comparison_operators_follow_their_truth_tables() {
-        let ctx = context();
-        let cases = [
-            (json!({"field": "kills", "op": "gte", "value": 12}), true),
-            (json!({"field": "kills", "op": "gt", "value": 12}), false),
-            (json!({"field": "kills", "op": "lt", "value": 12.5}), true),
-            (json!({"field": "kills", "op": "lte", "value": 12}), true),
-            (json!({"field": "rank", "op": "eq", "value": "gold"}), true),
-            (json!({"field": "rank", "op": "ne", "value": "gold"}), false),
-            (
-                json!({"field": "rank", "op": "lt", "value": "silver"}),
-                true,
-            ),
-            (
-                json!({"field": "missing", "op": "eq", "value": null}),
-                false,
-            ),
-            (json!({"field": "missing", "op": "ne", "value": 1}), true),
-            (
-                json!({"field": "rank", "op": "in", "value": ["bronze", "gold"]}),
-                true,
-            ),
-            (
-                json!({"field": "rank", "op": "in", "value": ["bronze", "silver"]}),
-                false,
-            ),
-            (
-                json!({"field": "badges", "op": "contains", "value": "veteran"}),
-                true,
-            ),
-            (
-                json!({"field": "badges", "op": "contains", "value": "rookie"}),
-                false,
-            ),
-        ];
-        for (body, expected) in cases {
-            assert_eq!(
-                evaluate(&body, &ctx).expect("valid rule"),
-                expected,
-                "case {body}"
-            );
-        }
-    }
-
-    #[test]
-    fn groups_compose_and_not_negates() {
-        let ctx = context();
-        let all = json!({ "all": [
-            {"field": "kills", "op": "gte", "value": 10},
-            {"any": [
-                {"field": "rank", "op": "eq", "value": "gold"},
-                {"field": "rank", "op": "eq", "value": "platinum"}
-            ]}
-        ]});
-        assert!(evaluate(&all, &ctx).unwrap());
-        let not = json!({ "not": {"field": "kills", "op": "gte", "value": 100} });
-        assert!(evaluate(&not, &ctx).unwrap());
-        let failing = json!({ "all": [
-            {"field": "kills", "op": "gte", "value": 10},
-            {"field": "wins", "op": "gt", "value": 10}
-        ]});
-        assert!(!evaluate(&failing, &ctx).unwrap());
-    }
-
-    #[test]
-    fn invalid_bodies_fail_with_the_exact_field() {
-        let err = validate(&json!({"field": "kills", "op": "between", "value": 1}))
-            .expect_err("unknown op is refused");
-        assert_eq!(err.path, "op");
-        let err = validate(&json!({"field": "kills", "op": "in", "value": 3}))
-            .expect_err("in needs an array");
-        assert_eq!(err.path, "value");
-        let err = validate(&json!({"all": []})).expect_err("empty group is refused");
-        assert_eq!(err.path, "all");
-        let err = validate(&json!({"not": {"field": "kills", "op": "eq", "value": 1}, "any": []}))
-            .expect_err("not holds nothing else");
-        assert!(err.message.contains("exactly one"));
-        let err = validate(&json!("kills > 10")).expect_err("a bare string is not a rule");
-        assert_eq!(err.path, "");
-    }
-
-    #[test]
-    fn a_valid_body_validates_cleanly() {
-        let body = json!({ "all": [
-            {"field": "kills", "op": "gte", "value": 1},
-            {"not": {"field": "rank", "op": "contains", "value": "bot"}}
-        ]});
-        assert!(validate(&body).is_ok());
-    }
-}
+mod tests;

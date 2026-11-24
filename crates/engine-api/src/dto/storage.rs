@@ -9,7 +9,7 @@ fn is_zero(value: &i32) -> bool {
     *value == 0
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(poem_openapi::Object, Debug, Clone, Serialize)]
 pub struct StorageObject {
     pub collection: String,
     pub key: String,
@@ -40,7 +40,7 @@ impl From<StorageRow> for StorageObject {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(poem_openapi::Object, Debug, Clone, Serialize)]
 pub struct StorageObjectAck {
     pub collection: String,
     pub key: String,
@@ -63,19 +63,19 @@ impl StorageObjectAck {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct StorageObjects {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub objects: Vec<StorageObject>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct StorageObjectAcks {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub acks: Vec<StorageObjectAck>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct StorageObjectList {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub objects: Vec<StorageObject>,

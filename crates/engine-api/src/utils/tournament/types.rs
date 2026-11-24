@@ -36,6 +36,9 @@ pub const MAX_SIZE: &str = "Tournament has reached max size.";
 pub const MAX_SIZE_JOIN: &str = "Tournament cannot be joined as it has reached its max size.";
 pub const MAX_ATTEMPTS: &str = "Reached allowed max number of score attempts.";
 pub const JOIN_REQUIRED: &str = "Must join tournament before attempting to write value.";
+pub const RULE_NOT_MET: &str = "Player does not meet the tournament rule.";
+pub const RULE_UNAVAILABLE: &str = "Tournament rule is not published.";
+pub const RULE_INVALID: &str = "Tournament rule could not be evaluated.";
 
 pub const MAX_LIMIT: i64 = 100;
 pub const DEFAULT_RECORD_LIMIT: i64 = 10;

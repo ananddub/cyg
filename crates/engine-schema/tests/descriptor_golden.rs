@@ -1,4 +1,3 @@
-
 use engine_schema::{generate_with_root, ts};
 
 const SCHEMA_TS: &str = r#"
@@ -25,13 +24,14 @@ fn descriptor_bytes_are_stable() {
     let generated = generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
     assert_eq!(
         hex(&generated.descriptor),
-        "4f585344030001000600506c6179657201000000fc46d74403000100780600000100790600000500666c6167730300000500537461746501000000bd427b23000001000700706c61796572730000",
+        "4f585344060001000600506c6179657201000000fc46d7440300010078060000000000000000000000000001007906000000000000000000000000000500666c6167730300000000a0000000000000804f0500537461746501000000bd427b23000001000700706c61796572730000",
         "descriptor layout changed; bump DESCRIPTOR_VERSION and update clients"
     );
-    assert_eq!(generated.descriptor.len(), 78);
+    assert_eq!(generated.descriptor.len(), 111);
     assert_eq!(
-        generated.descriptor[4], 3,
-        "v3 adds per-field flags and element codes"
+        generated.descriptor[4],
+        engine_schema::DESCRIPTOR_VERSION,
+        "this build emits exactly one descriptor version"
     );
 
     assert_eq!(
@@ -44,7 +44,7 @@ fn descriptor_bytes_are_stable() {
 }
 
 #[test]
-fn descriptor_v3_encodes_strings_arrays_and_flags() {
+fn descriptor_v6_encodes_strings_arrays_and_flags() {
     let parsed = ts::parse(
         r#"
         const Player = schema({
@@ -65,8 +65,8 @@ fn descriptor_v3_encodes_strings_arrays_and_flags() {
 
     assert_eq!(
         hex(&generated.descriptor),
-        "4f585344030001000600506c617965720100000003d08ce0050004006e616d650b0000050073636f72650601000900637265617465644174030200030061696d0c00050e007472616e7369656e744669656c640104000500537461746501000000bd0e90c1010005007469746c650b000001000700706c61796572730000",
-        "v3 field records: name, code, flags, element"
+        "4f585344060001000600506c617965720100000003d08ce0050004006e616d650b00000000000000000000000000050073636f7265060100000000000000000000000009006372656174656441740302000000a0000000000000804f030061696d0c000500000000000000000000000e007472616e7369656e744669656c640104000000880000000000007f430500537461746501000000bd0e90c1010005007469746c650b0000000000000000000000000001000700706c61796572730000",
+        "v6 field records: name, code, flags, element, nested path, encoding"
     );
 
     let server = &generated.server_ts;
@@ -88,7 +88,7 @@ fn descriptor_v3_encodes_strings_arrays_and_flags() {
 }
 
 #[test]
-fn generated_types_expose_generic_room_state_and_colyseus_shim() {
+fn generated_types_expose_generic_room_state_and_schema_shim() {
     let parsed = ts::parse(SCHEMA_TS).expect("schema.ts parses");
     let generated = generate_with_root(&parsed.schemas, parsed.root.as_ref(), "schema.ts");
     let dts = &generated.client_dts;
@@ -96,7 +96,7 @@ fn generated_types_expose_generic_room_state_and_colyseus_shim() {
     assert!(dts.contains("export interface PlayerState {"));
     assert!(dts.contains("players: SchemaMap<PlayerState>;"));
     assert!(dts.contains("export type GameRoom = CYGRoom<GameState>;"));
-    assert!(dts.contains("declare module \"@colyseus/schema\""));
+    assert!(dts.contains("declare module \"cyg\""));
     assert!(dts.contains("export function schema<"));
 }
 

@@ -4,7 +4,7 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
     eprintln!("e2e: iap");
     let alice = device_player(client, base, "iap-a").await;
     let suffix = letters_suffix();
-    let iap = format!("{base}/v2/iap");
+    let iap = format!("{base}/v1/iap");
 
     refusal(
         client
@@ -142,7 +142,7 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
         })
         .collect();
     assert_eq!(seen.len(), 3);
-    let cursor = first["next_cursor"]
+    let cursor = first["nextPageToken"]
         .as_str()
         .expect("a purchase cursor")
         .to_owned();
@@ -173,7 +173,7 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
             }),
     );
     assert_eq!(seen.len(), 6);
-    let cursor = second["next_cursor"]
+    let cursor = second["nextPageToken"]
         .as_str()
         .expect("the page was full")
         .to_owned();
@@ -188,7 +188,7 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
     )
     .await;
     assert!(third["purchases"].as_array().expect("purchases").is_empty());
-    assert_eq!(third["next_cursor"], "");
+    assert_eq!(third["nextPageToken"], "");
 
     let recovered = api_get(
         client,
@@ -417,7 +417,7 @@ pub async fn iap_surface(client: &Client, base: &str, pool: &Datastore) {
         "first subscription page",
     )
     .await;
-    let cursor = page["next_cursor"]
+    let cursor = page["nextPageToken"]
         .as_str()
         .expect("a subscription cursor")
         .to_owned();

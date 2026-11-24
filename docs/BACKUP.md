@@ -44,7 +44,7 @@ second location before deleting the local one. The archives contain record data
    a half-applied target.
 4. Boot the server pointed at the restored coordinates.
 5. Smoke checks: `/health`, `/status` room counts, one login, one leaderboard
-   read, `/v2/account/export` for a fixture user.
+   read, `/v1/account/export` for a fixture user.
 6. Record elapsed time; compare with the RTO above.
 7. Note in the log: who drilled, which archive, outcome.
 

@@ -1,9 +1,10 @@
 // =============================================================================
-// CYG Game Server — Guest Room SDK for C# (.NET 8 NativeAOT / wasi-wasm)
+// CYG Game Server — Guest Room SDK for C# (.NET 8/9 wasi-wasm)
 // =============================================================================
 
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace CYG
 {
@@ -18,10 +19,11 @@ namespace CYG
         public abstract void OnCreate(int maxClients);
 
         /// <summary>Called when a player joins.</summary>
-        public abstract void OnJoin(long id, double spawnX, double spawnZ);
+        public virtual string OnAuth(long id, string options, string context) { return "{}"; }
+        public abstract void OnJoin(long id, string options, string auth);
 
         /// <summary>Called when a player disconnects.</summary>
-        public abstract void OnLeave(long id);
+        public abstract void OnLeave(long id, int code);
 
         /// <summary>Called on inbound client input packet.</summary>
         public abstract void OnInput(long id, ReadOnlySpan<byte> data);
@@ -49,6 +51,59 @@ namespace CYG
         {
             return ((long)ptr.ToInt64() << 32) | ((long)len & 0xFFFFFFFFL);
         }
+
+        /// <summary>Logs a message to the CYG server host logger.</summary>
+        public static void Log(string msg)
+        {
+            if (string.IsNullOrEmpty(msg)) return;
+            var bytes = Encoding.UTF8.GetBytes(msg);
+            GCHandle pin = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+            try {
+                CYGHost.host_log(pin.AddrOfPinnedObject(), bytes.Length);
+            } finally {
+                pin.Free();
+            }
+        }
+
+        /// <summary>Broadcasts a typed event message to all players in the room.</summary>
+        public static void Broadcast(string eventType, byte[] payload)
+        {
+            SendTo(0, eventType, payload);
+        }
+
+        /// <summary>Sends a typed event message to a specific player in the room.</summary>
+        public static void SendTo(long target, string eventType, byte[] payload)
+        {
+            var typeBytes = Encoding.UTF8.GetBytes(eventType ?? "");
+            payload ??= Array.Empty<byte>();
+
+            GCHandle pinType = GCHandle.Alloc(typeBytes, GCHandleType.Pinned);
+            GCHandle pinData = GCHandle.Alloc(payload, GCHandleType.Pinned);
+            try {
+                CYGHost.host_send(target, pinType.AddrOfPinnedObject(), typeBytes.Length, pinData.AddrOfPinnedObject(), payload.Length);
+            } finally {
+                pinType.Free();
+                pinData.Free();
+            }
+        }
+
+        /// <summary>Disconnects and kicks a player from the room.</summary>
+        public static void Kick(long playerId)
+        {
+            CYGHost.host_kick(playerId);
+        }
+    }
+
+    internal static class CYGHost
+    {
+        [DllImport("cyg", EntryPoint = "host_log")]
+        internal static extern int host_log(IntPtr ptr, int len);
+
+        [DllImport("cyg", EntryPoint = "host_send")]
+        internal static extern int host_send(long target, IntPtr typePtr, int typeLen, IntPtr dataPtr, int dataLen);
+
+        [DllImport("cyg", EntryPoint = "host_kick")]
+        internal static extern int host_kick(long playerId);
     }
 
     /// <summary>
@@ -61,19 +116,39 @@ namespace CYG
         [UnmanagedCallersOnly(EntryPoint = "on_create")]
         public static void OnCreate(int max) => ActiveRoom?.OnCreate(max);
 
+        [UnmanagedCallersOnly(EntryPoint = "on_auth")]
+        public static long OnAuth(long id, IntPtr optPtr, int optLen, IntPtr ctxPtr, int ctxLen)
+        {
+            return 0; // C# guests reject nothing by default; auth data flows via OnJoin
+        }
+
         [UnmanagedCallersOnly(EntryPoint = "on_join")]
-        public static void OnJoin(long id, double x, double z) => ActiveRoom?.OnJoin(id, x, z);
+        public static void OnJoin(long id, IntPtr optPtr, int optLen, IntPtr authPtr, int authLen)
+        {
+            string options = ReadString(optPtr, optLen);
+            string auth = ReadString(authPtr, authLen);
+            ActiveRoom?.OnJoin(id, options, auth);
+        }
+
+        private static string ReadString(IntPtr ptr, int len)
+        {
+            if (ptr == IntPtr.Zero || len <= 0) return "";
+            var bytes = new byte[len];
+            Marshal.Copy(ptr, bytes, 0, len);
+            return Encoding.UTF8.GetString(bytes);
+        }
 
         [UnmanagedCallersOnly(EntryPoint = "on_leave")]
-        public static void OnLeave(long id) => ActiveRoom?.OnLeave(id);
+        public static void OnLeave(long id, int code) => ActiveRoom?.OnLeave(id, code);
 
         [UnmanagedCallersOnly(EntryPoint = "on_input")]
-        public static unsafe void OnInput(long id, int ptr, int len)
+        public static void OnInput(long id, int ptr, int len)
         {
             if (ActiveRoom != null && ptr != 0 && len > 0)
             {
-                var span = new ReadOnlySpan<byte>((void*)ptr, len);
-                ActiveRoom.OnInput(id, span);
+                var bytes = new byte[len];
+                Marshal.Copy((IntPtr)ptr, bytes, 0, len);
+                ActiveRoom.OnInput(id, bytes);
             }
         }
 
@@ -84,12 +159,13 @@ namespace CYG
         public static long OnSave() => ActiveRoom?.OnSave() ?? 0;
 
         [UnmanagedCallersOnly(EntryPoint = "on_load")]
-        public static unsafe void OnLoad(int ptr, int len)
+        public static void OnLoad(int ptr, int len)
         {
             if (ActiveRoom != null && ptr != 0 && len > 0)
             {
-                var span = new ReadOnlySpan<byte>((void*)ptr, len);
-                ActiveRoom.OnLoad(span);
+                var bytes = new byte[len];
+                Marshal.Copy((IntPtr)ptr, bytes, 0, len);
+                ActiveRoom.OnLoad(bytes);
             }
         }
 
@@ -147,4 +223,3 @@ namespace CYG
         AltLeft = 164, AltRight = 165
     }
 }
-

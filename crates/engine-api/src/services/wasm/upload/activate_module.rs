@@ -1,18 +1,16 @@
-use crate::services::deps::{blobs, q};
-
 use super::*;
 
 impl WasmService {
     pub async fn activate_module(
         &self,
-        state: &ApiState,
+
         game_id: Uuid,
         version: i32,
         kind: ReloadKind,
     ) -> Result<ModuleDto, V2Error> {
-        let game_key = self.require_wasm_mode(state, game_id).await?;
+        let game_key = self.require_wasm_mode(game_id).await?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let row = queries
             .room_module_at_version(game_id, version)
             .await
@@ -22,7 +20,7 @@ impl WasmService {
                 "Module version {version} not found."
             )));
         };
-        let (_, bytes) = self.get_module_bytes(state, game_id, version).await?;
+        let (_, bytes) = self.get_module_bytes(game_id, version).await?;
 
         queries
             .activate_room_module(game_id, version)
@@ -31,17 +29,14 @@ impl WasmService {
 
         let mut module = module_dto(row);
         module.is_active = true;
-        Self::publish_reload(state, game_id, &game_key, &module, kind, bytes);
+        Self::publish_reload(self, game_id, &game_key, &module, kind, bytes);
         Ok(module)
     }
-    pub async fn delete_module(
-        &self,
-        state: &ApiState,
-        game_id: Uuid,
-        version: i32,
-    ) -> Result<(), V2Error> {
-        self.require_wasm_mode(state, game_id).await?;
-        let flags = q(state)
+    pub async fn delete_module(&self, game_id: Uuid, version: i32) -> Result<(), V2Error> {
+        self.require_wasm_mode(game_id).await?;
+        let flags = self
+            .plane
+            .q()
             .await?
             .room_module_active_flag(game_id, version)
             .await
@@ -59,14 +54,16 @@ impl WasmService {
             }
             Some(false) => {}
         }
-        let deleted = q(state)
+        let deleted = self
+            .plane
+            .q()
             .await?
             .delete_room_module(game_id, version)
             .await
             .map_err(V2Error::from)?;
         for row in deleted {
             if let Some(key) = row.blob_key
-                && let Err(err) = blobs(state).await?.delete(&key).await
+                && let Err(err) = self.plane.blobs().await?.delete(&key).await
             {
                 tracing::warn!("[wasm] orphaned blob {key}: {err}");
             }
@@ -75,13 +72,13 @@ impl WasmService {
     }
     pub async fn upload_module(
         &self,
-        state: &ApiState,
+
         game_id: Uuid,
         filename: String,
         binary_bytes: Vec<u8>,
         source_code: Option<String>,
     ) -> Result<UploadResponse, V2Error> {
-        let game_key = self.require_wasm_mode(state, game_id).await?;
+        let game_key = self.require_wasm_mode(game_id).await?;
         if filename.is_empty() || filename.len() > 255 {
             return Err(V2Error::invalid_argument(
                 "The upload needs a `file` field named within 255 characters.",
@@ -92,7 +89,6 @@ impl WasmService {
         let sha256 = sha256_hex(&binary_bytes);
         let module = self
             .insert_module(
-                state,
                 game_id,
                 InsertModuleParams {
                     filename,
@@ -103,7 +99,7 @@ impl WasmService {
             )
             .await?;
         Self::publish_reload(
-            state,
+            self,
             game_id,
             &game_key,
             &module,

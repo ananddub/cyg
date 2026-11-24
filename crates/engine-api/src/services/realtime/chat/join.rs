@@ -3,10 +3,10 @@ use super::*;
 impl RealtimeChatService {
     pub async fn join(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: ChannelJoin = msg.payload()?;
-        let state = state_of(conn);
+        let _state = state_of(conn);
         let s = session_of(conn);
         let stream = stream_of_channel(&req.channel_id)?;
-        self.assert_member(&state, s.uid, &stream).await?;
+        self.assert_member(s.uid, &stream).await?;
         let presence = self.presence_of(&s);
         let others: Vec<Presence> = {
             let mut entry = self
@@ -76,7 +76,7 @@ impl RealtimeChatService {
     }
     pub async fn message_send(&self, conn: &Conn, msg: &Msg) -> Dispatched {
         let req: ChannelMessageSend = msg.payload()?;
-        let state = state_of(conn);
+        let _state = state_of(conn);
         let s = session_of(conn);
         let stream = match self.stream_of(&req.channel_id) {
             Some(st) => st,
@@ -92,7 +92,7 @@ impl RealtimeChatService {
         let secs = now.timestamp();
 
         if persistent {
-            let _ = crate::services::deps::q(&state)
+            let _ = crate::services::deps::q(&self.plane)
                 .await?
                 .insert_channel_message(&InsertChannelMessageParams {
                     id,

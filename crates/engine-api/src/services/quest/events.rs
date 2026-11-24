@@ -1,15 +1,15 @@
+use crate::services::plane::Plane;
+
 use std::sync::Arc;
 
 use axum::Json;
 
 use super::catalog::{counter_name, open_seasons, owned_definitions, visible};
-use crate::ApiState;
 use crate::db::DbError;
 use crate::dto::quest::{CompletedQuest, IngestEventsRequest, IngestEventsResponse};
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 use crate::repositories::models::QuestDefinition;
-use crate::services::deps::q;
 use uuid::Uuid;
 
 /// The largest counter a single event may add, so one bad payload cannot mint
@@ -24,7 +24,7 @@ const MAX_BATCH: usize = 100;
 /// the returned list. Shared by the server-key ingest door and the mirrored
 /// gameplay-event pump.
 pub(crate) async fn credit_counter(
-    state: &ApiState,
+    plane: &Plane,
     queries: &Arc<Queries>,
     user_id: Uuid,
     name: &str,
@@ -32,6 +32,28 @@ pub(crate) async fn credit_counter(
     quests: &[&QuestDefinition],
 ) -> Result<Vec<CompletedQuest>, DbError> {
     let total = queries.increase_player_stat(user_id, name, delta).await?;
+    // A level is the `level` counter, so a level-up is that counter crossing a
+    // new number. Fired here rather than from a level service because there is
+    // no level service: the counter is the level.
+    if name == "level" && total > total - delta {
+        crate::services::rules::dispatch::fire(plane, "level_up", user_id).await;
+    }
+    project_counter(plane, queries, user_id, name, total, delta, quests).await
+}
+
+/// Re-projects every visible quest that counts `name` from an already-applied
+/// counter total. Shared by the ingest doors and the room stat pump: the stat
+/// write is the only thing that raises the number, and this is the read-model
+/// update that follows it.
+pub(crate) async fn project_counter(
+    plane: &Plane,
+    queries: &Arc<Queries>,
+    user_id: Uuid,
+    name: &str,
+    total: i64,
+    delta: i64,
+    quests: &[&QuestDefinition],
+) -> Result<Vec<CompletedQuest>, DbError> {
     let mut completed = Vec::new();
     for quest in quests.iter().filter(|quest| quest.goal_kind == name) {
         let crosses = total >= quest.goal_amount && total - delta < quest.goal_amount;
@@ -45,7 +67,7 @@ pub(crate) async fn credit_counter(
             .await?;
         if crosses && projected.is_some() {
             crate::services::webhook::emit(
-                state,
+                plane,
                 "quest.completed",
                 &format!("{user_id}:{}", quest.id),
                 serde_json::json!({ "user_id": user_id, "quest_key": quest.id }),
@@ -66,7 +88,7 @@ impl super::QuestService {
     /// so a lost event can be made up by sending the same counter again.
     pub async fn ingest_events(
         &self,
-        state: &ApiState,
+
         req: IngestEventsRequest,
     ) -> Result<Json<IngestEventsResponse>, V2Error> {
         if req.events.is_empty() {
@@ -77,7 +99,7 @@ impl super::QuestService {
                 "An event batch holds at most {MAX_BATCH} events."
             )));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let mut credited = Vec::with_capacity(req.events.len());
         for event in &req.events {
             let name = counter_name(&event.name)?;
@@ -96,11 +118,13 @@ impl super::QuestService {
         // unusable event cannot leave a half-credited batch behind.
         let now = chrono::Utc::now();
         let seasons = open_seasons(&queries, now).await?;
-        let definitions = owned_definitions(&queries, state).await?;
+        let definitions = owned_definitions(&queries, &self.plane).await?;
         let quests = visible(&definitions, &seasons, now);
         let mut completed = Vec::new();
         for (name, delta, user_id) in credited {
-            completed.extend(credit_counter(state, &queries, user_id, &name, delta, &quests).await?);
+            completed.extend(
+                credit_counter(&self.plane, &queries, user_id, name, delta, &quests).await?,
+            );
         }
         Ok(Json(IngestEventsResponse {
             success: true,

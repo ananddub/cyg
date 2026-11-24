@@ -8,6 +8,7 @@ use super::models::*;
 use crate::db::{DbError, Key};
 use serde_json::Value;
 
+mod fire;
 mod queries;
 
 pub use queries::*;

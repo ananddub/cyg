@@ -11,6 +11,7 @@ pub mod leaderboard;
 pub mod link;
 pub mod matchmake;
 pub mod notification;
+pub mod precondition;
 pub mod session;
 pub mod signaling;
 pub mod static_routes;

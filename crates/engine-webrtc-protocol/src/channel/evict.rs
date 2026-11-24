@@ -2,7 +2,6 @@ use super::{AssembledDelta, FRAGMENT_TTL_MS, MAX_INFLIGHT_BYTES, MAX_INFLIGHT_DE
 use crate::channel::is_newer;
 
 impl super::FragmentAssembler {
-
     pub(super) fn deliver(&mut self, seq: u16, tick: u32, body: Vec<u8>) -> AssembledDelta {
         self.newest = Some(seq);
         self.assembled += 1;

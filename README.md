@@ -2,7 +2,7 @@
 
 An open-source multiplayer backend that does what Colyseus + Nakama do, in **one Rust binary**: authoritative WASM game rooms, WebRTC + UDP netcode, a player accounts/chat/friends/leaderboards API, and a web console to run it all — self-hosted, on a $10/mo VPS.
 
-No Node cluster, no sidecar orchestra. `cyg-game run` **is** the production artifact. Everything below ships **in the box** — game runtime, physics, ECS, netcode, BaaS, console. There is nothing to bolt together.
+No Node cluster, no sidecar orchestra. `cyg run` **is** the production artifact. Everything below ships **in the box** — game runtime, physics, ECS, netcode, BaaS, console. There is nothing to bolt together.
 
 ```
 ┌──────────────────────────  one process  ──────────────────────────┐
@@ -10,8 +10,8 @@ No Node cluster, no sidecar orchestra. `cyg-game run` **is** the production arti
 │  Control plane (Tokio/Axum)          Game host loop (pinned sim)  │
 │  ├─ matchmake + seat tokens          ├─ WASM room runtime         │
 │  ├─ /ws/signal  (WebRTC signaling)   ├─ inbuilt ECS backend       │
-│  ├─ /v2/* player API (BaaS)          ├─ Rapier2D/3D physics       │
-│  ├─ /v2/console/* + web dashboard    ├─ AOI / spatial index       │
+│  ├─ /v1/* player API (BaaS)          ├─ Rapier2D/3D physics       │
+│  ├─ /v1/console/* + web dashboard    ├─ AOI / spatial index       │
 │  └─ statics (game website + SDK)     └─ WebRTC · UDP data plane   │
 │                                                                   │
 │            everything talks through one lock-free bus             │
@@ -30,7 +30,7 @@ The same game's Project tab: configure sync rate and capacity, deploy WASM room 
 
 ## Highlights
 
-- **Your game runs as sandboxed WebAssembly** — extend `Room`, mutate a typed reactive state, `commitState()`. Zero-GC AssemblyScript, hot-reload on save, per-room sandbox: a trapping room fails alone — its crashes and bad memory accesses stay inside the room while the host keeps running.
+- **Your game runs as sandboxed WebAssembly** — extend `Room`, get the full Colyseus-shaped lifecycle (`onAuth`/`onCreate`/`onJoin`/`onDrop`/`onReconnect`/`onLeave`/`onDispose` + shutdown and exception hooks, a `Client` handle in every hook), declare your state **and your input frame** in the schema, mutate a typed reactive state, `commitState()`. Zero-GC AssemblyScript, hot-reload on save, per-room sandbox: a trapping room fails alone — its crashes and bad memory accesses stay inside the room while the host keeps running.
 - **The engine parts come to you — all inbuilt, all optional-per-game**: host-side Rapier2D/3D physics, deterministic RNG and tick timers, navmesh A* pathfinding, spatial AOI, lag-compensated raycasts. Thirty-plus `sys_*` imports behind per-game permissions; your room code calls them like plain functions.
 - **An inbuilt ECS backend for scale.** When a room fits the template shape (movement, dense players), the same binary can run it on the flat, cache-native ECS state instead of per-entity WASM — 128 Hz at thousands of CCU per core. Same wire protocol, same console, same descriptor; a room whose name contains `ecs` runs on it. Nothing extra to install.
 - **WebRTC DataChannels** (dual lane: newest-wins deltas + ordered reliable) with raw-UDP native clients on the side — QUIC-tier reliability on both: per-frame sequence, reorder-safe delivery, SACK selective resends, sendmmsg + UDP-GSO fan-out.
@@ -50,8 +50,8 @@ curl -fsSL https://raw.githubusercontent.com/ananddub/cyg/main/scripts/install.s
 Then scaffold and run:
 
 ```bash
-cyg-gaming init my-game && cd my-game
-cyg-gaming run
+cyg init my-game && cd my-game
+cyg run
 # console → http://localhost:8124/dashboard/
 ```
 
@@ -64,10 +64,9 @@ docker pull dubeyanand/cyg-gaming:v0.1.0
 **From source** (the server with embedded SurrealDB, the repo is mounted live):
 
 ```bash
-just up                 # start the stack with examples/sky3d
+just up games/my-game   # start the stack with a game project directory
 just status             # health of all containers
 # console: http://localhost:19224/dashboard/   (admin / change-me in dev)
-just game coin-rush     # run a different example
 just down
 ```
 
@@ -75,21 +74,21 @@ Local, without Docker:
 
 ```bash
 cargo build --release
-OX_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg-gaming run examples/coin-rush
+CYG_ALLOW_DEFAULT_SECRETS=1 ./target/release/cyg run games/my-game
 # console  http://localhost:8124/dashboard/
 ```
 
 Fresh project:
 
 ```bash
-cyg-game init my-game && cd my-game
-cyg-game doctor          # config + schema + ABI check
-cyg-game run             # compile src/index.ts → wasm and serve
+cyg init my-game && cd my-game
+cyg doctor          # config + schema + ABI check
+cyg run             # compile src/index.ts → wasm and serve
 ```
 
 ## Writing a game — every use case
 
-`cyg-game init` scaffolds the modern layout; every snippet below is that syntax:
+`cyg init` scaffolds the modern layout; every snippet below is that syntax:
 
 ```
 my-game/
@@ -103,7 +102,7 @@ my-game/
 └── tsconfig.json          editor types (VSCode opens with zero errors)
 ```
 
-Save `src/index.ts` or anything under `src/schema/` while `cyg-game run` is up and the room recompiles and hot-swaps — players stay connected. The browser SDK is served by the server itself at `/cyg.js`; nothing to copy. A deeper version of this tour ships in `docs/site/guide.html`.
+Save `src/index.ts` or anything under `src/schema/` while `cyg run` is up and the room recompiles and hot-swaps — players stay connected. The browser SDK is served by the server itself at `/cyg.js`; nothing to copy. A deeper version of this tour ships in `docs/site/guide.html`.
 
 ### 1. config.toml
 
@@ -117,15 +116,17 @@ port = 7777                    # game data (WebRTC over UDP)
 tick_rate = 30                 # 20 casual … 60/128 competitive
 max_clients = 16
 max_rooms = 1024
+# room_options = '{ "map": "cs_assault" }'   # server defaults for onCreate —
+# merged with the creator's joinOrCreate options (client keys win)
 
 [control]
-api_port = 8124                # matchmake, signaling, /v2, console, /cyg.js
+api_port = 8124                # matchmake, signaling, /v1, console, /cyg.js
 
 [control.session]
 database_endpoint = "surrealkv://data/cyg"   # embedded accounts/chat/leaderboards
 ```
 
-The scaffolded config carries commented blocks for everything else — room lifetime (`[lifecycle]`: `room_max_seconds`, `reap_idle_secs`, `persistent_rooms`, drain grace), the guest watchdog (`[watchdog]`), gameplay event recording (`[gameplay]`), player quotas (`[control.quotas]`), IAP verification and social sign-in — each block documenting the shipped default. `cyg-game doctor` validates the whole project in one command.
+The scaffolded config carries commented blocks for everything else — room lifetime (`[lifecycle]`: `room_max_seconds`, `reap_idle_secs`, `persistent_rooms`, drain grace), the guest watchdog (`[watchdog]`), gameplay event recording (`[gameplay]`), player quotas (`[control.quotas]`), IAP verification and social sign-in — each block documenting the shipped default. `cyg doctor` validates the whole project in one command.
 
 ### 2. Schema — declare the state once
 
@@ -139,7 +140,7 @@ export const Player = schema({
     x:     t.number().default(0),   // f64 — positions, angles
     y:     t.number().default(0),
     hp:    t.uint8().default(100),  // 1 byte on the wire — size matters at 128 Hz
-    flags: t.uint8().default(0),    // held-key mask, readable by clients too
+    name:  t.string(),              // whatever the client sent in its join options
 }, "Player");
 
 export const PlayerSchema = Player;
@@ -147,64 +148,184 @@ export const PlayerSchema = Player;
 export const State = schema({
     players: t.map(Player),         // the collection — keyed by entity id
 }, "State");
+
+// Typed join options (§3): client sends { name, team } — onJoin receives
+// a typed instance. Strings OK here; the host does the encoding.
+export const JoinOptions = schema({
+    name: t.string(),
+    team: t.uint8().default(0),
+}, "JoinOptions");
+
+// The per-tick input frame — declare YOUR fields (§5). Numeric/bool only.
+export const Input = schema({
+    moveX: t.f32().default(0),
+    moveZ: t.f32().default(0),
+    jump: t.boolean().default(false),
+}, "Input");
 ```
 
-Types: `t.number()/f64`, `f32`, `int8…int64`, `uint8…uint32`, `boolean`, `string`. Collections: `t.map(Entity)` (keyed), `t.array(Entity)` (ordered — chat log, bullet feed), `t.ref(Entity)` (entity reference). `.default(v)` works on primitives and strings. Reserved words cannot be field names.
+Types: `t.number()/f64`, `f32`, `int8…int64`, `uint8…uint32`, `boolean`, `string`. Collections: `t.map(Entity)` (keyed), `t.array(Entity)` (ordered — chat log, bullet feed), `t.ref(Entity)` (entity reference). `.default(v)` works on primitives and strings. `.private()` marks an owner-only field: the host blanks it for every row except the viewer's own row, on both full snapshots and patches. `.optional()`, `.static()` and `.transient()` control presence and full-snapshot-only fields. Reserved words cannot be field names; `Input` and `JoinOptions` are reserved (the input frame and the typed join options).
 
-`cyg-game run` (or `cyg-game schema`) compiles this into three artifacts:
+`allow_views = true` lets the room narrow a seat's state on top of the schema defaults:
+
+```ts
+onJoin(client: Client) {
+    // only this player's own row, and hide their inventory from the wire
+    this.views.onlySelf(client.id);
+    this.views.hide(client.id, "players", "inventory");
+}
+```
+
+A view only subtracts; `.private()` still wins. Changing a view forces a fresh full snapshot for that seat so a hidden value never lingers on the client. `this.views.reset(client.id)` restores the default view.
+
+#### Wire precision — `.range(min, max[, bits])`
+
+By default a field keeps its type's exact width: an integer travels in its own bits, a float
+travels raw. A float that does not need 32 bits can be quantized instead — you declare the range,
+the encoder picks the resolution:
+
+```ts
+export const Player = schema({
+    x:   t.number().range(-512, 512, 20),  // world position, 20 bits → ~1 mm
+    yaw: t.number().range(0, 360, 8),      // heading, 8 bits → 1.4° 
+    hp:  t.uint8(),                        // integer: already exact, no annotation needed
+}, "Player");
+```
+
+`bits` defaults to 16 and is capped at 32. The range travels in the v6 descriptor and stamps into
+the schema's wire hash, so a client that disagrees on precision gets a hash error instead of
+silently wrong values. An unannotated schema keeps its type's exact width. Integer kinds stay
+exact: their code is `value - min`, so no scale factor can round 2147483647 down to 2147483648.
+
+#### Volatile fields — `.unreliable()`
+
+A field that is cheap to lose and expensive to stall belongs on the lossy lane:
+
+```ts
+export const Player = schema({
+    x:    t.number().range(-512, 512, 20).unreliable(),
+    z:    t.number().range(-512, 512, 20).unreliable(),
+    hp:   t.uint8(),        // must arrive: inventory/score stays reliable
+    name: t.string(),       // must arrive
+}, "Player");
+```
+
+When a schema has any `.unreliable()` field, the host splits the tick into two frames:
+
+- the normal reliable state patch, with volatile fields stripped (`KIND_PATCH`/`KIND_WORLD_PATCH`);
+- a volatile-only patch (`0xA6`, tick-stamped) carrying just the marked fields.
+
+The client keeps separate tick ledgers: reliable patches still apply exactly once in order, while
+volatile patches are newest-wins and never advance the reliable tick. A dropped position frame is
+therefore replaced by the next one instead of stalling the room, and the next reliable patch cannot
+be rejected because a volatile tick moved the watermark. On the WebSocket lane there is no lossy
+sub-channel, so the volatile frame rides the ordered socket; on WebRTC it uses the unreliable
+DataChannel, and on native UDP it is an ordinary datagram. A volatile frame larger than one
+datagram is fragmented (`0xA7` on WebRTC, the UDP delta fragmenter natively) and reassembled
+per tick before the newest-tick gate applies it. `.private()` and views still win: when a
+volatile field can be hidden, the host builds the volatile patch per viewer instead of sharing it.
+
+`cyg run` (or `cyg schema`) compiles this into three artifacts:
 
 | Artifact | Consumed by |
 |---|---|
-| `gen/cyg.schema.ts` — typed classes (`Player`, `PlayerSchema`, `GameState`) | your room, via `import { … } from "../gen/cyg.schema"` |
-| `out/cyg.schema.bin` — binary descriptor | delivered to every client in the join handshake |
+| `gen/cyg.schema.ts` — typed classes (`Player`, `PlayerSchema`, `GameState`) + the `decodeInput`/`decodeJoinOptions` helpers when `Input`/`JoinOptions` defs exist | your room, via `import { … } from "../gen/cyg.schema"` |
+| `out/cyg.schema.bin` — binary descriptor (state schemas + the input frame) | delivered to every client in the join handshake |
 | `out/cyg.schema.d.ts` — browser type contract | editors and TS frontends |
 
 Import the generated classes from `../gen/cyg.schema` — never import `src/schema/*` directly from the room (the `"cyg"` module only resolves inside the schema compiler).
 
 ### 3. The room — lifecycle, state, commit
 
+Hooks receive a **`Client` handle** (Colyseus-shaped: `.id`, `.sessionId`, `.send`, `.sendText`, `.auth`, `.leave()`). The raw player id (`client.id`) works everywhere too — declare either style, the bridge matches.
+
 ```ts
 // src/index.ts
-import { Room, InputReader, SchemaState, Key, isHeld } from "../pkg/cyg-server";
-import { Player, PlayerSchema } from "../gen/cyg.schema";
+import { Room, Client, SchemaState, Vec2, InputReader, CloseCode } from "../pkg/cyg-server";
+import { Player, PlayerSchema, JoinOptions, decodeInput } from "../gen/cyg.schema";
 
 export class MyGame extends Room {
     private state: SchemaState = new SchemaState(PlayerSchema);
     private players: Array<Player> = [];
+    private moves: Map<i64, Vec2> = new Map<i64, Vec2>();
     private speed: f64 = 120.0;
 
-    onCreate(max: i32): void {
+    // config room_options ⊕ the creator's joinOrCreate options
+    onCreate(max: i32, options: string): void {
         this.setState(this.state);              // bind — commitState() syncs this
     }
 
-    onJoin(id: i64, x: f64, y: f64): void {    // spawn x/y chosen by the host
+    // Validate and return auth data → arrives as onJoin's third arg. THROW to reject.
+    onAuth(client: Client, options: string, context: string): string {
+        return "{}";
+    }
+
+    // options: typed via the schema's JoinOptions def — no JSON parsing.
+    // The room decides the spawn; the host never picks x/y.
+    onJoin(client: Client, options: JoinOptions, auth: string): void {
+        client.auth = auth;
+        const id = client.id;
         const p = new Player();
-        p.pid = id; p.x = x; p.y = y;
+        p.pid = id;
+        p.name = options.name == "" ? "player " + id.toString() : options.name;
+        p.x = 120.0 + (this.players.length % 8) * 70.0;
+        p.y = 100.0 + ((this.players.length / 8) as i32) * 70.0;
         this.players.push(p);
+        this.moves.set(id, new Vec2(0.0, 0.0));
         this.state.set(id as u32, p);           // add to the synced collection
-        this.broadcastText("joined", p.pid.toString());
+        client.sendText("welcome", p.name);     // targeted — the Client handle
+        this.broadcastText("joined", p.name, id);   // everyone except the joiner
     }
 
-    onLeave(id: i64): void {
-        this.state.delete(id as u32);           // drop from this.players too
+    // Connection dropped without consent — your window before the hold starts.
+    onDrop(client: Client, code: i32): void {}
+
+    // The player came back within the reconnection window.
+    onReconnect(client: Client): void {}
+
+    // code is a CloseCode: LEFT · KICKED · SERVER_SHUTDOWN · TIMED_OUT · LOST.
+    // Anything but LEFT can be held for allowReconnection.
+    onLeave(client: Client, code: i32): void {
+        const id = client.id;
+        this.state.delete(id as u32);           // drop from this.players/moves too
     }
 
-    onInputPacket(id: i64, input: InputReader): void { /* §5 */ }
+    // The process is draining — one broadcast flush follows this call.
+    onBeforeShutdown(): void {
+        this.broadcastText("going-down", "Save your progress!");
+    }
+
+    // A guest call trapped (watchdog fuse or runtime error). Best effort.
+    onUncaughtException(message: string, methodName: string): void {}
+
+    onInputFrame(client: Client, f: Input): void {   // pre-decoded (§5)
+        if (!this.moves.has(client.id)) return;
+        this.moves.set(client.id, new Vec2(f.moveX, f.moveZ));
+    }
 
     onTick(dt: f64): i64 {                      // dt in seconds — always scale by it
         for (let i = 0; i < this.players.length; i++) {
             const p = this.players[i];
-            if (isHeld(p.flags, Key.W)) p.y -= this.speed * dt;
-            if (isHeld(p.flags, Key.S)) p.y += this.speed * dt;
-            if (isHeld(p.flags, Key.A)) p.x -= this.speed * dt;
-            if (isHeld(p.flags, Key.D)) p.x += this.speed * dt;
+            const move = this.moves.get(p.pid);
+            p.x += move.x * this.speed * dt;
+            p.y += move.y * this.speed * dt;
         }
         return this.commitState();              // dirty-only delta out
     }
 }
 ```
 
-All hooks: `onCreate(max)` (bind state, init physics), `onJoin(id, x, y)`, `onLeave(id)`, `onInputPacket(id, input)` (reliable app messages from one player), `onTick(dt)` (return `this.commitState()`), `onSave()/onLoad()` (persistence snapshots for hibernation). Throttle without touching `tick_rate`: `this.patchRate` (min ms between state patches) and `this.simulationInterval` (min ms between `onTick` calls).
+**Lifecycle**, in the order a client moves through the room — `onAuth` → `onCreate` → `onJoin` → `onDrop`/`onReconnect` → `onLeave` → `onDispose`, plus `onBeforeShutdown` (drain) and `onUncaughtException` (watchdog). Every hook may take the raw `id: i64` instead of `client: Client` — declare whichever you prefer; hooks you don't declare are simply not wired.
+
+Details worth knowing:
+
+- **`onAuth`** returns any JSON (even `"{}"`); that string reaches `onJoin` as `auth` — read it with `jsonString(auth, "role", "player")`. Throwing rejects the join; so does a trap.
+- **`onCreate` options** = the config's `room_options` (server defaults) overlaid with the creator's `joinOrCreate` options — client keys win.
+- **`onDrop`** fires before the reconnection hold starts — message the others ("X is reconnecting…"). If the hold expires, `onLeave` fires with `CloseCode.TIMED_OUT`; `allowReconnection()` (return ms) controls the window.
+- **`onLeave` codes**: `LEFT` (clean leave), `KICKED` (your room called `client.leave()`), `SERVER_SHUTDOWN` (drain), `TIMED_OUT`, `LOST`.
+- **Broadcasts skip one player** with the third arg: `this.broadcastText("chat", text, senderId)`.
+- **No `JoinOptions` def?** `onJoin(client, options: string)` receives the raw JSON — pull keys with `jsonString/jsonNumber/jsonBool`. Old rooms keep working unchanged.
+- **Throttle** without touching `tick_rate`: `this.patchRate` (min ms between patches) and `this.simulationInterval` (min ms between `onTick` calls).
 
 When the root carries scalars or several collections (`coinX`, `phase`, two maps), codegen emits a world class instead — same three lines, richer state:
 
@@ -212,12 +333,12 @@ When the root carries scalars or several collections (`coinX`, `phase`, two maps
 import { GameState, Player } from "../gen/cyg.schema";
 
 private s: GameState = new GameState();
-onCreate(max: i32): void { this.setState(this.s); }
+onCreate(max: i32, options: string): void { this.setState(this.s); }
 // s.players.set(id, p) · s.players.get(id) · s.players.delete(id) · s.players.ids
 // s.coinX = 40.0 + rngNext() * 720.0 · s.phase = 2      (root scalars, synced the same way)
 ```
 
-`commitState()` encodes only what changed — tagged TLV rows; a quiet room costs ~0 bytes. Clients receive one full snapshot at join and patches afterwards, decoded from the descriptor.
+`commitState()` encodes only what changed — packed OXS2 bit-stream rows; a quiet room costs ~0 bytes. Clients receive one full snapshot at join and patches afterwards, decoded from the descriptor. The same packed sections are what the guest emits, so the host never re-encodes a shared frame.
 
 ### 4. Deterministic helpers
 
@@ -238,43 +359,91 @@ MatchStateMachine / CooldownTracker / TriggerZone   // match flow, cooldowns, zo
 
 Timers are polled, not callbacks — that is what makes them replay-safe.
 
-### 5. Inputs — the movement lane
+### 5. Inputs — declare once, send objects
 
-Client (the easy way — a keyboard-bound input handle):
-
-```js
-const input = room.input();               // data.up/down/left/right/jump/aimYaw/aimPitch
-const unbind = input.bindKeyboard();      // WASD + arrows + space, returns an unbind fn
-setInterval(() => input.send(), 33);      // one 23-byte frame on the unreliable lane
-```
-
-Hand-packed frames when you need full control: `room.sendInput(flags, aimYaw, aimPitch, moveX, moveZ)`, or `room.sendUnreliable("input", bytes)`; `room.sendInputBatch([{ seq, payload: Uint8Array(20) }, …])` packs up to 64 samples into one packet for lossy/mobile paths.
-
-Server:
+Movement input is **schema-declared**, like everything else. Add an `Input` def to your schema — your fields, numeric/bool, any shape your game needs (racing: `throttle`/`steer`; MOBA: `moveX`/`moveZ`/`skill`):
 
 ```ts
-onInputPacket(id: i64, input: InputReader): void {
-    if (input.remaining < 20) return;
-    const flags = input.readU32();        // W=1 S=2 A=4 D=8 Jump=16
-    const aimYaw = input.readF32();
-    const aimPitch = input.readF32();
-    const mx = input.readF32();           // move vector (0 when keys-only)
-    const mz = input.readF32();
-    if (isHeld(flags, Key.W)) { /* … */ }
+// src/schema/player.ts — same file as the state
+export const Input = schema({
+    moveX: t.f32().default(0),
+    moveZ: t.f32().default(0),
+    jump: t.boolean().default(false),
+    skill: t.uint8().default(0),      // jo bhi chahiye — ye tumhara contract hai
+}, "Input");
+```
+
+Codegen turns it into a typed decoder; the descriptor carries it to the client at join. Neither side ever packs a byte — the field order above **is** the wire order.
+
+**Client** — send a plain object on the newest-wins unreliable lane:
+
+```js
+room.sendInput({ moveX: 1, moveZ: 0, jump: false, skill: 2 });
+
+// ya keyboard handle — declared fields khud bharta hai:
+const input = room.input();
+const unbind = input.bindKeyboard();          // WASD + arrows + space
+setInterval(() => input.send(), 33);
+```
+
+**Server** — the frame arrives **pre-decoded** (the bridge runs the generated decoder; you never see a reader):
+
+```ts
+onInputFrame(client: Client, f: Input): void {
+    this.moves.set(client.id, new Vec2(f.moveX, f.moveZ));
+    if (f.skill > 0) this.castSkill(client.id, f.skill);
 }
 ```
 
-`InputReader` is cursor-based: `readU8/readU32/readF32/readF64/readI64`, `remaining`, `hasRemaining(n)` — it never reads past what you checked. `Key` carries `W/S/A/D/Space/Shift`.
+Want raw control instead? Declare `onInputFrame(client: Client, r: InputReader)` and call the generated `decodeInput(r)` yourself — both styles work.
 
-**The lane rule:** everything you cannot afford to drop (fires, chats, RPCs, `onMessage` traffic) rides the **reliable ordered** lane via `room.send`. Per-tick movement and aim ride `sendUnreliable`/`sendInput` — newest-wins, no retransmit; a late movement packet is worthless by definition.
+Stale frames are dropped for you (per-player seq, wrap-safe newest-wins) — a late packet never rewinds a player. Strings/arrays are not allowed in the input frame (fixed-size wire), and `Input` cannot double as a state entity; both are caught at `cyg schema` time. `room.sendInput(…)` accepts exactly the input object — the old positional `(flags, aimYaw, …)` form is gone.
+
+**The lane rule:** everything you cannot afford to drop (fires, chats, RPCs, `onMessage` traffic) rides the **reliable ordered** lane via `room.send`. Per-tick movement and aim ride the unreliable input lane — newest-wins, no retransmit; a late movement packet is worthless by definition.
+
+On the lossy WebRTC/UDP input lane the SDK replays the current frame plus the previous **unacked** frames as one `__input_batch` message (`room.inputHistory`, default 2, 0 disables). Duplicate sequences are dropped by the guest's newest-wins gate, so a lost datagram is recovered from history without replaying an old action. The same batch is written twice by default (`room.inputRedundancy`, 1–4); the reliable/WS path always sends one single frame.
+
+### 5b. Prediction — same input, same sequence, same frame
+
+The fixed-step handle sends **and** predicts the exact same bytes. Attach a guest instance with the `cyg_predict_*` exports; from then on `input.tick(now)` drives both the network sequence and `cyg_predict_tick` on one clock:
+
+```js
+room.attachPredict(guestInstance, {
+    // authoritative delta bytes -> flat f64 mirror for cyg_reconcile
+    readServerState: (delta) => myDecodeToFlatF64(delta)
+});
+const input = room.input({ tickRate: 60 });
+function frame(now) {
+    input.tick(now);          // 0..N fixed steps; each step sends __input + predicts
+    render(room.predict.value(localId, 'x'));
+}
+```
+
+`room.ackedSeq` trims the pending ring; `readServerState` is the only glue you write. Without a guest instance the handle still sends input, and `room.predict` stays a feature-detected no-op.
+
+**Server-side input timeline.** When your room references `this.inputs`, the bridge copies each accepted frame there before `onInputFrame` runs. Rooms that never touch `this.inputs` keep the zero-allocation input hot path. Latest-only rooms can keep their existing hook; rollback/batch rooms can ask for more:
+
+```ts
+onInputFrame(id: i64, f: Input): void {
+    const frame = this.inputs.latest(id);     // the same frame, still valid
+    // or: this.inputs.drain(id), this.inputs.at(id, seq), this.inputs.consume(id)
+}
+```
 
 ### 6. Messaging — broadcast, targeted, RPC
 
 ```ts
 this.broadcast("phase", bytes);                // server → everyone (reliable)
 this.broadcastText("chat", "welcome!");
+this.broadcast("round-over", bytes, 0, true);  // after the next state patch
+this.broadcastAfterPatch("round-over", bytes); // same, named form
 this.sendTo(playerId, "private", bytes);       // server → one player
 this.sendTextTo(playerId, "toast", "level up");
+
+// ya the Client handle se (hooks jo client receive karte hain):
+client.send("phase", bytes);
+client.sendText("toast", "level up");
+client.leave();                                // kick — room gets onLeave(id, CloseCode.KICKED)
 
 this.onMessage("fire", (senderId, reader, room) => { /* typed app message */ });
 
@@ -361,7 +530,7 @@ if (Rapier3D.checkContact(bullet, targetBody)) { /* damage */ }
 Rapier3D.removeBody(bullet);
 ```
 
-Rest of the surface: `getVelocity / setPosition / applyImpulse(impulse: Vec3) / addBoxCollider(body, halfExtents: Vec3)`, plus `Rapier3D.batch(maxBodies)` → `PhysicsBatch3D` for large rooms. `Physics` also has `*Raw` scalar variants as escape hatches. 3D maps: `cyg-game cook map.glb arena.oxcl` (GLB → OXCL collision mesh, instant boot) or hand-written `arena_map.json` boxes; console-uploaded maps win over local files.
+Rest of the surface: `getVelocity / setPosition / applyImpulse(impulse: Vec3) / addBoxCollider(body, halfExtents: Vec3)`, plus `Rapier3D.batch(maxBodies)` → `PhysicsBatch3D` for large rooms. `Physics` also has `*Raw` scalar variants as escape hatches. 3D maps: `cyg cook map.glb arena.oxcl` (GLB → OXCL collision mesh, instant boot) or hand-written `arena_map.json` boxes; console-uploaded maps win over local files.
 
 ### 9. Navmesh — bot pathfinding
 
@@ -392,8 +561,17 @@ With `x`/`y` fields in your schema and `[aoi] enabled = true`, the host can filt
 
 ```js
 const client = new CYG.Client("http://localhost:8124");   // the control plane
-const room = await client.joinOrCreate("game_room", { mode: "duo" });
-// also: client.join(name) · client.create(name) · client.joinById(id) · client.spectate(name)
+const room = await client.joinOrCreate("game_room", { name: "miya", skin: "ninja" });
+// options tumhara data hai — room ke onJoin ko wahi JSON milti hai
+// also: client.join(name, options) · client.create(name, options) · client.joinById(id) · client.spectate(name)
+// ROOM VARIANTS: [rooms.duo] filter_by=["region"] in config.toml splits joins
+// into per-region rooms; variant max_clients/tick_rate/persistent override defaults.
+
+// Room variants (Colyseus defineRoom parity) — declare [rooms.duo] in
+// config.toml with filter_by = ["region"], and joins split by their options:
+//   joinOrCreate("duo", { region: "mumbai" })  → the mumbai duo room
+//   joinOrCreate("duo", { region: "delhi" })   → a different room
+// Variant max_clients/tick_rate/persistent override the game defaults.
 
 room.onStateChange((state) => draw(state.players.get(room.playerId)));
 
@@ -411,39 +589,49 @@ await client.auth.login(email, password);        // .device(id) · .register(…
 
 room.clock.now(); room.clock.setTimeout(fn, ms); // server-clock aligned
 room.ping((rttMs) => show(rttMs));
-const voice = room.attachVoice();                // WebRTC voice mesh on the same room
+
+// Voice: attach the WebRTC mesh, publish the mic, pick a channel
+const voice = room.attachVoice();
+await voice.enable(await navigator.mediaDevices.getUserMedia({ audio: true }));
+room.setVoiceTeam("red");                        // string or number — hashed on the wire
+room.sendVoice(2, seq, ts, flags, opusFrame);    // 0=proximity · 1=global · 2=team-only · 3=whisper
+room.setVoiceMuted(true);                        // server-side mic mute
+room.setVoiceDeafened(false);                    // stop hearing everyone
+
 new CYG.Inspector(room);                         // live state-inspector overlay (dev)
 CYG.Storage.set("muted", true); CYG.Storage.get("muted", false);  // localStorage, JSON, ox_ prefix
 room.leave(true);
 ```
 
-The schema descriptor arrives in the join handshake — no client codegen, ever. Typed bindings for engines that want them: `cyg-game schema-codegen --lang cs|gdscript|cpp|lua|all`.
+**Voice channels.** `TeamOnly` reaches only peers with the same team label; `Proximity` attenuates by distance (default inverse, 1.5–25 m); `Global` covers the whole room. Team ids can be strings (`"red"`, `"squad-a"`) or numbers — the SDK hashes the label with FNV‑1a into a u32, so routing stays one integer compare per packet (pass `null` to leave the team). Godot is relay-only (`CYGVoice.is_supported()` is false — native WebRTC is unavailable on most export targets) and uses the same wire: `room.set_voice_team("red")`.
+
+The schema descriptor arrives in the join handshake — no client codegen, ever. Typed bindings for engines that want them: `cyg schema-codegen --lang cs|gdscript|cpp|lua|all`.
 
 ### 12. Other engines and backends
 
 - **Unity / Godot / Unreal / native** — sibling SDK repos mirror the same surface (join, state callbacks, messaging, RPC, auth, clock). A project with no `source` file boots in **Unity-relay mode** — C#-authoritative rooms, the server just relays.
 - **ECS rooms** — a room whose name contains `ecs` runs on the flat inbuilt ECS backend: same wire protocol, same console, 128 Hz at thousands of CCU per core.
-- **Room interfaces** — `cyg-game gen-interface` emits Lua/C/C++/Rust/C#/TS room interfaces.
+- **Room interfaces** — `cyg gen-interface` emits Lua/C/C++/Rust/C#/TS room interfaces.
 
 ## CLI
 
 ```
-cyg-game init            [dir]   scaffold a project (src/index.ts + src/schema/ + pkg/ + gen/)
-cyg-game run             [dir]   compile if needed, then serve (hot-swap on save)
-cyg-game build | aot     [dir]   compile + AOT-precompile to native .cwasm (<1 ms cold start)
-cyg-game schema          [dir]   compile the schema → gen/ bindings + out/ descriptor
-cyg-game schema-codegen  [dir]   typed client bindings (--lang cs|gdscript|cpp|lua|all)
-cyg-game schema-status   [dir]   show the compiled schema's versions and hashes
-cyg-game doctor          [dir]   validate config, schema and ABI exports
-cyg-game gen-interface   [dir]   C++/Rust/C#/AS/TS room interfaces
-cyg-game cook <in.glb> <out.oxcl>  cook a 3D collision mesh for instant boot
-cyg-game backup | restore [dir]  export/import a remote SurrealDB (gzip + sha256)
-cyg-game migrate         [dir]   run DB schema migrations
-cyg-game openapi                 emit the /v2 OpenAPI document
-cyg-game secrets audit  [dir]    flag default/weak secrets
-cyg-game config diff    <a> <b>  diff two console config exports
-cyg-game rules check    --file … validate a rules/anti-cheat JSON
-cyg-game logs tail      --token …  tail server logs via the console API
+cyg init            [dir]   scaffold a project (src/index.ts + src/schema/ + pkg/ + gen/)
+cyg run             [dir]   compile if needed, then serve (hot-swap on save)
+cyg build | aot     [dir]   compile + AOT-precompile to native .cwasm (<1 ms cold start)
+cyg schema          [dir]   compile the schema → gen/ bindings + out/ descriptor
+cyg schema-codegen  [dir]   typed client bindings (--lang cs|gdscript|cpp|lua|all)
+cyg schema-status   [dir]   show the compiled schema's versions and hashes
+cyg doctor          [dir]   validate config, schema and ABI exports
+cyg gen-interface   [dir]   C++/Rust/C#/AS/TS room interfaces
+cyg cook <in.glb> <out.oxcl>  cook a 3D collision mesh for instant boot
+cyg backup | restore [dir]  export/import a remote SurrealDB (gzip + sha256)
+cyg migrate         [dir]   run DB schema migrations
+cyg openapi                 emit the /v1 OpenAPI document
+cyg secrets audit  [dir]    flag default/weak secrets
+cyg config diff    <a> <b>  diff two console config exports
+cyg rules check    --file … validate a rules/anti-cheat JSON
+cyg logs tail      --token …  tail server logs via the console API
 ```
 
 ## Architecture
@@ -453,10 +641,11 @@ One process, one thread for the simulation, lock-free bus between planes:
 | Crate | What it is |
 |---|---|
 | `engine-server` | the host loop: WASM runtime, rooms, inbuilt ECS backend, RUDP, schema deltas, AOI |
-| `engine-api` | `/v2` player API + `/v2/console` + dashboard API (Axum, SurrealDB) |
+| `engine-api` | `/v1` player API + `/v1/console` + dashboard API (Axum, SurrealDB) |
 | `engine-control` | binds the plane: seats, signaling hub, Agones lifecycle |
 | `engine-net` | transports: WebRTC (str0m, sans-IO) + raw UDP, sendmmsg + UDP-GSO fan-out |
 | `engine-webrtc-protocol` | the shared wire: event/ack frames, SACK, lane classification |
+| `engine-voice` | voice mesh signaling, Opus relay, spatial + team/squad routing |
 | `engine-wasm` | the guest ABI: linker, permissions, state (de)serialization |
 | `engine-schema` | schema compiler + codegen (server TS + browser descriptor) |
 | `engine-physics` | Rapier2D/3D worlds, OXCL cooked meshes, lag compensation |
@@ -464,6 +653,16 @@ One process, one thread for the simulation, lock-free bus between planes:
 | `engine-bus` | the cross-plane channels (inputs, deltas, reloads, kicks) |
 | `engine-config` | config.toml → typed structs |
 | `engine-agones` | GameServer lifecycle for Kubernetes fleets |
+
+**One version, one base.** Everything a game or a player calls lives under
+`/v1` — the player API and the operator API alike. There is no `/v2`: a request
+to it is a 404. Operational surfaces stay outside the version on purpose:
+`/status`, `/metrics`, `/readyz`, `/ws/*`, `/dashboard/*`, `/lobby`, `/queue`,
+`/matchmake`, `/openapi.json`. The literal lives in one place
+(`app/api.rs::API_BASE`); the controllers are authored at `/v1/...` and the
+`#[controller]` macro strips the segment so the plane mounts one tree from one
+place, and `tests/auto_routes/only_v1_is_versioned.rs` fails the build if a
+documented route appears anywhere else.
 
 **One runtime, inbuilt backends.** Game logic always runs in the WASM sandbox. The *state and simulation* behind it has inbuilt options: the reactive schema state (custom games), the host-side physics family (Rapier2D/3D), or the flat ECS backend (template-scale games — any room with `ecs` in its name runs on it). Same binary, same wire protocol, same console; nothing to install.
 
@@ -483,7 +682,7 @@ views need no polling either.
 
 ## Database
 
-The account plane (`/v2/*`, `/ws`, the console API) runs on **SurrealDB**, and
+The account plane (`/v1/*`, `/ws`, the console API) runs on **SurrealDB**, and
 the binary embeds it: `database_endpoint = "surrealkv://data/cyg"` in
 `config.toml` keeps accounts, chat and leaderboards in a local directory, with
 no separate service to install. Point the same key at `ws://host:8000` (or set
@@ -649,16 +848,21 @@ settle-time figure moves more as the allocator releases the boot spike.
 
 ```bash
 cargo test --workspace              # engine crates + API suite
-node --test sdk/client/web/test/    # client SDK (schema decode, signaling, RPC)
-just doctor sky3d                   # project-level health check
+(cd sdk/client/web && node test/schema.test.mjs && node test/signal.test.mjs \
+  && node test/extras.test.mjs && node test/input.test.mjs)   # client SDK
+node tests/e2e/input_lane_e2e.mjs   # schema input lane, live server + real SDK
+just doctor games/my-game           # project-level health check
 ```
 
 ## Releases & SDKs
 
-- **Binaries** — Linux / Windows / macOS (Intel + Apple Silicon) attach to every
-  GitHub Release. One-line install above.
-- **Docker** — `dubeyanand/cyg-gaming` on Docker Hub (game included, scratch-slim
-  variant available).
+- **Binaries** — Linux x64/arm64, macOS arm64 and Windows x64 attach to every
+  GitHub Release. Pushing a `v*` tag runs `.github/workflows/release.yml`: the API
+  plane's tests first, then the four binary builds, then the container image. A
+  tag that fails its tests publishes nothing.
+- **Docker** — `ghcr.io/ananddub/cyg:latest` (multi-architecture:
+  linux/amd64 + linux/arm64), built from the root `Dockerfile`. The game project
+  is baked in; mount your own over `/app/game` to run a different one.
 - **SDK repos** — [cyg-unity](https://github.com/ananddub/cyg-unity) ·
   [cyg-godot](https://github.com/ananddub/cyg-godot) ·
   [cyg-unreal](https://github.com/ananddub/cyg-unreal) ·
@@ -674,7 +878,7 @@ src/main.rs        the `cyg-game` CLI
 dashboard/         the web console (React, served by the binary at /dashboard/)
 sdk/client/        web (cyg.js) + Unity/Unreal/Godot/native players
 sdk/server/        AssemblyScript server SDK (cyg-server.ts — what pkg/ vendors)
-examples/          sky3d, blaster, coin-rush, orbioo-agario, tank-3d — complete runnable games
+games/             your game projects (one folder per game, each with a config.toml)
 docs/site/         the landing + A-to-Z guide this README condenses
 docs/screenshots/  console captures used by this README
 deploy/            Dockerfile + compose for the game container

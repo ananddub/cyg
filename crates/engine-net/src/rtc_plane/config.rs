@@ -1,7 +1,5 @@
-
 #[derive(Debug, Clone, Copy)]
 pub struct PlaneConfig {
-
     pub session_inbox_capacity: usize,
 }
 

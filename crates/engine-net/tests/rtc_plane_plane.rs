@@ -1,4 +1,3 @@
-
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
@@ -14,7 +13,6 @@ fn loopback_any() -> SocketAddr {
 
 #[tokio::test]
 async fn plane_offer_lookup_and_nonblocking_downlink() {
-
     let probe = std::net::UdpSocket::bind(loopback_any()).expect("probe bind");
     let announced = probe.local_addr().expect("probe addr");
     drop(probe);
@@ -68,7 +66,6 @@ async fn plane_offer_lookup_and_nonblocking_downlink() {
 
 #[test]
 fn session_pump_timeout_is_driven_not_busy() {
-
     let server: SocketAddr = "127.0.0.1:41111".parse().unwrap();
     let (mut session, offer) =
         RtcSession::new_server("pump".into(), server, &[server]).expect("new server");
@@ -98,7 +95,6 @@ fn session_pump_timeout_is_driven_not_busy() {
 
 #[test]
 fn delta_fragmentation_bounds_match_codec() {
-
     assert_eq!(delta_fragment_count(5_000), Some(5));
     assert_eq!(delta_fragment_count(0), Some(1));
     assert_eq!(delta_fragment_count(MAX_DELTA_CHUNK), Some(1));
@@ -107,7 +103,6 @@ fn delta_fragmentation_bounds_match_codec() {
 
 #[test]
 fn oversized_delta_is_rejected_not_truncated() {
-
     let server: SocketAddr = "127.0.0.1:41112".parse().unwrap();
     let (mut session, _offer) = RtcSession::new_server("big".into(), server, &[server]).unwrap();
     let huge = vec![0u8; 256 * MAX_DELTA_CHUNK + 1];

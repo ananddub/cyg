@@ -26,7 +26,12 @@ pub(crate) fn controller_openapi_submissions(
                 .as_ref()
                 .or(controller_docs.tag.as_ref())
                 .cloned()
-                .unwrap_or_else(|| LitStr::new(&openapi_tag(&path.value()), path.span()));
+                .unwrap_or_else(|| {
+                    LitStr::new(
+                        &openapi_tag(&crate::docs::without_version_prefix(&path.value())),
+                        path.span(),
+                    )
+                });
             let tag_description = option_lit_tokens(
                 route
                     .docs
@@ -40,7 +45,8 @@ pub(crate) fn controller_openapi_submissions(
             let request_description = option_lit_tokens(route.docs.request_description.as_ref());
             let response_description = option_lit_tokens(route.docs.response_description.as_ref());
             let params = param_descriptor_tokens(&route.params);
-            let request_schema = request_schema_descriptor_tokens(route.request_body.as_ref());
+            let request_schema =
+                request_schema_descriptor_tokens(route.request_body.as_ref(), &method);
             let response_schema = response_schema_descriptor_tokens(route.response_body.as_ref());
             quote! {
                 ::auto_route::__private::inventory::submit! {
@@ -81,7 +87,12 @@ pub(crate) fn module_openapi_submissions(
                 .as_ref()
                 .or(controller_docs.tag.as_ref())
                 .cloned()
-                .unwrap_or_else(|| LitStr::new(&openapi_tag(&path.value()), path.span()));
+                .unwrap_or_else(|| {
+                    LitStr::new(
+                        &openapi_tag(&crate::docs::without_version_prefix(&path.value())),
+                        path.span(),
+                    )
+                });
             let tag_description = option_lit_tokens(
                 route
                     .docs
@@ -95,7 +106,8 @@ pub(crate) fn module_openapi_submissions(
             let request_description = option_lit_tokens(route.docs.request_description.as_ref());
             let response_description = option_lit_tokens(route.docs.response_description.as_ref());
             let params = param_descriptor_tokens(&route.params);
-            let request_schema = request_schema_descriptor_tokens(route.request_body.as_ref());
+            let request_schema =
+                request_schema_descriptor_tokens(route.request_body.as_ref(), &method);
             let response_schema = response_schema_descriptor_tokens(route.response_body.as_ref());
             quote! {
                 ::auto_route::__private::inventory::submit! {

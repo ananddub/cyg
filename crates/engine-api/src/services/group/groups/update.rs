@@ -1,12 +1,10 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::Empty;
 use crate::dto::group::UpdateGroupRequest;
 use crate::error::V2Error;
 use crate::repositories::group::UpdateGroupParams;
-use crate::services::deps::q;
 use crate::utils::group::{ROLE_SUPERADMIN, group_id, metadata_of};
 use crate::utils::guards::require_role;
 
@@ -16,13 +14,13 @@ use super::{GROUP_CLOSED, GROUP_OPEN, GroupService};
 impl GroupService {
     pub async fn update_group(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         raw_id: String,
         body: UpdateGroupRequest,
     ) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let group = fetch_group(&queries, gid).await?;
         require_role(&queries, auth.0.uuid()?, gid, ROLE_SUPERADMIN).await?;
         if body.name.is_none()
@@ -93,12 +91,12 @@ impl GroupService {
 
     pub async fn delete_group(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         raw_id: String,
     ) -> Result<Json<Empty>, V2Error> {
         let gid = group_id(&raw_id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         fetch_group(&queries, gid).await?;
         require_role(&queries, auth.0.uuid()?, gid, ROLE_SUPERADMIN).await?;
         queries.delete_group(gid).await?;

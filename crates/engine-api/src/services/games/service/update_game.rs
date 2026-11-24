@@ -1,14 +1,50 @@
-use crate::services::deps::q;
-
 use super::*;
 
+mod tests;
+mod update_game_batch;
+mod update_game_lookup;
+mod update_game_mask;
+use update_game_mask::*;
+
 impl GamesService {
+    /// Whole-resource update retained for clients that already send the full
+    /// game document. New callers should use [`Self::update_game_with_mask`].
     pub async fn update_game(
-        state: &ApiState,
+        &self,
         game_id: Uuid,
         body: &UpdateGameRequest,
         author: Option<&str>,
     ) -> Result<GameDto, V2Error> {
+        self.update_game_with_mask(game_id, body, author, None)
+            .await
+    }
+
+    /// Partial update with the book's implicit-or-explicit field-mask rule
+    /// (`API Design Patterns`, ch. 8). An absent mask updates the fields the
+    /// body names; a present mask updates exactly those fields and ignores
+    /// everything else. `validateOnly` plans the write and returns the result
+    /// without touching the row (`API Design Patterns`, ch. 27).
+    pub async fn update_game_with_mask(
+        &self,
+        game_id: Uuid,
+        body: &UpdateGameRequest,
+        author: Option<&str>,
+        mask: Option<&[String]>,
+    ) -> Result<GameDto, V2Error> {
+        let masked = masked_update(body, mask)?;
+        let validate_only = body.validate_only.unwrap_or(false);
+        let (current, plan) = self.plan_update(game_id, &masked).await?;
+        if validate_only {
+            return Ok(preview(&current, &plan));
+        }
+        self.commit_update(&current, &plan, author).await
+    }
+
+    async fn plan_update(
+        &self,
+        game_id: Uuid,
+        body: &UpdateGameRequest,
+    ) -> Result<(GameRow, GameUpdatePlan), V2Error> {
         let patch_name = body.name.as_deref().map(game_name).transpose()?;
         let patch_engine = body.engine_type.as_deref().map(engine_type).transpose()?;
         let patch_status = body.status.as_deref().map(game_status).transpose()?;
@@ -26,22 +62,10 @@ impl GamesService {
             ));
         }
 
-        let current = Self::find_game(state, game_id).await?;
-
-        let name = match patch_name {
-            Some(name) => name,
-            None => current.name.clone(),
-        };
-        let engine = match patch_engine {
-            Some(engine) => engine,
-            None => current.engine_type.clone(),
-        };
-        let backend = backend_mode_for_engine(&engine);
-        let status = match patch_status {
-            Some(status) => status,
-            None => current.status.clone(),
-        };
-
+        let current = Self::find_game(self, game_id).await?;
+        let name = patch_name.unwrap_or_else(|| current.name.clone());
+        let engine = patch_engine.unwrap_or_else(|| current.engine_type.clone());
+        let status = patch_status.unwrap_or_else(|| current.status.clone());
         let mut map = current.config.as_object().cloned().unwrap_or_default();
         if let Some(patch) = config_value(body.config.as_ref())? {
             if let Some(patch_map) = patch.as_object() {
@@ -50,47 +74,68 @@ impl GamesService {
                 }
             }
         }
-        if let Some(v) = body.tick_rate {
-            map.insert("tick_rate".to_owned(), json!(v));
+        for (key, value) in [
+            ("tick_rate", body.tick_rate.map(|v| json!(v))),
+            ("max_clients", body.max_clients.map(|v| json!(v))),
+            ("persistent_rooms", body.persistent_rooms.map(|v| json!(v))),
+            (
+                "auto_close_seconds",
+                body.auto_close_seconds.map(|v| json!(v)),
+            ),
+        ] {
+            if let Some(value) = value {
+                map.insert(key.to_owned(), value);
+            }
         }
-        if let Some(v) = body.max_clients {
-            map.insert("max_clients".to_owned(), json!(v));
-        }
-        if let Some(v) = body.persistent_rooms {
-            map.insert("persistent_rooms".to_owned(), json!(v));
-        }
-        if let Some(v) = body.auto_close_seconds {
-            map.insert("auto_close_seconds".to_owned(), json!(v));
-        }
-        let config = serde_json::Value::Object(map);
+        Ok((
+            current,
+            GameUpdatePlan {
+                name,
+                engine_type: engine.clone(),
+                backend_mode: backend_mode_for_engine(&engine).to_owned(),
+                status,
+                config: serde_json::Value::Object(map),
+            },
+        ))
+    }
 
-        let row = q(state)
+    async fn commit_update(
+        &self,
+        current: &GameRow,
+        plan: &GameUpdatePlan,
+        author: Option<&str>,
+    ) -> Result<GameDto, V2Error> {
+        let row = self
+            .plane
+            .q()
             .await?
             .update_game(&UpdateGameParams {
-                id: game_id,
-                name,
-                engine_type: engine,
-                status,
-                config: config.clone(),
-                backend_mode: backend.to_owned(),
+                id: current.id,
+                name: plan.name.clone(),
+                engine_type: plan.engine_type.clone(),
+                status: plan.status.clone(),
+                config: plan.config.clone(),
+                backend_mode: plan.backend_mode.clone(),
             })
             .await
             .map_err(V2Error::from)?;
 
-        Self::record_config_versions(state, game_id, &current.config, &config, author).await;
+        Self::record_config_versions(self, current.id, &current.config, &plan.config, author).await;
 
-        let tick_rate = config
+        let tick_rate = plan
+            .config
             .get("tick_rate")
             .and_then(|v| v.as_u64())
             .map(|v| v as u32);
         if let Some(tick_rate) = tick_rate {
-            if crate::services::games::tenant::game_id(state)
+            if crate::services::games::tenant::game_id(&self.plane)
                 .await
                 .ok()
                 .flatten()
-                .is_some_and(|hosted| hosted == game_id)
+                .is_some_and(|hosted| hosted == current.id)
             {
-                let _ = state
+                let _ = self
+                    .plane
                     .bus
                     .settings_tx
                     .try_send(engine_bus::SettingsReload { tick_rate });
@@ -98,74 +143,5 @@ impl GamesService {
         }
 
         Ok(GameDto::from(GameRow::from(row)))
-    }
-    pub async fn archive_game(state: &ApiState, game_id: Uuid) -> Result<bool, V2Error> {
-        Self::find_game(state, game_id).await?;
-        let done = q(state)
-            .await?
-            .archive_game(game_id)
-            .await
-            .map_err(V2Error::from)?;
-        Ok(done.rows_affected() > 0)
-    }
-    pub async fn find_game(state: &ApiState, game_id: Uuid) -> Result<GameRow, V2Error> {
-        q(state)
-            .await?
-            .find_game_by_id(game_id)
-            .await
-            .map_err(V2Error::from)?
-            .into_iter()
-            .next()
-            .map(GameRow::from)
-            .ok_or_else(|| V2Error::not_found(NOT_FOUND))
-    }
-    pub async fn find_game_by_key(
-        state: &ApiState,
-        game_key: &str,
-    ) -> Result<Option<GameRow>, V2Error> {
-        Ok(q(state)
-            .await?
-            .find_game_by_key(game_key)
-            .await
-            .map_err(V2Error::from)?
-            .into_iter()
-            .next()
-            .map(GameRow::from))
-    }
-    pub async fn verify_api_key(
-        state: &ApiState,
-        game_key: &str,
-        api_key: &str,
-    ) -> Result<bool, V2Error> {
-        let Some(stored) = q(state)
-            .await?
-            .find_game_secret_by_key(game_key)
-            .await
-            .map_err(V2Error::from)?
-            .into_iter()
-            .next()
-        else {
-            return Ok(false);
-        };
-        Ok(secrets_match(stored.as_bytes(), api_key.as_bytes()))
-    }
-    pub async fn active_module_version(
-        state: &ApiState,
-        game_id: Uuid,
-    ) -> Result<Option<i32>, V2Error> {
-        Ok(q(state)
-            .await?
-            .active_room_module_version(game_id)
-            .await
-            .map_err(V2Error::from)?
-            .into_iter()
-            .next())
-    }
-    pub async fn module_count(state: &ApiState, game_id: Uuid) -> Result<i64, V2Error> {
-        q(state)
-            .await?
-            .count_room_modules(game_id)
-            .await
-            .map_err(V2Error::from)
     }
 }

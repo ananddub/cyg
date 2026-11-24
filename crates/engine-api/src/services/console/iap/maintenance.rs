@@ -1,10 +1,8 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::error::V2Error;
-use crate::services::deps::q;
 
 use super::Vendor;
 
@@ -15,7 +13,7 @@ pub(super) fn config_key(vendor: &str) -> String {
 impl super::super::ConsoleService {
     pub async fn reset_vendor(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         vendor_name: &str,
     ) -> Result<Json<Empty>, V2Error> {
@@ -24,14 +22,22 @@ impl super::super::ConsoleService {
             V2Error::invalid_argument(format!("Unknown IAP vendor: {vendor_name}"))
         })?;
         let key = config_key(vendor_name);
-        if q(state).await?.delete_setting(&key).await?.rows_affected() == 0 {
+        if self
+            .plane
+            .q()
+            .await?
+            .delete_setting(&key)
+            .await?
+            .rows_affected()
+            == 0
+        {
             return Err(V2Error::not_found(format!(
                 "No stored {} IAP configuration.",
                 vendor.label()
             )));
         }
         super::super::audit(
-            state,
+            &self.plane,
             claims,
             "iap.vendor.reset",
             "iap",
@@ -44,7 +50,7 @@ impl super::super::ConsoleService {
 
     pub async fn delete_subscription_product(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         game: Option<uuid::Uuid>,
         product_id: &str,
@@ -55,7 +61,9 @@ impl super::super::ConsoleService {
             return Err(V2Error::invalid_argument("A product id is required."));
         }
         let deleted = crate::services::games::tenant::delete_subscriptions_for_product(
-            state, game, product_id,
+            &self.plane,
+            game,
+            product_id,
         )
         .await?;
         if deleted == 0 {
@@ -64,7 +72,7 @@ impl super::super::ConsoleService {
             ));
         }
         super::super::audit(
-            state,
+            &self.plane,
             claims,
             "subscription.delete",
             "subscription",

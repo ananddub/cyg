@@ -104,6 +104,8 @@ export interface RateLimitHealth {
 }
 
 /** The whole first screen: one object, no joining on the client. */
+export type ServerPhase = "booting" | "ready" | "allocated" | "draining" | "shutdown"
+
 export interface Overview {
   server: ServerInfo;
   /** Wall-clock seconds this control plane has been up. */
@@ -125,6 +127,8 @@ export interface Overview {
   hasSimSample: boolean;
   /** Age of `tick`. Meaningless while `hasSimSample` is false. */
   sampleAgeMs?: number;
+  /** Process lifecycle from `engine-manager`; `booting` until the host loop is up. */
+  serverPhase: ServerPhase;
 }
 
 export type RoomStatus = "live" | "empty";

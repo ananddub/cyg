@@ -8,24 +8,24 @@ use axum::response::IntoResponse;
 fn an_unknown_method_is_404_and_a_bad_room_name_is_400() {
     let state = test_state(1000, 1000);
     assert_eq!(
-        err(&state, ip(1), "spectateSoon", "tank-3d", "{}").status,
+        err(&state.plane(), ip(1), "spectateSoon", "tank-3d", "{}").status,
         StatusCode::NOT_FOUND
     );
     for room in ["", "../etc", "room name", "a\"b", "a/b", &"x".repeat(65)] {
         assert_eq!(
-            err(&state, ip(1), "joinOrCreate", room, "{}").status,
+            err(&state.plane(), ip(1), "joinOrCreate", room, "{}").status,
             StatusCode::BAD_REQUEST,
             "room {room:?}"
         );
     }
-    assert_eq!(minted(&state), 0);
+    assert_eq!(minted(&state.plane()), 0);
 }
 
 #[test]
 fn a_hostile_room_name_cannot_break_the_json_envelope() {
     let state = test_state(1000, 1000);
     for room in ["evil\"name", "evil/name", "evil\nname", "evil\\name"] {
-        let resp = err(&state, ip(1), "joinOrCreate", room, "{}").into_response();
+        let resp = err(&state.plane(), ip(1), "joinOrCreate", room, "{}").into_response();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         assert_eq!(
             resp.headers()

@@ -1,4 +1,3 @@
-
 use bytes::BufMut;
 
 pub(super) fn mp_number(out: &mut impl BufMut, value: f64) {

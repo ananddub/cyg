@@ -8,7 +8,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/link/device"))
+                .post(format!("{base}/v1/account/link/device"))
                 .json(&json!({ "id": "e2e-anonymous-device" }))
                 .send()
                 .await
@@ -56,7 +56,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
         assert_eq!(
             refusal(
                 client
-                    .post(format!("{base}/v2/account/link/{route}"))
+                    .post(format!("{base}/v1/account/link/{route}"))
                     .bearer_auth(&a.token)
                     .json(&body)
                     .send()
@@ -73,7 +73,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink/device"))
+                .post(format!("{base}/v1/account/unlink/device"))
                 .bearer_auth(&b.token)
                 .json(&json!({ "id": b.device_id }))
                 .send()
@@ -89,7 +89,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     let custom = format!("link-{}", letters_suffix());
     json_body(
         client
-            .post(format!("{base}/v2/account/link/custom"))
+            .post(format!("{base}/v1/account/link/custom"))
             .bearer_auth(&a.token)
             .json(&json!({ "id": custom }))
             .send()
@@ -102,7 +102,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     let b_custom = format!("blink-{}", letters_suffix());
     json_body(
         client
-            .post(format!("{base}/v2/account/link/custom"))
+            .post(format!("{base}/v1/account/link/custom"))
             .bearer_auth(&b.token)
             .json(&json!({ "id": b_custom }))
             .send()
@@ -115,7 +115,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     let second_device = format!("e2e-second-device-{}", Uuid::new_v4());
     json_body(
         client
-            .post(format!("{base}/v2/account/link/device"))
+            .post(format!("{base}/v1/account/link/device"))
             .bearer_auth(&a.token)
             .json(&json!({ "id": second_device }))
             .send()
@@ -128,7 +128,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     let email = format!("link{}@example.com", letters_suffix());
     json_body(
         client
-            .post(format!("{base}/v2/account/link/email"))
+            .post(format!("{base}/v1/account/link/email"))
             .bearer_auth(&a.token)
             .json(&json!({ "email": email, "password": "e2e-password" }))
             .send()
@@ -142,7 +142,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/link/custom"))
+                .post(format!("{base}/v1/account/link/custom"))
                 .bearer_auth(&b.token)
                 .json(&json!({ "id": custom }))
                 .send()
@@ -157,7 +157,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/link/device"))
+                .post(format!("{base}/v1/account/link/device"))
                 .bearer_auth(&b.token)
                 .json(&json!({ "id": second_device }))
                 .send()
@@ -172,7 +172,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/link/email"))
+                .post(format!("{base}/v1/account/link/email"))
                 .bearer_auth(&b.token)
                 .json(&json!({ "email": email, "password": "e2e-password" }))
                 .send()
@@ -187,7 +187,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let account = json_body(
         client
-            .get(format!("{base}/v2/account"))
+            .get(format!("{base}/v1/account"))
             .bearer_auth(&a.token)
             .send()
             .await
@@ -261,7 +261,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
         assert_eq!(
             refusal(
                 client
-                    .post(format!("{base}/v2/account/link/{route}"))
+                    .post(format!("{base}/v1/account/link/{route}"))
                     .bearer_auth(&a.token)
                     .json(&body)
                     .send()
@@ -276,7 +276,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     }
     let bad_sync = refusal(
         client
-            .post(format!("{base}/v2/account/link/facebook?sync=maybe"))
+            .post(format!("{base}/v1/account/link/facebook?sync=maybe"))
             .bearer_auth(&a.token)
             .json(&json!({ "token": "vendor-token" }))
             .send()
@@ -290,7 +290,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/link"))
+                .post(format!("{base}/v1/account/link"))
                 .bearer_auth(&a.token)
                 .json(&json!({ "provider": "GitHub" }))
                 .send()
@@ -306,7 +306,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink/device"))
+                .post(format!("{base}/v1/account/unlink/device"))
                 .bearer_auth(&a.token)
                 .json(&json!({}))
                 .send()
@@ -321,7 +321,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink/device"))
+                .post(format!("{base}/v1/account/unlink/device"))
                 .bearer_auth(&a.token)
                 .json(&json!({ "id": format!("e2e-not-owned-{}", Uuid::new_v4()) }))
                 .send()
@@ -336,7 +336,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink/custom"))
+                .post(format!("{base}/v1/account/unlink/custom"))
                 .bearer_auth(&a.token)
                 .json(&json!({ "id": format!("wrong-{}", letters_suffix()) }))
                 .send()
@@ -351,7 +351,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink/email"))
+                .post(format!("{base}/v1/account/unlink/email"))
                 .bearer_auth(&a.token)
                 .json(&json!({ "email": "wrong@example.com" }))
                 .send()
@@ -366,7 +366,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
 
     json_body(
         client
-            .post(format!("{base}/v2/account/unlink/custom"))
+            .post(format!("{base}/v1/account/unlink/custom"))
             .bearer_auth(&b.token)
             .json(&json!({ "id": b_custom }))
             .send()
@@ -379,7 +379,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink/device"))
+                .post(format!("{base}/v1/account/unlink/device"))
                 .bearer_auth(&b.token)
                 .json(&json!({ "id": b.device_id }))
                 .send()
@@ -393,7 +393,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     );
     json_body(
         client
-            .post(format!("{base}/v2/account/unlink/custom"))
+            .post(format!("{base}/v1/account/unlink/custom"))
             .bearer_auth(&a.token)
             .json(&json!({ "id": custom }))
             .send()
@@ -405,7 +405,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     .await;
     json_body(
         client
-            .post(format!("{base}/v2/account/unlink/email"))
+            .post(format!("{base}/v1/account/unlink/email"))
             .bearer_auth(&a.token)
             .json(&json!({}))
             .send()
@@ -417,7 +417,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     .await;
     let unlinked = json_body(
         client
-            .get(format!("{base}/v2/account"))
+            .get(format!("{base}/v1/account"))
             .bearer_auth(&a.token)
             .send()
             .await
@@ -474,7 +474,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
         assert_eq!(
             refusal(
                 client
-                    .post(format!("{base}/v2/account/unlink/{route}"))
+                    .post(format!("{base}/v1/account/unlink/{route}"))
                     .bearer_auth(&a.token)
                     .json(&body)
                     .send()
@@ -488,7 +488,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
         );
         json_body(
             client
-                .post(format!("{base}/v2/account/unlink/{route}"))
+                .post(format!("{base}/v1/account/unlink/{route}"))
                 .bearer_auth(&a.token)
                 .json(&json!({}))
                 .send()
@@ -502,7 +502,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     let partial_gamecenter = json!({ "bundle_id": "com.example.e2e" });
     json_body(
         client
-            .post(format!("{base}/v2/account/unlink/gamecenter"))
+            .post(format!("{base}/v1/account/unlink/gamecenter"))
             .bearer_auth(&a.token)
             .json(&partial_gamecenter)
             .send()
@@ -515,7 +515,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink/gamecenter"))
+                .post(format!("{base}/v1/account/unlink/gamecenter"))
                 .bearer_auth(&a.token)
                 .json(&json!({
                     "bundle_id": "com.example.e2e",
@@ -537,7 +537,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink"))
+                .post(format!("{base}/v1/account/unlink"))
                 .bearer_auth(&a.token)
                 .json(&json!({}))
                 .send()
@@ -552,7 +552,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink"))
+                .post(format!("{base}/v1/account/unlink"))
                 .bearer_auth(&a.token)
                 .json(&json!({ "provider": "steam" }))
                 .send()
@@ -567,7 +567,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
 
     json_body(
         client
-            .post(format!("{base}/v2/account/unlink/device"))
+            .post(format!("{base}/v1/account/unlink/device"))
             .bearer_auth(&a.token)
             .json(&json!({ "id": second_device }))
             .send()
@@ -580,7 +580,7 @@ pub async fn link_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/unlink/device"))
+                .post(format!("{base}/v1/account/unlink/device"))
                 .bearer_auth(&a.token)
                 .json(&json!({ "id": a.device_id }))
                 .send()

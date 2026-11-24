@@ -1,4 +1,47 @@
 use super::*;
+use crate::game::PhysicsFeature;
+
+#[test]
+fn wasm_pooling_defaults_on_and_parses() {
+    let cfg = parse_config("tick_rate: 60\n");
+    assert!(
+        cfg.wasm_pooling,
+        "pooling is the default — bounded guests pool slots"
+    );
+    assert_eq!(cfg.wasm_max_memory_mb, 64);
+
+    let cfg = parse_config("wasm_pooling: false\nwasm_max_memory_mb: 128\n");
+    assert!(!cfg.wasm_pooling);
+    assert_eq!(cfg.wasm_max_memory_mb, 128);
+
+    let toml = parse_config("wasm_pooling = false\nwasm_max_memory_mb = 256\n");
+    assert!(!toml.wasm_pooling);
+    assert_eq!(toml.wasm_max_memory_mb, 256);
+}
+
+#[test]
+fn patch_rate_parses_and_defaults_to_uncapped() {
+    let cfg = parse_config("tick_rate: 60\npatch_rate: 20\n");
+    assert_eq!(cfg.tick_rate, 60);
+    assert_eq!(cfg.patch_rate, 20);
+    assert_eq!(cfg.patch_rate_ms(), 50);
+
+    let cfg = parse_config("tick_rate: 60\n");
+    assert_eq!(cfg.patch_rate, 0, "unset patch_rate follows the guest");
+    assert_eq!(cfg.patch_rate_ms(), 0);
+
+    let cfg = parse_config("patch_rate: -5\n");
+    assert_eq!(cfg.patch_rate, 0, "negative patch_rate clamps to uncapped");
+
+    let toml = parse_config(
+        r#"
+tick_rate = 128
+patch_rate = 10
+"#,
+    );
+    assert_eq!(toml.patch_rate, 10);
+    assert_eq!(toml.patch_rate_ms(), 100);
+}
 
 #[test]
 fn a_lifecycle_block_replaces_the_host_windows() {
@@ -128,4 +171,60 @@ fn a_quota_scope_can_be_switched_off_with_a_zero_cap() {
     use crate::quota;
     let cfg = parse_config("[control.quotas]\nenabled = true\nlogin = 0\n");
     assert_eq!(cfg.control.quotas.window(quota::LOGIN).cap, 0);
+}
+
+#[test]
+fn features_table_gates_physics_and_voice() {
+    let cfg = parse_config(
+        r#"
+[features]
+physics = "2d"
+voice = false
+"#,
+    );
+    assert!(cfg.features.wants_rapier2d());
+    assert!(!cfg.features.wants_rapier3d());
+    assert!(!cfg.features.voice);
+
+    let none = parse_config("[features]\nphysics = \"none\"\n");
+    assert!(!none.features.wants_any_physics());
+
+    let cfg = parse_config("tick_rate = 60\n");
+    assert_eq!(
+        cfg.features.physics,
+        PhysicsFeature::Both,
+        "unset features keep today's behavior (both worlds)"
+    );
+    assert!(cfg.features.voice);
+
+    let bad = parse_config("[features]\nphysics = \"5d\"\n");
+    assert_eq!(
+        bad.features.physics,
+        PhysicsFeature::Both,
+        "an unknown mode keeps the default instead of silently disabling"
+    );
+}
+
+#[test]
+fn tick_stagger_defaults_to_off_and_parses_from_both_config_shapes() {
+    let cfg = parse_config("tick_rate = 60\n");
+    assert_eq!(cfg.tick_stagger, 1, "staggering is opt-in");
+
+    let flat = parse_config("tick_stagger = 4\n");
+    assert_eq!(flat.tick_stagger, 4);
+
+    let toml = parse_config("[meta]\nname = \"x\"\n[tick]\n");
+    assert_eq!(toml.tick_stagger, 1, "unrelated blocks leave it alone");
+
+    let scalar = parse_config("tick_stagger = 8\n");
+    assert_eq!(scalar.tick_stagger, 8);
+}
+
+#[test]
+fn an_absurd_tick_stagger_is_pulled_into_the_slot_range() {
+    let low = parse_config("tick_stagger = 0\n");
+    assert_eq!(low.tick_stagger, 1, "0 would divide the interval by zero");
+
+    let high = parse_config("tick_stagger = 999\n");
+    assert_eq!(high.tick_stagger, 64);
 }

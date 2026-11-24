@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Instant;
@@ -25,8 +24,6 @@ pub struct WebRtcSession {
     pub connected: bool,
     pub last_active: Instant,
     pub next_timeout: Option<Instant>,
-
-    pub(super) legacy_alias_warned: bool,
 }
 
 impl WebRtcSession {
@@ -45,7 +42,6 @@ impl WebRtcSession {
             connected: false,
             last_active: Instant::now(),
             next_timeout: None,
-            legacy_alias_warned: false,
         }
     }
 

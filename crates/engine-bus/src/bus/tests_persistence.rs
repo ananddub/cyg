@@ -50,7 +50,10 @@ fn an_unanswered_fetch_gives_up_and_starts_the_room_empty() {
     let bus = Bus::new(2, 2);
 
     let started = Instant::now();
-    assert!(bus.fetch_snapshot("arena", Duration::from_millis(20)).is_none());
+    assert!(
+        bus.fetch_snapshot("arena", Duration::from_millis(20))
+            .is_none()
+    );
     assert!(
         started.elapsed() < Duration::from_secs(2),
         "the wait is bounded, not a hang"
@@ -61,7 +64,10 @@ fn an_unanswered_fetch_gives_up_and_starts_the_room_empty() {
         let fetch = reader.fetches_rx.recv().unwrap();
         let _ = fetch.reply.send(None);
     });
-    assert!(bus.fetch_snapshot("arena", Duration::from_secs(5)).is_none());
+    assert!(
+        bus.fetch_snapshot("arena", Duration::from_secs(5))
+            .is_none()
+    );
 }
 
 #[test]
@@ -128,7 +134,10 @@ fn a_seat_bridge_rides_the_queue_and_counts_its_losses() {
     let seat = bus.seats_rx.try_recv().expect("the bridge is queued");
     assert_eq!(seat.room, "arena");
     assert_eq!(seat.seat, 3);
-    assert_eq!(seat.user_id.as_deref(), Some("0195c8da-1111-7000-8000-000000000001"));
+    assert_eq!(
+        seat.user_id.as_deref(),
+        Some("0195c8da-1111-7000-8000-000000000001")
+    );
     assert_eq!(bus.seats_dropped(), 0);
 
     for seat_id in 0..super::SEAT_CAP as i64 {

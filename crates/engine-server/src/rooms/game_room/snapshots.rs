@@ -1,7 +1,6 @@
 use crate::rooms::*;
 
 impl GameRoom {
-
     pub fn export_snapshot(&mut self) -> Option<Vec<u8>> {
         let bytes = self.export_snapshot_bytes()?;
         self.snapshot_seq += 1;
@@ -19,7 +18,14 @@ impl GameRoom {
                     if let Ok(packed) = wasm.on_save() {
                         let ptr = ((packed >> 32) as u32) as usize;
                         let len = (packed as u32) as usize;
-                        if len > 0 {
+                        // The length comes from the guest: bound it by the wasm
+                        // memory size before sizing the buffer.
+                        let mem_size = wasm
+                            .raw_instance()
+                            .raw_memory_slice()
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+                        if len > 0 && ptr + len <= mem_size {
                             let mut buf = vec![0u8; len];
                             if wasm
                                 .read_memory_into(ptr as u32, len as u32, &mut buf)
@@ -69,5 +75,4 @@ impl GameRoom {
             }
         }
     }
-
 }

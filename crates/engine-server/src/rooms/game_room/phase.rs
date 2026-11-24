@@ -1,7 +1,6 @@
 use crate::rooms::*;
 
 impl GameRoom {
-
     #[inline]
     pub fn is_hibernating(&self) -> bool {
         self.sessions.is_empty() && self.spectators.is_empty()
@@ -9,16 +8,16 @@ impl GameRoom {
 
     #[inline]
     pub fn phase(&self) -> engine_bus::RoomPhase {
-        self.state
+        self.lifecycle.phase
     }
 
     pub(crate) fn note_state(&mut self) {
-        if self.state == engine_bus::RoomPhase::Closed {
+        if self.lifecycle.phase == engine_bus::RoomPhase::Closed {
             return;
         }
         let next = if !self.is_hibernating() {
             engine_bus::RoomPhase::Active
-        } else if self.state == engine_bus::RoomPhase::Created {
+        } else if self.lifecycle.phase == engine_bus::RoomPhase::Created {
             return;
         } else {
             engine_bus::RoomPhase::Hibernating
@@ -27,14 +26,17 @@ impl GameRoom {
     }
 
     pub(crate) fn set_state(&mut self, next: engine_bus::RoomPhase) -> bool {
-        if self.state == next {
+        if self.lifecycle.phase == next {
             return false;
         }
-        if !self.state.allows(next) {
-            tracing::warn!("[server] room refused {:?} -> {next:?}", self.state);
+        if !self.lifecycle.phase.allows(next) {
+            tracing::warn!(
+                "[server] room refused {:?} -> {next:?}",
+                self.lifecycle.phase
+            );
             return false;
         }
-        self.state = next;
+        self.lifecycle.phase = next;
         true
     }
 
@@ -62,12 +64,14 @@ impl GameRoom {
             return 0;
         }
         const MAX_ECS_OUTBOX: usize = 256;
+        static DELTA_EVENT: std::sync::LazyLock<std::sync::Arc<str>> =
+            std::sync::LazyLock::new(|| std::sync::Arc::from("delta"));
         let len = delta.len();
         if self.ecs_outbox.len() < MAX_ECS_OUTBOX {
             self.ecs_outbox.push(OutboundMessage {
                 target: 0,
-                event: "delta".to_string(),
-                payload: delta,
+                event: DELTA_EVENT.clone(),
+                payload: bytes::Bytes::from(delta),
             });
         }
         len
@@ -78,5 +82,4 @@ impl GameRoom {
             ecs.apply_input(session, data);
         }
     }
-
 }

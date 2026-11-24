@@ -20,6 +20,7 @@ pub(super) fn boot(
     let seats = Arc::new(plane::SeatRegistry::new(&cfg.seat_secret));
     let mut udp = match plane::udp::UdpPlane::new(
         &cfg.udp_addr,
+        &cfg.room_name,
         Arc::clone(&bus),
         Arc::clone(&seats),
         cfg.lifecycle.peer_idle(),

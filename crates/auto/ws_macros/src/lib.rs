@@ -1,4 +1,3 @@
-
 use proc_macro::TokenStream;
 use syn::{Item, ItemFn, LitStr, parse_macro_input};
 

@@ -1,4 +1,3 @@
-
 pub const OP_CHECKSUM: u8 = 0x44;
 
 pub const CHECKSUM_WIRE_LEN: usize = 17;

@@ -4,14 +4,11 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::app::middleware::ConsoleAuthed;
-use crate::dto::report::{
-    ListQuery, ReportListResponse, ReportResponse, STATUSES, StatusRequest,
-};
+use crate::dto::report::{ListQuery, ReportListResponse, ReportResponse, STATUSES, StatusRequest};
 use crate::error::V2Error;
 use crate::repositories::report::{
     CreateInfractionParams, ListReportsByStatusPagedParams, ListReportsPagedParams,
 };
-use crate::services::deps::q;
 use crate::services::social::{cursor_decode, limit, ts_head};
 use crate::utils::notification::{LIMIT_RANGE, encode_cursor_at};
 
@@ -20,7 +17,7 @@ const MAX_MUTE_SECONDS: i64 = 30 * 24 * 60 * 60;
 impl ReportService {
     pub async fn list(
         &self,
-        state: &ApiState,
+
         auth: &ConsoleAuthed,
         req: ListQuery,
     ) -> Result<Json<ReportListResponse>, V2Error> {
@@ -33,7 +30,7 @@ impl ReportService {
         }
         let cursor = decode(req.cacheable_cursor.as_deref())?;
         let (create_time, id_start) = cursor.unwrap_or((ts_head(), Uuid::nil()));
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let mut rows = match req.status.as_deref() {
             Some(status) => {
                 queries
@@ -74,18 +71,18 @@ impl ReportService {
 
     pub async fn set_status(
         &self,
-        state: &ApiState,
+
         auth: &ConsoleAuthed,
         id: &str,
         req: StatusRequest,
     ) -> Result<Json<ReportResponse>, V2Error> {
         auth.require_write()?;
-        let id =
-            Uuid::parse_str(id.trim()).map_err(|_| V2Error::invalid_argument("Invalid report ID."))?;
+        let id = Uuid::parse_str(id.trim())
+            .map_err(|_| V2Error::invalid_argument("Invalid report ID."))?;
         if !STATUSES.contains(&req.status.as_str()) {
             return Err(V2Error::invalid_argument("Invalid report status."));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let report = queries
             .update_report_status(id, &req.status)
             .await?
@@ -114,15 +111,16 @@ async fn record_infraction(
             "Infraction duration must be between 1 and 2592000 seconds.",
         ));
     }
-    queries.create_infraction(&CreateInfractionParams {
-        id: Uuid::new_v4(),
-        user_id: *reported_id,
-        kind,
-        note: crate::moderation::clean_text(&req.note),
-        expires_at: Utc::now() + chrono::Duration::seconds(duration),
-        issued_by: auth.0.uuid(),
-    })
-    .await?;
+    queries
+        .create_infraction(&CreateInfractionParams {
+            id: Uuid::new_v4(),
+            user_id: *reported_id,
+            kind,
+            note: crate::moderation::clean_text(&req.note),
+            expires_at: Utc::now() + chrono::Duration::seconds(duration),
+            issued_by: auth.0.uuid(),
+        })
+        .await?;
     Ok(())
 }
 

@@ -5,7 +5,7 @@ use crate::infra::rate_limit::*;
 fn retry_after_is_zero_only_for_a_source_that_can_proceed() {
     let l = IpRateLimiter::new(2, 1);
     assert_eq!(l.retry_after(ip(9)), 0, "unknown source");
-    let mut l = IpRateLimiter::new(2, 1);
+    let l = IpRateLimiter::new(2, 1);
     assert!(l.allow(ip(9)));
     assert!(!l.allow(ip(9)));
     assert_eq!(l.retry_after(ip(9)), 1);
@@ -13,12 +13,12 @@ fn retry_after_is_zero_only_for_a_source_that_can_proceed() {
 
 #[test]
 fn retry_after_tracks_the_bucket_instead_of_a_constant() {
-    let mut slow = IpRateLimiter::with_rates(0.1, 1.0);
+    let slow = IpRateLimiter::with_rates(0.1, 1.0);
     assert!(slow.allow(ip(1)));
     assert!(!slow.allow(ip(1)));
     assert_eq!(slow.retry_after(ip(1)), 10, "deficit / refill rate");
 
-    let mut fast = IpRateLimiter::with_rates(5.0, 5.0);
+    let fast = IpRateLimiter::with_rates(5.0, 5.0);
     assert_eq!(fast.retry_after(ip(1)), 0, "never seen");
     for _ in 0..5 {
         assert!(fast.allow(ip(1)));
@@ -34,7 +34,7 @@ fn retry_after_tracks_the_bucket_instead_of_a_constant() {
 #[test]
 fn retry_after_never_understates_the_wait() {
     for rate in [0.25, 0.5, 1.0, 4.0] {
-        let mut l = IpRateLimiter::with_rates(rate, 1.0);
+        let l = IpRateLimiter::with_rates(rate, 1.0);
         assert!(l.allow(ip(3)));
         assert!(!l.allow(ip(3)));
         let advertised = l.retry_after(ip(3)) as f64;

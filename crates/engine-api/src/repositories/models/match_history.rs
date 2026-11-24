@@ -3,7 +3,7 @@ use super::*;
 /// One match the host finished: how long it ran, how many it held, and why it
 /// ended. Written from the bus when a room is disposed, so a player can ask what
 /// happened after the process that ran it is gone.
-#[derive(Debug, Clone, Serialize, Deserialize, somnia::SurrealRecord)]
+#[derive(poem_openapi::Object, Debug, Clone, Serialize, Deserialize, somnia::SurrealRecord)]
 #[table("match_history", schemaless)]
 #[index(name = "match_history_room_ended_at_idx", fields = "room, ended_at")]
 #[index(name = "match_history_game_id", fields = "game_id")]

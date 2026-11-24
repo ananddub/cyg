@@ -1,6 +1,6 @@
 use super::common::{capitalize, default_literal, emit_field_builder};
 use crate::model::RootState;
-use crate::wire::{array_assemblyscript_type, WireKind};
+use crate::wire::{WireKind, array_assemblyscript_type};
 
 pub(super) fn emit_world(out: &mut String, root: &RootState) {
     out.push('\n');
@@ -68,6 +68,29 @@ pub(super) fn emit_world(out: &mut String, root: &RootState) {
         ));
     }
     out.push_str("    }\n");
+
+    for nested in &root.nested {
+        let parent_schema = root
+            .collections
+            .iter()
+            .find(|collection| collection.name == nested.parent)
+            .map(|collection| collection.schema.as_str())
+            .unwrap_or("SchemaEntity");
+        out.push_str(&format!(
+            "\n    private _sync_{name}(): void {{\n        let seen = new Set<u32>();\n        for (let i = 0; i < this.{parent}.size; i++) {{\n            let ownerId = this.{parent}.ids[i];\n            let owner = this.{parent}.get(ownerId) as {parent_schema};\n            let items = owner.{field};\n            for (let slot = 0; slot < items.length; slot++) {{\n                let childId = ((ownerId << 16) | (slot as u32)) as u32;\n                seen.add(childId);\n                this.{name}.set(childId, items[slot]);\n            }}\n        }}\n        let stale = new Array<u32>();\n        for (let i = 0; i < this.{name}.size; i++) {{\n            let childId = this.{name}.ids[i];\n            if (!seen.has(childId)) stale.push(childId);\n        }}\n        for (let i = 0; i < stale.length; i++) this.{name}.delete(stale[i]);\n    }}\n",
+            name = nested.collection,
+            parent = nested.parent,
+            parent_schema = parent_schema,
+            field = nested.field,
+        ));
+    }
+    if !root.nested.is_empty() {
+        out.push_str("\n    override commit(): i64 {\n");
+        for nested in &root.nested {
+            out.push_str(&format!("        this._sync_{}();\n", nested.collection));
+        }
+        out.push_str("        return super.commit();\n    }\n");
+    }
 
     for field in &root.scalars {
         let ty = match field.kind {

@@ -1,8 +1,8 @@
 class_name CYGSchemaDef
 extends RefCounted
-## Fluent schema definition and "OXSD" descriptor parser — the GDScript
-## counterpart of `SchemaDef` / `parseSchemaDescriptor` in
-## `sdk/web/cyg.js`.
+## Fluent schema definition builder — the GDScript counterpart of
+## `SchemaDef` in `sdk/web/cyg.js`. Descriptor PARSING lives in
+## cyg-core-rs (the GDExtension exposes it via schema_*() getters).
 ##
 ## ```gdscript
 ## var schema := CYGSchemaDef.new("Player", 1).f64("x").f64("y").u32("flags")
@@ -188,103 +188,10 @@ static func is_descriptor(bytes: PackedByteArray) -> bool:
 	return true
 
 
-## Parse an "OXSD" frame. v3 adds field flags and array element types, v2 adds
-## root scalars and multiple collections, v1 is still accepted.
-##
-## Returns `{ version, schemas, root_name, root_scalars, collections, root }`
-## or `{}` when the bytes are not a valid descriptor.
-static func parse_descriptor(bytes: PackedByteArray) -> Dictionary:
-	if not is_descriptor(bytes):
-		return {}
-	var reader := CYGCodec.Reader.new(bytes)
-	reader.offset = 4
-	var schema_version := reader.read_u8()
-	if schema_version < 1 or schema_version > CYGCodec.DESCRIPTOR_VERSION:
-		return {}
-	reader.read_u8()  # flags
-	var schema_count := reader.read_u16()
-	var schemas: Array = []
-	for i in range(schema_count):
-		if not reader.ok:
-			return {}
-		var schema_name := reader.read_string16()
-		var item_version := reader.read_u32()
-		reader.read_u32()  # hash: recomputed from the fields below
-		var field_count := reader.read_u16()
-		var definition := CYGSchemaDef.new(schema_name, item_version)
-		for f in range(field_count):
-			if not _read_descriptor_field(reader, definition, schema_version):
-				return {}
-		schemas.append(definition)
-
-	var root_name := reader.read_string16()
-	var collections: Array = []
-	var root_scalars: Variant = null
-
-	if schema_version == 1:
-		var root_index := reader.read_u16()
-		var root_schema: Variant = null
-		if root_index != 0xFFFF and root_index < schemas.size():
-			root_schema = schemas[root_index]
-		if root_schema != null and not root_name.is_empty():
-			collections.append({"name": root_name, "schema": root_schema})
-	else:
-		var root_version := reader.read_u32()
-		reader.read_u32()  # root hash: recomputed from the fields below
-		var scalar_count := reader.read_u16()
-		if scalar_count > 0:
-			root_scalars = CYGSchemaDef.new(root_name if not root_name.is_empty() else "State", root_version)
-			for f in range(scalar_count):
-				if not _read_descriptor_field(reader, root_scalars, schema_version):
-					return {}
-		var collection_count := reader.read_u16()
-		for i in range(collection_count):
-			if not reader.ok:
-				return {}
-			var collection_name := reader.read_string16()
-			var index := reader.read_u16()
-			if collection_name.is_empty() or index == 0xFFFF or index >= schemas.size():
-				return {}
-			collections.append({"name": collection_name, "schema": schemas[index]})
-
-	if not reader.ok or reader.offset != bytes.size():
-		return {}
-	var root: Variant = null
-	if not collections.is_empty():
-		root = {"name": collections[0]["name"], "schema": collections[0]["schema"]}
-	return {
-		"version": schema_version,
-		"schemas": schemas,
-		"root_name": root_name,
-		"root_scalars": root_scalars,
-		"collections": collections,
-		"root": root,
-	}
-
-
-static func _read_descriptor_field(reader: CYGCodec.Reader,
-		definition: CYGSchemaDef, descriptor_version: int) -> bool:
-	var field_name := reader.read_string16()
-	var type_code := reader.read_u8()
-	if type_code <= 0 or type_code >= CYGCodec.SCHEMA_TYPE_NAME.size():
-		return false
-	var type_name: String = CYGCodec.SCHEMA_TYPE_NAME[type_code]
-	if type_name.is_empty():
-		return false
-	var flags := 0
-	var element := ""
-	if descriptor_version >= 3:
-		flags = reader.read_u8()
-		var element_code := reader.read_u8()
-		if element_code != 0:
-			if element_code >= CYGCodec.SCHEMA_TYPE_NAME.size():
-				return false
-			element = CYGCodec.SCHEMA_TYPE_NAME[element_code]
-			if element.is_empty():
-				return false
-	definition._add(field_name, type_name, flags, element)
-	return reader.ok and definition.last_error.is_empty()
-
+## The "OXSD" descriptor parser that lived here (parse_descriptor +
+## _read_descriptor_field, ~100 lines) now lives ONLY in cyg-core-rs — the
+## GDExtension exposes the parsed contract through schema_*() getters, and
+## CYGRoom._build_schema_mirror() rebuilds these CYGSchemaDef objects from it.
 
 ## ----------------------------------------------------------- test helper
 

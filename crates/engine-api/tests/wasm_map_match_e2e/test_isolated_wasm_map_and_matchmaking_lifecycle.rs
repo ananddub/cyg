@@ -15,7 +15,7 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
     eprintln!("Step 2: Registering isolated custom WASM game");
     let game = json_body(
         client
-            .post(format!("{base}/v2/console/games"))
+            .post(format!("{base}/v1/console/games"))
             .bearer_auth(&console)
             .json(&json!({
                 "name": "Isolated Battle Arena",
@@ -49,7 +49,7 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
 
     let wasm_res = json_body(
         client
-            .post(format!("{base}/v2/console/games/{game_id}/wasm/upload"))
+            .post(format!("{base}/v1/console/games/{game_id}/wasm/upload"))
             .bearer_auth(&console)
             .multipart(form)
             .send()
@@ -88,7 +88,7 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
 
     let map_res = json_body(
         client
-            .post(format!("{base}/v2/console/games/{game_id}/maps/upload"))
+            .post(format!("{base}/v1/console/games/{game_id}/maps/upload"))
             .bearer_auth(&console)
             .multipart(map_form)
             .send()
@@ -141,9 +141,7 @@ pub async fn test_isolated_wasm_map_and_matchmaking_lifecycle() {
     eprintln!("Step 5: Testing Matchmaker joinOrCreate reservation");
     let seat = json_body(
         client
-            .post(format!(
-                "{base}/api/matchmake/joinOrCreate/tank-arena-alpha"
-            ))
+            .post(format!("{base}/matchmake/joinOrCreate/tank-arena-alpha"))
             .json(&json!({
                 "game_id": &game_id,
                 "game_key": &game_key

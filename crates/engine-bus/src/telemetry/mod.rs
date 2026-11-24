@@ -17,7 +17,6 @@ pub struct SessionTelemetry {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RoomPhase {
-
     Created,
 
     #[default]
@@ -29,7 +28,6 @@ pub enum RoomPhase {
 }
 
 impl RoomPhase {
-
     pub fn allows(self, next: Self) -> bool {
         match self {
             RoomPhase::Created => matches!(next, RoomPhase::Active | RoomPhase::Closed),
@@ -40,10 +38,81 @@ impl RoomPhase {
     }
 }
 
+/// Lifecycle phase of the game-server process/host itself.
+///
+/// Sits next to [`RoomPhase`] so the status snapshot can carry both: a room
+/// phase answers "is this room simulating?", this answers "is the whole
+/// process booting, serving, draining, or gone?". The state machine that
+/// owns transitions lives in `engine-manager`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ServerPhase {
+    /// Constructing the runtime, lanes, and rooms. Not yet accepting players.
+    #[default]
+    Booting,
+    /// Fully booted and in the allocation pool, accepting players.
+    Ready,
+    /// The cluster (e.g. Agones) handed this server a game; still serving.
+    Allocated,
+    /// Shutdown was requested; rooms get a grace window to finish.
+    Draining,
+    /// Drain finished; the process is on its way out.
+    Shutdown,
+}
+
+impl ServerPhase {
+    /// Whether this phase may transition to `next`.
+    ///
+    /// `Shutdown` is terminal. `Draining` only advances to `Shutdown`; it
+    /// never goes back to `Ready`/`Allocated`, because a drain request is
+    /// latched by the bus and cannot be un-requested.
+    pub fn allows(self, next: Self) -> bool {
+        match self {
+            ServerPhase::Booting => matches!(
+                next,
+                ServerPhase::Ready | ServerPhase::Draining | ServerPhase::Shutdown
+            ),
+            ServerPhase::Ready => matches!(
+                next,
+                ServerPhase::Allocated | ServerPhase::Draining | ServerPhase::Shutdown
+            ),
+            ServerPhase::Allocated => matches!(
+                next,
+                ServerPhase::Ready | ServerPhase::Draining | ServerPhase::Shutdown
+            ),
+            ServerPhase::Draining => matches!(next, ServerPhase::Shutdown),
+            ServerPhase::Shutdown => false,
+        }
+    }
+
+    #[inline]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ServerPhase::Booting => "booting",
+            ServerPhase::Ready => "ready",
+            ServerPhase::Allocated => "allocated",
+            ServerPhase::Draining => "draining",
+            ServerPhase::Shutdown => "shutdown",
+        }
+    }
+
+    #[inline]
+    pub fn display(self) -> &'static str {
+        self.as_str()
+    }
+
+    #[inline]
+    pub fn is_serving(self) -> bool {
+        matches!(self, ServerPhase::Ready | ServerPhase::Allocated)
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoomTelemetry {
     pub name: String,
+    #[serde(default)]
+    pub room_id: String,
     pub phase: RoomPhase,
     pub clients: u32,
     pub spectators: u32,
@@ -52,6 +121,12 @@ pub struct RoomTelemetry {
     pub age_sec: u64,
 
     pub closes_in_sec: Option<u64>,
+    #[serde(default)]
+    pub max_clients: u32,
+    #[serde(default)]
+    pub locked: bool,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -89,6 +164,8 @@ pub struct StatusSnapshot {
     pub rooms_created: u32,
     pub rooms_active: u32,
     pub rooms_hibernating: u32,
+
+    pub server_phase: ServerPhase,
 
     pub seq: u64,
 

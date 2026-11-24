@@ -13,7 +13,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/console/account/{}/ban",
+                    "{}/v1/console/account/{}/ban",
                     env.base, player.uid
                 ))
                 .bearer_auth(viewer)
@@ -30,7 +30,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/account/not-a-uuid/ban", env.base))
+                .post(format!("{}/v1/console/account/not-a-uuid/ban", env.base))
                 .bearer_auth(console)
                 .json(&json!({}))
                 .send()
@@ -46,7 +46,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/console/account/{}/ban",
+                    "{}/v1/console/account/{}/ban",
                     env.base,
                     Uuid::new_v4()
                 ))
@@ -64,7 +64,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     expect(
         env.client
             .post(format!(
-                "{}/v2/console/account/{}/ban",
+                "{}/v1/console/account/{}/ban",
                 env.base, player.uid
             ))
             .bearer_auth(console)
@@ -73,7 +73,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/account/{id}/ban",
+        "POST /v1/console/account/{id}/ban",
     )
     .await;
     let banned = account_row(env, console, &player.uid).await;
@@ -87,7 +87,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .post(format!(
-                    "{}/v2/console/account/{}/note",
+                    "{}/v1/console/account/{}/note",
                     env.base, player.uid
                 ))
                 .bearer_auth(console)
@@ -104,7 +104,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     expect(
         env.client
             .post(format!(
-                "{}/v2/console/account/{}/note",
+                "{}/v1/console/account/{}/note",
                 env.base, player.uid
             ))
             .bearer_auth(console)
@@ -113,13 +113,13 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/account/{id}/note",
+        "POST /v1/console/account/{id}/note",
     )
     .await;
     let notes = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/account/{}/note",
+                "{}/v1/console/account/{}/note",
                 env.base, player.uid
             ))
             .bearer_auth(console)
@@ -127,7 +127,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/account/{id}/note",
+        "GET /v1/console/account/{id}/note",
     )
     .await;
     let rows = notes.as_array().expect("an array of notes").clone();
@@ -139,7 +139,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/account/{}/note/not-a-uuid",
+                    "{}/v1/console/account/{}/note/not-a-uuid",
                     env.base, player.uid
                 ))
                 .bearer_auth(console)
@@ -155,7 +155,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     expect(
         env.client
             .delete(format!(
-                "{}/v2/console/account/{}/note/{note_id}",
+                "{}/v1/console/account/{}/note/{note_id}",
                 env.base, player.uid
             ))
             .bearer_auth(console)
@@ -163,14 +163,14 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/account/{id}/note/{noteId}",
+        "DELETE /v1/console/account/{id}/note/{noteId}",
     )
     .await;
     assert_eq!(
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/account/{}/note/{note_id}",
+                    "{}/v1/console/account/{}/note/{note_id}",
                     env.base, player.uid
                 ))
                 .bearer_auth(console)
@@ -187,7 +187,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     expect(
         env.client
             .post(format!(
-                "{}/v2/console/account/{}/unban",
+                "{}/v1/console/account/{}/unban",
                 env.base, player.uid
             ))
             .bearer_auth(console)
@@ -195,7 +195,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/account/{id}/unban",
+        "POST /v1/console/account/{id}/unban",
     )
     .await;
     assert_eq!(
@@ -206,13 +206,13 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
 
     let templates = json_body(
         env.client
-            .get(format!("{}/v2/console/acl/template", env.base))
+            .get(format!("{}/v1/console/acl/template", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/acl/template",
+        "GET /v1/console/acl/template",
     )
     .await;
     assert!(
@@ -222,7 +222,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/acl/template", env.base))
+                .post(format!("{}/v1/console/acl/template", env.base))
                 .bearer_auth(viewer)
                 .json(&json!({ "name": "nope" }))
                 .send()
@@ -237,7 +237,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/acl/template", env.base))
+                .post(format!("{}/v1/console/acl/template", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "name": "  " }))
                 .send()
@@ -252,7 +252,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/acl/template", env.base))
+                .post(format!("{}/v1/console/acl/template", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "name": "gap-acl-shape", "acl": ["players.read"] }))
                 .send()
@@ -267,7 +267,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     let template_name = format!("gap acl {}", letters_suffix());
     let made = json_body(
         env.client
-            .post(format!("{}/v2/console/acl/template", env.base))
+            .post(format!("{}/v1/console/acl/template", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "name": template_name,
@@ -278,7 +278,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/acl/template",
+        "POST /v1/console/acl/template",
     )
     .await;
     let template_id = made["id"].as_str().expect("template id").to_owned();
@@ -287,7 +287,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/acl/template", env.base))
+                .post(format!("{}/v1/console/acl/template", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "name": template_name }))
                 .send()
@@ -302,7 +302,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     let edited = json_body(
         env.client
             .put(format!(
-                "{}/v2/console/acl/template/{template_id}",
+                "{}/v1/console/acl/template/{template_id}",
                 env.base
             ))
             .bearer_auth(console)
@@ -315,7 +315,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "PUT /v2/console/acl/template/{id}",
+        "PUT /v1/console/acl/template/{id}",
     )
     .await;
     assert_eq!(edited["name"], format!("{template_name} v2"));
@@ -323,7 +323,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .put(format!("{}/v2/console/acl/template/not-a-uuid", env.base))
+                .put(format!("{}/v1/console/acl/template/not-a-uuid", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "name": "whatever" }))
                 .send()
@@ -339,7 +339,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
         refusal(
             env.client
                 .put(format!(
-                    "{}/v2/console/acl/template/{}",
+                    "{}/v1/console/acl/template/{}",
                     env.base,
                     Uuid::new_v4()
                 ))
@@ -360,7 +360,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/user", env.base))
+                .post(format!("{}/v1/console/user", env.base))
                 .bearer_auth(console)
                 .json(&json!({
                     "username": ops_name,
@@ -379,7 +379,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     );
     let operator = json_body(
         env.client
-            .post(format!("{}/v2/console/user", env.base))
+            .post(format!("{}/v1/console/user", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "username": ops_name,
@@ -401,7 +401,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/user/{ops_id}/password", env.base))
+                .post(format!("{}/v1/console/user/{ops_id}/password", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "password": "short" }))
                 .send()
@@ -416,20 +416,20 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     let rotated = "e2e-operator-rotated";
     expect(
         env.client
-            .post(format!("{}/v2/console/user/{ops_id}/password", env.base))
+            .post(format!("{}/v1/console/user/{ops_id}/password", env.base))
             .bearer_auth(console)
             .json(&json!({ "password": rotated }))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/user/{id}/password",
+        "POST /v1/console/user/{id}/password",
     )
     .await;
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/authenticate", env.base))
+                .post(format!("{}/v1/console/authenticate", env.base))
                 .json(&json!({ "username": ops_name, "password": ops_password }))
                 .send()
                 .await
@@ -445,7 +445,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/user/{ops_id}/disable", env.base))
+                .post(format!("{}/v1/console/user/{ops_id}/disable", env.base))
                 .bearer_auth(&ops)
                 .send()
                 .await
@@ -459,7 +459,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/password_change", env.base))
+                .post(format!("{}/v1/console/password_change", env.base))
                 .bearer_auth(console)
                 .json(&json!({ "current_password": rotated, "password": "another-password" }))
                 .send()
@@ -473,7 +473,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     );
     refusal(
         env.client
-            .post(format!("{}/v2/console/user/{ops_id}/disable", env.base))
+            .post(format!("{}/v1/console/user/{ops_id}/disable", env.base))
             .bearer_auth(viewer)
             .send()
             .await
@@ -484,18 +484,18 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     .await;
     expect(
         env.client
-            .post(format!("{}/v2/console/user/{ops_id}/disable", env.base))
+            .post(format!("{}/v1/console/user/{ops_id}/disable", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/user/{id}/disable",
+        "POST /v1/console/user/{id}/disable",
     )
     .await;
     let staff = json_body(
         env.client
-            .get(format!("{}/v2/console/user?limit=100", env.base))
+            .get(format!("{}/v1/console/user?limit=100", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -515,7 +515,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/authenticate", env.base))
+                .post(format!("{}/v1/console/authenticate", env.base))
                 .json(&json!({ "username": ops_name, "password": rotated }))
                 .send()
                 .await
@@ -528,13 +528,13 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     );
     expect(
         env.client
-            .post(format!("{}/v2/console/user/{ops_id}/enable", env.base))
+            .post(format!("{}/v1/console/user/{ops_id}/enable", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/user/{id}/enable",
+        "POST /v1/console/user/{id}/enable",
     )
     .await;
     console_login_as(env, &ops_name, rotated, json!({})).await;
@@ -542,7 +542,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     assert_eq!(
         refusal(
             env.client
-                .post(format!("{}/v2/console/password_change", env.base))
+                .post(format!("{}/v1/console/password_change", env.base))
                 .bearer_auth(&ops)
                 .json(&json!({ "current_password": "not-it-at-all", "password": rotated }))
                 .send()
@@ -557,14 +557,14 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     let own = format!("{template_name}-pw");
     expect(
         env.client
-            .post(format!("{}/v2/console/password_change", env.base))
+            .post(format!("{}/v1/console/password_change", env.base))
             .bearer_auth(&ops)
             .json(&json!({ "current_password": rotated, "password": own }))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/password_change",
+        "POST /v1/console/password_change",
     )
     .await;
     console_login_as(env, &ops_name, own.as_str(), json!({})).await;
@@ -572,7 +572,7 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
     expect(
         env.client
             .delete(format!(
-                "{}/v2/console/acl/template/{template_id}",
+                "{}/v1/console/acl/template/{template_id}",
                 env.base
             ))
             .bearer_auth(console)
@@ -580,14 +580,14 @@ pub async fn operator_surface(env: &Harness, console: &str, viewer: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/acl/template/{id}",
+        "DELETE /v1/console/acl/template/{id}",
     )
     .await;
     assert_eq!(
         refusal(
             env.client
                 .delete(format!(
-                    "{}/v2/console/acl/template/{template_id}",
+                    "{}/v1/console/acl/template/{template_id}",
                     env.base
                 ))
                 .bearer_auth(console)

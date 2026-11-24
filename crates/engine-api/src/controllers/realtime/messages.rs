@@ -158,5 +158,11 @@ pub(crate) struct StatusUpdate {
 #[derive(Deserialize)]
 pub(crate) struct NotificationsList {
     pub(crate) limit: Option<i64>,
+    #[serde(
+        rename = "pageToken",
+        alias = "cacheableCursor",
+        alias = "cacheable_cursor",
+        alias = "cursor"
+    )]
     pub(crate) cacheable_cursor: Option<String>,
 }

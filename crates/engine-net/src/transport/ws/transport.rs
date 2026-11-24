@@ -1,8 +1,7 @@
-
 use ahash::{AHashMap, AHashSet};
 use std::io;
 use std::net::SocketAddr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytes::{Bytes, BytesMut};
 use mio::net::TcpListener;
@@ -14,22 +13,23 @@ use super::heartbeat::HeartbeatConfig;
 use super::hooks::{HttpHook, MatchmakeHook};
 use crate::transport::TransportEvent;
 
+/// Accept-queue depth for every WebSocket listener. Kernel clamps this to
+/// `net.core.somaxconn`; raising it here removes our own 1024 ceiling so a
+/// 10k-CCU join burst is queued instead of refused.
+const WS_LISTEN_BACKLOG: i32 = 8192;
+
 pub struct WsTransport {
     pub(super) poll: Poll,
     pub(super) events: Events,
     pub(super) listeners: Vec<TcpListener>,
     pub(super) clients: AHashMap<Token, WsClient>,
-    pub(super) client_tokens: AHashMap<String, Token>,
-
-    pub(super) client_rooms: AHashMap<String, String>,
-
-    pub(super) client_options: AHashMap<String, String>,
+    /// Token, room, options and seat token per session — one entry instead of
+    /// the four parallel maps this used to keep.
+    pub(super) clients_meta: AHashMap<std::sync::Arc<str>, super::hooks::ClientMeta>,
 
     pub(super) consented: AHashSet<String>,
 
     pub(super) retained: AHashMap<String, String>,
-
-    pub(super) seat_tokens: AHashMap<String, String>,
 
     pub(super) pending_events: Vec<TransportEvent>,
 
@@ -48,21 +48,54 @@ pub struct WsTransport {
     pub(super) dropped_frames: u64,
     pub(super) last_drop_log: Instant,
 
+    /// Reused scratch for pump_flush so a flush pass allocates nothing.
+    pub(super) bp_scratch: Vec<(Token, bool)>,
+    pub(super) write_failed_scratch: Vec<Token>,
+
     pub(super) bound_addr: SocketAddr,
     pub bound_addrs: Vec<SocketAddr>,
 
     pub(super) advertised_udp_port: u16,
     pub(super) matchmake_hook: Option<MatchmakeHook>,
+    /// Named room variants ([rooms.x] in config) — matchmaking on this lane
+    /// splits joins into variant room keys, mirroring the control plane.
+    pub(super) room_variants: std::collections::BTreeMap<String, engine_config::RoomVariantDef>,
     pub(super) http_hook: Option<HttpHook>,
 
     pub(super) allowed_origins: Vec<String>,
 
     pub(super) schema_descriptor: Bytes,
+    pub(super) simulated_latency: Duration,
 }
 
 impl WsTransport {
     pub fn bound_addrs(&self) -> &[SocketAddr] {
         &self.bound_addrs
+    }
+
+    pub fn set_simulated_latency(&mut self, lat: Duration) {
+        self.simulated_latency = lat;
+    }
+
+    pub(super) fn flush_delayed_pings(&mut self, now: Instant) {
+        for client in self.clients.values_mut() {
+            if !client.delayed_pings.is_empty() {
+                let mut i = 0;
+                while i < client.delayed_pings.len() {
+                    if client.delayed_pings[i].0 <= now {
+                        let (_, payload) = client.delayed_pings.swap_remove(i);
+                        super::rfc6455::queue_message(
+                            client,
+                            super::protocol::PROTO_PING,
+                            &payload,
+                        );
+                        self.flush_dirty = true;
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+        }
     }
 
     pub fn new(bind_addr: SocketAddr) -> io::Result<Self> {
@@ -71,7 +104,10 @@ impl WsTransport {
 
     pub fn new_multi(bind_addrs: &[SocketAddr]) -> io::Result<Self> {
         let poll = Poll::new()?;
-        let events = Events::with_capacity(1024);
+        // Grow the ready list with the backlog: each event loop turn must be
+        // able to drain a full accept backlog plus the read/write events of
+        // every live client, or the remaining fds wait a whole extra turn.
+        let events = Events::with_capacity(WS_LISTEN_BACKLOG as usize);
         let mut listeners = Vec::new();
         let mut resolved_addrs = Vec::new();
 
@@ -85,7 +121,11 @@ impl WsTransport {
 
             let sock_addr = addr.into();
             socket.bind(&sock_addr)?;
-            socket.listen(1024)?;
+            // Backlog is the accept queue: connections beyond it are dropped by
+            // the kernel before we ever see them, which a bursty join storm
+            // (thousands of clients at once) hits immediately. Kernel caps this
+            // at net.core.somaxconn, so asking for more than that is harmless.
+            socket.listen(WS_LISTEN_BACKLOG)?;
 
             let std_listener: std::net::TcpListener = socket.into();
             let mut listener = TcpListener::from_std(std_listener);
@@ -107,12 +147,9 @@ impl WsTransport {
             events,
             listeners,
             clients: AHashMap::new(),
-            client_tokens: AHashMap::new(),
-            client_rooms: AHashMap::new(),
-            client_options: AHashMap::new(),
+            clients_meta: AHashMap::new(),
             consented: AHashSet::new(),
             retained: AHashMap::new(),
-            seat_tokens: AHashMap::new(),
             pending_events: Vec::new(),
             ev: Vec::new(),
             disconnected: Vec::new(),
@@ -123,13 +160,17 @@ impl WsTransport {
             flush_dirty: false,
             dropped_frames: 0,
             last_drop_log: Instant::now(),
+            bp_scratch: Vec::new(),
+            write_failed_scratch: Vec::new(),
             bound_addr,
             bound_addrs: resolved_addrs,
             advertised_udp_port: 7778,
             matchmake_hook: None,
+            room_variants: Default::default(),
             http_hook: None,
             allowed_origins: Vec::new(),
             schema_descriptor: Bytes::new(),
+            simulated_latency: Duration::ZERO,
         })
     }
 }

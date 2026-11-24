@@ -1,9 +1,7 @@
-
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidecarErrorKind {
-
     Unreachable,
 
     Timeout,
@@ -36,10 +34,15 @@ impl fmt::Display for SidecarErrorKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidecarError {
+    Unreachable {
+        addr: String,
+        reason: String,
+    },
 
-    Unreachable { addr: String, reason: String },
-
-    Timeout { addr: String, after_ms: u64 },
+    Timeout {
+        addr: String,
+        after_ms: u64,
+    },
 
     Rejected {
         status: u16,
@@ -47,7 +50,9 @@ pub enum SidecarError {
         body: String,
     },
 
-    Malformed { reason: String },
+    Malformed {
+        reason: String,
+    },
 }
 
 impl SidecarError {

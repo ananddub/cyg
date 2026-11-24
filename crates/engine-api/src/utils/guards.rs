@@ -1,16 +1,19 @@
+use std::sync::Arc;
+
+use crate::services::plane::Plane;
+
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::db::DbError;
 use crate::error::V2Error;
 use crate::repositories::db::Queries;
 
 pub async fn require_account(
-    state: &ApiState,
+    plane: &Plane,
     game: Option<Uuid>,
     user_id: Uuid,
 ) -> Result<(), V2Error> {
-    if crate::services::games::tenant::account_in_game(state, game, user_id).await? {
+    if crate::services::games::tenant::account_in_game(plane, game, user_id).await? {
         Ok(())
     } else {
         Err(V2Error::not_found("Account not found."))
@@ -18,14 +21,15 @@ pub async fn require_account(
 }
 
 pub async fn require_group(
-    state: &ApiState,
+    plane: &Plane,
     game: Option<Uuid>,
     group_id: Uuid,
 ) -> Result<(), V2Error> {
     let Some(game) = game else {
         return Ok(());
     };
-    let in_game = crate::services::deps::q(state)
+    let in_game = plane
+        .q()
         .await?
         .tenancy_group_in_game(group_id, game)
         .await
@@ -37,8 +41,10 @@ pub async fn require_group(
     }
 }
 
-pub async fn require_hosted(state: &ApiState, claimed: Uuid) -> Result<(), V2Error> {
-    let _ = crate::services::games::GamesService::find_game(state, claimed).await?;
+pub async fn require_hosted(plane: &Plane, claimed: Uuid) -> Result<(), V2Error> {
+    let _ = crate::services::games::GamesService::new(Arc::new(plane.clone()))
+        .find_game(claimed)
+        .await?;
     Ok(())
 }
 

@@ -19,11 +19,7 @@ pub(super) const OP_JOIN: u8 = 0x20;
 pub(super) const OP_INP: u8 = 0x21;
 pub(super) const OP_PING: u8 = 0x22;
 pub(super) const OP_PONG: u8 = 0x23;
-pub(super) const OP_BIND: u8 = 0x24;
 pub(super) const OP_DENY: u8 = 0x25;
-
-pub(super) const DENY_BAD_TOKEN: u8 = 1;
-pub(super) const DENY_FULL: u8 = 4;
 
 pub(super) const INP_LEN: usize = 23;
 pub(super) const SEND_RETRIES: u8 = 3;
@@ -32,6 +28,7 @@ pub struct UdpPlane {
     pub(super) socket: RefCell<UdpSocket>,
     pub(super) bus: Arc<engine_bus::Bus>,
     pub(super) seats: Arc<SeatRegistry>,
+    pub(super) room_name: String,
     pub(super) peers: HashMap<SocketAddr, Peer>,
     pub(super) peer_addrs: HashMap<engine_bus::PeerId, SocketAddr>,
     pub(super) strangers: HashMap<SocketAddr, TokenBucket>,
@@ -55,6 +52,7 @@ pub struct UdpPlane {
 impl UdpPlane {
     pub fn new(
         bind_addr: &str,
+        room_name: &str,
         bus: Arc<engine_bus::Bus>,
         seats: Arc<SeatRegistry>,
         peer_idle: Duration,
@@ -64,7 +62,7 @@ impl UdpPlane {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         let std_socket = crate::plane::udp::bind::bind_udp(addr)?;
         let socket = RefCell::new(UdpSocket::from_std(std_socket));
-        let tick_hz = std::env::var("OX_TICK_HZ")
+        let tick_hz = std::env::var("CYG_TICK_HZ")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(128.0);
@@ -72,6 +70,7 @@ impl UdpPlane {
             socket,
             bus,
             seats,
+            room_name: room_name.to_string(),
             peers: HashMap::new(),
             peer_addrs: HashMap::new(),
             strangers: HashMap::new(),

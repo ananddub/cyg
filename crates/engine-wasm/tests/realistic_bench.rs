@@ -1,4 +1,3 @@
-
 use engine_wasm::{WasmConfig, WasmRuntime};
 use std::collections::HashMap;
 use std::hint::black_box;

@@ -15,19 +15,22 @@ pub(super) fn read(server: &StaticServer, path: &Path) -> Option<Arc<Vec<u8>>> {
         return None;
     }
     let stamp = (meta.modified().ok(), meta.len());
-    let mut cache = server.cache.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(hit) = cache.get(path)
-        && hit.stamp == stamp
+    if let Some(body) = server
+        .cache
+        .read_sync(path, |_, hit| (hit.stamp == stamp).then(|| hit.body.clone()))
+        .flatten()
     {
-        return Some(hit.body.clone());
+        return Some(body);
     }
     let body = Arc::new(std::fs::read(path).ok()?);
-    cache.insert(
-        path.to_path_buf(),
-        Cached {
-            stamp,
-            body: body.clone(),
-        },
-    );
+    let cached = Cached {
+        stamp,
+        body: body.clone(),
+    };
+    server
+        .cache
+        .entry_sync(path.to_path_buf())
+        .and_modify(|hit| *hit = cached.clone())
+        .or_insert(cached);
     Some(body)
 }

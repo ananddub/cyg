@@ -14,13 +14,13 @@ struct AuthController {
     service: Arc<AuthService>,
 }
 
-#[controller("/v2/account/authenticate")]
+#[controller("/v1/account/authenticate")]
 impl AuthController {
     fn new(service: Arc<AuthService>) -> Self {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::session::SessionResponse)]
     async fn provider(
         &self,
         headers: HeaderMap,
@@ -29,12 +29,12 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .provider(&state, &headers, &query, account)
+            .provider(&headers, &query, account)
             .await
             .into_response()
     }
 
-    #[post("/apple")]
+    #[post("/apple", response_body = crate::dto::session::SessionResponse)]
     async fn apple(
         &self,
         headers: HeaderMap,
@@ -43,12 +43,12 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .apple(&state, &headers, &query, account)
+            .apple(&headers, &query, account)
             .await
             .into_response()
     }
 
-    #[post("/custom")]
+    #[post("/custom", response_body = crate::dto::session::SessionResponse)]
     async fn custom(
         &self,
         headers: HeaderMap,
@@ -57,12 +57,12 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .custom(&state, &headers, &query, account)
+            .custom(&headers, &query, account)
             .await
             .into_response()
     }
 
-    #[post("/device")]
+    #[post("/device", response_body = crate::dto::session::SessionResponse)]
     async fn device(
         &self,
         headers: HeaderMap,
@@ -71,12 +71,12 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .device(&state, &headers, &query, account)
+            .device(&headers, &query, account)
             .await
             .into_response()
     }
 
-    #[post("/email")]
+    #[post("/email", response_body = crate::dto::session::SessionResponse)]
     async fn email(
         &self,
         headers: HeaderMap,
@@ -85,12 +85,12 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .email(&state, &headers, &query, account)
+            .email(&headers, &query, account)
             .await
             .into_response()
     }
 
-    #[post("/facebook")]
+    #[post("/facebook", response_body = crate::dto::session::SessionResponse)]
     async fn facebook(
         &self,
         headers: HeaderMap,
@@ -99,12 +99,12 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .facebook(&state, &headers, &query, account)
+            .facebook(&headers, &query, account)
             .await
             .into_response()
     }
 
-    #[post("/facebookinstantgame")]
+    #[post("/facebookinstantgame", response_body = crate::dto::session::SessionResponse)]
     async fn facebook_instant_game(
         &self,
         headers: HeaderMap,
@@ -113,12 +113,12 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .facebook_instant_game(&state, &headers, &query, account)
+            .facebook_instant_game(&headers, &query, account)
             .await
             .into_response()
     }
 
-    #[post("/gamecenter")]
+    #[post("/gamecenter", response_body = crate::dto::session::SessionResponse)]
     async fn game_center(
         &self,
         headers: HeaderMap,
@@ -127,12 +127,12 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .game_center(&state, &headers, &query, account)
+            .game_center(&headers, &query, account)
             .await
             .into_response()
     }
 
-    #[post("/google")]
+    #[post("/google", response_body = crate::dto::session::SessionResponse)]
     async fn google(
         &self,
         headers: HeaderMap,
@@ -141,12 +141,12 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .google(&state, &headers, &query, account)
+            .google(&headers, &query, account)
             .await
             .into_response()
     }
 
-    #[post("/steam")]
+    #[post("/steam", response_body = crate::dto::session::SessionResponse)]
     async fn steam(
         &self,
         headers: HeaderMap,
@@ -155,7 +155,7 @@ impl AuthController {
     ) -> Response {
         let state = current_state();
         self.service
-            .steam(&state, &headers, &query, account)
+            .steam(&headers, &query, account)
             .await
             .into_response()
     }

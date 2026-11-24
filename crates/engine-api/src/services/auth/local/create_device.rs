@@ -1,11 +1,13 @@
+use crate::services::plane::Plane;
+
 use super::*;
 
 pub(super) async fn create_device(
-    state: &ApiState,
+    plane: &Plane,
     device_id: &str,
     username: &str,
 ) -> Result<Uuid, V2Error> {
-    let queries = q(state).await?;
+    let queries = plane.q().await?;
     let id = Uuid::new_v4();
     let now = Utc::now();
     let user = Users {

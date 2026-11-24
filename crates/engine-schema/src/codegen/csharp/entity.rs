@@ -14,7 +14,7 @@ pub(super) fn emit_cs_entity(
     doc: &str,
 ) {
     let _ = writeln!(out, "    /// <summary>{doc}</summary>");
-    let _ = writeln!(out, "    public sealed class {name} : OxSchemaEntity");
+    let _ = writeln!(out, "    public sealed class {name} : CygSchemaEntity");
     out.push_str("    {\n");
     let _ = writeln!(out, "        public const uint SchemaVersion = {version}u;");
     let _ = writeln!(out, "        public const uint SchemaHash = {hash}u;");
@@ -25,7 +25,7 @@ pub(super) fn emit_cs_entity(
     );
     let _ = writeln!(
         out,
-        "        public static readonly OxFieldDef[] Fields = new OxFieldDef[FieldCount]"
+        "        public static readonly CygFieldDef[] Fields = new CygFieldDef[FieldCount]"
     );
     out.push_str("        {\n");
     out.push_str(&cs_field_table(fields));
@@ -44,8 +44,8 @@ pub(super) fn emit_cs_entity(
         out.push('\n');
     }
 
-    out.push_str("        public override int OxFieldCount { get { return FieldCount; } }\n\n");
-    out.push_str("        public override void OxSet(int field, object value)\n        {\n");
+    out.push_str("        public override int CygFieldCount { get { return FieldCount; } }\n\n");
+    out.push_str("        public override void CygSet(int field, object value)\n        {\n");
     out.push_str("            switch (field)\n            {\n");
     for (index, field) in fields.iter().enumerate() {
         let _ = writeln!(
@@ -57,7 +57,7 @@ pub(super) fn emit_cs_entity(
     }
     out.push_str("            }\n        }\n\n");
 
-    out.push_str("        public override object OxGet(int field)\n        {\n");
+    out.push_str("        public override object CygGet(int field)\n        {\n");
     out.push_str("            switch (field)\n            {\n");
     for (index, field) in fields.iter().enumerate() {
         let _ = writeln!(
@@ -68,7 +68,7 @@ pub(super) fn emit_cs_entity(
     }
     out.push_str("            }\n            return null;\n        }\n\n");
 
-    out.push_str("        public override void OxClear()\n        {\n");
+    out.push_str("        public override void CygClear()\n        {\n");
     for field in fields {
         let _ = writeln!(
             out,

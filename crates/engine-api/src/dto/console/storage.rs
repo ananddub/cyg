@@ -4,12 +4,12 @@ use uuid::Uuid;
 
 use crate::repositories::console::ListStorageRow;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct DeletedCount {
     pub removed: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct StorageObjectRow {
     pub collection: String,
     pub key: String,

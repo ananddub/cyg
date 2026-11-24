@@ -14,13 +14,13 @@ struct UnlinkController {
     service: Arc<UnlinkService>,
 }
 
-#[controller("/v2/account/unlink")]
+#[controller("/v1/account/unlink")]
 impl UnlinkController {
     fn new(service: Arc<UnlinkService>) -> Self {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::Empty)]
     async fn provider(
         &self,
         headers: HeaderMap,
@@ -28,48 +28,36 @@ impl UnlinkController {
     ) -> Response {
         let state = current_state();
         self.service
-            .provider(&state, &headers, account)
+            .provider(&headers, account)
             .await
             .into_response()
     }
 
-    #[post("/apple")]
+    #[post("/apple", response_body = crate::dto::Empty)]
     async fn apple(&self, headers: HeaderMap, Body(account): Body<auth::TokenAccount>) -> Response {
         let state = current_state();
-        self.service
-            .apple(&state, &headers, account)
-            .await
-            .into_response()
+        self.service.apple(&headers, account).await.into_response()
     }
 
-    #[post("/custom")]
+    #[post("/custom", response_body = crate::dto::Empty)]
     async fn custom(&self, headers: HeaderMap, Body(account): Body<auth::IdAccount>) -> Response {
         let state = current_state();
-        self.service
-            .custom(&state, &headers, account)
-            .await
-            .into_response()
+        self.service.custom(&headers, account).await.into_response()
     }
 
-    #[post("/device")]
+    #[post("/device", response_body = crate::dto::Empty)]
     async fn device(&self, headers: HeaderMap, Body(account): Body<auth::IdAccount>) -> Response {
         let state = current_state();
-        self.service
-            .device(&state, &headers, account)
-            .await
-            .into_response()
+        self.service.device(&headers, account).await.into_response()
     }
 
-    #[post("/email")]
+    #[post("/email", response_body = crate::dto::Empty)]
     async fn email(&self, headers: HeaderMap, Body(account): Body<auth::EmailAccount>) -> Response {
         let state = current_state();
-        self.service
-            .email(&state, &headers, account)
-            .await
-            .into_response()
+        self.service.email(&headers, account).await.into_response()
     }
 
-    #[post("/facebook")]
+    #[post("/facebook", response_body = crate::dto::Empty)]
     async fn facebook(
         &self,
         headers: HeaderMap,
@@ -77,12 +65,12 @@ impl UnlinkController {
     ) -> Response {
         let state = current_state();
         self.service
-            .facebook(&state, &headers, account)
+            .facebook(&headers, account)
             .await
             .into_response()
     }
 
-    #[post("/facebookinstantgame")]
+    #[post("/facebookinstantgame", response_body = crate::dto::Empty)]
     async fn facebook_instant_game(
         &self,
         headers: HeaderMap,
@@ -90,12 +78,12 @@ impl UnlinkController {
     ) -> Response {
         let state = current_state();
         self.service
-            .facebook_instant_game(&state, &headers, account)
+            .facebook_instant_game(&headers, account)
             .await
             .into_response()
     }
 
-    #[post("/gamecenter")]
+    #[post("/gamecenter", response_body = crate::dto::Empty)]
     async fn game_center(
         &self,
         headers: HeaderMap,
@@ -103,30 +91,24 @@ impl UnlinkController {
     ) -> Response {
         let state = current_state();
         self.service
-            .game_center(&state, &headers, account)
+            .game_center(&headers, account)
             .await
             .into_response()
     }
 
-    #[post("/google")]
+    #[post("/google", response_body = crate::dto::Empty)]
     async fn google(
         &self,
         headers: HeaderMap,
         Body(account): Body<auth::TokenAccount>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .google(&state, &headers, account)
-            .await
-            .into_response()
+        self.service.google(&headers, account).await.into_response()
     }
 
-    #[post("/steam")]
+    #[post("/steam", response_body = crate::dto::Empty)]
     async fn steam(&self, headers: HeaderMap, Body(account): Body<auth::TokenAccount>) -> Response {
         let state = current_state();
-        self.service
-            .steam(&state, &headers, account)
-            .await
-            .into_response()
+        self.service.steam(&headers, account).await.into_response()
     }
 }

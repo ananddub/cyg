@@ -1,6 +1,7 @@
 mod capacity;
 mod constructors;
 mod disconnect_close;
+mod match_outcome;
 mod membership;
 mod phase;
 mod players;

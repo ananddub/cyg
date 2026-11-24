@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::repositories::models::Setting;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct SettingRow {
     pub name: String,
     pub value: serde_json::Value,
@@ -20,7 +20,7 @@ impl From<Setting> for SettingRow {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct UpdateSettingRequest {
     #[serde(default)]
     pub name: String,

@@ -120,7 +120,9 @@
         // The schema arrives with the join handshake (cyg.schema.bin),
         // so the client needs no schema file and no useSchema() call.
         const client = new CYG.Client(endpoint);
-        window.room = room = await client.joinOrCreate(roomName);
+        // Join options are YOUR data — the room receives them on onJoin.
+        const myName = 'player-' + Math.floor(Math.random() * 90 + 10);
+        window.room = room = await client.joinOrCreate(roomName, { name: myName });
         window.inspector = new CYG.Inspector(room);
 
         // CYG callback API.

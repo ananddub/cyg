@@ -21,12 +21,14 @@ pub(crate) async fn the_detail_view_counts_are_the_service_reads() {
     .await
     .expect("an active module at version 3");
 
-    let detail = GamesService::get_game(&state, game.id)
+    let detail = GamesService::new(state.plane())
+        .get_game(game.id)
         .await
         .expect("the detail view reads");
     assert_eq!(
         detail.module_count,
-        GamesService::module_count(&state, game.id)
+        GamesService::new(state.plane())
+            .module_count(game.id)
             .await
             .expect("count")
     );

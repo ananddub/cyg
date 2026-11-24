@@ -60,7 +60,12 @@ impl Datastore {
         kvs.bootstrap()
             .await
             .map_err(|err| DbError::Connection(err.to_string()))?;
-        kvs.start_maintenance_tasks();
+        // A failed maintenance startup means background compaction/retention
+        // never runs; report it instead of letting boot continue silently
+        // degraded.
+        if let Err(err) = kvs.start_maintenance_tasks() {
+            tracing::error!("[database] {endpoint}: maintenance tasks failed to start: {err}");
+        }
         let client = Surreal::<Db>::unstable_from_datastore(kvs, Some(notifications))
             .await
             .map_err(|err| DbError::Connection(err.to_string()))?;

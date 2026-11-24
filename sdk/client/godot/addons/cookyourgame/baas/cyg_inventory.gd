@@ -1,6 +1,6 @@
 class_name CYGInventory
 extends RefCounted
-## Server-authoritative inventory for the CookYourGame Godot SDK: `/v2/inventory*`.
+## Server-authoritative inventory for the CookYourGame Godot SDK: `/v1/inventory*`.
 ##
 ## The rows are owned by the engine; this class only mirrors them. `items` is that
 ## mirror, keyed with the wire's own field names, and every method answers through
@@ -10,7 +10,7 @@ extends RefCounted
 ## `crates/engine-api/src/dto/inventory.rs`, `src/services/inventory/mod.rs` and
 ## `repositories/models.rs` for the row shape):
 ##
-##  * `GET /v2/inventory` — the caller's whole bag. Reply is `ListInventoryResponse`
+##  * `GET /v1/inventory` — the caller's whole bag. Reply is `ListInventoryResponse`
 ##    `{"items": [...]}`, where each entry is a `PlayerInventoryItem`:
 ##
 ##        {"instance_id": str(uuid), "user_id": str(uuid), "item_id": str,
@@ -24,18 +24,18 @@ extends RefCounted
 ##    C# mirror cannot read what this server writes; this class follows the server.
 ##    `slot_index` is `-1` for anything not equipped.
 ##
-##  * `POST /v2/inventory/equip` — `{"instance_id": uuid, "slot_index": int}`,
+##  * `POST /v1/inventory/equip` — `{"instance_id": uuid, "slot_index": int}`,
 ##    moving one owned copy into a slot (0 = main hand, 1 = helmet, and so on; the
 ##    engine only checks ownership, the slot number is the game's own scheme).
-##  * `POST /v2/inventory/consume` — `{"instance_id": uuid, "quantity": int}`,
+##  * `POST /v1/inventory/consume` — `{"instance_id": uuid, "quantity": int}`,
 ##    `quantity` must be at least 1 and at most what the row holds, and BOTH are
 ##    required fields (`i32`, not `Option`), so a consume with no count is a 400.
-##  * `POST /v2/inventory/grant` — `{"item_id": str, "quantity"?: int,
+##  * `POST /v1/inventory/grant` — `{"item_id": str, "quantity"?: int,
 ##    "slot_index"?: int, "metadata"?: object, "user_id"?: uuid}`. `quantity` is
 ##    clamped to `1..the definition's max_stack`, `slot_index` defaults to `-1`,
 ##    `user_id` defaults to the caller. A grant of an undefined `item_id` is a 404
 ##    (`item definition '...' not found`), so `define()` must run first.
-##  * `POST /v2/inventory/define` — `{"item_id": str, "name": str, "category": str,
+##  * `POST /v1/inventory/define` — `{"item_id": str, "name": str, "category": str,
 ##    "max_stack"?: int, "rarity"?: str, "properties"?: object}`; `max_stack`
 ##    defaults to 1 (and never below it), `rarity` to `"common"`, `properties` to
 ##    `{}`. It upserts the definition. The route carries no `Authed` extractor, so
@@ -49,7 +49,7 @@ extends RefCounted
 ## a `define`, and a `consume` that spent the last of a stack, because the engine
 ## DELETEs the row at zero (`update_inventory_quantity`). An absent `item` after a
 ## consume therefore drops that `instance_id` from `items` instead of leaving a
-## stale stack behind. A refusal never reaches this shape: `/v2/` answers
+## stale stack behind. A refusal never reaches this shape: `/v1/` answers
 ## `{"error": {"code", "message", "details"}}` with a 4xx, which surfaces in
 ## `error` with `ok` false.
 ##
@@ -85,14 +85,14 @@ extends RefCounted
 ## got a reply, so a bag fetch and an equip cannot disagree about any of that.
 ##
 ## Independent port of this repo's Unity BaaS layer
-## (`sdk/unity/Runtime/BaaS/CYGInventory.cs`) onto the documented `/v2/` endpoints
+## (`sdk/unity/Runtime/BaaS/CYGInventory.cs`) onto the documented `/v1/` endpoints
 ## of the Rust engine-api; no upstream source text is copied.
 
-const PATH_ROOT := "/v2/inventory"
-const PATH_EQUIP := "/v2/inventory/equip"
-const PATH_CONSUME := "/v2/inventory/consume"
-const PATH_GRANT := "/v2/inventory/grant"
-const PATH_DEFINE := "/v2/inventory/define"
+const PATH_ROOT := "/v1/inventory"
+const PATH_EQUIP := "/v1/inventory/equip"
+const PATH_CONSUME := "/v1/inventory/consume"
+const PATH_GRANT := "/v1/inventory/grant"
+const PATH_DEFINE := "/v1/inventory/define"
 
 ## `slot_index` a row carries when it is in the bag rather than equipped.
 const SLOT_NOT_EQUIPPED := -1
@@ -310,7 +310,7 @@ static func _first_non_empty(first: String, second: String) -> String:
 	return first if not first.is_empty() else second
 
 
-## A `/v2/` refusal is `{"error": {"code", "message", "details"}}`
+## A `/v1/` refusal is `{"error": {"code", "message", "details"}}`
 ## (`error/v2.rs`); anything else is surfaced as the raw body.
 static func error_message_of(text: String) -> String:
 	if text.is_empty():

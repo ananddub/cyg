@@ -1,7 +1,6 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::Page;
@@ -10,13 +9,9 @@ use crate::error::V2Error;
 use crate::services::realtime::RealtimeMatchService;
 
 impl super::ConsoleService {
-    pub async fn list_matches(
-        &self,
-        state: &ApiState,
-        page: Page,
-    ) -> Result<Json<ConsoleMatchList>, V2Error> {
+    pub async fn list_matches(&self, page: Page) -> Result<Json<ConsoleMatchList>, V2Error> {
         if let Some(game) = page.game_id {
-            crate::utils::guards::require_hosted(state, game).await?;
+            crate::utils::guards::require_hosted(&self.plane, game).await?;
         }
         let mut rows: Vec<ConsoleMatchRow> = RealtimeMatchService::list_snapshots_all()
             .iter()
@@ -32,12 +27,12 @@ impl super::ConsoleService {
 
     pub async fn match_state(
         &self,
-        state: &ApiState,
+
         game: Option<Uuid>,
         id: &str,
     ) -> Result<Json<ConsoleMatchState>, V2Error> {
         if let Some(game) = game {
-            crate::utils::guards::require_hosted(state, game).await?;
+            crate::utils::guards::require_hosted(&self.plane, game).await?;
         }
         let id = match_id(id)?;
         let snapshot = RealtimeMatchService::get_snapshot(id).ok_or_else(|| {
@@ -52,21 +47,21 @@ impl super::ConsoleService {
 
     pub async fn terminate_match(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         game: Option<Uuid>,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
         if let Some(game) = game {
-            crate::utils::guards::require_hosted(state, game).await?;
+            crate::utils::guards::require_hosted(&self.plane, game).await?;
         }
         let id = match_id(id)?;
         if !RealtimeMatchService::terminate_match(id) {
             return Err(V2Error::not_found("Match not found."));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "match.terminate",
             "match",

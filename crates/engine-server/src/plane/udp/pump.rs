@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use crossbeam_channel::TryRecvError;
 
 use crate::plane::mono_ns;
-use crate::plane::udp::plane::{OP_BIND, UdpPlane};
+use crate::plane::udp::plane::UdpPlane;
 
 impl UdpPlane {
     pub(super) fn pump_peer(&mut self, addr: SocketAddr, now_ms: u64) {
@@ -66,13 +66,7 @@ impl UdpPlane {
             }
             peer.player_id = id;
             peer.bound = true;
-            self.scratch.clear();
-            self.scratch.push(OP_BIND);
-            self.scratch.extend_from_slice(&id.to_le_bytes());
-            self.scratch.extend_from_slice(&self.tick_hz.to_le_bytes());
-            let room = &peer.room;
-            self.scratch.push(room.len().min(255) as u8);
-            self.scratch.extend_from_slice(room.as_bytes());
+            crate::netcode::encode_bind(id, self.tick_hz, &peer.room, &mut self.scratch);
             let mut sock = self.socket.borrow_mut();
             match Self::send_raw(&mut sock, &self.scratch, addr) {
                 Ok(()) => self.sends += 1,

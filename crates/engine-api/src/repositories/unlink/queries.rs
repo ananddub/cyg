@@ -131,13 +131,20 @@ impl Queries {
         if !has_identity && other_device.is_none() {
             return Err(DbError::NotFound);
         }
-        let deleted: UserDevice = self
-            .one(
+        // A user can hold several devices under one provider, and 4.0's
+        // parallel executor returns the deleted rows in arbitrary order —
+        // DELETE does not take ORDER BY, so pick the smallest id here for a
+        // deterministic result instead of `.one()`'s arbitrary first row.
+        let deleted: Vec<UserDevice> = self
+            .all(
                 "DELETE user_device WHERE provider = $provider \
                  AND user_id = $user_id RETURN BEFORE",
                 params!(provider = provider, user_id = user_id.to_string()),
             )
             .await?;
+        let Some(deleted) = deleted.into_iter().min_by(|a, b| a.id.cmp(&b.id)) else {
+            return Err(DbError::NotFound);
+        };
         Ok(deleted.id)
     }
 }

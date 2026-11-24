@@ -1,4 +1,3 @@
-
 use std::sync::OnceLock;
 
 pub const CURRENT_KEY_ID: &str = "current";
@@ -17,6 +16,12 @@ fn or_default(value: String, fallback: &str) -> String {
     }
 }
 
+/// Compares two secrets in time independent of their contents.
+///
+/// The length is NOT hidden: the early `len != len` return leaks how long the
+/// expected secret is. That is accepted — the callers compare server-issued
+/// keys whose length is public configuration, not a secret in itself — and
+/// hashing both sides to a fixed width would buy nothing here.
 pub fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -56,12 +61,15 @@ impl Rotation {
     pub fn global() -> &'static Rotation {
         static GLOBAL: OnceLock<Rotation> = OnceLock::new();
         GLOBAL.get_or_init(|| Rotation {
-            signing_key_id: or_default(env("OX_SIGNING_KEY_ID"), CURRENT_KEY_ID),
-            previous_signing_key_id: or_default(env("OX_PREVIOUS_SIGNING_KEY_ID"), PREVIOUS_KEY_ID),
-            previous_signing_key: env("OX_PREVIOUS_SIGNING_KEY"),
-            previous_refresh_signing_key: env("OX_PREVIOUS_REFRESH_SIGNING_KEY"),
-            previous_server_key: env("OX_PREVIOUS_SERVER_KEY"),
-            previous_seat_secret: env("OX_PREVIOUS_SEAT_SECRET"),
+            signing_key_id: or_default(env("CYG_SIGNING_KEY_ID"), CURRENT_KEY_ID),
+            previous_signing_key_id: or_default(
+                env("CYG_PREVIOUS_SIGNING_KEY_ID"),
+                PREVIOUS_KEY_ID,
+            ),
+            previous_signing_key: env("CYG_PREVIOUS_SIGNING_KEY"),
+            previous_refresh_signing_key: env("CYG_PREVIOUS_REFRESH_SIGNING_KEY"),
+            previous_server_key: env("CYG_PREVIOUS_SERVER_KEY"),
+            previous_seat_secret: env("CYG_PREVIOUS_SEAT_SECRET"),
         })
     }
 
@@ -74,13 +82,13 @@ impl Rotation {
 
     pub fn previous_secrets(&self) -> Vec<(&'static str, &str)> {
         [
-            ("OX_PREVIOUS_SIGNING_KEY", &self.previous_signing_key),
+            ("CYG_PREVIOUS_SIGNING_KEY", &self.previous_signing_key),
             (
-                "OX_PREVIOUS_REFRESH_SIGNING_KEY",
+                "CYG_PREVIOUS_REFRESH_SIGNING_KEY",
                 &self.previous_refresh_signing_key,
             ),
-            ("OX_PREVIOUS_SERVER_KEY", &self.previous_server_key),
-            ("OX_PREVIOUS_SEAT_SECRET", &self.previous_seat_secret),
+            ("CYG_PREVIOUS_SERVER_KEY", &self.previous_server_key),
+            ("CYG_PREVIOUS_SEAT_SECRET", &self.previous_seat_secret),
         ]
         .into_iter()
         .filter(|(_, value)| !value.is_empty())

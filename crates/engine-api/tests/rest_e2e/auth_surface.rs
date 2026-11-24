@@ -3,7 +3,7 @@ use super::*;
 pub async fn auth_surface(client: &Client, base: &str, pool: &Datastore) {
     eprintln!("e2e: auth providers");
     let key = server_key_header();
-    let url = |route: &str, query: &str| format!("{base}/v2/account/authenticate{route}{query}");
+    let url = |route: &str, query: &str| format!("{base}/v1/account/authenticate{route}{query}");
 
     assert_eq!(
         refusal(

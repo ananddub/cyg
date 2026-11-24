@@ -13,7 +13,7 @@ import { CONSOLE_ROLES } from "@/lib/console/roles"
 
 const USERS = CONSOLE_ENDPOINTS.users
 
-/** `POST /v2/console/user` — username, password, an optional email and the role
+/** `POST /v1/console/user` — username, password, an optional email and the role
  * name. The body is `CreateConsoleUserRequest`. */
 export function CreateOperatorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [username, setUsername] = useState("")

@@ -17,48 +17,45 @@ struct NotifyController {
     service: Arc<NotifyService>,
 }
 
-#[controller("/v2/notify")]
+#[controller("/v1/notify")]
 impl NotifyController {
     fn new(service: Arc<NotifyService>) -> Self {
         Self { service }
     }
 
-    #[get("/preferences")]
+    #[get("/preferences", response_body = crate::dto::notify::PreferenceListResponse)]
     async fn list(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service.list(&state, &auth).await.into_response()
+        self.service.list(&auth).await.into_response()
     }
 
-    #[put("/preferences")]
+    #[put("/preferences", response_body = crate::dto::notify::PreferenceResponse)]
     async fn set(&self, auth: Authed, Body(body): Body<PreferenceRequest>) -> Response {
         let state = current_state();
-        self.service.set(&state, &auth, body).await.into_response()
+        self.service.set(&auth, body).await.into_response()
     }
 
     /// Unauthenticated on purpose: this is the link in a mail, opened in a mail
     /// client that has no session here. The proof is the signature on the token.
-    #[get("/unsubscribe")]
+    #[get("/unsubscribe", response_body = crate::dto::notify::UnsubscribeResponse)]
     async fn unsubscribe(&self, Params(query): Params<UnsubscribeQuery>) -> Response {
         let state = current_state();
-        self.service
-            .unsubscribe(&state, &query.token)
-            .await
-            .into_response()
+        self.service.unsubscribe(&query.token).await.into_response()
     }
 
-    #[post("/test")]
+    #[post("/test", response_body = crate::dto::notify::AttemptResponse)]
     async fn test(&self, auth: ConsoleAuthed, Body(body): Body<TestRequest>) -> Response {
         let state = current_state();
-        self.service.test(&state, &auth, body).await.into_response()
+        self.service.test(&auth, body).await.into_response()
     }
 
     /// What became of one message, so a queued test is not the end of the
     /// operator's question.
-    #[get("/test/{attempt_id}")]
+    #[get("/test/{attempt_id}", response_body = crate::dto::notify::AttemptResponse)]
     async fn attempt(&self, auth: ConsoleAuthed, Path(attempt_id): Path<String>) -> Response {
         let state = current_state();
         self.service
-            .attempt(&state, &auth, &attempt_id)
+            .attempt(&auth, &attempt_id)
             .await
             .into_response()
     }

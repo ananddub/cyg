@@ -1,11 +1,11 @@
-use crate::services::deps::q;
+use crate::services::plane::Plane;
 
 use super::*;
 
 impl super::super::ConsoleService {
     pub async fn create_tournament(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         game: Option<Uuid>,
         body: TournamentWriteRequest,
@@ -18,7 +18,9 @@ impl super::super::ConsoleService {
         let write = BoardWrite::resolve(&body, BoardWrite::defaults(), id)?;
 
         let row = definition::tournament_row(&write, game, Utc::now());
-        let board = q(state)
+        let board = self
+            .plane
+            .q()
             .await?
             .create("leaderboard", Key::String(write.id.clone()), &row)
             .await
@@ -30,7 +32,7 @@ impl super::super::ConsoleService {
                 }
             })?;
         audit_board(
-            state,
+            &self.plane,
             claims,
             "tournament.create",
             &board.id,
@@ -42,16 +44,18 @@ impl super::super::ConsoleService {
 
     pub async fn update_tournament(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
         body: TournamentWriteRequest,
     ) -> Result<Json<TournamentResponse>, V2Error> {
         claims.require_write()?;
-        let current = tournament_row(state, id).await?;
+        let current = tournament_row(&self.plane, id).await?;
         let write = BoardWrite::resolve(&body, BoardWrite::stored(&current), id.to_owned())?;
 
-        let board = q(state)
+        let board = self
+            .plane
+            .q()
             .await?
             .update_tournament(&crate::repositories::leaderboard::UpdateTournamentParams {
                 id: write.id.clone(),
@@ -68,11 +72,12 @@ impl super::super::ConsoleService {
                 join_required: write.join_required,
                 max_size: write.max_size,
                 max_num_score: write.max_num_score,
+                rule_key: write.rule_key.clone(),
             })
             .await
             .map_err(V2Error::from)?;
         audit_board(
-            state,
+            &self.plane,
             claims,
             "tournament.update",
             id,
@@ -84,15 +89,15 @@ impl super::super::ConsoleService {
 
     pub async fn delete_tournament(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
-        tournament_row(state, id).await?;
-        remove_board(state, id).await?;
+        tournament_row(&self.plane, id).await?;
+        remove_board(&self.plane, id).await?;
         audit_board(
-            state,
+            &self.plane,
             claims,
             "tournament.delete",
             id,
@@ -104,12 +109,14 @@ impl super::super::ConsoleService {
 
     pub async fn delete_leaderboard(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         id: &str,
     ) -> Result<Json<Empty>, V2Error> {
         claims.require_write()?;
-        let current = q(state)
+        let current = self
+            .plane
+            .q()
             .await?
             .get_leaderboard(id)
             .await
@@ -117,9 +124,9 @@ impl super::super::ConsoleService {
         if is_tournament(&current) {
             return Err(V2Error::not_found(BOARD_NOT_FOUND));
         }
-        remove_board(state, id).await?;
+        remove_board(&self.plane, id).await?;
         audit_board(
-            state,
+            &self.plane,
             claims,
             "leaderboard.delete",
             id,
@@ -129,8 +136,9 @@ impl super::super::ConsoleService {
         Ok(Json(Empty {}))
     }
 }
-async fn tournament_row(state: &ApiState, id: &str) -> Result<Leaderboard, V2Error> {
-    let current = q(state)
+async fn tournament_row(plane: &Plane, id: &str) -> Result<Leaderboard, V2Error> {
+    let current = plane
+        .q()
         .await?
         .get_leaderboard(id)
         .await

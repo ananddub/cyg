@@ -15,19 +15,21 @@ struct ConsoleGroupController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/group")]
+type GroupRowList = Vec<crate::dto::console::group::GroupRow>;
+type GroupMemberRowList = Vec<crate::dto::console::group::GroupMemberRow>;
+#[controller("/v1/console/group")]
 impl ConsoleGroupController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = GroupRowList)]
     async fn list(&self, _auth: ConsoleAuthed, Params(page): Params<Page>) -> Response {
         let state = current_state();
-        self.service.list_groups(&state, page).await.into_response()
+        self.service.list_groups(page).await.into_response()
     }
 
-    #[get("/{id}")]
+    #[get("/{id}", response_body = crate::dto::console::group::GroupRow)]
     async fn get(
         &self,
         _auth: ConsoleAuthed,
@@ -38,10 +40,10 @@ impl ConsoleGroupController {
         if let Err(err) = guard(&state, scope.id(), &id).await {
             return err.into_response();
         }
-        self.service.get_group(&state, &id).await.into_response()
+        self.service.get_group(&id).await.into_response()
     }
 
-    #[get("/{id}/member")]
+    #[get("/{id}/member", response_body = GroupMemberRowList)]
     async fn members(
         &self,
         _auth: ConsoleAuthed,
@@ -52,13 +54,10 @@ impl ConsoleGroupController {
         if let Err(err) = guard(&state, scope.id(), &id).await {
             return err.into_response();
         }
-        self.service
-            .list_group_members(&state, &id)
-            .await
-            .into_response()
+        self.service.list_group_members(&id).await.into_response()
     }
 
-    #[get("/{id}/export")]
+    #[get("/{id}/export", response_body = crate::dto::console::group::GroupExport)]
     async fn export(
         &self,
         auth: ConsoleAuthed,
@@ -69,13 +68,10 @@ impl ConsoleGroupController {
         if let Err(err) = guard(&state, scope.id(), &id).await {
             return err.into_response();
         }
-        self.service
-            .export_group(&state, &auth, &id)
-            .await
-            .into_response()
+        self.service.export_group(&auth, &id).await.into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,
@@ -86,10 +82,7 @@ impl ConsoleGroupController {
         if let Err(err) = guard(&state, scope.id(), &id).await {
             return err.into_response();
         }
-        self.service
-            .delete_group(&state, &auth, &id)
-            .await
-            .into_response()
+        self.service.delete_group(&auth, &id).await.into_response()
     }
 }
 
@@ -99,5 +92,5 @@ async fn guard(
     raw: &str,
 ) -> Result<(), crate::error::V2Error> {
     let id = crate::services::console::account_id(raw)?;
-    guards::require_group(state, game, id).await
+    guards::require_group(&*state.plane(), game, id).await
 }

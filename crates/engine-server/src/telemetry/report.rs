@@ -1,9 +1,7 @@
-
-use engine_bus::{RoomTelemetry, SessionTelemetry};
+use engine_bus::{RoomTelemetry, ServerPhase, SessionTelemetry};
 
 #[derive(Clone, Debug, Default)]
 pub struct PublishReport {
-
     pub tick_hz_est: f64,
 
     pub stage_sim_us: u64,
@@ -23,4 +21,6 @@ pub struct PublishReport {
     pub rooms: Vec<RoomTelemetry>,
 
     pub session_cap: usize,
+
+    pub server_phase: ServerPhase,
 }

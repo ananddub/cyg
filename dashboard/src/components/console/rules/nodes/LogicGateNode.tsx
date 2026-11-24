@@ -4,12 +4,12 @@ import type { LogicGateNodeData } from '../types';
 
 export function LogicGateNode({ data }: NodeProps & { data: LogicGateNodeData }) {
   return (
-    <div className="w-60 rounded-xl border border-amber-500/50 bg-card/95 p-3.5 shadow-xl shadow-amber-500/10 backdrop-blur-md">
+    <div className="w-60 rounded-xl border border-border border-l-4 border-l-amber-500 bg-card/95 p-3.5 shadow-sm">
       <Handle
         type="target"
         position={Position.Left}
         id="in"
-        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-card !bg-amber-500"
+        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-card !bg-slate-400"
       />
 
       <div className="flex items-center justify-between border-b border-border pb-2.5">
@@ -18,7 +18,7 @@ export function LogicGateNode({ data }: NodeProps & { data: LogicGateNodeData })
             <GitBranch className="h-4 w-4" />
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-300">Logic Gate</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-foreground">Logic Gate</div>
           </div>
         </div>
         {data.onDelete && (
@@ -39,7 +39,7 @@ export function LogicGateNode({ data }: NodeProps & { data: LogicGateNodeData })
             type="button"
             className={`flex-1 rounded py-1 text-xs font-bold transition nodrag cursor-pointer ${
               data.gate === 'all'
-                ? 'bg-amber-500 text-white dark:bg-amber-400 dark:text-zinc-950 shadow-xs'
+                ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => data.onDataChange?.({ gate: 'all' })}
@@ -50,7 +50,7 @@ export function LogicGateNode({ data }: NodeProps & { data: LogicGateNodeData })
             type="button"
             className={`flex-1 rounded py-1 text-xs font-bold transition nodrag cursor-pointer ${
               data.gate === 'any'
-                ? 'bg-amber-500 text-white dark:bg-amber-400 dark:text-zinc-950 shadow-xs'
+                ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => data.onDataChange?.({ gate: 'any' })}
@@ -61,7 +61,7 @@ export function LogicGateNode({ data }: NodeProps & { data: LogicGateNodeData })
             type="button"
             className={`flex-1 rounded py-1 text-xs font-bold transition nodrag cursor-pointer ${
               data.gate === 'not'
-                ? 'bg-amber-500 text-white dark:bg-amber-400 dark:text-zinc-950 shadow-xs'
+                ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => data.onDataChange?.({ gate: 'not' })}
@@ -75,7 +75,7 @@ export function LogicGateNode({ data }: NodeProps & { data: LogicGateNodeData })
         type="source"
         position={Position.Right}
         id="out"
-        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-zinc-950 !bg-amber-400 dark:!border-card"
+        className="!h-3.5 !w-3.5 !rounded-full !border-2 !border-zinc-950 !bg-slate-400 dark:!border-card"
       />
     </div>
   );

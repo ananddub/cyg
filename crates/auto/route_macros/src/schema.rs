@@ -7,7 +7,9 @@ pub(crate) fn validate_route_function(function: &ItemFn, label: &str) -> syn::Re
     crate::docs::validate_route_signature(&function.sig, label)
 }
 
-pub(crate) fn route_argument_types<'a>(inputs: impl Iterator<Item = &'a FnArg>) -> syn::Result<Vec<Type>> {
+pub(crate) fn route_argument_types<'a>(
+    inputs: impl Iterator<Item = &'a FnArg>,
+) -> syn::Result<Vec<Type>> {
     inputs
         .map(|argument| match argument {
             FnArg::Typed(PatType { ty, .. }) => Ok((**ty).clone()),
@@ -21,7 +23,7 @@ pub(crate) fn route_argument_types<'a>(inputs: impl Iterator<Item = &'a FnArg>) 
 
 pub(crate) fn infer_request_body(arguments: &[Type]) -> Option<RequestBody> {
     arguments.iter().find_map(|argument| {
-        wrapper_inner_type(argument, &["Json", "ValidatedJson"])
+        wrapper_inner_type(argument, &["Json", "ValidatedJson", "Body"])
             .map(|ty| RequestBody {
                 ty,
                 content: RequestContent::Json,
@@ -30,6 +32,12 @@ pub(crate) fn infer_request_body(arguments: &[Type]) -> Option<RequestBody> {
                 wrapper_inner_type(argument, &["Form"]).map(|ty| RequestBody {
                     ty,
                     content: RequestContent::Form,
+                })
+            })
+            .or_else(|| {
+                is_plain(argument, "String").then(|| RequestBody {
+                    ty: argument.clone(),
+                    content: RequestContent::Text,
                 })
             })
     })
@@ -83,6 +91,18 @@ pub(crate) fn is_result_type(ty: &Type) -> bool {
             .is_some_and(|segment| segment.ident == "Result"),
         _ => false,
     }
+}
+
+fn is_plain(ty: &Type, name: &str) -> bool {
+    matches!(
+        ty,
+        Type::Path(path)
+            if path.qself.is_none()
+                && path.path.segments.last().is_some_and(|segment| {
+                    segment.ident == name
+                        && matches!(segment.arguments, PathArguments::None)
+                })
+    )
 }
 
 fn is_sse_response_type(ty: &Type) -> bool {

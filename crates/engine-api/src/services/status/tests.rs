@@ -32,11 +32,11 @@ pub(super) fn state() -> ApiState {
         game: Arc::new(game),
         control: Arc::new(control),
         signals: SignalHub::new("[]".into()),
-        seats: Arc::new(Mutex::new(SeatRegistry::new("test-secret"))),
-        limiter: Arc::new(Mutex::new(IpRateLimiter::new(20, 40))),
+        seats: Arc::new(arc_swap::ArcSwap::from_pointee(SeatRegistry::new("test-secret"))),
+        limiter: Arc::new(IpRateLimiter::new(20, 40)),
         port: 8124,
         status_rx: Arc::new(OnceReceiver::new(bus.status_rx.clone())),
-        latest_status: Arc::new(Mutex::new(None)),
+        latest_status: Arc::new(arc_swap::ArcSwapOption::empty()),
         bus,
         started: Instant::now(),
         db: None,
@@ -44,6 +44,9 @@ pub(super) fn state() -> ApiState {
         blobs: None,
         realtime: std::sync::Arc::new(crate::infra::realtime::RealtimeHub::new(None)),
         sessions: Arc::new(crate::infra::session_cache::SessionCache::new(60, 3600)),
+        chain: Default::default(),
+        hooks: None,
+        dev_mode: false,
     }
 }
 

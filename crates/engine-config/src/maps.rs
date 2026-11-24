@@ -1,7 +1,5 @@
-
 #[derive(Clone, Debug)]
 pub struct MapAsset {
-
     pub format: MapFormat,
 
     pub name: String,
@@ -11,7 +9,6 @@ pub struct MapAsset {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MapFormat {
-
     Oxcl,
 
     Map2d,
@@ -51,7 +48,6 @@ pub struct BootMaps {
 }
 
 impl BootMaps {
-
     pub fn insert(&mut self, asset: MapAsset) {
         match asset.format {
             MapFormat::Oxcl => self.oxcl = Some(asset),

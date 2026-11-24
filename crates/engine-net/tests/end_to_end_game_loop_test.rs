@@ -63,7 +63,7 @@ fn test_end_to_end_game_loop_with_wasm_and_rewind() {
         payload.extend_from_slice(&50.0f32.to_be_bytes());
 
         let mut send_buf = Vec::new();
-        encode_frame(OpCode::PlayerInput, &payload, &mut send_buf);
+        let _ = encode_frame(OpCode::PlayerInput, &payload, &mut send_buf);
         stream.write_all(&send_buf).expect("Write ok");
         stream.flush().expect("Flush ok");
 

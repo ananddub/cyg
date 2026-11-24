@@ -5,7 +5,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     let alice = device_player(client, base, "st-a").await;
     let bob = device_player(client, base, "st-b").await;
     let collection = format!("e2e-storage-{}", letters_suffix());
-    let storage = format!("{base}/v2/storage");
+    let storage = format!("{base}/v1/storage");
 
     let value1 = json!({ "n": 1 }).to_string();
     let value2 = json!({ "n": 2 }).to_string();
@@ -178,7 +178,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     .await;
     let unchanged = api_get(
         client,
-        format!("{base}/v2/storage/{collection}/a/{}", alice.uid),
+        format!("{base}/v1/storage/{collection}/a/{}", alice.uid),
         &alice.token,
         "alice's object survived bob's write",
     )
@@ -253,10 +253,6 @@ pub async fn storage_surface(client: &Client, base: &str) {
             "read with no collection",
         ),
         (
-            json!({ "object_ids": [{ "collection": collection, "key": "a", "user_id": "00000000-0000-0000-0000-000000000000" }] }),
-            "read under the nil owner",
-        ),
-        (
             json!({ "object_ids": [{ "collection": collection, "key": "a", "user_id": "not-a-uuid" }] }),
             "read under a malformed owner",
         ),
@@ -275,9 +271,29 @@ pub async fn storage_surface(client: &Client, base: &str) {
         .await;
     }
 
+    // A nil owner is the documented spelling of "mine" for every read entry
+    // point, so a batch read with it is the caller's own object, not a mistake.
+    let nil_owner_batch = api_post(
+        client,
+        storage.clone(),
+        &alice.token,
+        json!({ "object_ids": [{
+            "collection": collection,
+            "key": "a",
+            "user_id": "00000000-0000-0000-0000-000000000000"
+        }] }),
+        "read a batch under the nil owner",
+    )
+    .await;
+    assert_eq!(
+        nil_owner_batch["objects"][0]["user_id"],
+        json!(alice.uid),
+        "the nil owner resolves to the caller: {nil_owner_batch}"
+    );
+
     let one = api_get(
         client,
-        format!("{base}/v2/storage/{collection}/a/00000000-0000-0000-0000-000000000000"),
+        format!("{base}/v1/storage/{collection}/a/00000000-0000-0000-0000-000000000000"),
         &alice.token,
         "read an own object by its full key",
     )
@@ -286,7 +302,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     let versioned = api_get(
         client,
         with_query(
-            &format!("{base}/v2/storage/{collection}/a/{}", alice.uid),
+            &format!("{base}/v1/storage/{collection}/a/{}", alice.uid),
             &[("version", &version3)],
         ),
         &alice.token,
@@ -297,7 +313,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     refusal(
         client
             .get(with_query(
-                &format!("{base}/v2/storage/{collection}/a/{}", alice.uid),
+                &format!("{base}/v1/storage/{collection}/a/{}", alice.uid),
                 &[("version", "deadbeef")],
             ))
             .bearer_auth(&alice.token)
@@ -310,7 +326,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     .await;
     refusal(
         client
-            .get(format!("{base}/v2/storage/{collection}/b/{}", alice.uid))
+            .get(format!("{base}/v1/storage/{collection}/b/{}", alice.uid))
             .bearer_auth(&bob.token)
             .send()
             .await
@@ -321,7 +337,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     .await;
     let public = api_get(
         client,
-        format!("{base}/v2/storage/{collection}/a/{}", alice.uid),
+        format!("{base}/v1/storage/{collection}/a/{}", alice.uid),
         &bob.token,
         "read another account's public object",
     )
@@ -329,7 +345,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     assert_eq!(json_string(&public["value"]), json!({ "n": 3 }));
     refusal(
         client
-            .get(format!("{base}/v2/storage/{collection}/a/not-a-uuid"))
+            .get(format!("{base}/v1/storage/{collection}/a/not-a-uuid"))
             .bearer_auth(&alice.token)
             .send()
             .await
@@ -342,7 +358,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     let page = api_get(
         client,
         with_query(
-            &format!("{base}/v2/storage/{collection}"),
+            &format!("{base}/v1/storage/{collection}"),
             &[("limit", "2")],
         ),
         &bob.token,
@@ -363,7 +379,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     let page = api_get(
         client,
         with_query(
-            &format!("{base}/v2/storage/{collection}"),
+            &format!("{base}/v1/storage/{collection}"),
             &[("limit", "2"), ("cursor", &cursor)],
         ),
         &bob.token,
@@ -381,7 +397,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     refusal(
         client
             .get(with_query(
-                &format!("{base}/v2/storage/{collection}"),
+                &format!("{base}/v1/storage/{collection}"),
                 &[("cursor", "garbage")],
             ))
             .bearer_auth(&bob.token)
@@ -396,7 +412,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
         refusal(
             client
                 .get(with_query(
-                    &format!("{base}/v2/storage/{collection}"),
+                    &format!("{base}/v1/storage/{collection}"),
                     &[("limit", limit)],
                 ))
                 .bearer_auth(&bob.token)
@@ -412,7 +428,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     let own = api_get(
         client,
         with_query(
-            &format!("{base}/v2/storage/{collection}/{}", alice.uid),
+            &format!("{base}/v1/storage/{collection}/{}", alice.uid),
             &[("limit", "100")],
         ),
         &alice.token,
@@ -430,7 +446,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     let other = api_get(
         client,
         with_query(
-            &format!("{base}/v2/storage/{collection}/{}", alice.uid),
+            &format!("{base}/v1/storage/{collection}/{}", alice.uid),
             &[("limit", "100")],
         ),
         &bob.token,
@@ -447,7 +463,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     assert_eq!(keys, vec!["a", "c", "ro"]);
     refusal(
         client
-            .get(format!("{base}/v2/storage/{collection}/not-a-uuid"))
+            .get(format!("{base}/v1/storage/{collection}/not-a-uuid"))
             .bearer_auth(&alice.token)
             .send()
             .await
@@ -459,7 +475,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
 
     refusal(
         client
-            .put(format!("{base}/v2/storage/delete"))
+            .put(format!("{base}/v1/storage/delete"))
             .bearer_auth(&alice.token)
             .json(&json!({ "object_ids": [{ "collection": collection, "key": "c", "version": "deadbeef" }] }))
             .send()
@@ -471,7 +487,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     .await;
     refusal(
         client
-            .put(format!("{base}/v2/storage/delete"))
+            .put(format!("{base}/v1/storage/delete"))
             .bearer_auth(&bob.token)
             .json(&json!({ "object_ids": [{ "collection": collection, "key": "b" }] }))
             .send()
@@ -483,7 +499,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     .await;
     refusal(
         client
-            .put(format!("{base}/v2/storage/delete"))
+            .put(format!("{base}/v1/storage/delete"))
             .bearer_auth(&alice.token)
             .json(&json!({ "object_ids": [{ "collection": collection, "key": "missing" }] }))
             .send()
@@ -495,7 +511,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     .await;
     refusal(
         client
-            .put(format!("{base}/v2/storage/delete"))
+            .put(format!("{base}/v1/storage/delete"))
             .bearer_auth(&alice.token)
             .json(&json!({ "object_ids": [{ "collection": collection, "key": "ro" }] }))
             .send()
@@ -507,7 +523,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     .await;
     let deleted = api_put(
         client,
-        format!("{base}/v2/storage/delete"),
+        format!("{base}/v1/storage/delete"),
         &alice.token,
         json!({ "object_ids": [{ "collection": collection, "key": "c", "version": md5_hex(&c_value) }] }),
         "delete with the current version",
@@ -516,7 +532,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     assert_eq!(deleted, json!({}));
     refusal(
         client
-            .get(format!("{base}/v2/storage/{collection}/c/{}", alice.uid))
+            .get(format!("{base}/v1/storage/{collection}/c/{}", alice.uid))
             .bearer_auth(&alice.token)
             .send()
             .await
@@ -527,7 +543,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     .await;
     let deleted = api_put(
         client,
-        format!("{base}/v2/storage/delete"),
+        format!("{base}/v1/storage/delete"),
         &alice.token,
         json!({ "object_ids": [{ "collection": collection, "key": "a" }] }),
         "delete an object by key alone",
@@ -536,7 +552,7 @@ pub async fn storage_surface(client: &Client, base: &str) {
     assert_eq!(deleted, json!({}));
     let empty_delete = api_put(
         client,
-        format!("{base}/v2/storage/delete"),
+        format!("{base}/v1/storage/delete"),
         &alice.token,
         json!({ "object_ids": [] }),
         "delete an empty batch",

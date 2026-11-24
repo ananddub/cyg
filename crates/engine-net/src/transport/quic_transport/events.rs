@@ -1,7 +1,7 @@
-use super::frame_bytes;
 use super::QuicTransport;
+use super::frame_bytes;
 use crate::quic::QuicEvent;
-use crate::transport::webrtc::contract::{classify_inbound, Lane};
+use crate::transport::webrtc::contract::{Lane, classify_inbound};
 
 impl QuicTransport {
     pub(super) fn handle_engine_event(&mut self, event: QuicEvent) {
@@ -42,8 +42,8 @@ impl QuicTransport {
                     if buffer.len() < super::FRAME_HEADER {
                         break;
                     }
-                    let len = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]])
-                        as usize;
+                    let len =
+                        u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
                     if buffer.len() < super::FRAME_HEADER + len {
                         break;
                     }

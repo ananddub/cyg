@@ -1,4 +1,3 @@
-
 use std::io::{Read, Write};
 use std::net::{TcpStream, UdpSocket};
 use std::time::Duration;
@@ -21,7 +20,7 @@ fn test_unified_transport_auto_switch() {
 
     let client_udp = UdpSocket::bind("127.0.0.1:0").unwrap();
     let mut udp_send = Vec::new();
-    encode_frame(OpCode::PlayerInput, b"udp_shoot", &mut udp_send);
+    let _ = encode_frame(OpCode::PlayerInput, b"udp_shoot", &mut udp_send);
     client_udp.send_to(&udp_send, udp_addr).unwrap();
 
     let mut events = Vec::new();
@@ -79,7 +78,6 @@ fn test_unified_transport_auto_switch() {
     assert!(resp_str.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
     println!("✓ 4. WireSocket upgrade handshake confirmed (101 Switching Protocols)!");
 
-    
     for _ in 0..5 {
         let _ = ws_transport.poll_events(Duration::from_millis(20), &mut Vec::new());
         let _ = ws_transport.flush();

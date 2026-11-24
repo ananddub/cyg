@@ -1,4 +1,3 @@
-
 use str0m::{Event, Output};
 
 use super::WebRtcServer;
@@ -9,7 +8,6 @@ use super::session::{Sink, WebRtcSession};
 use super::types::WebRtcServerEvent;
 
 impl WebRtcServer {
-
     pub(super) fn settle(session: &mut WebRtcSession, sink: &mut Sink) {
         Self::poll_session_events(session, sink);
     }
@@ -28,26 +26,12 @@ impl WebRtcServer {
                     });
                 }
                 Output::Event(Event::ChannelOpen(cid, label)) => {
-                    let verdict = classify_label(&label);
-                    let legacy = matches!(verdict, LabelVerdict::LegacyAlias(_));
-                    if let LabelVerdict::Contract(lane) | LabelVerdict::LegacyAlias(lane) = verdict
-                    {
+                    if let LabelVerdict::Contract(lane) = classify_label(&label) {
                         match lane {
                             Lane::Unreliable => session.ch_unreliable = Some(cid),
                             Lane::Reliable => session.ch_reliable = Some(cid),
                         }
                         session.lanes.insert(cid, lane);
-                        if legacy {
-                            sink.stats.legacy_alias_channels += 1;
-                            if !session.legacy_alias_warned {
-                                session.legacy_alias_warned = true;
-                                tracing::warn!(
-                                    "[webrtc] ⚠️ client {} opened '{label}': not a contract label, mapped to {} as a legacy alias",
-                                    session.client_id,
-                                    lane.label()
-                                );
-                            }
-                        }
 
                         let mismatch = session
                             .rtc
@@ -124,7 +108,6 @@ impl WebRtcServer {
                         session.ch_reliable = None;
                     }
                     if let Some(lane) = lane {
-
                         let n = session.queue(lane).clear();
                         sink.stats.frames_dropped_no_channel += n as u64;
                     }

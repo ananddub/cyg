@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -30,7 +29,6 @@ struct Pair {
 }
 
 impl Pair {
-
     fn connect() -> Pair {
         let now = Instant::now();
         let client_addr: SocketAddr = CLIENT_ADDR.parse().unwrap();
@@ -300,7 +298,6 @@ fn back_to_back_fat_deltas_leave_one_body() {
     );
     let bodies: Vec<&[u8]> = applied.iter().map(|(_, b)| b.as_slice()).collect();
     if applied.len() == 2 {
-
         assert_eq!(applied[0].1, first);
         assert_eq!(applied[1].1, second);
     } else {

@@ -1,5 +1,5 @@
-
 mod bufio;
+pub mod chunk;
 pub mod framing;
 pub mod quic;
 pub mod rtc_plane;

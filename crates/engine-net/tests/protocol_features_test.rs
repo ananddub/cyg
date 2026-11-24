@@ -1,4 +1,3 @@
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -219,11 +218,10 @@ fn ws_upgrade(port: u16, transport: &mut WsTransport, path: &str) -> TcpStream {
         response.contains("101 Switching Protocols"),
         "expected 101, got: {response}"
     );
-    
+
     let _ = read_frame(&mut stream, transport);
     stream
 }
-
 
 fn post_matchmake(transport: &mut WsTransport, port: u16, path: &str, body: &str) -> String {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ok");
@@ -254,7 +252,6 @@ fn post_matchmake(transport: &mut WsTransport, port: u16, path: &str, body: &str
     }
     String::from_utf8_lossy(&buf).into_owned()
 }
-
 
 fn json_field(body: &str, key: &str) -> Option<String> {
     let needle = format!("\"{}\"", key);
@@ -613,7 +610,6 @@ fn test_join_handshake_echoes_seat_reconnection_token() {
     }
     let (_ws_op, reply) = read_frame(&mut stream2, &mut transport);
 
-    
     assert_eq!(reply[0], 10);
     let rt_len = reply[1] as usize;
     let rt = String::from_utf8(reply[2..2 + rt_len].to_vec()).unwrap();
@@ -623,17 +619,11 @@ fn test_join_handshake_echoes_seat_reconnection_token() {
     );
 }
 
-
-
-
-
 #[test]
 fn test_opcode_mapping_state_snapshot_vs_patch() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_map");
 
-    
-    
     let cid = "sess_map".to_string();
 
     transport
@@ -661,18 +651,15 @@ fn test_server_disconnect_close_code_4000() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_kick");
 
-    
     let cid = "sess_kick".to_string();
 
     transport.disconnect(&cid).expect("disconnect");
 
-    
     let (ws_op, payload) = read_frame(&mut stream, &mut transport);
     assert_eq!(ws_op, 0x8, "expected a close frame");
     let code = u16::from_be_bytes([payload[0], payload[1]]);
     assert_eq!(code, 4000, "server disconnect must use CONSENTED (4000)");
 
-    
     poll_until(
         &mut transport,
         |e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == &*cid),
@@ -684,7 +671,6 @@ fn test_disconnect_with_close_code_4002() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_full");
 
-    
     let cid = "sess_full".to_string();
 
     transport
@@ -697,9 +683,6 @@ fn test_disconnect_with_close_code_4002() {
     assert_eq!(code, 4002, "a rejected join must use WITH_ERROR (4002)");
     assert_eq!(&payload[2..], b"room is full", "close reason must survive");
 }
-
-
-
 
 #[test]
 fn test_queued_error_precedes_close_frame() {
@@ -717,7 +700,6 @@ fn test_queued_error_precedes_close_frame() {
         .disconnect_with(&cid, 4002, "room is full")
         .unwrap();
 
-    
     let frames = read_frames(&mut stream, &mut transport, 2);
     let (op1, p1) = &frames[0];
     assert_eq!(*op1, 0x2, "the queued ERROR must be a binary frame");
@@ -734,7 +716,6 @@ fn test_leave_room_answers_close_code_4000() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_lv");
 
-    
     send_ws_frame(&mut stream, &[12]);
 
     let events = poll_until(&mut transport, |e| {
@@ -744,23 +725,16 @@ fn test_leave_room_answers_close_code_4000() {
         |e| matches!(e, TransportEvent::Disconnected { client_id } if &**client_id == "sess_lv")
     ));
 
-    
     let (ws_op, payload) = read_frame(&mut stream, &mut transport);
     assert_eq!(ws_op, 0x8, "expected close frame after LEAVE_ROOM");
     let code = u16::from_be_bytes([payload[0], payload[1]]);
     assert_eq!(code, 4000, "LEAVE_ROOM close code must be CONSENTED (4000)");
 }
 
-
-
-
-
-
 #[test]
 fn test_bare_tcp_eof_disconnects_without_close_frame() {
     let (mut transport, port) = spawn_transport();
-    
-    
+
     transport.set_heartbeat(HeartbeatConfig {
         enabled: false,
         ping_interval: Duration::from_secs(30),
@@ -768,7 +742,6 @@ fn test_bare_tcp_eof_disconnects_without_close_frame() {
     });
     let stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_eof");
 
-    
     drop(stream);
 
     let start = std::time::Instant::now();
@@ -782,10 +755,6 @@ fn test_bare_tcp_eof_disconnects_without_close_frame() {
     );
 }
 
-
-
-
-
 #[test]
 fn test_heartbeat_terminates_unresponsive_client() {
     let (mut transport, port) = spawn_transport();
@@ -795,7 +764,6 @@ fn test_heartbeat_terminates_unresponsive_client() {
         max_retries: 1,
     });
 
-    
     let _stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_dead");
 
     let start = std::time::Instant::now();
@@ -820,8 +788,6 @@ fn test_heartbeat_spares_active_client() {
 
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_live");
 
-    
-    
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_millis(300) {
         send_ws_frame(&mut stream, &[18]);
@@ -834,23 +800,16 @@ fn test_heartbeat_spares_active_client() {
     }
 }
 
-
-
-
-
 #[test]
 fn test_error_frame_wire_format() {
     let (mut transport, port) = spawn_transport();
     let mut stream = ws_upgrade(port, &mut transport, "/cyg_1/game_room?sessionId=sess_err2");
 
-    
     let cid = "sess_err2".to_string();
 
     transport.send_error(&cid, 4217, "boom").unwrap();
     transport.flush().unwrap();
 
-    
-    
     let (_, payload) = read_frame(&mut stream, &mut transport);
     assert_eq!(payload[0], 11, "ERROR opcode");
     assert_eq!(decode_mp_uint(&payload[1..4]), Some(4217));

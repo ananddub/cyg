@@ -1,12 +1,14 @@
-use crate::ts::parse;
 use crate::WireKind;
+use crate::ts::parse;
 
 #[test]
 fn rejects_unsupported_containers_and_field_version() {
-    let errors = parse(r#"const Bad = schema({ samples: t.array(t.int64()) }, "Bad");"#).unwrap_err();
+    let errors =
+        parse(r#"const Bad = schema({ samples: t.array(t.int64()) }, "Bad");"#).unwrap_err();
     assert!(errors.iter().any(|e| e.message.contains("loses precision")));
 
-    let errors = parse(r#"const Bad = schema({ names: t.array(t.string()) }, "Bad");"#).unwrap_err();
+    let errors =
+        parse(r#"const Bad = schema({ names: t.array(t.string()) }, "Bad");"#).unwrap_err();
     assert!(
         errors
             .iter()
@@ -30,10 +32,12 @@ fn rejects_unsupported_containers_and_field_version() {
 
 #[test]
 fn rejects_out_of_range_defaults_and_duplicate_fields() {
-    let errors = parse(r#"const Bad = schema({ hp: t.uint8().default(300) }, "Bad");"#).unwrap_err();
+    let errors =
+        parse(r#"const Bad = schema({ hp: t.uint8().default(300) }, "Bad");"#).unwrap_err();
     assert!(errors.iter().any(|e| e.message.contains("out of range")));
 
-    let errors = parse(r#"const Bad = schema({ x: t.number(), x: t.number() }, "Bad");"#).unwrap_err();
+    let errors =
+        parse(r#"const Bad = schema({ x: t.number(), x: t.number() }, "Bad");"#).unwrap_err();
     assert!(errors.iter().any(|e| e.message.contains("more than once")));
 }
 

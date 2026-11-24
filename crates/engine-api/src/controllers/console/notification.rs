@@ -15,26 +15,24 @@ struct ConsoleNotificationController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/notification")]
+type NotificationRowList = Vec<crate::dto::console::notification::NotificationRow>;
+#[controller("/v1/console/notification")]
 impl ConsoleNotificationController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = NotificationRowList)]
     async fn list(
         &self,
         _auth: ConsoleAuthed,
         Params(query): Params<NotificationQuery>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .list_notifications(&state, query)
-            .await
-            .into_response()
+        self.service.list_notifications(query).await.into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::Empty)]
     async fn send(
         &self,
         auth: ConsoleAuthed,
@@ -47,7 +45,7 @@ impl ConsoleNotificationController {
         let content = body.content.to_string();
         let code = body.code.to_string();
         let mut claim = match crate::services::idempotency::begin(
-            &state,
+            &*state.plane(),
             &headers,
             "console.notification.send",
             &actor,
@@ -59,22 +57,23 @@ impl ConsoleNotificationController {
             Err(err) => return err.into_response(),
         };
         if let Some(saved) = claim.replayed() {
-            return axum::Json(saved).into_response();
+            return crate::app::middleware::replay_response(saved);
         }
         let id = claim.operation_uuid().unwrap_or_else(uuid::Uuid::new_v4);
         let result = self
             .service
-            .send_notification(&state, &auth, scope.id(), body, id)
+            .send_notification(&auth, scope.id(), body, id)
             .await;
-        let stored = result
-            .as_ref()
-            .ok()
-            .and_then(|json| serde_json::to_value(&json.0).ok());
+        let stored = result.as_ref().ok().and_then(|json| {
+            serde_json::to_string(&json.0)
+                .ok()
+                .map(|raw| crate::services::idempotency::Stored { status: 200, raw })
+        });
         claim.settle(stored).await;
         result.into_response()
     }
 
-    #[delete("/{id}")]
+    #[delete("/{id}", response_body = crate::dto::Empty)]
     async fn delete(
         &self,
         auth: ConsoleAuthed,
@@ -83,7 +82,7 @@ impl ConsoleNotificationController {
     ) -> Response {
         let state = current_state();
         self.service
-            .delete_notification(&state, &auth, scope.id(), &id)
+            .delete_notification(&auth, scope.id(), &id)
             .await
             .into_response()
     }

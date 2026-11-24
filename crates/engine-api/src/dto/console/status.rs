@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct StatusResponse {
     pub name: String,
     pub version: String,
@@ -18,7 +18,7 @@ pub struct StatusResponse {
     pub agones: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct RouteRow {
     pub method: String,
     pub path: String,

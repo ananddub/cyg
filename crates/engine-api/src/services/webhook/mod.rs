@@ -1,4 +1,6 @@
+use crate::services::plane::Plane;
 use auto_di::singleton;
+use std::sync::Arc;
 
 pub mod deliver;
 mod drafting;
@@ -22,11 +24,13 @@ pub const EVENTS: &[&str] = &[
     "marketplace.trade.settled",
 ];
 
-pub struct WebhookService;
+pub struct WebhookService {
+    pub(crate) plane: Arc<Plane>,
+}
 
 #[singleton]
 impl WebhookService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }

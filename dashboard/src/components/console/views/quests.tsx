@@ -1,7 +1,7 @@
 // Quests & Seasons: the engagement engine's operator surface. Quests are
 // goal definitions (a counter and a target) with a reward and an optional
 // season window; seasons bind quests to a calendar. `GET/POST
-// /v2/console/quests` + `PUT/DELETE …/{key}` and the same for `/seasons`.
+// /v1/console/quests` + `PUT/DELETE …/{key}` and the same for `/seasons`.
 
 import { useEffect, useState } from "react"
 import { Pencil, Plus, Trash2 } from "lucide-react"

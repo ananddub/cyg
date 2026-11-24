@@ -10,7 +10,7 @@ use super::*;
 impl Queries {
     pub async fn gdpr_purchases(&self, user_id: Uuid, limit: i64) -> Result<Vec<Value>, DbError> {
         self.all(
-            "SELECT * FROM purchase WHERE user_id = $id LIMIT $limit",
+            "SELECT * FROM purchase WHERE user_id = $id ORDER BY id ASC LIMIT $limit",
             params!(id = user_id.to_string(), limit = limit),
         )
         .await
@@ -22,7 +22,7 @@ impl Queries {
         limit: i64,
     ) -> Result<Vec<Value>, DbError> {
         self.all(
-            "SELECT * FROM subscription WHERE user_id = $id LIMIT $limit",
+            "SELECT * FROM subscription WHERE user_id = $id ORDER BY id ASC LIMIT $limit",
             params!(id = user_id.to_string(), limit = limit),
         )
         .await
@@ -30,7 +30,7 @@ impl Queries {
 
     pub async fn gdpr_inventory(&self, user_id: Uuid, limit: i64) -> Result<Vec<Value>, DbError> {
         self.all(
-            "SELECT * FROM player_inventory_item WHERE user_id = $id LIMIT $limit",
+            "SELECT * FROM player_inventory_item WHERE user_id = $id ORDER BY id ASC LIMIT $limit",
             params!(id = user_id.to_string(), limit = limit),
         )
         .await
@@ -42,7 +42,7 @@ impl Queries {
         limit: i64,
     ) -> Result<Vec<Value>, DbError> {
         self.all(
-            "SELECT * FROM leaderboard_record WHERE owner_id = $id LIMIT $limit",
+            "SELECT * FROM leaderboard_record WHERE owner_id = $id ORDER BY id ASC LIMIT $limit",
             params!(id = user_id.to_string(), limit = limit),
         )
         .await
@@ -54,7 +54,7 @@ impl Queries {
         limit: i64,
     ) -> Result<Vec<Value>, DbError> {
         self.all(
-            "SELECT * FROM group_edge WHERE source_id = $id OR destination_id = $id LIMIT $limit",
+            "SELECT * FROM group_edge WHERE source_id = $id OR destination_id = $id ORDER BY id ASC LIMIT $limit",
             params!(id = user_id.to_string(), limit = limit),
         )
         .await
@@ -66,7 +66,7 @@ impl Queries {
         limit: i64,
     ) -> Result<Vec<Value>, DbError> {
         self.all(
-            "SELECT * FROM notification WHERE user_id = $id LIMIT $limit",
+            "SELECT * FROM notification WHERE user_id = $id ORDER BY id ASC LIMIT $limit",
             params!(id = user_id.to_string(), limit = limit),
         )
         .await
@@ -75,7 +75,7 @@ impl Queries {
     pub async fn gdpr_messages(&self, user_id: Uuid, limit: i64) -> Result<Vec<Value>, DbError> {
         self.all(
             "SELECT * FROM message WHERE sender_id = $id OR stream_subject = $id \
-             OR stream_descriptor = $id LIMIT $limit",
+             OR stream_descriptor = $id ORDER BY id ASC LIMIT $limit",
             params!(id = user_id.to_string(), limit = limit),
         )
         .await

@@ -1,3 +1,4 @@
+use bytes::Bytes;
 
 use engine_webrtc_protocol::{
     ACK_WIRE_LEN, Ack, EVENT_WIRE_LEN, EventFrame, HEADER_LEN, INPUT_WIRE_LEN, OP_ACK, OP_DELTA,
@@ -9,7 +10,6 @@ use super::lane::Lane;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RejectReason {
-
     OffContract,
 
     WrongLane { expected: Lane, got: Lane },
@@ -19,20 +19,26 @@ pub enum RejectReason {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Inbound {
-
     Input {
         seq: u16,
         payload: [u8; INPUT_PAYLOAD_LEN],
         resupplied: bool,
     },
 
-    Event { raw: Vec<u8> },
+    Event {
+        raw: Bytes,
+    },
 
     Ack(Ack),
 
-    Other { op: u8, len: usize },
+    Other {
+        op: u8,
+        len: usize,
+    },
 
-    App { data: Vec<u8> },
+    App {
+        data: Bytes,
+    },
 
     Refused(RejectReason),
 }
@@ -83,7 +89,9 @@ pub fn classify_inbound(lane: Option<Lane>, data: &[u8]) -> Inbound {
                 return wrong_lane(lane, Lane::Reliable);
             }
             match EventFrame::decode(data) {
-                Ok(_) => Inbound::Event { raw: data.to_vec() },
+                Ok(_) => Inbound::Event {
+                    raw: Bytes::copy_from_slice(data),
+                },
                 Err(_) => malformed(op, data.len(), EVENT_WIRE_LEN),
             }
         }
@@ -95,7 +103,7 @@ pub fn classify_inbound(lane: Option<Lane>, data: &[u8]) -> Inbound {
                 malformed(op, data.len(), 2)
             } else {
                 Inbound::App {
-                    data: data.to_vec(),
+                    data: Bytes::copy_from_slice(data),
                 }
             }
         }

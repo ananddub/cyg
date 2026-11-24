@@ -5,8 +5,8 @@ use serde_json::json;
 #[tokio::test]
 async fn a_reconnect_supersedes_the_old_socket_without_losing_its_route() {
     let (state, mut inbound) = test_state();
-    let addr = spawn_plane(&state).await;
-    let seat = mint_seat(&state);
+    let addr = spawn_plane(&state.plane()).await;
+    let seat = mint_seat(&state.plane());
     let path = signal_path(&seat);
 
     let mut first = WsClient::open(addr, &path).await;
@@ -18,7 +18,7 @@ async fn a_reconnect_supersedes_the_old_socket_without_losing_its_route() {
     first.send_text(r#"{"type":"close"}"#).await;
     assert_eq!(
         next_signal(&mut inbound).await,
-        SignalIn::Close { seat: seat.clone() }
+        SignalIn::Close { seat: seat.clone(), .. }
     );
     assert!(
         state.signals.publish(
@@ -37,21 +37,21 @@ async fn a_reconnect_supersedes_the_old_socket_without_losing_its_route() {
     second.send_text(r#"{"type":"close"}"#).await;
     assert_eq!(
         next_signal(&mut inbound).await,
-        SignalIn::Close { seat: seat.clone() }
+        SignalIn::Close { seat: seat.clone(), .. }
     );
     expect_quiet(&mut inbound).await;
-    wait_peers(&state.signals, 0).await;
+    wait_peers(&state.plane().signals, 0).await;
 }
 
 #[tokio::test]
 async fn a_dropped_socket_still_teaches_the_data_plane_once() {
     let (state, mut inbound) = test_state();
-    let addr = spawn_plane(&state).await;
-    let seat = mint_seat(&state);
+    let addr = spawn_plane(&state.plane()).await;
+    let seat = mint_seat(&state.plane());
     let mut ws = WsClient::open(addr, &signal_path(&seat)).await;
     assert_eq!(ws.recv_json().await["type"], "ice");
     drop(ws);
-    assert_eq!(next_signal(&mut inbound).await, SignalIn::Close { seat });
+    assert_eq!(next_signal(&mut inbound).await, SignalIn::Close { seat, .. });
     expect_quiet(&mut inbound).await;
-    wait_peers(&state.signals, 0).await;
+    wait_peers(&state.plane().signals, 0).await;
 }

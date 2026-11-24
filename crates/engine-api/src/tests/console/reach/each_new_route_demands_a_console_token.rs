@@ -7,46 +7,46 @@ pub(crate) fn each_new_route_demands_a_console_token() {
     for (method, path, body) in [
         (
             "POST",
-            format!("/v2/console/user/{id}/mfa/require"),
+            format!("/v1/console/user/{id}/mfa/require"),
             String::new(),
         ),
         (
             "DELETE",
-            format!("/v2/console/user/{id}/mfa/require"),
+            format!("/v1/console/user/{id}/mfa/require"),
             String::new(),
         ),
         (
             "DELETE",
-            format!("/v2/console/user/{id}/mfa/reset"),
+            format!("/v1/console/user/{id}/mfa/reset"),
             String::new(),
         ),
         (
             "POST",
-            "/v2/console/password_change".to_owned(),
+            "/v1/console/password_change".to_owned(),
             "{}".to_owned(),
         ),
         (
             "GET",
-            "/v2/console/audit/log/users".to_owned(),
+            "/v1/console/audit/log/users".to_owned(),
             String::new(),
         ),
         (
             "POST",
-            format!("/v2/console/account/{id}/import"),
+            format!("/v1/console/account/{id}/import"),
             "null".to_owned(),
         ),
         (
             "GET",
-            format!("/v2/console/group/{id}/export"),
+            format!("/v1/console/group/{id}/export"),
             String::new(),
         ),
         (
             "DELETE",
-            format!("/v2/console/leaderboard/board-1/owner/{id}"),
+            format!("/v1/console/leaderboard/board-1/owner/{id}"),
             String::new(),
         ),
     ] {
-        let reply = server.send(&method, &path, None, &body);
+        let reply = server.send(method, &path, None, &body);
         assert_eq!(
             reply.refusal(UNAUTHENTICATED),
             "Console token required",
@@ -57,7 +57,7 @@ pub(crate) fn each_new_route_demands_a_console_token() {
 #[test]
 pub(crate) fn a_player_cannot_reach_a_console_route() {
     let server = V2Server::start(v2_state());
-    let reply = server.get("/v2/console/audit/log/users", Some(&player_token()));
+    let reply = server.get("/v1/console/audit/log/users", Some(&player_token()));
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token invalid");
 }
 #[test]
@@ -66,8 +66,8 @@ pub(crate) fn the_mfa_flag_routes_are_admin_only_and_then_reach_the_database() {
     let maintainer = token_for(ConsoleRole::Maintainer);
     let admin = token_for(ConsoleRole::Admin);
 
-    let require = format!("/v2/console/user/{NOBODY}/mfa/require");
-    let reset = format!("/v2/console/user/{NOBODY}/mfa/reset");
+    let require = format!("/v1/console/user/{NOBODY}/mfa/require");
+    let reset = format!("/v1/console/user/{NOBODY}/mfa/reset");
     for (method, path) in [
         ("POST", require.clone()),
         ("DELETE", require.clone()),
@@ -83,7 +83,7 @@ pub(crate) fn the_mfa_flag_routes_are_admin_only_and_then_reach_the_database() {
         assert_eq!(reply.status, 503, "{method} {path}: {}", reply.body);
     }
 
-    let reply = server.post("/v2/console/user/not-a-uuid/mfa/require", Some(&admin), "");
+    let reply = server.post("/v1/console/user/not-a-uuid/mfa/require", Some(&admin), "");
     assert_eq!(reply.refusal(INVALID_ARGUMENT), "Invalid console user id.");
 }
 #[test]
@@ -92,7 +92,7 @@ pub(crate) fn self_password_change_verifies_before_it_touches_the_database() {
     let admin = token_for(ConsoleRole::Admin);
 
     let reply = server.post(
-        "/v2/console/password_change",
+        "/v1/console/password_change",
         Some(&admin),
         r#"{"password":"short"}"#,
     );
@@ -102,7 +102,7 @@ pub(crate) fn self_password_change_verifies_before_it_touches_the_database() {
     );
 
     let reply = server.post(
-        "/v2/console/password_change",
+        "/v1/console/password_change",
         Some(&admin),
         r#"{"current_password":"old","password":"a-long-enough-password"}"#,
     );
@@ -115,13 +115,13 @@ pub(crate) fn self_password_change_verifies_before_it_touches_the_database() {
 pub(crate) fn a_wallet_change_needs_a_player_token_and_currency_needs_the_console() {
     let server = V2Server::start(v2_state());
 
-    let reply = server.send("PUT", "/v2/account/wallet", None, "{}");
+    let reply = server.send("PUT", "/v1/account/wallet", None, "{}");
     assert_eq!(
         reply.status, 401,
         "a wallet write needs a session: {}",
         reply.body
     );
 
-    let reply = server.put("/v2/account/wallet", Some(&player_token()), "{}");
+    let reply = server.put("/v1/account/wallet", Some(&player_token()), "{}");
     assert_eq!(reply.status, 503, "{}", reply.body);
 }

@@ -1,3 +1,4 @@
+use super::protocol::close_code;
 use std::io;
 use std::io::Write;
 
@@ -50,38 +51,67 @@ impl WsTransport {
     }
 
     pub(super) fn pump_flush(&mut self) -> io::Result<()> {
+        self.flush_delayed_pings(std::time::Instant::now());
 
         self.flush_dirty = self.clients.values().any(|c| !c.send_queue.is_empty());
         if !self.flush_dirty {
             return Ok(());
         }
         let mut pending = false;
-        let mut backpressure: Vec<(Token, bool)> = Vec::new();
+        // Reused scratch vecs: steady-state flush passes allocate nothing.
+        self.bp_scratch.clear();
+        self.write_failed_scratch.clear();
         for (token, client) in self.clients.iter_mut() {
-            if !client.send_queue.is_empty() {
-                match client.stream.write(&client.send_queue) {
-                    Ok(n) => {
-                        client.send_queue.advance(n);
-
+            // One vectored syscall per client: inline queue + shared body +
+            // post-shared tail offered together (writev batching).
+            if !client.send_queue.is_empty() || client.shared_frame.is_some() {
+                let before = client.send_queue.len();
+                let r = client.write_out();
+                if super::trace_enabled() {
+                    eprintln!(
+                        "[t] WO {:?} sid={} before={} after={} ok={}",
+                        token,
+                        client.session_id,
+                        before,
+                        client.send_queue.len(),
+                        r.is_ok()
+                    );
+                }
+                match r {
+                    Ok(_) => {
                         client.state_frame_start = None;
                     }
-                    Err(_) => {}
-                }
-                pending |= !client.send_queue.is_empty();
-
-                if client.send_queue.is_empty() && client.send_queue.capacity() > 64 * 1024 {
-                    client.send_queue = bytes::BytesMut::with_capacity(4096);
+                    Err(_) => {
+                        self.write_failed_scratch.push(*token);
+                    }
                 }
             }
+            pending |= !client.send_queue.is_empty() || client.shared_frame.is_some();
 
-            let want = !client.send_queue.is_empty();
+            if client.shared_frame.is_none() && !client.post_shared.is_empty() {
+                // tail bytes queued behind a finished shared body — move them
+                // into the inline queue so the next pass sends them.
+                client.send_queue.unsplit(client.post_shared.split());
+            }
+
+            let want = !client.send_queue.is_empty() || client.shared_frame.is_some();
             if client.registered_writable != want {
-                backpressure.push((*token, want));
+                self.bp_scratch.push((*token, want));
             }
         }
-        for (token, _want) in backpressure {
+        for i in 0..self.bp_scratch.len() {
+            let (token, _want) = self.bp_scratch[i];
             if let Some(client) = self.clients.get_mut(&token) {
                 crate::transport::ws::client_io::sync_writable_interest(client, &self.poll, token);
+            }
+        }
+        for i in 0..self.write_failed_scratch.len() {
+            let token = self.write_failed_scratch[i];
+            // Socket gone or peer unreachable — same cleanup as a server
+            // disconnect so the session does not linger holding buffers.
+            if let Some(client) = self.clients.get(&token) {
+                let client_id = client.session_id.to_string();
+                let _ = self.disconnect_with(&client_id, close_code::SLOW_CONSUMER, "write failed");
             }
         }
         self.flush_dirty = pending;

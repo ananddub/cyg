@@ -2,7 +2,6 @@ import { useEffect } from "react"
 import { Command } from "cmdk"
 import { BrandLogo } from "@/components/brand-logo"
 import {
-  Gamepad2,
   Activity,
   Trophy,
   Database,
@@ -78,14 +77,6 @@ export function CommandMenu({
             </Command.Empty>
 
             <Command.Group heading="Navigation" className="px-1.5 py-1 text-xs font-semibold text-muted-foreground">
-              <Command.Item
-                onSelect={() => runCommand(() => onNavigate?.("/overview"))}
-                className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-xs font-medium text-foreground hover:bg-accent aria-selected:bg-accent"
-              >
-                <Gamepad2 className="size-4 text-violet-500" />
-                <span>Games & Projects</span>
-              </Command.Item>
-
               <Command.Item
                 onSelect={() => runCommand(() => onNavigate?.("/audit"))}
                 className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-xs font-medium text-foreground hover:bg-accent aria-selected:bg-accent"

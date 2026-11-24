@@ -34,15 +34,15 @@ pub async fn telemetry(client: &Client, base: &str, port: u16) {
 
     let rooms = json_body(
         client
-            .get(format!("{base}/api/rooms"))
+            .get(format!("{base}/lobby/rooms"))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /api/rooms",
+        "GET /lobby/rooms",
     )
     .await;
-    let rooms = rooms.as_array().expect("/api/rooms is a list");
+    let rooms = rooms.as_array().expect("/lobby/rooms is a list");
     assert_eq!(rooms.len(), 1);
     let room = &rooms[0];
     assert_eq!(room["name"], GAME_NAME);

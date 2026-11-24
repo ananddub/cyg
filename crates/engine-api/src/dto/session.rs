@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct SessionResponse {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub created: bool,
@@ -10,7 +10,7 @@ pub struct SessionResponse {
     pub refresh_token: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct RefreshRequest {
     #[serde(default)]
     pub token: String,
@@ -18,7 +18,7 @@ pub struct RefreshRequest {
     pub vars: Option<HashMap<String, String>>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct LogoutRequest {
     #[serde(default)]
     pub token: String,

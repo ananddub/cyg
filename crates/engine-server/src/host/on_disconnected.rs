@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::host::*;
+use crate::rooms::close_code;
 
 impl<'a> Engine<'a> {
     pub(crate) fn run_disconnected(&mut self, client_id: &str) {
@@ -17,14 +18,14 @@ impl<'a> Engine<'a> {
             let mut found = None;
             for (rname, r) in &self.server.rooms {
                 if r.sessions.contains_key(&*client_id) || r.spectators.contains(&*client_id) {
-                    found = Some(rname.clone());
+                    found = Some(rname.to_string());
                     break;
                 }
             }
             found.unwrap_or_else(|| self.cfg.name.clone())
         };
         self.transport.retain_session(&room_name, client_id);
-        let Some(room) = self.server.rooms.get_mut(&room_name) else {
+        let Some(room) = self.server.rooms.get_mut(room_name.as_str()) else {
             return;
         };
         let consented = self.transport.take_consented(client_id);
@@ -32,6 +33,15 @@ impl<'a> Engine<'a> {
         let gone = if consented {
             room.handle_disconnect(client_id)
         } else {
+            // Unexpected: the room gets onDrop(id, LOST) first — its window
+            // to message others / mark the player "dropped" — then the
+            // reconnection hold starts.
+            let dropped = room
+                .sessions
+                .get(&*client_id)
+                .copied()
+                .unwrap_or(room.next_player_id);
+            room.guest_on_drop(dropped, close_code::LOST);
             room.handle_unexpected_disconnect(
                 client_id,
                 Duration::from_secs(self.cfg.lifecycle.seat_hold_secs),
@@ -39,7 +49,7 @@ impl<'a> Engine<'a> {
         };
         if let Some(seat) = seat_before {
             if !room.sessions.contains_key(&*client_id)
-                && !room.pending_leaves.contains_key(&*client_id)
+                && !room.lifecycle.pending_leaves.contains_key(&*client_id)
             {
                 history.bridge_seat(&room_name, seat, None);
             }

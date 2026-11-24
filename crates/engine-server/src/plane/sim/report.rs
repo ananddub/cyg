@@ -24,15 +24,12 @@ pub(super) fn publish_report(
         let via_browser = browser_players.contains(&player_id);
         browser += via_browser as u32;
         sessions.push(SessionTelemetry {
-            session: peer_id.clone(),
+            session: peer_id.to_string(),
             transport: if via_browser { "webrtc" } else { "native-udp" }.to_string(),
             player_id: Some(player_id),
-            acked_seq: room
-                .last_input_seq
-                .get(peer_id.as_str())
-                .map(|&seq| seq as u32),
+            acked_seq: room.seqs.get(&player_id).map(|s| s.input as u32),
             idle_ms: last_input_at
-                .get(peer_id)
+                .get(peer_id.as_ref())
                 .map(|t| t.elapsed().as_millis() as u64),
         });
     }
@@ -49,14 +46,19 @@ pub(super) fn publish_report(
         sessions,
         rooms: vec![RoomTelemetry {
             name: room_name.to_string(),
+            room_id: room_name.to_string(),
             phase: room.phase(),
             clients: players,
             spectators: room.spectators.len() as u32,
             tick: room.current_tick,
-            age_sec: room.born.elapsed().as_secs(),
+            age_sec: room.lifecycle.born.elapsed().as_secs(),
             closes_in_sec: None,
+            max_clients: max_players.max(0) as u32,
+            locked: false,
+            metadata: serde_json::Value::Null,
         }],
         session_cap: max_players.max(0) as usize,
+        server_phase: engine_bus::ServerPhase::Ready,
     }
 }
 

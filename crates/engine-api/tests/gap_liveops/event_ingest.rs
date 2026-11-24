@@ -20,7 +20,7 @@ pub async fn event_ingest(env: &Harness, console: &str) {
     // A player session cannot credit its own progress.
     refusal(
         env.client
-            .post(format!("{}/v2/events", env.base))
+            .post(format!("{}/v1/events", env.base))
             .bearer_auth(&player.token)
             .json(&json!({ "events": [{ "user_id": player.uid, "name": "casts" }] }))
             .send()
@@ -33,7 +33,7 @@ pub async fn event_ingest(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/events", env.base))
+            .post(format!("{}/v1/events", env.base))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "events": [] }))
             .send()
@@ -46,7 +46,7 @@ pub async fn event_ingest(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/events", env.base))
+            .post(format!("{}/v1/events", env.base))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "events": [{ "user_id": uid(), "name": "casts" }] }))
             .send()
@@ -68,7 +68,7 @@ pub async fn event_ingest(env: &Harness, console: &str) {
         }
         refusal(
             env.client
-                .post(format!("{}/v2/events", env.base))
+                .post(format!("{}/v1/events", env.base))
                 .header(reqwest::header::AUTHORIZATION, server_key_header())
                 .json(&json!({ "events": [event] }))
                 .send()
@@ -83,7 +83,7 @@ pub async fn event_ingest(env: &Harness, console: &str) {
     // One bad event in a batch refuses the batch before any of it is applied.
     refusal(
         env.client
-            .post(format!("{}/v2/events", env.base))
+            .post(format!("{}/v1/events", env.base))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "events": [
                 { "user_id": player.uid, "name": "casts", "value": 3 },

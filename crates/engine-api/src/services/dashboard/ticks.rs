@@ -1,10 +1,11 @@
+use crate::services::plane::Plane;
+
 use engine_dashboard::{ClientRow, MAX_CLIENT_ROWS, TICK_HISTOGRAM_BUCKETS, TickPoint, TickSeries};
 
-use crate::ApiState;
 use crate::utils::dashboard::history::history;
 
-pub fn build_clients(state: &ApiState) -> Vec<ClientRow> {
-    let room = state.game.name.clone();
+pub fn build_clients(plane: &Plane) -> Vec<ClientRow> {
+    let room = plane.game.name.clone();
     let Some(entry) = history().newest() else {
         return Vec::new();
     };

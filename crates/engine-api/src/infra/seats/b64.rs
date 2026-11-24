@@ -45,6 +45,14 @@ pub fn b64url_decode(input: &str) -> Option<Vec<u8>> {
             bits += 6;
         }
         acc <<= 24 - bits;
+        // Canonical base64url only: the bits a short group discards must be
+        // zero, so two encodings cannot decode to the same bytes (a token
+        // compared by its decoded payload would otherwise be forgeable by
+        // re-encoding with junk in the padding bits).
+        let discarded = 24 - bits;
+        if discarded > 0 && acc & ((1 << discarded) - 1) != 0 {
+            return None;
+        }
         for i in 0..(bits / 8) {
             out.push((acc >> (16 - i * 8)) as u8 & 0xff);
         }

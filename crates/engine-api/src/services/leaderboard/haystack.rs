@@ -4,11 +4,9 @@ use uuid::Uuid;
 use super::list::records_list;
 use super::load_board;
 use super::neighbours::haystack;
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::leaderboard::{HaystackQuery, RecordListResponse};
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::utils::leaderboard::types::{
     BAD_EXPIRY, BAD_OWNER, INVALID_ID, MAX_OWNER_LIMIT, NO_OWNER, OWNER_LIMIT, number,
 };
@@ -17,7 +15,6 @@ use crate::utils::leaderboard::window::query_window;
 impl super::LeaderboardService {
     pub async fn list_records_around_owner(
         &self,
-        state: &ApiState,
         _auth: &Authed,
         id: &str,
         owner_id: &str,
@@ -43,7 +40,7 @@ impl super::LeaderboardService {
         let owner = Uuid::parse_str(owner_id).map_err(|_| V2Error::invalid_argument(BAD_OWNER))?;
         let override_expiry = number(req.expiry.as_deref(), BAD_EXPIRY)?;
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let board = load_board(&queries, id).await?;
         let Some(window) = query_window(&board, override_expiry)? else {
             return Ok(Json(RecordListResponse::default()));

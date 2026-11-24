@@ -27,7 +27,7 @@ fn newest_wins_updates_seq() {
     *slot = seq;
     journal.push_back(rooms::JournalInput {
         tick: 0,
-        session: String::new(),
+        session: std::rc::Rc::from(""),
         id,
         seq,
         payload: [0u8; 20],

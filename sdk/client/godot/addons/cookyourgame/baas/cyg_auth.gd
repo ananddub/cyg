@@ -16,14 +16,14 @@ extends RefCounted
 ## Endpoints, bodies and replies, exactly as
 ## `crates/engine-api/src/controllers/auth.rs` and `session.rs` bind them:
 ##
-##   POST `/v2/account/authenticate/device?create=<bool>[&username=<text>]`
+##   POST `/v1/account/authenticate/device?create=<bool>[&username=<text>]`
 ##        body `{"id": "<device id>"}`                — dto `auth::IdAccount`
-##   POST `/v2/account/authenticate/email?create=…`
+##   POST `/v1/account/authenticate/email?create=…`
 ##        body `{"email": "…", "password": "…"}`      — dto `auth::EmailAccount`
-##   POST `/v2/account/authenticate/custom?create=…`
+##   POST `/v1/account/authenticate/custom?create=…`
 ##        body `{"id": "<caller-chosen id>"}`         — dto `auth::IdAccount`
-##   POST `/v2/account/session/refresh`  body `{"token": "<refresh token>"}`
-##   POST `/v2/session/logout`           body `{"token": "…", "refresh_token": "…"}`
+##   POST `/v1/account/session/refresh`  body `{"token": "<refresh token>"}`
+##   POST `/v1/session/logout`           body `{"token": "…", "refresh_token": "…"}`
 ##
 ## `create` and `username` are query parameters and never body fields: the
 ## gateway's `AuthQuery` reads them from the query and `BoolFlag::parse` accepts
@@ -51,7 +51,7 @@ extends RefCounted
 ## Credentials split by route, not by preference: `Authenticate*` and
 ## `SessionRefresh` demand the server key and refuse anything else, so they are
 ## sent with `require_auth = false` and `CYGHttp` answers that with
-## `Authorization: Basic base64("<server_key>:")`. `/v2/session/logout` is a
+## `Authorization: Basic base64("<server_key>:")`. `/v1/session/logout` is a
 ## bearer route. See `cyg_http.gd` for why the two never go out together.
 ##
 ## The session survives a restart the way Unity's `PlayerPrefs` does, through
@@ -86,9 +86,9 @@ const FIELD_CREATED := "created"
 const CLAIM_USER_ID := "uid"
 const CLAIM_USERNAME := "usn"
 
-const AUTHENTICATE_PATH := "/v2/account/authenticate/"
-const REFRESH_PATH := "/v2/account/session/refresh"
-const LOGOUT_PATH := "/v2/session/logout"
+const AUTHENTICATE_PATH := "/v1/account/authenticate/"
+const REFRESH_PATH := "/v1/account/session/refresh"
+const LOGOUT_PATH := "/v1/session/logout"
 
 ## On-disk session file, sibling of `cyg_session_cookie.cfg`.
 const DEFAULT_FILE_NAME := "cyg_auth_session.cfg"

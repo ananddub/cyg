@@ -76,7 +76,9 @@ fn a_backed_off_streak_delays_the_next_ping_too() {
 #[test]
 fn stats_count_by_error_kind_and_declare_unhealthy_once() {
     let mut s = PingStats::default();
-    let boom = |kind: &str| SidecarError::Malformed { reason: kind.into() };
+    let boom = |kind: &str| SidecarError::Malformed {
+        reason: kind.into(),
+    };
     s.note_failure(Duration::from_millis(1), &boom("a"));
     s.note_failure(Duration::from_millis(3), &boom("b"));
     assert!(!s.unhealthy_declared);

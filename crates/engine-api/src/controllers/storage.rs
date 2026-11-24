@@ -18,31 +18,28 @@ struct StorageController {
     service: Arc<StorageService>,
 }
 
-#[controller("/v2/storage")]
+#[controller("/v1/storage")]
 impl StorageController {
     fn new(service: Arc<StorageService>) -> Self {
         Self { service }
     }
 
-    #[put("")]
+    #[put("", response_body = crate::dto::storage::StorageObjectAcks)]
     async fn write_objects(&self, auth: Authed, Json(body): JsonBody<WriteRequest>) -> Response {
         let state = current_state();
         self.service
-            .write_objects(&state, &auth, body)
+            .write_objects(&auth, body)
             .await
             .into_response()
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::storage::StorageObjects)]
     async fn read_objects(&self, auth: Authed, Json(body): JsonBody<ObjectIdsRequest>) -> Response {
         let state = current_state();
-        self.service
-            .read_objects(&state, &auth, body)
-            .await
-            .into_response()
+        self.service.read_objects(&auth, body).await.into_response()
     }
 
-    #[put("/delete")]
+    #[put("/delete", response_body = crate::dto::Empty)]
     async fn delete_objects(
         &self,
         auth: Authed,
@@ -50,12 +47,12 @@ impl StorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .delete_objects(&state, &auth, body)
+            .delete_objects(&auth, body)
             .await
             .into_response()
     }
 
-    #[get("/{collection}")]
+    #[get("/{collection}", response_body = crate::dto::storage::StorageObjectList)]
     async fn list_collection(
         &self,
         auth: Authed,
@@ -64,12 +61,12 @@ impl StorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_collection(&state, &auth, &collection, req)
+            .list_collection(&auth, &collection, req)
             .await
             .into_response()
     }
 
-    #[get("/{collection}/{user_id}")]
+    #[get("/{collection}/{user_id}", response_body = crate::dto::storage::StorageObjectList)]
     async fn list_user_objects(
         &self,
         auth: Authed,
@@ -78,12 +75,12 @@ impl StorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .list_user_objects(&state, &auth, &collection, &user_id, req)
+            .list_user_objects(&auth, &collection, &user_id, req)
             .await
             .into_response()
     }
 
-    #[get("/{collection}/{key}/{user_id}")]
+    #[get("/{collection}/{key}/{user_id}", response_body = crate::dto::storage::StorageObject)]
     async fn read_object(
         &self,
         auth: Authed,
@@ -92,7 +89,7 @@ impl StorageController {
     ) -> Response {
         let state = current_state();
         self.service
-            .read_object(&state, &auth, &collection, &key, &user_id, req)
+            .read_object(&auth, &collection, &key, &user_id, req)
             .await
             .into_response()
     }

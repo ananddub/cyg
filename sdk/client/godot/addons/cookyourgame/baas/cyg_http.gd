@@ -11,7 +11,7 @@ extends RefCounted
 ##
 ## The url is `resolve_base_url() + path`: the base loses its trailing `/` and
 ## the path gains exactly one leading `/`, which is the join the Unity SDK's
-## `CYGHttp.SendAsync` performs, so a `/v2/...` path written by hand lands on
+## `CYGHttp.SendAsync` performs, so a `/v1/...` path written by hand lands on
 ## the same route in every SDK of this repo. A query string travels inside
 ## `path`, because the endpoints that take one (`?create=&username=`) are
 ## assembled by `CYGAuth` and no other layer needs to build them.
@@ -64,11 +64,11 @@ extends RefCounted
 ## Usage:
 ##
 ##     # callback style — nothing blocks the game thread
-##     CYGHttp.get_json("/v2/storage/find?key=profile", _on_profile)
+##     CYGHttp.get_json("/v1/storage/find?key=profile", _on_profile)
 ##
 ##     # await style, from any node script
 ##     var reply: CYGHttp.Response = await CYGHttp.post_json(
-##         "/v2/account/authenticate/device?create=true", '{"id":"abc"}', null, false)
+##         "/v1/account/authenticate/device?create=true", '{"id":"abc"}', null, false)
 ##     if not reply.is_success:
 ##         print("refused: ", reply.error_message())
 ##

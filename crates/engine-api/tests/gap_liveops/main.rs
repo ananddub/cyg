@@ -36,7 +36,7 @@ pub async fn quests_seasons_and_daily_rewards_end_to_end() {
 pub async fn define_item(env: &Harness, console: &str, item_id: &str, max_stack: i64) {
     json_body(
         env.client
-            .post(format!("{}/v2/inventory/define", env.base))
+            .post(format!("{}/v1/inventory/define", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "item_id": item_id,
@@ -56,7 +56,7 @@ pub async fn define_item(env: &Harness, console: &str, item_id: &str, max_stack:
 pub async fn create_quest(env: &Harness, console: &str, body: Value) -> Value {
     json_body(
         env.client
-            .post(format!("{}/v2/console/quests", env.base))
+            .post(format!("{}/v1/console/quests", env.base))
             .bearer_auth(console)
             .json(&body)
             .send()
@@ -71,7 +71,7 @@ pub async fn create_quest(env: &Harness, console: &str, body: Value) -> Value {
 pub async fn create_season(env: &Harness, console: &str, body: Value) -> Value {
     json_body(
         env.client
-            .post(format!("{}/v2/console/seasons", env.base))
+            .post(format!("{}/v1/console/seasons", env.base))
             .bearer_auth(console)
             .json(&body)
             .send()
@@ -86,7 +86,7 @@ pub async fn create_season(env: &Harness, console: &str, body: Value) -> Value {
 pub async fn write_season(env: &Harness, console: &str, key: &str, body: Value) -> Value {
     json_body(
         env.client
-            .put(format!("{}/v2/console/seasons/{key}", env.base))
+            .put(format!("{}/v1/console/seasons/{key}", env.base))
             .bearer_auth(console)
             .json(&body)
             .send()
@@ -102,7 +102,7 @@ pub async fn write_season(env: &Harness, console: &str, key: &str, body: Value) 
 pub async fn ingest(env: &Harness, events: Value) -> Value {
     json_body(
         env.client
-            .post(format!("{}/v2/events", env.base))
+            .post(format!("{}/v1/events", env.base))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "events": events }))
             .send()
@@ -117,7 +117,7 @@ pub async fn ingest(env: &Harness, events: Value) -> Value {
 pub async fn quests_of(env: &Harness, token: &str) -> Vec<Value> {
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/quest", env.base))
+            .get(format!("{}/v1/quest", env.base))
             .bearer_auth(token)
             .send()
             .await
@@ -139,7 +139,7 @@ pub async fn quest_row(env: &Harness, token: &str, quest_key: &str) -> Value {
 
 pub async fn claim_quest(env: &Harness, token: &str, quest_key: &str) -> reqwest::Response {
     env.client
-        .post(format!("{}/v2/quest/claim", env.base))
+        .post(format!("{}/v1/quest/claim", env.base))
         .bearer_auth(token)
         .json(&json!({ "quest_key": quest_key }))
         .send()
@@ -149,7 +149,7 @@ pub async fn claim_quest(env: &Harness, token: &str, quest_key: &str) -> reqwest
 
 pub async fn claim_daily(env: &Harness, token: &str) -> reqwest::Response {
     env.client
-        .post(format!("{}/v2/account/daily/claim", env.base))
+        .post(format!("{}/v1/account/daily/claim", env.base))
         .bearer_auth(token)
         .send()
         .await
@@ -159,7 +159,7 @@ pub async fn claim_daily(env: &Harness, token: &str) -> reqwest::Response {
 pub async fn wallet_of(env: &Harness, console: &str, uid: &str) -> Value {
     let account = json_body(
         env.client
-            .get(format!("{}/v2/console/account/{uid}", env.base))
+            .get(format!("{}/v1/console/account/{uid}", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -174,7 +174,7 @@ pub async fn wallet_of(env: &Harness, console: &str, uid: &str) -> Value {
 pub async fn inventory_of(env: &Harness, token: &str) -> Vec<Value> {
     let listed = json_body(
         env.client
-            .get(format!("{}/v2/inventory", env.base))
+            .get(format!("{}/v1/inventory", env.base))
             .bearer_auth(token)
             .send()
             .await

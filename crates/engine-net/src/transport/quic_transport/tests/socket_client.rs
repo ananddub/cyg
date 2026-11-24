@@ -2,8 +2,8 @@ use std::time::{Duration, Instant};
 
 use super::support::client_config;
 use crate::quic::{QuicEngine, QuicEvent, endpoint_config, frame_bytes};
-use crate::transport::quic_transport::QuicTransport;
 use crate::transport::GameTransport;
+use crate::transport::quic_transport::QuicTransport;
 
 #[test]
 fn quic_transport_serves_a_real_socket_client() {
@@ -127,7 +127,6 @@ fn quic_transport_serves_a_real_socket_client() {
                     }
                 }
                 QuicEvent::StreamData { bytes, .. } => {
-
                     if bytes.len() > 5 && bytes[4] == crate::framing::OpCode::Custom as u8 {
                         got_event = true;
                     }

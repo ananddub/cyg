@@ -1,6 +1,5 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::dto::console::Page;
 use crate::dto::console::iap::{PurchaseRow, SubscriptionRow};
 use crate::error::V2Error;
@@ -55,13 +54,9 @@ impl Vendor {
 }
 
 impl super::ConsoleService {
-    pub async fn list_purchases(
-        &self,
-        state: &ApiState,
-        page: Page,
-    ) -> Result<Json<Vec<PurchaseRow>>, V2Error> {
+    pub async fn list_purchases(&self, page: Page) -> Result<Json<Vec<PurchaseRow>>, V2Error> {
         let rows = crate::services::games::tenant::list_purchases(
-            state,
+            &self.plane,
             page.game_id,
             page.limit(),
             page.offset(),
@@ -72,11 +67,11 @@ impl super::ConsoleService {
 
     pub async fn list_subscriptions(
         &self,
-        state: &ApiState,
+
         page: Page,
     ) -> Result<Json<Vec<SubscriptionRow>>, V2Error> {
         let rows = crate::services::games::tenant::list_subscriptions(
-            state,
+            &self.plane,
             page.game_id,
             page.limit(),
             page.offset(),

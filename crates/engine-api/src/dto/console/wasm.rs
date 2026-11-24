@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct AbiReport {
     pub valid: bool,
     pub wasm_magic_ok: bool,
@@ -12,7 +12,7 @@ pub struct AbiReport {
     pub size_bytes: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(poem_openapi::Object, Debug, Clone, Serialize)]
 pub struct ModuleDto {
     pub id: Uuid,
     pub version: i32,
@@ -24,14 +24,22 @@ pub struct ModuleDto {
     pub has_source: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct UploadResponse {
     pub module: ModuleDto,
     pub abi: AbiReport,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ActivateRequest {
     #[serde(default)]
     pub version: i32,
+}
+
+/// The multipart fields the console's wasm upload accepts. `file` is the
+/// `.wasm` binary; `source_code` is optional and stored beside it for review.
+#[derive(poem_openapi::Object)]
+pub struct WasmUploadRequest {
+    pub file: crate::dto::common::BinaryField,
+    pub source_code: Option<String>,
 }

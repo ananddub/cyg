@@ -20,9 +20,11 @@ impl Bus {
         let (fetches_tx, fetches_rx) = bounded(FETCH_CAP);
         let (ownership_tx, ownership_rx) = bounded(OWNERSHIP_CAP);
         let (seats_tx, seats_rx) = bounded(SEAT_CAP);
+        let (stats_tx, stats_rx) = bounded(STAT_CAP);
         Arc::new(Bus {
             inputs_tx,
             inputs_rx,
+            inputs_dropped: AtomicU64::new(0),
             commands_tx,
             commands_rx,
             deltas_tx,
@@ -51,6 +53,9 @@ impl Bus {
             seats_tx,
             seats_rx,
             seats_dropped: AtomicU64::new(0),
+            stats_tx,
+            stats_rx,
+            stats_dropped: AtomicU64::new(0),
             draining: AtomicBool::new(false),
         })
     }

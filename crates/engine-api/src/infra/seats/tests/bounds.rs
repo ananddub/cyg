@@ -27,6 +27,7 @@ fn retire_expired_keeps_live_seats() {
             room: "tank-3d".into(),
             token: dead.clone(),
             expires_at: 1,
+            options: String::new(),
         },
     );
     assert_eq!(r.outstanding(), 2);

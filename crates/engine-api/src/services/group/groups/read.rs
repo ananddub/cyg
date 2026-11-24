@@ -1,13 +1,11 @@
 use axum::Json;
 use serde_json::json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::app::params::BoolFlag;
 use crate::dto::group::{GroupEnvelope, GroupListResponse, GroupResponse};
 use crate::error::V2Error;
 use crate::repositories::group::{ListGroupsByNameParams, ListGroupsParams};
-use crate::services::deps::q;
 use crate::services::social::{self, limit};
 use crate::utils::group::group_id;
 
@@ -19,11 +17,11 @@ use super::{GROUP_CLOSED, GROUP_OPEN, GroupService};
 impl GroupService {
     pub async fn get_group(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         raw_id: String,
     ) -> Result<Json<GroupEnvelope>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let group = fetch_group(&queries, group_id(&raw_id)?).await?;
         Ok(Json(GroupEnvelope {
             group: GroupResponse::from_row(&group),
@@ -32,11 +30,11 @@ impl GroupService {
 
     pub async fn list_groups(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         req: ListQuery,
     ) -> Result<Json<GroupListResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let page = limit(
             req.limit,
             1,

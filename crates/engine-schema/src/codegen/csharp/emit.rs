@@ -74,15 +74,15 @@ pub(crate) fn emit_csharp(
         );
         let _ = writeln!(
             out,
-            "        public static readonly OxFieldDef[] RootFields = {class}.Fields;"
+            "        public static readonly CygFieldDef[] RootFields = {class}.Fields;"
         );
         out.push_str(
-            "        public static readonly OxSchemaCollectionDef[] Collections = new OxSchemaCollectionDef[]\n        {\n",
+            "        public static readonly CygSchemaCollectionDef[] Collections = new CygSchemaCollectionDef[]\n        {\n",
         );
         for collection in &root.collections {
             let _ = writeln!(
                 out,
-                "            new OxSchemaCollectionDef(\"{}\", \"{}\"),",
+                "            new CygSchemaCollectionDef(\"{}\", \"{}\"),",
                 escape_string(&collection.name),
                 escape_string(&collection.schema)
             );
@@ -93,15 +93,15 @@ pub(crate) fn emit_csharp(
         out.push_str("        public const uint RootVersion = 0u;\n");
         out.push_str("        public const uint RootHash = 0u;\n");
         out.push_str(
-            "        public static readonly OxFieldDef[] RootFields = new OxFieldDef[0];\n",
+            "        public static readonly CygFieldDef[] RootFields = new CygFieldDef[0];\n",
         );
         out.push_str(
-            "        public static readonly OxSchemaCollectionDef[] Collections = new OxSchemaCollectionDef[0];\n",
+            "        public static readonly CygSchemaCollectionDef[] Collections = new CygSchemaCollectionDef[0];\n",
         );
     }
 
     out.push_str(
-        "        public static readonly Dictionary<string, OxFieldDef[]> Schemas = new Dictionary<string, OxFieldDef[]>\n        {\n",
+        "        public static readonly Dictionary<string, CygFieldDef[]> Schemas = new Dictionary<string, CygFieldDef[]>\n        {\n",
     );
     for schema in schemas {
         let _ = writeln!(
@@ -112,7 +112,7 @@ pub(crate) fn emit_csharp(
         );
     }
     out.push_str("        };\n\n");
-    out.push_str("        public static void Register(OxSchemaRegistry registry)\n        {\n");
+    out.push_str("        public static void Register(CygSchemaRegistry registry)\n        {\n");
     for schema in schemas {
         let _ = writeln!(
             out,

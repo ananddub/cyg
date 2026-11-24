@@ -5,6 +5,10 @@
 // Zero Low-Level Plumbing: No raw pointers, byte offsets, or endianness math!
 // =============================================================================
 
+// Deterministic transcendentals for the prediction path (Math.* is libm-
+// dependent and would desync a replaying client — see cyg-math.ts).
+import { fround } from "./cyg-math";
+
 // =============================================================================
 // --- 1. INTERNAL HOST C-ABI DECLARATIONS (HIDDEN FROM DEVELOPER) ---
 // =============================================================================
@@ -21,6 +25,9 @@ export function rngNext(): f64 {
 
 // --- SPATIAL AOI (kiddo KD-tree, host-owned) -------------------------------
 // Push each moving entity's position once per tick, then query neighbors.
+
+@external("env", "host_kick")
+declare function _sys_kick(player_id: i64): i32;
 
 @external("env", "sys_spatial_update")
 declare function _sys_spatial_update(entity_id: i64, x: f64, y: f64): i32;
@@ -62,14 +69,48 @@ export function spatialQueryXY(x: f64, y: f64, radius: f64, outIds: usize): i32 
 @external("env", "sys_clock_ticks")
 declare function _sys_clock_ticks(): i64;
 
+@external("env", "sys_clock_ms")
+declare function _sys_clock_ms(): f64;
+
 /** The authoritative simulation tick counter (never wall-clock). */
 export function clockTicks(): i64 {
     return _sys_clock_ticks();
 }
 
+/**
+ * Authoritative room time in milliseconds since the room's tick zero. This is
+ * the same timeline the client reports in `InputFrame.clientTimeMs`, so
+ * `Rewind.recordAt(..., clockMs())` and `Rewind.atClientMs(...)` agree.
+ */
+export function clockMs(): f64 {
+    return _sys_clock_ms();
+}
+
 // --- INPUT FLAGS (Phase-3-lite: no more raw bitmask decoding) ---------------
 
 // AS has no object literals — static-class constants instead.
+/**
+ * Leave codes the room's `onLeave(id, code)` and `onDrop(id, code)` receive —
+ * the same values WebSocket close frames use where they overlap.
+ */
+export class CloseCode {
+    /** The client left on purpose (`room.leave()`). */
+    static readonly LEFT: i32 = 1000;
+    /** The server is shutting down (drain). */
+    static readonly SERVER_SHUTDOWN: i32 = 1001;
+    /** The reconnection window expired without the player coming back. */
+    static readonly TIMED_OUT: i32 = 1005;
+    /** The connection was lost and no reconnection hold was allowed. */
+    static readonly LOST: i32 = 1006;
+    /** The room removed this player via `client.leave()`. */
+    static readonly KICKED: i32 = 1004;
+
+    /** True when the player chose to leave (no state to hold). */
+    static isConsented(code: i32): bool {
+        return code == CloseCode.LEFT;
+    }
+}
+
 export class Key {
     static readonly W: u8 = 1;
     static readonly S: u8 = 2;
@@ -148,6 +189,79 @@ declare function _host_send(
     type_len: i32,
     data_ptr: usize,
     data_len: i32
+): i32;
+
+// Per-player counter increment. The host checks `allow_stats`, the seat, the
+// name and the delta, coalesces per tick, and the control plane writes
+// `player_stat`. No user id, table or server key crosses this boundary.
+@external("env", "host_stat_add")
+declare function _host_stat_add(
+    seat: i64,
+    stat_ptr: usize,
+    stat_len: i32,
+    delta: i64
+): i32;
+
+// Per-session state views. `host_view_hide` hides one named field for one
+// seat; `host_view_only_self` drops every row but the viewer's own. Both only
+// subtract — `.ownerOnly()` fields stay private. On any change the host forces
+// a fresh full snapshot so stale values cannot linger on that client.
+@external("env", "host_view_hide")
+declare function _host_view_hide(
+    seat: i64,
+    collection_ptr: usize,
+    collection_len: i32,
+    field_ptr: usize,
+    field_len: i32
+): i32;
+
+@external("env", "host_view_only_self")
+declare function _host_view_only_self(seat: i64, enabled: i32): i32;
+
+@external("env", "host_view_reset")
+declare function _host_view_reset(seat: i64): i32;
+
+// Generic per-entity rewind history. The guest records arbitrary f64 vectors
+// under the host tick and queries the newest sample at/before a target tick.
+// Physics lag compensation is one consumer; hit validation and cooldowns use
+// the same history.
+@external("env", "host_rewind_record")
+declare function _host_rewind_record(
+    entity_id: i64,
+    tick: i64,
+    values_ptr: usize,
+    count: i32
+): i32;
+
+@external("env", "host_rewind_query")
+declare function _host_rewind_query(
+    entity_id: i64,
+    tick: i64,
+    out_ptr: usize,
+    out_len: i32
+): i32;
+
+@external("env", "host_rewind_clear")
+declare function _host_rewind_clear(entity_id: i64): i32;
+
+// Time-stamped rewind samples and linear interpolation. Tick queries stay
+// step-based for exact historical lookups; time queries are for lag
+// compensation where the shooter's timestamp falls between two ticks.
+@external("env", "host_rewind_record_time")
+declare function _host_rewind_record_time(
+    entity_id: i64,
+    tick: i64,
+    time_ms: f64,
+    values_ptr: usize,
+    count: i32
+): i32;
+
+@external("env", "host_rewind_query_time")
+declare function _host_rewind_query_time(
+    entity_id: i64,
+    time_ms: f64,
+    out_ptr: usize,
+    out_len: i32
 ): i32;
 
 // --- RAPIER 2D PHYSICS (HOST-OWNED) ------------------------------------------
@@ -1235,6 +1349,7 @@ export class DeltaWriter {
     private _buf: ArrayBuffer;
     private _view: DataView = new DataView(new ArrayBuffer(0));
     private _offset: i32 = 0;
+    private _bitOffset: u8 = 0;
 
     constructor(initialCapacity: i32 = 1024) {
         let buf = new ArrayBuffer(initialCapacity);
@@ -1253,6 +1368,41 @@ export class DeltaWriter {
 
     reset(): this {
         this._offset = 0;
+        this._bitOffset = 0;
+        return this;
+    }
+
+    /** LSB-first packed bits; call finishBits before writing byte-aligned data. */
+    writeBits(value: u64, bits: u8): this {
+        let written: u8 = 0;
+        while (written < bits) {
+            if (this._bitOffset == 0) this.writeU8(0);
+            let take: u8 = 8 - this._bitOffset;
+            if (take > bits - written) take = bits - written;
+            let mask: u64 = ((1 as u64) << take) - 1;
+            let byte = this._view.getUint8(this._offset - 1);
+            byte = (byte | ((((value >> written) & mask) as u8) << this._bitOffset)) as u8;
+            this._view.setUint8(this._offset - 1, byte);
+            this._bitOffset += take;
+            written += take;
+            if (this._bitOffset == 8) this._bitOffset = 0;
+        }
+        return this;
+    }
+
+    writeBit(value: bool): this { return this.writeBits(value ? 1 : 0, 1); }
+
+    finishBits(): this {
+        this._bitOffset = 0;
+        return this;
+    }
+
+    writeVarint(value: u32): this {
+        while (value >= 128) {
+            this.writeU8(((value & 127) | 128) as u8);
+            value = value >> 7;
+        }
+        this.writeU8(value as u8);
         return this;
     }
 
@@ -1344,22 +1494,30 @@ export class DeltaWriter {
 
     /** Append an existing byte buffer (used by the schema encoder). */
     writeBytes(src: ArrayBuffer): this {
-        let bytes = Uint8Array.wrap(src);
-        this.ensureCapacity(bytes.length);
-        let dst = Uint8Array.wrap(this._buf);
-        dst.set(bytes, this._offset);
-        this._offset += bytes.length;
+        let len = src.byteLength;
+        this.copyFrom(changetype<usize>(src), len);
         return this;
     }
 
     /** Append another writer's written region without allocating a copy. */
     writeWriter(src: DeltaWriter): this {
-        this.ensureCapacity(src.length);
-        let dst = Uint8Array.wrap(this._buf);
-        let bytes = Uint8Array.wrap(src.buffer, 0, src.length);
-        dst.set(bytes, this._offset);
-        this._offset += src.length;
+        this.copyFrom(changetype<usize>(src.buffer), src.length);
         return this;
+    }
+
+    /// Copy `len` bytes from guest address `src` to the write cursor.
+    ///
+    /// Deliberately pointer-based: `Uint8Array.wrap(...)` allocates a fresh view
+    /// object on every call and nothing frees it, so the copy helpers below used
+    /// to leak two objects per entity per tick (a steady linear heap climb that
+    /// ended in wasm `memory.grow` every few hundred ticks).
+    @inline
+    private copyFrom(src: usize, len: i32): void {
+        if (len <= 0) return;
+        this.ensureCapacity(len);
+        let dst = changetype<usize>(this._buf) + this._offset;
+        memory.copy(dst, src, len);
+        this._offset += len;
     }
 
     /** Number of bytes written since the last reset. */
@@ -1406,15 +1564,17 @@ export class DeltaWriter {
 // and `SchemaState.seal()` emits a full snapshot plus a field-level patch.
 // The host sends the full snapshot to a client once, then patches.
 //
-// Wire (inside the delta body, after the recipient id):
-//   full:  "OXS2" [u8 1] [u32 schema hash] [u32 count] { [u32 id] [values...] }*
-//   patch: "OXS2" [u8 2] [u32 schema hash] [u32 ops]   { op... }*
+// Wire (inside the delta body, after the recipient id) — packed OXS2 only:
+//   full:  "OXS2" [u8 5] [u32 schema hash] [u32 count]
+//          { [LEB128 id] [optional bit][packed field bits][byte-aligned vars] }*
+//   patch: "OXS2" [u8 6] [u32 schema hash] [u32 ops] { op... }*
 //   conjoined onTick payload:
 //          "OXS2" [u32 fullLen] [full] [u32 patchLen] [patch]
 //
-// Values: numeric/bool primitives, fixed-width UTF-8 strings (255 bytes) and
-// flat primitive arrays, <= 32 fields per entity. Nested schemas stay on the
-// typed-message channel.
+// Quantized numeric/bool fields travel LSB-first in one bit stream; strings,
+// arrays, f32/f64 and i64 follow byte-aligned. A field's bit width and
+// min/max range come from `SchemaDef.range(…)` and the descriptor, never
+// from a client guess. <= 32 fields per entity.
 //
 // Field flags: bit 0 = optional (one presence byte on the wire), bit 1 = static
 // and bit 2 = transient (both full-snapshot only, never patched).
@@ -1437,6 +1597,7 @@ export enum FieldType {
 export const SCHEMA_FIELD_OPTIONAL: u8 = 1;
 export const SCHEMA_FIELD_STATIC: u8 = 2;
 export const SCHEMA_FIELD_TRANSIENT: u8 = 4;
+const SCHEMA_FIELD_PRIVATE: u8 = 8;
 
 const SCHEMA_MAGIC_0: u8 = 0x4F; // O
 const SCHEMA_MAGIC_1: u8 = 0x58; // X
@@ -1450,6 +1611,12 @@ function schemaFieldSize(type: u8): i32 {
     if (type == FieldType.U32 || type == FieldType.I32 || type == FieldType.F32) return 4;
     if (type == FieldType.STRING || type == FieldType.ARRAY) return 0;
     return 8; // F64 / I64
+}
+
+function schemaFloatBits(value: f64): u32 {
+    let view = new DataView(new ArrayBuffer(4));
+    view.setFloat32(0, value as f32, true);
+    return view.getUint32(0, true);
 }
 
 function schemaArraysEqual(a: Array<f64>, b: Array<f64>): bool {
@@ -1485,6 +1652,11 @@ export class SchemaDef {
     private _types: Array<u8> = new Array<u8>();
     private _flags: Array<u8> = new Array<u8>();
     private _elements: Array<u8> = new Array<u8>();
+    private _bits: Array<u8> = new Array<u8>();
+    private _min: Array<f64> = new Array<f64>();
+    private _max: Array<f64> = new Array<f64>();
+    private _customEncoding: Array<bool> = new Array<bool>();
+    private _nested: Array<string> = new Array<string>();
     private _offsets: Array<i32> = new Array<i32>();
     private _sizes: Array<i32> = new Array<i32>();
     private _byteSize: i32 = 0;
@@ -1527,6 +1699,19 @@ export class SchemaDef {
                 h = this.mix(h, ":");
                 h = this.mix(h, flags.toString());
             }
+            if (this._customEncoding[i]) {
+                h = this.mix(h, ":e");
+                h = this.mix(h, this._bits[i].toString());
+                h = this.mix(h, ",");
+                h = this.mix(h, schemaFloatBits(this._min[i]).toString());
+                h = this.mix(h, ",");
+                h = this.mix(h, schemaFloatBits(this._max[i]).toString());
+            }
+            let nested = this._nested[i];
+            if (nested.length != 0) {
+                h = this.mix(h, ":n");
+                h = this.mix(h, nested);
+            }
         }
         this._hash = h;
     }
@@ -1538,6 +1723,22 @@ export class SchemaDef {
         this._types.push(type);
         this._flags.push(0);
         this._elements.push(element);
+        let bits: u8 = 0;
+        let min: f64 = 0.0;
+        let max: f64 = 0.0;
+        if (type == FieldType.BOOL) { bits = 1; max = 1.0; }
+        else if (type == FieldType.U8) { bits = 8; max = 255.0; }
+        else if (type == FieldType.I8) { bits = 8; min = -128.0; max = 127.0; }
+        else if (type == FieldType.U16) { bits = 16; max = 65535.0; }
+        else if (type == FieldType.I16) { bits = 16; min = -32768.0; max = 32767.0; }
+        else if (type == FieldType.U32) { bits = 32; max = 4294967295.0; }
+        else if (type == FieldType.I32) { bits = 32; min = -2147483648.0; max = 2147483648.0; }
+        if (type == FieldType.STRING || type == FieldType.ARRAY || type == FieldType.I64) bits = 0;
+        this._bits.push(bits);
+        this._min.push(min);
+        this._max.push(max);
+        this._customEncoding.push(false);
+        this._nested.push("");
         this._offsets.push(this._byteSize);
         this._sizes.push(size);
         this._byteSize += size;
@@ -1546,6 +1747,43 @@ export class SchemaDef {
     }
 
     private _lastIndex(): i32 { return this._names.length - 1; }
+
+    /** Sets a custom quantized range on the most recently added field. */
+    range(bits: u8, min: f64, max: f64): this {
+        let i = this._lastIndex();
+        if (i >= 0 && bits > 0 && bits <= 32 && max > min) {
+            let type = this._types[i];
+            if (type != FieldType.STRING && type != FieldType.ARRAY && type != FieldType.I64) {
+                let packedMin = min as f32 as f64;
+                let packedMax = max as f32 as f64;
+                this._customEncoding[i] = bits != this._bits[i] || packedMin != this._min[i] || packedMax != this._max[i];
+                this._bits[i] = bits;
+                this._min[i] = packedMin;
+                this._max[i] = packedMax;
+                this._rehash();
+            }
+        }
+        return this;
+    }
+
+    fieldBits(index: i32): u8 { return this._bits[index]; }
+    fieldMin(index: i32): f64 { return this._min[index]; }
+    fieldMax(index: i32): f64 { return this._max[index]; }
+    isInteger(index: i32): bool {
+        let t = this._types[index];
+        return t == FieldType.BOOL || t == FieldType.U8 || t == FieldType.I8 ||
+            t == FieldType.U16 || t == FieldType.I16 || t == FieldType.U32 || t == FieldType.I32;
+    }
+
+    /** Groups the most recently added flattened field under a nested view. */
+    nested(path: string): this {
+        let i = this._lastIndex();
+        if (i >= 0) {
+            this._nested[i] = path;
+            this._rehash();
+        }
+        return this;
+    }
 
     /** Marks the most recently added field as optional (presence byte). */
     optional(): this {
@@ -1572,6 +1810,27 @@ export class SchemaDef {
         let i = this._lastIndex();
         if (i >= 0) {
             this._flags[i] = (this._flags[i] | SCHEMA_FIELD_TRANSIENT) as u8;
+            this._rehash();
+        }
+        return this;
+    }
+
+    /** Marks the most recently added field as owner-only on the host wire. */
+    ownerOnly(): this {
+        let i = this._lastIndex();
+        if (i >= 0) {
+            this._flags[i] = (this._flags[i] | SCHEMA_FIELD_PRIVATE) as u8;
+            this._rehash();
+        }
+        return this;
+    }
+
+    /** Marks the most recently added field as volatile: the host sends it on
+     *  the unreliable state stream, while must-deliver fields stay reliable. */
+    unreliable(): this {
+        let i = this._lastIndex();
+        if (i >= 0) {
+            this._flags[i] = this._flags[i] | 16;
             this._rehash();
         }
         return this;
@@ -1639,8 +1898,16 @@ export class SchemaEntity {
     private _dirty: u32 = 0;
     private _present: u32 = 0;
     private _strings: Array<string> = new Array<string>();
+    /// UTF-8 cache for `_strings`, filled lazily by writeStringValue and
+    /// dropped in setString. Encoding on every emit allocated a fresh
+    /// ArrayBuffer per string field per tick and nothing freed it, so the
+    /// guest heap grew forever under input traffic.
+    private _stringBytes: Array<ArrayBuffer> = new Array<ArrayBuffer>();
     private _arrays: Array<Array<f64>> = new Array<Array<f64>>();
     private _id: u32 = 0;
+    /// Snapshot priority. Higher values are sent first when a budget is set.
+    /// Ties keep collection order, so the wire is deterministic.
+    priority: i32 = 0;
 
     constructor(schema: SchemaDef) {
         this._schema = schema;
@@ -1660,6 +1927,15 @@ export class SchemaEntity {
     set id(value: u32) { this._id = value; }
 
     clearDirty(): void { this._dirty = 0; }
+
+    /// Clear only the bits that actually went on the wire. A budget that
+    /// dropped this row must leave it dirty for the next tick.
+    clearDirtyBits(mask: u32): void { this._dirty = this._dirty & ~mask; }
+
+    /** Mark every field dirty (a replaced entity must resend its whole row). */
+    markAllDirty(): void {
+        for (let i = 0; i < this._schema.fieldCount; i++) this._dirty = this._dirty | this._bit(i);
+    }
 
     private _bit(index: i32): u32 {
         return (1 as u32) << (index as u32);
@@ -1771,7 +2047,10 @@ export class SchemaEntity {
     getString(i: i32): string { return this._strings[i]; }
     setString(i: i32, v: string): void {
         let changed = this._strings[i] != v;
-        if (changed) this._strings[i] = v;
+        if (changed) {
+            this._strings[i] = v;
+            if (i < this._stringBytes.length) this._stringBytes[i] = changetype<ArrayBuffer>(0);
+        }
         this._touch(i, changed);
     }
 
@@ -1791,7 +2070,14 @@ export class SchemaEntity {
     }
 
     private writeStringValue(w: DeltaWriter, index: i32): void {
-        let bytes = String.UTF8.encode(this._strings[index]);
+        let bytes = index < this._stringBytes.length ? this._stringBytes[index] : changetype<ArrayBuffer>(0);
+        if (!bytes) {
+            bytes = String.UTF8.encode(this._strings[index]);
+            while (this._stringBytes.length <= index) {
+                this._stringBytes.push(changetype<ArrayBuffer>(0));
+            }
+            this._stringBytes[index] = bytes;
+        }
         let length = bytes.byteLength;
         if (length > 255) length = 255;
         w.writeU8(length as u8);
@@ -1842,6 +2128,71 @@ export class SchemaEntity {
             if ((this._dirty & this._bit(i)) != 0) this.writeValue(w, i);
         }
     }
+
+    /** Writes one packed row payload: LSB-first bits followed by byte-aligned variables. */
+    writePackedPayload(w: DeltaWriter, mask: u32, masked: bool): void {
+        let bits = new DeltaWriter(32);
+        let vars = new DeltaWriter(64);
+        for (let i = 0; i < this._schema.fieldCount; i++) {
+            let bit = this._bit(i);
+            if (masked && (mask & bit) == 0) continue;
+            let present = this.hasField(i);
+            if (this._schema.isOptional(i)) {
+                bits.writeBit(present);
+                if (!present) continue;
+            }
+            let width = this._schema.fieldBits(i);
+            if (width > 0) this.writePackedField(bits, i, width);
+            else this.writeVariableField(vars, i);
+        }
+        bits.finishBits();
+        w.writeWriter(bits);
+        w.writeWriter(vars);
+    }
+
+    private writePackedField(bits: DeltaWriter, index: i32, width: u8): void {
+        let type = this._schema.fieldType(index);
+        let code: u64 = 0;
+        if (this._schema.isInteger(index)) {
+            let min = Math.round(this._schema.fieldMin(index)) as i64;
+            let integer: i64 = 0;
+            if (type == FieldType.BOOL) integer = this.getBool(index) ? 1 : 0;
+            else if (type == FieldType.U8) integer = this.getU8(index) as i64;
+            else if (type == FieldType.I8) integer = this.getI8(index) as i64;
+            else if (type == FieldType.U16) integer = this.getU16(index) as i64;
+            else if (type == FieldType.I16) integer = this.getI16(index) as i64;
+            else if (type == FieldType.U32) integer = this.getU32(index) as i64;
+            else integer = this.getI32(index) as i64;
+            let ceiling = min + ((((1 as u64) << width) - 1) as i64);
+            if (integer < min) integer = min;
+            if (integer > ceiling) integer = ceiling;
+            code = (integer - min) as u64;
+        } else {
+            let value: f32 = type == FieldType.F32 ? this.getF32(index) : this.getF64(index) as f32;
+            let min = this._schema.fieldMin(index) as f32;
+            let max = this._schema.fieldMax(index) as f32;
+            let levels = (((1 as u64) << width) - 1) as f64;
+            let t = ((value as f64 - min as f64) / (max as f64 - min as f64));
+            if (t < 0.0) t = 0.0;
+            if (t > 1.0) t = 1.0;
+            code = Math.round(t * levels) as u64;
+        }
+        bits.writeBits(code, width);
+    }
+
+    private writeVariableField(w: DeltaWriter, index: i32): void {
+        let type = this._schema.fieldType(index);
+        if (type == FieldType.STRING) { this.writeStringValue(w, index); return; }
+        if (type == FieldType.ARRAY) {
+            let element = this._schema.fieldElement(index);
+            let values = this._arrays[index];
+            let count = values.length > 255 ? 255 : values.length;
+            w.writeU8(count as u8);
+            for (let j = 0; j < count; j++) writeSchemaNumber(w, element, values[j]);
+        } else if (type == FieldType.F32) w.writeF32(this.getF32(index));
+        else if (type == FieldType.F64) w.writeF64(this.getF64(index));
+        else if (type == FieldType.I64) w.writeI64(this.getI64(index));
+    }
 }
 
 function writeSchemaNumber(w: DeltaWriter, type: u8, value: f64): void {
@@ -1860,6 +2211,9 @@ function writeSchemaNumber(w: DeltaWriter, type: u8, value: f64): void {
 /** Base for schema states: subclasses override commit() with encoded delta. */
 export class SchemaStateBase {
     commit(): i64 { return 0; }
+    /// Set a per-patch byte budget; 0 means unlimited. States that do not
+    /// support budgets ignore it.
+    setBudget(bytes: i32): void {}
 }
 
 /**
@@ -1881,10 +2235,22 @@ export class SchemaState extends SchemaStateBase {
     private _full: DeltaWriter = new DeltaWriter(512);
     private _patch: DeltaWriter = new DeltaWriter(512);
     private _out: DeltaWriter = new DeltaWriter(1024);
+    private _body: DeltaWriter = new DeltaWriter(512);
+    private _op: DeltaWriter = new DeltaWriter(256);
+    private _budget: i32 = 0;
+    private _flushedIds: Array<u32> = new Array<u32>();
+    private _flushedMasks: Array<u32> = new Array<u32>();
 
     constructor(schema: SchemaDef) {
         super();
         this._schema = schema;
+    }
+
+    /// Cap the next patch's encoded byte size. Updates are ordered by
+    /// `SchemaEntity.priority` (high first); rows that do not fit stay dirty
+    /// and ride the next tick. Adds/removes are structural and always sent.
+    setBudget(bytes: i32): void {
+        this._budget = bytes > 0 ? bytes : 0;
     }
 
     get schemaHash(): u32 { return this._schema.hash; }
@@ -1903,6 +2269,10 @@ export class SchemaState extends SchemaStateBase {
         if (!this._entities.has(id)) {
             this._order.push(id);
             this._added.push(id);
+        } else if (this._entities.get(id) !== entity) {
+            // Same slot, new object: the old row's values are gone, so emit
+            // the replacement's full row instead of a silent no-op patch.
+            entity.markAllDirty();
         }
         entity.id = id;
         this._entities.set(id, entity);
@@ -1928,17 +2298,17 @@ export class SchemaState extends SchemaStateBase {
         this._removed.length = 0;
     }
 
-    /** Append a complete single-collection full section (kind 1). */
+    /** Append a complete packed collection full section (kind 5). */
     writeFull(w: DeltaWriter): void {
         writeSchemaMagic(w);
-        w.writeU8(1);
+        w.writeU8(5);
         w.writeU32(this._schema.hash);
         w.writeU32(this._order.length as u32);
         for (let i = 0; i < this._order.length; i++) {
             let id = this._order[i];
             let e = this._entities.get(id);
-            w.writeU32(id);
-            e.writeAll(w);
+            w.writeVarint(id);
+            e.writePackedPayload(w, 0xffffffff, false);
         }
     }
 
@@ -1953,35 +2323,74 @@ export class SchemaState extends SchemaStateBase {
         return this._removed.length + this._added.length + updates;
     }
 
-    /** Append a single-collection patch section (kind 2), even when empty. */
+    /** Append a single-collection packed patch section (kind 6), even when empty. */
     writePatch(w: DeltaWriter): void {
-        writeSchemaMagic(w);
-        w.writeU8(2);
-        w.writeU32(this._schema.hash);
-        w.writeU32(this.patchOpCount() as u32);
+        const body = this._body;
+        body.reset();
+        let ops = 0;
 
         for (let i = 0; i < this._removed.length; i++) {
-            w.writeU8(2); // REMOVE
-            w.writeU32(this._removed[i]);
+            body.writeU8(2); // REMOVE
+            body.writeVarint(this._removed[i]);
+            ops++;
         }
         for (let i = 0; i < this._added.length; i++) {
             let id = this._added[i];
             let e = this._entities.get(id);
-            w.writeU8(1); // ADD
-            w.writeU32(id);
-            e.writeAll(w);
+            body.writeU8(1); // ADD
+            body.writeVarint(id);
+            e.writePackedPayload(body, 0xffffffff, false);
+            ops++;
         }
+
+        // Priority order: high first, then stable id order. Building the id
+        // list first keeps the encoder deterministic and lets a dropped row
+        // stay dirty for the next tick.
+        let ids = new Array<u32>();
         for (let i = 0; i < this._order.length; i++) {
             let id = this._order[i];
             if (this._added.indexOf(id) >= 0) continue;
             let e = this._entities.get(id);
-            let mask = e.dirtyMask;
-            if (mask == 0) continue;
-            w.writeU8(3); // UPDATE
-            w.writeU32(id);
-            w.writeU32(mask);
-            e.writeDirty(w);
+            if (e.dirtyMask == 0) continue;
+            ids.push(id);
         }
+        for (let i = 1; i < ids.length; i++) {
+            let id = ids[i];
+            let pr = this._entities.get(id).priority;
+            let j = i - 1;
+            while (j >= 0) {
+                let other = this._entities.get(ids[j]);
+                if (other.priority > pr || (other.priority == pr && ids[j] < id)) break;
+                ids[j + 1] = ids[j];
+                j--;
+            }
+            ids[j + 1] = id;
+        }
+
+        for (let i = 0; i < ids.length; i++) {
+            let id = ids[i];
+            let e = this._entities.get(id);
+            let mask = e.dirtyMask;
+            this._op.reset();
+            this._op.writeU8(3); // UPDATE
+            this._op.writeVarint(id);
+            this._op.writeU32(mask);
+            e.writePackedPayload(this._op, mask, true);
+            // 13-byte section header + ops already written + this op.
+            if (this._budget > 0 && 13 + body.length + this._op.length > this._budget) {
+                continue;
+            }
+            body.writeWriter(this._op);
+            this._flushedIds.push(id);
+            this._flushedMasks.push(mask);
+            ops++;
+        }
+
+        writeSchemaMagic(w);
+        w.writeU8(6);
+        w.writeU32(this._schema.hash);
+        w.writeU32(ops as u32);
+        w.writeWriter(body);
     }
 
     private encodeFull(): void {
@@ -1994,10 +2403,19 @@ export class SchemaState extends SchemaStateBase {
         this.writePatch(this._patch);
     }
 
-    /** Clear per-tick dirty flags and queued adds/removes. */
+    /** Clear only the dirty bits that were actually encoded this tick. */
     clearChanges(): void {
-        for (let i = 0; i < this._order.length; i++) {
-            this._entities.get(this._order[i]).clearDirty();
+        for (let i = 0; i < this._flushedIds.length; i++) {
+            let e = this._entities.get(this._flushedIds[i]);
+            if (e !== null) e.clearDirtyBits(this._flushedMasks[i]);
+        }
+        this._flushedIds.length = 0;
+        this._flushedMasks.length = 0;
+        // Added rows were sent in full (full snapshot + ADD patch), so their
+        // whole row is acknowledged now.
+        for (let i = 0; i < this._added.length; i++) {
+            let e = this._entities.get(this._added[i]);
+            if (e !== null) e.clearDirty();
         }
         this._added.length = 0;
         this._removed.length = 0;
@@ -2040,11 +2458,12 @@ export class SchemaState extends SchemaStateBase {
  * ```
  *
  * Wire (inside the same envelope as `SchemaState`):
- *   multi full:  "OXS2" [u8 3] [u32 root hash] [u16 root fields] [values...]
+ *   multi full:  "OXS2" [u8 7] [u32 root hash] [u16 root fields]
+ *                [packed root payload]
  *                [u16 collection count] { [u16 id] [u32 hash] [u32 len] [section] }*
- *   multi patch: "OXS2" [u8 4] [u32 root hash] [u16 root fields]
- *                [u32 root dirty mask] [dirty values...]
- *                [u16 collection count] { [u16 id] [u32 hash] [u32 len] [section] }*
+ *   multi patch: "OXS2" [u8 8] [u32 root hash] [u16 root fields]
+ *                [u32 root dirty mask] [packed dirty root payload]
+ *                [u16 collection count] { [u16 id] [u32 hash] [u32 len] [patch] }*
  */
 export class SchemaWorld extends SchemaStateBase {
     root: SchemaEntity;
@@ -2067,14 +2486,21 @@ export class SchemaWorld extends SchemaStateBase {
 
     get collectionCount(): i32 { return this._collections.length; }
 
+    /// Propagate a per-patch byte budget to every collection.
+    override setBudget(bytes: i32): void {
+        for (let i = 0; i < this._collections.length; i++) {
+            this._collections[i].setBudget(bytes);
+        }
+    }
+
     private encodeFull(): void {
         let w = this._full;
         w.reset();
         writeSchemaMagic(w);
-        w.writeU8(3);
+        w.writeU8(7);
         w.writeU32(this.root.schemaHash);
         w.writeU16(this.root.fieldCount as u16);
-        this.root.writeAll(w);
+        this.root.writePackedPayload(w, 0xffffffff, false);
         w.writeU16(this._collections.length as u16);
         for (let i = 0; i < this._collections.length; i++) {
             let state = this._collections[i];
@@ -2091,11 +2517,11 @@ export class SchemaWorld extends SchemaStateBase {
         let w = this._patch;
         w.reset();
         writeSchemaMagic(w);
-        w.writeU8(4);
+        w.writeU8(8);
         w.writeU32(this.root.schemaHash);
         w.writeU16(this.root.fieldCount as u16);
         w.writeU32(this.root.dirtyMask);
-        this.root.writeDirty(w);
+        this.root.writePackedPayload(w, this.root.dirtyMask, true);
 
         let changed = 0;
         for (let i = 0; i < this._collections.length; i++) {
@@ -2383,6 +2809,17 @@ export class InputReader {
         this._offset = 0;
     }
 
+    /// Retarget this reader at a new window. The bridge reuses one reader for
+    /// every input frame: the guest runs on `--runtime stub` (no GC), so a
+    /// fresh `InputReader` per frame is permanent garbage that grew a room from
+    /// 128 KiB to several MiB of linear memory within minutes.
+    reset(ptr: usize, len: i32): InputReader {
+        this._ptr = ptr;
+        this._len = len;
+        this._offset = 0;
+        return this;
+    }
+
     get remaining(): i32 {
         return this._len - this._offset;
     }
@@ -2455,6 +2892,38 @@ export class InputReader {
         return val;
     }
 
+    readI8(): i8 {
+        if (this._offset + 1 > this._len) return 0;
+        let val = load<i8>(this._ptr + this._offset);
+        this._offset += 1;
+        return val;
+    }
+
+    readI16(): i16 {
+        if (this._offset + 2 > this._len) return 0;
+        let val = load<i16>(this._ptr + this._offset);
+        this._offset += 2;
+        return val;
+    }
+
+    /** A boolean field (one byte, 0 = false). */
+    readBool(): bool {
+        if (this._offset + 1 > this._len) return false;
+        let val = load<u8>(this._ptr + this._offset);
+        this._offset += 1;
+        return val != 0;
+    }
+
+    /** A length-prefixed UTF-8 string ([len u16 LE][bytes]). */
+    readString(): string {
+        let len = this.readU16() as i32;
+        if (this._offset + len > this._len) len = this._len - this._offset;
+        if (len <= 0) return "";
+        let str = String.UTF8.decodeUnsafe(this._ptr + this._offset, len);
+        this._offset += len;
+        return str;
+    }
+
     readRemainingString(): string {
         let rem = this._len - this._offset;
         if (rem <= 0) return "";
@@ -2465,343 +2934,7 @@ export class InputReader {
 }
 
 
-// =============================================================================
-// --- 7. DETERMINISTIC PRNG (REPRODUCIBLE RANDOM GENERATOR) ---
-// =============================================================================
 
-/**
- * Fast Deterministic 64-bit XorShift PRNG.
- * Ensures identical random sequences across client prediction, server rewinds, and match replays!
- */
-export class Random {
-    private static _state: u64 = 88172645463325252;
-
-    static seed(s: u64): void {
-        this._state = (s == 0) ? 88172645463325252 : s;
-    }
-
-    static nextU32(): u32 {
-        let x = this._state;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        this._state = x;
-        return (x & 0xFFFFFFFF) as u32;
-    }
-
-    static nextFloat(): f64 {
-        return (this.nextU32() as f64) / 4294967296.0;
-    }
-
-    static range(min: i32, max: i32): i32 {
-        if (min >= max) return min;
-        let span = (max - min) as f64;
-        return min + ((this.nextFloat() * span) as i32);
-    }
-
-    static rangeFloat(min: f64, max: f64): f64 {
-        return min + this.nextFloat() * (max - min);
-    }
-
-    /**
-     * Chance check: Returns true if roll <= percentage (0.0 to 100.0).
-     * Example: Random.chance(25.0) -> 25% crit chance.
-     */
-    static chance(percentage: f64): bool {
-        return (this.nextFloat() * 100.0) <= percentage;
-    }
-}
-
-// =============================================================================
-// --- 8. COOLDOWN & TIMER MANAGER ---
-// =============================================================================
-
-/**
- * Cooldown tracker for weapons, abilities, dashes, and respawns.
- * Zero-GC: updates with tick delta time!
- */
-export class CooldownTracker {
-    private _cooldowns: Map<string, f64> = new Map<string, f64>();
-
-    update(dt: f64): void {
-        let keys = this._cooldowns.keys();
-        for (let i = 0; i < keys.length; i++) {
-            let k = keys[i];
-            let rem = this._cooldowns.get(k) - dt;
-            if (rem <= 0.0) {
-                this._cooldowns.delete(k);
-            } else {
-                this._cooldowns.set(k, rem);
-            }
-        }
-    }
-
-    isReady(actionKey: string): bool {
-        return !this._cooldowns.has(actionKey);
-    }
-
-    trigger(actionKey: string, durationSeconds: f64): void {
-        this._cooldowns.set(actionKey, durationSeconds);
-    }
-
-    getRemaining(actionKey: string): f64 {
-        if (!this._cooldowns.has(actionKey)) return 0.0;
-        return this._cooldowns.get(actionKey);
-    }
-
-    reset(): void {
-        this._cooldowns.clear();
-    }
-}
-
-// =============================================================================
-// --- 9. TRIGGER VOLUMES & INTERACTIVE ZONES ---
-// =============================================================================
-
-export enum ZoneType {
-    NONE = 0,
-    DAMAGE = 1,       // Lava, poison gas, storm circle
-    SPEED_BUFF = 2,   // Speed track, booster pads
-    SPEED_SLOW = 3,   // Water, mud, web
-    JUMP_PAD = 4,     // Launches player vertically
-    CAPTURE_ZONE = 5, // King of the Hill / Domination flag
-    TELEPORT = 6      // Instant portal
-}
-
-export class TriggerZone {
-    id: u32;
-    type: ZoneType;
-    minX: f64; minY: f64; minZ: f64;
-    maxX: f64; maxY: f64; maxZ: f64;
-    value: f64; // Damage per second, speed multiplier, or jump impulse force
-
-    constructor(id: u32, type: ZoneType, minX: f64, minY: f64, minZ: f64, maxX: f64, maxY: f64, maxZ: f64, value: f64 = 0.0) {
-        this.id = id;
-        this.type = type;
-        this.minX = minX; this.minY = minY; this.minZ = minZ;
-        this.maxX = maxX; this.maxY = maxY; this.maxZ = maxZ;
-        this.value = value;
-    }
-
-    contains(pos: Vec3): bool {
-        return this.containsRaw(pos.x, pos.y, pos.z);
-    }
-
-    containsRaw(px: f64, py: f64, pz: f64): bool {
-        return px >= this.minX && px <= this.maxX &&
-               py >= this.minY && py <= this.maxY &&
-               pz >= this.minZ && pz <= this.maxZ;
-    }
-}
-
-// =============================================================================
-// --- 10. COMBAT & DAMAGE RESOLUTION ---
-// =============================================================================
-
-export enum HitZone {
-    BODY = 0,
-    HEAD = 1,
-    LIMB = 2
-}
-
-export class DamageResult {
-    damageDealt: f64 = 0.0;
-    shieldAbsorbed: f64 = 0.0;
-    healthRemaining: f64 = 0.0;
-    isKilled: bool = false;
-    isCritical: bool = false;
-}
-
-export class Combat {
-    private static _res: DamageResult = new DamageResult();
-
-    /**
-     * Calculates combat damage with headshot multipliers, armor mitigation, and shield absorption.
-     * Zero-GC pre-allocated return!
-     */
-    static applyDamage(
-        baseDamage: f64,
-        hitZone: HitZone,
-        armor: f64,
-        currentShield: f64,
-        currentHealth: f64
-    ): DamageResult {
-        let res = Combat._res;
-        let mult: f64 = 1.0;
-        let isCrit = false;
-
-        if (hitZone == HitZone.HEAD) {
-            mult = 2.0; // 2x Headshot critical multiplier
-            isCrit = true;
-        } else if (hitZone == HitZone.LIMB) {
-            mult = 0.75;
-        }
-
-        let raw = baseDamage * mult;
-        let effective = raw * (100.0 / (100.0 + Math.max(0.0, armor)));
-        let shieldAbsorb = Math.min(currentShield, effective);
-        let healthDamage = effective - shieldAbsorb;
-        let remHealth = Math.max(0.0, currentHealth - healthDamage);
-
-        res.damageDealt = effective;
-        res.shieldAbsorbed = shieldAbsorb;
-        res.healthRemaining = remHealth;
-        res.isKilled = remHealth <= 0.001;
-        res.isCritical = isCrit;
-        return res;
-    }
-}
-
-// =============================================================================
-// --- 11. MATCH LIFECYCLE & STATE MACHINE ---
-// =============================================================================
-
-export enum MatchPhase {
-    WAITING_FOR_PLAYERS = 0,
-    COUNTDOWN = 1,
-    ROUND_ACTIVE = 2,
-    OVERTIME = 3,
-    ROUND_OVER = 4,
-    RESETTING = 5
-}
-
-export class MatchStateMachine {
-    phase: MatchPhase = MatchPhase.WAITING_FOR_PLAYERS;
-    timer: f64 = 0.0;
-    roundNumber: i32 = 1;
-
-    startCountdown(durationSeconds: f64 = 5.0): void {
-        this.phase = MatchPhase.COUNTDOWN;
-        this.timer = durationSeconds;
-    }
-
-    startRound(roundDurationSeconds: f64 = 300.0): void {
-        this.phase = MatchPhase.ROUND_ACTIVE;
-        this.timer = roundDurationSeconds;
-    }
-
-    endRound(postRoundSeconds: f64 = 10.0): void {
-        this.phase = MatchPhase.ROUND_OVER;
-        this.timer = postRoundSeconds;
-    }
-
-    update(dt: f64): bool {
-        if (this.timer > 0.0) {
-            this.timer -= dt;
-            if (this.timer <= 0.0) {
-                this.timer = 0.0;
-                return true; // Phase timer just expired!
-            }
-        }
-        return false;
-    }
-}
-
-// =============================================================================
-// --- 12. FAST PROXIMITY SPATIAL GRID (AOI) ---
-// =============================================================================
-
-export class SpatialGrid2D {
-    private entityX: Map<i64, f64> = new Map<i64, f64>();
-    private entityZ: Map<i64, f64> = new Map<i64, f64>();
-
-    update(id: i64, pos: Vec3): void {
-        this.updateRaw(id, pos.x, pos.z);
-    }
-
-    updateRaw(id: i64, x: f64, z: f64): void {
-        this.entityX.set(id, x);
-        this.entityZ.set(id, z);
-    }
-
-    remove(id: i64): void {
-        this.entityX.delete(id);
-        this.entityZ.delete(id);
-    }
-
-    queryRadius(center: Vec3, radius: f64): StaticArray<i64> {
-        return this.queryRadiusRaw(center.x, center.z, radius);
-    }
-
-    queryRadiusRaw(cx: f64, cz: f64, radius: f64): StaticArray<i64> {
-        let rSq = radius * radius;
-        let ids = this.entityX.keys();
-        let count = 0;
-
-        for (let i = 0; i < ids.length; i++) {
-            let id = ids[i];
-            let dx = this.entityX.get(id) - cx;
-            let dz = this.entityZ.get(id) - cz;
-            if (dx * dx + dz * dz <= rSq) {
-                count++;
-            }
-        }
-
-        let res = new StaticArray<i64>(count);
-        let idx = 0;
-        for (let i = 0; i < ids.length; i++) {
-            let id = ids[i];
-            let dx = this.entityX.get(id) - cx;
-            let dz = this.entityZ.get(id) - cz;
-            if (dx * dx + dz * dz <= rSq) {
-                res[idx++] = id;
-            }
-        }
-        return res;
-    }
-}
-
-// =============================================================================
-// --- 13. BOT & NPC STEERING BEHAVIORS ---
-// =============================================================================
-
-export class Steering {
-    static seek(from: Vec3, target: Vec3, maxSpeed: f64): Vec3 {
-        return Steering.seekRaw(from.x, from.z, target.x, target.z, maxSpeed);
-    }
-
-    static seekRaw(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64): Vec3 {
-        let dx = targetX - fromX;
-        let dz = targetZ - fromZ;
-        let dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist > 0.001) {
-            return new Vec3((dx / dist) * maxSpeed, 0.0, (dz / dist) * maxSpeed);
-        }
-        return new Vec3(0, 0, 0);
-    }
-
-    static flee(from: Vec3, threat: Vec3, maxSpeed: f64): Vec3 {
-        return Steering.fleeRaw(from.x, from.z, threat.x, threat.z, maxSpeed);
-    }
-
-    static fleeRaw(fromX: f64, fromZ: f64, threatX: f64, threatZ: f64, maxSpeed: f64): Vec3 {
-        let dx = fromX - threatX;
-        let dz = fromZ - threatZ;
-        let dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist > 0.001) {
-            return new Vec3((dx / dist) * maxSpeed, 0.0, (dz / dist) * maxSpeed);
-        }
-        return new Vec3(0, 0, 0);
-    }
-
-    static arrive(from: Vec3, target: Vec3, maxSpeed: f64, slowingDistance: f64): Vec3 {
-        return Steering.arriveRaw(from.x, from.z, target.x, target.z, maxSpeed, slowingDistance);
-    }
-
-    static arriveRaw(fromX: f64, fromZ: f64, targetX: f64, targetZ: f64, maxSpeed: f64, slowingDistance: f64): Vec3 {
-        let dx = targetX - fromX;
-        let dz = targetZ - fromZ;
-        let dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist > 0.001) {
-            let speed = maxSpeed;
-            if (dist < slowingDistance) {
-                speed = maxSpeed * (dist / slowingDistance);
-            }
-            return new Vec3((dx / dist) * speed, 0.0, (dz / dist) * speed);
-        }
-        return new Vec3(0, 0, 0);
-    }
-}
 
 
 
@@ -2870,6 +3003,267 @@ export class RequestContext {
  * Universal Zero-Overhead Event Emitter for CYG game rooms.
  * Built into the SDK so developers do not need manual event plumbing.
  */
+/**
+ * Per-session state views. A view can only subtract: hide a field or keep only
+ * the viewer's own row. `.ownerOnly()` fields are already owner-only and cannot
+ * be revealed by a view. Changing a view triggers a fresh full snapshot for
+ * that player, so the client never keeps a stale hidden value.
+ */
+export class Views {
+    /// Hide one field of one root collection for `seat`.
+    hide(seat: i64, collection: string, field: string): bool {
+        if (isClientMode()) return false;
+        if (seat <= 0) return false;
+        let c = String.UTF8.encode(collection);
+        let f = String.UTF8.encode(field);
+        if (c.byteLength == 0 || c.byteLength > 64) return false;
+        if (f.byteLength == 0 || f.byteLength > 64) return false;
+        return _host_view_hide(
+            seat,
+            changetype<usize>(c),
+            c.byteLength,
+            changetype<usize>(f),
+            f.byteLength
+        ) == 0;
+    }
+
+    /// Hide one root-state scalar (`state.tick`, `state.phase`, …) for `seat`.
+    hideRoot(seat: i64, field: string): bool {
+        return this.hide(seat, "__root__", field);
+    }
+
+    /// Drop every collection row except the viewer's own for `seat`.
+    onlySelf(seat: i64, enabled: bool = true): bool {
+        if (isClientMode()) return false;
+        if (seat <= 0) return false;
+        return _host_view_only_self(seat, enabled ? 1 : 0) == 0;
+    }
+
+    /// Return `seat` to the default (all non-private fields visible).
+    reset(seat: i64): bool {
+        if (isClientMode()) return false;
+        if (seat <= 0) return false;
+        return _host_view_reset(seat) == 0;
+    }
+}
+
+/**
+ * One accepted input frame, copied out of wasm scratch so it stays valid after
+ * the bridge returns. `reader()` decodes it with the same generated
+ * `decodeInput` helper the hot `onInputFrame` path uses.
+ */
+export class InputFrame {
+    readonly seq: u16;
+    readonly tick: i64;
+    /// Client's estimate of server time when it built this frame (ms).
+    /// 0 = the client had no synchronized clock; use `clockMs()` instead.
+    readonly clientTimeMs: i64;
+    private _buf: ArrayBuffer = new ArrayBuffer(1);
+    readonly length: i32;
+
+    constructor(seq: u16, tick: i64, ptr: usize, len: i32, clientTimeMs: i64 = 0) {
+        this.seq = seq;
+        this.tick = tick;
+        this.clientTimeMs = clientTimeMs;
+        this.length = len > 0 ? len : 0;
+        if (this.length > 0) {
+            this._buf = new ArrayBuffer(this.length);
+            memory.copy(changetype<usize>(this._buf), ptr, this.length);
+        }
+    }
+
+    reader(): InputReader {
+        return new InputReader(changetype<usize>(this._buf), this.length);
+    }
+}
+
+/**
+ * Per-seat input timeline. When the room references `this.inputs`, the bridge
+ * appends every accepted (non-stale) `__input` frame here before
+ * `onInputFrame` runs. Rooms that do not touch it skip the copy entirely, so
+ * the input hot path stays allocation-free.
+ *
+ *   const f = this.inputs.latest(id);      // newest frame or null
+ *   if (f) { const input = decodeInput(f.reader()); ... }
+ *   this.inputs.clear(id);                 // mark all seen
+ */
+export class InputTimeline {
+    private _seats: Map<i64, Array<InputFrame>> = new Map<i64, Array<InputFrame>>();
+    /// Per-seat history bound. Old frames are dropped before this one.
+    maxHistory: i32 = 64;
+
+    push(seat: i64, seq: u16, tick: i64, ptr: usize, len: i32, clientTimeMs: i64 = 0): void {
+        if (seat <= 0 || len <= 0) return;
+        let frames = this._seats.has(seat) ? this._seats.get(seat) : new Array<InputFrame>();
+        // A duplicate/retransmit with an equal or older sequence is ignored.
+        if (frames.length > 0) {
+            const last = frames[frames.length - 1];
+            if (<u16>(last.seq - seq) < 32768) return;
+        }
+        frames.push(new InputFrame(seq, tick, ptr, len, clientTimeMs));
+        const bound = this.maxHistory > 0 ? this.maxHistory : 64;
+        while (frames.length > bound) frames.shift();
+        this._seats.set(seat, frames);
+    }
+
+    /// Newest frame for the seat, or null.
+    latest(seat: i64): InputFrame | null {
+        if (!this._seats.has(seat)) return null;
+        const frames = this._seats.get(seat);
+        return frames.length > 0 ? frames[frames.length - 1] : null;
+    }
+
+    /// Newest frame with `seq`, or null when it was already consumed/dropped.
+    at(seat: i64, seq: u16): InputFrame | null {
+        if (!this._seats.has(seat)) return null;
+        const frames = this._seats.get(seat);
+        for (let i = frames.length - 1; i >= 0; i--) {
+            if (frames[i].seq == seq) return frames[i];
+        }
+        return null;
+    }
+
+    /// Remove and return the newest frame (latest-only consumers).
+    consume(seat: i64): InputFrame | null {
+        if (!this._seats.has(seat)) return null;
+        const frames = this._seats.get(seat);
+        if (frames.length == 0) return null;
+        return frames.pop();
+    }
+
+    /// Remove and return every pending frame in sequence order.
+    drain(seat: i64): Array<InputFrame> {
+        if (!this._seats.has(seat)) return new Array<InputFrame>();
+        const frames = this._seats.get(seat);
+        this._seats.set(seat, new Array<InputFrame>());
+        return frames;
+    }
+
+    pending(seat: i64): i32 {
+        return this._seats.has(seat) ? this._seats.get(seat).length : 0;
+    }
+
+    clear(seat: i64): void {
+        this._seats.delete(seat);
+    }
+
+    clearAll(): void {
+        this._seats.clear();
+    }
+}
+
+/**
+ * Generic rewind history. Record any flat `f64` vector for an entity, then
+ * query the newest sample at or before a tick. The host bounds history to 256
+ * samples and 32 fields per entity; a width change is refused.
+ */
+export class Rewind {
+    /// Record `values` at `tick` (usually `clockTicks()`).
+    record(entityId: i64, values: StaticArray<f64>, tick: i64): bool {
+        if (isClientMode()) return false;
+        if (entityId <= 0 || tick < 0) return false;
+        if (values.length == 0 || values.length > 32) return false;
+        return _host_rewind_record(
+            entityId,
+            tick,
+            changetype<usize>(values),
+            values.length
+        ) == 0;
+    }
+
+    /// Record at the current authoritative tick.
+    recordNow(entityId: i64, values: StaticArray<f64>): bool {
+        return this.record(entityId, values, clockTicks());
+    }
+
+    /// Record `values` at an explicit authoritative time (milliseconds). Use
+    /// this with `atMs` for lag compensation where the shooter's timestamp
+    /// lies between two simulation ticks.
+    recordAt(entityId: i64, values: StaticArray<f64>, timeMs: f64): bool {
+        if (isClientMode()) return false;
+        if (entityId <= 0 || !isFinite(timeMs)) return false;
+        if (values.length == 0 || values.length > 32) return false;
+        return _host_rewind_record_time(
+            entityId,
+            clockTicks(),
+            timeMs,
+            changetype<usize>(values),
+            values.length
+        ) == 0;
+    }
+
+    /// Fill `out` with the newest sample at or before `tick`; returns the
+    /// number of values written, or a negative ABI code.
+    at(entityId: i64, tick: i64, out: StaticArray<f64>): i32 {
+        if (isClientMode()) return -1;
+        if (entityId <= 0 || tick < 0 || out.length == 0) return -1;
+        return _host_rewind_query(
+            entityId,
+            tick,
+            changetype<usize>(out),
+            out.length
+        );
+    }
+
+    /// Fill `out` with the linearly interpolated sample at `timeMs`; clamps to
+    /// the oldest/newest sample outside history. Returns values written or a
+    /// negative ABI code.
+    atMs(entityId: i64, timeMs: f64, out: StaticArray<f64>): i32 {
+        if (isClientMode()) return -1;
+        if (entityId <= 0 || !isFinite(timeMs) || out.length == 0) return -1;
+        return _host_rewind_query_time(
+            entityId,
+            timeMs,
+            changetype<usize>(out),
+            out.length
+        );
+    }
+
+    /**
+     * Lag-compensated lookup using the shooter's `InputFrame.clientTimeMs`.
+     * Future timestamps clamp to now; older-than-`maxRewindMs` clamps to the
+     * window edge. 0/unknown timestamps fall back to the current room time.
+     */
+    atClientMs(entityId: i64, clientTimeMs: f64, out: StaticArray<f64>, maxRewindMs: f64 = 250.0): i32 {
+        if (isClientMode()) return -1;
+        if (entityId <= 0 || out.length == 0) return -1;
+        const now = clockMs();
+        let target = clientTimeMs;
+        if (!isFinite(target) || target <= 0.0) target = now;
+        if (target > now) target = now;
+        const windowMs = maxRewindMs > 0.0 ? maxRewindMs : 250.0;
+        const oldest = now - windowMs;
+        if (target < oldest) target = oldest;
+        return this.atMs(entityId, target, out);
+    }
+
+    /// Drop one entity's history.
+    clear(entityId: i64): bool {
+        if (isClientMode()) return false;
+        return entityId > 0 && _host_rewind_clear(entityId) == 0;
+    }
+}
+
+/// Per-player counters. The room only names a seat and a counter; the engine
+/// owns identity, batching, retries and the database write.
+export class Stats {
+    /// Raises `stat` for the player holding `seat` by `delta` (1..=1_000_000).
+    /// Returns true when the host accepted the intent, not when the row is
+    /// already written — the write is eventual and idempotent.
+    add(seat: i64, stat: string, delta: i64 = 1): bool {
+        if (isClientMode()) return false;
+        if (seat <= 0 || delta <= 0 || delta > 1_000_000) return false;
+        let bytes = String.UTF8.encode(stat);
+        if (bytes.byteLength == 0 || bytes.byteLength > 64) return false;
+        return _host_stat_add(
+            seat,
+            changetype<usize>(bytes),
+            bytes.byteLength,
+            delta
+        ) == 0;
+    }
+}
+
 export class EventEmitter {
     private _handlers: Map<string, Array<RoomEventCallback>> = new Map<string, Array<RoomEventCallback>>();
     private _owner: Room | null;
@@ -2911,14 +3305,332 @@ export class EventEmitter {
  * Extend this class and implement the abstract lifecycle hooks.
  * The CYG compiler automatically creates the Flat WASM ABI bridge!
  */
+// =============================================================================
+// --- SCHEMA INPUT LANE --------------------------------------------------------
+// =============================================================================
+// A schema def named `Input` becomes the per-tick input frame. Codegen emits
+// a typed `decodeInput(r)` for it; the client packs `room.sendInput({...})`
+// from the same schema (delivered in the descriptor), so neither side ever
+// hand-packs a byte and the field order is the contract.
+
+/** Reserved app-message type carrying a schema input frame. */
+const SCHEMA_INPUT_TYPE = "__input";
+
+// =============================================================================
+// --- JOIN OPTIONS (flat-JSON extractors, no parser, no allocations) ----------
+// =============================================================================
+// `onJoin(id, options)` receives the JSON the client passed to
+// `joinOrCreate(room, options)`. These helpers pull flat keys out of it —
+// enough for names, skins, loadouts; no full JSON parser in the guest.
+
+function __jsonFind(json: string, key: string): string {
+    const needle = "\"" + key + "\"";
+    let at = json.indexOf(needle);
+    if (at < 0) return "";
+    at += needle.length;
+    // skip to the colon, then any whitespace
+    while (at < json.length && json.charCodeAt(at) != 0x3A) at++; // ':'
+    at++;
+    while (at < json.length && json.charCodeAt(at) == 0x20) at++;
+    if (at >= json.length) return "";
+    const first = json.charCodeAt(at);
+    if (first == 0x22) { // '"': string value — read to the closing quote
+        let end = at + 1;
+        let out = "";
+        while (end < json.length) {
+            const ch = json.charAt(end);
+            if (ch == "\\") {          // escaped char — keep the next one raw
+                end += 2;
+                continue;
+            }
+            if (ch == "\"") break;
+            end++;
+        }
+        if (end > at + 1) out = json.substring(at + 1, end);
+        return out;
+    }
+    // number / bool / null — read until a delimiter
+    let end = at;
+    while (end < json.length) {
+        const c = json.charCodeAt(end);
+        if (c == 0x2C || c == 0x7D || c == 0x5D || c == 0x20) break; // , } ] space
+        end++;
+    }
+    return json.substring(at, end);
+}
+
+/** String value of `key` in a flat JSON object, or `fallback` when absent. */
+export function jsonString(json: string, key: string, fallback: string): string {
+    if (json.length == 0) return fallback;
+    const value = __jsonFind(json, key);
+    return value.length == 0 ? fallback : value;
+}
+
+/** Number value of `key`, or `fallback` when absent or not numeric. */
+export function jsonNumber(json: string, key: string, fallback: f64): f64 {
+    if (json.length == 0) return fallback;
+    const value = __jsonFind(json, key);
+    if (value.length == 0) return fallback;
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? fallback : parsed;
+}
+
+/** Boolean value of `key`, or `fallback` when absent. */
+export function jsonBool(json: string, key: string, fallback: bool): bool {
+    if (json.length == 0) return fallback;
+    const value = __jsonFind(json, key);
+    if (value.length == 0) return fallback;
+    return value == "true" || value == "1";
+}
+
+/**
+ * A handle to one connected player — the `id` the lifecycle hooks receive,
+ * wrapped in Colyseus-shaped sugar. Cheap: it is a plain object over the id,
+ * nothing crosses the wire until you call send.
+ *
+ *   onJoin(id: i64, options: JoinOptions): void {
+ *       const c = this.client(id);
+ *       c.sendText("welcome", c.sessionId.toString());
+ *   }
+ */
+export class Client {
+    /** The player id the hooks carry (Colyseus: `sessionId`). Mutable so the
+     *  generated bridge can reuse ONE handle for hot hooks like onInputFrame
+     *  — zero allocation per frame. Treat it as read-only inside your room. */
+    id: i64;
+    private _room: Room | null;
+
+    constructor(id: i64, room: Room | null) {
+        this.id = id;
+        this._room = room;
+    }
+
+    /** Colyseus parity: the id as a string. */
+    get sessionId(): string {
+        return this.id.toString();
+    }
+
+    /** Reliable, ordered message to this player. */
+    send(type: string, payload: ArrayBuffer | null = null): bool {
+        const room = this._room;
+        if (room == null) return false;
+        return room.sendTo(this.id, type, payload);
+    }
+
+    /** Convenience overload for UTF-8 text payloads. */
+    sendText(type: string, text: string): bool {
+        const room = this._room;
+        if (room == null) return false;
+        return room.sendTextTo(this.id, type, text);
+    }
+
+    /** The auth data `onAuth` returned for this player, as a JSON string —
+     *  assign it in onJoin (`this.client(id).auth = auth;`) and read it back
+     *  anywhere with jsonString(client.auth, "role", …). Empty by default. */
+    auth: string = "";
+
+    /** Remove this player from the room: the host closes their connection
+     *  and the room receives onLeave(id, CloseCode.KICKED). Colyseus's
+     *  `client.leave()` equivalent for the room author. */
+    leave(): void {
+        _sys_kick(this.id);
+    }
+}
+
+/**
+ * Composable room feature. Plugins run in install order and are isolated from
+ * each other: one throwing plugin is logged and skipped, the room keeps
+ * ticking and every later plugin still receives the event.
+ */
+export abstract class RoomPlugin {
+    name: string = "";
+
+    /// Called once at `room.use(plugin)`.
+    install(room: Room): void {}
+    onCreate(max: i32, options: string): void {}
+    onJoin(id: i64, options: string, auth: string): void {}
+    onInput(id: i64): void {}
+    onTick(dt: f64): void {}
+    onLeave(id: i64, code: i32): void {}
+    onDispose(): void {}
+}
+
+/** Built-in match clock plugin: counts down in fixed ticks and exposes expiry. */
+export class MatchTimerPlugin extends RoomPlugin {
+    readonly name: string = "match_timer";
+    minutes: f64;
+    remaining: f64;
+    expired: bool = false;
+
+    constructor(minutes: f64 = 5.0) {
+        super();
+        this.minutes = minutes;
+        this.remaining = minutes * 60.0;
+    }
+
+    onCreate(max: i32, options: string): void {
+        this.remaining = this.minutes * 60.0;
+        this.expired = false;
+    }
+
+    onTick(dt: f64): void {
+        if (this.expired) return;
+        this.remaining -= dt;
+        if (this.remaining <= 0) {
+            this.remaining = 0;
+            this.expired = true;
+        }
+    }
+
+    reset(): void {
+        this.remaining = this.minutes * 60.0;
+        this.expired = false;
+    }
+}
+
+/**
+ * Lobby / ready-check feature for a persistent lobby room.
+ *
+ * This is deliberately not a matchmaker: it tracks presence and readiness in
+ * one room. The authoritative queue lives behind `/queue/*` in the control
+ * plane, so a client cannot create a match by lying to a guest room.
+ */
+export class LobbyPlugin extends RoomPlugin {
+    readonly name: string = "lobby";
+    /// seat id -> ready flag. Absent means not in the lobby.
+    private _ready: Map<i64, bool> = new Map<i64, bool>();
+
+    onCreate(max: i32, options: string): void {
+        this._ready.clear();
+    }
+
+    onJoin(id: i64, options: string, auth: string): void {
+        this._ready.set(id, false);
+    }
+
+    onLeave(id: i64, code: i32): void {
+        this._ready.delete(id);
+    }
+
+    /// Mark this seat ready/not ready. A player can only change their own flag.
+    setReady(id: i64, ready: bool): void {
+        if (this._ready.has(id)) this._ready.set(id, ready);
+    }
+
+    isReady(id: i64): bool {
+        return this._ready.has(id) && this._ready.get(id);
+    }
+
+    members(): i32 {
+        return this._ready.size;
+    }
+
+    readyCount(): i32 {
+        let count = 0;
+        const ids = this._ready.keys();
+        for (let i = 0; i < ids.length; i++) {
+            if (this._ready.get(ids[i])) count++;
+        }
+        return count;
+    }
+
+    allReady(): bool {
+        const total = this._ready.size;
+        return total > 0 && this.readyCount() == total;
+    }
+
+    reset(): void {
+        const ids = this._ready.keys();
+        for (let i = 0; i < ids.length; i++) this._ready.set(ids[i], false);
+    }
+}
+
 export abstract class Room {
     maxPlayers: i32 = 16;
 
     /// Built-in SDK Event Emitter (Zero manual plumbing required by backend)
     events: EventEmitter = new EventEmitter(this);
+    /// Per-player counters; `this.stats.add(seat, "kills", 1)`.
+    stats: Stats = new Stats();
+    /// Per-session visibility; `this.views.onlySelf(seat)`,
+    /// `this.views.hide(seat, "players", "inventory")`.
+    views: Views = new Views();
+    /// Accepted input frames per seat; populated by the bridge before
+    /// `onInputFrame` runs.
+    inputs: InputTimeline = new InputTimeline();
+    /// Generic entity history; `this.rewind.recordNow(id, values)`.
+    rewind: Rewind = new Rewind();
+
+    /// Installed plugins, in deterministic install order.
+    private _plugins: Array<RoomPlugin> = new Array<RoomPlugin>();
+    /// Reserved for host-level plugin failure telemetry. AssemblyScript has no
+    /// exception handling, so a plugin trap bubbles to the wasm boundary and
+    /// the host isolates/reports it; the room keeps its hook order stable.
+    pluginErrors: u64 = 0;
+
+    /// Install a plugin. Its `install` runs immediately, then lifecycle hooks
+    /// fire in the same order every tick.
+    use(plugin: RoomPlugin): this {
+        plugin.install(this);
+        this._plugins.push(plugin);
+        return this;
+    }
+
+    plugins(): Array<RoomPlugin> {
+        return this._plugins;
+    }
+
+    /// Called by the generated bridge for every accepted `__input` frame.
+    /// `ptr` points at the frame body (after the reserved tag and seq).
+    recordInput(seat: i64, seq: u16, ptr: usize, len: i32, clientTimeMs: i64 = 0): void {
+        this.inputs.push(seat, seq, clockTicks(), ptr, len, clientTimeMs);
+    }
+
+    pluginOnCreate(max: i32, options: string): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onCreate(max, options);
+        }
+    }
+
+    pluginOnJoin(id: i64, options: string, auth: string): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onJoin(id, options, auth);
+        }
+    }
+
+    pluginOnInput(id: i64): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onInput(id);
+        }
+    }
+
+    pluginOnTick(dt: f64): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onTick(dt);
+        }
+    }
+
+    pluginOnLeave(id: i64, code: i32): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onLeave(id, code);
+        }
+    }
+
+    pluginOnDispose(): void {
+        for (let i = 0; i < this._plugins.length; i++) {
+            const plugin = this._plugins[i];
+            plugin.onDispose();
+        }
+    }
+
     /// Typed app messages from clients, keyed by UTF-8 message name.
     private _textMessageHandlers: Map<string, MessageHandlerCallback> = new Map<string, MessageHandlerCallback>();
-    /// Legacy numeric-opcode routing for raw binary clients.
+    /// Numeric-opcode routing for raw binary clients.
     private _messageHandlers: Map<u8, MessageHandlerCallback> = new Map<u8, MessageHandlerCallback>();
     /// Client RPC handlers: `room.request(type)` → our `ctx.reply(...)`.
     private _requestHandlers: Map<string, RequestHandlerCallback> = new Map<string, RequestHandlerCallback>();
@@ -2936,15 +3648,41 @@ export abstract class Room {
         this._requestHandlers.set(type, handler);
     }
 
-    /// Legacy numeric-opcode handler for existing raw-binary clients.
+    /// Numeric-opcode handler for existing raw-binary clients.
     onOpcodeMessage(opcode: u8, handler: MessageHandlerCallback): void {
         this._messageHandlers.set(opcode, handler);
     }
 
     /// Broadcast a typed message to every player in the room.
     /// `payload` is opaque bytes; use a DeltaWriter/ArrayBuffer or `broadcastText`.
-    broadcast(type: string, payload: ArrayBuffer | null = null): bool {
-        return this._sendMessage(0, type, payload);
+    /// `except` skips one player id (the value passed to `onJoin`) — Colyseus's
+    /// `{ except }` option.
+    ///
+    /// Set `afterNextPatch` to deliver after the current state patch: the
+    /// message is queued and flushed at the start of the next tick, so a
+    /// listener never sees state older than the patch the message describes.
+    broadcast(
+        type: string,
+        payload: ArrayBuffer | null = null,
+        except: i64 = 0,
+        afterNextPatch: bool = false
+    ): bool {
+        const target = except < 0 ? except : -except;
+        if (afterNextPatch) {
+            this._deferMessage(target, type, payload);
+            return true;
+        }
+        return this._sendMessage(target, type, payload);
+    }
+
+    /// Colyseus-style `broadcast(type, payload, { afterNextPatch: true })`
+    /// without the object allocation at the call site.
+    broadcastAfterPatch(
+        type: string,
+        payload: ArrayBuffer | null = null,
+        except: i64 = 0
+    ): bool {
+        return this.broadcast(type, payload, except, true);
     }
 
     /// Send a typed message to one player id (the value passed to `onJoin`).
@@ -2952,9 +3690,14 @@ export abstract class Room {
         return this._sendMessage(playerId, type, payload);
     }
 
-    /// Convenience overload for UTF-8 text payloads.
-    broadcastText(type: string, text: string): bool {
-        return this._sendMessage(0, type, String.UTF8.encode(text));
+    /// Convenience overload for UTF-8 text payloads. `except` skips one player.
+    broadcastText(
+        type: string,
+        text: string,
+        except: i64 = 0,
+        afterNextPatch: bool = false
+    ): bool {
+        return this.broadcast(type, String.UTF8.encode(text), except, afterNextPatch);
     }
 
     /// Convenience overload for a UTF-8 text payload to one player.
@@ -2962,7 +3705,38 @@ export abstract class Room {
         return this._sendMessage(playerId, type, String.UTF8.encode(text));
     }
 
+    private _deferredTargets: Array<i64> = new Array<i64>();
+    private _deferredTypes: Array<string> = new Array<string>();
+    private _deferredPayloads: Array<ArrayBuffer | null> = new Array<ArrayBuffer | null>();
+
+    private _deferMessage(target: i64, type: string, payload: ArrayBuffer | null): void {
+        if (this._deferredTypes.length >= 64) return;
+        this._deferredTargets.push(target);
+        this._deferredTypes.push(type);
+        this._deferredPayloads.push(payload == null ? null : payload.slice(0));
+    }
+
+    /// Flush messages queued with `afterNextPatch`; called by the generated
+    /// bridge before the next simulation step (the previous patch has already
+    /// been sent by then). Safe to call more than once per tick.
+    flushDeferredMessages(): void {
+        const count = this._deferredTypes.length;
+        if (count == 0) return;
+        const targets = this._deferredTargets;
+        const types = this._deferredTypes;
+        const payloads = this._deferredPayloads;
+        this._deferredTargets = new Array<i64>();
+        this._deferredTypes = new Array<string>();
+        this._deferredPayloads = new Array<ArrayBuffer | null>();
+        for (let i = 0; i < count; i++) {
+            this._sendMessage(targets[i], types[i], payloads[i]);
+        }
+    }
+
     private _sendMessage(target: i64, type: string, payload: ArrayBuffer | null): bool {
+        // Client-mode modules have no netcode host imports: delivery is a
+        // no-op (a client runtime renders predicted state locally instead).
+        if (isClientMode()) return false;
         let typeBytes = String.UTF8.encode(type);
         if (typeBytes.byteLength == 0 || typeBytes.byteLength > APP_MESSAGE_MAX_TYPE) {
             return false;
@@ -2993,17 +3767,20 @@ export abstract class Room {
         this.events.emit(event, id, val0, val1);
     }
 
-    /// Called once when the room instance is allocated on the host.
-    abstract onCreate(max: i32): void;
+    // onCreate is provided by YOUR room — the generated bridge calls it
+    // directly with (max, options) when it takes the merged create options,
+    // or (max) for the older shape.
 
-    /// Called when a new player joins the room.
-    abstract onJoin(id: i64, spawnX: f64, spawnZ: f64): void;
+    // onJoin is provided by YOUR room — no base default. Declare a
+    // `JoinOptions` def in the schema and the generated bridge hands you a
+    // typed instance (`options.name`, `options.team`…); without it, take the
+    // options as a string and use jsonString/jsonNumber. The room decides
+    // the spawn — the host does not choose x/y.
 
-    /// Called when a player leaves or disconnects.
-    abstract onLeave(id: i64): void;
+
 
     /// Called when an authoritative client input packet arrives.
-    /// Typed app messages are routed to `onMessage`; legacy opcodes fall through to
+    /// Typed app messages are routed to `onMessage`; raw opcodes fall through to
     /// registered `onOpcodeMessage` handlers or `onInputPacket`.
     onInput(id: i64, ptr: usize, len: i32): void {
         if (len <= 0) return;
@@ -3035,6 +3812,12 @@ export abstract class Room {
                     return;
                 }
 
+                // The __input lane is intercepted by the generated bridge's
+                // on_input export (it knows the room's declared hook shape);
+                // reaching here means a class-room never sees it. Manual
+                // flat-ABI rooms own their own dispatch entirely.
+                if (type == SCHEMA_INPUT_TYPE) return;
+
                 if (this._textMessageHandlers.has(type)) {
                     let handler = this._textMessageHandlers.get(type);
                     handler(id, new InputReader(ptr + 2 + typeLen, len - 2 - typeLen), this);
@@ -3057,9 +3840,53 @@ export abstract class Room {
         this.onInputPacket(id, reader);
     }
 
+    /// Schema input lane: newest seq seen per player (wrap-safe stale drop).
+    private _inputLastSeq: Map<i64, u16> = new Map<i64, u16>();
+
+    /// A handle to one connected player — Colyseus-shaped sugar over the id
+    /// the hooks carry. `this.client(id).sendText("toast", "level up")`.
+    client(id: i64): Client {
+        return new Client(id, this);
+    }
+
+    // onInputFrame is provided by YOUR room — the bridge wires it. Declare
+    // `onInputFrame(client: Client, r: InputReader)` (or the raw
+    // `(id: i64, r: InputReader)` — both styles work) and decode with the
+    // generated helper:
+    //     const f = decodeInput(r);   // ← generated: your Input fields
+    // Requires the client to send with `room.sendInput({ moveX, moveZ, … })`.
+
     /// High-level client input packet hook. Zero raw pointers or offsets!
     onInputPacket(id: i64, input: InputReader): void {
         // Override this in your game room
+    }
+
+    // --- CLIENT-MODE PREDICTION HOOKS ---------------------------------------
+    // The same .wasm also runs inside an embedded client runtime (Godot /
+    // Unity / Unreal) as the prediction brain. The room declares the contract
+    // once; the SDK's `cyg_*` C-ABI exports below drive it.
+
+    /// How many flat f64 scalars make up the predicted state mirror.
+    /// Return 0 to opt out of prediction.
+    predictFieldCount(): i32 {
+        return 0;
+    }
+
+    /// Authoritative value of scalar `i` — the truth reconciliation compares
+    /// against. On the server this reads the room's live state; on the client
+    /// it reads the last value adopted from a server snapshot.
+    predictReadField(i: i32): f64 {
+        return 0.0;
+    }
+
+    /// Advance the predicted mirror `state` one fixed step with `input`.
+    /// THE shared step: the authoritative tick must run through the same
+    /// logic (a pure `stepOnce(state, input, dt)`) so server and every
+    /// replaying client produce bit-identical state. Must be a pure function
+    /// of (state, input, dt) — no host imports, no wall-clock, no netcode;
+    /// take transcendentals from cyg-math only.
+    onPredictStep(input: InputReader, dt: f64, state: PredictState): void {
+        // Override this in your game room (prediction opt-in)
     }
 
     /// Fixed simulation tick (20 Hz - 128 Hz).
@@ -3083,8 +3910,26 @@ export abstract class Room {
     }
 
     /// Guest memory allocator for inbound client network packets.
+    ///
+    /// The host calls this for EVERY inbound payload (an input frame at the
+    /// tick rate, join options, auth blobs) and only ever writes the bytes into
+    /// the returned window before invoking the matching hook. A fresh
+    /// `new ArrayBuffer(len)` per call leaks: nothing frees it, so the guest
+    /// heap grows without bound under input traffic (measured: 0.5 MiB -> 4 MiB
+    /// per room in ~25 s, i.e. ~250 KiB of pure garbage per client).
+    ///
+    /// One scratch window that only ever grows is all the host needs; it gets
+    /// the pointer here and the byte length as a separate argument.
+    private _scratch: ArrayBuffer = new ArrayBuffer(4096);
+
     onAlloc(len: i32): i32 {
-        return changetype<usize>(new ArrayBuffer(len)) as i32;
+        if (len <= 0) return 0;
+        if (len > this._scratch.byteLength) {
+            let cap = this._scratch.byteLength;
+            while (cap < len) cap *= 2;
+            this._scratch = new ArrayBuffer(cap);
+        }
+        return changetype<usize>(this._scratch) as i32;
     }
 
     /// Room fullness check.
@@ -3093,10 +3938,15 @@ export abstract class Room {
     }
 
     /// Minimum milliseconds between state patches; 0 broadcasts every
-    /// simulation tick (the backwards-compatible default). When a patch is
-    /// skipped the next sent frame carries a full snapshot, so no change is
-    /// ever lost.
+    /// simulation tick (the backwards-compatible default). The host signals
+    /// each tick via `setPatchDue` — a not-due commit keeps its dirty rows,
+    /// so the next due patch carries every change since the last send and
+    /// stays incremental (no full snapshot ever needed for skipped windows).
     patchRate: i32 = 0;
+
+    /// Host-driven: true when this tick's commit should seal. Ticks that are
+    /// not due return an empty delta and keep accumulating dirty rows.
+    patchDue: bool = true;
 
     /// Minimum milliseconds between simulation ticks; 0 runs every host tick.
     /// The host calls `onTick` with a fixed `dt` of `simulationInterval / 1000`.
@@ -3123,8 +3973,19 @@ export abstract class Room {
         this.schemaState = state;
     }
 
-    /** Call at the end of onTick: `return this.commitState();` */
+    /// Cap each patch's encoded size. Higher-priority entities go first and
+    /// rows that do not fit stay dirty for the next tick.
+    setSnapshotBudget(bytes: i32): void {
+        this.schemaState.setBudget(bytes);
+    }
+
+    /** Call at the end of onTick: `return this.commitState();`
+     *
+     *  When the host marked this tick not-due (patch cadence), returns an
+     *  empty delta WITHOUT clearing the schema's dirty rows — the changes
+     *  ride along with the next due commit, so patches stay incremental. */
     commitState(): i64 {
+        if (!this.patchDue) return 0;
         return this.schemaState.commit();
     }
 
@@ -3132,27 +3993,77 @@ export abstract class Room {
         this.patchRate = ms;
     }
 
+    /// Host calls this every tick (ABI export `on_patch_due`) BEFORE onTick,
+    /// with the patch-cadence decision already made.
+    setPatchDue(due: bool): void {
+        this.patchDue = due;
+    }
+
     setSimulationInterval(intervalMs: i32): void {
         this.simulationInterval = intervalMs;
     }
 
-    /// Seat admission. `options` is the raw JSON string the client passed to
-    /// `joinOrCreate(room, options)` (empty when it sent none). Return `false`
-    /// to reject the connection before any player id or state is created.
-    onAuth(clientId: i64, options: string): bool {
-        return true;
-    }
-
-    /// Called when a disconnected client resumes its reserved seat. The player
-    /// id and guest state are unchanged; `onJoin` is NOT called again.
-    onReconnect(clientId: i64): void {
-        // Override to restore per-client UI state
-    }
 
     /// Called once when the host disposes this room (empty timeout / shutdown).
     onDispose(): void {
         // Override to flush scores, release external resources, ...
     }
+
+    /// Tell the host the match is over.
+    ///
+    /// This is the one call a game makes at the end of a round. The host posts
+    /// the result itself — counters, leaderboard, rules and webhooks all follow
+    /// with no backend service in between — using the server key, which a guest
+    /// must never hold.
+    ///
+    /// Call it once. A second call in the same match is ignored (the first
+    /// result stands), because a round that has been scored cannot be scored
+    /// twice.
+    ///
+    /// Two ways to write it, same result:
+    ///
+    /// ```ts
+    /// // a list of outcomes — the usual shape
+    /// if (this.aliveCount() === 1) {
+    ///     this.endMatch("weekly_kills", [
+    ///         { user: winnerId, score: 1200, stats: { wins: 1, matches: 1 } },
+    ///         { user: loserId,  score: 10,   stats: { matches: 1 } },
+    ///     ]);
+    ///     return;
+    /// }
+    ///
+    /// // or one player at a time, when the list is not at hand
+    /// this.endMatch("weekly_kills")
+    ///     .participant(winnerId, 1200)
+    ///     .stat(winnerId, "wins", 1);
+    /// ```
+    endMatch(leaderboard: string = "", scores: Array<MatchScore> | null = null): MatchResultBuilder {
+        const builder = new MatchResultBuilder(leaderboard);
+        this._result = builder;
+        this._matchEnded = true;
+        if (scores != null) builder.scores(scores);
+        return builder;
+    }
+
+    /** True once `endMatch` has been called for this match. */
+    get matchEnded(): bool {
+        return this._matchEnded;
+    }
+
+    /// Host ABI: the packed result, or 0 when the match never ended.
+    ///
+    /// The host calls this when it is about to dispose the room. Returning 0 is
+    /// a normal answer — a round abandoned mid-play has nothing to score, and a
+    /// game is not obliged to have a win condition at all.
+    on_match_end(): i64 {
+        if (!this._matchEnded) return 0;
+        const result = this._result;
+        if (result == null) return 0;
+        return result.seal();
+    }
+
+    private _result: MatchResultBuilder | null = null;
+    private _matchEnded: bool = false;
 
     /// Milliseconds a disconnected client may take to reconnect before
     /// `onLeave` runs. 0 (default) releases the seat immediately.
@@ -3162,7 +4073,9 @@ export abstract class Room {
 
     /// Runs immediately before `onTick` (simulation + serialization).
     onBeforePatch(dt: f64): void {
-        // Override for pre-serialization bookkeeping
+        // Override for pre-serialization bookkeeping, but call super if you
+        // use `afterNextPatch` messages: the base flushes them here.
+        this.flushDeferredMessages();
     }
 
     /// Runs immediately after `onTick` returned its delta.
@@ -3177,6 +4090,310 @@ export abstract class Room {
 }
 
 // =============================================================================
+// =============================================================================
+// --- MATCH RESULT -----------------------------------------------------------
+// =============================================================================
+//
+// What the guest says happened, in the order it happened.
+//
+// Wire (`on_match_end` returns this, packed as (ptr << 32) | len):
+//
+//   [u8 1]                       version
+//   [u16 leaderboardLen][utf8]   "" when the round scores to no board
+//   [u16 count]                  participants, 1..64
+//     { [bytes16 userId] [i64 score] [i64 subscore]
+//       [u16 metadataLen][utf8 json]      "" when there is none
+//       [u16 statCount] { [u16 nameLen][utf8 name] [i64 delta] }* }
+//
+// Stats are deltas, not totals: the host adds them to what the player already
+// has, so a retried write cannot double-count. Sending "total kills 42" would
+// mean the host had to know the previous value to work out the difference.
+
+/**
+ * What one player earned in a round, for `endMatch`.
+ *
+ * Written as a literal, so the common case is one line per player:
+ *
+ * ```ts
+ * this.endMatch("weekly_kills", [
+ *     { user: winnerId, score: 1200, stats: { wins: 1, matches: 1 } },
+ *     { user: loserId,  score: 10,   stats: { matches: 1 } },
+ * ]);
+ * ```
+ *
+ * Every field but `user` is optional. `stats` are deltas — `wins: 1` raises the
+ * counter by one, it does not set it to one.
+ */
+export class MatchScore {
+    /// The player's account id.
+    user: string = "";
+    /// The score this round posts to the leaderboard.
+    score: i64 = 0;
+    /// Tie-breaker, for boards that need one.
+    subscore: i64 = 0;
+    /// Counters this round raised, by name.
+    stats: MatchStats | null = null;
+    /// Attached to the leaderboard record; free-form JSON.
+    metadata: string = "";
+}
+
+/// The counters one player earned, as a literal: `{ wins: 1, matches: 1 }`.
+export class MatchStats {
+    wins: i64 = 0;
+    losses: i64 = 0;
+    matches: i64 = 0;
+    kills: i64 = 0;
+    deaths: i64 = 0;
+    assists: i64 = 0;
+    score: i64 = 0;
+    goals: i64 = 0;
+    time_played: i64 = 0;
+}
+
+/** One player's outcome in a round. */
+export class MatchParticipant {
+    userId: string;
+    score: i64 = 0;
+    subscore: i64 = 0;
+    metadata: string = "";
+    statNames: Array<string> = new Array<string>();
+    statDeltas: Array<i64> = new Array<i64>();
+
+    constructor(userId: string) {
+        this.userId = userId;
+    }
+}
+
+/**
+ * Builds the result a round reports.
+ *
+ * ```ts
+ * this.endMatch("weekly_kills")
+ *     .participant(winnerId, 1200)
+ *     .stat(winnerId, "wins", 1)
+ *     .participant(loserId, 300);
+ * ```
+ */
+export class MatchResultBuilder {
+    private _leaderboard: string;
+    private _parts: Array<MatchParticipant> = new Array<MatchParticipant>();
+    private _buf: ArrayBuffer = new ArrayBuffer(1024);
+    private _view: DataView = new DataView(this._buf);
+    private _offset: i32 = 0;
+
+    /** The highest a participant list can be, matching the host's check. */
+    static readonly MAX_PARTICIPANTS: i32 = 64;
+
+    constructor(leaderboard: string = "") {
+        this._leaderboard = leaderboard;
+    }
+
+    /**
+     * Report every player at once.
+     *
+     * The terse form of `participant(..)` + `stat(..)` chains, and the one most
+     * games want: a round has a list of outcomes, so write it as a list.
+     *
+     * ```ts
+     * this.endMatch("weekly_kills", [
+     *     { user: winnerId, score: 1200, stats: { wins: 1 } },
+     *     { user: loserId,  score: 10 },
+     * ]);
+     * ```
+     */
+    scores(list: Array<MatchScore>): this {
+        for (let i = 0; i < list.length; i++) {
+            const entry = list[i];
+            this.participant(entry.user, entry.score, entry.subscore, entry.metadata);
+            const stats = entry.stats;
+            if (stats == null) continue;
+            // A literal builds every field, so a zero is "not reported" — the
+            // alternative is a class with a presence flag per counter, which is
+            // a lot of machinery to avoid writing one extra `.stat(..)` line.
+            if (stats.wins != 0) this.stat(entry.user, "wins", stats.wins);
+            if (stats.losses != 0) this.stat(entry.user, "losses", stats.losses);
+            if (stats.matches != 0) this.stat(entry.user, "matches", stats.matches);
+            if (stats.kills != 0) this.stat(entry.user, "kills", stats.kills);
+            if (stats.deaths != 0) this.stat(entry.user, "deaths", stats.deaths);
+            if (stats.assists != 0) this.stat(entry.user, "assists", stats.assists);
+            if (stats.score != 0) this.stat(entry.user, "score", stats.score);
+            if (stats.goals != 0) this.stat(entry.user, "goals", stats.goals);
+            if (stats.time_played != 0) this.stat(entry.user, "time_played", stats.time_played);
+        }
+        return this;
+    }
+
+    /**
+     * Raise a counter whose name is not one of `MatchStats`' fields.
+     *
+     * The built-in names cover what most games count; anything else — `gold`,
+     * `headshots`, `xp` — goes through here.
+     */
+    counter(userId: string, name: string, delta: i64 = 1): this {
+        return this.stat(userId, name, delta);
+    }
+
+    /** Score one player. Calling again for the same player replaces the score. */
+    participant(userId: string, score: i64, subscore: i64 = 0, metadata: string = ""): this {
+        let existing = this._find(userId);
+        if (existing == null) {
+            existing = new MatchParticipant(userId);
+            this._parts.push(existing);
+        }
+        existing.score = score;
+        existing.subscore = subscore;
+        existing.metadata = metadata;
+        return this;
+    }
+
+    /**
+     * Raise one counter for one player. `delta` is added, never assigned.
+     *
+     * Adds the participant when the player has no score yet — a player who did
+     * not place still earned their kills.
+     */
+    stat(userId: string, name: string, delta: i64 = 1): this {
+        let part = this._find(userId);
+        if (part == null) {
+            part = new MatchParticipant(userId);
+            this._parts.push(part);
+        }
+        let at = part.statNames.indexOf(name);
+        if (at >= 0) {
+            // The same counter reported twice in one round is one increment:
+            // two goals scored are `stat(.., 1)` twice, and the player who sees
+            // "goals 2" is right.
+            part.statDeltas[at] = part.statDeltas[at] + delta;
+        } else {
+            part.statNames.push(name);
+            part.statDeltas.push(delta);
+        }
+        return this;
+    }
+
+    /** How many players have been reported. */
+    get count(): i32 {
+        return this._parts.length;
+    }
+
+    private _find(userId: string): MatchParticipant | null {
+        for (let i = 0; i < this._parts.length; i++) {
+            if (this._parts[i].userId == userId) return this._parts[i];
+        }
+        return null;
+    }
+
+    /// Host ABI: the packed (ptr << 32) | len of the encoded result.
+    seal(): i64 {
+        this._offset = 0;
+        let parts = this._parts.length;
+        if (parts > MatchResultBuilder.MAX_PARTICIPANTS) parts = MatchResultBuilder.MAX_PARTICIPANTS;
+
+        this._u8(1);
+        this._str16(this._leaderboard);
+        this._u16(parts as u16);
+        for (let i = 0; i < parts; i++) {
+            let part = this._parts[i];
+            this._uuid(part.userId);
+            this._i64(part.score);
+            this._i64(part.subscore);
+            this._str16(part.metadata);
+            let stats = part.statNames.length;
+            this._u16(stats as u16);
+            for (let j = 0; j < stats; j++) {
+                this._str16(part.statNames[j]);
+                this._i64(part.statDeltas[j]);
+            }
+        }
+        return ((changetype<usize>(this._buf) as i64) << 32) | (this._offset as i64);
+    }
+
+    private _grow(need: i32): void {
+        if (this._offset + need <= this._buf.byteLength) return;
+        let target = this._buf.byteLength * 2;
+        while (target < this._offset + need) target = target * 2;
+        let next = new ArrayBuffer(target);
+        memory.copy(changetype<usize>(next), changetype<usize>(this._buf), this._offset);
+        this._buf = next;
+        this._view = new DataView(next);
+    }
+
+    private _u8(v: u8): void {
+        this._grow(1);
+        this._view.setUint8(this._offset, v);
+        this._offset += 1;
+    }
+
+    private _u16(v: u16): void {
+        this._grow(2);
+        this._view.setUint16(this._offset, v, true);
+        this._offset += 2;
+    }
+
+    private _i64(v: i64): void {
+        this._grow(8);
+        this._view.setInt64(this._offset, v, true);
+        this._offset += 8;
+    }
+
+    /** A length-prefixed UTF-8 string. A string too long is cut, not refused. */
+    private _str16(v: string): void {
+        // `String.UTF8.encode` hands back a buffer whose address is only valid
+        // until the next allocation, and `_grow` allocates. The length is
+        // captured and the bytes are copied before anything can move them —
+        // reading through a stale pointer wrote whatever happened to be in that
+        // slot, which is how a leaderboard name turned into noise.
+        const encoded = String.UTF8.encode(v);
+        let len = encoded.byteLength;
+        if (len > 512) len = 512;
+        this._grow(2 + len);
+        this._view.setUint16(this._offset, len as u16, true);
+        this._offset += 2;
+        memory.copy(
+            changetype<usize>(this._buf) + this._offset,
+            changetype<usize>(encoded),
+            len);
+        this._offset += len;
+    }
+
+    /**
+     * A user id as 16 raw bytes.
+     *
+     * The host reads ids as UUIDs and a guest holds them as strings, but a
+     * string on the wire would be read back to bytes by the host anyway — so
+     * the hyphenated form is parsed here, once, and a malformed id is written
+     * as zeroes so the host rejects it as "not seated" rather than dying on it.
+     */
+    private _uuid(id: string): void {
+        this._grow(16);
+        let digits = 0;
+        let hi = 0;
+        let wrote = 0;
+        for (let i = 0; i < id.length && wrote < 16; i++) {
+            let code = id.charCodeAt(i);
+            let nibble = -1;
+            if (code >= 48 && code <= 57) nibble = code - 48;
+            else if (code >= 97 && code <= 102) nibble = code - 87;
+            else if (code >= 65 && code <= 70) nibble = code - 55;
+            if (nibble < 0) continue;
+            hi = (hi << 4) | nibble;
+            digits++;
+            if (digits == 2) {
+                this._view.setUint8(this._offset, hi as u8);
+                this._offset += 1;
+                digits = 0;
+                hi = 0;
+                wrote++;
+            }
+        }
+        while (wrote < 16) {
+            this._view.setUint8(this._offset, 0);
+            this._offset += 1;
+            wrote++;
+        }
+    }
+}
+
 // --- VECTORS (developer-facing: APIs take named vectors, not bare sx/sy) ----
 // =============================================================================
 
@@ -3566,4 +4783,292 @@ export class PhysicsBatch3D {
     hasContact(i: i32): bool {
         return this.posOutView.getUint32(i * 32 + 24, true) == 1;
     }
+}
+
+// =============================================================================
+// --- 16. CLIENT-MODE PREDICTION / RECONCILIATION (the shared brain) ----------
+// =============================================================================
+//
+// The authoritative room logic lives in the guest WASM; the SAME .wasm is also
+// loaded client-side (inside Godot/Unity/Unreal via an embedded WASM runtime)
+// to run local prediction + reconciliation, so all engines share one brain.
+//
+// Model (Colyseus reconciler discipline):
+//
+//   predict   : cyg_predict_tick(input, dt)  advances the mirror one fixed step
+//               through the room's `onPredictStep` (the shared step).
+//   ack       : server sends its state snapshot at wire precision (f32).
+//   reconcile : cyg_reconcile(server, pending) rounds BOTH sides through f32
+//               (the Math.fround lattice — a predicted value that only differs
+//               below f32 precision never produces a phantom rollback), adopts
+//               server truth, then replays pending inputs.
+//   telemetry : drift.ema (alpha 0.1) and drift.peak (x0.95 decay per
+//               reconcile) tell the client how far off it was.
+//
+// Determinism: rooms must implement onPredictStep as a pure function of
+// (state, input, dt) using ONLY spec-deterministic ops — take sin/cos/atan2/
+// sqrt/exp from cyg-math, never Math.* (libm-dependent), never Math.random
+// (use rngNext — the host-owned ChaCha8 stream replays identically).
+//
+// Pending inputs are bounded (64 frames) — a client that stops receiving
+// acks drops the oldest frames instead of growing memory forever.
+
+/// Compile-time client switch. The client build compiles with
+/// `asc --use CYG_CLIENT_MODE=1`, which strips the server-only host calls
+/// (netcode delivery below) so the module instantiates with only the predict
+/// imports present. Runtime toggle: `cyg_set_client_mode(1)`.
+export const CYG_CLIENT_MODE: bool = false;
+
+/// Runtime client-mode switch (embedded runtimes that ship one binary for
+/// both roles call this after instantiation instead of recompiling).
+let _clientModeRuntime: bool = false;
+
+export function cyg_set_client_mode(on: i32): void {
+    _clientModeRuntime = on != 0;
+}
+
+/// True when this module is running as a client prediction brain.
+@inline
+export function isClientMode(): bool {
+    return CYG_CLIENT_MODE || _clientModeRuntime;
+}
+
+/// C-ABI probe for the flag (client runtimes / tests assert the build mode).
+export function cyg_is_client_mode(): i32 {
+    return isClientMode() ? 1 : 0;
+}
+
+// --- PREDICTED STATE MIRROR ---------------------------------------------------
+
+/// Bounds for the mirror and the replay ring.
+const PRED_MAX_FIELDS: i32 = 256;
+const PRED_MAX_FRAMES: i32 = 64;
+const PRED_MAX_FRAME_BYTES: i32 = 128;
+
+/**
+ * Flat f64 scalar storage the prediction loop advances in place. The room's
+ * `onPredictStep(state, input, dt)` reads/writes it; `cyg_predicted_state_ptr`
+ * hands the raw window to the engine renderer. Rooms may also construct one
+ * as scratch for their own authoritative path (see the test guest) so the
+ * shared step runs over the exact same representation on both sides.
+ */
+export class PredictState {
+    /// Backed by a raw ArrayBuffer so `address()` is a stable linear-memory
+    /// window the engine can read directly (same convention as DeltaWriter).
+    private buf: ArrayBuffer;
+    private cap: i32;
+    private n: i32;
+
+    constructor(capacity: i32 = PRED_MAX_FIELDS) {
+        const cap = capacity < 1 ? 1 : (capacity > PRED_MAX_FIELDS ? PRED_MAX_FIELDS : capacity);
+        this.buf = new ArrayBuffer(cap * 8);
+        this.cap = cap;
+        this.n = 0;
+    }
+
+    get length(): i32 {
+        return this.n;
+    }
+
+    /// Declare how many of the allocated slots are live.
+    setLength(n: i32): void {
+        this.n = n <= this.cap ? n : this.cap;
+    }
+
+    /// Scalar `i`, or 0 out of range (never traps mid-simulation).
+    get(i: i32): f64 {
+        if (i < 0 || i >= this.n) return 0.0;
+        return load<f64>(changetype<usize>(this.buf) + ((i * 8) as usize));
+    }
+
+    set(i: i32, v: f64): void {
+        if (i < 0 || i >= this.cap) return;
+        store<f64>(changetype<usize>(this.buf) + ((i * 8) as usize), v);
+        if (i >= this.n) this.n = i + 1;
+    }
+
+    /// Data address of the mirror (for cyg_predicted_state_ptr).
+    address(): usize {
+        return changetype<usize>(this.buf);
+    }
+}
+
+// --- REPLAY RING (bounded pending input queue) -------------------------------
+
+const _frameBytes: StaticArray<u8> = new StaticArray<u8>(PRED_MAX_FRAMES * PRED_MAX_FRAME_BYTES);
+const _frameLens: StaticArray<i32> = new StaticArray<i32>(PRED_MAX_FRAMES);
+const _frameDts: StaticArray<f64> = new StaticArray<f64>(PRED_MAX_FRAMES);
+let _frameHead: i32 = 0; // oldest
+let _frameCount: i32 = 0;
+
+/// Queue one input frame (copy of the wire bytes + its dt). When full the
+/// oldest frame is dropped — replay is a best-effort catch-up, never a leak.
+function predQueueFrame(ptr: usize, len: i32, dtMs: f64): void {
+    if (len > PRED_MAX_FRAME_BYTES) len = PRED_MAX_FRAME_BYTES;
+    const tail = (_frameHead + _frameCount) % PRED_MAX_FRAMES;
+    if (_frameCount == PRED_MAX_FRAMES) {
+        _frameHead = (_frameHead + 1) % PRED_MAX_FRAMES;
+        _frameCount--;
+    }
+    const base = tail * PRED_MAX_FRAME_BYTES;
+    for (let i = 0; i < len; i++) {
+        _frameBytes[base + i] = load<u8>(ptr + i);
+    }
+    _frameLens[tail] = len;
+    _frameDts[tail] = dtMs;
+    _frameCount++;
+}
+
+// --- DRIFT TELEMETRY ----------------------------------------------------------
+
+let _driftEma: f64 = 0.0;
+let _driftPeak: f64 = 0.0;
+
+export function cyg_drift_ema(): f64 {
+    return _driftEma;
+}
+
+export function cyg_drift_peak(): f64 {
+    return _driftPeak;
+}
+
+// --- ATTACHMENT --------------------------------------------------------------
+
+let _predRoom: Room | null = null;
+let _predState: PredictState | null = null;
+
+/// Bind the room instance that owns the predict hooks. Call once after the
+/// module-level room is constructed (the generated bridge does this).
+export function cyg_predict_attach(room: Room): void {
+    _predRoom = room;
+    const fields = room.predictFieldCount();
+    const state = new PredictState(fields > 0 && fields <= PRED_MAX_FIELDS ? fields : PRED_MAX_FIELDS);
+    if (fields > 0) state.setLength(fields);
+    _predState = state;
+}
+
+// --- C-ABI EXPORTS (called by the embedded client runtime) --------------------
+
+/**
+ * Advance the predicted state one fixed step with the input frame at
+ * (input_ptr, input_len) over dt_ms milliseconds, then queue the frame for
+ * the next reconcile's replay.
+ */
+/// Reusable reader for the predict path (stub runtime: no per-call garbage).
+const _inputScratchReader: InputReader = new InputReader(0, 0);
+
+export function cyg_predict_tick(input_ptr: i32, input_len: i32, dt_ms: f64): void {
+    const room = _predRoom;
+    if (room == null) return;
+    const dt = dt_ms * 0.001; // seconds — matches onTick's fixed dt convention
+    _inputScratchReader.reset(input_ptr as usize, input_len);
+    room.onPredictStep(_inputScratchReader, dt, _predState!);
+    predQueueFrame(input_ptr as usize, input_len, dt_ms);
+}
+
+/// Linear-memory address of the predicted state mirror (flat f64 scalars).
+export function cyg_predicted_state_ptr(): i32 {
+    if (_predState == null) return 0;
+    return _predState!.address() as i32;
+}
+
+/// Byte length of the predicted state mirror (fieldCount * 8).
+export function cyg_predicted_state_len(): i32 {
+    if (_predState == null) return 0;
+    return _predState!.length * 8;
+}
+
+/**
+ * Drop every internally queued input frame WITHOUT replaying it. The runtime
+ * calls this when an ack already covers the queued frames (a snapshot taken
+ * after the server applied them) — replaying them would double-apply. An ack
+ * that predates the queued frames instead replays them via cyg_reconcile.
+ */
+export function cyg_predict_flush_pending(): void {
+    _frameCount = 0;
+    _frameHead = 0;
+}
+
+/**
+ * Adopt server truth and replay pending inputs. Returns the max |correction|
+ * magnitude applied (f64, measured on the f32 wire lattice).
+ *
+ * - server_state_ptr/len: the wire snapshot as flat f64 scalars. Pass 0 to
+ *   reconcile against the room's own `predictReadField` (self-check mode).
+ * - pending_ptr/len: frames to replay, wire format
+ *   `[u16 len][f64 dt_ms][bytes]` repeated. Pass 0 to replay the frames
+ *   cyg_predict_tick queued internally (the normal client flow).
+ */
+export function cyg_reconcile(
+    server_state_ptr: i32,
+    server_state_len: i32,
+    pending_ptr: i32,
+    pending_len: i32
+): f64 {
+    const room = _predRoom;
+    if (room == null) return 0.0;
+
+    const state = _predState!;
+    // Field count: a wire snapshot wins (min of both lengths); in self-check
+    // mode the room's declared field count drives the loop — the mirror fills
+    // in as the shared step writes fields.
+    const fields = state.length;
+    const serverFields = server_state_len >> 3;
+    let count = fields;
+    if (server_state_ptr != 0) {
+        if (serverFields < count) count = serverFields;
+    } else {
+        const roomFields = room.predictFieldCount();
+        if (roomFields > count) count = roomFields;
+    }
+
+    // Compare and adopt at wire precision: both sides go through fround so a
+    // sub-f32 difference on either side cannot fire a rollback.
+    let maxCorr: f64 = 0.0;
+    for (let i = 0; i < count; i++) {
+        const serverRaw = server_state_ptr != 0
+            ? load<f64>((server_state_ptr + i * 8) as usize)
+            : room.predictReadField(i);
+        const server = fround(serverRaw);
+        const predicted = fround(state.get(i));
+        const corr = server - predicted;
+        const mag = corr < 0.0 ? -corr : corr;
+        if (mag > maxCorr) maxCorr = mag;
+        state.set(i, server); // adopt-on-ack
+    }
+
+    // Replay pending inputs through the shared step so prediction catches up
+    // from the adopted truth, then drain the queue (those frames are acked).
+    if (pending_ptr != 0) {
+        let off: usize = pending_ptr as usize;
+        const end = off + (pending_len as usize);
+        while (off + 10 <= end) {
+            let len: i32 = load<u16>(off) as i32;
+            const dtMs = load<f64>(off + 2);
+            off += 10;
+            if (len > <i32>(end - off)) len = <i32>(end - off);
+            _inputScratchReader.reset(off, len);
+            room.onPredictStep(_inputScratchReader, dtMs * 0.001, state);
+            off += len;
+        }
+    } else {
+        for (let f = 0; f < _frameCount; f++) {
+            const idx = (_frameHead + f) % PRED_MAX_FRAMES;
+            const len = _frameLens[idx];
+            _inputScratchReader.reset(
+                changetype<usize>(_frameBytes) + (idx * PRED_MAX_FRAME_BYTES),
+                len
+            );
+            room.onPredictStep(_inputScratchReader, _frameDts[idx] * 0.001, state);
+        }
+        _frameCount = 0;
+        _frameHead = 0;
+    }
+
+    // Telemetry: EMA of correction magnitude (alpha 0.1) and a decaying peak.
+    _driftEma += (maxCorr - _driftEma) * 0.1;
+    const peak = _driftPeak * 0.95;
+    _driftPeak = maxCorr > peak ? maxCorr : peak;
+
+    return maxCorr;
 }

@@ -1,17 +1,15 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::storage::{ObjectIdsRequest, ReadQuery, StorageObject, StorageObjects};
 use crate::error::V2Error;
-use crate::services::deps::q;
-use crate::utils::storage::{INVALID_OBJECT_MESSAGE, INVALID_USER_MESSAGE, check_id, read_owner};
+use crate::utils::storage::{INVALID_OBJECT_MESSAGE, check_id, read_owner, resolve_owner};
 
 impl super::StorageService {
     pub async fn read_objects(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         body: ObjectIdsRequest,
     ) -> Result<Json<StorageObjects>, V2Error> {
@@ -32,7 +30,7 @@ impl super::StorageService {
             ));
         }
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let mut rows = queries
             .storage_objects(caller, &wanted)
             .await
@@ -53,7 +51,7 @@ impl super::StorageService {
 
     pub async fn read_object(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         collection: &str,
         key: &str,
@@ -64,16 +62,12 @@ impl super::StorageService {
             return Err(V2Error::invalid_argument(INVALID_OBJECT_MESSAGE));
         }
         let caller = auth.0.uuid()?;
-        let parsed = Uuid::parse_str(user_id)
-            .map_err(|_| V2Error::invalid_argument(INVALID_USER_MESSAGE))?;
-        let owner = if parsed == Uuid::nil() {
-            caller
-        } else {
-            parsed
-        };
+        let owner = resolve_owner(user_id, caller)?;
         let version = req.version.filter(|v| !v.is_empty());
 
-        let row = q(state)
+        let row = self
+            .plane
+            .q()
             .await?
             .storage_object(caller, collection, key, owner, version.as_deref())
             .await

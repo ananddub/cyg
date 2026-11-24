@@ -6,7 +6,7 @@ use crate::repositories::models::Users;
 
 use super::row::{AccountNoteRow, WalletLedgerRow};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Serialize, Deserialize)]
 pub struct AccountExport {
     pub account: ExportedAccount,
     #[serde(default)]
@@ -55,7 +55,7 @@ impl Default for AccountExport {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Serialize, Deserialize)]
 pub struct ExportedAccount {
     pub id: Uuid,
     pub username: String,
@@ -126,14 +126,14 @@ impl From<Users> for ExportedAccount {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExportedDevice {
     pub id: String,
     #[serde(default)]
     pub provider: String,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Serialize, Deserialize)]
 pub struct ExportedStorage {
     pub collection: String,
     pub key: String,
@@ -146,7 +146,7 @@ pub struct ExportedStorage {
     pub update_time: DateTime<Utc>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Serialize, Deserialize)]
 pub struct ExportedEdge {
     pub destination_id: Uuid,
     pub state: i16,

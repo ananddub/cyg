@@ -9,8 +9,8 @@ fn the_new_vendor_routes_demand_a_player_token_in_the_shared_envelope() {
     let server = V2Server::start(v2_state());
 
     for path in [
-        "/v2/iap/purchase/facebookinstant",
-        "/v2/iap/purchase/samsung",
+        "/v1/iap/purchase/facebookinstant",
+        "/v1/iap/purchase/samsung",
     ] {
         let reply = server.post(path, None, "{}");
         assert_eq!(
@@ -23,7 +23,7 @@ fn the_new_vendor_routes_demand_a_player_token_in_the_shared_envelope() {
         assert!(body["error"]["details"].is_array());
     }
 
-    let reply = server.get("/v2/iap/subscription/season-pass", None);
+    let reply = server.get("/v1/iap/subscription/season-pass", None);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Auth token required");
 }
 
@@ -33,8 +33,8 @@ fn a_vendor_purchase_without_a_credential_is_refused() {
     let auth = player_token();
 
     for path in [
-        "/v2/iap/purchase/facebookinstant",
-        "/v2/iap/purchase/samsung",
+        "/v1/iap/purchase/facebookinstant",
+        "/v1/iap/purchase/samsung",
     ] {
         let reply = server.post(path, Some(&auth), "{}");
         assert_eq!(
@@ -51,19 +51,19 @@ fn a_well_formed_vendor_purchase_reaches_the_database() {
     let auth = player_token();
 
     let reply = server.post(
-        "/v2/iap/purchase/facebookinstant",
+        "/v1/iap/purchase/facebookinstant",
         Some(&auth),
         r#"{"signed_request":"payload.sig"}"#,
     );
     assert_eq!(reply.refusal(UNAVAILABLE), NO_DB);
 
     let reply = server.post(
-        "/v2/iap/purchase/samsung",
+        "/v1/iap/purchase/samsung",
         Some(&auth),
         r#"{"purchase_id":"PA1R2000000000000"}"#,
     );
     assert_eq!(reply.refusal(UNAVAILABLE), NO_DB);
 
-    let reply = server.get("/v2/iap/subscription/season-pass", Some(&auth));
+    let reply = server.get("/v1/iap/subscription/season-pass", Some(&auth));
     assert_eq!(reply.refusal(UNAVAILABLE), NO_DB);
 }

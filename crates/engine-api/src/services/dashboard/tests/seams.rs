@@ -31,7 +31,7 @@ fn client_rows_map_the_newest_sessions_in_order_and_cap() {
             },
             engine_bus::clock::mono_ns() / 1_000_000,
         );
-        rows = build_clients(&s);
+        rows = build_clients(&s.plane());
         if rows.len() == MAX_CLIENT_ROWS {
             break;
         }

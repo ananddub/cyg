@@ -38,7 +38,7 @@ pub async fn daily_claim(env: &Harness, console: &str) {
     // An operator can set the daily reward, and the next day pays it.
     json_body(
         env.client
-            .put(format!("{}/v2/console/setting", env.base))
+            .put(format!("{}/v1/console/setting", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "name": "daily_reward",
@@ -76,7 +76,7 @@ pub async fn daily_claim(env: &Harness, console: &str) {
     // An empty configured reward is refused rather than paying nothing.
     json_body(
         env.client
-            .put(format!("{}/v2/console/setting", env.base))
+            .put(format!("{}/v1/console/setting", env.base))
             .bearer_auth(console)
             .json(&json!({ "name": "daily_reward", "value": { "currency": {} } }))
             .send()

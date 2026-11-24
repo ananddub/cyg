@@ -1,21 +1,21 @@
+use crate::services::plane::Plane;
+
 use axum::Json;
 use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use super::bearer;
-use crate::ApiState;
 use crate::dto::Empty;
 use crate::dto::auth;
 use crate::error::V2Error;
 use crate::infra::jwt;
 use crate::repositories::link::LinkEmailParams;
 use crate::services::auth::validate;
-use crate::services::deps::q;
 use crate::utils::link::{failure, guarded};
 
-async fn link_device(state: &ApiState, device_id: &str, uid: Uuid) -> Result<(), V2Error> {
+async fn link_device(plane: &Plane, device_id: &str, uid: Uuid) -> Result<(), V2Error> {
     const FAILED: &str = "Error linking Device ID.";
-    let queries = q(state).await?;
+    let queries = plane.q().await?;
     let owned = queries
         .count_owned_device(device_id, uid)
         .await
@@ -55,25 +55,25 @@ fn custom_id(raw: &str) -> Result<(), V2Error> {
 impl super::LinkService {
     pub async fn device(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::IdAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        let uid = bearer(headers, state)?;
+        let uid = bearer(headers, &self.plane)?;
         validate::id_field(&account.id, "Device ID", 10)?;
-        link_device(state, &account.id, uid).await?;
+        link_device(&self.plane, &account.id, uid).await?;
         Ok(Json(Empty {}))
     }
 
     pub async fn custom(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::IdAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        let uid = bearer(headers, state)?;
+        let uid = bearer(headers, &self.plane)?;
         custom_id(&account.id)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         queries
             .link_custom_id(&account.id, uid)
             .await
@@ -86,13 +86,13 @@ impl super::LinkService {
 
     pub async fn email(
         &self,
-        state: &ApiState,
+
         headers: &HeaderMap,
         account: auth::EmailAccount,
     ) -> Result<Json<Empty>, V2Error> {
-        let uid = bearer(headers, state)?;
+        let uid = bearer(headers, &self.plane)?;
         let email = validate::email_fields(&account.email, &account.password)?;
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         queries
             .link_email(&LinkEmailParams {
                 email,

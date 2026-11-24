@@ -17,7 +17,7 @@ fn test_voice_packet_roundtrip() {
     let encoded = packet.encode();
     assert_eq!(encoded.len(), HEADER_LEN + raw_opus.len());
 
-    let decoded = VoicePacket::decode(&encoded).expect("must decode cleanly");
+    let decoded = VoicePacket::decode(&encoded[..]).expect("must decode cleanly");
     assert_eq!(decoded.speaker_id, 42);
     assert_eq!(decoded.seq, 105);
     assert_eq!(decoded.timestamp, 48000);
@@ -31,6 +31,6 @@ fn test_voice_packet_roundtrip() {
 fn test_invalid_magic_rejected() {
     let mut buf = BytesMut::from(&[0x00u8; 20][..]);
     buf[0] = 0x99;
-    let err = VoicePacket::decode(&buf.freeze()).unwrap_err();
+    let err = VoicePacket::decode(&buf.freeze()[..]).unwrap_err();
     assert!(matches!(err, VoicePacketError::InvalidMagic(0x99)));
 }

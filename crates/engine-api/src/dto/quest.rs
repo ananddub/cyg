@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::repositories::models::{PlayerQuest, QuestDefinition};
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct QuestRow {
     pub quest_key: String,
     pub title: String,
@@ -18,12 +18,12 @@ pub struct QuestRow {
     pub active_from: DateTime<Utc>,
     pub active_to: DateTime<Utc>,
 }
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct QuestListResponse {
     pub quests: Vec<QuestRow>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct QuestClaimResponse {
     pub success: bool,
     pub message: String,
@@ -31,7 +31,7 @@ pub struct QuestClaimResponse {
     pub reward: serde_json::Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct DailyClaimResponse {
     pub success: bool,
     pub message: String,
@@ -60,13 +60,13 @@ pub struct IngestEventsRequest {
     pub events: Vec<SimEvent>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct CompletedQuest {
     pub user_id: Uuid,
     pub quest_key: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct IngestEventsResponse {
     pub success: bool,
     pub accepted: usize,

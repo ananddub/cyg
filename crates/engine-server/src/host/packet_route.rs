@@ -2,8 +2,14 @@ use std::time::Instant;
 
 use crate::host::*;
 
+/// The voice byte and the WebRTC voice opcode are the same number on the same wire.
+const _: () = assert!(
+    engine_voice::VOICE_MAGIC == engine_webrtc_protocol::OP_VOICE,
+    "engine-voice's VOICE_MAGIC and engine-webrtc-protocol's OP_VOICE are one wire byte"
+);
+
 impl<'a> Engine<'a> {
-    pub(crate) fn run_packet(&mut self, client_id: String, payload: bytes::Bytes) {
+    pub(crate) fn run_packet(&mut self, client_id: &str, payload: bytes::Bytes) {
         let history = EventHistory::new(&self.bus, &self.game_cfg);
         let Some(data) = strip_type_header(&payload) else {
             return;
@@ -39,7 +45,7 @@ impl<'a> Engine<'a> {
                 && 2 + type_len <= data.len()
                 && &data[2..2 + type_len] == b"__ox_schema_ready"
             {
-                room.schema_sent.insert(client_id.to_string());
+                room.schema_sent.insert(std::rc::Rc::from(client_id));
                 return;
             }
         }
@@ -53,19 +59,32 @@ impl<'a> Engine<'a> {
             return;
         }
 
+        // `engine-voice` and the WebRTC frame table both claim byte 0x56 — the voice packet's
+        // magic here, `OP_VOICE` there. They are the same wire, so the two must never drift:
+        // the assertion below turns a mismatch into a build error instead of a silent
+        // "voice packets become engine frames" bug at runtime.
         if data.len() >= engine_voice::HEADER_LEN && data[0] == engine_voice::VOICE_MAGIC {
-            let bytes = bytes::Bytes::copy_from_slice(data);
-            if let Ok(mut packet) = engine_voice::VoicePacket::decode(&bytes) {
+            // One owned copy serves both decode and the patched wire frame —
+            // the old path copied the packet twice per voice packet.
+            let mut wire_packet = data.to_vec();
+            if let Ok(mut packet) = engine_voice::VoicePacket::decode(&wire_packet[..]) {
                 packet.speaker_id = id as u32;
                 let routed = room.voice_room.dispatch_packet(&packet, Instant::now());
-                let mut wire_packet = data.to_vec();
                 wire_packet[1..5].copy_from_slice(&(id as u32).to_be_bytes());
-                for frame in routed {
-                    for (cid, &pid) in &room.sessions {
-                        if pid == id {
-                            continue;
+                if !routed.is_empty() {
+                    // Reverse index built once per packet (only when frames
+                    // routed), not a linear scan of all sessions per frame —
+                    // that was O(listeners × sessions) per voice packet.
+                    let pid_to_session: std::collections::HashMap<u32, &std::rc::Rc<str>> = room
+                        .sessions
+                        .iter()
+                        .map(|(cid, &pid)| (pid as u32, cid))
+                        .collect();
+                    for frame in routed {
+                        if frame.listener_id == id as u32 {
+                            continue; // never echo the speaker back
                         }
-                        if pid as u32 == frame.listener_id {
+                        if let Some(&cid) = pid_to_session.get(&frame.listener_id) {
                             let _ =
                                 self.transport
                                     .send_to(cid, OpCode::RoomDataBytes, &wire_packet);
@@ -76,7 +95,12 @@ impl<'a> Engine<'a> {
             return;
         }
 
-        if data.len() == 3 && data[0] == engine_voice::VOICE_MAGIC {
+        // Voice settings: [VOICE_MAGIC][b'T'|b'M'|b'D'][payload...].
+        // 'T' carries a client-hashed u32 team id; 'M'/'D' are one byte.
+        if data.len() >= 2
+            && data[0] == engine_voice::VOICE_MAGIC
+            && matches!(data[1], b'T' | b'M' | b'D')
+        {
             self.run_packet_voice_settings(id, data, room_name);
             return;
         }
@@ -122,20 +146,76 @@ impl<'a> Engine<'a> {
             return;
         }
 
-        self.rates.last_input_at.insert(client_id.to_string(), Instant::now());
+        // Schema input batch: replay the newest unacked frames in one app
+        // message. Validate the whole packet first, charge every sample to the
+        // rate bucket, then hand the batch to the guest. The seat's held frame
+        // is the newest individual frame, never the batch itself, so idle
+        // synthesis can bump its lane seq normally.
+        let mut guest_data = data;
+        if let Some(batch) = netcode::parse_input_batch(data) {
+            self.rates.note_input(client_id);
+            if !input_budget_allows_n(
+                &mut self.rates.rtc_input_rates,
+                self.clock.tick_interval,
+                client_id,
+                batch.frames.len(),
+            ) {
+                self.stats.recorder.inputs_dropped += 1;
+                return;
+            }
+            if let Some((seq, latest)) = batch.latest_frame() {
+                let entry = room.seqs.entry(id).or_insert(crate::rooms::SessionSeqs {
+                    input: 0,
+                    acked_event: 0,
+                    stamp: 0,
+                });
+                if entry.input == 0 || engine_webrtc_protocol::is_newer(entry.input, seq) {
+                    entry.input = seq;
+                }
+                if let Some(meta) = batch.meta {
+                    entry.stamp = meta.stamp;
+                }
+                room.last_input.insert(id, latest);
+                room.inputs_since_tick.insert(id);
+            }
+        } else {
+            self.rates.note_input(client_id);
+            // Schema input lane: peel the client's RTT stamp trailer (Phase D
+            // echo — the tail of the next delta carries it back) and remember
+            // the guest-ready frame as the seat's last input, so hold-last idle
+            // synthesis can re-deliver it on an empty tick. Anything else that
+            // reaches here is a plain app message, never held.
+            let (stripped, _meta) = netcode::extract_input_stamp(&mut room.seqs, id, data);
+            // The guest receives the original frame so the bridge can read the
+            // client timestamp trailer; `stripped` is only the held idle frame.
+            if let Some(seq) = netcode::input_app_seq(data) {
+                let entry = room.seqs.entry(id).or_insert(crate::rooms::SessionSeqs {
+                    input: 0,
+                    acked_event: 0,
+                    stamp: 0,
+                });
+                if entry.input == 0 || engine_webrtc_protocol::is_newer(entry.input, seq) {
+                    entry.input = seq;
+                }
+            }
+            if netcode::is_input_app_frame(stripped) {
+                room.last_input.insert(id, stripped.to_vec());
+                room.inputs_since_tick.insert(id);
+            }
+        }
         if room.is_ecs() {
-            room.ecs_input(&client_id, data);
+            room.ecs_input(&client_id, guest_data);
             flush_room_outbox(room, &mut self.transport, room_name, &history);
             return;
         }
 
         if let Some(ref mut wasm) = room.wasm {
-            match wasm.on_alloc(data.len() as i32) {
+            match wasm.on_alloc(guest_data.len() as i32) {
                 Ok(ptr_i32) => {
                     let ptr = ptr_i32 as u32;
-                    if let Err(e) = wasm.write_memory(ptr, data) {
+                    if let Err(e) = wasm.write_memory(ptr, guest_data) {
                         tracing::error!("[server] ⚠️ failed to write memory for player {id}: {e}");
-                    } else if let Err(e) = wasm.on_input(id, ptr_i32, data.len() as i32) {
+                    } else if let Err(e) = wasm.on_input(id, ptr_i32, guest_data.len() as i32) {
                         tracing::warn!("[server] ⚠️ guest trap in on_input for player {id}: {e}");
                     }
                 }

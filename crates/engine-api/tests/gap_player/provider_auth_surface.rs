@@ -3,18 +3,18 @@ use super::*;
 pub async fn provider_auth_surface(env: &Harness) {
     eprintln!("gap: social authenticate verbs");
     let key = server_key_header();
-    let url = |suffix: &str| format!("{}/v2/account/authenticate{suffix}", env.base);
+    let url = |suffix: &str| format!("{}/v1/account/authenticate{suffix}", env.base);
 
     for (label, path) in [
-        ("POST /v2/account/authenticate/apple", "/apple"),
-        ("POST /v2/account/authenticate/facebook", "/facebook"),
+        ("POST /v1/account/authenticate/apple", "/apple"),
+        ("POST /v1/account/authenticate/facebook", "/facebook"),
         (
-            "POST /v2/account/authenticate/facebookinstantgame",
+            "POST /v1/account/authenticate/facebookinstantgame",
             "/facebookinstantgame",
         ),
-        ("POST /v2/account/authenticate/gamecenter", "/gamecenter"),
-        ("POST /v2/account/authenticate/google", "/google"),
-        ("POST /v2/account/authenticate/steam", "/steam"),
+        ("POST /v1/account/authenticate/gamecenter", "/gamecenter"),
+        ("POST /v1/account/authenticate/google", "/google"),
+        ("POST /v1/account/authenticate/steam", "/steam"),
     ] {
         assert_eq!(
             refusal(
@@ -58,7 +58,7 @@ pub async fn provider_auth_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/account/authenticate/apple",
+            "POST /v1/account/authenticate/apple",
         )
         .await,
         "Apple authentication is not configured."
@@ -73,7 +73,7 @@ pub async fn provider_auth_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/account/authenticate/steam",
+            "POST /v1/account/authenticate/steam",
         )
         .await,
         "Steam authentication is not configured."
@@ -81,11 +81,11 @@ pub async fn provider_auth_surface(env: &Harness) {
 
     for (label, path, provider) in [
         (
-            "POST /v2/account/authenticate/facebook",
+            "POST /v1/account/authenticate/facebook",
             "/facebook",
             "Facebook",
         ),
-        ("POST /v2/account/authenticate/google", "/google", "Google"),
+        ("POST /v1/account/authenticate/google", "/google", "Google"),
     ] {
         assert_eq!(
             refusal(
@@ -131,7 +131,7 @@ pub async fn provider_auth_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/account/authenticate/facebookinstantgame with no signature",
+            "POST /v1/account/authenticate/facebookinstantgame with no signature",
         )
         .await,
         "Signed Player Info for a Facebook Instant Game is required."
@@ -146,7 +146,7 @@ pub async fn provider_auth_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::INTERNAL_SERVER_ERROR,
-            "POST /v2/account/authenticate/facebookinstantgame",
+            "POST /v1/account/authenticate/facebookinstantgame",
         )
         .await,
         "Error extracting the Facebook Instant Game player ID or validating the signature"
@@ -161,7 +161,7 @@ pub async fn provider_auth_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::BAD_REQUEST,
-            "POST /v2/account/authenticate/gamecenter with no body",
+            "POST /v1/account/authenticate/gamecenter with no body",
         )
         .await,
         "GameCenter access credentials are required."
@@ -198,7 +198,7 @@ pub async fn provider_auth_surface(env: &Harness) {
                 .await
                 .unwrap(),
             StatusCode::UNAUTHORIZED,
-            "POST /v2/account/authenticate/gamecenter",
+            "POST /v1/account/authenticate/gamecenter",
         )
         .await,
         "Could not authenticate GameCenter profile."

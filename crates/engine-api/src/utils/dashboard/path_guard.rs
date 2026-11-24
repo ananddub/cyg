@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-pub const ENV_DIST: &str = "OX_DASHBOARD_DIST";
+pub const ENV_DIST: &str = "CYG_DASHBOARD_DIST";
 
 pub const DIST_SUBPATH: &str = "dashboard/dist";
 

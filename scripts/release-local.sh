@@ -3,7 +3,7 @@
 #
 # Kya karta hai:
 #   1. Web console build (dashboard/dist — binary me embed hota hai)
-#   2. cyg-gaming release build (is machine ke OS/arch ke liye)
+#   2. cyg release build (is machine ke OS/arch ke liye)
 #   3. Tar.gz archive banao (binary + README + LICENSE)
 #   4. Windows cross-build AGAR toolchain installed hai (mingw-w64), warna skip
 #   5. GitHub release create ka READY COMMAND print karo — chalana TUMHE hai
@@ -20,16 +20,16 @@ cd "$ROOT/dashboard"
 if [ ! -d node_modules ]; then npm install --no-audit --no-fund; fi
 npm run build
 
-echo "━━━ 2/4 cyg-gaming release build (native) ━━━━━━━━━━━━━━━━━━━"
+echo "━━━ 2/4 cyg release build (native) ━━━━━━━━━━━━━━━━━━━"
 cd "$ROOT"
-cargo build --release --bin cyg-gaming
-BIN="target/release/cyg-gaming"
+cargo build --release --bin cyg
+BIN="target/release/cyg"
 [ -f "$BIN" ] || { echo "✗ build failed"; exit 1; }
 
 echo "━━━ 3/4 Archives ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-TAG_NAME="cyg-gaming-$(cargo metadata --no-deps --format-version 1 2>/dev/null | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo x86_64-linux)"
+TAG_NAME="cyg-$(cargo metadata --no-deps --format-version 1 2>/dev/null | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo x86_64-linux)"
 HOST_TRIPLE="$(rustc -vV | grep host | cut -d' ' -f2)"
-NAME="cyg-gaming-$HOST_TRIPLE"
+NAME="cyg-$HOST_TRIPLE"
 rm -rf "$OUT/$NAME" "$OUT/$NAME.tar.gz"
 mkdir -p "$OUT/$NAME"
 cp "$BIN" "$OUT/$NAME/"
@@ -39,11 +39,11 @@ echo "✓ $OUT/$NAME.tar.gz"
 
 echo "━━━ 4/4 Windows cross-build (optional) ━━━━━━━━━━━━━━━━━━━━━"
 if rustup target list --installed | grep -q x86_64-pc-windows-gnu && command -v x86_64-w64-mingw32-gcc > /dev/null; then
-    cargo build --release --bin cyg-gaming --target x86_64-pc-windows-gnu
-    WNAME="cyg-gaming-x86_64-pc-windows-gnu"
+    cargo build --release --bin cyg --target x86_64-pc-windows-gnu
+    WNAME="cyg-x86_64-pc-windows-gnu"
     rm -rf "$OUT/$WNAME" "$OUT/$WNAME.zip"
     mkdir -p "$OUT/$WNAME"
-    cp "target/x86_64-pc-windows-gnu/release/cyg-gaming.exe" "$OUT/$WNAME/"
+    cp "target/x86_64-pc-windows-gnu/release/cyg.exe" "$OUT/$WNAME/"
     cp README.md LICENSE "$OUT/$WNAME/"
     (cd "$OUT" && zip -q -r "$WNAME.zip" "$WNAME")
     echo "✓ $OUT/$WNAME.zip"

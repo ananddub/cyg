@@ -2,8 +2,8 @@ use bytes::Bytes;
 use engine_spatial::SpatialIndex3D;
 use std::collections::HashMap;
 
-use crate::packet::VoicePacket;
 use super::DistanceModel;
+use crate::packet::VoicePacket;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoutedVoiceFrame {

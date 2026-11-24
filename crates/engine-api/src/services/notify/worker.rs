@@ -1,3 +1,5 @@
+use crate::services::plane::Plane;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,7 +32,7 @@ pub async fn delivery_loop(state: ApiState) {
     let mut in_flight = JoinSet::new();
     loop {
         beat.tick().await;
-        let Ok(queries) = q(&state).await else {
+        let Ok(queries) = q(&state.plane()).await else {
             continue;
         };
         // A row still marked `sending` twice the vendor timeout ago was taken by
@@ -65,7 +67,7 @@ pub async fn delivery_loop(state: ApiState) {
             let queries = queries.clone();
             let state = state.clone();
             in_flight.spawn(async move {
-                settle(&queries, &state, vendor, row).await;
+                settle(&queries, &state.plane(), vendor, row).await;
             });
         }
     }
@@ -75,7 +77,7 @@ pub async fn delivery_loop(state: ApiState) {
 /// vendor's answer back.
 async fn settle(
     queries: &Arc<Queries>,
-    state: &ApiState,
+    plane: &Plane,
     vendor: Arc<dyn Vendor>,
     row: DeliveryAttempt,
 ) {
@@ -84,7 +86,7 @@ async fn settle(
     };
     // The budget is spent when the message goes, not when it is queued: a queue
     // nobody is paying for is a queue that grows.
-    if let Err(err) = quota::charge(state, row.user_id, quota::NOTIFY_SEND, 1).await {
+    if let Err(err) = quota::charge(plane, row.user_id, quota::NOTIFY_SEND, 1).await {
         if err.kind == RESOURCE_EXHAUSTED {
             let wait = i64::from(err.retry_after.unwrap_or(60)).max(1);
             let _ = queries

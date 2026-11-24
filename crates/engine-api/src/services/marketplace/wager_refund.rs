@@ -4,18 +4,12 @@ use uuid::Uuid;
 
 use super::wagers::closed_once;
 use super::{MarketplaceService, transfer};
-use crate::ApiState;
 use crate::dto::marketplace::{WagerResponse, WagerRow};
 use crate::error::V2Error;
-use crate::services::deps::q;
 
 impl MarketplaceService {
-    pub async fn refund_wager(
-        &self,
-        state: &ApiState,
-        wager_id: Uuid,
-    ) -> Result<Json<WagerResponse>, V2Error> {
-        let queries = q(state).await?;
+    pub async fn refund_wager(&self, wager_id: Uuid) -> Result<Json<WagerResponse>, V2Error> {
+        let queries = self.plane.q().await?;
         let wager = closed_once(&queries, wager_id).await?;
         let refunded = queries
             .flip_wager(wager.id, "refunded", &json!({}))
@@ -41,7 +35,7 @@ impl MarketplaceService {
             return Err(err);
         }
         crate::services::webhook::emit(
-            state,
+            &self.plane,
             "marketplace.trade.settled",
             &format!("{wager_id}:refunded"),
             serde_json::json!({

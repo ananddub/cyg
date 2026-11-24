@@ -5,7 +5,7 @@ use engine_net::transport::WebRtcTransport;
 use engine_wasm::WasmRuntime;
 
 use crate::host::*;
-use engine_config::GameConfig;
+use engine_config::{GameConfig, Lane};
 pub(crate) fn boot_runtime(
     wasm_path: &Path,
     cfg: &GameConfig,
@@ -17,6 +17,7 @@ pub(crate) fn boot_runtime(
             .watchdog
             .enabled
             .then_some(cfg.watchdog.epoch_deadline_ticks),
+        use_pooling_allocator: cfg.wasm_pooling,
         ..engine_wasm::WasmConfig::default()
     })
     .expect("wasm runtime");
@@ -37,43 +38,62 @@ pub(crate) fn boot_runtime(
     }
 
     let webrtc_port: u16 = cfg.port;
-    let webrtc_udp = std::net::UdpSocket::bind(format!("0.0.0.0:{webrtc_port}"))
-        .or_else(|_| std::net::UdpSocket::bind("0.0.0.0:0"))
-        .ok();
-    let raw_transport = if let Some(sock) = webrtc_udp {
-        let actual_port = sock.local_addr().map(|a| a.port()).unwrap_or(webrtc_port);
-        tracing::info!(
-            "[server] ⚡ WebRTC DataChannel server listening on udp://0.0.0.0:{actual_port}"
-        );
-        let local_addr: SocketAddr = format!("127.0.0.1:{actual_port}").parse().unwrap();
-        let mut announced = vec![local_addr];
-        let lan_ip = std::net::UdpSocket::bind("0.0.0.0:0")
-            .and_then(|s| s.connect("8.8.8.8:80").map(|_| s.local_addr()))
-            .ok()
-            .and_then(|a| a.ok())
-            .map(|a| a.ip());
-        if let Some(ip) = lan_ip {
-            let lan_addr = SocketAddr::new(ip, actual_port);
-            if lan_addr != local_addr {
-                announced.push(lan_addr);
-                tracing::info!("[server] ⚡ WebRTC announced LAN candidate: {lan_addr}");
+    // WebRTC is the lane a browser reaches first, and every other transport in
+    // this server is described as "same wire contract as WebRTC" — so it is the
+    // one lane that cannot simply be absent. Turning it off binds a loopback-only
+    // socket and announces no candidates: nothing off-box can complete a
+    // handshake, which is what an operator disabling it is asking for, and no
+    // client silently falls back onto a public lane they did not enable.
+    let webrtc_on = cfg.transports.enabled(Lane::WebRtc);
+    let raw_transport = if webrtc_on {
+        let webrtc_udp = std::net::UdpSocket::bind(format!("0.0.0.0:{webrtc_port}"))
+            .or_else(|_| std::net::UdpSocket::bind("0.0.0.0:0"))
+            .ok();
+        if let Some(sock) = webrtc_udp {
+            let actual_port = sock.local_addr().map(|a| a.port()).unwrap_or(webrtc_port);
+            tracing::info!(
+                "[server] ⚡ WebRTC DataChannel server listening on udp://0.0.0.0:{actual_port}"
+            );
+            let local_addr: SocketAddr = format!("127.0.0.1:{actual_port}").parse().unwrap();
+            let mut announced = vec![local_addr];
+            let lan_ip = std::net::UdpSocket::bind("0.0.0.0:0")
+                .and_then(|s| s.connect("8.8.8.8:80").map(|_| s.local_addr()))
+                .ok()
+                .and_then(|a| a.ok())
+                .map(|a| a.ip());
+            if let Some(ip) = lan_ip {
+                let lan_addr = SocketAddr::new(ip, actual_port);
+                if lan_addr != local_addr {
+                    announced.push(lan_addr);
+                    tracing::info!("[server] ⚡ WebRTC announced LAN candidate: {lan_addr}");
+                }
             }
+            if let Ok(ip) = std::env::var("PUBLIC_IP")
+                && let Ok(a) = format!("{ip}:{actual_port}").parse()
+            {
+                announced.push(a);
+            }
+            WebRtcTransport::from_socket(sock, announced).expect("webrtc transport")
+        } else {
+            tracing::error!(
+                "[server] ⚠️ webrtc bind :{webrtc_port} failed — WebRTC data plane disabled"
+            );
+            WebRtcTransport::from_socket(
+                std::net::UdpSocket::bind("127.0.0.1:0").expect("ephemeral udp bind"),
+                Vec::new(),
+            )
+            .expect("ephemeral webrtc transport")
         }
-        if let Ok(ip) = std::env::var("PUBLIC_IP")
-            && let Ok(a) = format!("{ip}:{actual_port}").parse()
-        {
-            announced.push(a);
-        }
-        WebRtcTransport::from_socket(sock, announced).expect("webrtc transport")
     } else {
-        tracing::error!(
-            "[server] ⚠️ webrtc bind :{webrtc_port} failed — WebRTC data plane disabled"
+        tracing::info!(
+            "[server] webrtc lane off ([transports] webrtc = false) — loopback socket, \
+             no candidates announced"
         );
         WebRtcTransport::from_socket(
-            std::net::UdpSocket::bind("127.0.0.1:0").expect("ephemeral udp bind"),
+            std::net::UdpSocket::bind("127.0.0.1:0").expect("loopback udp bind"),
             Vec::new(),
         )
-        .expect("ephemeral webrtc transport")
+        .expect("webrtc transport")
     };
 
     (runtime, _epoch_ticker, raw_transport)

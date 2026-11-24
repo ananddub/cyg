@@ -1,7 +1,7 @@
-mod types;
 mod history;
 mod manager;
+mod types;
 
-pub use types::{HistorySample, Interpolation, TransformSnapshot};
 pub use history::EntityHistory;
 pub use manager::RewindManager;
+pub use types::{HistorySample, Interpolation, TransformSnapshot};

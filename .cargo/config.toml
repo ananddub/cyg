@@ -1,4 +1,18 @@
-# Machine courtesy: this box is shared (Docker, emulator, browser sessions).
-# Cargo never takes more than 8 cores, whatever it is building.
 [build]
-jobs = 8
+# Native codegen: the SIMD/BMI extensions this machine has — the profiling
+# and bench recipes build for the deploy host, so this is the right default
+# here. Distributing a release binary built with this is host-specific.
+rustflags = ["-C", "target-cpu=native", "-C", "link-arg=-fuse-ld=mold"]
+
+# mold: parallel in-memory linker — dev/test link times drop from tens of
+# seconds to ~1s on this repo (wasmtime + rapier dep tree, 28GB target dir).
+
+[profile.dev]
+# Line tables only: backtraces still resolve to function names, but we skip
+# the full DWARF that dominated link time for the workspace's test binaries.
+debug = "line-tables-only"
+
+[env]
+# Integration tests exercise unsigned server-key calls; the deployed process is
+# not started by Cargo and still defaults to required request signing.
+CYG_SIGNING = "off"

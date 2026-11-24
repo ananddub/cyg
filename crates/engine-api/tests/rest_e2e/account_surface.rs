@@ -8,7 +8,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/account"))
+                .get(format!("{base}/v1/account"))
                 .send()
                 .await
                 .unwrap(),
@@ -21,7 +21,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/account"))
+                .get(format!("{base}/v1/account"))
                 .bearer_auth("not-a-jwt")
                 .send()
                 .await
@@ -35,7 +35,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let account = json_body(
         client
-            .get(format!("{base}/v2/account"))
+            .get(format!("{base}/v1/account"))
             .bearer_auth(&player.token)
             .send()
             .await
@@ -61,7 +61,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     let renamed = clean_username("renamed");
     let updated = json_body(
         client
-            .put(format!("{base}/v2/account"))
+            .put(format!("{base}/v1/account"))
             .bearer_auth(&player.token)
             .json(&json!({
                 "display_name": "E2E Hero",
@@ -89,7 +89,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .put(format!("{base}/v2/account"))
+                .put(format!("{base}/v1/account"))
                 .bearer_auth(&player.token)
                 .json(&json!({ "metadata": "{broken" }))
                 .send()
@@ -105,7 +105,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     let shared_custom = format!("shared-{}", letters_suffix());
     let claimed = json_body(
         client
-            .put(format!("{base}/v2/account"))
+            .put(format!("{base}/v1/account"))
             .bearer_auth(&player.token)
             .json(&json!({ "custom_id": shared_custom }))
             .send()
@@ -119,7 +119,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .put(format!("{base}/v2/account"))
+                .put(format!("{base}/v1/account"))
                 .bearer_auth(&other.token)
                 .json(&json!({ "custom_id": shared_custom }))
                 .send()
@@ -134,7 +134,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
 
     let wallet = json_body(
         client
-            .get(format!("{base}/v2/account/wallet"))
+            .get(format!("{base}/v1/account/wallet"))
             .bearer_auth(&player.token)
             .send()
             .await
@@ -148,7 +148,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/wallet"))
+                .post(format!("{base}/v1/account/wallet"))
                 .bearer_auth(&player.token)
                 .json(&json!({ "wallet_items": { "gold": 10 } }))
                 .send()
@@ -163,7 +163,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/wallet"))
+                .post(format!("{base}/v1/account/wallet"))
                 .bearer_auth(&player.token)
                 .json(&json!({}))
                 .send()
@@ -178,7 +178,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/wallet"))
+                .post(format!("{base}/v1/account/wallet"))
                 .bearer_auth(&player.token)
                 .json(&json!({ "ledger_items": [{ "id": "not-a-uuid", "metadata": {} }] }))
                 .send()
@@ -193,7 +193,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/wallet"))
+                .post(format!("{base}/v1/account/wallet"))
                 .bearer_auth(&player.token)
                 .json(&json!({ "ledger_items": [{ "id": Uuid::new_v4().to_string(), "metadata": {} }] }))
                 .send()
@@ -210,7 +210,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     seed_ledger(pool, ledger_id, &player.uid, json!({"gold": 25})).await;
     let merged = json_body(
         client
-            .post(format!("{base}/v2/account/wallet"))
+            .post(format!("{base}/v1/account/wallet"))
             .bearer_auth(&player.token)
             .json(&json!({ "ledger_items": [{ "id": ledger_id.to_string(), "metadata": { "note": "merged" } }] }))
             .send()
@@ -233,7 +233,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     seed_ledger(pool, second_ledger, &player.uid, json!({"gems": 5})).await;
     json_body(
         client
-            .put(format!("{base}/v2/account/wallet"))
+            .put(format!("{base}/v1/account/wallet"))
             .bearer_auth(&player.token)
             .json(&json!({ "ledger_items": [{ "id": second_ledger.to_string(), "metadata": { "note": "put" } }] }))
             .send()
@@ -248,7 +248,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/wallet"))
+                .post(format!("{base}/v1/account/wallet"))
                 .bearer_auth(&player.token)
                 .json(&json!({ "ledger_items": [{ "id": foreign_ledger.to_string(), "metadata": {} }] }))
                 .send()
@@ -264,7 +264,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/session/refresh"))
+                .post(format!("{base}/v1/account/session/refresh"))
                 .json(&json!({ "token": player.refresh_token }))
                 .send()
                 .await
@@ -278,7 +278,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/session/refresh"))
+                .post(format!("{base}/v1/account/session/refresh"))
                 .header(reqwest::header::AUTHORIZATION, server_key_header())
                 .json(&json!({ "token": "" }))
                 .send()
@@ -293,7 +293,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/session/refresh"))
+                .post(format!("{base}/v1/account/session/refresh"))
                 .header(reqwest::header::AUTHORIZATION, server_key_header())
                 .json(&json!({ "token": "not-a-token" }))
                 .send()
@@ -307,7 +307,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     );
     let refreshed = json_body(
         client
-            .post(format!("{base}/v2/account/session/refresh"))
+            .post(format!("{base}/v1/account/session/refresh"))
             .header(reqwest::header::AUTHORIZATION, server_key_header())
             .json(&json!({ "token": player.refresh_token, "vars": { "platform": "refreshed" } }))
             .send()
@@ -323,7 +323,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     let refreshed_refresh = refreshed["refresh_token"].as_str().unwrap().to_owned();
     json_body(
         client
-            .get(format!("{base}/v2/account"))
+            .get(format!("{base}/v1/account"))
             .bearer_auth(&refreshed_token)
             .send()
             .await
@@ -336,7 +336,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/session/logout"))
+                .post(format!("{base}/v1/session/logout"))
                 .json(&json!({}))
                 .send()
                 .await
@@ -350,7 +350,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/session/logout"))
+                .post(format!("{base}/v1/session/logout"))
                 .bearer_auth(&refreshed_token)
                 .json(&json!({ "token": "not-a-token" }))
                 .send()
@@ -364,7 +364,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     );
     let logged_out = json_body(
         client
-            .post(format!("{base}/v2/session/logout"))
+            .post(format!("{base}/v1/session/logout"))
             .bearer_auth(&refreshed_token)
             .json(&json!({ "token": refreshed_token, "refresh_token": refreshed_refresh }))
             .send()
@@ -378,7 +378,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/account"))
+                .get(format!("{base}/v1/account"))
                 .bearer_auth(&refreshed_token)
                 .send()
                 .await
@@ -392,7 +392,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/session/refresh"))
+                .post(format!("{base}/v1/account/session/refresh"))
                 .header(reqwest::header::AUTHORIZATION, server_key_header())
                 .json(&json!({ "token": refreshed_refresh }))
                 .send()
@@ -412,7 +412,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     let console = console_login(client, base).await;
     json_body(
         client
-            .post(format!("{base}/v2/console/account/{}/wallet", doomed.uid))
+            .post(format!("{base}/v1/console/account/{}/wallet", doomed.uid))
             .bearer_auth(&console)
             .json(&json!({ "changeset": { "gold": 40 }, "metadata": { "reason": "e2e" } }))
             .send()
@@ -424,7 +424,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     .await;
     let snapshot = json_body(
         client
-            .get(format!("{base}/v2/account/export"))
+            .get(format!("{base}/v1/account/export"))
             .bearer_auth(&doomed.token)
             .send()
             .await
@@ -457,7 +457,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     }
     let deleted = json_body(
         client
-            .delete(format!("{base}/v2/account"))
+            .delete(format!("{base}/v1/account"))
             .bearer_auth(&doomed.token)
             .send()
             .await
@@ -470,7 +470,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .get(format!("{base}/v2/account"))
+                .get(format!("{base}/v1/account"))
                 .bearer_auth(&doomed.token)
                 .send()
                 .await
@@ -500,7 +500,7 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
     assert_eq!(
         refusal(
             client
-                .post(format!("{base}/v2/account/session/refresh"))
+                .post(format!("{base}/v1/account/session/refresh"))
                 .header(reqwest::header::AUTHORIZATION, server_key_header())
                 .json(&json!({ "token": doomed.refresh_token }))
                 .send()
@@ -516,7 +516,10 @@ pub async fn account_surface(client: &Client, base: &str, pool: &Datastore) {
         ("wallet_ledger", "(user_id = <uuid>$u OR user_id = $u)"),
         ("user_device", "(user_id = <uuid>$u OR user_id = $u)"),
         ("storage", "(user_id = <uuid>$u OR user_id = $u)"),
-        ("user_edge", "(source_id = <uuid>$u OR destination_id = <uuid>$u)"),
+        (
+            "user_edge",
+            "(source_id = <uuid>$u OR destination_id = <uuid>$u)",
+        ),
     ] {
         assert_eq!(
             count(pool, table, Some(filter), &[("u", json!(doomed.uid))]).await,

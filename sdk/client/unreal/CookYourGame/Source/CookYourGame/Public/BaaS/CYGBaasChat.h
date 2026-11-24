@@ -7,7 +7,7 @@
 
 class FJsonObject;
 
-/** One message from a `/v2/channel` stream. */
+/** One message from a `/v1/channel` stream. */
 struct FCYGBaasChatMessage
 {
 	FString ChannelId;
@@ -47,7 +47,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FCYGBaasChatMessageEvent, const FCYGBaasChat
 DECLARE_MULTICAST_DELEGATE_TwoParams(FCYGBaasChatUpdatedEvent, const FString&, const TArray<FCYGBaasChatMessage>&);
 
 /**
- * Text channels over the control plane's `/v2/channel` routes, with a local
+ * Text channels over the control plane's `/v1/channel` routes, with a local
  * timeline cache. Every call is a callback, matching the rest of the BaaS
  * layer; the two static delegates report live arrivals and cache changes.
  * A channel id is the server's dotted four-part id

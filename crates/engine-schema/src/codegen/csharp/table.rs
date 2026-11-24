@@ -9,16 +9,15 @@ pub(super) fn cs_field_table(fields: &[SchemaField]) -> String {
     for field in fields {
         let _ = writeln!(
             out,
-            "            new OxFieldDef(\"{}\", OxWireKind::{:?}, {}, OxWireKind::{:?}, {}),",
+            "            new CygFieldDef(\"{}\", CygWireKind::{:?}, {}, CygWireKind::{:?}, {}),",
             escape_string(&field.name),
             field.kind,
             field.flags,
             field.element.unwrap_or(WireKind::U8),
             kind_size(field)
         );
-
     }
-    out.replace("OxWireKind::", "OxWireKind.")
+    out.replace("CygWireKind::", "CygWireKind.")
 }
 
 pub(super) fn cs_field_read(field: &SchemaField, index: usize) -> String {

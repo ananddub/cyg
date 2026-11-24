@@ -83,3 +83,18 @@ fn a_slow_ack_pulls_the_timeout_toward_the_measured_round_trip() {
     );
     assert_eq!(ReliableLane::rto_from(90_000.0), MAX_RTO);
 }
+
+#[test]
+fn byte_and_pacing_counters_are_reported() {
+    let mut lane = ReliableLane::new();
+    lane.queue(1, wire(1), 0).unwrap();
+    lane.pump(0, |_| true);
+    let c = lane.counts();
+    assert_eq!(c.bytes_sent, 14);
+    assert_eq!(c.sent, 1);
+    assert_eq!(c.cwnd_bytes, lane.cwnd_bytes() as u64);
+    lane.ack(1, 50);
+    let c = lane.counts();
+    assert_eq!(c.bytes_acked, 14);
+    assert!(c.pto_count == 0);
+}

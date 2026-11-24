@@ -11,7 +11,7 @@ struct ConsoleRoomController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/room")]
+#[controller("/v1/console/room")]
 impl ConsoleRoomController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
@@ -20,9 +20,9 @@ impl ConsoleRoomController {
     /// Who runs what, across the fleet. Read-only: the claim and the release are
     /// the hosts', and a console that could edit them would put an operator's
     /// guess above the node that is actually ticking the room.
-    #[get("")]
+    #[get("", response_body = crate::dto::console::room::ConsoleRoomList)]
     async fn list(&self, _auth: ConsoleAuthed) -> Response {
         let state = current_state();
-        self.service.list_rooms(&state).await.into_response()
+        self.service.list_rooms().await.into_response()
     }
 }

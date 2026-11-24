@@ -1,0 +1,26 @@
+sequenceDiagram
+    autonumber
+    actor P as Player Client
+    participant API as Control Plane<br/>engine-api
+    participant DB as SurrealDB
+    participant GS as Game Server / Room
+
+    Note over API,DB: Operator already created<br/>quest_definition via /v1/console/quests
+
+    GS->>API: POST /v1/events (server key)<br/>{ events: [{ user_id, name: "wins", value: 1 }] }
+    API->>DB: increase player_stat(user, "wins")
+    API->>DB: re-project player_quest progress
+    opt goal crossed
+        API-->>GS: completed quest + quest.completed webhook
+    end
+
+    P->>API: GET /v1/quest
+    API->>DB: definitions + stats + seasons + IAP entitlements
+    API-->>P: quests[] with progress + state
+
+    P->>API: POST /v1/quest/claim<br/>{ quest_key }
+    API->>DB: flip player_quest to claimed
+    API->>DB: pay currency + items (idempotent seed)
+    API-->>P: reward
+
+    Note over P,API: second claim refuses<br/>already claimed

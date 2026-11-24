@@ -74,14 +74,15 @@ impl WasmService {
         )))
     }
     pub(super) fn publish_reload(
-        state: &ApiState,
+        &self,
+
         game_id: Uuid,
         game_key: &str,
         module: &ModuleDto,
         kind: ReloadKind,
         bytes: Vec<u8>,
     ) {
-        let _ = state.bus.reloads_tx.try_send(WasmReload {
+        let _ = self.plane.bus.reloads_tx.try_send(WasmReload {
             game_id: game_id.to_string(),
             game_key: game_key.to_owned(),
             version: module.version,

@@ -81,7 +81,7 @@ impl Sender {
                 let offered = greet(&mut plain, &self.settings.ehlo).await?;
                 if !offers(&offered, "STARTTLS") {
                     return Ok(Receipt::Refused(
-                        "the relay will not upgrade the connection, and OX_EMAIL_TLS is not none"
+                        "the relay will not upgrade the connection, and CYG_EMAIL_TLS is not none"
                             .to_owned(),
                     ));
                 }

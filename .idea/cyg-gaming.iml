@@ -60,6 +60,40 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-schema/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-schema/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/engine-server/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-hooks/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/cyg-core-rs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/cyg-core-rs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/cyg-loadtest/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/cyg-loadtest/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-signaling/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/verus/ox-verified/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-manager/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-visualizer-3d/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-visualizer/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine-webrtc-protocol/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/procwatch/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/procwatch/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-highlights/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-kit/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-kit/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-kit/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-mermaid/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-motion/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-motion/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-motion/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-ref/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-ref/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-ref/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-ref/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-staging/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune-taffy/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/crates/rune/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/themes/opencode/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/vendor/rune/vendor/tiny-skia-path/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/auto/route_macros/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

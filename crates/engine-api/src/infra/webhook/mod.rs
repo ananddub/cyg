@@ -68,18 +68,18 @@ pub fn verifies(secret: &str, timestamp: &str, body: &str, presented: &str, now:
 
 /// What the console shows an operator, so the receiver can be written from it
 /// rather than guessed at.
-pub fn spec() -> serde_json::Value {
-    serde_json::json!({
-        "algorithm": "HMAC-SHA256",
-        "signed_string": "<X-CYG-Timestamp>.<raw request body>",
-        "signature_header": SIGNATURE_HEADER,
-        "signature_format": "v1=<lowercase hex>",
-        "timestamp_header": TIMESTAMP_HEADER,
-        "delivery_header": DELIVERY_HEADER,
-        "replay_window_seconds": REPLAY_WINDOW,
-        "content_type": "application/json",
-        "note": "verify the body bytes exactly as received, before parsing them",
-    })
+pub fn spec() -> crate::dto::webhook::WebhookSigningSpec {
+    crate::dto::webhook::WebhookSigningSpec {
+        algorithm: "HMAC-SHA256".to_owned(),
+        signed_string: "<X-CYG-Timestamp>.<raw request body>".to_owned(),
+        signature_header: SIGNATURE_HEADER.to_owned(),
+        signature_format: "v1=<lowercase hex>".to_owned(),
+        timestamp_header: TIMESTAMP_HEADER.to_owned(),
+        delivery_header: DELIVERY_HEADER.to_owned(),
+        replay_window_seconds: REPLAY_WINDOW,
+        content_type: "application/json".to_owned(),
+        note: "verify the body bytes exactly as received, before parsing them".to_owned(),
+    }
 }
 
 #[cfg(test)]

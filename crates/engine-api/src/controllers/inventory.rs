@@ -17,43 +17,34 @@ struct InventoryController {
     service: Arc<InventoryService>,
 }
 
-#[controller("/v2/inventory")]
+#[controller("/v1/inventory")]
 impl InventoryController {
     fn new(service: Arc<InventoryService>) -> Self {
         Self { service }
     }
 
-    #[get("")]
+    #[get("", response_body = crate::dto::inventory::ListInventoryResponse)]
     async fn list(&self, auth: Authed) -> Response {
         let state = current_state();
-        self.service
-            .get_inventory(&state, &auth)
-            .await
-            .into_response()
+        self.service.get_inventory(&auth).await.into_response()
     }
 
-    #[post("/equip")]
+    #[post("/equip", response_body = crate::dto::inventory::InventoryOperationResponse)]
     async fn equip(&self, auth: Authed, Json(body): JsonBody<EquipItemRequest>) -> Response {
         let state = current_state();
-        self.service
-            .equip_item(&state, &auth, body)
-            .await
-            .into_response()
+        self.service.equip_item(&auth, body).await.into_response()
     }
 
-    #[post("/consume")]
+    #[post("/consume", response_body = crate::dto::inventory::InventoryOperationResponse)]
     async fn consume(&self, auth: Authed, Json(body): JsonBody<ConsumeItemRequest>) -> Response {
         let state = current_state();
-        self.service
-            .consume_item(&state, &auth, body)
-            .await
-            .into_response()
+        self.service.consume_item(&auth, body).await.into_response()
     }
 
-    #[post("/grant")]
+    #[post("/grant", response_body = crate::dto::inventory::InventoryOperationResponse)]
     async fn grant(&self, headers: HeaderMap, Json(body): JsonBody<GrantItemRequest>) -> Response {
         let state = current_state();
-        if let Err(err) = server_key_or_console(&headers, &state) {
+        if let Err(err) = server_key_or_console(&headers, &*state.plane()) {
             return err.into_response();
         }
         let Some(target) = body.user_id else {
@@ -71,7 +62,7 @@ impl InventoryController {
             .map(|m| m.to_string())
             .unwrap_or_default();
         let mut claim = match crate::services::idempotency::begin(
-            &state,
+            &*state.plane(),
             &headers,
             "inventory.grant",
             &actor,
@@ -89,22 +80,20 @@ impl InventoryController {
             Err(err) => return err.into_response(),
         };
         if let Some(saved) = claim.replayed() {
-            return axum::Json(saved).into_response();
+            return crate::app::middleware::replay_response(saved);
         }
         let instance_id = claim.operation_uuid().unwrap_or_else(uuid::Uuid::new_v4);
-        let result = self
-            .service
-            .grant_item(&state, target, body, instance_id)
-            .await;
-        let stored = result
-            .as_ref()
-            .ok()
-            .and_then(|json| serde_json::to_value(&json.0).ok());
+        let result = self.service.grant_item(target, body, instance_id).await;
+        let stored = result.as_ref().ok().and_then(|json| {
+            serde_json::to_string(&json.0)
+                .ok()
+                .map(|raw| crate::services::idempotency::Stored { status: 200, raw })
+        });
         claim.settle(stored).await;
         result.into_response()
     }
 
-    #[post("/define")]
+    #[post("/define", response_body = crate::dto::inventory::InventoryOperationResponse)]
     async fn define(
         &self,
         auth: ConsoleAuthed,
@@ -114,15 +103,16 @@ impl InventoryController {
             return err.into_response();
         }
         let state = current_state();
-        self.service.define_item(&state, body).await.into_response()
+        self.service.define_item(body).await.into_response()
     }
 }
 
 fn grant_actor(headers: &HeaderMap, state: &crate::ApiState) -> String {
-    if server_key(headers, state).is_ok() {
+    if server_key(headers, &*state.plane()).is_ok() {
         return "server".to_owned();
     }
-    match crate::app::middleware::console_claims(headers) {
+    match crate::app::middleware::console_claims(headers, &*state.plane(), crate::current_remote())
+    {
         Ok(claims) => format!("console:{}", claims.uuid().unwrap_or_else(uuid::Uuid::nil)),
         Err(_) => "server".to_owned(),
     }

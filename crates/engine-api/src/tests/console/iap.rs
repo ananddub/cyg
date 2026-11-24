@@ -14,16 +14,16 @@ const RECEIPT: &str = r#"{"receipt":"MIIB…base64-pkcs7"}"#;
 fn the_iap_writes_demand_a_console_token_in_the_shared_envelope() {
     let server = V2Server::start(v2_state());
 
-    let reply = server.post("/v2/console/iap/apple/validate", None, RECEIPT);
+    let reply = server.post("/v1/console/iap/apple/validate", None, RECEIPT);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token required");
     let body = reply.json();
     assert_eq!(body["error"]["code"].as_u64(), Some(16));
     assert!(body["error"]["details"].is_array());
 
-    let reply = server.delete("/v2/console/iap/google/reset", None);
+    let reply = server.delete("/v1/console/iap/google/reset", None);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token required");
 
-    let reply = server.delete("/v2/console/subscription/season-pass", None);
+    let reply = server.delete("/v1/console/subscription/season-pass", None);
     assert_eq!(reply.refusal(UNAUTHENTICATED), "Console token required");
 }
 
@@ -32,13 +32,13 @@ fn a_read_only_operator_cannot_validate_reset_or_delete_iap_rows() {
     let server = V2Server::start(v2_state());
     let auth = token_for(ConsoleRole::Readonly);
 
-    let reply = server.post("/v2/console/iap/apple/validate", Some(&auth), RECEIPT);
+    let reply = server.post("/v1/console/iap/apple/validate", Some(&auth), RECEIPT);
     assert_eq!(reply.refusal(PERMISSION_DENIED), READ_ONLY);
 
-    let reply = server.delete("/v2/console/iap/huawei/reset", Some(&auth));
+    let reply = server.delete("/v1/console/iap/huawei/reset", Some(&auth));
     assert_eq!(reply.refusal(PERMISSION_DENIED), READ_ONLY);
 
-    let reply = server.delete("/v2/console/subscription/season-pass", Some(&auth));
+    let reply = server.delete("/v1/console/subscription/season-pass", Some(&auth));
     assert_eq!(reply.refusal(PERMISSION_DENIED), READ_ONLY);
 }
 
@@ -47,13 +47,13 @@ fn an_unknown_vendor_is_refused_before_anything_else_about_the_request() {
     let server = V2Server::start(v2_state());
     let auth = token_for(ConsoleRole::Admin);
 
-    let reply = server.post("/v2/console/iap/nintendo/validate", Some(&auth), RECEIPT);
+    let reply = server.post("/v1/console/iap/nintendo/validate", Some(&auth), RECEIPT);
     assert_eq!(
         reply.refusal(INVALID_ARGUMENT),
         "Unknown IAP vendor: nintendo"
     );
 
-    let reply = server.delete("/v2/console/iap/nintendo/reset", Some(&auth));
+    let reply = server.delete("/v1/console/iap/nintendo/reset", Some(&auth));
     assert_eq!(
         reply.refusal(INVALID_ARGUMENT),
         "Unknown IAP vendor: nintendo"
@@ -66,7 +66,7 @@ fn an_unpersisted_validation_returns_the_parsed_purchase_with_no_database() {
     let auth = token_for(ConsoleRole::Admin);
 
     let reply = server.post(
-        "/v2/console/iap/apple/validate",
+        "/v1/console/iap/apple/validate",
         Some(&auth),
         r#"{"receipt":"MIIB…base64-pkcs7","persist":false}"#,
     );
@@ -83,7 +83,7 @@ fn an_unpersisted_validation_returns_the_parsed_purchase_with_no_database() {
     assert_eq!(purchases[0]["environment"].as_str(), Some("UNKNOWN"));
 
     let reply = server.post(
-        "/v2/console/iap/google/validate",
+        "/v1/console/iap/google/validate",
         Some(&auth),
         r#"{"purchase_token":"g gp..token","kind":"subscription","persist":false}"#,
     );
@@ -99,7 +99,7 @@ fn a_validation_that_would_write_is_refused_or_stopped_by_the_missing_database()
     let auth = token_for(ConsoleRole::Admin);
 
     let reply = server.post(
-        "/v2/console/iap/facebookinstant/validate",
+        "/v1/console/iap/facebookinstant/validate",
         Some(&auth),
         r#"{"signed_request":"payload.sig","kind":"subscription"}"#,
     );
@@ -109,7 +109,7 @@ fn a_validation_that_would_write_is_refused_or_stopped_by_the_missing_database()
     );
 
     let reply = server.post(
-        "/v2/console/iap/samsung/validate",
+        "/v1/console/iap/samsung/validate",
         Some(&auth),
         r#"{"kind":"voucher"}"#,
     );
@@ -118,26 +118,26 @@ fn a_validation_that_would_write_is_refused_or_stopped_by_the_missing_database()
         "Validation kind must be \"purchase\" or \"subscription\"."
     );
 
-    let reply = server.post("/v2/console/iap/apple/validate", Some(&auth), "{}");
+    let reply = server.post("/v1/console/iap/apple/validate", Some(&auth), "{}");
     assert_eq!(
         reply.refusal(INVALID_ARGUMENT),
         "receipt or purchase token is required"
     );
 
-    let reply = server.post("/v2/console/iap/apple/validate", Some(&auth), RECEIPT);
+    let reply = server.post("/v1/console/iap/apple/validate", Some(&auth), RECEIPT);
     assert_eq!(
         reply.refusal(INVALID_ARGUMENT),
         "Persisting a validation needs a user id."
     );
     let reply = server.post(
-        "/v2/console/iap/apple/validate",
+        "/v1/console/iap/apple/validate",
         Some(&auth),
         r#"{"receipt":"abc","user_id":"not-a-uuid"}"#,
     );
     assert_eq!(reply.refusal(INVALID_ARGUMENT), "Invalid account id.");
 
     let reply = server.post(
-        "/v2/console/iap/apple/validate",
+        "/v1/console/iap/apple/validate",
         Some(&auth),
         &format!(r#"{{"receipt":"abc","user_id":"{}"}}"#, Uuid::new_v4()),
     );
@@ -149,12 +149,12 @@ fn reset_and_product_delete_answer_for_their_absent_rows_and_database() {
     let server = V2Server::start(v2_state());
     let admin = token_for(ConsoleRole::Admin);
 
-    let reply = server.delete("/v2/console/iap/huawei/reset", Some(&admin));
+    let reply = server.delete("/v1/console/iap/huawei/reset", Some(&admin));
     assert_eq!(reply.refusal(UNAVAILABLE), NO_DB);
 
-    let reply = server.delete("/v2/console/subscription/season-pass", Some(&admin));
+    let reply = server.delete("/v1/console/subscription/season-pass", Some(&admin));
     assert_eq!(reply.refusal(UNAVAILABLE), NO_DB);
 
-    let reply = server.delete("/v2/console/subscription/%20", Some(&admin));
+    let reply = server.delete("/v1/console/subscription/%20", Some(&admin));
     assert_eq!(reply.refusal(INVALID_ARGUMENT), "A product id is required.");
 }

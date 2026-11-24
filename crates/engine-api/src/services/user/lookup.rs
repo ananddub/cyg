@@ -1,11 +1,9 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::user::{GetUsersQuery, UserListResponse};
 use crate::error::V2Error;
-use crate::services::deps::q;
 use crate::services::social::tokens;
 
 use crate::utils::user::{public_view, push_found};
@@ -13,16 +11,16 @@ use crate::utils::user::{public_view, push_found};
 impl super::UserService {
     pub async fn get_users_body(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         body: GetUsersQuery,
     ) -> Result<Json<UserListResponse>, V2Error> {
-        self.get_users(state, auth, body).await
+        self.get_users(auth, body).await
     }
 
     pub async fn get_users(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         req: GetUsersQuery,
     ) -> Result<Json<UserListResponse>, V2Error> {
@@ -38,7 +36,7 @@ impl super::UserService {
             return Ok(Json(UserListResponse { users: Vec::new() }));
         }
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let mut users = Vec::new();
         for id in ids {
             let parsed = Uuid::parse_str(&id).map_err(|_| {
@@ -63,11 +61,11 @@ impl super::UserService {
 
     pub async fn get_user(
         &self,
-        state: &ApiState,
+
         _auth: &Authed,
         raw: &str,
     ) -> Result<Json<UserListResponse>, V2Error> {
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         let user = match Uuid::parse_str(raw) {
             Ok(id) => queries.get_user_by_id(id).await,
             Err(_) => queries.get_user_by_username(raw).await,

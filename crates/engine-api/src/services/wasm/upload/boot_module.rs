@@ -1,13 +1,12 @@
 use engine_config::BootModule;
 
-use crate::services::deps::{blobs, q};
 use crate::services::games::tenant;
 
 use super::*;
 
 impl WasmService {
-    pub async fn load_boot_module(state: &ApiState) -> Option<BootModule> {
-        match Self::try_load_boot_module(state).await {
+    pub async fn load_boot_module(&self) -> Option<BootModule> {
+        match Self::try_load_boot_module(self).await {
             Ok(module) => module,
             Err(err) => {
                 tracing::warn!(
@@ -19,11 +18,13 @@ impl WasmService {
         }
     }
 
-    async fn try_load_boot_module(state: &ApiState) -> Result<Option<BootModule>, V2Error> {
-        let Some(game_id) = tenant::game_id(state).await? else {
+    async fn try_load_boot_module(&self) -> Result<Option<BootModule>, V2Error> {
+        let Some(game_id) = tenant::game_id(&self.plane).await? else {
             return Ok(None);
         };
-        let Some(row) = q(state)
+        let Some(row) = self
+            .plane
+            .q()
             .await?
             .active_room_module(game_id)
             .await
@@ -35,7 +36,14 @@ impl WasmService {
             tracing::warn!("[wasm] active module v{} has no stored bytes", row.version);
             return Ok(None);
         };
-        let Some(bytes) = blobs(state).await?.get(&key).await.map_err(V2Error::from)? else {
+        let Some(bytes) = self
+            .plane
+            .blobs()
+            .await?
+            .get(&key)
+            .await
+            .map_err(V2Error::from)?
+        else {
             tracing::warn!("[wasm] {key} is missing from the blob store");
             return Ok(None);
         };

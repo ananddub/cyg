@@ -7,9 +7,9 @@ pub(crate) fn register(
     for ns in &[
         engine_wasm::HOST_NAMESPACE_V1,
         engine_wasm::HOST_NAMESPACE_LEGACY,
+        "cyg",
         "ox",
     ] {
-
         linker
             .func_wrap(
                 ns,
@@ -112,6 +112,5 @@ pub(crate) fn register(
                 },
             )
             .expect("link sys_rapier2d_check_contact");
-
     }
 }

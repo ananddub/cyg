@@ -1,9 +1,7 @@
-
 use engine_core::{PlayerInput, PlayerInputBuffer, RewindManager, TransformSnapshot};
 
 #[test]
 fn rewind_survives_a_forward_tick_jump() {
-
     let mut mgr = RewindManager::new(60_000, 60);
 
     for tick in 0..40u64 {
@@ -38,7 +36,6 @@ fn rewind_survives_a_forward_tick_jump() {
 
 #[test]
 fn rewind_evicts_across_a_jump_like_any_cadence() {
-
     let mut mgr = RewindManager::new(500, 60);
     for tick in 0..40u64 {
         mgr.record(
@@ -65,7 +62,6 @@ fn rewind_evicts_across_a_jump_like_any_cadence() {
 
 #[test]
 fn input_buffer_survives_a_forward_seq_jump() {
-
     let mut buf = PlayerInputBuffer::new(16);
     for seq in 0..8u64 {
         assert!(buf.push(PlayerInput::new(seq, 0.0, [0u8; 16])));
@@ -96,7 +92,6 @@ fn input_buffer_survives_a_forward_seq_jump() {
 
 #[test]
 fn rewind_rejects_backward_tick_jump_without_panic() {
-
     let mut mgr = RewindManager::new(500, 60);
     for tick in 0..40u64 {
         mgr.record(
@@ -116,5 +111,8 @@ fn rewind_rejects_backward_tick_jump_without_panic() {
     }
 
     let snap = mgr.rewind_entity(1, 39.0 * 16.666).unwrap();
-    assert_eq!(snap.x, 39.0, "pre-jump newest sample must survive the rewind attempt");
+    assert_eq!(
+        snap.x, 39.0,
+        "pre-jump newest sample must survive the rewind attempt"
+    );
 }

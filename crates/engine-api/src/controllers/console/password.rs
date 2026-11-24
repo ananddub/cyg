@@ -13,13 +13,13 @@ struct ConsolePasswordController {
     service: Arc<ConsoleService>,
 }
 
-#[controller("/v2/console/password_change")]
+#[controller("/v1/console/password_change")]
 impl ConsolePasswordController {
     fn new(service: Arc<ConsoleService>) -> Self {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::Empty)]
     async fn change(
         &self,
         auth: ConsoleAuthed,
@@ -27,7 +27,7 @@ impl ConsolePasswordController {
     ) -> Response {
         let state = current_state();
         self.service
-            .change_console_password(&state, &auth, body)
+            .change_console_password(&auth, body)
             .await
             .into_response()
     }

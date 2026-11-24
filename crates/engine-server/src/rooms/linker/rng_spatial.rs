@@ -7,9 +7,9 @@ pub(crate) fn register(
     for ns in &[
         engine_wasm::HOST_NAMESPACE_V1,
         engine_wasm::HOST_NAMESPACE_LEGACY,
+        "cyg",
         "ox",
     ] {
-
         linker
             .func_wrap(
                 ns,
@@ -29,6 +29,14 @@ pub(crate) fn register(
                 },
             )
             .expect("link sys_clock_ticks");
+
+        linker
+            .func_wrap(
+                ns,
+                "sys_clock_ms",
+                move |caller: wasmtime::Caller<'_, RoomHostData>| -> f64 { caller.data().clock_ms },
+            )
+            .expect("link sys_clock_ms");
 
         linker
             .func_wrap(
@@ -83,6 +91,5 @@ pub(crate) fn register(
                 },
             )
             .expect("link sys_spatial_query");
-
     }
 }

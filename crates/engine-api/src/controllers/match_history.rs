@@ -14,13 +14,16 @@ struct MatchHistoryController {
     service: Arc<MatchHistoryService>,
 }
 
-#[controller("/v2")]
+type GameplayEventList = Vec<crate::repositories::models::GameplayEvent>;
+type MatchHistoryList = Vec<crate::repositories::models::MatchHistory>;
+type DesyncReportList = Vec<crate::repositories::models::DesyncReport>;
+#[controller("/v1")]
 impl MatchHistoryController {
     fn new(service: Arc<MatchHistoryService>) -> Self {
         Self { service }
     }
 
-    #[get("/match/{id}/events")]
+    #[get("/match/{id}/events", response_body = GameplayEventList)]
     async fn events(
         &self,
         _auth: Authed,
@@ -28,13 +31,10 @@ impl MatchHistoryController {
         Params(req): Params<HistoryParams>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .events(&state, &id, req.limit)
-            .await
-            .into_response()
+        self.service.events(&id, req.limit).await.into_response()
     }
 
-    #[get("/match/{id}/history")]
+    #[get("/match/{id}/history", response_body = MatchHistoryList)]
     async fn history(
         &self,
         _auth: Authed,
@@ -42,10 +42,7 @@ impl MatchHistoryController {
         Params(req): Params<HistoryParams>,
     ) -> Response {
         let state = current_state();
-        self.service
-            .history(&state, &id, req.limit)
-            .await
-            .into_response()
+        self.service.history(&id, req.limit).await.into_response()
     }
 }
 
@@ -53,24 +50,24 @@ struct DesyncController {
     service: Arc<MatchHistoryService>,
 }
 
-#[controller("/v2/console")]
+#[controller("/v1/console")]
 impl DesyncController {
     fn new(service: Arc<MatchHistoryService>) -> Self {
         Self { service }
     }
 
-    #[get("/desync")]
+    #[get("/desync", response_body = DesyncReportList)]
     async fn desyncs(&self, _auth: ConsoleAuthed, Params(req): Params<DesyncParams>) -> Response {
         let state = current_state();
         self.service
-            .desyncs(&state, req.room.as_deref(), req.limit)
+            .desyncs(req.room.as_deref(), req.limit)
             .await
             .into_response()
     }
 
-    #[get("/match/{id}/replay")]
+    #[get("/match/{id}/replay", response_body = crate::dto::match_history::ReplayBundle)]
     async fn replay(&self, _auth: ConsoleAuthed, Path(id): Path<String>) -> Response {
         let state = current_state();
-        self.service.replay(&state, &id).await.into_response()
+        self.service.replay(&id).await.into_response()
     }
 }

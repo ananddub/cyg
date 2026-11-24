@@ -1,4 +1,3 @@
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
@@ -12,7 +11,6 @@ pub struct EpochTicker {
 }
 
 impl EpochTicker {
-
     pub fn spawn(engine: Engine, period: Duration) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);

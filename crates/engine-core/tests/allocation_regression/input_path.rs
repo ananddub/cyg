@@ -1,6 +1,6 @@
 use engine_core::{PlayerInput, PlayerInputBuffer};
 
-use super::harness::{min_allocs_per_iter, ITER, MEASURE_LOCK, WARMUP, WINDOWS};
+use super::harness::{ITER, MEASURE_LOCK, WARMUP, WINDOWS, min_allocs_per_iter};
 
 #[test]
 fn input_push_consume_is_zero_alloc_steady_state() {
@@ -22,7 +22,10 @@ fn input_push_consume_is_zero_alloc_steady_state() {
         allocs, 0.0,
         "input push+consume allocates {allocs}/iter — the inline-SmallVec regression is back"
     );
-    assert_eq!(deallocs, 0.0, "input path freed something it never allocated");
+    assert_eq!(
+        deallocs, 0.0,
+        "input path freed something it never allocated"
+    );
 }
 
 #[test]

@@ -103,6 +103,106 @@ room.onStateChange((state) => render(state.players.values()));
 The descriptor is the only schema source: the browser builds its declarations
 from it on join, and `schema.ts` is the only file you edit.
 
+### Per-session visibility
+
+`.ownerOnly()` fields are owner-only by default. With `allow_views = true`, a room
+can narrow a seat further without touching the wire format:
+
+```ts
+onJoin(client: Client) {
+    this.views.onlySelf(client.id);                    // drop other rows
+    this.views.hide(client.id, "players", "inventory"); // hide one field
+    // this.views.hideRoot(client.id, "tick");         // hide a root scalar
+}
+```
+
+Views only subtract. `.ownerOnly()` wins over every view, and a changed view makes
+the host send that player a fresh full snapshot so stale values cannot linger.
+`this.views.reset(client.id)` restores the default view.
+
+### Lossy fields
+
+Mark a field `.unreliable()` when losing an update is cheaper than delaying the
+room. The host strips it from the reliable patch and sends it in a separate
+tick-stamped frame on the lossy lane; the client applies newest-wins without
+advancing the reliable tick.
+
+```ts
+export const Player = schema({
+    x:  t.f32().range(-512, 512, 20).unreliable(),
+    z:  t.f32().range(-512, 512, 20).unreliable(),
+    hp: t.uint8(),   // must arrive
+}, "Player");
+```
+
+### Plugins
+
+```ts
+class Arena extends Room {
+    onCreate() {
+        this.use(new MatchTimerPlugin(5));
+    }
+}
+```
+
+Plugins run in install order and are fed `onCreate`, `onJoin`, `onInput`,
+`onTick`, `onLeave` and `onDispose`. AssemblyScript has no exception
+handling, so a plugin that traps surfaces at the wasm boundary and the host
+reports it; keep plugin hooks non-throwing and move fallible work into a
+plain method the room calls explicitly.
+
+### Snapshot priority and byte budget
+
+Every generated entity inherits `priority`. Higher priority rows are encoded
+first; when a byte budget is set, rows that do not fit stay dirty and ride the
+next tick. Adds and removes are structural and always sent.
+
+```ts
+onCreate(max: i32): void {
+    this.setState(this.state);
+    this.setSnapshotBudget(1200); // bytes per patch; 0 = unlimited
+}
+
+// In your simulation, mark the row the camera needs most.
+player.priority = 100;
+remoteNoise.priority = 0;
+```
+
+For multi-collection worlds, `setSnapshotBudget` propagates to every
+collection. The host's AOI/view filtering still runs after this, so a per-view
+client can receive less than the global budget.
+
+### Generic rewind
+
+With `allow_rewind = true`, `this.rewind` stores an opaque `f64` vector per
+entity, bounded to 256 samples and 32 fields. Physics lag compensation is one consumer; hit validation and
+cooldowns use the same history.
+
+```ts
+const sample = new StaticArray<f64>(2);
+sample[0] = player.x;
+sample[1] = player.y;
+this.rewind.recordAt(player.id, sample, clockMs());
+
+// Time-based lag compensation using the shooter's own input timestamp.
+// Future timestamps clamp to now; old ones clamp to the rewind window.
+const frame = this.inputs.latest(shooterId);
+const seen = new StaticArray<f64>(2);
+if (frame) this.rewind.atClientMs(targetId, frame.clientTimeMs as f64, seen);
+
+// Lower-level form: query an explicit room time.
+this.rewind.atMs(targetId, clockMs() - 180.0, seen);
+```
+
+`recordNow`/`at` are tick-exact. `recordAt`/`atMs` store millisecond
+timestamps and linearly interpolate between the surrounding samples (clamped
+to the oldest/newest), which is what hit validation wants when the shooter's
+timestamp falls between two simulation ticks. `clockMs()` is the authoritative
+room timeline; every input frame carries the client's estimate of that same
+timeline as `InputFrame.clientTimeMs` (0 when the client clock is not synced
+yet). `atClientMs` is the safe entry point: it clamps future timestamps to now
+and old timestamps to `maxRewindMs` (default 250 ms, configurable per call).
+
 
 > [!TIP]
 > **🏆 Recommended for Maximum Performance: WebAssembly (Rust / Pure C / C++)**
@@ -121,11 +221,11 @@ from it on join, and `schema.ts` is the only file you edit.
 | Language | Interface File | Target Runtime | How Bridge is Handled |
 | :--- | :--- | :--- | :--- |
 | 🥇 **Rust** *(Recommended)* | [`rust/cyg_room.rs`](./rust/cyg_room.rs) | `wasm32-unknown-unknown` | `export_room!(MyRoom)` macro |
-| 🥇 **Pure C** *(Recommended)* | [`c/cyg.h`](./c/cyg.h) | `clang` / `wasi-sdk` / `emscripten` | **Direct Normal C Functions** (`OX_EXPORT`) |
-| 🥇 **C++** *(Recommended)* | [`cpp/cyg.hpp`](./cpp/cyg.hpp) | `clang` / `emscripten` / `wasi-sdk` | `CYG_ROOM(MyRoom)` macro |
-| 🥈 **AssemblyScript** | [`assemblyscript/cyg.ts`](./assemblyscript/cyg.ts) | `asc` | **100% Automatic** by CYG compiler! |
+| 🥇 **Pure C** *(Recommended)* | [`c/cyg.h`](./c/cyg.h) | `clang` / `wasi-sdk` / `zig cc` | **Direct Normal C Functions** (`CYG_EXPORT`) |
+| 🥇 **C++** *(Recommended)* | [`cpp/cyg.hpp`](./cpp/cyg.hpp) | `clang++` / `wasi-sdk` / `zig c++` | `CYG_ROOM(MyRoom)` macro |
+| 🥈 **AssemblyScript** | [`assemblyscript/cyg-server.ts`](./assemblyscript/cyg-server.ts) | `asc` | **100% Automatic** by CYG compiler! |
 | 🥉 **Lua** | [`lua/cyg.lua`](./lua/cyg.lua) | Native LuaJIT (`engine-lua`) / WASM | `CYG.Room:extend()` / Procedural |
-| **C#** | [`csharp/CYG.cs`](./csharp/CYG.cs) | `.NET 8 NativeAOT` / `wasi-wasm` | `[UnmanagedCallersOnly]` static bridge |
+| **C#** | [`csharp/CYG.cs`](./csharp/CYG.cs) | `.NET 8/9 wasi-wasm` / `NativeAOT` | `[UnmanagedCallersOnly]` static bridge |
 | **TypeScript** | [`typescript/cyg.d.ts`](./typescript/cyg.d.ts) | Node / Browser SDK / IntelliSense | Shared typings & contracts |
 
 ---
@@ -141,8 +241,10 @@ public:
     void onCreate(int32_t maxClients) override {
         // Init room
     }
-    void onJoin(int64_t id, double x, double z) override {}
-    void onLeave(int64_t id) override {}
+    void onJoin(int64_t id, const char* options, int32_t opt_len, const char* auth, int32_t auth_len) override {
+        cyg::broadcast("join", 4, nullptr, 0);
+    }
+    void onLeave(int64_t id, int32_t code) override {}
     void onInput(int64_t id, const uint8_t* data, size_t len) override {}
     uint64_t onTick(double dt) override {
         // Return cyg::pack_delta(delta_buf, delta_len);
@@ -155,7 +257,7 @@ CYG_ROOM(MyBattleRoom);
 
 ### 2. Rust
 ```rust
-use cyg_room::{Room, export_room, pack_delta};
+use cyg_room::{Room, export_room, pack_delta, broadcast};
 
 #[derive(Default)]
 pub struct MyBattleRoom {
@@ -166,8 +268,10 @@ impl Room for MyBattleRoom {
     fn on_create(&mut self, max: i32) {
         self.max_clients = max;
     }
-    fn on_join(&mut self, id: i64, spawn_x: f64, spawn_z: f64) {}
-    fn on_leave(&mut self, id: i64) {}
+    fn on_join(&mut self, id: i64, options: &str, auth: &str) {
+        broadcast("join", b"ok");
+    }
+    fn on_leave(&mut self, id: i64, code: i32) {}
     fn on_input(&mut self, id: i64, data: &[u8]) {}
     fn on_tick(&mut self, dt: f64) -> (usize, usize) {
         (0, 0)
@@ -177,16 +281,21 @@ impl Room for MyBattleRoom {
 export_room!(MyBattleRoom);
 ```
 
-### 3. C# (.NET 8 NativeAOT)
+### 3. C# (.NET 8/9 WASI)
 ```csharp
+using System;
 using CYG;
 
 public class MyBattleRoom : Room
 {
-    public override void OnCreate(int maxClients) { ... }
-    public override void OnJoin(long id, double spawnX, double spawnZ) { ... }
-    public override void OnLeave(long id) { ... }
-    public override void OnInput(long id, ReadOnlySpan<byte> data) { ... }
+    public override void OnCreate(int maxClients) {
+        Log("Battle room created!");
+    }
+    public override void OnJoin(long id, string options, string auth) {
+        Broadcast("join", new byte[] { 1 });
+    }
+    public override void OnLeave(long id, int code) {}
+    public override void OnInput(long id, ReadOnlySpan<byte> data) {}
     public override long OnTick(double dt) => 0;
 }
 
@@ -200,8 +309,8 @@ import { Room } from "./cyg-server";
 
 export class MyBattleRoom extends Room {
     onCreate(max: i32): void { ... }
-    onJoin(id: i64, spawnX: f64, spawnZ: f64): void { ... }
-    onLeave(id: i64): void { ... }
+    onJoin(id: i64, options: string, auth: string): void { ... }
+    onLeave(id: i64, code: i32): void { ... }
     onInput(id: i64, ptr: usize, len: i32): void { ... }
     onTick(dt: f64): i64 { ... }
 }
@@ -212,24 +321,26 @@ export class MyBattleRoom extends Room {
 ```c
 #include "cyg.h"
 
-// Provides default on_alloc, on_save, on_load, on_is_full
-OX_DEFAULT_HOOKS
+// Provides default self-contained heap allocator, on_save, on_load, on_is_full
+CYG_DEFAULT_HOOKS
 
-OX_EXPORT void on_create(int32_t max_clients) {
+CYG_EXPORT void on_create(int32_t max_clients) {
     // Initialize room
 }
 
-OX_EXPORT void on_join(int64_t id, double spawn_x, double spawn_z) {}
+CYG_EXPORT void on_join(int64_t id, int32_t opt_ptr, int32_t opt_len, int32_t auth_ptr, int32_t auth_len) {
+    cyg_broadcast("join", 4, NULL, 0);
+}
 
-OX_EXPORT void on_leave(int64_t id) {}
+CYG_EXPORT void on_leave(int64_t id, int32_t code) {}
 
-OX_EXPORT void on_input(int64_t id, int32_t ptr, int32_t len) {
+CYG_EXPORT void on_input(int64_t id, int32_t ptr, int32_t len) {
     const uint8_t* data = (const uint8_t*)(uintptr_t)ptr;
     // Process input
 }
 
-OX_EXPORT int64_t on_tick(double dt) {
-    // Return ox_pack_delta(delta_buf, delta_len);
+CYG_EXPORT int64_t on_tick(double dt) {
+    // Return cyg_pack_delta(delta_buf, delta_len);
     return 0;
 }
 ```

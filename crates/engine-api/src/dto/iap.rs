@@ -65,7 +65,7 @@ pub struct SubscriptionRequest {
     pub expire_time: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct PurchaseResponse {
     product_id: String,
     transaction_id: String,
@@ -78,7 +78,7 @@ pub struct PurchaseResponse {
     provider_notification: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct SubscriptionResponse {
     product_id: String,
     transaction_id: String,
@@ -92,15 +92,17 @@ pub struct SubscriptionResponse {
     state: i32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct PurchaseListResponse {
     pub purchases: Vec<PurchaseResponse>,
+    #[serde(rename = "nextPageToken", alias = "next_cursor")]
     pub next_cursor: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct SubscriptionListResponse {
     pub subscriptions: Vec<SubscriptionResponse>,
+    #[serde(rename = "nextPageToken", alias = "next_cursor")]
     pub next_cursor: String,
 }
 
@@ -142,7 +144,7 @@ impl SubscriptionResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ActiveSubscriptionResponse {
     pub success: bool,
     pub active: bool,
@@ -151,7 +153,7 @@ pub struct ActiveSubscriptionResponse {
 }
 
 /// One stored subscription row as the enforcement sees it.
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ActiveSubscriptionRow {
     pub product_id: String,
     pub original_transaction_id: String,

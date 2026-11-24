@@ -1,13 +1,16 @@
-
 use engine_net::framing::OpCode;
 use engine_net::transport::GameTransport;
 
-use crate::rooms::GameRoom;
+use crate::rooms::{GameRoom, close_code};
 
 use crate::host::*;
 pub(crate) fn claimed_user_id(options: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(options).ok()?;
-    value.get("userId")?.as_str().map(str::to_string).filter(|id| !id.is_empty())
+    value
+        .get("userId")?
+        .as_str()
+        .map(str::to_string)
+        .filter(|id| !id.is_empty())
 }
 
 pub(crate) fn flush_room_outbox(
@@ -16,13 +19,23 @@ pub(crate) fn flush_room_outbox(
     room_name: &str,
     history: &EventHistory,
 ) {
+    let tick = room.current_tick;
+    let intents = room.drain_stat_intents();
+    if !intents.is_empty() {
+        history.record_stats(room_name, tick, intents);
+    }
+
     let messages = room.drain_outbox();
     if messages.is_empty() {
         return;
     }
 
-    let tick = room.current_tick;
     let mut frame = Vec::with_capacity(64);
+    // Reverse id→session index, built lazily once per flush (only when
+    // targeted messages or kicks exist) instead of an O(sessions) linear
+    // scan per targeted message.
+    let mut id_to_session: std::collections::HashMap<i64, Option<std::rc::Rc<str>>> =
+        HashMap::new();
     for message in messages {
         if message.event.is_empty() || message.event.len() > 255 {
             continue;
@@ -38,12 +51,28 @@ pub(crate) fn flush_room_outbox(
         frame.extend_from_slice(&message.payload);
 
         if message.target > 0 {
-            if let Some(session) = room
-                .sessions
-                .iter()
-                .find_map(|(session, id)| (*id == message.target).then_some(session.as_str()))
-            {
-                let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
+            let session = id_to_session
+                .entry(message.target)
+                .or_insert_with(|| {
+                    room.sessions.iter().find_map(|(session, id)| {
+                        (*id == message.target).then(|| std::rc::Rc::clone(session))
+                    })
+                })
+                .clone();
+            if let Some(session) = session {
+                let _ = transport.send_to(&session, OpCode::RoomDataBytes, &frame);
+            }
+        } else if message.target < 0 {
+            // Broadcast-except: the SDK's `broadcast(type, payload, except)`
+            // packs `target = -playerId`; everyone else still receives it.
+            let except = -message.target;
+            for (session, &id) in &room.sessions {
+                if id != except {
+                    let _ = transport.send_to(session, OpCode::RoomDataBytes, &frame);
+                }
+            }
+            for spectator in &room.spectators {
+                let _ = transport.send_to(spectator, OpCode::RoomDataBytes, &frame);
             }
         } else if message.target == 0 {
             for session in room.sessions.keys() {
@@ -53,6 +82,24 @@ pub(crate) fn flush_room_outbox(
                 let _ = transport.send_to(spectator, OpCode::RoomDataBytes, &frame);
             }
         }
+    }
+
+    // Client.leave() calls the guest queued during the last invocation —
+    // close their connections now that the guest call has returned.
+    for id in room.drain_kicks() {
+        let session = id_to_session
+            .entry(id)
+            .or_insert_with(|| {
+                room.sessions
+                    .iter()
+                    .find_map(|(session, &pid)| (pid == id).then(|| std::rc::Rc::clone(session)))
+            })
+            .clone();
+        let Some(session) = session else {
+            continue;
+        };
+        let _ = transport.disconnect_with(&session, close_code::KICKED as u16, "kicked by room");
+        room.kick_player(&session, id);
     }
 }
 
@@ -98,13 +145,26 @@ pub(crate) fn reject_room(transport: &mut LoopTransport, client_id: &str, messag
     let _ = transport.flush();
 }
 
-pub(crate) fn close_room_sessions(transport: &mut LoopTransport, room: &GameRoom, code: u16, message: &str) {
+pub(crate) fn close_room_sessions(
+    transport: &mut LoopTransport,
+    room: &GameRoom,
+    code: u16,
+    message: &str,
+) {
     for session in room.sessions.keys().chain(room.spectators.iter()) {
         let _ = transport.disconnect_with(session, code, message);
     }
     let _ = transport.flush();
 }
 
-pub(crate) fn room_is_reapable(cfg: &engine_config::GameConfig, name: &str, udp_peers: usize) -> bool {
-    !cfg.lifecycle.is_persistent(name) && (name != cfg.name.as_str() || udp_peers == 0)
+pub(crate) fn room_is_reapable(
+    cfg: &engine_config::GameConfig,
+    name: &str,
+    udp_peers: usize,
+) -> bool {
+    // A raw-UDP peer protects the room it was admitted to, whichever room that
+    // is. The old `name != cfg.name` shortcut assumed one UDP room per process;
+    // seat tokens now name a room (including variants), so the per-room count
+    // is the only honest input.
+    !cfg.lifecycle.is_persistent(name) && udp_peers == 0
 }

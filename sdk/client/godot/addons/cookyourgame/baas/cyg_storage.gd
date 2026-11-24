@@ -1,6 +1,6 @@
 class_name CYGStorage
 extends RefCounted
-## Cloud saves for the CookYourGame Godot SDK: the `/v2/storage*` document store.
+## Cloud saves for the CookYourGame Godot SDK: the `/v1/storage*` document store.
 ##
 ## Objects are keyed by the triple `(collection, key, user_id)` and the server's
 ## own permission model is carried verbatim, so nothing here is cached, retried
@@ -10,7 +10,7 @@ extends RefCounted
 ## Endpoints, field by field (see `crates/engine-api/src/controllers/storage.rs`,
 ## `crates/engine-api/src/dto/storage.rs` and `src/services/storage/`):
 ##
-##  * `PUT /v2/storage` — batch write, applied in one transaction.
+##  * `PUT /v1/storage` — batch write, applied in one transaction.
 ##
 ##        {"objects": [{"collection": str, "key": str, "value": str,
 ##                      "version": str, "permission_read": int,
@@ -29,7 +29,7 @@ extends RefCounted
 ##    "user_id", "create_time", "update_time"}]}`; the gateway drops an empty
 ##    repeated field, so a batch that wrote nothing answers `{}`.
 ##
-##  * `POST /v2/storage` — batch read of named ids.
+##  * `POST /v1/storage` — batch read of named ids.
 ##
 ##        {"object_ids": [{"collection": str, "key": str,
 ##                         "user_id": str, "version": str}]}
@@ -50,13 +50,13 @@ extends RefCounted
 ##    `permission_read`/`permission_write` are skipped when zero, so they are
 ##    absent from the wire rather than `0`; `_normalize_object()` restores them.
 ##
-##  * `PUT /v2/storage/delete` — batch delete, same `{"object_ids": [...]}` body
+##  * `PUT /v1/storage/delete` — batch delete, same `{"object_ids": [...]}` body
 ##    as the read (`version` may pin which state is removed). A row the caller
 ##    does not own, or one already gone, aborts the whole batch with
 ##    `Storage delete rejected.` Reply is `Empty`: `{}`.
 ##
-##  * `GET /v2/storage/{collection}` — public listing of one collection, and
-##    `GET /v2/storage/{collection}/{user_id}` the same listing scoped to a user.
+##  * `GET /v1/storage/{collection}` — public listing of one collection, and
+##    `GET /v1/storage/{collection}/{user_id}` the same listing scoped to a user.
 ##    Query is `ListQuery`: `?limit=<1..100>&cursor=<base64url>`, where `limit`
 ##    outside 1..100 is a 400 (`Invalid limit - limit must be between 1 and 100.`)
 ##    and `cursor` resumes after the last returned key. Reply is
@@ -100,11 +100,11 @@ extends RefCounted
 ## any of that. A game that must point storage somewhere else sets `CYGHttp.base_url`.
 ##
 ## Independent port of this repo's Unity BaaS layer
-## (`sdk/unity/Runtime/BaaS/CYGStorage.cs`) onto the documented `/v2/` endpoints
+## (`sdk/unity/Runtime/BaaS/CYGStorage.cs`) onto the documented `/v1/` endpoints
 ## of the Rust engine-api; no upstream source text is copied.
 
-const PATH_WRITE := "/v2/storage"
-const PATH_DELETE := "/v2/storage/delete"
+const PATH_WRITE := "/v1/storage"
+const PATH_DELETE := "/v1/storage/delete"
 
 const PERMISSION_PRIVATE := 0
 const PERMISSION_OWNER := 1
@@ -202,7 +202,7 @@ static func delete_key(collection: String, key: String, callback: Callable) -> v
 ## Batch delete. `object_ids` is a Dictionary per row, exactly the `ObjectId` DTO:
 ## `{"collection", "key", "user_id" (ignored, delete is always own), "version"}`;
 ## a `version` names the exact state to remove. There is no whole-collection
-## delete on `/v2/storage` and none in the Unity class, so there is none here.
+## delete on `/v1/storage` and none in the Unity class, so there is none here.
 static func delete_keys(object_ids: Array, callback: Callable) -> void:
 	if object_ids.is_empty():
 		_fail(callback, "delete_keys needs at least one object id.")
@@ -258,7 +258,7 @@ static func _listing_reply(reply: Dictionary, response: Dictionary) -> void:
 	reply["result"] = listed
 
 
-## `PUT /v2/storage/delete` answers `Empty`, so there is nothing to refine.
+## `PUT /v1/storage/delete` answers `Empty`, so there is nothing to refine.
 static func _empty_reply(_reply: Dictionary, _response: Dictionary) -> void:
 	pass
 
@@ -306,7 +306,7 @@ static func _first_non_empty(first: String, second: String) -> String:
 	return first if not first.is_empty() else second
 
 
-## A `/v2/` refusal is `{"error": {"code", "message", "details"}}`
+## A `/v1/` refusal is `{"error": {"code", "message", "details"}}`
 ## (`error/v2.rs`); anything else is surfaced as the raw body.
 static func error_message_of(text: String) -> String:
 	if text.is_empty():

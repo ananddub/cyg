@@ -3,16 +3,24 @@ use std::time::{Duration, Instant};
 use engine_bus::Bus;
 use engine_net::transport::{GameTransport, TransportEvent};
 
-use crate::rooms::{
-    DRAIN_REASON, GameServer,
-};
+use crate::rooms::{DRAIN_REASON, GameServer};
 
 use crate::host::*;
-pub(crate) fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport, bus: &Bus, game_id: &str) {
-
-    let names: Vec<String> = server.rooms.keys().cloned().collect();
+pub(crate) fn drain_rooms(
+    server: &mut GameServer,
+    transport: &mut LoopTransport,
+    bus: &Bus,
+    game_cfg: &engine_config::GameConfig,
+    game_id: &str,
+) {
+    let names: Vec<std::rc::Rc<str>> = server.rooms.keys().cloned().collect();
     for name in &names {
-        if let Some(room) = server.rooms.get(name) {
+        if let Some(room) = server.rooms.get_mut(name) {
+            // Give every room one flush to say goodbye (its broadcast goes
+            // out with the sessions-closing frames right after).
+            room.guest_on_before_shutdown();
+            let history = EventHistory::new(bus, &game_cfg.gameplay);
+            flush_room_outbox(room, transport, name, &history);
             close_room_sessions(
                 transport,
                 room,
@@ -61,6 +69,9 @@ pub(crate) fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport
             report_snapshot(bus, &room, &name, &snapshot);
             server.save_snapshot(&name, snapshot);
         }
+        // A drain ends every match at once. Read what each round reported
+        // before disposing it — `on_dispose` may clear the guest's state.
+        room.collect_match_result();
         report_match(
             bus,
             game_id,
@@ -79,32 +90,5 @@ pub(crate) fn drain_rooms(server: &mut GameServer, transport: &mut LoopTransport
         );
         room.dispose();
         tracing::info!("[server] room '{name}' drained and state saved (shutdown)");
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct Drain {
-    pub(crate) grace: Duration,
-    pub(crate) deadline: Option<Instant>,
-}
-
-impl Drain {
-    pub(crate) fn new(grace: Duration) -> Self {
-        Self {
-            grace,
-            deadline: None,
-        }
-    }
-
-    pub(crate) fn begin(&mut self, now: Instant) -> bool {
-        if self.deadline.is_some() {
-            return false;
-        }
-        self.deadline = Some(now + self.grace);
-        true
-    }
-
-    pub(crate) fn expired(&self, now: Instant) -> bool {
-        self.deadline.is_some_and(|at| now >= at)
     }
 }

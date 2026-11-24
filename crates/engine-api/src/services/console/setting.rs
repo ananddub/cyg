@@ -1,21 +1,19 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::ConsoleAuthed;
 use crate::dto::Empty;
 use crate::dto::console::setting::{SettingRow, UpdateSettingRequest};
 use crate::error::V2Error;
-use crate::services::deps::q;
 
 impl super::ConsoleService {
-    pub async fn list_settings(&self, state: &ApiState) -> Result<Json<Vec<SettingRow>>, V2Error> {
-        let rows = q(state).await?.list_settings().await?;
+    pub async fn list_settings(&self) -> Result<Json<Vec<SettingRow>>, V2Error> {
+        let rows = self.plane.q().await?.list_settings().await?;
         Ok(Json(rows.into_iter().map(SettingRow::from).collect()))
     }
 
     pub async fn update_setting(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         body: UpdateSettingRequest,
     ) -> Result<Json<SettingRow>, V2Error> {
@@ -25,10 +23,10 @@ impl super::ConsoleService {
             return Err(V2Error::invalid_argument("A setting needs a name."));
         }
 
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         queries.upsert_setting(name, body.value).await?;
         super::audit(
-            state,
+            &self.plane,
             claims,
             "setting.update",
             "setting",
@@ -47,7 +45,7 @@ impl super::ConsoleService {
 
     pub async fn delete_setting(
         &self,
-        state: &ApiState,
+
         claims: &ConsoleAuthed,
         name: &str,
     ) -> Result<Json<Empty>, V2Error> {
@@ -56,12 +54,12 @@ impl super::ConsoleService {
         if name.is_empty() {
             return Err(V2Error::invalid_argument("A setting needs a name."));
         }
-        let queries = q(state).await?;
+        let queries = self.plane.q().await?;
         if queries.delete_setting(name).await?.rows_affected() == 0 {
             return Err(V2Error::not_found("Setting not found."));
         }
         super::audit(
-            state,
+            &self.plane,
             claims,
             "setting.delete",
             "setting",

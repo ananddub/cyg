@@ -30,18 +30,26 @@ impl<'a> HotReload<'a> {
             latest_reload = Some(reload);
         }
         if let Some(reload) = latest_reload {
-            match prepare_console_module(&*self.runtime, &reload.sha256, &reload.bytes, cfg.permissions)
-            {
+            match prepare_console_module(
+                &*self.runtime,
+                &reload.sha256,
+                &reload.bytes,
+                cfg.permissions,
+                &cfg.features,
+            ) {
                 Ok(pre) => {
                     self.console_active = true;
-                    server.hot_reload(pre, cfg.width, cfg.height);
+                    server.hot_reload(pre);
                     tracing::info!(
                         "[server] 🔥 console module v{} swapped into live rooms",
                         reload.version
                     );
                 }
                 Err(e) => {
-                    tracing::error!("[server] ⚠️ console reload v{} rejected: {e}", reload.version);
+                    tracing::error!(
+                        "[server] ⚠️ console reload v{} rejected: {e}",
+                        reload.version
+                    );
                 }
             }
         }

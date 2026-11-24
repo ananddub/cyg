@@ -1,6 +1,5 @@
 use axum::Json;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::console::account::{
     AccountExport, AccountNoteRow, ExportedAccount, ExportedDevice, ExportedEdge, ExportedStorage,
@@ -17,13 +16,9 @@ impl super::AccountService {
     /// operator export returns, plus purchases, subscriptions, inventory,
     /// leaderboard entries, group memberships, notifications and messages in
     /// both directions. No console claims are involved — the subject is `auth`.
-    pub async fn export_account(
-        &self,
-        state: &ApiState,
-        auth: &Authed,
-    ) -> Result<Json<AccountExport>, V2Error> {
+    pub async fn export_account(&self, auth: &Authed) -> Result<Json<AccountExport>, V2Error> {
         let id = auth.uid();
-        let queries = crate::services::deps::q(state).await?;
+        let queries = self.plane.q().await?;
 
         let user = queries.get_user_by_id(id).await?;
         let devices = queries.list_user_devices(id).await?;

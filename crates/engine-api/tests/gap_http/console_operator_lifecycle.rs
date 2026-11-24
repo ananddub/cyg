@@ -9,7 +9,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
 
     let created = json_body(
         env.client
-            .post(format!("{}/v2/console/user", env.base))
+            .post(format!("{}/v1/console/user", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "username": username,
@@ -22,7 +22,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
             .await
             .expect("create a console operator"),
         StatusCode::OK,
-        "POST /v2/console/user",
+        "POST /v1/console/user",
     )
     .await;
     let operator_id = created["id"].as_str().expect("operator id").to_owned();
@@ -33,7 +33,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/console/mfa", env.base))
+            .post(format!("{}/v1/console/mfa", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -45,13 +45,13 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
 
     let enrolment = json_body(
         env.client
-            .post(format!("{}/v2/console/mfa", env.base))
+            .post(format!("{}/v1/console/mfa", env.base))
             .bearer_auth(&operator)
             .send()
             .await
             .expect("enrol MFA"),
         StatusCode::OK,
-        "POST /v2/console/mfa",
+        "POST /v1/console/mfa",
     )
     .await;
     let secret = enrolment["secret"]
@@ -75,7 +75,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/console/mfa/verify", env.base))
+            .post(format!("{}/v1/console/mfa/verify", env.base))
             .bearer_auth(&operator)
             .json(&json!({"code": "000000"}))
             .send()
@@ -88,20 +88,20 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     let code = totp::code_at(&secret, chrono::Utc::now().timestamp()).expect("a TOTP");
     expect(
         env.client
-            .post(format!("{}/v2/console/mfa/verify", env.base))
+            .post(format!("{}/v1/console/mfa/verify", env.base))
             .bearer_auth(&operator)
             .json(&json!({"code": code}))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/mfa/verify with the live code",
+        "POST /v1/console/mfa/verify with the live code",
     )
     .await;
 
     refusal(
         env.client
-            .post(format!("{}/v2/console/authenticate", env.base))
+            .post(format!("{}/v1/console/authenticate", env.base))
             .json(&json!({"username": username, "password": password}))
             .send()
             .await
@@ -113,7 +113,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     let code = totp::code_at(&secret, chrono::Utc::now().timestamp()).expect("a TOTP");
     let signed_in = json_body(
         env.client
-            .post(format!("{}/v2/console/authenticate", env.base))
+            .post(format!("{}/v1/console/authenticate", env.base))
             .json(&json!({"username": username, "password": password, "mfa": code}))
             .send()
             .await
@@ -129,7 +129,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
 
     refusal(
         env.client
-            .post(format!("{}/v2/console/password_change", env.base))
+            .post(format!("{}/v1/console/password_change", env.base))
             .bearer_auth(&operator)
             .json(&json!({"current_password": "wrong-password", "password": changed}))
             .send()
@@ -141,7 +141,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     .await;
     refusal(
         env.client
-            .post(format!("{}/v2/console/password_change", env.base))
+            .post(format!("{}/v1/console/password_change", env.base))
             .bearer_auth(&operator)
             .json(&json!({"current_password": password, "password": "short"}))
             .send()
@@ -153,7 +153,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     .await;
     let bootstrap = json_body(
         env.client
-            .post(format!("{}/v2/console/password_change", env.base))
+            .post(format!("{}/v1/console/password_change", env.base))
             .bearer_auth(console)
             .json(&json!({"current_password": CONSOLE_PASSWORD, "password": changed}))
             .send()
@@ -173,14 +173,14 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     let code = totp::code_at(&secret, chrono::Utc::now().timestamp()).expect("a TOTP");
     expect(
         env.client
-            .post(format!("{}/v2/console/password_change", env.base))
+            .post(format!("{}/v1/console/password_change", env.base))
             .bearer_auth(&operator)
             .json(&json!({"current_password": password, "password": changed, "mfa": code}))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/password_change",
+        "POST /v1/console/password_change",
     )
     .await;
     let _ = console_login_as(
@@ -194,19 +194,19 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     let first_recovery = recovery[0].as_str().expect("a recovery code").to_owned();
     expect(
         env.client
-            .delete(format!("{}/v2/console/mfa", env.base))
+            .delete(format!("{}/v1/console/mfa", env.base))
             .bearer_auth(&operator)
             .json(&json!({"code": first_recovery}))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/mfa with a recovery code",
+        "DELETE /v1/console/mfa with a recovery code",
     )
     .await;
     expect(
         env.client
-            .delete(format!("{}/v2/console/mfa", env.base))
+            .delete(format!("{}/v1/console/mfa", env.base))
             .bearer_auth(&operator)
             .json(&json!({"code": first_recovery}))
             .send()
@@ -253,7 +253,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
 
     let re_enrolment = json_body(
         env.client
-            .post(format!("{}/v2/console/mfa", env.base))
+            .post(format!("{}/v1/console/mfa", env.base))
             .bearer_auth(&operator)
             .send()
             .await
@@ -268,7 +268,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
         .to_owned();
     refusal(
         env.client
-            .delete(format!("{}/v2/console/mfa", env.base))
+            .delete(format!("{}/v1/console/mfa", env.base))
             .bearer_auth(&operator)
             .json(&json!({"code": first_recovery}))
             .send()
@@ -280,21 +280,21 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     .await;
     expect(
         env.client
-            .delete(format!("{}/v2/console/mfa", env.base))
+            .delete(format!("{}/v1/console/mfa", env.base))
             .bearer_auth(&operator)
             .json(&json!({"code": secret_code(&new_secret)}))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/mfa with the live authenticator code",
+        "DELETE /v1/console/mfa with the live authenticator code",
     )
     .await;
 
     expect(
         env.client
             .post(format!(
-                "{}/v2/console/user/{operator_id}/mfa/require",
+                "{}/v1/console/user/{operator_id}/mfa/require",
                 env.base
             ))
             .bearer_auth(console)
@@ -302,12 +302,12 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/user/{id}/mfa/require",
+        "POST /v1/console/user/{id}/mfa/require",
     )
     .await;
     let required = json_body(
         env.client
-            .get(format!("{}/v2/console/user", env.base))
+            .get(format!("{}/v1/console/user", env.base))
             .bearer_auth(console)
             .send()
             .await
@@ -336,7 +336,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     expect(
         env.client
             .delete(format!(
-                "{}/v2/console/user/{operator_id}/mfa/require",
+                "{}/v1/console/user/{operator_id}/mfa/require",
                 env.base
             ))
             .bearer_auth(console)
@@ -344,13 +344,13 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/user/{id}/mfa/require",
+        "DELETE /v1/console/user/{id}/mfa/require",
     )
     .await;
     expect(
         env.client
             .delete(format!(
-                "{}/v2/console/user/{operator_id}/mfa/reset",
+                "{}/v1/console/user/{operator_id}/mfa/reset",
                 env.base
             ))
             .bearer_auth(console)
@@ -358,13 +358,13 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
             .await
             .unwrap(),
         StatusCode::OK,
-        "DELETE /v2/console/user/{id}/mfa/reset",
+        "DELETE /v1/console/user/{id}/mfa/reset",
     )
     .await;
     refusal(
         env.client
             .post(format!(
-                "{}/v2/console/user/{}/mfa/require",
+                "{}/v1/console/user/{}/mfa/require",
                 env.base,
                 Uuid::new_v4()
             ))
@@ -379,7 +379,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     refusal(
         env.client
             .post(format!(
-                "{}/v2/console/user/not-a-uuid/mfa/require",
+                "{}/v1/console/user/not-a-uuid/mfa/require",
                 env.base
             ))
             .bearer_auth(console)
@@ -395,7 +395,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     let viewer_password = "e2e-viewer-password";
     json_body(
         env.client
-            .post(format!("{}/v2/console/user", env.base))
+            .post(format!("{}/v1/console/user", env.base))
             .bearer_auth(console)
             .json(&json!({
                 "username": viewer_name,
@@ -414,7 +414,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     let message = refusal(
         env.client
             .post(format!(
-                "{}/v2/console/user/{operator_id}/mfa/require",
+                "{}/v1/console/user/{operator_id}/mfa/require",
                 env.base
             ))
             .bearer_auth(&viewer)
@@ -429,13 +429,13 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
 
     let trail = json_body(
         env.client
-            .get(format!("{}/v2/console/audit/log?limit=100", env.base))
+            .get(format!("{}/v1/console/audit/log?limit=100", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/audit/log",
+        "GET /v1/console/audit/log",
     )
     .await;
     let actions: Vec<&str> = trail
@@ -463,7 +463,7 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
     let filtered = json_body(
         env.client
             .get(format!(
-                "{}/v2/console/audit/log?username={username}&action=mfa.enrol",
+                "{}/v1/console/audit/log?username={username}&action=mfa.enrol",
                 env.base
             ))
             .bearer_auth(console)
@@ -494,13 +494,13 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
 
     let roster = json_body(
         env.client
-            .get(format!("{}/v2/console/audit/log/users", env.base))
+            .get(format!("{}/v1/console/audit/log/users", env.base))
             .bearer_auth(console)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/console/audit/log/users",
+        "GET /v1/console/audit/log/users",
     )
     .await;
     let usernames: Vec<&str> = roster["usernames"]
@@ -520,20 +520,20 @@ pub async fn console_operator_lifecycle(env: &Harness, console: &str) {
 
     expect(
         env.client
-            .post(format!("{}/v2/console/authenticate/logout", env.base))
+            .post(format!("{}/v1/console/authenticate/logout", env.base))
             .bearer_auth(&operator)
             .json(&json!({}))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/console/authenticate/logout",
+        "POST /v1/console/authenticate/logout",
     )
     .await;
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/console/status", env.base))
+                .get(format!("{}/v1/console/status", env.base))
                 .bearer_auth(&operator)
                 .send()
                 .await

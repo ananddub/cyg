@@ -1,0 +1,14 @@
+{
+  "name": "@cyg/testing",
+  "version": "0.1.0",
+  "description": "Deterministic headless room harness for CYG games",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "MIT"
+}

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 
 impl RealtimePresenceService {
@@ -80,7 +82,6 @@ impl RealtimePresenceService {
     }
     pub async fn follow_users(
         &self,
-        state: &ApiState,
         sid: Uuid,
         user_ids: Vec<String>,
         usernames: Vec<String>,
@@ -89,7 +90,7 @@ impl RealtimePresenceService {
         let Some(session) = session::find(sid) else {
             return Ok(());
         };
-        let queries = crate::services::deps::q(state).await?;
+        let queries = crate::services::deps::q(&self.plane).await?;
         let mut resolved: Vec<Uuid> = Vec::new();
         for raw in user_ids {
             if let Ok(uid) = Uuid::parse_str(&raw) {

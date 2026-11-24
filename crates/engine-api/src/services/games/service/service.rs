@@ -1,4 +1,6 @@
 use super::*;
+use crate::services::plane::Plane;
+use std::sync::Arc;
 
 impl From<ListGamesRow> for GameRow {
     fn from(row: ListGamesRow) -> Self {
@@ -16,11 +18,13 @@ impl From<ListGamesRow> for GameRow {
         }
     }
 }
-pub struct GamesService;
+pub struct GamesService {
+    pub(crate) plane: Arc<Plane>,
+}
 #[singleton]
 impl GamesService {
-    fn new() -> Self {
-        Self
+    pub fn new(plane: Arc<Plane>) -> Self {
+        Self { plane }
     }
 }
 pub(super) const KEY_ATTEMPTS: usize = 4;

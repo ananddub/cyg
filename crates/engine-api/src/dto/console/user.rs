@@ -5,12 +5,12 @@ use uuid::Uuid;
 use crate::infra::console::ConsoleRole;
 use crate::repositories::console::FindConsoleUserRow as Row;
 
-#[derive(Debug, Serialize)]
+#[derive(poem_openapi::Object, Debug, Serialize)]
 pub struct ConsoleUserView {
     pub id: Uuid,
     pub username: String,
     pub email: String,
-    pub role: &'static str,
+    pub role: String,
     pub acl: serde_json::Value,
     pub metadata: serde_json::Value,
     pub mfa_required: bool,
@@ -26,7 +26,7 @@ impl From<Row> for ConsoleUserView {
             id: r.id,
             username: r.username,
             email: r.email,
-            role: role.as_str(),
+            role: role.as_str().to_owned(),
             acl: r.acl,
             metadata: r.metadata,
             mfa_required: r.mfa_required.unwrap_or(false),
@@ -37,7 +37,7 @@ impl From<Row> for ConsoleUserView {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct CreateConsoleUserRequest {
     #[serde(default)]
     pub username: String,
@@ -51,7 +51,7 @@ pub struct CreateConsoleUserRequest {
     pub mfa_required: bool,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct UpdateConsoleUserRequest {
     #[serde(default)]
     pub username: String,
@@ -65,13 +65,13 @@ pub struct UpdateConsoleUserRequest {
     pub mfa_required: bool,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct SetConsolePasswordRequest {
     #[serde(default)]
     pub password: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(poem_openapi::Object, Debug, Default, Deserialize)]
 pub struct ChangeConsolePasswordRequest {
     #[serde(default)]
     pub current_password: String,

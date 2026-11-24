@@ -1,6 +1,6 @@
 use super::*;
 
-/// Aggregates for `GET /v2/console/economy/summary`. Counts run as SurrealQL
+/// Aggregates for `GET /v1/console/economy/summary`. Counts run as SurrealQL
 /// `GROUP BY` queries; the wallet ledger deltas are summed in Rust because
 /// they live inside a JSON changeset column.
 impl Queries {

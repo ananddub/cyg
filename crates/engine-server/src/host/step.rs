@@ -3,9 +3,17 @@ use std::time::{Duration, Instant};
 use crate::host::*;
 
 impl<'a> Engine<'a> {
-    pub(crate) fn step(&mut self) -> std::io::Result<()> {
+    /// Returns true when the process should exit (drain grace elapsed and
+    /// rooms are closed). The run loop used to ignore this and spin forever
+    /// re-running `drain_rooms` every tick at 100% CPU.
+    /// Live room count — used by the run loop's idle allocator trim.
+    pub(crate) fn room_count(&self) -> usize {
+        self.server.rooms.len()
+    }
+
+    pub(crate) fn step(&mut self) -> std::io::Result<bool> {
         if self.drain_phase()? {
-            return Ok(());
+            return Ok(true);
         }
         self.pump_signals();
         self.wait_events();
@@ -40,10 +48,15 @@ impl<'a> Engine<'a> {
             self.tick.run(&mut ctx);
         }
         self.run_telemetry();
-        self.hot
-            .run(&mut self.server, &self.bus, self.cfg, &mut self.clock.tick_interval);
-        self.transport.flush().expect("flush");
-        Ok(())
+        self.hot.run(
+            &mut self.server,
+            &self.bus,
+            self.cfg,
+            &mut self.clock.tick_interval,
+        );
+        // Single flush pass per step, errors propagated instead of aborted on.
+        self.transport.flush()?;
+        Ok(false)
     }
 
     pub(crate) fn drain_phase(&mut self) -> std::io::Result<bool> {
@@ -51,20 +64,27 @@ impl<'a> Engine<'a> {
             return Ok(false);
         }
         let now = Instant::now();
-        if self.drain.begin(now) {
+        if self.manager.begin_drain(now) {
             tracing::info!(
-                "[server] 🛑 drain requested: {} room(s) get {:?} to finish and leave",
+                "[server] 🛑 drain requested (server {}): {} room(s) get {:?} to finish and leave",
+                self.manager.phase().display(),
                 self.server.rooms.len(),
-                self.drain.grace
+                self.manager.grace()
             );
             announce_closure(&self.server, &mut self.transport);
         }
-        if self.drain.expired(Instant::now()) {
+        if self.manager.drain_expired(Instant::now()) {
             drain_rooms(
                 &mut self.server,
                 &mut self.transport,
                 &self.bus,
+                self.cfg,
                 &self.game_id,
+            );
+            self.manager.finish();
+            tracing::info!(
+                "[server] ✅ lifecycle {}: rooms closed, leaving",
+                self.manager.phase().display()
             );
             return Ok(true);
         }
@@ -79,20 +99,27 @@ impl<'a> Engine<'a> {
             .clock
             .tick_interval
             .saturating_sub(self.tick.last_tick.elapsed());
-        let all_idle = self
-            .server
-            .rooms
-            .values()
-            .all(|r| r.is_hibernating())
-            && self.udp.udp_peers.is_empty();
+        let mut wait = remaining_to_tick;
+        // Staggered rooms fire on slot boundaries inside the interval, so the
+        // loop must wake for the next slot, not just the interval boundary.
+        let groups = self.cfg.tick_stagger.max(1);
+        if groups > 1 {
+            let slot = self.clock.tick_interval / groups;
+            let to_slot = (self.tick.slot_base + slot).saturating_duration_since(Instant::now());
+            wait = wait.min(to_slot);
+        }
+        let all_idle =
+            self.server.rooms.values().all(|r| r.is_hibernating()) && self.udp.udp_peers.is_empty();
         let wait = if all_idle {
-            remaining_to_tick.min(Duration::from_millis(5))
+            wait.min(Duration::from_millis(5))
         } else {
-            remaining_to_tick
+            wait
         };
         if let Err(e) = self.transport.poll_events(wait, &mut self.scratch.events) {
             if e.kind() != std::io::ErrorKind::Interrupted {
-                panic!("poll: {e}");
+                // A transient poll error must not abort the process
+                // (panic = "abort" release builds): log and continue the loop.
+                tracing::warn!("[server] poll error: {e}");
             }
         }
     }

@@ -11,7 +11,7 @@ pub async fn iap_surface(env: &Harness) {
 
     assert_eq!(
         refusal(
-            post("/v2/iap/purchase/apple")
+            post("/v1/iap/purchase/apple")
                 .json(&json!({ "receipt": "" }))
                 .send()
                 .await
@@ -24,7 +24,7 @@ pub async fn iap_surface(env: &Harness) {
     );
     assert_eq!(
         refusal(
-            post("/v2/iap/purchase/google")
+            post("/v1/iap/purchase/google")
                 .json(&json!({ "purchase_token": "" }))
                 .send()
                 .await
@@ -37,7 +37,7 @@ pub async fn iap_surface(env: &Harness) {
     );
     assert_eq!(
         refusal(
-            post("/v2/iap/subscription/apple")
+            post("/v1/iap/subscription/apple")
                 .json(&json!({ "product_id": "season.none" }))
                 .send()
                 .await
@@ -50,13 +50,13 @@ pub async fn iap_surface(env: &Harness) {
     );
 
     let apple = json_body(
-        post("/v2/iap/purchase/apple")
+        post("/v1/iap/purchase/apple")
             .json(&json!({ "receipt": "e2e-gap-apple-receipt", "product_id": "gem.small" }))
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "POST /v2/iap/purchase/apple",
+        "POST /v1/iap/purchase/apple",
     )
     .await;
     assert_eq!(apple["product_id"], "gem.small");
@@ -75,23 +75,23 @@ pub async fn iap_surface(env: &Harness) {
     );
     for (label, path, body) in [
         (
-            "POST /v2/iap/purchase/google",
-            "/v2/iap/purchase/google",
+            "POST /v1/iap/purchase/google",
+            "/v1/iap/purchase/google",
             json!({ "purchase_token": "e2e-gap-google-token", "product_id": "gem.large" }),
         ),
         (
-            "POST /v2/iap/purchase/huawei",
-            "/v2/iap/purchase/huawei",
+            "POST /v1/iap/purchase/huawei",
+            "/v1/iap/purchase/huawei",
             json!({ "purchase_token": "e2e-gap-huawei-token", "product_id": "gem.xl" }),
         ),
         (
-            "POST /v2/iap/purchase/facebookinstant",
-            "/v2/iap/purchase/facebookinstant",
+            "POST /v1/iap/purchase/facebookinstant",
+            "/v1/iap/purchase/facebookinstant",
             json!({ "signed_request": "e2e-gap-fi-token", "product_id": "gem.fb" }),
         ),
         (
-            "POST /v2/iap/purchase/samsung",
-            "/v2/iap/purchase/samsung",
+            "POST /v1/iap/purchase/samsung",
+            "/v1/iap/purchase/samsung",
             json!({ "purchase_id": "e2e-gap-samsung-id", "product_id": "gem.sam" }),
         ),
     ] {
@@ -110,8 +110,8 @@ pub async fn iap_surface(env: &Harness) {
 
     for (label, path, body) in [
         (
-            "POST /v2/iap/subscription/apple",
-            "/v2/iap/subscription/apple",
+            "POST /v1/iap/subscription/apple",
+            "/v1/iap/subscription/apple",
             json!({
                 "receipt": "e2e-gap-sub-receipt",
                 "product_id": "season.gold",
@@ -119,13 +119,13 @@ pub async fn iap_surface(env: &Harness) {
             }),
         ),
         (
-            "POST /v2/iap/subscription/google",
-            "/v2/iap/subscription/google",
+            "POST /v1/iap/subscription/google",
+            "/v1/iap/subscription/google",
             json!({ "purchase_token": "e2e-gap-sub-token", "product_id": "season.silver" }),
         ),
         (
-            "POST /v2/iap/subscription/huawei",
-            "/v2/iap/subscription/huawei",
+            "POST /v1/iap/subscription/huawei",
+            "/v1/iap/subscription/huawei",
             json!({ "receipt": "e2e-gap-hw-sub", "product_id": "season.bronze" }),
         ),
     ] {
@@ -143,13 +143,13 @@ pub async fn iap_surface(env: &Harness) {
 
     let purchases = json_body(
         env.client
-            .get(format!("{}/v2/iap/purchase?limit=100", env.base))
+            .get(format!("{}/v1/iap/purchase?limit=100", env.base))
             .bearer_auth(&buyer.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/iap/purchase",
+        "GET /v1/iap/purchase",
     )
     .await;
     assert_eq!(
@@ -160,13 +160,13 @@ pub async fn iap_surface(env: &Harness) {
 
     let subscriptions = json_body(
         env.client
-            .get(format!("{}/v2/iap/subscription?limit=10", env.base))
+            .get(format!("{}/v1/iap/subscription?limit=10", env.base))
             .bearer_auth(&buyer.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/iap/subscription",
+        "GET /v1/iap/subscription",
     )
     .await;
     let held = subscriptions["subscriptions"]
@@ -182,13 +182,13 @@ pub async fn iap_surface(env: &Harness) {
 
     let gold = json_body(
         env.client
-            .get(format!("{}/v2/iap/subscription/season.gold", env.base))
+            .get(format!("{}/v1/iap/subscription/season.gold", env.base))
             .bearer_auth(&buyer.token)
             .send()
             .await
             .unwrap(),
         StatusCode::OK,
-        "GET /v2/iap/subscription/{productId}",
+        "GET /v1/iap/subscription/{productId}",
     )
     .await;
     assert_eq!(gold["product_id"], "season.gold");
@@ -196,7 +196,7 @@ pub async fn iap_surface(env: &Harness) {
     assert_eq!(
         refusal(
             env.client
-                .get(format!("{}/v2/iap/subscription/season.none", env.base))
+                .get(format!("{}/v1/iap/subscription/season.none", env.base))
                 .bearer_auth(&buyer.token)
                 .send()
                 .await

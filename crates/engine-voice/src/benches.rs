@@ -14,7 +14,7 @@ fn benchmark_100_player_spatial_voice_fanout() {
         let x = ((id % 10) as f64) * 5.0;
         let y = 0.0;
         let z = ((id / 10) as f64) * 5.0;
-        room.join_participant(id, Some((id % 2) as u16), [x, y, z]);
+        room.join_participant(id, Some((id % 2) as u32), [x, y, z]);
     }
 
     let dummy_opus = Bytes::from_static(b"opus-20ms-voice-payload-sample-frame-48khz");

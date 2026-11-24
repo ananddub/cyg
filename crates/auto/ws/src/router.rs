@@ -104,7 +104,6 @@ async fn serve<P: Protocol>(
 }
 
 async fn dispatch<P: Protocol>(conn: &Conn, registrar: &SocketRegistrar, msg: Msg) {
-
     let Some(handler) = registrar.events.get(msg.event()) else {
         return;
     };

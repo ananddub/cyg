@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 
 pub(super) static TICKER_STARTED: OnceLock<()> = OnceLock::new();
@@ -51,6 +53,17 @@ pub struct RealtimeMatchmakerService {
     pub mode_index: &'static FastMap<String, FastMap<Uuid, ()>>,
     pub rank_index: &'static FastTree<(i64, Uuid), ()>,
 }
+impl Ticket {
+    /// Rating used by the expanding match window. `mmr` wins over `rank` when
+    /// both are present; no rating means "unrated" and is allowed to match.
+    pub fn rating(&self) -> Option<f64> {
+        self.numeric_props
+            .get("mmr")
+            .or_else(|| self.numeric_props.get("rank"))
+            .copied()
+    }
+}
+
 #[singleton]
 impl RealtimeMatchmakerService {
     pub fn new() -> Self {

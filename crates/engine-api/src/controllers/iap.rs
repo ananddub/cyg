@@ -18,7 +18,7 @@ type QueryParams<T> = axum::extract::Query<T>;
 macro_rules! idempotent_purchase {
     ($state:expr, $headers:expr, $auth:expr, $parts:expr, $call:expr) => {{
         let mut claim = match crate::services::idempotency::begin(
-            &$state,
+            &*$state.plane(),
             &$headers,
             "iap.purchase",
             &$auth.uid().to_string(),
@@ -30,13 +30,14 @@ macro_rules! idempotent_purchase {
             Err(err) => return err.into_response(),
         };
         if let Some(saved) = claim.replayed() {
-            return Json(saved).into_response();
+            return crate::app::middleware::replay_response(saved);
         }
         let result = $call.await;
-        let stored = result
-            .as_ref()
-            .ok()
-            .and_then(|json| serde_json::to_value(&json.0).ok());
+        let stored = result.as_ref().ok().and_then(|json| {
+            serde_json::to_string(&json.0)
+                .ok()
+                .map(|raw| crate::services::idempotency::Stored { status: 200, raw })
+        });
         claim.settle(stored).await;
         return result.into_response();
     }};
@@ -64,13 +65,13 @@ struct IapController {
     service: Arc<IapService>,
 }
 
-#[controller("/v2/iap")]
+#[controller("/v1/iap")]
 impl IapController {
     fn new(service: Arc<IapService>) -> Self {
         Self { service }
     }
 
-    #[post("")]
+    #[post("", response_body = crate::dto::iap::PurchaseResponse)]
     async fn validate_apple_legacy(
         &self,
         auth: Authed,
@@ -84,11 +85,11 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.validate_apple_legacy(&state, &auth, body)
+            self.service.validate_apple_legacy(&auth, body)
         )
     }
 
-    #[post("/purchase/apple")]
+    #[post("/purchase/apple", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_apple(
         &self,
         auth: Authed,
@@ -102,11 +103,11 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_apple(&state, &auth, body)
+            self.service.purchase_apple(&auth, body)
         )
     }
 
-    #[post("/purchase/google")]
+    #[post("/purchase/google", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_google(
         &self,
         auth: Authed,
@@ -120,11 +121,11 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_google(&state, &auth, body)
+            self.service.purchase_google(&auth, body)
         )
     }
 
-    #[post("/purchase/huawei")]
+    #[post("/purchase/huawei", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_huawei(
         &self,
         auth: Authed,
@@ -138,11 +139,11 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_huawei(&state, &auth, body)
+            self.service.purchase_huawei(&auth, body)
         )
     }
 
-    #[post("/purchase/facebookinstant")]
+    #[post("/purchase/facebookinstant", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_facebook_instant(
         &self,
         auth: Authed,
@@ -156,11 +157,11 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_facebook_instant(&state, &auth, body)
+            self.service.purchase_facebook_instant(&auth, body)
         )
     }
 
-    #[post("/purchase/samsung")]
+    #[post("/purchase/samsung", response_body = crate::dto::iap::PurchaseResponse)]
     async fn purchase_samsung(
         &self,
         auth: Authed,
@@ -174,20 +175,20 @@ impl IapController {
             headers,
             auth,
             &parts.iter().map(String::as_str).collect::<Vec<_>>(),
-            self.service.purchase_samsung(&state, &auth, body)
+            self.service.purchase_samsung(&auth, body)
         )
     }
 
-    #[get("/purchase")]
+    #[get("/purchase", response_body = crate::dto::iap::PurchaseListResponse)]
     async fn list_purchases(&self, auth: Authed, req: QueryParams<ListQuery>) -> Response {
         let state = current_state();
         self.service
-            .list_purchases(&state, &auth, req.0)
+            .list_purchases(&auth, req.0)
             .await
             .into_response()
     }
 
-    #[post("/subscription/apple")]
+    #[post("/subscription/apple", response_body = crate::dto::iap::SubscriptionResponse)]
     async fn subscription_apple(
         &self,
         auth: Authed,
@@ -195,12 +196,12 @@ impl IapController {
     ) -> Response {
         let state = current_state();
         self.service
-            .subscription_apple(&state, &auth, body)
+            .subscription_apple(&auth, body)
             .await
             .into_response()
     }
 
-    #[post("/subscription/google")]
+    #[post("/subscription/google", response_body = crate::dto::iap::SubscriptionResponse)]
     async fn subscription_google(
         &self,
         auth: Authed,
@@ -208,12 +209,12 @@ impl IapController {
     ) -> Response {
         let state = current_state();
         self.service
-            .subscription_google(&state, &auth, body)
+            .subscription_google(&auth, body)
             .await
             .into_response()
     }
 
-    #[post("/subscription/huawei")]
+    #[post("/subscription/huawei", response_body = crate::dto::iap::SubscriptionResponse)]
     async fn subscription_huawei(
         &self,
         auth: Authed,
@@ -221,30 +222,30 @@ impl IapController {
     ) -> Response {
         let state = current_state();
         self.service
-            .subscription_huawei(&state, &auth, body)
+            .subscription_huawei(&auth, body)
             .await
             .into_response()
     }
 
-    #[get("/subscription")]
+    #[get("/subscription", response_body = crate::dto::iap::SubscriptionListResponse)]
     async fn list_subscriptions(&self, auth: Authed, req: QueryParams<ListQuery>) -> Response {
         let state = current_state();
         self.service
-            .list_subscriptions(&state, &auth, req.0)
+            .list_subscriptions(&auth, req.0)
             .await
             .into_response()
     }
 
-    #[get("/subscription/active")]
+    #[get("/subscription/active", response_body = crate::dto::iap::ActiveSubscriptionResponse)]
     async fn active_subscriptions(&self, auth: Authed) -> Response {
         let state = current_state();
         self.service
-            .active_entitlements(&state, &auth)
+            .active_entitlements(&auth)
             .await
             .into_response()
     }
 
-    #[get("/subscription/{product_id}")]
+    #[get("/subscription/{product_id}", response_body = crate::dto::iap::SubscriptionResponse)]
     async fn subscription_by_product(
         &self,
         auth: Authed,
@@ -252,7 +253,7 @@ impl IapController {
     ) -> Response {
         let state = current_state();
         self.service
-            .subscription_by_product(&state, &auth, &product_id)
+            .subscription_by_product(&auth, &product_id)
             .await
             .into_response()
     }

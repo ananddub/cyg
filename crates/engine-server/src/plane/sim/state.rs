@@ -40,6 +40,9 @@ pub(super) struct Plane {
     pub(super) last_pos: HashMap<i64, [f64; 3]>,
     pub(super) delta_buf: Vec<u8>,
     pub(super) filtered_buf: Vec<u8>,
+    /// Reused AOI visibility scratch — cleared/resized per viewer by
+    /// filter_for_viewer_indexed instead of allocating a Vec<bool> per call.
+    pub(super) visible_buf: Vec<bool>,
     pub(super) scratch: Vec<u8>,
     pub(super) frames: Vec<OutFrame>,
     pub(super) tick_t0: Instant,

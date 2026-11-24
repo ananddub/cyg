@@ -1,12 +1,10 @@
 use axum::Json;
 use uuid::Uuid;
 
-use crate::ApiState;
 use crate::app::middleware::Authed;
 use crate::dto::channel::{MessageResponse, SendRequest};
 use crate::error::V2Error;
 use crate::repositories::channel::InsertChannelMessageParams;
-use crate::services::deps::q;
 use crate::services::quota;
 
 use crate::utils::channel::stream_of_channel;
@@ -17,15 +15,22 @@ use super::super::membership::assert_member;
 impl ChannelService {
     pub async fn send_message(
         &self,
-        state: &ApiState,
+
         auth: &Authed,
         channel_id: &str,
         body: SendRequest,
     ) -> Result<Json<MessageResponse>, V2Error> {
         let stream = stream_of_channel(channel_id)?;
         let uid = auth.0.uuid()?;
-        assert_member(state, uid, &stream).await?;
-        if q(state).await?.active_infraction(uid, "mute").await?.is_some() {
+        assert_member(&self.plane, uid, &stream).await?;
+        if self
+            .plane
+            .q()
+            .await?
+            .active_infraction(uid, "mute")
+            .await?
+            .is_some()
+        {
             return Err(V2Error::permission_denied(
                 "You are muted and cannot send messages.",
             ));
@@ -36,8 +41,10 @@ impl ChannelService {
             ));
         }
         let content = crate::moderation::sanitize_json(body.content);
-        quota::charge(state, uid, quota::CHANNEL_SEND, 1).await?;
-        let msg = q(state)
+        quota::charge(&self.plane, uid, quota::CHANNEL_SEND, 1).await?;
+        let msg = self
+            .plane
+            .q()
             .await?
             .insert_channel_message(&InsertChannelMessageParams {
                 id: Uuid::new_v4(),

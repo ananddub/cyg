@@ -12,11 +12,14 @@ pub use client::{
     LiveClientArgumentDescriptor, LiveClientRouteDescriptor, live_client_manifest, ts_decl, ts_name,
 };
 pub use docs::{openapi_routes, scalar_routes};
-pub use openapi::{AutoRouteOpenApi, openapi_json, openapi_spec};
+pub use openapi::{AutoRouteOpenApi, openapi_json, openapi_spec, openapi_spec_at, set_api_base};
 pub use openapi_descriptors::{
-    OpenApiParamDescriptor, OpenApiRouteDescriptor, OpenApiSchemaDescriptor,
+    OpenApiParamDescriptor, OpenApiRouteDescriptor, OpenApiSchemaDescriptor, documented_routes,
 };
-pub use router::{RouteDescriptor, build_routes, routes};
+pub use router::{
+    RouteDescriptor, build_root_routes, build_routes, build_routes_at, build_versioned_routes,
+    routes,
+};
 
 #[doc(hidden)]
 pub mod __private {

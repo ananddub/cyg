@@ -1,4 +1,3 @@
-
 use std::io::Write;
 
 use super::super::client::WsClient;

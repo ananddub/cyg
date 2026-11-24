@@ -1,8 +1,8 @@
-//! # cyg-game — CYG game server CLI
+//! # cyg — CYG game server CLI
 //!
-//!   cyg-game init \[dir]    create a game project (room.ts + schema.ts + own SDK + website)
-//!   cyg-game run  \[dir]    compile (if needed) and run the server
-//!   cyg-game run            (with no config.toml present) runs the built-in demo
+//!   cyg init \[dir]    create a game project (room.ts + schema.ts + own SDK + website)
+//!   cyg run  \[dir]    compile (if needed) and run the server
+//!   cyg run            (with no config.toml present) runs the built-in demo
 //!
 //! Everything is driven by config.toml — runtime, source, ports, tick rate.
 //!
@@ -23,40 +23,105 @@ use engine_schema::{
 };
 use std::path::{Path, PathBuf};
 
+/// `cargo build --features mimalloc` opts into mimalloc; the default build
+/// uses the system (glibc) allocator.
+#[cfg(all(feature = "mimalloc", not(feature = "dhat")))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+/// `cargo build --features dhat` swaps the allocator for the heap profiler:
+/// on clean exit it writes dhat-heap.json with per-allocation backtraces.
+#[cfg(feature = "dhat")]
+#[global_allocator]
+static GLOBAL: dhat::Alloc = dhat::Alloc;
+
+#[cfg(feature = "dhat")]
+static DHAT_PROFILER: std::sync::Mutex<Option<dhat::Profiler>> = std::sync::Mutex::new(None);
+
+#[cfg(feature = "dhat")]
+fn install_dhat() {
+    *DHAT_PROFILER.lock().unwrap() = Some(dhat::Profiler::builder().build());
+    std::thread::spawn(|| {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            let s = dhat::HeapStats::get();
+            tracing::info!(
+                "[dhat] curr {:.1} MiB / peak {:.1} MiB / total allocated {:.0} MiB in {} blocks",
+                s.curr_bytes as f64 / 1048576.0,
+                s.max_bytes as f64 / 1048576.0,
+                s.total_bytes as f64 / 1048576.0,
+                s.total_blocks
+            );
+        }
+    });
+}
+
+#[cfg(feature = "cpu-prof")]
+static CPU_PROFILER: std::sync::Mutex<Option<pprof::ProfilerGuard<'static>>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(feature = "cpu-prof")]
+fn install_cpu_prof() {
+    if std::env::var("CYG_CPU_PROF_SECS").is_err() {
+        return;
+    }
+    match pprof::ProfilerGuardBuilder::default()
+        .frequency(999)
+        .build()
+    {
+        Ok(guard) => *CPU_PROFILER.lock().unwrap() = Some(guard),
+        Err(e) => tracing::warn!("[cpu-prof] failed to start: {e}"),
+    }
+}
 
 mod backup;
 mod cli;
 mod cook;
 mod schema;
+mod telemetry;
 
-fn init_logging() {
+fn init_logging() -> telemetry::Guard {
     use tracing_subscriber::prelude::*;
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let fmt = tracing_subscriber::fmt::layer()
         .with_target(false)
         .with_writer(std::io::stderr);
-    let fmt = if std::env::var("OX_LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json")) {
+    let fmt = if std::env::var("CYG_LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json")) {
         fmt.json().boxed()
     } else {
         fmt.compact().boxed()
     };
+    let (otel, guard) = telemetry::layer();
     tracing_subscriber::registry()
         .with(filter)
         .with(fmt)
         .with(engine_api::infra::logfeed::layer())
+        .with(otel)
         .init();
+    guard
 }
 
 fn main() {
-    init_logging();
+    #[cfg(feature = "dhat")]
+    install_dhat();
+    #[cfg(feature = "cpu-prof")]
+    install_cpu_prof();
+    // Held for the whole process: dropping it flushes the OTLP batch processor.
+    let _telemetry = init_logging();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("run");
+    // `-d` / `--dev` is a run-mode switch, not a path: an unauthenticated
+    // console is a local-development affordance only, so it has to be asked
+    // for explicitly rather than inferred from where the directory is.
+    let dev = args.iter().any(|a| a == "-d" || a == "--dev");
+    if dev {
+        engine_control::runtime_mode::enter_dev();
+    }
     let dir = args
-        .get(1)
-        .filter(|a| !a.starts_with("--"))
+        .iter()
+        .skip(1)
+        .find(|a| !a.starts_with('-'))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 
@@ -97,7 +162,7 @@ fn main() {
         "schema-debug" | "schema-inspect" => schema_debug_command(&args[1..]),
         "cook" => {
             if args.len() < 3 {
-                tracing::info!("Usage: cyg-game cook <input.glb> <output.bin>");
+                tracing::info!("Usage: cyg cook <input.glb> <output.bin>");
                 std::process::exit(1);
             }
             let input = Path::new(&args[1]);
@@ -115,28 +180,28 @@ fn main() {
         "secrets" => match args.get(1).map(String::as_str) {
             Some("audit") => cli::secrets::run(&dir),
             _ => {
-                tracing::info!("Usage: cyg-game secrets audit [dir]");
+                tracing::info!("Usage: cyg secrets audit [dir]");
                 std::process::exit(1);
             }
         },
         "config" => match args.get(1).map(String::as_str) {
             Some("diff") => cli::config_diff::run(&args[2..], &dir),
             _ => {
-                tracing::info!("Usage: cyg-game config diff <a.json> <b.json|live> [--game <id>]");
+                tracing::info!("Usage: cyg config diff <a.json> <b.json|live> [--game <id>]");
                 std::process::exit(1);
             }
         },
         "rules" => match args.get(1).map(String::as_str) {
             Some("check") => cli::rules_check::run(&args[2..], &dir),
             _ => {
-                tracing::info!("Usage: cyg-game rules check --file <rules.json>");
+                tracing::info!("Usage: cyg rules check --file <rules.json>");
                 std::process::exit(1);
             }
         },
         "logs" => match args.get(1).map(String::as_str) {
             Some("tail") => cli::logs_tail::run(&args[2..]),
             _ => {
-                tracing::info!("Usage: cyg-game logs tail --token <console token>");
+                tracing::info!("Usage: cyg logs tail --token <console token>");
                 std::process::exit(1);
             }
         },
@@ -149,14 +214,14 @@ fn main() {
     }
 }
 
-/// `cyg-game doctor [dir]` — one command that validates everything a project
+/// `cyg doctor [dir]` — one command that validates everything a project
 /// needs: config, schema, wasm presence and the exact ABI export names the
 /// host will look up, plus the secrets the boot guard would refuse to start
 /// with. Catches contract mismatches (e.g. `tick()` vs
 /// `on_tick()`) in seconds instead of at room-join time.
 fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
     let mut problems = 0usize;
-    tracing::info!("🩺 cyg-game doctor — {}\n", dir.display());
+    tracing::info!("🩺 cyg doctor — {}\n", dir.display());
 
     // 1. config
     let cfg = match engine_config::load_config(dir) {
@@ -236,10 +301,7 @@ fn doctor(dir: &Path, check_schema: bool) -> std::io::Result<()> {
                 }
             }
         }
-        None => tracing::info!(
-            "• room wasm not built yet (run: cyg-game run {})",
-            dir.display()
-        ),
+        None => tracing::info!("• room wasm not built yet (run: cyg run {})", dir.display()),
     }
 
     // 4. secrets. The boot guard refuses to start a plane on these, so asking
@@ -308,7 +370,7 @@ fn backup_command(dir: &Path, args: &[String]) {
     if args.iter().any(|a| a == "--out")
         && args.iter().position(|a| a == "--out") == Some(args.len() - 1)
     {
-        tracing::info!("Usage: cyg-game backup [dir] [--out backups/]");
+        tracing::info!("Usage: cyg backup [dir] [--out backups/]");
         std::process::exit(1);
     }
     let out = args
@@ -346,7 +408,7 @@ fn restore_command(args: &[String]) {
         [dir, archive] => (PathBuf::from(dir), PathBuf::from(archive)),
         [archive] => (PathBuf::from("."), PathBuf::from(archive)),
         _ => {
-            tracing::info!("Usage: cyg-game restore [dir] <archive.sql.gz> [--force]");
+            tracing::info!("Usage: cyg restore [dir] <archive.sql.gz> [--force]");
             std::process::exit(1);
         }
     };
@@ -398,34 +460,34 @@ fn schema_status(
 
 fn print_help() {
     tracing::info!(
-        "cyg-game — CYG game server
+        "cyg — CYG game server
 
 USAGE:
-  cyg-game init          [dir]    create a game project (room.ts + schema.ts + own SDK)
-  cyg-game run           [dir]    compile the room (if needed) and start the server
-  cyg-game aot           [dir]    AOT precompile room to native .cwasm for <1ms cold starts
-  cyg-game gen-interface [dir]    auto-generate C++, Rust, C#, AssemblyScript & TypeScript interfaces
-  cyg-game cook <in.glb> <out.bin> extract 3D collision geometry to instant-boot OXCL binary
-  cyg-game schema [dir] --dump     compile schema.ts and print the descriptor as hex
-  cyg-game schema [dir] --json     compile schema.ts and print a machine-readable report
-  cyg-game schema        [dir]    compile schema.ts to server code + browser descriptor
-  cyg-game schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|all)
-  cyg-game schema-debug [path]    inspect a compiled descriptor (--json)
-  cyg-game doctor       [dir]    validate config, schema, wasm ABI exports and secrets
-  cyg-game doctor --check-schema report pending SurrealDB schema migrations
-  cyg-game backup  [dir] [--out backups]  export the HTTP database to a timestamped gzip + sha256 sidecar
-  cyg-game restore [dir] <archive> [--force]  import a backup archive produced by backup
-  cyg-game migrate [dir]                  apply pending schema migrations, then exit
-  cyg-game openapi [--out spec.json] [--check golden.json]  emit / verify the OpenAPI spec
-  cyg-game secrets audit [dir]            run the boot guard's secret checks
-  cyg-game config diff <a.json> <b.json|live> [--game <id>]  key-path config diff
-  cyg-game rules check --file <rules.json>  validate a rule document
-  cyg-game logs tail [--url base] [--token t] [--limit n]   newest mirrored log lines
-  cyg-game                        same as `run` in the current directory
+  cyg init          [dir]    create a game project (room.ts + schema.ts + own SDK)
+  cyg run           [dir]    compile the room (if needed) and start the server
+  cyg aot           [dir]    AOT precompile room to native .cwasm for <1ms cold starts
+  cyg gen-interface [dir]    auto-generate C++, Rust, C#, AssemblyScript & TypeScript interfaces
+  cyg cook <in.glb> <out.bin> extract 3D collision geometry to instant-boot OXCL binary
+  cyg schema [dir] --dump     compile schema.ts and print the descriptor as hex
+  cyg schema [dir] --json     compile schema.ts and print a machine-readable report
+  cyg schema        [dir]    compile schema.ts to server code + browser descriptor
+  cyg schema-codegen [dir]   emit typed client bindings (--lang cs|gdscript|cpp|lua|ts|all)
+  cyg schema-debug [path]    inspect a compiled descriptor (--json)
+  cyg doctor       [dir]    validate config, schema, wasm ABI exports and secrets
+  cyg doctor --check-schema report pending SurrealDB schema migrations
+  cyg backup  [dir] [--out backups]  export the HTTP database to a timestamped gzip + sha256 sidecar
+  cyg restore [dir] <archive> [--force]  import a backup archive produced by backup
+  cyg migrate [dir]                  apply pending schema migrations, then exit
+  cyg openapi [--out spec.json] [--check golden.json]  emit / verify the OpenAPI spec
+  cyg secrets audit [dir]            run the boot guard's secret checks
+  cyg config diff <a.json> <b.json|live> [--game <id>]  key-path config diff
+  cyg rules check --file <rules.json>  validate a rule document
+  cyg logs tail [--url base] [--token t] [--limit n]   newest mirrored log lines
+  cyg                        same as `run` in the current directory
 
 CONFIG:
   Everything lives in config.toml — runtime, source file, ports, tick rate.
-  See the template `cyg-game init` writes."
+  See the template `cyg init` writes."
     );
 }
 
@@ -439,7 +501,7 @@ fn schema_command(args: &[String]) {
             "--json" => json = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: cyg-game schema [dir] [--dump] [--json]\n\
+                    "usage: cyg schema [dir] [--dump] [--json]\n\
                      \x20 --dump   print the binary descriptor as lowercase hex\n\
                      \x20 --json   print paths, byte count and descriptor hex as JSON"
                 );
@@ -502,7 +564,7 @@ fn schema_codegen_command(args: &[String]) {
             "--check" => check = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: cyg-game schema-codegen [dir] [--lang <cs|gdscript|cpp|lua|all>] [--out DIR] [--check]\n\
+                    "usage: cyg schema-codegen [dir] [--lang <cs|gdscript|cpp|lua|ts|all>] [--out DIR] [--check]\n\
                      \x20 --lang    target language; defaults to all\n\
                      \x20 --out     output directory; defaults to <dir>/generated\n\
                      \x20 --check   fail if generated files are missing or stale (CI)"
@@ -564,7 +626,7 @@ fn schema_codegen_command(args: &[String]) {
                 tracing::info!("✗ stale {}", path.display());
             }
             tracing::info!(
-                "run `cyg-game schema-codegen {} --out {}` to regenerate",
+                "run `cyg schema-codegen {} --out {}` to regenerate",
                 dir.display(),
                 out_dir.display()
             );
@@ -597,7 +659,7 @@ fn schema_debug_command(args: &[String]) {
             "--json" => json = true,
             "--help" | "-h" => {
                 tracing::info!(
-                    "usage: cyg-game schema-debug [dir|file] [--json]\n\
+                    "usage: cyg schema-debug [dir|file] [--json]\n\
                      \x20 Reads cyg.schema.bin (or the given file) and prints the\n\
                      \x20 root, collections, schemas, fields and recomputed hashes."
                 );
@@ -641,6 +703,7 @@ fn schema_debug_command(args: &[String]) {
             name: descriptor.root.name.clone(),
             version: descriptor.root.version,
             fields: descriptor.root.scalars.clone(),
+            nested_arrays: Vec::new(),
             line: 0,
             column: 0,
         };
@@ -888,7 +951,7 @@ fn json_escape(value: &str) -> String {
     out
 }
 
-/// `cyg-game aot [dir]` — compile room source to WASM and AOT precompile to native `.cwasm`.
+/// `cyg aot [dir]` — compile room source to WASM and AOT precompile to native `.cwasm`.
 fn aot(dir: &Path) -> std::io::Result<()> {
     let cfg =
         if dir.join("config.toml").exists() || dir.join("config.yml").exists() || dir.is_file() {
@@ -912,7 +975,7 @@ fn aot(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// `cyg-game init [dir]` — scaffold a project.
+/// `cyg init [dir]` — scaffold a project.
 fn init(dir: &Path) -> std::io::Result<()> {
     let config_path = dir.join("config.toml");
     if config_path.exists() {
@@ -983,7 +1046,7 @@ declare module "cyg" {
     if !gitignore.exists() {
         std::fs::write(
             &gitignore,
-            "# Regenerable schema bindings (cyg-game schema-codegen)\ngen/\n",
+            "# Regenerable schema bindings (cyg schema-codegen)\ngen/\n",
         )?;
     }
 
@@ -1017,17 +1080,15 @@ declare module "cyg" {
         "  {}/out/                 — cyg.schema.bin descriptor + wasm build",
         dir.display()
     );
-    tracing::info!(
-        "  browser SDK: served by the server at /cyg.js — no copy needed"
-    );
+    tracing::info!("  browser SDK: served by the server at /cyg.js — no copy needed");
     tracing::info!("");
     print_schema_output(&generated, false, false)?;
     tracing::info!("");
-    tracing::info!("next: cyg-game run {}", dir.display());
+    tracing::info!("next: cyg run {}", dir.display());
     Ok(())
 }
 
-/// `cyg-game run [dir]` — compile (if needed) and serve.
+/// `cyg run [dir]` — compile (if needed) and serve.
 fn run(dir: &Path) -> std::io::Result<()> {
     let cfg = if dir.join("config.toml").exists()
         || dir.join("config.yml").exists()
@@ -1098,14 +1159,28 @@ fn run(dir: &Path) -> std::io::Result<()> {
     // projects it is the only thing that ever publishes telemetry.
     let bus = engine_bus::Bus::new(4096, 8192);
 
-    // Optional raw-UDP + pinned 128 Hz sim plane. Gated by OX_PLANES=1 so the
+    // Optional raw-UDP + pinned 128 Hz sim plane. Gated by CYG_PLANES=1 so the
     // WS/WebRTC flow is untouched by default.
+    // One lifecycle/thread authority for the whole process. The host loop is
+    // the main thread (it cannot be joined), so it is registered here and every
+    // auxiliary thread is adopted below.
+    let manager = engine_manager::ServerManager::new(std::time::Duration::from_secs(
+        cfg.lifecycle.drain_grace_secs,
+    ));
+    manager.set_thread_join_grace(std::time::Duration::from_secs(
+        cfg.lifecycle.thread_join_grace_secs,
+    ));
+    manager.register_thread(engine_manager::ThreadRole::Host, "cyg-host");
+
     let mut plane_cfg = engine_server::plane::PlaneConfig::from_env(&project_dir);
     plane_cfg.wasm_path = wasm_path.clone();
     if plane_cfg.enabled {
         let udp_addr = plane_cfg.udp_addr.clone();
-        match engine_server::plane::spawn_sim_plane(bus.clone(), plane_cfg) {
-            Ok(_) => tracing::info!("[main] 🧵 sim plane spawned (OX_PLANES=1, udp {udp_addr})"),
+        match engine_server::plane::spawn_sim_plane(bus.clone(), plane_cfg, manager.stop_flag()) {
+            Ok(handle) => {
+                manager.adopt_thread(engine_manager::ThreadRole::SimPlane, "cyg-sim", handle);
+                tracing::info!("[main] 🧵 sim plane spawned (CYG_PLANES=1, udp {udp_addr})");
+            }
             Err(e) => tracing::error!("[main] ✖ sim plane spawn failed: {e}"),
         }
     }
@@ -1115,7 +1190,13 @@ fn run(dir: &Path) -> std::io::Result<()> {
     // port clash is reported here rather than swallowing the game loop.
     // Held for the whole run — dropping it closes every HTTP and socket.
     let _control = if cfg.control.enabled {
-        match engine_control::spawn(&project_dir, &cfg, &cfg.control, bus.clone()) {
+        match engine_control::spawn(
+            &project_dir,
+            &cfg,
+            &cfg.control,
+            bus.clone(),
+            manager.clone(),
+        ) {
             Ok(plane) => {
                 tracing::info!(
                     "[main] 🏛️  control plane on http://{}:{} (matchmake, /ws/signal, /status, statics)",
@@ -1143,7 +1224,7 @@ fn run(dir: &Path) -> std::io::Result<()> {
         .map(|plane| plane.boot_maps())
         .unwrap_or_default();
     let boot_module = _control.as_ref().and_then(|plane| plane.boot_module());
-    engine_server::host::run(
+    let result = engine_server::host::run(
         &project_dir,
         &wasm_path,
         &cfg,
@@ -1151,10 +1232,36 @@ fn run(dir: &Path) -> std::io::Result<()> {
         signals,
         boot_maps,
         boot_module,
-    )
+        manager.clone(),
+    );
+    // The host loop has stopped and joined its adopted threads. Retire the
+    // control plane through the same authority so no thread outlives it.
+    if let Some(plane) = _control {
+        plane.shutdown();
+    }
+    manager.join_threads();
+    #[cfg(feature = "dhat")]
+    {
+        // dropping the profiler flushes dhat-heap.json
+        let _ = DHAT_PROFILER.lock().unwrap().take();
+    }
+    #[cfg(feature = "cpu-prof")]
+    if let Some(guard) = CPU_PROFILER.lock().unwrap().take() {
+        match guard.report().build() {
+            Ok(report) => match std::fs::File::create("cpu-flamegraph.svg") {
+                Ok(file) => {
+                    let _ = report.flamegraph(file);
+                    tracing::info!("[cpu-prof] wrote cpu-flamegraph.svg");
+                }
+                Err(e) => tracing::warn!("[cpu-prof] cannot create svg: {e}"),
+            },
+            Err(e) => tracing::warn!("[cpu-prof] report failed: {e}"),
+        }
+    }
+    result
 }
 
-/// `cyg-game gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.
+/// `cyg gen-interface [dir]` — auto-generate Lua, C, C++, Rust, C#, AssemblyScript & TypeScript room interfaces.
 fn generate_interfaces(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
 

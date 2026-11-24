@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeltaEntity {
     pub id: i64,
     pub pos: [f64; 3],

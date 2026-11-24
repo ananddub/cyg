@@ -24,9 +24,10 @@ services:
       - "7778:7778/udp"     # Native Engine (Unity / Unreal / Godot UDP datagrams)
       - "7978:7978/udp"     # QUIC/WebTransport (browser clients without WebRTC)
     environment:
-      - OX_ALLOW_DEFAULT_SECRETS=1
+      - CYG_ALLOW_DEFAULT_SECRETS=1
       - RUST_LOG=info
-      - GAME_DIR=examples/orbioo-agario
+      # Point this at a game project directory (a folder with a config.toml)
+      # e.g. GAME_DIR=games/my-game
       - SURREAL_ENDPOINT=ws://surrealdb:8000
       - SURREAL_USER=root
       - SURREAL_PASS=root
